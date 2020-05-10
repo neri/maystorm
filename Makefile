@@ -13,7 +13,7 @@ clean:
 	-rm -rf target
 
 $(TARGET): src/**
-	cargo xbuild --target $(RUST_ARCH) --release
+	rustup run nightly cargo xbuild --target $(RUST_ARCH) --release
 
 $(EFI_BOOT):
 	mkdir -p $(EFI_BOOT)

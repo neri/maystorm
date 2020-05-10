@@ -1,12 +1,17 @@
 // My UEFI-Rust Lib
 #![feature(panic_info_message)]
 #![feature(abi_efiapi)]
+#![feature(lang_items)]
 #![no_std]
 
 use core::panic::PanicInfo;
 use core::ptr::NonNull;
 use uefi::prelude::*;
 use uefi::proto::console::text::Output;
+
+pub mod console;
+pub mod gs;
+pub mod font;
 
 static mut LOGGER: Option<uefi::logger::Logger> = None;
 
@@ -19,6 +24,9 @@ fn panic(info: &PanicInfo) -> ! {
     log::error!("{}", info);
     loop {}
 }
+
+#[lang = "eh_personality"]
+extern "C" fn eh_personality() {}
 
 pub fn init(st: &SystemTable<Boot>) {
     unsafe {
