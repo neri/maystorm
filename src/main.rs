@@ -5,6 +5,7 @@
 use core::fmt::Write;
 use uefi::prelude::*;
 use uefi_pg::*;
+use uefi_pg::graphics::*;
 
 #[entry]
 fn efi_main(_handle: Handle, st: SystemTable<Boot>) -> Status {
@@ -17,17 +18,17 @@ fn efi_main(_handle: Handle, st: SystemTable<Boot>) -> Status {
         let gop = unsafe { &mut *gop.get() };
 
         {
-            let fb = gs::FrameBuffer::from(gop);
+            let fb = FrameBuffer::from(gop);
             let mut conout = console::GraphicalConsole::new(&fb);
 
             fb.reset();
             fb.fill_rect(
-                &gs::Rect::new((100, 100, 300, 300)),
-                gs::Color::rgb(0x2196F3),
+                &Rect::new((100, 100, 300, 300)),
+                Color::rgb(0x2196F3),
             );
             fb.fill_rect(
-                &gs::Rect::new((200, 200, 300, 300)),
-                gs::Color::rgb(0xf44336),
+                &Rect::new((200, 200, 300, 300)),
+                Color::rgb(0xf44336),
             );
 
             conout.print("Hello, Rust!");

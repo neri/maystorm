@@ -11,7 +11,7 @@ use uefi::proto::console::text::Output;
 
 pub mod console;
 pub mod font;
-pub mod gs;
+pub mod graphics;
 pub mod num;
 
 static mut LOGGER: Option<uefi::logger::Logger> = None;

@@ -1,6 +1,6 @@
 // Graphics Console
 use crate::font::*;
-use crate::gs::*;
+use crate::graphics::*;
 
 static DEFAULT_ATTRIBUTE: u8 = 0x07;
 
