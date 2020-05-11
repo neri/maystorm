@@ -10,8 +10,9 @@ use uefi::prelude::*;
 use uefi::proto::console::text::Output;
 
 pub mod console;
-pub mod gs;
 pub mod font;
+pub mod gs;
+pub mod num;
 
 static mut LOGGER: Option<uefi::logger::Logger> = None;
 

@@ -1,17 +1,5 @@
 // Graphics Services
-
-pub trait Number: PartialOrd + PartialEq {}
-
-impl Number for u16 {}
-impl Number for i16 {}
-impl Number for u32 {}
-impl Number for i32 {}
-impl Number for u64 {}
-impl Number for i64 {}
-impl Number for usize {}
-impl Number for isize {}
-impl Number for f32 {}
-impl Number for f64 {}
+use crate::num::*;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -23,6 +11,15 @@ pub struct Point<T: Number> {
 impl<T: Number> Point<T> {
     pub fn new(p: (T, T)) -> Self {
         Point { x: p.0, y: p.1 }
+    }
+}
+
+impl<T: Number> Zero for Point<T> {
+    fn zero() -> Self {
+        Point {
+            x: T::zero(),
+            y: T::zero(),
+        }
     }
 }
 
@@ -38,6 +35,15 @@ impl<T: Number> Size<T> {
         Size {
             width: p.0,
             height: p.1,
+        }
+    }
+}
+
+impl<T: Number> Zero for Size<T> {
+    fn zero() -> Self {
+        Size {
+            width: T::zero(),
+            height: T::zero(),
         }
     }
 }
@@ -61,6 +67,24 @@ impl<T: Number> Rect<T> {
     }
 }
 
+impl<T: Number> Zero for Rect<T> {
+    fn zero() -> Self {
+        Rect {
+            origin: Point::zero(),
+            size: Size::zero(),
+        }
+    }
+}
+
+impl<T: Number> From<Size<T>> for Rect<T> {
+    fn from(size: Size<T>) -> Self {
+        Rect {
+            origin: Point::zero(),
+            size: size,
+        }
+    }
+}
+
 #[derive(Copy, Clone)]
 pub struct Color {
     rgb: u32,
@@ -73,12 +97,6 @@ impl Color {
 
     pub fn components(r: u8, g: u8, b: u8) -> Self {
         Color::rgb(((r as u32) * 0x10000) + ((g as u32) * 0x100) + (b as u32))
-    }
-}
-
-impl From<IndexedColor> for Color {
-    fn from(index: IndexedColor) -> Self {
-        Color::rgb(index.rgb())
     }
 }
 
@@ -137,6 +155,12 @@ impl IndexedColor {
     }
 }
 
+impl From<IndexedColor> for Color {
+    fn from(index: IndexedColor) -> Self {
+        Color::rgb(index.rgb())
+    }
+}
+
 #[repr(C)]
 //#[derive(Debug, Copy, Clone)]
 pub struct FrameBuffer {
@@ -144,7 +168,7 @@ pub struct FrameBuffer {
     len: usize,
     size: Size<isize>,
     delta: usize,
-    is_rotate: bool,
+    is_portrait: bool,
 }
 
 static BIT_MASKS: [u8; 8] = [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
@@ -156,14 +180,14 @@ impl From<&mut GraphicsOutput<'_>> for FrameBuffer {
         let (mut width, mut height) = info.resolution();
         let mut fb = gop.frame_buffer();
         let delta = info.stride();
-        let mut is_rotate = height > width;
-        if is_rotate {
+        let mut is_portrait = height > width;
+        if is_portrait {
             // portrait
             core::mem::swap(&mut width, &mut height);
         }
         if delta > width {
             // GPD micro PC fake landscape mode
-            is_rotate = true;
+            is_portrait = true;
         }
         FrameBuffer {
             base: fb.as_mut_ptr(),
@@ -173,7 +197,7 @@ impl From<&mut GraphicsOutput<'_>> for FrameBuffer {
                 height: height as isize,
             },
             delta: delta,
-            is_rotate: is_rotate,
+            is_portrait: is_portrait,
         }
     }
 }
@@ -189,10 +213,7 @@ impl FrameBuffer {
     }
 
     pub fn reset(&self) {
-        self.fill_rect(
-            &Rect::new((0, 0, self.size.width as isize, self.size.height as isize)),
-            Color::rgb(0),
-        );
+        self.fill_rect(&Rect::from(self.size), Color::rgb(0));
     }
 
     // #[inline]
@@ -208,27 +229,29 @@ impl FrameBuffer {
         let mut dx = rect.origin.x;
         let mut dy = rect.origin.y;
 
-        if dx < 0 {
-            width += dx;
-            dx = 0;
-        }
-        if dy < 0 {
-            height += dy;
-            dy = 0;
-        }
-        let r = dx + width;
-        let b = dy + height;
-        if r >= self.size.width as isize {
-            width = self.size.width as isize - dx;
-        }
-        if b >= self.size.height as isize {
-            height = self.size.height as isize - dy;
-        }
-        if width <= 0 || height <= 0 {
-            return;
+        {
+            if dx < 0 {
+                width += dx;
+                dx = 0;
+            }
+            if dy < 0 {
+                height += dy;
+                dy = 0;
+            }
+            let r = dx + width;
+            let b = dy + height;
+            if r >= self.size.width as isize {
+                width = self.size.width as isize - dx;
+            }
+            if b >= self.size.height as isize {
+                height = self.size.height as isize - dy;
+            }
+            if width <= 0 || height <= 0 {
+                return;
+            }
         }
 
-        if self.is_rotate {
+        if self.is_portrait {
             let temp = dx;
             dx = self.size.height as isize - dy - height;
             dy = temp;
@@ -256,6 +279,7 @@ impl FrameBuffer {
         let mut dx = rect.origin.x;
         let mut dy = rect.origin.y;
         let w8 = (width + 7) / 8;
+
         let h_limit = self.size.height as isize - dy;
         if h_limit < height {
             height = h_limit;
