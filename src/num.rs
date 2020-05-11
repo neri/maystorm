@@ -1,4 +1,33 @@
 // Numbers
+use core::ops::*;
+
+pub trait Number:
+    Sized
+    + Copy
+    + Clone
+    + Zero
+    + One
+    + Add<Output = Self>
+    + AddAssign
+    + Sub<Output = Self>
+    + SubAssign
+    + PartialOrd
+    + PartialEq
+{
+}
+
+impl Number for u8 {}
+impl Number for i8 {}
+impl Number for u16 {}
+impl Number for i16 {}
+impl Number for u32 {}
+impl Number for i32 {}
+impl Number for u64 {}
+impl Number for i64 {}
+impl Number for usize {}
+impl Number for isize {}
+impl Number for f32 {}
+impl Number for f64 {}
 
 pub trait Zero {
     fn zero() -> Self;
@@ -152,17 +181,9 @@ impl One for f64 {
     }
 }
 
-pub trait Number: Zero + One + PartialOrd + PartialEq {}
+// pub trait Add {}
 
-impl Number for u8 {}
-impl Number for i8 {}
-impl Number for u16 {}
-impl Number for i16 {}
-impl Number for u32 {}
-impl Number for i32 {}
-impl Number for u64 {}
-impl Number for i64 {}
-impl Number for usize {}
-impl Number for isize {}
-impl Number for f32 {}
-impl Number for f64 {}
+// impl Add for u8 {}
+// impl Add for i8 {}
+// impl Add for isize {}
+// impl Add for usize {}
