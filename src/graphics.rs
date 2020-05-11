@@ -66,7 +66,7 @@ impl<T: Number> Rect<T> {
         }
     }
 
-    pub fn insets_by(&self, insets: &EdgeInsets<T>) -> Self {
+    pub fn insets_by(&self, insets: EdgeInsets<T>) -> Self {
         Rect {
             origin: Point {
                 x: self.origin.x + insets.left,
@@ -135,12 +135,21 @@ pub struct Color {
 }
 
 impl Color {
-    pub fn rgb(rgb: u32) -> Self {
-        Color { rgb: rgb }
+    pub fn new(r: u8, g: u8, b: u8) -> Self {
+        Color::from(((r as u32) * 0x10000) + ((g as u32) * 0x100) + (b as u32))
     }
 
-    pub fn components(r: u8, g: u8, b: u8) -> Self {
-        Color::rgb(((r as u32) * 0x10000) + ((g as u32) * 0x100) + (b as u32))
+    pub fn components(&self) -> (u8, u8, u8) {
+        let r = (self.rgb >> 16) as u8;
+        let g = (self.rgb >> 8) as u8;
+        let b = self.rgb as u8;
+        (r, g, b)
+    }
+}
+
+impl From<u32> for Color {
+    fn from(rgb: u32) -> Self {
+        Color { rgb: rgb }
     }
 }
 
@@ -197,11 +206,15 @@ impl IndexedColor {
     pub fn rgb(&self) -> u32 {
         unsafe { SYSTEM_COLOR_PALETTE[*self as usize] }
     }
+
+    pub fn color(&self) -> Color {
+        Color::from(self.rgb())
+    }
 }
 
 impl From<IndexedColor> for Color {
     fn from(index: IndexedColor) -> Self {
-        Color::rgb(index.rgb())
+        Color::from(index.rgb())
     }
 }
 
@@ -257,7 +270,7 @@ impl FrameBuffer {
     }
 
     pub fn reset(&self) {
-        self.fill_rect(&Rect::from(self.size), Color::rgb(0));
+        self.fill_rect(Rect::from(self.size), Color::from(0));
     }
 
     // #[inline]
@@ -267,7 +280,7 @@ impl FrameBuffer {
     //         .write_volatile(color.rgb);
     // }
 
-    pub fn fill_rect(&self, rect: &Rect<isize>, color: Color) {
+    pub fn fill_rect(&self, rect: Rect<isize>, color: Color) {
         let mut width = rect.size.width;
         let mut height = rect.size.height;
         let mut dx = rect.origin.x;
@@ -284,11 +297,11 @@ impl FrameBuffer {
             }
             let r = dx + width;
             let b = dy + height;
-            if r >= self.size.width as isize {
-                width = self.size.width as isize - dx;
+            if r >= self.size.width {
+                width = self.size.width - dx;
             }
-            if b >= self.size.height as isize {
-                height = self.size.height as isize - dy;
+            if b >= self.size.height {
+                height = self.size.height - dy;
             }
             if width <= 0 || height <= 0 {
                 return;
@@ -297,7 +310,7 @@ impl FrameBuffer {
 
         if self.is_portrait {
             let temp = dx;
-            dx = self.size.height as isize - dy - height;
+            dx = self.size.height - dy - height;
             dy = temp;
             let temp = width;
             width = height;
@@ -317,43 +330,63 @@ impl FrameBuffer {
         }
     }
 
-    pub fn draw_pattern(&self, rect: &Rect<isize>, pattern: &[u8], color: Color) {
+    pub fn draw_pattern(&self, rect: Rect<isize>, pattern: &[u8], color: Color) {
         let mut width = rect.size.width;
         let mut height = rect.size.height;
         let mut dx = rect.origin.x;
         let mut dy = rect.origin.y;
         let w8 = (width + 7) / 8;
 
-        let h_limit = self.size.height as isize - dy;
+        let h_limit = self.size.height - dy;
         if h_limit < height {
             height = h_limit;
         }
 
         if dx < 0
-            || dx >= self.size.width as isize
+            || dx >= self.size.width
             || dy < 0
-            || dy >= self.size.height as isize
+            || dy >= self.size.height
             || height == 0
         {
             return;
         }
 
         unsafe {
-            let mut src_ptr = 0;
-            let mut ptr = self.get_fb().add(dx as usize + dy as usize * self.delta);
-            let ptr_delta = self.delta - width as usize;
-            for _y in 0..height {
-                for _x in 0..w8 {
-                    let data = pattern[src_ptr];
+            if self.is_portrait {
+                dy = self.size.height - dy - height;
+                let mut src_ptr = 0;
+                let mut ptr = self.get_fb().add(dy as usize + dx as usize * self.delta);
+                let ptr_delta = self.delta - height as usize;
+        
+                for x in 0..w8 {
                     for mask in BIT_MASKS.iter() {
-                        if (data & mask) != 0 {
-                            ptr.write_volatile(color.rgb);
+                        for y in (0..height).rev() {
+                            let data = pattern[(x + y * w8) as usize];
+                            if (data & mask) != 0 {
+                                ptr.write_volatile(color.rgb);
+                            }
+                            ptr = ptr.add(1);
                         }
-                        ptr = ptr.add(1);
+                        ptr = ptr.add(ptr_delta);
                     }
-                    src_ptr += 1;
                 }
-                ptr = ptr.add(ptr_delta);
+            } else {
+                let mut src_ptr = 0;
+                let mut ptr = self.get_fb().add(dx as usize + dy as usize * self.delta);
+                let ptr_delta = self.delta - width as usize;
+                for _y in 0..height {
+                    for _x in 0..w8 {
+                        let data = pattern[src_ptr];
+                        for mask in BIT_MASKS.iter() {
+                            if (data & mask) != 0 {
+                                ptr.write_volatile(color.rgb);
+                            }
+                            ptr = ptr.add(1);
+                        }
+                        src_ptr += 1;
+                    }
+                    ptr = ptr.add(ptr_delta);
+                }
             }
         }
     }

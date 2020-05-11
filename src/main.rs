@@ -23,12 +23,12 @@ fn efi_main(_handle: Handle, st: SystemTable<Boot>) -> Status {
 
             fb.reset();
             fb.fill_rect(
-                &Rect::new((100, 100, 300, 300)),
-                Color::rgb(0x2196F3),
+                Rect::new((50, 50, 200, 200)),
+                Color::from(0x2196F3),
             );
             fb.fill_rect(
-                &Rect::new((200, 200, 300, 300)),
-                Color::rgb(0xf44336),
+                Rect::new((100, 100, 200, 200)),
+                Color::from(0xf44336),
             );
 
             conout.print("Hello, Rust!");

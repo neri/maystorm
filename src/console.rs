@@ -77,13 +77,13 @@ impl GraphicalConsole<'_> {
     pub fn draw_char(&mut self, dims: (isize, isize), c: char) {
         let old_cursor_state = self.set_cursor_enabled(false);
         let font = &self.font;
-        let font_rect = Rect::<isize>::new((dims.0, dims.1, font.width(), font.height()));
-        let area_rect = Rect::<isize>::new((dims.0, dims.1, font.width(), font.line_height()));
-        let bg_color = Color::from(IndexedColor::from(self.attribute >> 4));
-        let fg_color = Color::from(IndexedColor::from(self.attribute & 0x0F));
-        self.fb.fill_rect(&area_rect, bg_color);
+        let font_rect = Rect::new((dims.0, dims.1, font.width(), font.height()));
+        let area_rect = Rect::new((dims.0, dims.1, font.width(), font.line_height()));
+        let bg_color = IndexedColor::from(self.attribute >> 4).color();
+        let fg_color = IndexedColor::from(self.attribute & 0x0F).color();
+        self.fb.fill_rect(area_rect, bg_color);
         if let Some(glyph) = font.glyph_for(c) {
-            self.fb.draw_pattern(&font_rect, glyph, fg_color);
+            self.fb.draw_pattern(font_rect, glyph, fg_color);
         }
         self.set_cursor_enabled(old_cursor_state);
     }
