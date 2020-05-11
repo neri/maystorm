@@ -1,5 +1,4 @@
 // Font Driver
-#![feature(exclusive_range_pattern)]
 use crate::gs::*;
 
 static SYSTEM_FONT_DATA: &[u8; 4113] = include_bytes!("./moesys16.fnt");
