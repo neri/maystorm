@@ -65,6 +65,19 @@ impl<T: Number> Rect<T> {
             },
         }
     }
+
+    pub fn insets_by(&self, insets: &EdgeInsets<T>) -> Self {
+        Rect {
+            origin: Point {
+                x: self.origin.x + insets.left,
+                y: self.origin.y + insets.top,
+            },
+            size: Size {
+                width: self.size.width - (insets.left + insets.right),
+                height: self.size.height - (insets.top + insets.bottom),
+            },
+        }
+    }
 }
 
 impl<T: Number> Zero for Rect<T> {
@@ -81,6 +94,37 @@ impl<T: Number> From<Size<T>> for Rect<T> {
         Rect {
             origin: Point::zero(),
             size: size,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct EdgeInsets<T: Number> {
+    pub top: T,
+    pub left: T,
+    pub bottom: T,
+    pub right: T,
+}
+
+impl<T: Number> EdgeInsets<T> {
+    pub fn new(p: (T, T, T, T)) -> Self {
+        EdgeInsets {
+            top: p.0,
+            left: p.1,
+            bottom: p.2,
+            right: p.3,
+        }
+    }
+}
+
+impl<T: Number> Zero for EdgeInsets<T> {
+    fn zero() -> Self {
+        EdgeInsets {
+            top: T::zero(),
+            left: T::zero(),
+            bottom: T::zero(),
+            right: T::zero(),
         }
     }
 }
