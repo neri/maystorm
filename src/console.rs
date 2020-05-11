@@ -74,7 +74,7 @@ impl GraphicalConsole<'_> {
         self.attribute = (foreground as u8) + ((background as u8) << 4);
     }
 
-    pub fn draw_char(&mut self, dims: (isize, isize), c: u32) {
+    pub fn draw_char(&mut self, dims: (isize, isize), c: char) {
         let old_cursor_state = self.set_cursor_enabled(false);
         let font = &self.font;
         let font_rect = Rect::<isize>::new((dims.0, dims.1, font.width(), font.height()));
@@ -88,18 +88,18 @@ impl GraphicalConsole<'_> {
         self.set_cursor_enabled(old_cursor_state);
     }
 
-    pub fn putchar(&mut self, c: u32) {
+    pub fn putchar(&mut self, c: char) {
         match c {
-            0x08 => {
+            '\x08' => {
                 if self.cursor.0 > 0 {
                     self.cursor.0 -= 1;
                 }
             }
-            0x0A => {
+            '\n' => {
                 self.cursor.0 = 0;
                 self.cursor.1 += 1;
             }
-            0x0D => {
+            '\r' => {
                 self.cursor.0 = 0;
             }
             _ => {
@@ -116,7 +116,7 @@ impl GraphicalConsole<'_> {
 
     pub fn print(&mut self, s: &str) {
         for c in s.chars() {
-            self.putchar(c as u32);
+            self.putchar(c);
         }
     }
 }

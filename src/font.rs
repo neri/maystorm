@@ -10,7 +10,8 @@ pub struct FontDriver<'a> {
 }
 
 impl<'a> FontDriver<'_> {
-    pub fn glyph_for(&self, c: u32) -> Option<&[u8]> {
+    pub fn glyph_for(&self, c: char) -> Option<&[u8]> {
+        let c = c as u32;
         if c > 0x20 && c < 0x80 {
             let delta = (self.size.width as usize + 7) / 8 * self.size.height as usize;
             let base = 0x11 + delta * c as usize;
