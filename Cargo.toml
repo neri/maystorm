@@ -7,7 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-uefi = { git = "https://github.com/rust-osdev/uefi-rs.git", features = ['logger'] }
+uefi = { git = "https://github.com/rust-osdev/uefi-rs.git", features = ['logger', 'alloc'] }
 log = { version = "0.4", default-features = false }
 
 [profile.release]

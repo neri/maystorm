@@ -1,11 +1,12 @@
 // Graphics Console
 use crate::font::*;
 use crate::graphics::*;
+use core::fmt::Write;
 
 static DEFAULT_ATTRIBUTE: u8 = 0x07;
 
 pub struct GraphicalConsole<'a> {
-    fb: &'a FrameBuffer,
+    fb: FrameBuffer,
     font: FontDriver<'a>,
     cursor: (isize, isize),
     dims: (isize, isize),
@@ -14,7 +15,7 @@ pub struct GraphicalConsole<'a> {
 }
 
 impl<'a> GraphicalConsole<'a> {
-    pub fn new(fb: &'a FrameBuffer) -> Self {
+    pub fn new(fb: FrameBuffer) -> Self {
         let font = FontDriver::system_font();
         let size = fb.size();
         let cols = size.width / font.width();
@@ -44,7 +45,12 @@ impl GraphicalConsole<'_> {
     }
 
     #[inline]
-    pub fn cursor(&self) -> (isize, isize) {
+    pub fn fb(&self) -> &FrameBuffer {
+        &self.fb
+    }
+
+    #[inline]
+    pub fn cursor_position(&self) -> (isize, isize) {
         self.cursor
     }
 
@@ -79,8 +85,8 @@ impl GraphicalConsole<'_> {
         let font = &self.font;
         let font_rect = Rect::new((dims.0, dims.1, font.width(), font.height()));
         let area_rect = Rect::new((dims.0, dims.1, font.width(), font.line_height()));
-        let bg_color = IndexedColor::from(self.attribute >> 4).color();
-        let fg_color = IndexedColor::from(self.attribute & 0x0F).color();
+        let bg_color = IndexedColor::from(self.attribute >> 4).as_color();
+        let fg_color = IndexedColor::from(self.attribute & 0x0F).as_color();
         self.fb.fill_rect(area_rect, bg_color);
         if let Some(glyph) = font.glyph_for(c) {
             self.fb.draw_pattern(font_rect, glyph, fg_color);
@@ -113,10 +119,13 @@ impl GraphicalConsole<'_> {
             }
         }
     }
+}
 
-    pub fn print(&mut self, s: &str) {
+impl Write for GraphicalConsole<'_> {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
         for c in s.chars() {
             self.putchar(c);
         }
+        Ok(())
     }
 }

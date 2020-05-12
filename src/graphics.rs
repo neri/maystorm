@@ -129,7 +129,7 @@ impl<T: Number> Zero for EdgeInsets<T> {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Color {
     rgb: u32,
 }
@@ -153,7 +153,7 @@ impl From<u32> for Color {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum IndexedColor {
     Black = 0,
     Blue,
@@ -203,18 +203,18 @@ static mut SYSTEM_COLOR_PALETTE: [u32; 16] = [
 ];
 
 impl IndexedColor {
-    pub fn rgb(&self) -> u32 {
+    pub fn as_rgb(&self) -> u32 {
         unsafe { SYSTEM_COLOR_PALETTE[*self as usize] }
     }
 
-    pub fn color(&self) -> Color {
-        Color::from(self.rgb())
+    pub fn as_color(&self) -> Color {
+        Color::from(self.as_rgb())
     }
 }
 
 impl From<IndexedColor> for Color {
     fn from(index: IndexedColor) -> Self {
-        Color::from(index.rgb())
+        Color::from(index.as_rgb())
     }
 }
 
@@ -227,6 +227,8 @@ pub struct FrameBuffer {
     delta: usize,
     is_portrait: bool,
 }
+
+unsafe impl Sync for FrameBuffer {}
 
 static BIT_MASKS: [u8; 8] = [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
 
@@ -260,6 +262,7 @@ impl From<&mut GraphicsOutput<'_>> for FrameBuffer {
 }
 
 impl FrameBuffer {
+    #[inline]
     pub fn size(&self) -> Size<isize> {
         self.size
     }
@@ -272,13 +275,6 @@ impl FrameBuffer {
     pub fn reset(&self) {
         self.fill_rect(Rect::from(self.size), Color::from(0));
     }
-
-    // #[inline]
-    // unsafe fn fast_write_pixel(&mut self, x: usize, y: usize, color: Color) {
-    //     (self.base as *mut u32)
-    //         .add(x + y * self.delta)
-    //         .write_volatile(color.rgb);
-    // }
 
     pub fn fill_rect(&self, rect: Rect<isize>, color: Color) {
         let mut width = rect.size.width;
@@ -312,9 +308,7 @@ impl FrameBuffer {
             let temp = dx;
             dx = self.size.height - dy - height;
             dy = temp;
-            let temp = width;
-            width = height;
-            height = temp;
+            core::mem::swap(&mut width, &mut height);
         }
 
         unsafe {
@@ -331,9 +325,9 @@ impl FrameBuffer {
     }
 
     pub fn draw_pattern(&self, rect: Rect<isize>, pattern: &[u8], color: Color) {
-        let mut width = rect.size.width;
+        let width = rect.size.width;
         let mut height = rect.size.height;
-        let mut dx = rect.origin.x;
+        let dx = rect.origin.x;
         let mut dy = rect.origin.y;
         let w8 = (width + 7) / 8;
 
@@ -342,6 +336,7 @@ impl FrameBuffer {
             height = h_limit;
         }
 
+        // TODO: more better clipping
         if dx < 0
             || dx >= self.size.width
             || dy < 0
@@ -354,7 +349,6 @@ impl FrameBuffer {
         unsafe {
             if self.is_portrait {
                 dy = self.size.height - dy - height;
-                let mut src_ptr = 0;
                 let mut ptr = self.get_fb().add(dy as usize + dx as usize * self.delta);
                 let ptr_delta = self.delta - height as usize;
         
@@ -391,5 +385,5 @@ impl FrameBuffer {
         }
     }
 
-    //ub fn blt(&self) {}
+    //pub fn blt(&self) {}
 }
