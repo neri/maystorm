@@ -313,13 +313,13 @@ impl FrameBuffer {
 
         unsafe {
             let mut ptr = self.get_fb().add(dx as usize + dy as usize * self.delta);
-            let ptr_delta = self.delta - width as usize;
+            let delta_ptr = self.delta - width as usize;
             for _y in 0..height {
                 for _x in 0..width {
                     ptr.write_volatile(color.rgb);
                     ptr = ptr.add(1);
                 }
-                ptr = ptr.add(ptr_delta);
+                ptr = ptr.add(delta_ptr);
             }
         }
     }
@@ -337,12 +337,7 @@ impl FrameBuffer {
         }
 
         // TODO: more better clipping
-        if dx < 0
-            || dx >= self.size.width
-            || dy < 0
-            || dy >= self.size.height
-            || height == 0
-        {
+        if dx < 0 || dx >= self.size.width || dy < 0 || dy >= self.size.height || height == 0 {
             return;
         }
 
@@ -350,8 +345,8 @@ impl FrameBuffer {
             if self.is_portrait {
                 dy = self.size.height - dy - height;
                 let mut ptr = self.get_fb().add(dy as usize + dx as usize * self.delta);
-                let ptr_delta = self.delta - height as usize;
-        
+                let delta_ptr = self.delta - height as usize;
+
                 for x in 0..w8 {
                     for mask in BIT_MASKS.iter() {
                         for y in (0..height).rev() {
@@ -361,13 +356,13 @@ impl FrameBuffer {
                             }
                             ptr = ptr.add(1);
                         }
-                        ptr = ptr.add(ptr_delta);
+                        ptr = ptr.add(delta_ptr);
                     }
                 }
             } else {
                 let mut src_ptr = 0;
                 let mut ptr = self.get_fb().add(dx as usize + dy as usize * self.delta);
-                let ptr_delta = self.delta - width as usize;
+                let delta_ptr = self.delta - width as usize;
                 for _y in 0..height {
                     for _x in 0..w8 {
                         let data = pattern[src_ptr];
@@ -379,7 +374,7 @@ impl FrameBuffer {
                         }
                         src_ptr += 1;
                     }
-                    ptr = ptr.add(ptr_delta);
+                    ptr = ptr.add(delta_ptr);
                 }
             }
         }

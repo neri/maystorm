@@ -15,7 +15,6 @@ impl<'a> FontDriver<'_> {
         if c > 0x20 && c < 0x80 {
             let delta = (self.size.width as usize + 7) / 8 * self.size.height as usize;
             let base = 0x11 + delta * c;
-//            panic!("Font size: {:#x} x {:#x} code {:#x} delta {:#x} base {:#x}", self.size.width, self.size.height, c, delta, base);
             Some(&self.data[base..base + delta])
         } else {
             None
