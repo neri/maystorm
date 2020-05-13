@@ -9,6 +9,7 @@ edition = "2018"
 [dependencies]
 uefi = { git = "https://github.com/rust-osdev/uefi-rs.git", features = ['alloc'] }
 log = { version = "0.4", default-features = false }
+acpi = { git = "https://github.com/rust-osdev/acpi" }
 
 [profile.release]
 opt-level = "z"

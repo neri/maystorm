@@ -5,6 +5,7 @@
 #![feature(alloc_error_handler)]
 #![no_std]
 
+use core::ffi::c_void;
 use core::fmt::Write;
 use core::panic::PanicInfo;
 use core::ptr::NonNull;
@@ -23,6 +24,7 @@ pub mod num;
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
+    stdout().set_attribute(0x17);
     println!("Panic: {}", info);
     loop {}
 }
@@ -52,13 +54,13 @@ where
     if let Ok(gop) = bs.locate_protocol::<uefi::proto::console::gop::GraphicsOutput>() {
         let gop = gop.unwrap();
         let gop = unsafe { &mut *gop.get() };
+        let fb = FrameBuffer::from(gop);
+        let stdout = GraphicalConsole::new(fb);
         unsafe {
-            let fb = FrameBuffer::from(gop);
-            let stdout = GraphicalConsole::new(fb);
             STDOUT = NonNull::new(&stdout as *const _ as *mut _);
         }
     } else {
-        write!(st.stdout(), "Error: Not supported GOP\n").unwrap();
+        write!(st.stdout(), "Error: GOP Not Found\n").unwrap();
         return Status::UNSUPPORTED;
     }
     custom_main(handle, st)
@@ -90,4 +92,20 @@ macro_rules! println {
     ($fmt:expr, $($arg:tt)*) => {
         print!(concat!($fmt, "\r\n"), $($arg)*)
     };
+}
+
+pub trait MyUefiLib {
+    fn find_config_table(&self, _: uefi::Guid) -> Option<*const c_void>;
+}
+
+impl MyUefiLib for SystemTable<Boot> {
+    fn find_config_table(&self, expected: uefi::Guid) -> Option<*const c_void> {
+        for entry in self.config_table() {
+            if entry.guid == expected {
+                return Some(entry.address);
+                //                return Some(unsafe { &*(entry.address as *const T) });
+            }
+        }
+        None
+    }
 }
