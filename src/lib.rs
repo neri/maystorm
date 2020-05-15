@@ -71,6 +71,25 @@ where
     custom_main(handle, st)
 }
 
+pub fn exit_boot_services<'a>(
+    st: SystemTable<Boot>,
+    image: Handle,
+) -> (
+    SystemTable<uefi::table::Runtime>,
+    uefi::table::boot::MemoryMapIter<'a>,
+) {
+    let buf_size = st.boot_services().memory_map_size() * 2;
+    let buf_ptr = st
+        .boot_services()
+        .allocate_pool(uefi::table::boot::MemoryType::LOADER_DATA, buf_size)
+        .unwrap()
+        .unwrap();
+    let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr, buf_size) };
+    let result = st.exit_boot_services(image, buf).unwrap().unwrap();
+    uefi::alloc::exit_boot_services();
+    result
+}
+
 #[macro_export]
 macro_rules! uefi_pg_entry {
     ($path:path) => {
@@ -92,10 +111,10 @@ macro_rules! print {
 #[macro_export]
 macro_rules! println {
     ($fmt:expr) => {
-        print!(concat!($fmt, "\n"))
+        print!(concat!($fmt, "\r\n"))
     };
     ($fmt:expr, $($arg:tt)*) => {
-        print!(concat!($fmt, "\n"), $($arg)*)
+        print!(concat!($fmt, "\r\n"), $($arg)*)
     };
 }
 
@@ -103,12 +122,22 @@ pub trait MyUefiLib {
     fn find_config_table(&self, _: uefi::Guid) -> Option<*const c_void>;
 }
 
-impl MyUefiLib for SystemTable<Boot> {
+impl MyUefiLib for SystemTable<uefi::table::Boot> {
     fn find_config_table(&self, expected: uefi::Guid) -> Option<*const c_void> {
         for entry in self.config_table() {
             if entry.guid == expected {
                 return Some(entry.address);
-                //                return Some(unsafe { &*(entry.address as *const T) });
+            }
+        }
+        None
+    }
+}
+
+impl MyUefiLib for SystemTable<uefi::table::Runtime> {
+    fn find_config_table(&self, expected: uefi::Guid) -> Option<*const c_void> {
+        for entry in self.config_table() {
+            if entry.guid == expected {
+                return Some(entry.address);
             }
         }
         None

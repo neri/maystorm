@@ -6,22 +6,20 @@ use core::fmt::Write;
 use uefi::prelude::*;
 use uefi_pg::myos::io::graphics::*;
 use uefi_pg::*;
-extern crate alloc;
+// extern crate alloc;
 
 uefi_pg_entry!(main);
 
-fn main(_handle: Handle, st: SystemTable<Boot>) -> Status {
-    let mut my_handler = MyAcpiHandler::new();
-    let acpi = match st
-        .find_config_table(uefi::table::cfg::ACPI2_GUID)
-        .and_then(|rsdptr| unsafe { acpi::parse_rsdp(&mut my_handler, rsdptr as usize).ok() })
-    {
+fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
+    let rsdptr = match st.find_config_table(uefi::table::cfg::ACPI2_GUID) {
         Some(val) => val,
         None => {
             write!(st.stdout(), "Error: ACPI Table Not Found\n").unwrap();
             return Status::LOAD_ERROR;
         }
     };
+
+    let (_st, _mm) = exit_boot_services(st, handle);
 
     let fb = stdout().fb();
     // fb.reset();
@@ -41,7 +39,9 @@ fn main(_handle: Handle, st: SystemTable<Boot>) -> Status {
     println!("UNKO OS version {}.{}.{}", 0, 0, 114514);
     println!("Hello, {:#}!", "Rust");
 
-    // println!("ACPI {:#?}", acpi);
+    let mut my_handler = MyAcpiHandler::new();
+    let acpi = unsafe { acpi::parse_rsdp(&mut my_handler, rsdptr as usize).unwrap() };
+    println!("ACPI {:#?}", acpi);
     dump_cpu(&acpi.boot_processor.unwrap());
     for cpu in acpi.application_processors {
         dump_cpu(&cpu);
@@ -50,6 +50,16 @@ fn main(_handle: Handle, st: SystemTable<Boot>) -> Status {
     panic!("Hoge");
     // loop {}
     // Status::SUCCESS
+}
+
+fn dump_rsdptr(ctx: &str, ptr: *const core::ffi::c_void) {
+    let ptr = ptr as *const u8;
+    let bytes = unsafe { core::slice::from_raw_parts(ptr, 0x24) };
+    print!("{} RSDPTR {:#?}", ctx, ptr);
+    for byte in bytes {
+        print!(" {:02x}", byte);
+    }
+    println!("");
 }
 
 fn dump_cpu(cpu: &acpi::Processor) {
