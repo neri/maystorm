@@ -139,17 +139,23 @@ impl Color {
         Color::from(((r as u32) * 0x10000) + ((g as u32) * 0x100) + (b as u32))
     }
 
-    pub fn components(&self) -> (u8, u8, u8) {
+    pub fn components(&self) -> [u8; 3] {
         let r = (self.rgb >> 16) as u8;
         let g = (self.rgb >> 8) as u8;
         let b = self.rgb as u8;
-        (r, g, b)
+        [r, g, b]
     }
 }
 
 impl From<u32> for Color {
     fn from(rgb: u32) -> Self {
         Color { rgb: rgb }
+    }
+}
+
+impl From<[u8; 3]> for Color {
+    fn from(components: [u8; 3]) -> Self {
+        Color::new(components[0], components[1], components[2])
     }
 }
 

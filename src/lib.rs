@@ -3,6 +3,7 @@
 #![feature(abi_efiapi)]
 #![feature(lang_items)]
 #![feature(alloc_error_handler)]
+#![feature(llvm_asm)]
 #![no_std]
 
 use core::ffi::c_void;
@@ -14,19 +15,23 @@ use uefi::prelude::*;
 extern crate alloc;
 // use alloc::boxed::Box;
 
-use crate::console::GraphicalConsole;
-use crate::graphics::FrameBuffer;
+use myos::io::console::GraphicalConsole;
+use myos::io::graphics::FrameBuffer;
+use myos::*;
 
-pub mod console;
-pub mod font;
-pub mod graphics;
-pub mod num;
+pub mod myos;
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
+    stdout().set_cursor_enabled(false);
     stdout().set_attribute(0x17);
     println!("Panic: {}", info);
-    loop {}
+    loop {
+        unsafe {
+            arch::cpu::Cpu::disable();
+            arch::cpu::Cpu::halt();
+        }
+    }
 }
 
 #[alloc_error_handler]
@@ -87,10 +92,10 @@ macro_rules! print {
 #[macro_export]
 macro_rules! println {
     ($fmt:expr) => {
-        print!(concat!($fmt, "\r\n"))
+        print!(concat!($fmt, "\n"))
     };
     ($fmt:expr, $($arg:tt)*) => {
-        print!(concat!($fmt, "\r\n"), $($arg)*)
+        print!(concat!($fmt, "\n"), $($arg)*)
     };
 }
 

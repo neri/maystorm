@@ -12,7 +12,7 @@ all: $(TARGET)
 clean:
 	-rm -rf target
 
-$(TARGET): src/**
+$(TARGET): src/* src/**/* src/**/**/*
 	rustup run nightly cargo xbuild --target $(RUST_ARCH) --release
 
 $(EFI_BOOT):
@@ -24,4 +24,4 @@ $(EXECUTABLE): $(TARGET) $(EFI_BOOT)
 install: $(EXECUTABLE)
 
 run: install $(OVMF)
-	qemu-system-x86_64 -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -monitor stdio
+	qemu-system-x86_64 -smp 4 -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -monitor stdio

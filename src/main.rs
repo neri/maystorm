@@ -4,7 +4,7 @@
 #![no_main]
 use core::fmt::Write;
 use uefi::prelude::*;
-use uefi_pg::graphics::*;
+use uefi_pg::myos::io::graphics::*;
 use uefi_pg::*;
 extern crate alloc;
 
@@ -37,13 +37,26 @@ fn main(_handle: Handle, st: SystemTable<Boot>) -> Status {
         Rect::new((150, 150, 200, 200)),
         IndexedColor::LightGreen.as_color(),
     );
+
     println!("UNKO OS version {}.{}.{}", 0, 0, 114514);
     println!("Hello, {:#}!", "Rust");
-    println!("ACPI {:#?}", acpi);
+
+    // println!("ACPI {:#?}", acpi);
+    dump_cpu(&acpi.boot_processor.unwrap());
+    for cpu in acpi.application_processors {
+        dump_cpu(&cpu);
+    }
 
     panic!("Hoge");
     // loop {}
     // Status::SUCCESS
+}
+
+fn dump_cpu(cpu: &acpi::Processor) {
+    println!(
+        "CPU {} apic id {} is_ap {} state {:#?}",
+        cpu.processor_uid, cpu.local_apic_id, cpu.is_ap, cpu.state
+    );
 }
 
 struct MyAcpiHandler {}
