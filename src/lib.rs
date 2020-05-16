@@ -4,6 +4,7 @@
 #![feature(lang_items)]
 #![feature(alloc_error_handler)]
 #![feature(llvm_asm)]
+#![feature(core_intrinsics)]
 #![no_std]
 
 use core::ffi::c_void;
