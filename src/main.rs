@@ -6,7 +6,6 @@ use core::fmt::Write;
 use uefi::prelude::*;
 use uefi_pg::myos::io::graphics::*;
 use uefi_pg::*;
-// extern crate alloc;
 
 uefi_pg_entry!(main);
 
@@ -36,61 +35,52 @@ fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
         IndexedColor::LightGreen.as_color(),
     );
 
-    println!("UNKO OS version {}.{}.{}", 0, 0, 114514);
+    println!("My Practice OS version {}.{}.{}", 0, 0, 114514);
     println!("Hello, {:#}!", "Rust");
 
-    let mut my_handler = MyAcpiHandler::new();
-    let acpi = unsafe { acpi::parse_rsdp(&mut my_handler, rsdptr as usize).unwrap() };
-    println!("ACPI {:#?}", acpi);
-    dump_cpu(&acpi.boot_processor.unwrap());
-    for cpu in acpi.application_processors {
-        dump_cpu(&cpu);
-    }
+    println!("RSDPtr: {:#?}", rsdptr);
+    // let mut my_handler = MyAcpiHandler::new();
+    // let acpi = unsafe { acpi::parse_rsdp(&mut my_handler, rsdptr as usize).unwrap() };
+    // println!("ACPI {:#?}", acpi);
+    // dump_cpu(&acpi.boot_processor.unwrap());
+    // for cpu in acpi.application_processors {
+    //     dump_cpu(&cpu);
+    // }
 
     panic!("Hoge");
     // loop {}
     // Status::SUCCESS
 }
 
-fn dump_rsdptr(ctx: &str, ptr: *const core::ffi::c_void) {
-    let ptr = ptr as *const u8;
-    let bytes = unsafe { core::slice::from_raw_parts(ptr, 0x24) };
-    print!("{} RSDPTR {:#?}", ctx, ptr);
-    for byte in bytes {
-        print!(" {:02x}", byte);
-    }
-    println!("");
-}
+// fn dump_cpu(cpu: &acpi::Processor) {
+//     println!(
+//         "CPU {} apic id {} is_ap {} state {:#?}",
+//         cpu.processor_uid, cpu.local_apic_id, cpu.is_ap, cpu.state
+//     );
+// }
 
-fn dump_cpu(cpu: &acpi::Processor) {
-    println!(
-        "CPU {} apic id {} is_ap {} state {:#?}",
-        cpu.processor_uid, cpu.local_apic_id, cpu.is_ap, cpu.state
-    );
-}
+// struct MyAcpiHandler {}
 
-struct MyAcpiHandler {}
+// impl MyAcpiHandler {
+//     fn new() -> Self {
+//         MyAcpiHandler {}
+//     }
+// }
 
-impl MyAcpiHandler {
-    fn new() -> Self {
-        MyAcpiHandler {}
-    }
-}
-
-use acpi::handler::PhysicalMapping;
-use core::ptr::NonNull;
-impl acpi::handler::AcpiHandler for MyAcpiHandler {
-    unsafe fn map_physical_region<T>(
-        &mut self,
-        physical_address: usize,
-        size: usize,
-    ) -> PhysicalMapping<T> {
-        PhysicalMapping::<T> {
-            physical_start: physical_address,
-            virtual_start: NonNull::new(physical_address as *mut T).unwrap(),
-            region_length: size,
-            mapped_length: size,
-        }
-    }
-    fn unmap_physical_region<T>(&mut self, _region: PhysicalMapping<T>) {}
-}
+// use acpi::handler::PhysicalMapping;
+// use core::ptr::NonNull;
+// impl acpi::handler::AcpiHandler for MyAcpiHandler {
+//     unsafe fn map_physical_region<T>(
+//         &mut self,
+//         physical_address: usize,
+//         size: usize,
+//     ) -> PhysicalMapping<T> {
+//         PhysicalMapping::<T> {
+//             physical_start: physical_address,
+//             virtual_start: NonNull::new(physical_address as *mut T).unwrap(),
+//             region_length: size,
+//             mapped_length: size,
+//         }
+//     }
+//     fn unmap_physical_region<T>(&mut self, _region: PhysicalMapping<T>) {}
+// }

@@ -10,14 +10,10 @@ use core::ffi::c_void;
 use core::fmt::Write;
 use core::panic::PanicInfo;
 use core::ptr::NonNull;
-use uefi::prelude::*;
-
-extern crate alloc;
-// use alloc::boxed::Box;
-
 use myos::io::console::GraphicalConsole;
 use myos::io::graphics::FrameBuffer;
 use myos::*;
+use uefi::prelude::*;
 
 pub mod myos;
 
@@ -34,13 +30,13 @@ fn panic(info: &PanicInfo) -> ! {
     }
 }
 
-#[alloc_error_handler]
-fn alloc_error_handler(layout: alloc::alloc::Layout) -> ! {
-    panic!("allocation error: {:?}", layout)
-}
+// #[alloc_error_handler]
+// fn alloc_error_handler(layout: alloc::alloc::Layout) -> ! {
+//     panic!("allocation error: {:?}", layout)
+// }
 
-#[lang = "eh_personality"]
-extern "C" fn eh_personality() {}
+// #[lang = "eh_personality"]
+// extern "C" fn eh_personality() {}
 
 static mut STDOUT: Option<NonNull<GraphicalConsole>> = None;
 
@@ -52,9 +48,6 @@ pub fn startup<F>(handle: Handle, st: SystemTable<Boot>, custom_main: F) -> Stat
 where
     F: Fn(Handle, SystemTable<Boot>) -> Status,
 {
-    unsafe {
-        uefi::alloc::init(&st.boot_services());
-    }
     let bs = st.boot_services();
     if let Ok(gop) = bs.locate_protocol::<uefi::proto::console::gop::GraphicsOutput>() {
         let gop = gop.unwrap();
@@ -78,6 +71,7 @@ pub fn exit_boot_services<'a>(
     SystemTable<uefi::table::Runtime>,
     uefi::table::boot::MemoryMapIter<'a>,
 ) {
+    // because some UEFI implementations require an additional buffer during exit_boot_services
     let buf_size = st.boot_services().memory_map_size() * 2;
     let buf_ptr = st
         .boot_services()
@@ -85,9 +79,7 @@ pub fn exit_boot_services<'a>(
         .unwrap()
         .unwrap();
     let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr, buf_size) };
-    let result = st.exit_boot_services(image, buf).unwrap().unwrap();
-    uefi::alloc::exit_boot_services();
-    result
+    st.exit_boot_services(image, buf).unwrap().unwrap()
 }
 
 #[macro_export]
