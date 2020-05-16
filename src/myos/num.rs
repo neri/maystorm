@@ -180,10 +180,3 @@ impl One for f64 {
         1.0
     }
 }
-
-// pub trait Add {}
-
-// impl Add for u8 {}
-// impl Add for i8 {}
-// impl Add for isize {}
-// impl Add for usize {}

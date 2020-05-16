@@ -1,2 +1,3 @@
 # uefi-pg
-UEFI Playground
+
+My practice OS for learning Rust

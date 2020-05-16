@@ -67,11 +67,7 @@ impl GraphicalConsole<'_> {
     }
 
     pub fn set_cursor_position(&mut self, x: isize, y: isize) {
-        let old_cursor_state = self.set_cursor_enabled(false);
-        self.cursor = (x, y);
-        if old_cursor_state {
-            self.set_cursor_enabled(old_cursor_state);
-        }
+        self.edit_cursor(move |_, _| (x, y));
     }
 
     #[inline]
@@ -116,9 +112,32 @@ impl GraphicalConsole<'_> {
         }
     }
 
-    fn adjust_cursor(&mut self) {
-        let (mut x, mut y) = self.cursor;
-        let old_cursor_state = self.set_cursor_enabled(false);
+    pub fn putchar(&mut self, c: char) {
+        match c {
+            '\x08' => {
+                self.edit_cursor(|x, y| if x > 0 { (x - 1, y) } else { (x, y) });
+            }
+            '\n' => {
+                self.edit_cursor(|_, y| (0, y + 1));
+            }
+            '\r' => {
+                self.edit_cursor(|_, y| (0, y));
+            }
+            _ => {
+                let old_cursor_state = self.set_cursor_enabled(false);
+                let font = &self.font;
+                let (x, y) = self.adjust_cursor(self.cursor);
+                self.draw_char((x * font.width(), y * font.line_height()), c);
+                self.cursor = self.adjust_cursor((x + 1, y));
+                if old_cursor_state {
+                    self.set_cursor_enabled(old_cursor_state);
+                }
+            }
+        }
+    }
+
+    fn adjust_cursor(&self, cursor: (isize, isize)) -> (isize, isize) {
+        let (mut x, mut y) = cursor;
         if x < 0 {
             x = 0;
         }
@@ -133,36 +152,7 @@ impl GraphicalConsole<'_> {
             // TODO: scroll
             y = self.dims.1 - 1;
         }
-        self.cursor = (x, y);
-        if old_cursor_state {
-            self.set_cursor_enabled(old_cursor_state);
-        }
-    }
-
-    pub fn putchar(&mut self, c: char) {
-        self.adjust_cursor();
-        match c {
-            '\x08' => {
-                self.edit_cursor(|x, y| if x > 0 { (x - 1, y) } else { (x, y) });
-            }
-            '\n' => {
-                self.edit_cursor(|_, y| (0, y + 1));
-            }
-            '\r' => {
-                self.edit_cursor(|_, y| (0, y));
-            }
-            _ => {
-                let old_cursor_state = self.set_cursor_enabled(false);
-                let font = &self.font;
-                let (x, y) = self.cursor;
-                self.draw_char((x * font.width(), y * font.line_height()), c);
-                self.cursor = (x + 1, y);
-                if old_cursor_state {
-                    self.set_cursor_enabled(old_cursor_state);
-                }
-            }
-        }
-        self.adjust_cursor();
+        (x, y)
     }
 
     #[inline]
@@ -171,7 +161,7 @@ impl GraphicalConsole<'_> {
         F: FnOnce(isize, isize) -> (isize, isize),
     {
         let old_cursor_state = self.set_cursor_enabled(false);
-        self.cursor = f(self.cursor.0, self.cursor.1);
+        self.cursor = self.adjust_cursor(f(self.cursor.0, self.cursor.1));
         if old_cursor_state {
             self.set_cursor_enabled(old_cursor_state);
         }

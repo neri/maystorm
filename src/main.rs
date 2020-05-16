@@ -35,7 +35,7 @@ fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
         IndexedColor::LightGreen.as_color(),
     );
 
-    println!("My Practice OS version {}.{}.{}", 0, 0, 114514);
+    println!("My practice OS version {}.{}.{}", 0, 0, 114514);
     println!("Hello, {:#}!", "Rust");
 
     println!("RSDPtr: {:#?}", rsdptr);
