@@ -1,10 +1,36 @@
+// Central Processing Unit
+
 #[cfg(any(target_arch = "x86_64"))]
+use super::x86_64::*;
+use alloc::boxed::Box;
 use core::arch::x86_64::*;
 
-pub struct Cpu {}
+static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+// #[derive(Debug)]
+pub struct Cpu {
+    pub apic_id: u32,
+    pub gdt: GlobalDescriptorTable,
+    pub tss: TaskStateSegment,
+    is_running: bool,
+}
+
+//unsafe impl Sync for Cpu {}
+
 impl Cpu {
+    pub fn new() -> Box<Self> {
+        let cpu = Box::new(Cpu {
+            apic_id: 0,
+            gdt: GlobalDescriptorTable::new(),
+            tss: TaskStateSegment::new(),
+            is_running: false,
+        });
+        unsafe {
+            cpu.gdt.reload();
+        }
+        cpu
+    }
+
     pub fn relax() {
         unsafe {
             llvm_asm!("pause");

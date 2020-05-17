@@ -5,6 +5,8 @@
 #![feature(alloc_error_handler)]
 #![feature(llvm_asm)]
 #![feature(core_intrinsics)]
+#![feature(new_uninit)]
+#![feature(const_fn)]
 #![no_std]
 
 use core::ffi::c_void;
@@ -18,11 +20,13 @@ use uefi::prelude::*;
 
 pub mod myos;
 
+extern crate alloc;
+
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     stdout().set_cursor_enabled(false);
     stdout().set_attribute(0x17);
-    println!("Panic: {}", info);
+    println!("{}", info);
     loop {
         unsafe {
             arch::cpu::Cpu::disable();
@@ -30,14 +34,6 @@ fn panic(info: &PanicInfo) -> ! {
         }
     }
 }
-
-// #[alloc_error_handler]
-// fn alloc_error_handler(layout: alloc::alloc::Layout) -> ! {
-//     panic!("allocation error: {:?}", layout)
-// }
-
-// #[lang = "eh_personality"]
-// extern "C" fn eh_personality() {}
 
 static mut STDOUT: Option<NonNull<GraphicalConsole>> = None;
 
@@ -59,7 +55,7 @@ where
             STDOUT = NonNull::new(&stdout as *const _ as *mut _);
         }
     } else {
-        write!(st.stdout(), "Error: GOP Not Found\n").unwrap();
+        writeln!(st.stdout(), "Error: GOP Not Found").unwrap();
         return Status::UNSUPPORTED;
     }
     custom_main(handle, st)
@@ -126,6 +122,7 @@ impl MyUefiLib for SystemTable<uefi::table::Boot> {
     }
 }
 
+// FIXME: redundant
 impl MyUefiLib for SystemTable<uefi::table::Runtime> {
     fn find_config_table(&self, expected: uefi::Guid) -> Option<*const c_void> {
         for entry in self.config_table() {
@@ -134,5 +131,35 @@ impl MyUefiLib for SystemTable<uefi::table::Runtime> {
             }
         }
         None
+    }
+}
+
+use uefi::table::boot::MemoryType;
+pub trait MemoryTypeHelper {
+    fn is_conventional_at_runtime(&self) -> bool;
+    fn is_countable(&self) -> bool;
+}
+impl MemoryTypeHelper for MemoryType {
+    fn is_conventional_at_runtime(&self) -> bool {
+        match *self {
+            MemoryType::CONVENTIONAL
+            | MemoryType::BOOT_SERVICES_CODE
+            | MemoryType::BOOT_SERVICES_DATA => true,
+            _ => false,
+        }
+    }
+
+    fn is_countable(&self) -> bool {
+        match *self {
+            MemoryType::CONVENTIONAL
+            | MemoryType::LOADER_CODE
+            | MemoryType::LOADER_DATA
+            | MemoryType::BOOT_SERVICES_CODE
+            | MemoryType::BOOT_SERVICES_DATA
+            | MemoryType::RUNTIME_SERVICES_CODE
+            | MemoryType::RUNTIME_SERVICES_DATA
+            | MemoryType::ACPI_RECLAIM => true,
+            _ => false,
+        }
     }
 }

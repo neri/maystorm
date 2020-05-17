@@ -46,7 +46,7 @@ impl<'a> FontDriver<'_> {
         let height = SYSTEM_FONT_DATA[15] as isize;
         let lh = height * 5 / 4;
         FontDriver {
-            size: Size::new((width, height)),
+            size: Size::new(width, height),
             line_height: lh,
             data: SYSTEM_FONT_DATA,
         }

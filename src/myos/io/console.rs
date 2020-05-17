@@ -83,12 +83,12 @@ impl GraphicalConsole<'_> {
             let font = &self.font;
             let cursor_height = 2;
             self.fb.fill_rect(
-                Rect::new((
+                Rect::new(
                     self.cursor.0 * font.width(),
                     (self.cursor.1 + 1) * font.line_height() - cursor_height,
                     font.width(),
                     cursor_height,
-                )),
+                ),
                 if enabled {
                     IndexedColor::from(self.attribute & 0x0F).as_color()
                 } else {
@@ -102,8 +102,8 @@ impl GraphicalConsole<'_> {
 
     fn draw_char(&self, dims: (isize, isize), c: char) {
         let font = &self.font;
-        let area_rect = Rect::new((dims.0, dims.1, font.width(), font.line_height()));
-        let font_rect = Rect::new((dims.0, dims.1, font.width(), font.height()));
+        let area_rect = Rect::new(dims.0, dims.1, font.width(), font.line_height());
+        let font_rect = Rect::new(dims.0, dims.1, font.width(), font.height());
         let bg_color = IndexedColor::from(self.attribute >> 4).as_color();
         let fg_color = IndexedColor::from(self.attribute & 0x0F).as_color();
         self.fb.fill_rect(area_rect, bg_color);

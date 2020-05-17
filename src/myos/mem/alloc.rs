@@ -1,3 +1,4 @@
+// My Poop Allocator
 use core::alloc::{GlobalAlloc, Layout};
 use core::intrinsics::*;
 use core::ptr::null_mut;
@@ -5,34 +6,36 @@ use core::ptr::null_mut;
 #[global_allocator]
 static mut ALLOCATOR: CustomAlloc = CustomAlloc::new(0, 0);
 
-pub fn init(base: usize, limit: usize) {
+pub fn init(base: usize, rest: usize) {
     unsafe {
         if ALLOCATOR.base != 0 {
             panic!("ALLOCATOR has already been initialized");
         }
-        ALLOCATOR = CustomAlloc::new(base, limit);
+        ALLOCATOR = CustomAlloc::new(base, rest);
     }
 }
 
 pub struct CustomAlloc {
     base: usize,
-    limit: usize,
     rest: usize,
 }
 
 impl CustomAlloc {
-    const fn new(base: usize, limit: usize) -> Self {
+    const fn new(base: usize, rest: usize) -> Self {
+        let fixed_base = (base + 15) & !15;
         CustomAlloc {
-            base: base,
-            limit: limit,
-            rest: limit,
+            base: fixed_base,
+            rest: rest + base - fixed_base,
         }
     }
 }
 
 unsafe impl GlobalAlloc for CustomAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let req_size = layout.size() + layout.align();
+        if layout.align() > 16 {
+            panic!("Unsupported align {:?}", layout);
+        }
+        let req_size = (layout.size() + 15) & !15;
         loop {
             let rest = ALLOCATOR.rest;
             if rest < req_size {

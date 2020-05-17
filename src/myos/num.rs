@@ -29,6 +29,45 @@ impl Number for isize {}
 impl Number for f32 {}
 impl Number for f64 {}
 
+pub trait SignedNumber: Number + Neg {}
+
+impl SignedNumber for i8 {}
+impl SignedNumber for i16 {}
+impl SignedNumber for i32 {}
+impl SignedNumber for i64 {}
+impl SignedNumber for isize {}
+impl SignedNumber for f32 {}
+impl SignedNumber for f64 {}
+
+pub trait Integer:
+    Number
+    + Eq
+    + Ord
+    + BitAnd
+    + BitAndAssign
+    + BitOr
+    + BitOrAssign
+    + BitXor
+    + BitXorAssign
+    + Not
+    + Shl
+    + ShlAssign
+    + Shr
+    + ShrAssign
+{
+}
+
+impl Integer for u8 {}
+impl Integer for i8 {}
+impl Integer for u16 {}
+impl Integer for i16 {}
+impl Integer for u32 {}
+impl Integer for i32 {}
+impl Integer for u64 {}
+impl Integer for i64 {}
+impl Integer for usize {}
+impl Integer for isize {}
+
 pub trait Zero {
     fn zero() -> Self;
 }

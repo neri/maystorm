@@ -1,16 +1,24 @@
 // Graphics Services
 use crate::num::*;
+use core::mem::swap;
+use core::ops::*;
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Point<T: Number> {
     pub x: T,
     pub y: T,
 }
 
 impl<T: Number> Point<T> {
-    pub fn new(p: (T, T)) -> Self {
-        Point { x: p.0, y: p.1 }
+    pub fn new(x: T, y: T) -> Self {
+        Point { x: x, y: y }
+    }
+}
+
+impl<T: Number> From<(T, T)> for Point<T> {
+    fn from(p: (T, T)) -> Self {
+        Self::new(p.0, p.1)
     }
 }
 
@@ -23,19 +31,63 @@ impl<T: Number> Zero for Point<T> {
     }
 }
 
+impl<T: Number> Add for Point<T> {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        Point {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
+}
+
+impl<T: Number> AddAssign for Point<T> {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
+}
+
+impl<T: Number> Sub for Point<T> {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        Point {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
+    }
+}
+
+impl<T: Number> SubAssign for Point<T> {
+    fn sub_assign(&mut self, rhs: Self) {
+        *self = Self {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
+    }
+}
+
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Size<T: Number> {
     pub width: T,
     pub height: T,
 }
 
 impl<T: Number> Size<T> {
-    pub fn new(p: (T, T)) -> Self {
+    pub fn new(width: T, height: T) -> Self {
         Size {
-            width: p.0,
-            height: p.1,
+            width: width,
+            height: height,
         }
+    }
+}
+
+impl<T: Number> From<(T, T)> for Size<T> {
+    fn from(p: (T, T)) -> Self {
+        Self::new(p.0, p.1)
     }
 }
 
@@ -48,20 +100,58 @@ impl<T: Number> Zero for Size<T> {
     }
 }
 
+impl<T: Number> Add for Size<T> {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        Size {
+            width: self.width + rhs.width,
+            height: self.height + rhs.height,
+        }
+    }
+}
+
+impl<T: Number> AddAssign for Size<T> {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = Self {
+            width: self.width + rhs.width,
+            height: self.height + rhs.height,
+        }
+    }
+}
+
+impl<T: Number> Sub for Size<T> {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        Size {
+            width: self.width - rhs.width,
+            height: self.height - rhs.height,
+        }
+    }
+}
+
+impl<T: Number> SubAssign for Size<T> {
+    fn sub_assign(&mut self, rhs: Self) {
+        *self = Self {
+            width: self.width - rhs.width,
+            height: self.height - rhs.height,
+        }
+    }
+}
+
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Rect<T: Number> {
     pub origin: Point<T>,
     pub size: Size<T>,
 }
 
 impl<T: Number> Rect<T> {
-    pub fn new(p: (T, T, T, T)) -> Self {
+    pub fn new(x: T, y: T, width: T, height: T) -> Self {
         Rect {
-            origin: Point { x: p.0, y: p.1 },
+            origin: Point { x: x, y: y },
             size: Size {
-                width: p.2,
-                height: p.3,
+                width: width,
+                height: height,
             },
         }
     }
@@ -77,6 +167,12 @@ impl<T: Number> Rect<T> {
                 height: self.size.height - (insets.top + insets.bottom),
             },
         }
+    }
+}
+
+impl<T: Number> From<(T, T, T, T)> for Rect<T> {
+    fn from(p: (T, T, T, T)) -> Self {
+        Self::new(p.0, p.1, p.2, p.3)
     }
 }
 
@@ -99,7 +195,7 @@ impl<T: Number> From<Size<T>> for Rect<T> {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct EdgeInsets<T: Number> {
     pub top: T,
     pub left: T,
@@ -108,13 +204,19 @@ pub struct EdgeInsets<T: Number> {
 }
 
 impl<T: Number> EdgeInsets<T> {
-    pub fn new(p: (T, T, T, T)) -> Self {
+    pub fn new(top: T, left: T, bottom: T, right: T) -> Self {
         EdgeInsets {
-            top: p.0,
-            left: p.1,
-            bottom: p.2,
-            right: p.3,
+            top: top,
+            left: left,
+            bottom: bottom,
+            right: right,
         }
+    }
+}
+
+impl<T: Number> From<(T, T, T, T)> for EdgeInsets<T> {
+    fn from(p: (T, T, T, T)) -> Self {
+        Self::new(p.0, p.1, p.2, p.3)
     }
 }
 
@@ -129,17 +231,24 @@ impl<T: Number> Zero for EdgeInsets<T> {
     }
 }
 
+#[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Color {
     rgb: u32,
 }
 
 impl Color {
-    pub fn new(r: u8, g: u8, b: u8) -> Self {
-        Color::from(((r as u32) * 0x10000) + ((g as u32) * 0x100) + (b as u32))
+    pub const fn new(r: u8, g: u8, b: u8) -> Self {
+        Color {
+            rgb: ((r as u32) * 0x10000) + ((g as u32) * 0x100) + (b as u32),
+        }
     }
 
-    pub fn components(&self) -> [u8; 3] {
+    pub const fn rgb(&self) -> u32 {
+        self.rgb
+    }
+
+    pub const fn components(&self) -> [u8; 3] {
         let r = (self.rgb >> 16) as u8;
         let g = (self.rgb >> 8) as u8;
         let b = self.rgb as u8;
@@ -159,6 +268,7 @@ impl From<[u8; 3]> for Color {
     }
 }
 
+#[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum IndexedColor {
     Black = 0,
@@ -205,11 +315,10 @@ impl From<u8> for IndexedColor {
 
 static mut SYSTEM_COLOR_PALETTE: [u32; 16] = [
     0x000000, 0x0D47A1, 0x1B5E20, 0x006064, 0xb71c1c, 0x4A148C, 0x795548, 0x9E9E9E, 0x616161,
-    0x2196F3, 0x4CAF50, 0x00BCD4, 0xf44336, 0x9C27B0, 0xFFEB3B,
-    0xFFFFFF,
-    // 0x000000, 0x0000AA, 0x00AA00, 0x00AAAA, 0xAA0000, 0xAA00AA, 0xAA5500, 0xAAAAAA, 0x555555,
-    // 0x5555FF, 0x55FF55, 0x55FFFF, 0xFF5555, 0xFF55FF, 0xFFFF55, 0xFFFFFF,
+    0x2196F3, 0x4CAF50, 0x00BCD4, 0xf44336, 0x9C27B0, 0xFFEB3B, 0xFFFFFF,
 ];
+// 0x000000, 0x0000AA, 0x00AA00, 0x00AAAA, 0xAA0000, 0xAA00AA, 0xAA5500, 0xAAAAAA, 0x555555,
+// 0x5555FF, 0x55FF55, 0x55FFFF, 0xFF5555, 0xFF55FF, 0xFFFF55, 0xFFFFFF,
 
 impl IndexedColor {
     pub fn as_rgb(&self) -> u32 {
@@ -228,7 +337,6 @@ impl From<IndexedColor> for Color {
 }
 
 #[repr(C)]
-//#[derive(Debug, Copy, Clone)]
 pub struct FrameBuffer {
     base: *mut u8,
     len: usize,
@@ -237,7 +345,7 @@ pub struct FrameBuffer {
     is_portrait: bool,
 }
 
-unsafe impl Sync for FrameBuffer {}
+// unsafe impl Sync for FrameBuffer {}
 
 static BIT_MASKS: [u8; 8] = [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
 
@@ -251,7 +359,7 @@ impl From<&mut GraphicsOutput<'_>> for FrameBuffer {
         let mut is_portrait = height > width;
         if is_portrait {
             // portrait
-            core::mem::swap(&mut width, &mut height);
+            swap(&mut width, &mut height);
         }
         if delta > width {
             // GPD micro PC fake landscape mode
@@ -317,7 +425,7 @@ impl FrameBuffer {
             let temp = dx;
             dx = self.size.height - dy - height;
             dy = temp;
-            core::mem::swap(&mut width, &mut height);
+            swap(&mut width, &mut height);
         }
 
         unsafe {
