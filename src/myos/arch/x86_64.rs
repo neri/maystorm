@@ -1,9 +1,10 @@
 // x86_64 Processor
 
 use alloc::boxed::Box;
-use core::arch::x86_64::*;
+// use core::arch::x86_64::*;
 
 const MAX_GDT: usize = 8;
+const MAX_IDT: usize = 256;
 const KERNEL_CODE: Selector = Selector::new(1, PrivilegeLevel::Kernel);
 const KERNEL_DATA: Selector = Selector::new(2, PrivilegeLevel::Kernel);
 const TSS: Selector = Selector::new(6, PrivilegeLevel::Kernel);
@@ -78,9 +79,13 @@ impl DescriptorType {
     }
 }
 
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct InterruptVector(pub u8);
+
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub enum InterruptVector {
+pub enum Exception {
     DivideError = 0,
     Debug = 1,
     NonMaskable = 2,
@@ -94,7 +99,7 @@ pub enum InterruptVector {
     InvalidTss = 10,
     SegmentNotPresent = 11,
     StackException = 12,
-    GeneralProtectionException = 13,
+    GeneralProtection = 13,
     PageFault = 14,
     //Unavailable = 15,
     FloatingPointException = 16,
@@ -103,25 +108,15 @@ pub enum InterruptVector {
     SimdException = 19,
 }
 
-impl InterruptVector {
-    pub fn mnemonic(&self) -> &str {
-        match *self {
-            InterruptVector::DivideError => "#DE",
-            InterruptVector::Debug => "#DB",
-            InterruptVector::Breakpoint => "#BP",
-            InterruptVector::Overflow => "#OF",
-            InterruptVector::InvalidOpcode => "#UD",
-            InterruptVector::DeviceNotAvailable => "#NM",
-            InterruptVector::DoubleFault => "#DF",
-            InterruptVector::StackException => "#SS",
-            InterruptVector::GeneralProtectionException => "#GP",
-            InterruptVector::PageFault => "#PF",
-            InterruptVector::FloatingPointException => "#MF",
-            InterruptVector::AlignmentCheck => "#AC",
-            InterruptVector::MachineCheck => "#MC",
-            InterruptVector::SimdException => "#XM",
-            _ => "??",
-        }
+impl Exception {
+    pub const fn as_vec(&self) -> InterruptVector {
+        InterruptVector(*self as u8)
+    }
+}
+
+impl From<Exception> for InterruptVector {
+    fn from(ex: Exception) -> Self {
+        InterruptVector(ex as u8)
     }
 }
 
@@ -182,8 +177,8 @@ impl DescriptorEntry {
     }
 
     #[inline]
-    pub const fn present() -> Self {
-        Self(0x8000_0000_0000)
+    pub const fn present() -> u64 {
+        0x8000_0000_0000
     }
 
     pub const fn code_segment(dpl: PrivilegeLevel, size: DefaultSize) -> Self {
@@ -199,9 +194,9 @@ impl DescriptorEntry {
     pub const fn tss_descriptor(offset: LinearAddress, limit: Limit) -> DescriptorPair {
         let offset = offset.0;
         let low = DescriptorEntry(
-            Self::present().0
+            limit.0 as u64
+                | Self::present()
                 | DescriptorType::Tss.as_descriptor_entry()
-                | limit.0 as u64
                 | (offset & 0x00FF_FFFF) << 16
                 | (offset & 0xFF00_0000) << 32,
         );
@@ -217,9 +212,9 @@ impl DescriptorEntry {
     ) -> DescriptorPair {
         let offset = offset.0;
         let low = DescriptorEntry(
-            Self::present().0
-                | (offset & 0xFFFF)
+            (offset & 0xFFFF)
                 | (sel.0 as u64) << 16
+                | Self::present()
                 | dpl.as_descriptor_entry()
                 | ty.as_descriptor_entry()
                 | (offset & 0xFFFF_0000) << 32,
@@ -306,63 +301,53 @@ static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
 
 #[repr(C, align(16))]
 pub struct InterruptDescriptorTable {
-    raw: [DescriptorEntry; 512],
+    raw: [DescriptorEntry; MAX_IDT * 2],
 }
 
 impl InterruptDescriptorTable {
-    pub const fn new() -> Self {
+    const fn new() -> Self {
         InterruptDescriptorTable {
-            raw: [DescriptorEntry::null(); 512],
+            raw: [DescriptorEntry::null(); MAX_IDT * 2],
         }
     }
 
     pub fn init() {
         unsafe {
             Self::load();
-            Self::write(
-                InterruptVector::GeneralProtectionException,
-                LinearAddress(interrupt_foo_handler as usize as u64),
-                PrivilegeLevel::Kernel,
-                false,
+            Self::register(
+                Exception::DoubleFault.as_vec(),
+                LinearAddress(interrupt_df_handler as usize as u64),
             );
-            Self::write(
-                InterruptVector::PageFault,
+            Self::register(
+                Exception::GeneralProtection.as_vec(),
+                LinearAddress(interrupt_gp_handler as usize as u64),
+            );
+            Self::register(
+                Exception::PageFault.as_vec(),
                 LinearAddress(interrupt_page_handler as usize as u64),
-                PrivilegeLevel::Kernel,
-                false,
             );
         }
     }
 
     pub unsafe fn load() {
         llvm_asm!("
-            push %rax
-            push %rcx
+            push $0
+            push $1
             lidt 6(%rsp)
             add $$0x10, %rsp
             "
-            :
-            : "{rax}"(&IDT.raw), "{rcx}"((IDT.raw.len() * 8 - 1) << 48)
+            :: "r"(&IDT.raw), "r"((IDT.raw.len() * 8 - 1) << 48)
         );
     }
 
-    pub unsafe fn write(
-        index: InterruptVector,
-        offset: LinearAddress,
-        dpl: PrivilegeLevel,
-        is_trap: bool,
-    ) {
+    pub unsafe fn register(vec: InterruptVector, offset: LinearAddress) {
         let pair = DescriptorEntry::gate_descriptor(
             offset,
             KERNEL_CODE,
-            dpl,
-            if is_trap {
-                DescriptorType::TrapGate
-            } else {
-                DescriptorType::InterruptGate
-            },
+            PrivilegeLevel::Kernel,
+            DescriptorType::InterruptGate,
         );
-        let table_offset = index as usize * 2;
+        let table_offset = vec.0 as usize * 2;
         IDT.raw[table_offset + 1] = pair.high;
         IDT.raw[table_offset] = pair.low;
     }
@@ -378,15 +363,17 @@ pub struct ExceptionStackFrame {
     pub ss: u64,
 }
 
-extern "x86-interrupt" fn interrupt_foo_handler(
+extern "x86-interrupt" fn interrupt_df_handler(
     stack_frame: &ExceptionStackFrame,
-    error_code: u64,
+    _error_code: u64,
 ) {
+    panic!("DOUBLE FAULT {:?}", stack_frame,);
+}
+
+extern "x86-interrupt" fn interrupt_gp_handler(stack_frame: &ExceptionStackFrame, error_code: u64) {
     panic!(
-        "GENERAL PROTECTION FAULT {} {:04x} {:?}",
-        InterruptVector::GeneralProtectionException.mnemonic(),
-        error_code,
-        stack_frame,
+        "GENERAL PROTECTION FAULT {:04x} {:?}",
+        error_code, stack_frame,
     );
 }
 
@@ -394,15 +381,12 @@ extern "x86-interrupt" fn interrupt_page_handler(
     stack_frame: &ExceptionStackFrame,
     error_code: u64,
 ) {
-    let mut cr2: u64 = 0;
+    let mut cr2: u64;
     unsafe {
         llvm_asm!("mov %cr2, $0":"=r"(cr2));
     }
     panic!(
-        "PAGE FAULT {} {:04x} {:016x} {:?}",
-        InterruptVector::PageFault.mnemonic(),
-        error_code,
-        cr2,
-        stack_frame,
+        "PAGE FAULT {:04x} {:016x} {:?}",
+        error_code, cr2, stack_frame,
     );
 }

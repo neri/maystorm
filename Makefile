@@ -12,8 +12,11 @@ all: $(TARGET)
 clean:
 	-rm -rf target
 
+# $(RUST_ARCH).json:
+# 	rustc +nightly -Z unstable-options --print target-spec-json --target $(RUST_ARCH) | sed -e 's/-sse,+/+sse,-/' > $@
+
 $(TARGET): src/* src/**/* src/**/**/*
-	rustup run nightly cargo xbuild --target $(RUST_ARCH) --release
+	rustup run nightly cargo xbuild --release --target $(RUST_ARCH)
 
 $(EFI_BOOT):
 	mkdir -p $(EFI_BOOT)

@@ -1,12 +1,17 @@
 // Central Processing Unit
 
+use super::system::*;
 #[cfg(any(target_arch = "x86_64"))]
 use super::x86_64::*;
 use alloc::boxed::Box;
 
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct ApicId(pub u32);
+
 // #[derive(Debug)]
 pub struct Cpu {
-    pub apic_id: u32,
+    pub apic_id: ApicId,
     pub gdt: Box<GlobalDescriptorTable>,
     pub tss: Box<TaskStateSegment>,
 }
@@ -14,19 +19,33 @@ pub struct Cpu {
 //unsafe impl Sync for Cpu {}
 
 impl Cpu {
-    pub fn new() -> Box<Self> {
+    pub fn new(acpi_proc: acpi::Processor) -> Box<Self> {
         let tss = TaskStateSegment::new();
         let gdt = GlobalDescriptorTable::new(&tss);
         let cpu = Box::new(Cpu {
-            apic_id: 0,
+            apic_id: ApicId(acpi_proc.local_apic_id as u32),
             gdt: gdt,
             tss: tss,
         });
         cpu
     }
 
+    pub fn current() -> &'static Box<Cpu> {
+        System::shared().cpu(0)
+    }
+
     pub fn init() {
         InterruptDescriptorTable::init();
+
+        unsafe {
+            if let acpi::InterruptModel::Apic(apic) =
+                System::shared().acpi().interrupt_model.as_ref().unwrap()
+            {
+                super::apic::Apic::new(apic);
+            } else {
+                panic!("NO APIC");
+            }
+        }
     }
 
     pub fn relax() {
@@ -62,6 +81,6 @@ impl Cpu {
 
     pub unsafe fn debug_assert() {
         // llvm_asm!("int3");
-        llvm_asm!("movabs %eax, (0x7fffffffffff)");
+        llvm_asm!("movabs %eax, (0x7ffffffffff0)");
     }
 }

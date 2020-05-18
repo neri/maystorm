@@ -30,6 +30,16 @@ fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
     //////// GUARD //////// exit_boot_services //////// GUARD ////////
     let (_st, mm) = exit_boot_services(st, handle);
 
+    let mut total_memory_size: u64 = 0;
+    for mem_desc in mm {
+        if mem_desc.ty.is_countable() {
+            total_memory_size += mem_desc.page_count << 12;
+        }
+    }
+    unsafe {
+        myos::arch::system::System::init(rsdptr as usize, total_memory_size);
+    }
+
     let fb = stdout().fb();
     // fb.reset();
     fb.fill_rect(
@@ -45,19 +55,6 @@ fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
         IndexedColor::LightBlue.as_color(),
     );
 
-    let mut total_memory_size: u64 = 0;
-    for mem_desc in mm {
-        if mem_desc.ty.is_countable() {
-            total_memory_size += mem_desc.page_count << 12;
-        }
-    }
-
-    let mut my_handler = MyAcpiHandler::new();
-    let acpi = unsafe { acpi::parse_rsdp(&mut my_handler, rsdptr as usize).unwrap() };
-    unsafe {
-        myos::arch::system::System::init(acpi.application_processors.len() + 1, total_memory_size);
-    }
-
     let system = myos::arch::system::System::shared();
 
     println!(
@@ -69,35 +66,11 @@ fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
     );
     println!("Hello, {:#}!", "Rust");
 
-    unsafe {
-        myos::arch::cpu::Cpu::debug_assert();
+    loop {
+        unsafe {
+            myos::arch::cpu::Cpu::halt();
+        }
     }
     panic!("System has halted");
     // Status::SUCCESS
-}
-
-struct MyAcpiHandler {}
-
-impl MyAcpiHandler {
-    fn new() -> Self {
-        MyAcpiHandler {}
-    }
-}
-
-use acpi::handler::PhysicalMapping;
-use core::ptr::NonNull;
-impl acpi::handler::AcpiHandler for MyAcpiHandler {
-    unsafe fn map_physical_region<T>(
-        &mut self,
-        physical_address: usize,
-        size: usize,
-    ) -> PhysicalMapping<T> {
-        PhysicalMapping::<T> {
-            physical_start: physical_address,
-            virtual_start: NonNull::new(physical_address as *mut T).unwrap(),
-            region_length: size,
-            mapped_length: size,
-        }
-    }
-    fn unmap_physical_region<T>(&mut self, _region: PhysicalMapping<T>) {}
 }
