@@ -7,28 +7,25 @@ use alloc::boxed::Box;
 // #[derive(Debug)]
 pub struct Cpu {
     pub apic_id: u32,
-    pub gdt: GlobalDescriptorTable,
-    pub tss: TaskStateSegment,
-    is_running: bool,
+    pub gdt: Box<GlobalDescriptorTable>,
+    pub tss: Box<TaskStateSegment>,
 }
 
 //unsafe impl Sync for Cpu {}
 
 impl Cpu {
     pub fn new() -> Box<Self> {
+        let tss = TaskStateSegment::new();
+        let gdt = GlobalDescriptorTable::new(&tss);
         let cpu = Box::new(Cpu {
             apic_id: 0,
-            gdt: GlobalDescriptorTable::new(),
-            tss: TaskStateSegment::new(),
-            is_running: false,
+            gdt: gdt,
+            tss: tss,
         });
-        unsafe {
-            cpu.gdt.reload();
-        }
         cpu
     }
 
-    pub fn init(_first_instance: &Cpu) {
+    pub fn init() {
         InterruptDescriptorTable::init();
     }
 
@@ -64,6 +61,7 @@ impl Cpu {
     }
 
     pub unsafe fn debug_assert() {
-        llvm_asm!("int3");
+        // llvm_asm!("int3");
+        llvm_asm!("movabs %eax, (0x7fffffffffff)");
     }
 }

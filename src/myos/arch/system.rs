@@ -1,12 +1,13 @@
 // A Computer System
 
 use super::cpu::*;
+use alloc::boxed::Box;
 use alloc::vec::*;
 
 pub struct System {
     total_memory_size: u64,
     number_of_cpus: usize,
-    cpus: Vec<Cpu>,
+    cpus: Vec<Box<Cpu>>,
 }
 
 static mut SYSTEM: System = System::new();
@@ -25,9 +26,8 @@ impl System {
     pub unsafe fn init(number_of_cpus: usize, total_memory_size: u64) {
         SYSTEM.total_memory_size = total_memory_size;
         SYSTEM.number_of_cpus = number_of_cpus;
-        let cpu = Cpu::new();
-        Cpu::init(&cpu);
-        SYSTEM.cpus.push(*cpu);
+        SYSTEM.cpus.push(Cpu::new());
+        Cpu::init();
     }
 
     #[inline]
