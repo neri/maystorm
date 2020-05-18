@@ -1,6 +1,11 @@
 // x86_64 Processor
+use core::arch::x86_64::*;
 
 const MAX_GDT: usize = 8;
+
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct LinearAddress(pub u64);
 
 #[repr(u16)]
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -29,7 +34,7 @@ pub enum PrivilegeLevel {
 }
 
 impl PrivilegeLevel {
-    pub const fn as_descriptor(&self) -> u64 {
+    pub const fn as_descriptor_entry(&self) -> u64 {
         let dpl = *self as u64;
         dpl << 13
     }
@@ -54,10 +59,35 @@ pub enum GateType {
 }
 
 impl GateType {
-    pub const fn as_descriptor(&self) -> u64 {
+    pub const fn as_descriptor_entry(&self) -> u64 {
         let ty = *self as u64;
         ty << 40
     }
+}
+
+#[repr(u8)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum InterruptVector {
+    Divide = 0,
+    Debug = 1,
+    NonMaskable = 2,
+    Breakpoint = 3,
+    Overflow = 4,
+    //Deprecated = 5,
+    InvalidOpcode = 6,
+    DeviceNotAvailable = 7,
+    DoubleFault = 8,
+    //Deprecated = 9,
+    InvalidTss = 10,
+    SegmentNotPresent = 11,
+    StackException = 12,
+    GeneralProtectionException = 13,
+    PageFault = 14,
+    //Unavailable = 15,
+    FloatingPointException = 16,
+    AlignmentCheck = 17,
+    MachieCheck = 18,
+    SimdException = 19,
 }
 
 #[repr(C, packed)]
@@ -83,7 +113,7 @@ impl TaskStateSegment {
     }
 }
 
-pub enum DescriptorDefaultSize {
+pub enum DefaultSize {
     Use16,
     Use32,
     Use64,
@@ -99,32 +129,45 @@ impl DescriptorEntry {
     }
 
     pub const fn code_segment(dpl: PrivilegeLevel) -> Self {
-        let value = 0x00AF9A000000FFFFu64 | dpl.as_descriptor();
+        let value = 0x00AF9A000000FFFFu64 | dpl.as_descriptor_entry();
         DescriptorEntry(value)
     }
 
     pub const fn data_segment(dpl: PrivilegeLevel) -> Self {
-        let value = 0x00AF92000000FFFFu64 | dpl.as_descriptor();
+        let value = 0x00AF92000000FFFFu64 | dpl.as_descriptor_entry();
         DescriptorEntry(value)
     }
 
-    pub const fn gate_descriptor_low(
-        offset: u64,
+    const fn gate_descriptor_low(
+        offset: LinearAddress,
         sel: Selector,
         dpl: PrivilegeLevel,
         ty: GateType,
     ) -> Self {
+        let offset = offset.0;
         let value = 0x8000_0000_0000
             | (offset & 0xFFFF)
             | (sel as u64) << 16
-            | dpl.as_descriptor()
-            | ty.as_descriptor()
+            | dpl.as_descriptor_entry()
+            | ty.as_descriptor_entry()
             | (offset & 0xFFFF_0000) << 32;
         DescriptorEntry(value)
     }
 
-    pub const fn gate_descriptor_high(offset: u64) -> Self {
-        DescriptorEntry(offset >> 32)
+    const fn gate_descriptor_high(offset: LinearAddress) -> Self {
+        DescriptorEntry(offset.0 >> 32)
+    }
+
+    pub const fn gate_descriptor(
+        offset: LinearAddress,
+        sel: Selector,
+        dpl: PrivilegeLevel,
+        ty: GateType,
+    ) -> DescriptorPair {
+        DescriptorPair::new(
+            Self::gate_descriptor_low(offset, sel, dpl, ty),
+            Self::gate_descriptor_high(offset),
+        )
     }
 }
 
@@ -188,6 +231,8 @@ impl GlobalDescriptorTable {
     }
 }
 
+static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
+
 #[repr(C, align(16))]
 pub struct InterruptDescriptorTable {
     raw: [DescriptorEntry; 512],
@@ -200,8 +245,69 @@ impl InterruptDescriptorTable {
         }
     }
 
-    pub fn write(&mut self, index: u8, desc: DescriptorPair) {
-        self.raw[index as usize * 2 + 1] = desc.high;
-        self.raw[index as usize * 2] = desc.low;
+    pub fn init() {
+        unsafe {
+            Self::load();
+            Self::write(
+                InterruptVector::GeneralProtectionException,
+                LinearAddress(interrupt_foo_handler as usize as u64),
+                PrivilegeLevel::Kernel,
+                false,
+            );
+        }
     }
+
+    pub unsafe fn load() {
+        llvm_asm!("
+            push %rax
+            push %rcx
+            lidt 6(%rsp)
+            add $$0x10, %rsp
+            "
+            :
+            : "{rax}"(&IDT.raw), "{rcx}"((IDT.raw.len() * 8 - 1) << 48)
+        );
+    }
+
+    pub unsafe fn write(
+        index: InterruptVector,
+        offset: LinearAddress,
+        dpl: PrivilegeLevel,
+        is_trap: bool,
+    ) {
+        let pair = DescriptorEntry::gate_descriptor(
+            offset,
+            Selector::KernelCode,
+            dpl,
+            if is_trap {
+                GateType::TrapGate
+            } else {
+                GateType::InterruptGate
+            },
+        );
+        let table_offset = index as usize * 2;
+        IDT.raw[table_offset + 1] = pair.high;
+        IDT.raw[table_offset] = pair.low;
+    }
+}
+
+#[repr(C, packed)]
+#[derive(Debug, Copy, Clone)]
+pub struct ExceptionStackFrame {
+    pub rip: LinearAddress,
+    pub cs: u64,
+    pub flags: u64,
+    pub rsp: LinearAddress,
+    pub ss: u64,
+}
+
+extern "x86-interrupt" fn interrupt_foo_handler(
+    stack_frame: &ExceptionStackFrame,
+    error_code: u64,
+) {
+    unsafe { llvm_asm!("mov $$0xdeadbeef, %eax":::"%eax") };
+    panic!(
+        "GENERAL PROTECTION FAULT {:04x} {:?}",
+        error_code, stack_frame,
+    );
 }

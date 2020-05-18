@@ -25,7 +25,9 @@ impl System {
     pub unsafe fn init(number_of_cpus: usize, total_memory_size: u64) {
         SYSTEM.total_memory_size = total_memory_size;
         SYSTEM.number_of_cpus = number_of_cpus;
-        SYSTEM.cpus.push(*Cpu::new());
+        let cpu = Cpu::new();
+        Cpu::init(&cpu);
+        SYSTEM.cpus.push(*cpu);
     }
 
     #[inline]

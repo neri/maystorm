@@ -3,9 +3,6 @@
 #[cfg(any(target_arch = "x86_64"))]
 use super::x86_64::*;
 use alloc::boxed::Box;
-use core::arch::x86_64::*;
-
-static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
 
 // #[derive(Debug)]
 pub struct Cpu {
@@ -29,6 +26,10 @@ impl Cpu {
             cpu.gdt.reload();
         }
         cpu
+    }
+
+    pub fn init(_first_instance: &Cpu) {
+        InterruptDescriptorTable::init();
     }
 
     pub fn relax() {
@@ -60,5 +61,9 @@ impl Cpu {
 
     pub unsafe fn out8(port: u8, value: u8) {
         llvm_asm!("outb %al, %dx" :: "{dx}"(port), "{al}"(value));
+    }
+
+    pub unsafe fn debug_assert() {
+        llvm_asm!("int3");
     }
 }

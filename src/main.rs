@@ -69,6 +69,9 @@ fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
     );
     println!("Hello, {:#}!", "Rust");
 
+    unsafe {
+        myos::arch::cpu::Cpu::debug_assert();
+    }
     panic!("System has halted");
     // Status::SUCCESS
 }

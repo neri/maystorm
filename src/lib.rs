@@ -7,6 +7,7 @@
 #![feature(core_intrinsics)]
 #![feature(new_uninit)]
 #![feature(const_fn)]
+#![feature(abi_x86_interrupt)]
 #![no_std]
 
 use core::ffi::c_void;
