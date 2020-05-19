@@ -4,7 +4,6 @@ use super::cpu::*;
 use super::msr::Msr;
 use super::x86_64::*;
 
-use crate::myos::io::console::*;
 use crate::myos::io::graphics::*;
 use crate::stdout;
 
@@ -34,17 +33,12 @@ impl Apic {
     }
 }
 
-static mut LOCAL_APIC: LocalApic = LocalApic {
-    base: core::ptr::null_mut(),
-};
+static mut LOCAL_APIC_BASE: *mut u8 = core::ptr::null_mut();
 
-pub struct LocalApic {
-    base: *mut u8,
-}
-
+#[allow(dead_code)]
 #[repr(usize)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub enum LocalApicRegister {
+enum LocalApic {
     Id = 0x20,
     Version = 0x30,
     TaskPriority = 0x80,
@@ -61,24 +55,13 @@ pub enum LocalApicRegister {
     TimerDivideConfiguration = 0x3E0,
 }
 
-impl LocalApicRegister {
-    pub unsafe fn read(&self) -> u32 {
-        LOCAL_APIC.read(*self)
-    }
-
-    pub unsafe fn write(&self, data: u32) {
-        LOCAL_APIC.write(*self, data);
-    }
-}
-
 impl LocalApic {
     const IA32_APIC_BASE_MSR_BSP: u64 = 0x00000100;
     const IA32_APIC_BASE_MSR_ENABLE: u64 = 0x00000800;
 
     unsafe fn init(base: usize) {
         let ptr = base as *const u8 as *mut u8;
-
-        LOCAL_APIC.base = ptr;
+        LOCAL_APIC_BASE = ptr;
 
         let msr = Msr::Ia32ApicBase;
         let val = msr.read();
@@ -92,28 +75,25 @@ impl LocalApic {
             LinearAddress(timer_handler as usize as u64),
         );
 
-        LocalApicRegister::TimerDivideConfiguration.write(0x0000000B);
-        // LocalApicRegister::LvtTimer.write(0x00010020);
-        LocalApicRegister::LvtTimer.write(0x00020000 | IRQ_LAPIC_TIMER.0 as u32);
-        LocalApicRegister::TimerInitialCount.write(0x100000);
+        // TODO: LAPIC Timer
+        LocalApic::TimerDivideConfiguration.write(0x0000000B);
+        // LocalApic::LvtTimer.write(0x00010020);
+        LocalApic::LvtTimer.write(0x00020000 | IRQ_LAPIC_TIMER.0 as u32);
+        LocalApic::TimerInitialCount.write(0x100000);
     }
 
-    unsafe fn read(&self, index: LocalApicRegister) -> u32 {
-        let ptr = self.base.add(index as usize) as *const u32;
+    unsafe fn read(&self) -> u32 {
+        let ptr = LOCAL_APIC_BASE.add(*self as usize) as *const u32;
         ptr.read_volatile()
     }
 
-    unsafe fn write(&self, index: LocalApicRegister, value: u32) {
-        let ptr = self.base.add(index as usize) as *const u32 as *mut u32;
+    unsafe fn write(&self, value: u32) {
+        let ptr = LOCAL_APIC_BASE.add(*self as usize) as *const u32 as *mut u32;
         ptr.write_volatile(value);
     }
 
-    unsafe fn eoi(&self) {
-        self.write(LocalApicRegister::Eoi, 0);
-    }
-
-    unsafe fn read_id(&self) -> u32 {
-        self.read(LocalApicRegister::Id) >> 24
+    unsafe fn eoi() {
+        Self::Eoi.write(0);
     }
 }
 
@@ -125,6 +105,6 @@ extern "x86-interrupt" fn timer_handler(_stack_frame: &ExceptionStackFrame) {
         stdout()
             .fb()
             .fill_rect(Rect::new(30, 30, 20, 20), Color::from(TIMER_COUNTER as u32));
-        LOCAL_APIC.eoi();
+        LocalApic::eoi();
     }
 }

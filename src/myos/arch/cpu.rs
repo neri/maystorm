@@ -75,7 +75,7 @@ impl Cpu {
         }
     }
 
-    pub unsafe fn out8(port: u8, value: u8) {
+    pub unsafe fn out8(port: u16, value: u8) {
         llvm_asm!("outb %al, %dx" :: "{dx}"(port), "{al}"(value));
     }
 

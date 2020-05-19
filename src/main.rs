@@ -71,6 +71,4 @@ fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
             myos::arch::cpu::Cpu::halt();
         }
     }
-    panic!("System has halted");
-    // Status::SUCCESS
 }
