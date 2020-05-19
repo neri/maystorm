@@ -11,7 +11,7 @@ const TSS: Selector = Selector::new(6, PrivilegeLevel::Kernel);
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub struct LinearAddress(pub u64);
+pub struct LinearAddress(pub usize);
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -82,6 +82,13 @@ impl DescriptorType {
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct InterruptVector(pub u8);
+
+impl core::ops::Add<isize> for InterruptVector {
+    type Output = Self;
+    fn add(self, rhs: isize) -> Self {
+        Self((self.0 as isize + rhs as isize) as u8)
+    }
+}
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -192,7 +199,7 @@ impl DescriptorEntry {
     }
 
     pub const fn tss_descriptor(offset: LinearAddress, limit: Limit) -> DescriptorPair {
-        let offset = offset.0;
+        let offset = offset.0 as u64;
         let low = DescriptorEntry(
             limit.0 as u64
                 | Self::present()
@@ -210,7 +217,7 @@ impl DescriptorEntry {
         dpl: PrivilegeLevel,
         ty: DescriptorType,
     ) -> DescriptorPair {
-        let offset = offset.0;
+        let offset = offset.0 as u64;
         let low = DescriptorEntry(
             (offset & 0xFFFF)
                 | (sel.0 as u64) << 16
@@ -249,7 +256,7 @@ pub struct GlobalDescriptorTable {
 impl GlobalDescriptorTable {
     pub fn new(tss: &Box<TaskStateSegment>) -> Box<Self> {
         let tss_pair = DescriptorEntry::tss_descriptor(
-            LinearAddress(tss.as_ref() as *const _ as u64),
+            LinearAddress(tss.as_ref() as *const _ as usize),
             tss.limit(),
         );
         let mut gdt = Box::new(GlobalDescriptorTable {
@@ -316,15 +323,15 @@ impl InterruptDescriptorTable {
             Self::load();
             Self::register(
                 Exception::DoubleFault.as_vec(),
-                LinearAddress(interrupt_df_handler as usize as u64),
+                LinearAddress(interrupt_df_handler as usize),
             );
             Self::register(
                 Exception::GeneralProtection.as_vec(),
-                LinearAddress(interrupt_gp_handler as usize as u64),
+                LinearAddress(interrupt_gp_handler as usize),
             );
             Self::register(
                 Exception::PageFault.as_vec(),
-                LinearAddress(interrupt_page_handler as usize as u64),
+                LinearAddress(interrupt_page_handler as usize),
             );
         }
     }

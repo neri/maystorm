@@ -19,7 +19,7 @@ pub struct Cpu {
 //unsafe impl Sync for Cpu {}
 
 impl Cpu {
-    pub fn new(acpi_proc: acpi::Processor) -> Box<Self> {
+    pub unsafe fn new(acpi_proc: acpi::Processor) -> Box<Self> {
         let tss = TaskStateSegment::new();
         let gdt = GlobalDescriptorTable::new(&tss);
         let cpu = Box::new(Cpu {
@@ -34,17 +34,15 @@ impl Cpu {
         System::shared().cpu(0)
     }
 
-    pub fn init() {
+    pub unsafe fn init() {
         InterruptDescriptorTable::init();
 
-        unsafe {
-            if let acpi::InterruptModel::Apic(apic) =
-                System::shared().acpi().interrupt_model.as_ref().unwrap()
-            {
-                super::apic::Apic::new(apic);
-            } else {
-                panic!("NO APIC");
-            }
+        if let acpi::InterruptModel::Apic(apic) =
+            System::shared().acpi().interrupt_model.as_ref().unwrap()
+        {
+            super::apic::Apic::init(apic);
+        } else {
+            panic!("NO APIC");
         }
     }
 
