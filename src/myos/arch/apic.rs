@@ -16,12 +16,26 @@ use crate::*;
 const MSI_BASE: usize = 0xFEE00000;
 const APIC_REDIR_MASK: u32 = 0x00010000;
 
-const IRQ_BASE: InterruptVector = InterruptVector(0x20);
-const IRQ_LAPIC_TIMER: InterruptVector = InterruptVector(IRQ_BASE.0);
-const MAX_IRQ: InterruptVector = InterruptVector(0x7F);
-const MAX_MSI: usize = 24;
-
 static mut APIC: Apic = Apic::new();
+
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct Irq(pub u8);
+
+impl Irq {
+    const BASE: InterruptVector = InterruptVector(0x20);
+    const MAX: Irq = Irq(127);
+
+    const fn as_vec(&self) -> InterruptVector {
+        InterruptVector(Self::BASE.0 + self.0)
+    }
+}
+
+impl From<Irq> for InterruptVector {
+    fn from(irq: Irq) -> InterruptVector {
+        irq.as_vec()
+    }
+}
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -30,6 +44,7 @@ pub struct ApicId(pub u32);
 pub struct Apic {
     master_apic_id: ApicId,
     ioapics: Vec<Box<IoApic>>,
+    gsi_table: [GsiProps; 256],
 }
 
 impl Apic {
@@ -37,6 +52,7 @@ impl Apic {
         Apic {
             master_apic_id: ApicId(0),
             ioapics: Vec::new(),
+            gsi_table: [GsiProps::null(); 256],
         }
     }
 
@@ -54,6 +70,24 @@ impl Apic {
 
         LocalApic::init(acpi_apic.local_apic_address as usize);
 
+        // define default gsi table for PS/2 Keyboard
+        APIC.gsi_table[1] = GsiProps {
+            gsi: Irq(1),
+            polarity: PackedPolarity(0),
+        };
+
+        // import gsi table from ACPI
+        for source in &acpi_apic.interrupt_source_overrides {
+            let props = GsiProps {
+                gsi: Irq(source.global_system_interrupt as u8),
+                polarity: PackedPolarity::new(
+                    ApicPolarity::from(&source.polarity),
+                    ApicTriggerMode::from(&source.trigger_mode),
+                ),
+            };
+            APIC.gsi_table[source.isa_source as usize] = props;
+        }
+
         // enable IRQ
         Cpu::enable();
 
@@ -61,25 +95,21 @@ impl Apic {
             APIC.ioapics.push(Box::new(IoApic::new(acpi_ioapic)));
         }
 
-        Self::register(1, LinearAddress(ps2_handler as usize)).unwrap();
+        Self::register(Irq(1), LinearAddress(ps2_handler as usize)).unwrap();
     }
 
-    unsafe fn register(irq: u8, f: LinearAddress) -> Result<(), ()> {
-        let gsi = irq; // TODO
-        let polarity = ApicPolarity::ActiveHigh; // TODO
-        let trigger = ApicTriggerMode::Edge; // TODO
+    unsafe fn register(irq: Irq, f: LinearAddress) -> Result<(), ()> {
+        let props = APIC.gsi_table[irq.0 as usize];
+        let gsi = props.gsi;
+        let polarity = props.polarity;
 
         for ioapic in APIC.ioapics.iter() {
-            if ioapic.global_int <= gsi && (gsi - ioapic.global_int) < ioapic.entries {
-                let local_irq = gsi - ioapic.global_int;
-                let vec_irq = IRQ_BASE + gsi as usize;
+            let local_irq = gsi.0 - ioapic.global_int.0;
+            if ioapic.global_int <= gsi && local_irq < ioapic.entries {
+                let vec_irq = gsi.as_vec();
                 InterruptDescriptorTable::register(vec_irq, f);
-                let pair = Self::make_redirect_table_entry_pair(
-                    vec_irq,
-                    polarity,
-                    trigger,
-                    APIC.master_apic_id,
-                );
+                let pair =
+                    Self::make_redirect_table_entry_pair(vec_irq, polarity, APIC.master_apic_id);
                 ioapic.write(IoApicIndex(0x10 + local_irq * 2 + 1), pair.1);
                 ioapic.write(IoApicIndex(0x10 + local_irq * 2), pair.0);
                 return Ok(());
@@ -88,16 +118,62 @@ impl Apic {
         Err(())
     }
 
+    pub unsafe fn set_irq_enabled(irq: Irq, new_value: bool) -> Result<(), ()> {
+        let props = APIC.gsi_table[irq.0 as usize];
+        let gsi = props.gsi;
+
+        for ioapic in APIC.ioapics.iter() {
+            let local_irq = gsi.0 - ioapic.global_int.0;
+            if ioapic.global_int <= gsi && local_irq < ioapic.entries {
+                let mut value = ioapic.read(IoApicIndex(0x10 + local_irq * 2));
+                if new_value {
+                    value &= !APIC_REDIR_MASK;
+                } else {
+                    value |= APIC_REDIR_MASK;
+                }
+                ioapic.write(IoApicIndex(0x10 + local_irq * 2), value);
+                return Ok(());
+            }
+        }
+        Err(())
+    }
+
     const fn make_redirect_table_entry_pair(
         vec: InterruptVector,
-        polarity: ApicPolarity,
-        trigger: ApicTriggerMode,
+        polarity: PackedPolarity,
         apic_id: ApicId,
     ) -> (u32, u32) {
-        (
-            vec.0 as u32 | polarity.as_redir() | trigger.as_redir(),
-            apic_id.0 << 24,
-        )
+        (vec.0 as u32 | polarity.as_redir(), apic_id.0 << 24)
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+struct GsiProps {
+    gsi: Irq,
+    polarity: PackedPolarity,
+}
+
+impl GsiProps {
+    const fn null() -> Self {
+        GsiProps {
+            gsi: Irq(0),
+            polarity: PackedPolarity(0),
+        }
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone)]
+struct PackedPolarity(pub u8);
+
+impl PackedPolarity {
+    const fn new(polarity: ApicPolarity, trigger: ApicTriggerMode) -> Self {
+        Self(polarity.as_packed() | trigger.as_packed())
+    }
+
+    const fn as_redir(&self) -> u32 {
+        (self.0 as u32) << 12
     }
 }
 
@@ -108,14 +184,14 @@ enum ApicPolarity {
 }
 
 impl ApicPolarity {
-    const fn as_redir(&self) -> u32 {
-        (*self as u32) << 13
+    const fn as_packed(&self) -> u8 {
+        (*self as u8) << 1
     }
 }
 
-impl From<acpi::interrupt::Polarity> for ApicPolarity {
-    fn from(src: acpi::interrupt::Polarity) -> Self {
-        match src {
+impl From<&acpi::interrupt::Polarity> for ApicPolarity {
+    fn from(src: &acpi::interrupt::Polarity) -> Self {
+        match *src {
             acpi::interrupt::Polarity::SameAsBus => ApicPolarity::ActiveHigh,
             acpi::interrupt::Polarity::ActiveHigh => ApicPolarity::ActiveHigh,
             acpi::interrupt::Polarity::ActiveLow => ApicPolarity::ActiveLow,
@@ -130,14 +206,14 @@ enum ApicTriggerMode {
 }
 
 impl ApicTriggerMode {
-    const fn as_redir(&self) -> u32 {
-        (*self as u32) << 15
+    const fn as_packed(&self) -> u8 {
+        (*self as u8) << 3
     }
 }
 
-impl From<acpi::interrupt::TriggerMode> for ApicTriggerMode {
-    fn from(src: acpi::interrupt::TriggerMode) -> Self {
-        match src {
+impl From<&acpi::interrupt::TriggerMode> for ApicTriggerMode {
+    fn from(src: &acpi::interrupt::TriggerMode) -> Self {
+        match *src {
             acpi::interrupt::TriggerMode::SameAsBus => ApicTriggerMode::Edge,
             acpi::interrupt::TriggerMode::Edge => ApicTriggerMode::Edge,
             acpi::interrupt::TriggerMode::Level => ApicTriggerMode::Level,
@@ -182,13 +258,14 @@ impl LocalApic {
                 | ((base as u64 & !0xFFF) | Self::IA32_APIC_BASE_MSR_ENABLE),
         );
 
-        InterruptDescriptorTable::register(IRQ_LAPIC_TIMER, LinearAddress(timer_handler as usize));
+        let vec_irtimer = Irq(0).as_vec();
+        InterruptDescriptorTable::register(vec_irtimer, LinearAddress(timer_handler as usize));
 
         // LAPIC timer
         // TODO: magic words
         LocalApic::TimerDivideConfiguration.write(0x0000000B);
         // LocalApic::LvtTimer.write(0x00010020);
-        LocalApic::LvtTimer.write(0x00020000 | IRQ_LAPIC_TIMER.0 as u32);
+        LocalApic::LvtTimer.write(0x00020000 | vec_irtimer.0 as u32);
         LocalApic::TimerInitialCount.write(0x100000);
     }
 
@@ -216,7 +293,7 @@ const IOAPIC_VER: IoApicIndex = IoApicIndex(1);
 
 struct IoApic {
     base: *mut u8,
-    global_int: u8,
+    global_int: Irq,
     entries: u8,
     id: u8,
 }
@@ -225,7 +302,7 @@ impl IoApic {
     unsafe fn new(acpi_ioapic: &acpi::interrupt::IoApic) -> Self {
         let mut ioapic = IoApic {
             base: acpi_ioapic.address as usize as *const u8 as *mut u8,
-            global_int: acpi_ioapic.global_system_interrupt_base as u8,
+            global_int: Irq(acpi_ioapic.global_system_interrupt_base as u8),
             entries: 0,
             id: acpi_ioapic.id,
         };
@@ -257,7 +334,7 @@ extern "x86-interrupt" fn timer_handler(_stack_frame: &ExceptionStackFrame) {
     unsafe {
         TIMER_COUNTER += 0x123456;
         stdout().fb().fill_rect(
-            Rect::new(100, 100, 20, 20),
+            Rect::new(400, 50, 20, 20),
             Color::from(TIMER_COUNTER as u32),
         );
         LocalApic::eoi();

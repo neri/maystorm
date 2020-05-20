@@ -80,20 +80,20 @@ impl DescriptorType {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct InterruptVector(pub u8);
 
-impl core::ops::Add<usize> for InterruptVector {
+impl core::ops::Add<u8> for InterruptVector {
     type Output = Self;
-    fn add(self, rhs: usize) -> Self {
-        Self((self.0 as usize + rhs as usize) as u8)
+    fn add(self, rhs: u8) -> Self {
+        Self(self.0 + rhs)
     }
 }
 
-impl core::ops::Sub<usize> for InterruptVector {
+impl core::ops::Sub<u8> for InterruptVector {
     type Output = Self;
-    fn sub(self, rhs: usize) -> Self {
-        Self((self.0 as usize - rhs as usize) as u8)
+    fn sub(self, rhs: u8) -> Self {
+        Self(self.0 - rhs)
     }
 }
 
