@@ -38,27 +38,27 @@ dependencies = [
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.12"
+version = "1.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8872cf6f48eee44265156c111456a700ab3483686b3f96df4cf5481c89157319"
+checksum = "53f5ffe53a6b28e37c9c1ce74893477864d64f74778a93a4beb43c8fa167f639"
 dependencies = [
  "unicode-xid",
 ]
 
 [[package]]
 name = "quote"
-version = "1.0.4"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c1f4b0efa5fc5e8ceb705136bfee52cfdb6a4e3509f770b478cd6ed434232a7"
+checksum = "54a21852a652ad6f610c9510194f398ff6f8692e334fd1145fed931f7fbe44ea"
 dependencies = [
  "proc-macro2",
 ]
 
 [[package]]
 name = "syn"
-version = "1.0.19"
+version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8e5aa70697bb26ee62214ae3288465ecec0000f05182f039b477001f08f5ae7"
+checksum = "1425de3c33b0941002740a420b1a906a350b88d08b82b2c8a01035a3f9447bac"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -76,8 +76,8 @@ dependencies = [
 
 [[package]]
 name = "uefi"
-version = "0.4.4"
-source = "git+https://github.com/rust-osdev/uefi-rs.git#5814c52e6858ee72afd21339ca75d7297c474be9"
+version = "0.4.5"
+source = "git+https://github.com/rust-osdev/uefi-rs.git#4f0c5477d99b8e09d31c48d0aa4b9aede09413fd"
 dependencies = [
  "bitflags",
  "log",
@@ -101,7 +101,6 @@ name = "uefi-pg"
 version = "0.1.0"
 dependencies = [
  "acpi",
- "log",
  "uefi",
 ]
 
