@@ -3,7 +3,6 @@
 use super::cpu::*;
 use super::msr::Msr;
 use super::system::*;
-use super::x86_64::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
 use core::ffi::c_void;
@@ -13,33 +12,11 @@ use crate::myos::io::graphics::*;
 use crate::stdout;
 use crate::*;
 
-const MSI_BASE: usize = 0xFEE00000;
+// const MSI_BASE: usize = 0xFEE00000;
 const APIC_REDIR_MASK: u32 = 0x00010000;
 
 static mut APIC: Apic = Apic::new();
-
-#[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub struct Irq(pub u8);
-
-impl Irq {
-    const BASE: InterruptVector = InterruptVector(0x20);
-    const MAX: Irq = Irq(127);
-
-    const fn as_vec(&self) -> InterruptVector {
-        InterruptVector(Self::BASE.0 + self.0)
-    }
-}
-
-impl From<Irq> for InterruptVector {
-    fn from(irq: Irq) -> InterruptVector {
-        irq.as_vec()
-    }
-}
-
-#[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct ApicId(pub u32);
+static mut LOCAL_APIC_BASE: Option<NonNull<c_void>> = None;
 
 pub struct Apic {
     master_apic_id: ApicId,
@@ -110,8 +87,8 @@ impl Apic {
                 InterruptDescriptorTable::register(vec_irq, f);
                 let pair =
                     Self::make_redirect_table_entry_pair(vec_irq, polarity, APIC.master_apic_id);
-                ioapic.write(IoApicIndex(0x10 + local_irq * 2 + 1), pair.1);
-                ioapic.write(IoApicIndex(0x10 + local_irq * 2), pair.0);
+                ioapic.write(IoApicIndex::redir_table_high(local_irq), pair.1);
+                ioapic.write(IoApicIndex::redir_table_low(local_irq), pair.0);
                 return Ok(());
             }
         }
@@ -125,13 +102,13 @@ impl Apic {
         for ioapic in APIC.ioapics.iter() {
             let local_irq = gsi.0 - ioapic.global_int.0;
             if ioapic.global_int <= gsi && local_irq < ioapic.entries {
-                let mut value = ioapic.read(IoApicIndex(0x10 + local_irq * 2));
+                let mut value = ioapic.read(IoApicIndex::redir_table_low(local_irq * 2));
                 if new_value {
                     value &= !APIC_REDIR_MASK;
                 } else {
                     value |= APIC_REDIR_MASK;
                 }
-                ioapic.write(IoApicIndex(0x10 + local_irq * 2), value);
+                ioapic.write(IoApicIndex::redir_table_low(local_irq * 2), value);
                 return Ok(());
             }
         }
@@ -144,6 +121,29 @@ impl Apic {
         apic_id: ApicId,
     ) -> (u32, u32) {
         (vec.0 as u32 | polarity.as_redir(), apic_id.0 << 24)
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct ApicId(pub u32);
+
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct Irq(pub u8);
+
+impl Irq {
+    pub const BASE: InterruptVector = InterruptVector(0x20);
+    pub const MAX: Irq = Irq(127);
+
+    pub const fn as_vec(&self) -> InterruptVector {
+        InterruptVector(Self::BASE.0 + self.0)
+    }
+}
+
+impl From<Irq> for InterruptVector {
+    fn from(irq: Irq) -> InterruptVector {
+        irq.as_vec()
     }
 }
 
@@ -221,8 +221,6 @@ impl From<&acpi::interrupt::TriggerMode> for ApicTriggerMode {
     }
 }
 
-static mut LOCAL_APIC_BASE: Option<NonNull<c_void>> = None;
-
 #[allow(dead_code)]
 #[repr(usize)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -258,17 +256,15 @@ impl LocalApic {
                 | ((base as u64 & !0xFFF) | Self::IA32_APIC_BASE_MSR_ENABLE),
         );
 
+        // LAPIC timer
         let vec_irtimer = Irq(0).as_vec();
         InterruptDescriptorTable::register(vec_irtimer, LinearAddress(timer_handler as usize));
-
-        // LAPIC timer
-        // TODO: magic words
-        LocalApic::TimerDivideConfiguration.write(0x0000000B);
-        // LocalApic::LvtTimer.write(0x00010020);
-        LocalApic::LvtTimer.write(0x00020000 | vec_irtimer.0 as u32);
-        LocalApic::TimerInitialCount.write(0x100000);
+        Self::clear_timer();
+        Self::set_timer_div(LocalApicTimerDivide::By1);
+        Self::set_timer(LocalApicTimerMode::Periodic, vec_irtimer, 1000_000);
     }
 
+    #[allow(dead_code)]
     unsafe fn read(&self) -> u32 {
         let ptr = LOCAL_APIC_BASE.unwrap().as_ptr().add(*self as usize) as *const u32;
         ptr.read_volatile()
@@ -282,15 +278,54 @@ impl LocalApic {
     unsafe fn eoi() {
         Self::Eoi.write(0);
     }
+
+    unsafe fn set_timer_div(div: LocalApicTimerDivide) {
+        Self::TimerDivideConfiguration.write(div as u32);
+    }
+
+    unsafe fn set_timer(mode: LocalApicTimerMode, vec: InterruptVector, count: u32) {
+        Self::TimerInitialCount.write(count);
+        Self::LvtTimer.write((vec.0 as u32) | mode as u32);
+    }
+
+    unsafe fn clear_timer() {
+        Self::LvtTimer.write(APIC_REDIR_MASK);
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+enum LocalApicTimerMode {
+    OneShot = 0 << 17,
+    Periodic = 1 << 17,
+    TscDeadline = 2 << 17,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+enum LocalApicTimerDivide {
+    By1 = 0b1011,
 }
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 struct IoApicIndex(u8);
 
-const IOAPIC_ID: IoApicIndex = IoApicIndex(0);
-const IOAPIC_VER: IoApicIndex = IoApicIndex(1);
+impl IoApicIndex {
+    #[allow(dead_code)]
+    const ID: IoApicIndex = IoApicIndex(0x00);
+    const VER: IoApicIndex = IoApicIndex(0x01);
+    const REDIR_BASE: IoApicIndex = IoApicIndex(0x10);
 
+    const fn redir_table_low(index: u8) -> Self {
+        Self(Self::REDIR_BASE.0 + index * 2)
+    }
+
+    const fn redir_table_high(index: u8) -> Self {
+        Self(Self::REDIR_BASE.0 + index * 2 + 1)
+    }
+}
+
+#[allow(dead_code)]
 struct IoApic {
     base: *mut u8,
     global_int: Irq,
@@ -306,7 +341,7 @@ impl IoApic {
             entries: 0,
             id: acpi_ioapic.id,
         };
-        let ver = ioapic.read(IOAPIC_VER);
+        let ver = ioapic.read(IoApicIndex::VER);
         ioapic.entries = 1 + (ver >> 16) as u8;
         ioapic
     }
@@ -327,6 +362,8 @@ impl IoApic {
         ptr_data.write_volatile(data);
     }
 }
+
+//-//-//-// TEST //-//-//-//
 
 static mut TIMER_COUNTER: usize = 0;
 
