@@ -30,16 +30,6 @@ fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
     //////// GUARD //////// exit_boot_services //////// GUARD ////////
     let (_st, mm) = exit_boot_services(st, handle);
 
-    let mut total_memory_size: u64 = 0;
-    for mem_desc in mm {
-        if mem_desc.ty.is_countable() {
-            total_memory_size += mem_desc.page_count << 12;
-        }
-    }
-    unsafe {
-        myos::arch::system::System::init(rsdptr as usize, total_memory_size);
-    }
-
     let fb = stdout().fb();
     // fb.reset();
     fb.fill_rect(
@@ -54,6 +44,16 @@ fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
         Rect::new(150, 150, 200, 200),
         IndexedColor::LightBlue.as_color(),
     );
+
+    let mut total_memory_size: u64 = 0;
+    for mem_desc in mm {
+        if mem_desc.ty.is_countable() {
+            total_memory_size += mem_desc.page_count << 12;
+        }
+    }
+    unsafe {
+        myos::arch::system::System::init(rsdptr as usize, total_memory_size);
+    }
 
     let system = myos::arch::system::System::shared();
 

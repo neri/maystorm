@@ -1,13 +1,10 @@
 // Central Processing Unit
 
+use super::apic::*;
 use super::system::*;
 #[cfg(any(target_arch = "x86_64"))]
 use super::x86_64::*;
 use alloc::boxed::Box;
-
-#[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct ApicId(pub u32);
 
 // #[derive(Debug)]
 pub struct Cpu {

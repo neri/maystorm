@@ -3,8 +3,19 @@
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum Msr {
-    Ia32Tsc = 0x10,
-    Ia32ApicBase = 0x01B,
+    Tsc = 0x10,
+    ApicBase = 0x01b,
+    MiscEnable = 0x1a0,
+    TscDeadline = 0x6e0,
+    Efer = 0xc000_0080,
+    Star = 0xc000_0081,
+    LStar = 0xc000_0082,
+    CStr = 0xc000_0083,
+    Fmask = 0xc000_0084,
+    FsBase = 0xc000_0100,
+    GsBase = 0xc000_0101,
+    KernelGsBase = 0xc000_0102,
+    TscAux = 0xc000_0103,
     Deadbeef = 0xdeadbeef,
 }
 

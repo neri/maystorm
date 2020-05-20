@@ -83,10 +83,17 @@ impl DescriptorType {
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct InterruptVector(pub u8);
 
-impl core::ops::Add<isize> for InterruptVector {
+impl core::ops::Add<usize> for InterruptVector {
     type Output = Self;
-    fn add(self, rhs: isize) -> Self {
-        Self((self.0 as isize + rhs as isize) as u8)
+    fn add(self, rhs: usize) -> Self {
+        Self((self.0 as usize + rhs as usize) as u8)
+    }
+}
+
+impl core::ops::Sub<usize> for InterruptVector {
+    type Output = Self;
+    fn sub(self, rhs: usize) -> Self {
+        Self((self.0 as usize - rhs as usize) as u8)
     }
 }
 
