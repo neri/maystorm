@@ -1,3 +1,36 @@
 # uefi-pg
 
 My practice OS for learning Rust
+
+## Operating Requirements
+
+* 64bit UEFI system
+* Up to 64 logical processor cores
+* XX MB of system memory
+* 800x600 pixels graphics display
+* PS/2 Keyboard and mouse
+* XHCI (in the future)
+
+## Requirements to Build
+
+* Rust nightly
+* cargo-xbuild
+* qemu + ovmf (optional)
+
+### how to build
+
+```
+$ make
+```
+
+### how to run
+
+```
+$ make run
+```
+
+## License
+
+MIT License
+
+&copy; 2020 Nerry.
