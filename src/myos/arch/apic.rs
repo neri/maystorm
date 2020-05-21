@@ -14,9 +14,32 @@ use crate::*;
 
 // const MSI_BASE: usize = 0xFEE00000;
 const APIC_REDIR_MASK: u32 = 0x00010000;
+const MAX_CPU: usize = 64;
 
 static mut APIC: Apic = Apic::new();
 static mut LOCAL_APIC_BASE: Option<NonNull<c_void>> = None;
+
+extern "efiapi" {
+    fn setup_smp_init(vec_sipi: u8, max_cpu: usize, stack_chunk_size: usize, stack_base: Vec<u8>);
+}
+
+#[no_mangle]
+pub extern "efiapi" fn apic_start_ap(cpuid: usize) {
+    println!("Start AP {}", cpuid);
+    let mut color: u32 = 0;
+    loop {
+        color += 0x1234 * cpuid as u32;
+        stdout().fb().fill_rect(
+            Rect::new(cpuid as isize * 100, 50, 20, 20),
+            Color::from(color),
+        );
+        unsafe {
+            for _ in 0..64 {
+                llvm_asm!("pause");
+            }
+        }
+    }
+}
 
 pub struct Apic {
     master_apic_id: ApicId,
@@ -73,6 +96,18 @@ impl Apic {
         }
 
         Self::register(Irq(1), LinearAddress(ps2_handler as usize)).unwrap();
+
+        // Setup SMP
+        let max_cpu = core::cmp::min(System::shared().number_of_cpus(), MAX_CPU);
+        let stack_chunk_size = 0x4000;
+        let stack_base: Vec<u8> = Vec::with_capacity(max_cpu * stack_chunk_size);
+        setup_smp_init(1, max_cpu, stack_chunk_size, stack_base);
+
+        // SIPI
+        LocalApic::InterruptCommand.write(0x000C4500);
+        Cpu::halt();
+        LocalApic::InterruptCommand.write(0x000C4601);
+        Cpu::halt();
     }
 
     unsafe fn register(irq: Irq, f: LinearAddress) -> Result<(), ()> {
