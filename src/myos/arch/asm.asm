@@ -77,6 +77,7 @@ setup_smp_init:
     ret
 
 
+    mov eax, 0xdeadbeef
 _ap_startup:
     lidt [rbx + SMPINFO_IDT]
 

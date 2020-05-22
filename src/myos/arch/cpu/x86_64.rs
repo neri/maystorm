@@ -1,12 +1,11 @@
 // Central Processing Unit
 
-use super::apic::*;
-use super::system::*;
+use crate::myos::arch::system::*;
 use alloc::boxed::Box;
 
 // #[derive(Debug)]
 pub struct Cpu {
-    pub apic_id: ApicId,
+    pub apic_id: ProcessorId,
     pub gdt: Box<GlobalDescriptorTable>,
     pub tss: Box<TaskStateSegment>,
 }
@@ -14,11 +13,11 @@ pub struct Cpu {
 //unsafe impl Sync for Cpu {}
 
 impl Cpu {
-    pub unsafe fn new(acpi_proc: acpi::Processor) -> Box<Self> {
+    pub unsafe fn new(cpuid: ProcessorId) -> Box<Self> {
         let tss = TaskStateSegment::new();
         let gdt = GlobalDescriptorTable::new(&tss);
         let cpu = Box::new(Cpu {
-            apic_id: ApicId(acpi_proc.local_apic_id as u32),
+            apic_id: cpuid,
             gdt: gdt,
             tss: tss,
         });
@@ -35,16 +34,16 @@ impl Cpu {
         if let acpi::InterruptModel::Apic(apic) =
             System::shared().acpi().interrupt_model.as_ref().unwrap()
         {
-            super::apic::Apic::init(apic);
+            crate::myos::arch::apic::Apic::init(apic);
         } else {
             panic!("NO APIC");
         }
     }
 
     pub fn relax() {
-                            unsafe {
-                        llvm_asm!("pause");
-                    }
+        unsafe {
+            llvm_asm!("pause");
+        }
     }
 
     pub unsafe fn halt() {
@@ -85,8 +84,21 @@ const KERNEL_DATA: Selector = Selector::new(2, PrivilegeLevel::Kernel);
 const TSS: Selector = Selector::new(6, PrivilegeLevel::Kernel);
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, PartialEq, PartialOrd)]
 pub struct LinearAddress(pub usize);
+
+use core::fmt;
+impl fmt::Display for LinearAddress {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:016x}", self.0)
+    }
+}
+
+impl fmt::Debug for LinearAddress {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "LinearAddress({:#016x})", self.0)
+    }
+}
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -404,6 +416,10 @@ impl InterruptDescriptorTable {
         unsafe {
             Self::load();
             Self::register(
+                Exception::InvalidOpcode.as_vec(),
+                LinearAddress(interrupt_ud_handler as usize),
+            );
+            Self::register(
                 Exception::DoubleFault.as_vec(),
                 LinearAddress(interrupt_df_handler as usize),
             );
@@ -442,6 +458,59 @@ impl InterruptDescriptorTable {
     }
 }
 
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub enum Msr {
+    Tsc = 0x10,
+    ApicBase = 0x01b,
+    MiscEnable = 0x1a0,
+    TscDeadline = 0x6e0,
+    Efer = 0xc000_0080,
+    Star = 0xc000_0081,
+    LStar = 0xc000_0082,
+    CStr = 0xc000_0083,
+    Fmask = 0xc000_0084,
+    FsBase = 0xc000_0100,
+    GsBase = 0xc000_0101,
+    KernelGsBase = 0xc000_0102,
+    TscAux = 0xc000_0103,
+    Deadbeef = 0xdeadbeef,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+union MsrResult {
+    pub qword: u64,
+    pub tuple: EaxEdx,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct EaxEdx {
+    pub eax: u32,
+    pub edx: u32,
+}
+
+impl Msr {
+    pub unsafe fn write(&self, value: u64) {
+        let value = MsrResult { qword: value };
+        llvm_asm!("wrmsr"
+        :: "{eax}"(value.tuple.eax),"{edx}"(value.tuple.edx),"{ecx}"(*self));
+    }
+
+    pub unsafe fn read(&self) -> u64 {
+        let mut eax: u32;
+        let mut edx: u32;
+        llvm_asm!("rdmsr"
+        : "={eax}"(eax),"={edx}"(edx)
+        : "{ecx}"(*self));
+        MsrResult {
+            tuple: EaxEdx { eax: eax, edx: edx },
+        }
+        .qword
+    }
+}
+
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
 pub struct ExceptionStackFrame {
@@ -450,6 +519,10 @@ pub struct ExceptionStackFrame {
     pub flags: u64,
     pub rsp: LinearAddress,
     pub ss: u64,
+}
+
+extern "x86-interrupt" fn interrupt_ud_handler(stack_frame: &ExceptionStackFrame) {
+    panic!("INVALID OPCODE {:?}", stack_frame,);
 }
 
 extern "x86-interrupt" fn interrupt_df_handler(

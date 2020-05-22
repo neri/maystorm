@@ -15,7 +15,7 @@ clean:
 # $(RUST_ARCH).json:
 # 	rustc +nightly -Z unstable-options --print target-spec-json --target $(RUST_ARCH) | sed -e 's/-sse,+/+sse,-/' > $@
 
-$(TARGET): src/* src/**/* src/**/**/*
+$(TARGET): src/* src/**/* src/**/**/* src/**/**/**/*
 	rustup run nightly cargo xbuild --release --target $(RUST_ARCH)
 
 $(EFI_BOOT):

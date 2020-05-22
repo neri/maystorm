@@ -1,18 +1,21 @@
 // Advanced Programmable Interrupt Controller
 
-use super::cpu::*;
-use super::msr::Msr;
-use super::system::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
 use core::ffi::c_void;
 use core::ptr::*;
 
+use super::cpu::*;
+use super::system::*;
+use crate::mux::spinlock::Spinlock;
 use crate::myos::io::graphics::*;
+use crate::myos::thread::Thread;
+use crate::myos::thread::*;
 use crate::stdout;
 use crate::*;
 
-// const MSI_BASE: usize = 0xFEE00000;
+#[allow(dead_code)]
+const MSI_BASE: usize = 0xFEE00000;
 const APIC_REDIR_MASK: u32 = 0x00010000;
 const MAX_CPU: usize = 64;
 
@@ -20,39 +23,39 @@ static mut APIC: Apic = Apic::new();
 static mut LOCAL_APIC_BASE: Option<NonNull<c_void>> = None;
 
 extern "efiapi" {
-    fn setup_smp_init(vec_sipi: u8, max_cpu: usize, stack_chunk_size: usize, stack_base: Vec<u8>);
+    fn setup_smp_init(vec_sipi: u8, max_cpu: usize, stack_chunk_size: usize, stack_base: *mut u8);
 }
 
+static mut GLOBALLOCK: Spinlock = Spinlock::new();
+
 #[no_mangle]
-pub extern "efiapi" fn apic_start_ap(cpuid: usize) {
-    println!("Start AP {}", cpuid);
-    let mut color: u32 = 0;
-    loop {
-        color += 0x1234 * cpuid as u32;
-        stdout().fb().fill_rect(
-            Rect::new(cpuid as isize * 100, 50, 20, 20),
-            Color::from(color),
-        );
-        unsafe {
-            for _ in 0..64 {
-                llvm_asm!("pause");
-            }
+pub extern "efiapi" fn apic_start_ap(_cpuid: u8) {
+    unsafe {
+        GLOBALLOCK.lock();
+        let new_cpu = Cpu::new(LocalApic::init_ap());
+        System::shared().activate_cpu(new_cpu);
+        // println!("Started AP {}", LocalApic::current_processor_id().0);
+        GLOBALLOCK.unlock();
+        loop {
+            Cpu::halt();
         }
     }
 }
 
 pub struct Apic {
-    master_apic_id: ApicId,
+    master_apic_id: ProcessorId,
     ioapics: Vec<Box<IoApic>>,
     gsi_table: [GsiProps; 256],
+    lapic_timer_value: u32,
 }
 
 impl Apic {
     const fn new() -> Self {
         Apic {
-            master_apic_id: ApicId(0),
+            master_apic_id: ProcessorId(0),
             ioapics: Vec::new(),
             gsi_table: [GsiProps::null(); 256],
+            lapic_timer_value: 0,
         }
     }
 
@@ -66,8 +69,8 @@ impl Apic {
         // disable IRQ
         Cpu::disable();
 
+        // init Local Apic
         APIC.master_apic_id = System::shared().cpu(0).as_ref().apic_id;
-
         LocalApic::init(acpi_apic.local_apic_address as usize);
 
         // define default gsi table for PS/2 Keyboard
@@ -91,23 +94,53 @@ impl Apic {
         // enable IRQ
         Cpu::enable();
 
+        // Init IO Apics
         for acpi_ioapic in &acpi_apic.io_apics {
             APIC.ioapics.push(Box::new(IoApic::new(acpi_ioapic)));
         }
 
-        Self::register(Irq(1), LinearAddress(ps2_handler as usize)).unwrap();
+        // LAPIC timer
+        let vec_latimer = Irq(0).as_vec();
+        InterruptDescriptorTable::register(vec_latimer, LinearAddress(timer_handler as usize));
+        LocalApic::clear_timer();
+        LocalApic::set_timer_div(LocalApicTimerDivide::By1);
+        if let Some(hpet_info) = &System::shared().acpi().hpet {
+            // Use HPET
+            let hpet = Hpet::new(hpet_info);
+            let magic_number = 100;
+            let deadline0 = hpet.create(TimeMeasure(1));
+            while hpet.until(deadline0) {
+                Cpu::relax();
+            }
+            let deadline1 = hpet.create(TimeMeasure::from_micros(100_0000 / magic_number));
+            LocalApic::TimerInitialCount.write(u32::MAX);
+            while hpet.until(deadline1) {
+                Cpu::relax();
+            }
+            let count = LocalApic::TimerCurrentCount.read() as u64;
+            APIC.lapic_timer_value = ((u32::MAX as u64 - count) * magic_number / 1000) as u32;
+            Thread::set_timer(hpet);
+        } else {
+            panic!("No Reference Timer found");
+        }
+        LocalApic::set_timer(
+            LocalApicTimerMode::Periodic,
+            vec_latimer,
+            APIC.lapic_timer_value,
+        );
 
         // Setup SMP
         let max_cpu = core::cmp::min(System::shared().number_of_cpus(), MAX_CPU);
         let stack_chunk_size = 0x4000;
-        let stack_base: Vec<u8> = Vec::with_capacity(max_cpu * stack_chunk_size);
-        setup_smp_init(1, max_cpu, stack_chunk_size, stack_base);
+        let mut stack_base: Vec<u8> = Vec::with_capacity(max_cpu * stack_chunk_size);
+        setup_smp_init(1, max_cpu, stack_chunk_size, stack_base.as_mut_ptr());
+        LocalApic::broadcast_init();
+        Thread::usleep(10_000);
+        LocalApic::broadcast_sipi(1);
+        Thread::usleep(200_000);
 
-        // SIPI
-        LocalApic::InterruptCommand.write(0x000C4500);
-        Cpu::halt();
-        LocalApic::InterruptCommand.write(0x000C4601);
-        Cpu::halt();
+        // test ps2
+        Self::register(Irq(1), LinearAddress(ps2_handler as usize)).unwrap();
     }
 
     unsafe fn register(irq: Irq, f: LinearAddress) -> Result<(), ()> {
@@ -115,7 +148,7 @@ impl Apic {
         let gsi = props.gsi;
         let polarity = props.polarity;
 
-        for ioapic in APIC.ioapics.iter() {
+        for ioapic in APIC.ioapics.iter_mut() {
             let local_irq = gsi.0 - ioapic.global_int.0;
             if ioapic.global_int <= gsi && local_irq < ioapic.entries {
                 let vec_irq = gsi.as_vec();
@@ -134,7 +167,7 @@ impl Apic {
         let props = APIC.gsi_table[irq.0 as usize];
         let gsi = props.gsi;
 
-        for ioapic in APIC.ioapics.iter() {
+        for ioapic in APIC.ioapics.iter_mut() {
             let local_irq = gsi.0 - ioapic.global_int.0;
             if ioapic.global_int <= gsi && local_irq < ioapic.entries {
                 let mut value = ioapic.read(IoApicIndex::redir_table_low(local_irq * 2));
@@ -153,15 +186,11 @@ impl Apic {
     const fn make_redirect_table_entry_pair(
         vec: InterruptVector,
         polarity: PackedPolarity,
-        apic_id: ApicId,
+        apic_id: ProcessorId,
     ) -> (u32, u32) {
-        (vec.0 as u32 | polarity.as_redir(), apic_id.0 << 24)
+        (vec.0 as u32 | polarity.as_redir(), apic_id.as_u32() << 24)
     }
 }
-
-#[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct ApicId(pub u32);
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -182,7 +211,6 @@ impl From<Irq> for InterruptVector {
     }
 }
 
-#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 struct GsiProps {
     gsi: Irq,
@@ -257,7 +285,6 @@ impl From<&acpi::interrupt::TriggerMode> for ApicTriggerMode {
 }
 
 #[allow(dead_code)]
-#[repr(usize)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 enum LocalApic {
     Id = 0x20,
@@ -290,13 +317,20 @@ impl LocalApic {
             (val & Self::IA32_APIC_BASE_MSR_BSP)
                 | ((base as u64 & !0xFFF) | Self::IA32_APIC_BASE_MSR_ENABLE),
         );
+    }
 
-        // LAPIC timer
-        let vec_irtimer = Irq(0).as_vec();
-        InterruptDescriptorTable::register(vec_irtimer, LinearAddress(timer_handler as usize));
-        Self::clear_timer();
-        Self::set_timer_div(LocalApicTimerDivide::By1);
-        Self::set_timer(LocalApicTimerMode::Periodic, vec_irtimer, 1000_000);
+    unsafe fn init_ap() -> ProcessorId {
+        Msr::ApicBase
+            .write(LOCAL_APIC_BASE.unwrap().as_ptr() as u64 | Self::IA32_APIC_BASE_MSR_ENABLE);
+
+        let myid = LocalApic::current_processor_id();
+
+        // let vec_latimer = Irq(?).as_vec();
+        // LocalApic::clear_timer();
+        // LocalApic::set_timer_div(LocalApicTimerDivide::By1);
+        // LocalApic::set_timer(LocalApicTimerMode::Periodic, vec_latimer, APIC.lapic_timer_value);
+
+        myid
     }
 
     #[allow(dead_code)]
@@ -325,6 +359,20 @@ impl LocalApic {
 
     unsafe fn clear_timer() {
         Self::LvtTimer.write(APIC_REDIR_MASK);
+    }
+
+    // Broadcast INIT IPI to all another APs
+    unsafe fn broadcast_init() {
+        LocalApic::InterruptCommand.write(0x000C4500);
+    }
+
+    // Broadcast Startup IPI to all another APs
+    unsafe fn broadcast_sipi(init_vec: u8) {
+        LocalApic::InterruptCommand.write(0x000C4600 | init_vec as u32);
+    }
+
+    unsafe fn current_processor_id() -> ProcessorId {
+        ProcessorId::from(LocalApic::Id.read() >> 24)
     }
 }
 
@@ -366,6 +414,7 @@ struct IoApic {
     global_int: Irq,
     entries: u8,
     id: u8,
+    lock: Spinlock,
 }
 
 impl IoApic {
@@ -375,26 +424,87 @@ impl IoApic {
             global_int: Irq(acpi_ioapic.global_system_interrupt_base as u8),
             entries: 0,
             id: acpi_ioapic.id,
+            lock: Spinlock::new(),
         };
         let ver = ioapic.read(IoApicIndex::VER);
         ioapic.entries = 1 + (ver >> 16) as u8;
         ioapic
     }
 
-    unsafe fn read(&self, index: IoApicIndex) -> u32 {
+    unsafe fn read(&mut self, index: IoApicIndex) -> u32 {
         let ptr_index = self.base;
         let ptr_data = self.base.add(0x0010) as *const u32;
-        // TODO: lock
+        self.lock.lock();
         ptr_index.write_volatile(index.0);
-        ptr_data.read_volatile()
+        let value = ptr_data.read_volatile();
+        self.lock.unlock();
+        value
     }
 
-    unsafe fn write(&self, index: IoApicIndex, data: u32) {
+    unsafe fn write(&mut self, index: IoApicIndex, data: u32) {
         let ptr_index = self.base;
         let ptr_data = self.base.add(0x0010) as *const u32 as *mut u32;
-        // TODO: lock
+        self.lock.lock();
         ptr_index.write_volatile(index.0);
         ptr_data.write_volatile(data);
+        self.lock.unlock();
+    }
+}
+
+struct Hpet {
+    base: *mut u64,
+    main_cnt_period: u64,
+    measure_div: u64,
+}
+
+impl Hpet {
+    unsafe fn new(info: &acpi::HpetInfo) -> Box<Self> {
+        let mut hpet = Hpet {
+            base: info.base_address as *const u64 as *mut u64,
+            main_cnt_period: 0,
+            measure_div: 0,
+        };
+
+        Apic::register(Irq(0), LinearAddress(hpet_handler as usize)).unwrap();
+        hpet.main_cnt_period = hpet.read(0) >> 32;
+        hpet.write(0x10, 0);
+        hpet.write(0x20, 0); // Clear all interrupts
+        hpet.write(0xF0, 0); // Reset MAIN_COUNTER_VALUE
+        hpet.write(0x10, 0x03); // LEG_RT_CNF | ENABLE_CNF
+
+        hpet.measure_div = 1000_000_000 / hpet.main_cnt_period;
+        hpet.write(0x100, 0x0000_004C);
+        hpet.write(0x108, 1000_000_000_000 / hpet.main_cnt_period);
+
+        Box::new(hpet)
+    }
+
+    unsafe fn read(&self, index: usize) -> u64 {
+        let ptr = self.base.add(index >> 3);
+        ptr.read_volatile()
+    }
+
+    unsafe fn write(&self, index: usize, value: u64) {
+        let ptr = self.base.add(index >> 3);
+        ptr.write_volatile(value);
+    }
+
+    fn measure(&self) -> TimeMeasure {
+        unsafe { TimeMeasure((self.read(0xF0) / self.measure_div) as i64) }
+    }
+}
+
+impl TimerSource for Hpet {
+    fn create(&self, duration: TimeMeasure) -> TimeMeasure {
+        self.measure() + duration.0 as isize
+    }
+
+    fn until(&self, deadline: TimeMeasure) -> bool {
+        (deadline.0 - self.measure().0) > 0
+    }
+
+    fn diff(&self, from: TimeMeasure) -> isize {
+        self.measure().0 as isize - from.0 as isize
     }
 }
 
@@ -404,11 +514,20 @@ static mut TIMER_COUNTER: usize = 0;
 
 extern "x86-interrupt" fn timer_handler(_stack_frame: &ExceptionStackFrame) {
     unsafe {
-        TIMER_COUNTER += 0x123456;
-        stdout().fb().fill_rect(
-            Rect::new(400, 50, 20, 20),
-            Color::from(TIMER_COUNTER as u32),
-        );
+        TIMER_COUNTER += 0x040506;
+        stdout()
+            .fb()
+            .fill_rect(Rect::new(780, 5, 10, 10), Color::from(TIMER_COUNTER as u32));
+        LocalApic::eoi();
+    }
+}
+
+extern "x86-interrupt" fn hpet_handler(_stack_frame: &ExceptionStackFrame) {
+    unsafe {
+        TIMER_COUNTER += 0x010203;
+        stdout()
+            .fb()
+            .fill_rect(Rect::new(760, 5, 10, 10), Color::from(TIMER_COUNTER as u32));
         LocalApic::eoi();
     }
 }

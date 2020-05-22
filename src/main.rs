@@ -1,5 +1,6 @@
 // My UEFI-Rust Playground
 #![feature(abi_efiapi)]
+#![feature(llvm_asm)]
 #![no_std]
 #![no_main]
 use core::fmt::Write;
@@ -58,16 +59,21 @@ fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
     let system = myos::arch::system::System::shared();
 
     println!(
-        "My practice OS version {} Total {} / {} CPU Cores, {} MB System Memory",
+        "My practice OS version {} Total {} CPU Cores, {} MB System Memory",
         myos::MyOs::version(),
         system.number_of_active_cpus(),
-        system.number_of_cpus(),
         system.total_memory_size() >> 20,
     );
     println!("Hello, {:#}!", "Rust");
 
+    for i in 0..system.number_of_active_cpus() {
+        let cpu = system.cpu(i);
+        println!("CPU index:{} apic_id:{}", i, cpu.apic_id.0);
+    }
+
     loop {
         unsafe {
+            llvm_asm!("rdtscp");
             myos::arch::cpu::Cpu::halt();
         }
     }

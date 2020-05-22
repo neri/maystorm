@@ -3,5 +3,3 @@ pub mod system;
 
 #[cfg(any(target_arch = "x86_64"))]
 pub mod apic;
-#[cfg(any(target_arch = "x86_64"))]
-pub mod msr;

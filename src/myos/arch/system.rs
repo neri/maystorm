@@ -3,6 +3,35 @@
 use super::cpu::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
+use core::ptr::NonNull;
+
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct ProcessorId(pub u8);
+
+impl ProcessorId {
+    pub const fn as_u32(&self) -> u32 {
+        self.0 as u32
+    }
+}
+
+impl From<u8> for ProcessorId {
+    fn from(val: u8) -> Self {
+        Self(val)
+    }
+}
+
+impl From<u32> for ProcessorId {
+    fn from(val: u32) -> Self {
+        Self(val as u8)
+    }
+}
+
+impl From<usize> for ProcessorId {
+    fn from(val: usize) -> Self {
+        Self(val as u8)
+    }
+}
 
 pub struct System {
     total_memory_size: u64,
@@ -32,9 +61,9 @@ impl System {
         SYSTEM.acpi = Some(Box::new(acpi::parse_rsdp(&mut my_handler, rsdptr).unwrap()));
         SYSTEM.number_of_cpus = SYSTEM.acpi().application_processors.len() + 1;
 
-        SYSTEM
-            .cpus
-            .push(Cpu::new(SYSTEM.acpi().boot_processor.unwrap()));
+        SYSTEM.cpus.push(Cpu::new(ProcessorId::from(
+            SYSTEM.acpi().boot_processor.unwrap().local_apic_id,
+        )));
         Cpu::init();
     }
 
@@ -67,6 +96,11 @@ impl System {
     pub unsafe fn acpi(&self) -> &acpi::Acpi {
         self.acpi.as_ref().unwrap()
     }
+
+    #[inline]
+    pub unsafe fn activate_cpu(&self, new_cpu: Box<Cpu>) {
+        SYSTEM.cpus.push(new_cpu);
+    }
 }
 
 struct MyAcpiHandler {}
@@ -78,7 +112,6 @@ impl MyAcpiHandler {
 }
 
 use acpi::handler::PhysicalMapping;
-use core::ptr::NonNull;
 impl acpi::handler::AcpiHandler for MyAcpiHandler {
     unsafe fn map_physical_region<T>(
         &mut self,
