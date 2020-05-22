@@ -1,47 +1,35 @@
 // Spinlock
 
+use crate::myos::arch::cpu::Cpu;
 use core::sync::atomic::*;
 
 pub struct Spinlock {
-    value: AtomicUsize,
+    value: AtomicBool,
 }
 
 impl Spinlock {
-    const RELEASED: usize = 0;
-    const LOCKED: usize = 1;
     pub const fn new() -> Self {
         Self {
-            value: AtomicUsize::new(Self::RELEASED),
+            value: AtomicBool::new(false),
         }
     }
 
     pub fn lock(&mut self) {
-        loop {
-            match self.value.compare_exchange(
-                Self::RELEASED,
-                Self::LOCKED,
-                Ordering::Acquire,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => return,
-                Err(_) => (),
-            }
-            loop {
-                let mut count = 1;
-                match self.value.load(Ordering::Acquire) {
-                    Self::RELEASED => break,
-                    _ => {
-                        for _ in 0..count {
-                            spin_loop_hint();
-                        }
-                        count = core::cmp::min(count << 1, 64);
-                    }
+        while self.value.compare_and_swap(false, true, Ordering::Relaxed) {
+            let mut count = 1;
+            while self.value.load(Ordering::Acquire) {
+                for _ in 0..count {
+                    // spin_loop_hint();
+                    Cpu::relax();
                 }
+                count = core::cmp::min(count << 1, 64);
             }
         }
+        fence(Ordering::Acquire);
     }
 
     pub fn unlock(&mut self) {
-        self.value.store(Self::RELEASED, Ordering::Release);
+        self.value.store(false, Ordering::Relaxed);
+        fence(Ordering::Release);
     }
 }

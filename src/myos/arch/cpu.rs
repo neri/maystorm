@@ -41,6 +41,12 @@ impl Cpu {
         }
     }
 
+    pub fn relax() {
+                            unsafe {
+                        llvm_asm!("pause");
+                    }
+    }
+
     pub unsafe fn halt() {
         llvm_asm!("hlt");
     }

@@ -88,8 +88,7 @@ _ap_startup:
 
     ; init APIC
     mov ecx, ebp
-    mov rax, apic_start_ap
-    call rax
+    call apic_start_ap
 
     ; idle thread
     sti
