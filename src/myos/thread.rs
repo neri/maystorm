@@ -2,13 +2,11 @@
 
 use super::arch::cpu::Cpu;
 use alloc::boxed::Box;
-use alloc::vec::*;
-use core::ffi::c_void;
 use core::ops::*;
-use core::ptr::*;
 
 static mut TIMER_SOURCE: Option<Box<dyn TimerSource>> = None;
 
+#[allow(dead_code)]
 pub struct Thread {
     id: usize,
 }
@@ -20,11 +18,21 @@ impl Thread {
         Thread { id: 0 }
     }
 
+    pub fn spawn<F>(f: F)
+    where
+        F: FnOnce() -> (),
+    {
+        // TODO: spawn
+        f();
+    }
+
     pub fn sleep(duration: TimeMeasure) {
         let timer = unsafe { TIMER_SOURCE.as_ref().unwrap() };
         let deadline = timer.create(duration);
         while timer.until(deadline) {
-            Cpu::relax();
+            unsafe {
+                Cpu::halt();
+            }
         }
     }
 
@@ -34,6 +42,11 @@ impl Thread {
 
     pub unsafe fn set_timer(source: Box<dyn TimerSource>) {
         TIMER_SOURCE = Some(source);
+    }
+
+    pub unsafe fn start_threading() {
+        // TODO: init threading
+        Self::usleep(1);
     }
 }
 

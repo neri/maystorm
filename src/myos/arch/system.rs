@@ -1,5 +1,6 @@
 // A Computer System
 
+use super::super::thread::Thread;
 use super::cpu::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
@@ -54,7 +55,10 @@ impl System {
         }
     }
 
-    pub unsafe fn init(rsdptr: usize, total_memory_size: u64) {
+    pub unsafe fn init<F>(rsdptr: usize, total_memory_size: u64, f: F) -> !
+    where
+        F: FnOnce(&System) -> (),
+    {
         let mut my_handler = MyAcpiHandler::new();
 
         SYSTEM.total_memory_size = total_memory_size;
@@ -65,6 +69,14 @@ impl System {
             SYSTEM.acpi().boot_processor.unwrap().local_apic_id,
         )));
         Cpu::init();
+
+        Thread::start_threading();
+
+        f(Self::shared());
+
+        loop {
+            Cpu::halt();
+        }
     }
 
     #[inline]

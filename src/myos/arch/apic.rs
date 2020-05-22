@@ -138,6 +138,9 @@ impl Apic {
         Thread::usleep(10_000);
         LocalApic::broadcast_sipi(1);
         Thread::usleep(200_000);
+        if System::shared().number_of_cpus() != System::shared().number_of_active_cpus() {
+            panic!("Some of the processors are not responding");
+        }
 
         // test ps2
         Self::register(Irq(1), LinearAddress(ps2_handler as usize)).unwrap();

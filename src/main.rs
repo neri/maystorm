@@ -53,13 +53,13 @@ fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
         }
     }
     unsafe {
-        myos::arch::system::System::init(rsdptr as usize, total_memory_size);
+        myos::arch::system::System::init(rsdptr as usize, total_memory_size, first_child);
     }
+}
 
-    let system = myos::arch::system::System::shared();
-
+fn first_child(system: &myos::arch::system::System) {
     println!(
-        "My practice OS version {} Total {} CPU Cores, {} MB System Memory",
+        "My practice OS version {} Total {} Cores, {} MB Memory",
         myos::MyOs::version(),
         system.number_of_active_cpus(),
         system.total_memory_size() >> 20,
@@ -73,7 +73,6 @@ fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
 
     loop {
         unsafe {
-            llvm_asm!("rdtscp");
             myos::arch::cpu::Cpu::halt();
         }
     }
