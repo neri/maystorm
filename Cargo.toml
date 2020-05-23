@@ -8,7 +8,10 @@ edition = "2018"
 
 [dependencies]
 uefi = { git = "https://github.com/rust-osdev/uefi-rs.git" }
+# acpi = { path = "./ext/acpi" }
 acpi = { git = "https://github.com/rust-osdev/acpi" }
+aml = { git = "https://github.com/rust-osdev/acpi" }
+bitflags = {}
 
 [profile.release]
 opt-level = "z"

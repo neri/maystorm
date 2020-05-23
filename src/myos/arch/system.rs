@@ -1,8 +1,8 @@
 // A Computer System
 
-use super::super::thread::Thread;
+use super::super::thread::*;
 use super::cpu::*;
-use super::lpc::*;
+use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
 use core::ptr::NonNull;
@@ -87,9 +87,9 @@ impl System {
         )));
         Cpu::init();
 
-        Thread::start_threading();
+        ThreadManager::start_threading();
 
-        LowPinCount::init();
+        myos::bus::lpc::LowPinCount::init();
 
         f(Self::shared());
 

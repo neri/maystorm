@@ -1,5 +1,6 @@
 // Central Processing Unit
 
+use crate::myos::arch::apic::Apic;
 use crate::myos::arch::system::*;
 use alloc::boxed::Box;
 
@@ -13,7 +14,7 @@ pub struct Cpu {
 //unsafe impl Sync for Cpu {}
 
 impl Cpu {
-    pub unsafe fn new(cpuid: ProcessorId) -> Box<Self> {
+    pub(crate) unsafe fn new(cpuid: ProcessorId) -> Box<Self> {
         let tss = TaskStateSegment::new();
         let gdt = GlobalDescriptorTable::new(&tss);
         let cpu = Box::new(Cpu {
@@ -24,13 +25,13 @@ impl Cpu {
         cpu
     }
 
-    pub unsafe fn init() {
+    pub(crate) unsafe fn init() {
         InterruptDescriptorTable::init();
 
         if let acpi::InterruptModel::Apic(apic) =
             System::shared().acpi().interrupt_model.as_ref().unwrap()
         {
-            crate::myos::arch::apic::Apic::init(apic);
+            Apic::init(apic);
         } else {
             panic!("NO APIC");
         }

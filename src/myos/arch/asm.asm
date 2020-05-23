@@ -22,6 +22,42 @@
 [bits 64]
 [section .text]
 
+;   pub unsafe extern "efiapi" fn apic_handle_irq(irq: Irq);
+    extern apic_handle_irq
+
+_irq2:
+    push rcx
+    mov cl, 2
+    jmp _irqXX
+_irq1:
+    push rcx
+    mov cl, 1
+    jmp _irqXX
+_irq0:
+    push rcx
+    mov cl, 0
+;   jmp _irqXX
+
+_irqXX:
+    push rax
+    push rdx
+    push r8
+    push r9
+    push r10
+    push r11
+    cld
+
+    call apic_handle_irq
+
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rdx
+    pop rax
+    pop rcx
+    iretq
+
     extern apic_start_ap
 
 ;   fn setup_smp_init(vec_sipi: u8, max_cpu: usize, stack_chunk_size: usize, stack_base: *mut u8);

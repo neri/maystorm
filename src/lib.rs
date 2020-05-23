@@ -23,6 +23,9 @@ pub mod myos;
 
 extern crate alloc;
 
+#[macro_use()]
+extern crate bitflags;
+
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     stdout().set_cursor_enabled(false);

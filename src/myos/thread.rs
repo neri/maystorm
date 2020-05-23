@@ -14,10 +14,6 @@ pub struct Thread {
 unsafe impl Sync for Thread {}
 
 impl Thread {
-    pub fn new() -> Self {
-        Thread { id: 0 }
-    }
-
     pub fn spawn<F>(f: F)
     where
         F: FnOnce() -> (),
@@ -39,21 +35,31 @@ impl Thread {
     pub fn usleep(us: u64) {
         Self::sleep(TimeMeasure::from_micros(us));
     }
-
-    pub unsafe fn set_timer(source: Box<dyn TimerSource>) {
-        TIMER_SOURCE = Some(source);
-    }
-
-    pub unsafe fn start_threading() {
-        // TODO: init threading
-        Self::usleep(1);
-    }
 }
 
 pub trait TimerSource {
     fn create(&self, h: TimeMeasure) -> TimeMeasure;
     fn until(&self, h: TimeMeasure) -> bool;
     fn diff(&self, h: TimeMeasure) -> isize;
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct Timer {
+    deadline: TimeMeasure,
+}
+
+impl Timer {
+    pub fn new(duration: TimeMeasure) -> Self {
+        let timer = unsafe { TIMER_SOURCE.as_ref().unwrap() };
+        Timer {
+            deadline: timer.create(duration),
+        }
+    }
+
+    pub fn until(&self) -> bool {
+        let timer = unsafe { TIMER_SOURCE.as_ref().unwrap() };
+        timer.until(self.deadline)
+    }
 }
 
 #[repr(transparent)]
@@ -97,5 +103,21 @@ impl Sub<isize> for TimeMeasure {
     type Output = Self;
     fn sub(self, rhs: isize) -> Self {
         Self(self.0 - rhs as i64)
+    }
+}
+
+#[allow(dead_code)]
+pub struct ThreadManager {
+    data: u8,
+}
+
+impl ThreadManager {
+    pub(crate) unsafe fn set_timer(source: Box<dyn TimerSource>) {
+        TIMER_SOURCE = Some(source);
+    }
+
+    pub(crate) unsafe fn start_threading() {
+        // TODO: init threading
+        Thread::usleep(1);
     }
 }

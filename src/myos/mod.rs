@@ -1,4 +1,5 @@
 pub mod arch;
+pub mod bus;
 pub mod io;
 pub mod mem;
 pub mod mux;

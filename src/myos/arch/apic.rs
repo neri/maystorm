@@ -9,7 +9,6 @@ use super::cpu::*;
 use super::system::*;
 use crate::mux::spinlock::Spinlock;
 use crate::myos::io::graphics::*;
-use crate::myos::thread::Thread;
 use crate::myos::thread::*;
 use crate::stdout;
 use crate::*;
@@ -56,7 +55,7 @@ impl Apic {
         }
     }
 
-    pub unsafe fn init(acpi_apic: &acpi::interrupt::Apic) {
+    pub(crate) unsafe fn init(acpi_apic: &acpi::interrupt::Apic) {
         if acpi_apic.also_has_legacy_pics {
             // disable legacy PICs
             Cpu::out8(0xA1, 0xFF);
@@ -70,11 +69,13 @@ impl Apic {
         APIC.master_apic_id = System::shared().cpu(0).as_ref().apic_id;
         LocalApic::init(acpi_apic.local_apic_address as usize);
 
-        // define default gsi table for PS/2 Keyboard
-        APIC.gsi_table[1] = GsiProps {
-            global_irq: Irq(1),
-            polarity: PackedPolarity(0),
-        };
+        // Define Default GSI table for ISA devices
+        for irq in &[1, 12] {
+            APIC.gsi_table[*irq as usize] = GsiProps {
+                global_irq: Irq(*irq),
+                polarity: PackedPolarity(0),
+            };
+        }
 
         // import gsi table from ACPI
         for source in &acpi_apic.interrupt_source_overrides {
@@ -95,6 +96,7 @@ impl Apic {
         for acpi_ioapic in &acpi_apic.io_apics {
             APIC.ioapics.push(Box::new(IoApic::new(acpi_ioapic)));
         }
+
         InterruptDescriptorTable::register(
             Irq(1).as_vec(),
             VirtualAddress(irq_01_handler as usize),
@@ -102,6 +104,10 @@ impl Apic {
         InterruptDescriptorTable::register(
             Irq(2).as_vec(),
             VirtualAddress(irq_02_handler as usize),
+        );
+        InterruptDescriptorTable::register(
+            Irq(12).as_vec(),
+            VirtualAddress(irq_0c_handler as usize),
         );
 
         // LAPIC timer
@@ -124,7 +130,7 @@ impl Apic {
             }
             let count = LocalApic::TimerCurrentCount.read() as u64;
             APIC.lapic_timer_value = ((u32::MAX as u64 - count) * magic_number / 1000) as u32;
-            Thread::set_timer(hpet);
+            ThreadManager::set_timer(hpet);
         } else {
             panic!("No Reference Timer found");
         }
@@ -152,10 +158,16 @@ impl Apic {
         let props = APIC.gsi_table[irq.0 as usize];
         let global_irq = props.global_irq;
         let polarity = props.polarity;
+        if global_irq.0 == 0 {
+            return Err(());
+        }
 
         for ioapic in APIC.ioapics.iter_mut() {
             let local_irq = global_irq.0 - ioapic.global_int.0;
             if ioapic.global_int <= global_irq && local_irq < ioapic.entries {
+                if APIC.idt[global_irq.0 as usize] != VirtualAddress::NULL {
+                    return Err(());
+                }
                 APIC.idt[global_irq.0 as usize] = VirtualAddress(f as usize);
                 let pair = Self::make_redirect_table_entry_pair(
                     global_irq.as_vec(),
@@ -353,14 +365,13 @@ impl LocalApic {
         let myid = LocalApic::current_processor_id();
 
         // let vec_latimer = Irq(?).as_vec();
-        // LocalApic::clear_timer();
-        // LocalApic::set_timer_div(LocalApicTimerDivide::By1);
+        LocalApic::clear_timer();
+        LocalApic::set_timer_div(LocalApicTimerDivide::By1);
         // LocalApic::set_timer(LocalApicTimerMode::Periodic, vec_latimer, APIC.lapic_timer_value);
 
         myid
     }
 
-    #[allow(dead_code)]
     unsafe fn read(&self) -> u32 {
         let ptr = LOCAL_APIC_BASE.unwrap().as_ptr().add(*self as usize) as *const u32;
         ptr.read_volatile()
@@ -556,6 +567,12 @@ extern "x86-interrupt" fn irq_01_handler() {
 extern "x86-interrupt" fn irq_02_handler() {
     unsafe {
         apic_handle_irq(Irq(2));
+    }
+}
+
+extern "x86-interrupt" fn irq_0c_handler() {
+    unsafe {
+        apic_handle_irq(Irq(12));
     }
 }
 
