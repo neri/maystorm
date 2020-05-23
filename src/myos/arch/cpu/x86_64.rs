@@ -24,10 +24,6 @@ impl Cpu {
         cpu
     }
 
-    pub fn current() -> &'static Box<Cpu> {
-        System::shared().cpu(0)
-    }
-
     pub unsafe fn init() {
         InterruptDescriptorTable::init();
 
@@ -38,6 +34,10 @@ impl Cpu {
         } else {
             panic!("NO APIC");
         }
+    }
+
+    pub fn current() -> &'static Box<Cpu> {
+        System::shared().cpu(0)
     }
 
     pub fn relax() {
@@ -83,20 +83,16 @@ const KERNEL_CODE: Selector = Selector::new(1, PrivilegeLevel::Kernel);
 const KERNEL_DATA: Selector = Selector::new(2, PrivilegeLevel::Kernel);
 const TSS: Selector = Selector::new(6, PrivilegeLevel::Kernel);
 
-#[repr(transparent)]
-#[derive(Copy, Clone, PartialEq, PartialOrd)]
-pub struct LinearAddress(pub usize);
-
 use core::fmt;
-impl fmt::Display for LinearAddress {
+impl fmt::Display for VirtualAddress {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:016x}", self.0)
     }
 }
 
-impl fmt::Debug for LinearAddress {
+impl fmt::Debug for VirtualAddress {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "LinearAddress({:#016x})", self.0)
+        write!(f, "VirtualAddress({:#016x})", self.0)
     }
 }
 
@@ -109,6 +105,8 @@ pub struct Limit(pub u16);
 pub struct Selector(pub u16);
 
 impl Selector {
+    pub const NULL: Selector = Selector(0);
+
     pub const fn new(index: usize, rpl: PrivilegeLevel) -> Self {
         Selector((index << 3) as u16 | rpl as u16)
     }
@@ -292,7 +290,7 @@ impl DescriptorEntry {
         DescriptorEntry(value)
     }
 
-    pub const fn tss_descriptor(offset: LinearAddress, limit: Limit) -> DescriptorPair {
+    pub const fn tss_descriptor(offset: VirtualAddress, limit: Limit) -> DescriptorPair {
         let offset = offset.0 as u64;
         let low = DescriptorEntry(
             limit.0 as u64
@@ -306,7 +304,7 @@ impl DescriptorEntry {
     }
 
     pub const fn gate_descriptor(
-        offset: LinearAddress,
+        offset: VirtualAddress,
         sel: Selector,
         dpl: PrivilegeLevel,
         ty: DescriptorType,
@@ -350,7 +348,7 @@ pub struct GlobalDescriptorTable {
 impl GlobalDescriptorTable {
     pub fn new(tss: &Box<TaskStateSegment>) -> Box<Self> {
         let tss_pair = DescriptorEntry::tss_descriptor(
-            LinearAddress(tss.as_ref() as *const _ as usize),
+            VirtualAddress(tss.as_ref() as *const _ as usize),
             tss.limit(),
         );
         let mut gdt = Box::new(GlobalDescriptorTable {
@@ -417,19 +415,19 @@ impl InterruptDescriptorTable {
             Self::load();
             Self::register(
                 Exception::InvalidOpcode.as_vec(),
-                LinearAddress(interrupt_ud_handler as usize),
+                VirtualAddress(interrupt_ud_handler as usize),
             );
             Self::register(
                 Exception::DoubleFault.as_vec(),
-                LinearAddress(interrupt_df_handler as usize),
+                VirtualAddress(interrupt_df_handler as usize),
             );
             Self::register(
                 Exception::GeneralProtection.as_vec(),
-                LinearAddress(interrupt_gp_handler as usize),
+                VirtualAddress(interrupt_gp_handler as usize),
             );
             Self::register(
                 Exception::PageFault.as_vec(),
-                LinearAddress(interrupt_page_handler as usize),
+                VirtualAddress(interrupt_page_handler as usize),
             );
         }
     }
@@ -445,7 +443,7 @@ impl InterruptDescriptorTable {
         );
     }
 
-    pub unsafe fn register(vec: InterruptVector, offset: LinearAddress) {
+    pub unsafe fn register(vec: InterruptVector, offset: VirtualAddress) {
         let pair = DescriptorEntry::gate_descriptor(
             offset,
             KERNEL_CODE,
@@ -514,10 +512,10 @@ impl Msr {
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
 pub struct ExceptionStackFrame {
-    pub rip: LinearAddress,
+    pub rip: VirtualAddress,
     pub cs: u64,
     pub flags: u64,
-    pub rsp: LinearAddress,
+    pub rsp: VirtualAddress,
     pub ss: u64,
 }
 

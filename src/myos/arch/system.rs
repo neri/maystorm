@@ -2,6 +2,7 @@
 
 use super::super::thread::Thread;
 use super::cpu::*;
+use super::lpc::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
 use core::ptr::NonNull;
@@ -31,6 +32,22 @@ impl From<u32> for ProcessorId {
 impl From<usize> for ProcessorId {
     fn from(val: usize) -> Self {
         Self(val as u8)
+    }
+}
+
+#[repr(transparent)]
+#[derive(Copy, Clone, PartialEq, PartialOrd)]
+pub struct VirtualAddress(pub usize);
+
+impl VirtualAddress {
+    pub const NULL: VirtualAddress = VirtualAddress(0);
+
+    pub fn into_nonnull<T>(&self) -> Option<NonNull<T>> {
+        if *self != Self::NULL {
+            NonNull::new(self.0 as *const T as *mut T)
+        } else {
+            None
+        }
     }
 }
 
@@ -71,6 +88,8 @@ impl System {
         Cpu::init();
 
         Thread::start_threading();
+
+        LowPinCount::init();
 
         f(Self::shared());
 

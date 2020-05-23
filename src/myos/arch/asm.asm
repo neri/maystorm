@@ -24,7 +24,7 @@
 
     extern apic_start_ap
 
-; uint32_t *setup_smp_init(uint8_t vector_sipi, int max_cpu, size_t stack_chunk_size, uintptr_t* stack_base);
+;   fn setup_smp_init(vec_sipi: u8, max_cpu: usize, stack_chunk_size: usize, stack_base: *mut u8);
     global setup_smp_init
 setup_smp_init:
     push rsi
@@ -77,7 +77,6 @@ setup_smp_init:
     ret
 
 
-    mov eax, 0xdeadbeef
 _ap_startup:
     lidt [rbx + SMPINFO_IDT]
 
@@ -98,6 +97,7 @@ _ap_startup:
     jmp .loop
 
 
+    ; Payload SMP initialization
 [bits 16]
 _smp_rm_payload:
     cli
@@ -170,6 +170,7 @@ _startup64:
 
 _end_smp_rm_payload:
 
+    ; Boot time minimal GDT
 _minimal_GDT:
     dw 0, 0, 0, 0                       ; 00 NULL
     dw 0xFFFF, 0x0000, 0x9A00, 0x00CF   ; 08 DPL0 CODE32 FLAT HISTORICAL

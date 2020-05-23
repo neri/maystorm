@@ -29,23 +29,19 @@ extern "efiapi" {
 static mut GLOBALLOCK: Spinlock = Spinlock::new();
 
 #[no_mangle]
-pub extern "efiapi" fn apic_start_ap(_cpuid: u8) {
-    unsafe {
-        GLOBALLOCK.lock();
-        let new_cpu = Cpu::new(LocalApic::init_ap());
-        System::shared().activate_cpu(new_cpu);
-        // println!("Started AP {}", LocalApic::current_processor_id().0);
-        GLOBALLOCK.unlock();
-        loop {
-            Cpu::halt();
-        }
-    }
+pub unsafe extern "efiapi" fn apic_start_ap(_cpuid: u8) {
+    GLOBALLOCK.lock();
+    let new_cpu = Cpu::new(LocalApic::init_ap());
+    System::shared().activate_cpu(new_cpu);
+    // println!("Started AP {}", LocalApic::current_processor_id().0);
+    GLOBALLOCK.unlock();
 }
 
 pub struct Apic {
     master_apic_id: ProcessorId,
     ioapics: Vec<Box<IoApic>>,
     gsi_table: [GsiProps; 256],
+    idt: [VirtualAddress; Irq::MAX.0 as usize],
     lapic_timer_value: u32,
 }
 
@@ -55,6 +51,7 @@ impl Apic {
             master_apic_id: ProcessorId(0),
             ioapics: Vec::new(),
             gsi_table: [GsiProps::null(); 256],
+            idt: [VirtualAddress::NULL; Irq::MAX.0 as usize],
             lapic_timer_value: 0,
         }
     }
@@ -75,14 +72,14 @@ impl Apic {
 
         // define default gsi table for PS/2 Keyboard
         APIC.gsi_table[1] = GsiProps {
-            gsi: Irq(1),
+            global_irq: Irq(1),
             polarity: PackedPolarity(0),
         };
 
         // import gsi table from ACPI
         for source in &acpi_apic.interrupt_source_overrides {
             let props = GsiProps {
-                gsi: Irq(source.global_system_interrupt as u8),
+                global_irq: Irq(source.global_system_interrupt as u8),
                 polarity: PackedPolarity::new(
                     ApicPolarity::from(&source.polarity),
                     ApicTriggerMode::from(&source.trigger_mode),
@@ -98,10 +95,18 @@ impl Apic {
         for acpi_ioapic in &acpi_apic.io_apics {
             APIC.ioapics.push(Box::new(IoApic::new(acpi_ioapic)));
         }
+        InterruptDescriptorTable::register(
+            Irq(1).as_vec(),
+            VirtualAddress(irq_01_handler as usize),
+        );
+        InterruptDescriptorTable::register(
+            Irq(2).as_vec(),
+            VirtualAddress(irq_02_handler as usize),
+        );
 
         // LAPIC timer
         let vec_latimer = Irq(0).as_vec();
-        InterruptDescriptorTable::register(vec_latimer, LinearAddress(timer_handler as usize));
+        InterruptDescriptorTable::register(vec_latimer, VirtualAddress(timer_handler as usize));
         LocalApic::clear_timer();
         LocalApic::set_timer_div(LocalApicTimerDivide::By1);
         if let Some(hpet_info) = &System::shared().acpi().hpet {
@@ -141,23 +146,22 @@ impl Apic {
         if System::shared().number_of_cpus() != System::shared().number_of_active_cpus() {
             panic!("Some of the processors are not responding");
         }
-
-        // test ps2
-        Self::register(Irq(1), LinearAddress(ps2_handler as usize)).unwrap();
     }
 
-    unsafe fn register(irq: Irq, f: LinearAddress) -> Result<(), ()> {
+    pub unsafe fn register(irq: Irq, f: IrqHandler) -> Result<(), ()> {
         let props = APIC.gsi_table[irq.0 as usize];
-        let gsi = props.gsi;
+        let global_irq = props.global_irq;
         let polarity = props.polarity;
 
         for ioapic in APIC.ioapics.iter_mut() {
-            let local_irq = gsi.0 - ioapic.global_int.0;
-            if ioapic.global_int <= gsi && local_irq < ioapic.entries {
-                let vec_irq = gsi.as_vec();
-                InterruptDescriptorTable::register(vec_irq, f);
-                let pair =
-                    Self::make_redirect_table_entry_pair(vec_irq, polarity, APIC.master_apic_id);
+            let local_irq = global_irq.0 - ioapic.global_int.0;
+            if ioapic.global_int <= global_irq && local_irq < ioapic.entries {
+                APIC.idt[global_irq.0 as usize] = VirtualAddress(f as usize);
+                let pair = Self::make_redirect_table_entry_pair(
+                    global_irq.as_vec(),
+                    polarity,
+                    APIC.master_apic_id,
+                );
                 ioapic.write(IoApicIndex::redir_table_high(local_irq), pair.1);
                 ioapic.write(IoApicIndex::redir_table_low(local_irq), pair.0);
                 return Ok(());
@@ -168,11 +172,11 @@ impl Apic {
 
     pub unsafe fn set_irq_enabled(irq: Irq, new_value: bool) -> Result<(), ()> {
         let props = APIC.gsi_table[irq.0 as usize];
-        let gsi = props.gsi;
+        let global_irq = props.global_irq;
 
         for ioapic in APIC.ioapics.iter_mut() {
-            let local_irq = gsi.0 - ioapic.global_int.0;
-            if ioapic.global_int <= gsi && local_irq < ioapic.entries {
+            let local_irq = global_irq.0 - ioapic.global_int.0;
+            if ioapic.global_int <= global_irq && local_irq < ioapic.entries {
                 let mut value = ioapic.read(IoApicIndex::redir_table_low(local_irq * 2));
                 if new_value {
                     value &= !APIC_REDIR_MASK;
@@ -192,6 +196,26 @@ impl Apic {
         apic_id: ProcessorId,
     ) -> (u32, u32) {
         (vec.0 as u32 | polarity.as_redir(), apic_id.as_u32() << 24)
+    }
+
+    fn eoi() {
+        unsafe {
+            LocalApic::eoi();
+        }
+    }
+}
+
+pub type IrqHandler = fn(Irq) -> ();
+
+#[no_mangle]
+pub unsafe extern "efiapi" fn apic_handle_irq(irq: Irq) {
+    let e = APIC.idt[irq.0 as usize];
+    if e != VirtualAddress::NULL {
+        let f = core::mem::transmute::<usize, IrqHandler>(e.0);
+        f(irq);
+        Apic::eoi();
+    } else {
+        panic!("Why IRQ {} is Enabled, But not installed", irq.0);
     }
 }
 
@@ -216,14 +240,14 @@ impl From<Irq> for InterruptVector {
 
 #[derive(Debug, Copy, Clone)]
 struct GsiProps {
-    gsi: Irq,
+    global_irq: Irq,
     polarity: PackedPolarity,
 }
 
 impl GsiProps {
     const fn null() -> Self {
         GsiProps {
-            gsi: Irq(0),
+            global_irq: Irq(0),
             polarity: PackedPolarity(0),
         }
     }
@@ -468,7 +492,7 @@ impl Hpet {
             measure_div: 0,
         };
 
-        Apic::register(Irq(0), LinearAddress(hpet_handler as usize)).unwrap();
+        Apic::register(Irq(0), Self::irq_handler).unwrap();
         hpet.main_cnt_period = hpet.read(0) >> 32;
         hpet.write(0x10, 0);
         hpet.write(0x20, 0); // Clear all interrupts
@@ -495,6 +519,16 @@ impl Hpet {
     fn measure(&self) -> TimeMeasure {
         unsafe { TimeMeasure((self.read(0xF0) / self.measure_div) as i64) }
     }
+
+    fn irq_handler(_irq: Irq) {
+        // TODO:
+        unsafe {
+            TIMER_COUNTER += 0x010203;
+            stdout()
+                .fb()
+                .fill_rect(Rect::new(760, 5, 10, 10), Color::from(TIMER_COUNTER as u32));
+        }
+    }
 }
 
 impl TimerSource for Hpet {
@@ -513,33 +547,26 @@ impl TimerSource for Hpet {
 
 //-//-//-// TEST //-//-//-//
 
+extern "x86-interrupt" fn irq_01_handler() {
+    unsafe {
+        apic_handle_irq(Irq(1));
+    }
+}
+
+extern "x86-interrupt" fn irq_02_handler() {
+    unsafe {
+        apic_handle_irq(Irq(2));
+    }
+}
+
 static mut TIMER_COUNTER: usize = 0;
 
-extern "x86-interrupt" fn timer_handler(_stack_frame: &ExceptionStackFrame) {
+extern "x86-interrupt" fn timer_handler() {
     unsafe {
         TIMER_COUNTER += 0x040506;
         stdout()
             .fb()
             .fill_rect(Rect::new(780, 5, 10, 10), Color::from(TIMER_COUNTER as u32));
-        LocalApic::eoi();
-    }
-}
-
-extern "x86-interrupt" fn hpet_handler(_stack_frame: &ExceptionStackFrame) {
-    unsafe {
-        TIMER_COUNTER += 0x010203;
-        stdout()
-            .fb()
-            .fill_rect(Rect::new(760, 5, 10, 10), Color::from(TIMER_COUNTER as u32));
-        LocalApic::eoi();
-    }
-}
-
-extern "x86-interrupt" fn ps2_handler(_stack_frame: &ExceptionStackFrame) {
-    unsafe {
-        let mut al: u8;
-        llvm_asm!("inb $$0x60, %al": "={al}"(al));
-        print!(" {:02x}", al);
         LocalApic::eoi();
     }
 }
