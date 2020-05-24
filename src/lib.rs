@@ -54,7 +54,7 @@ where
         let gop = gop.unwrap();
         let gop = unsafe { &mut *gop.get() };
         let fb = FrameBuffer::from(gop);
-        let stdout = GraphicalConsole::new(fb);
+        let stdout = GraphicalConsole::from(fb);
         unsafe {
             STDOUT = NonNull::new(&stdout as *const _ as *mut _);
         }

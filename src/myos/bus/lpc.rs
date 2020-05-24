@@ -1,10 +1,10 @@
-// Legacy PC's Low Pin Count Device
+// Legacy PC's Low Pin Count Bus Device
 
 use crate::myos::arch::apic::*;
 use crate::myos::arch::cpu::Cpu;
+use crate::myos::io::hid::*;
 use crate::myos::mux::queue::*;
 use crate::myos::thread::*;
-use crate::stdout;
 use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;
@@ -17,43 +17,65 @@ impl LowPinCount {
     }
 }
 
-#[allow(dead_code)]
-static PS2_TO_HID: [u8; 256] = [
-    0x00, 0x29, 0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2D, 0x2E, 0x2A,
-    0x2B, // 0
-    0x14, 0x1A, 0x08, 0x15, 0x17, 0x1C, 0x18, 0x0C, 0x12, 0x13, 0x2F, 0x30, 0x28, 0xE0, 0x04,
-    0x16, // 1
-    0x07, 0x09, 0x0A, 0x0B, 0x0D, 0x0E, 0x0F, 0x33, 0x34, 0x35, 0xE1, 0x31, 0x1D, 0x1B, 0x06,
-    0x19, // 2
-    0x05, 0x11, 0x10, 0x36, 0x37, 0x38, 0xE5, 0x55, 0xE2, 0x2C, 0x39, 0x3A, 0x3B, 0x3C, 0x3D,
-    0x3E, // 3
-    0x3F, 0x40, 0x41, 0x42, 0x43, 0x53, 0x47, 0x5F, 0x60, 0x61, 0x56, 0x5C, 0x5D, 0x5E, 0x57,
-    0x59, // 4
-    0x5A, 0x5B, 0x62, 0x63, 0, 0, 0, 0x44, 0x45, 0, 0, 0, 0, 0, 0, 0, // 5
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 6
-    0x88, 0, 0, 0x87, 0, 0, 0, 0, 0, 0x8A, 0, 0x8B, 0, 0x89, 0, 0, // 7
-    //  ---0  ---1  ---2  ---3  ---4  ---5  ---6  ---7  ---8  ---9  ---A  ---B  ---C  ---D  ---E  ---F
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // E0 0
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x58, 0xE4, 0, 0, // E0 1
-    0x7F, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x81, 0, // E0 2
-    0x80, 0, 0, 0, 0, 0x54, 0, 0, 0xE6, 0, 0, 0, 0, 0, 0, 0, // E0 3
-    0, 0, 0, 0, 0, 0, 0, 0x4A, 0x52, 0x4B, 0, 0x50, 0, 0x4F, 0, 0x4D, // E0 4
-    0x51, 0x4E, 0x49, 0x4C, 0, 0, 0, 0, 0, 0, 0, 0xE3, 0xE7, 0x65, 0x66, 0, // E0 5
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // E0 6
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // E0 7
-];
+static mut PS2: Option<Box<Ps2>> = None;
+
+struct Ps2 {
+    key_state: Ps2KeyState,
+    mos_phase: Ps2MousePhase,
+    modifier: Modifier,
+    mouse_buf: [Ps2Data; 3],
+    key_buf: Box<ConcurrentRingBuffer<Ps2Data>>,
+    mos_buf: Box<ConcurrentRingBuffer<Ps2Data>>,
+}
 
 enum Ps2KeyState {
     Default,
     Extend,
 }
 
-static mut PS2: Option<Box<Ps2>> = None;
-
-struct Ps2 {
-    key_state: Ps2KeyState,
-    q: Box<Queue<Ps2Data>>,
+enum Ps2MousePhase {
+    Ack,
+    Header,
+    X,
+    Y,
 }
+
+impl Ps2MousePhase {
+    fn next(&mut self) {
+        *self = match *self {
+            Ps2MousePhase::Ack => Ps2MousePhase::Header,
+            Ps2MousePhase::Header => Ps2MousePhase::X,
+            Ps2MousePhase::X => Ps2MousePhase::Y,
+            Ps2MousePhase::Y => Ps2MousePhase::Header,
+        }
+    }
+
+    fn as_index(&self) -> usize {
+        match *self {
+            Ps2MousePhase::Header => 0,
+            Ps2MousePhase::X => 1,
+            Ps2MousePhase::Y => 2,
+            _ => 0,
+        }
+    }
+}
+
+// PS2 scan code to HID usage table
+static PS2_TO_HID: [u8; 256] = [
+    0x00, 0x29, 0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2D, 0x2E, 0x2A, 0x2B,
+    0x14, 0x1A, 0x08, 0x15, 0x17, 0x1C, 0x18, 0x0C, 0x12, 0x13, 0x2F, 0x30, 0x28, 0xE0, 0x04, 0x16,
+    0x07, 0x09, 0x0A, 0x0B, 0x0D, 0x0E, 0x0F, 0x33, 0x34, 0x35, 0xE1, 0x31, 0x1D, 0x1B, 0x06, 0x19,
+    0x05, 0x11, 0x10, 0x36, 0x37, 0x38, 0xE5, 0x55, 0xE2, 0x2C, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E,
+    0x3F, 0x40, 0x41, 0x42, 0x43, 0x53, 0x47, 0x5F, 0x60, 0x61, 0x56, 0x5C, 0x5D, 0x5E, 0x57, 0x59,
+    0x5A, 0x5B, 0x62, 0x63, 0, 0, 0, 0x44, 0x45, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0x88, 0, 0, 0x87, 0, 0, 0, 0, 0, 0x8A, 0, 0x8B, 0, 0x89, 0, 0,
+    // ----
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x58, 0xE4,
+    0, 0, 0x7F, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x81, 0, 0x80, 0, 0, 0, 0, 0x54, 0, 0, 0xE6,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x4A, 0x52, 0x4B, 0, 0x50, 0, 0x4F, 0, 0x4D, 0x51,
+    0x4E, 0x49, 0x4C, 0, 0, 0, 0, 0, 0, 0, 0xE3, 0xE7, 0x65, 0x66, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+];
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -111,19 +133,27 @@ impl Ps2 {
     const READ_TIMEOUT: u64 = 100_000;
 
     pub unsafe fn init() -> Result<(), ()> {
+        // NO PS2 Controller
         if Self::wait_for_write(10).is_err() {
             return Err(());
         }
-        Self::write_command(Ps2Command::DISABLE_FIRST_PORT);
-        Self::send_command(Ps2Command::DISABLE_SECOND_PORT, 1).unwrap();
+
+        // TODO: more better initialization
+
+        // Self::write_command(Ps2Command::DISABLE_FIRST_PORT);
+        // Self::send_command(Ps2Command::DISABLE_SECOND_PORT, 1).unwrap();
 
         for _ in 0..16 {
             let _ = Self::read_data();
         }
 
         PS2 = Some(Box::new(Ps2 {
-            q: Queue::<Ps2Data>::with_capacity(64),
+            key_buf: ConcurrentRingBuffer::<Ps2Data>::with_capacity(64),
+            mos_buf: ConcurrentRingBuffer::<Ps2Data>::with_capacity(256),
             key_state: Ps2KeyState::Default,
+            mos_phase: Ps2MousePhase::Ack,
+            modifier: Modifier::empty(),
+            mouse_buf: [Ps2Data(0); 3],
         }));
         Apic::register(Irq(1), Self::irq_01).unwrap();
         Apic::register(Irq(12), Self::irq_12).unwrap();
@@ -131,10 +161,15 @@ impl Ps2 {
         Self::send_command(Ps2Command::WRITE_CONFIG, 1).unwrap();
         Self::send_data(Ps2Data(0x47), 1).unwrap();
 
+        Self::send_command(Ps2Command::ENABLE_FIRST_PORT, 1).unwrap();
+        Self::send_command(Ps2Command::ENABLE_SECOND_PORT, 1).unwrap();
+
         Self::send_data(Ps2Data::RESET_COMMAND, 1).unwrap();
         Thread::usleep(100_000);
         Self::send_data(Ps2Data::ENABLE_SEND, 1).unwrap();
 
+        Self::send_second_data(Ps2Data::RESET_COMMAND, 1).unwrap();
+        Thread::usleep(100_000);
         Self::send_second_data(Ps2Data::ENABLE_SEND, 1).unwrap();
 
         Ok(())
@@ -144,15 +179,17 @@ impl Ps2 {
     fn irq_01(_irq: Irq) {
         unsafe {
             let ps2 = PS2.as_mut().unwrap();
-            ps2.q.write(Self::read_data()).unwrap();
+            let al = Self::read_data();
+            ps2.key_buf.write(al).unwrap();
         }
     }
 
     // IRQ 12 PS/2 Mouse
     fn irq_12(_irq: Irq) {
         unsafe {
-            let _al = Self::read_data();
-            // print!(" {:02x}", al.0);
+            let ps2 = PS2.as_mut().unwrap();
+            let al = Self::read_data();
+            ps2.mos_buf.write(al).unwrap();
         }
     }
 
@@ -222,34 +259,89 @@ impl Ps2 {
             .and_then(|_| Self::send_data(data, timeout))
     }
 
-    fn scan_to_usage(data: Ps2Data) -> u8 {
-        unsafe {
-            let ps2 = PS2.as_mut().unwrap();
-            if data == Ps2Data::SCAN_EXTEND {
-                ps2.key_state = Ps2KeyState::Extend;
-                0
+    fn scan_to_usage(&mut self, data: Ps2Data) -> Usage {
+        if data == Ps2Data::SCAN_EXTEND {
+            self.key_state = Ps2KeyState::Extend;
+            Usage::NULL
+        } else {
+            let mut scan = data.scancode();
+            match self.key_state {
+                Ps2KeyState::Extend => {
+                    scan |= 0x80;
+                    self.key_state = Ps2KeyState::Default;
+                }
+                _ => (),
+            }
+            let usage = Usage(PS2_TO_HID[scan as usize]);
+            if usage >= Usage::MOD_MIN && usage < Usage::MOD_MAX {
+                let bit_position =
+                    unsafe { Modifier::from_bits_unchecked(1 << (usage.0 - Usage::MOD_MIN.0)) };
+                if data.is_break() {
+                    self.modifier.remove(bit_position);
+                } else {
+                    self.modifier.insert(bit_position);
+                }
+                Usage::NULL
             } else {
                 if data.is_break() {
-                        ps2.key_state = Ps2KeyState::Default;
-                    return 0;
+                    Usage::NULL
+                } else {
+                    usage
                 }
-                let mut scan = data.scancode();
-                match ps2.key_state {
-                    Ps2KeyState::Extend => {
-                        scan |= 0x80;
-                        ps2.key_state = Ps2KeyState::Default;
-                    }
-                    _ => (),
-                }
-                PS2_TO_HID[scan as usize]
             }
+        }
+    }
+
+    fn process_mouse_packet(&mut self) -> bool {
+        if let Some(data) = self.mos_buf.read() {
+            match self.mos_phase {
+                Ps2MousePhase::Ack => {
+                    if data == Ps2Data::ACK {
+                        self.mos_phase.next();
+                    }
+                }
+                Ps2MousePhase::Header => {
+                    if (data.0 & 0xC8) == 0x08 {
+                        self.mouse_buf[self.mos_phase.as_index()] = data;
+                    }
+                    self.mos_phase.next();
+                }
+                Ps2MousePhase::X => {
+                    self.mouse_buf[self.mos_phase.as_index()] = data;
+                    self.mos_phase.next();
+                }
+                Ps2MousePhase::Y => {
+                    self.mouse_buf[self.mos_phase.as_index()] = data;
+                    self.mos_phase.next();
+                    let mut x = self.mouse_buf[1].0 as i16;
+                    let mut y = self.mouse_buf[2].0 as i16;
+                    if (self.mouse_buf[0].0 & 0x10) != 0 {
+                        x = x - 256;
+                    }
+                    if (self.mouse_buf[0].0 & 0x20) != 0 {
+                        y = y - 256;
+                    }
+                    let report = MouseReport {
+                        buttons: unsafe {
+                            MouseButton::from_bits_unchecked(self.mouse_buf[0].0 & 0x07)
+                        },
+                        x: x,
+                        y: -y,
+                    };
+                    HidManager::process_mouse_report(report);
+                }
+            }
+            true
+        } else {
+            false
         }
     }
 }
 
-pub fn get_key() -> Option<u8> {
-    unsafe {
-        let ps2 = PS2.as_mut().unwrap();
-        ps2.q.read().map(|x| Ps2::scan_to_usage(x))
-    }
+pub fn get_key() -> Option<(Usage, Modifier)> {
+    let ps2 = unsafe { PS2.as_mut().unwrap() };
+    while ps2.process_mouse_packet() {}
+    ps2.key_buf
+        .read()
+        .map(|x| (ps2.scan_to_usage(x), ps2.modifier))
 }

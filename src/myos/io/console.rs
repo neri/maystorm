@@ -12,20 +12,23 @@ pub struct GraphicalConsole<'a> {
     font: FontDriver<'a>,
     cursor: (isize, isize),
     dims: (isize, isize),
+    insets: EdgeInsets<isize>,
     is_cursor_enabled: bool,
     attribute: u8,
 }
 
-impl<'a> GraphicalConsole<'a> {
-    pub fn new(fb: FrameBuffer) -> Self {
+impl<'a> From<FrameBuffer> for GraphicalConsole<'a> {
+    fn from(fb: FrameBuffer) -> Self {
         let font = FontDriver::system_font();
-        let size = fb.size();
-        let cols = size.width / font.width();
-        let rows = size.height / font.line_height();
+        let insets = EdgeInsets::new(4, 4, 4, 4);
+        let rect = Rect::from(fb.size()).insets_by(insets);
+        let cols = rect.size.width / font.width();
+        let rows = rect.size.height / font.line_height();
         GraphicalConsole {
             fb: fb,
             lock: Spinlock::new(),
             font: font,
+            insets: insets,
             cursor: (0, 0),
             dims: (cols, rows),
             is_cursor_enabled: true,
@@ -87,8 +90,8 @@ impl GraphicalConsole<'_> {
             let cursor_height = 2;
             self.fb.fill_rect(
                 Rect::new(
-                    self.cursor.0 * font.width(),
-                    (self.cursor.1 + 1) * font.line_height() - cursor_height,
+                    self.insets.left + self.cursor.0 * font.width(),
+                    self.insets.top + (self.cursor.1 + 1) * font.line_height() - cursor_height,
                     font.width(),
                     cursor_height,
                 ),
@@ -130,7 +133,13 @@ impl GraphicalConsole<'_> {
                 let old_cursor_state = self.set_cursor_enabled(false);
                 let font = &self.font;
                 let (x, y) = self.adjust_cursor(self.cursor);
-                self.draw_char((x * font.width(), y * font.line_height()), c);
+                self.draw_char(
+                    (
+                        self.insets.left + x * font.width(),
+                        self.insets.top + y * font.line_height(),
+                    ),
+                    c,
+                );
                 self.cursor = self.adjust_cursor((x + 1, y));
                 if old_cursor_state {
                     self.set_cursor_enabled(old_cursor_state);

@@ -511,7 +511,7 @@ impl Hpet {
         hpet.write(0x10, 0x03); // LEG_RT_CNF | ENABLE_CNF
 
         hpet.measure_div = 1000_000_000 / hpet.main_cnt_period;
-        hpet.write(0x100, 0x0000_004C);
+        hpet.write(0x100, 0x0000_004C); // Tn_INT_ENB_CNF | Tn_TYPE_CNF | Tn_VAL_SET_CNF
         hpet.write(0x108, 1000_000_000_000 / hpet.main_cnt_period);
 
         Box::new(hpet)

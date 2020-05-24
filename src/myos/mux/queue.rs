@@ -1,12 +1,11 @@
-// Non Blocking Queue
+// Concurrent Ring Buffer
 
 use crate::myos::arch::cpu::Cpu;
 use alloc::boxed::Box;
 use alloc::vec::*;
 use core::sync::atomic::*;
 
-#[allow(dead_code)]
-pub struct Queue<T: Clone> {
+pub struct ConcurrentRingBuffer<T: Clone> {
     read: AtomicUsize,
     write: AtomicUsize,
     free: AtomicUsize,
@@ -15,9 +14,9 @@ pub struct Queue<T: Clone> {
     buf: Vec<T>,
 }
 
-unsafe impl<T: Clone> Sync for Queue<T> {}
+unsafe impl<T: Clone> Sync for ConcurrentRingBuffer<T> {}
 
-impl<T: Clone> Queue<T> {
+impl<T: Clone> ConcurrentRingBuffer<T> {
     pub fn with_capacity(capacity: usize) -> Box<Self> {
         assert_eq!(capacity.count_ones(), 1);
         let mask = capacity - 1;

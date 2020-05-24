@@ -11,7 +11,7 @@ pub struct Point<T: Number> {
 }
 
 impl<T: Number> Point<T> {
-    pub fn new(x: T, y: T) -> Self {
+    pub const fn new(x: T, y: T) -> Self {
         Point { x: x, y: y }
     }
 }

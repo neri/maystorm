@@ -121,3 +121,29 @@ impl ThreadManager {
         Thread::usleep(1);
     }
 }
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub enum Irql {
+    Passive = 0,
+    Dispatch,
+    Device,
+    High,
+}
+
+impl Irql {
+    pub fn raise(new_irql: Irql) -> Result<Irql, ()> {
+        let old_irql = Self::current();
+        if old_irql > new_irql {
+            panic!("IRQL_NOT_LESS_OR_EQUAL");
+        }
+        Ok(old_irql)
+    }
+
+    pub fn lower(_new_irql: Irql) -> Result<(), ()> {
+        Ok(())
+    }
+
+    pub fn current() -> Irql {
+        Irql::Passive
+    }
+}

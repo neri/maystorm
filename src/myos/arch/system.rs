@@ -129,7 +129,7 @@ impl System {
     }
 
     #[inline]
-    pub unsafe fn activate_cpu(&self, new_cpu: Box<Cpu>) {
+    pub(crate) unsafe fn activate_cpu(&self, new_cpu: Box<Cpu>) {
         SYSTEM.cpus.push(new_cpu);
     }
 }

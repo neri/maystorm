@@ -8,6 +8,7 @@ use uefi::prelude::*;
 use uefi_pg::myos::arch::cpu::Cpu;
 use uefi_pg::myos::bus::lpc;
 use uefi_pg::myos::io::graphics::*;
+use uefi_pg::myos::io::hid;
 use uefi_pg::*;
 
 uefi_pg_entry!(main);
@@ -34,18 +35,25 @@ fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
     let (_st, mm) = exit_boot_services(st, handle);
 
     let fb = stdout().fb();
-    // fb.reset();
+    fb.reset();
+    let size = fb.size();
+    let center = Size::<isize>::new(size.width / 2, size.height / 3);
+
     fb.fill_rect(
-        Rect::new(50, 50, 200, 200),
+        Rect::new(center.width - 55, center.height - 55, 50, 50),
         IndexedColor::LightRed.as_color(),
     );
     fb.fill_rect(
-        Rect::new(100, 100, 200, 200),
+        Rect::new(center.width + 5, center.height - 55, 50, 50),
         IndexedColor::LightGreen.as_color(),
     );
     fb.fill_rect(
-        Rect::new(150, 150, 200, 200),
+        Rect::new(center.width - 55, center.height + 5, 50, 50),
         IndexedColor::LightBlue.as_color(),
+    );
+    fb.fill_rect(
+        Rect::new(center.width + 5, center.height + 5, 50, 50),
+        IndexedColor::Yellow.as_color(),
     );
 
     let mut total_memory_size: u64 = 0;
@@ -75,117 +83,12 @@ fn first_child(system: &myos::arch::system::System) {
 
     loop {
         match lpc::get_key() {
-            Some(key) => {
-                if key > 0 {
-                    print!("{}", hid_usage_to_unicode(key, 0));
+            Some((usage, modifier)) => {
+                if usage != hid::Usage::NULL {
+                    print!("{}", hid::HidManager::usage_to_char_109(usage, modifier));
                 }
             }
             None => unsafe { Cpu::halt() },
         }
     }
-}
-
-const INVALID_UNICHAR: char = '\u{fffe}';
-const HID_USAGE_DELETE: u8 = 0x4C;
-
-// Non Alphabet
-static USAGE_TO_CHAR_1E: [char; 27] = [
-    '1',
-    '2',
-    '3',
-    '4',
-    '5',
-    '6',
-    '7',
-    '8',
-    '9',
-    '0',
-    '\x0D',
-    '\x1B',
-    '\x08',
-    '\x09',
-    ' ',
-    '-',
-    '^',
-    '@',
-    '[',
-    ']',
-    INVALID_UNICHAR,
-    ';',
-    ':',
-    '`',
-    ',',
-    '.',
-    '/',
-];
-
-// Arrows & Numpads
-static USAGE_TO_CHAR_4F: [char; 21] = [
-    '\u{2191}',
-    '\u{2190}',
-    '\u{2193}',
-    '\u{2192}',
-    INVALID_UNICHAR,
-    '/',
-    '*',
-    '-',
-    '+',
-    '\x0D',
-    '1',
-    '2',
-    '3',
-    '4',
-    '5',
-    '6',
-    '7',
-    '8',
-    '9',
-    '0',
-    '.',
-];
-
-//  JP 109
-fn hid_usage_to_unicode(usage: u8, modifier: u8) -> char {
-    // let usage = usage as usize;
-    let mut uni: char = INVALID_UNICHAR;
-
-    if usage >= 4 && usage <= 0x1D {
-        // Alphabet
-        uni = (usage - 4 + 0x61) as char;
-    } else if usage >= 0x1E && usage <= 0x38 {
-        // Non Alphabet
-        uni = USAGE_TO_CHAR_1E[usage as usize - 0x1E];
-    // if (uni > 0x20
-    //     && uni < 0x40
-    //     && uni != 0x30
-    //     && (modifier & (HID_MOD_LSHIFT | HID_MOD_LSHIFT)))
-    // {
-    //     uni ^= 0x10;
-    // }
-    } else if usage == HID_USAGE_DELETE {
-        // Delete
-        uni = '\x7F';
-    } else if usage >= 0x4F && usage <= 0x64 {
-        // Arrows & Numpads
-        uni = USAGE_TO_CHAR_4F[usage as usize - 0x4F];
-    } else if usage == 0x89 {
-        // '\|'
-        uni = '\\';
-    }
-    // if (uni >= 0x40 && uni < 0x7F) {
-    //     if (modifier & (HID_MOD_LCTRL | HID_MOD_RCTRL)) {
-    //         uni &= 0x1F;
-    //     } else if (modifier & (HID_MOD_LSHIFT | HID_MOD_LSHIFT)) {
-    //         uni ^= 0x20;
-    //     }
-    // }
-    // if (usage == 0x87) { // '_'
-    //     if (modifier & (HID_MOD_LSHIFT | HID_MOD_LSHIFT)) {
-    //         uni = '_';
-    //     } else {
-    //         uni = '\\';
-    //     }
-    // }
-
-    uni as char
 }
