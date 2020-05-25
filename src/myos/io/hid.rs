@@ -153,23 +153,30 @@ impl HidManager {
     where
         T: Into<isize>,
     {
+        let fb = stdout().fb();
         let r = 2;
         let pad = 4;
 
         let manager = unsafe { &mut HID_MANAGER };
-        manager.mouse_pointer.x += report.x.into();
-        manager.mouse_pointer.y += report.y.into();
-        let center = manager.mouse_pointer;
+        let mut pointer = manager.mouse_pointer;
+        pointer.x = core::cmp::min(
+            core::cmp::max(pointer.x + report.x.into(), 0),
+            fb.size().width - 1,
+        );
+        pointer.y = core::cmp::min(
+            core::cmp::max(pointer.y + report.y.into(), 0),
+            fb.size().height - 1,
+        );
+        manager.mouse_pointer = pointer;
 
         let rect_outer = Rect::new(
-            center.x - r - pad,
-            center.y - r - pad,
+            pointer.x - r - pad,
+            pointer.y - r - pad,
             (r + pad) * 2,
             (r + pad) * 2,
         );
-        let rect_inner = Rect::new(center.x - r, center.y - r, r * 2, r * 2);
+        let rect_inner = Rect::new(pointer.x - r, pointer.y - r, r * 2, r * 2);
 
-        let fb = stdout().fb();
         fb.fill_rect(rect_outer, Color::from(0x000000));
         fb.fill_rect(rect_inner, Color::from(0xFFFFFF));
     }

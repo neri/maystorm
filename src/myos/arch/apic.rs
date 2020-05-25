@@ -9,6 +9,7 @@ use super::cpu::*;
 use super::system::*;
 use crate::mux::spinlock::Spinlock;
 use crate::myos::io::graphics::*;
+use crate::myos::scheduler::*;
 use crate::myos::thread::*;
 use crate::stdout;
 use crate::*;
@@ -21,14 +22,14 @@ const MAX_CPU: usize = 64;
 static mut APIC: Apic = Apic::new();
 static mut LOCAL_APIC_BASE: Option<NonNull<c_void>> = None;
 
-extern "efiapi" {
+extern "C" {
     fn setup_smp_init(vec_sipi: u8, max_cpu: usize, stack_chunk_size: usize, stack_base: *mut u8);
 }
 
 static mut GLOBALLOCK: Spinlock = Spinlock::new();
 
 #[no_mangle]
-pub unsafe extern "efiapi" fn apic_start_ap(_cpuid: u8) {
+pub unsafe extern "C" fn apic_start_ap(_cpuid: u8) {
     GLOBALLOCK.lock();
     let new_cpu = Cpu::new(LocalApic::init_ap());
     System::shared().activate_cpu(new_cpu);
@@ -63,10 +64,10 @@ impl Apic {
         }
 
         // disable IRQ
-        Cpu::disable();
+        llvm_asm!("cli");
 
         // init Local Apic
-        APIC.master_apic_id = System::shared().cpu(0).as_ref().apic_id;
+        APIC.master_apic_id = System::shared().cpu(0).as_ref().cpu_id;
         LocalApic::init(acpi_apic.local_apic_address as usize);
 
         // Define Default GSI table for ISA devices
@@ -90,7 +91,7 @@ impl Apic {
         }
 
         // enable IRQ
-        Cpu::enable();
+        llvm_asm!("sti");
 
         // Init IO Apics
         for acpi_ioapic in &acpi_apic.io_apics {
@@ -130,7 +131,7 @@ impl Apic {
             }
             let count = LocalApic::TimerCurrentCount.read() as u64;
             APIC.lapic_timer_value = ((u32::MAX as u64 - count) * magic_number / 1000) as u32;
-            ThreadManager::set_timer(hpet);
+            GlobalScheduler::set_timer(hpet);
         } else {
             panic!("No Reference Timer found");
         }
@@ -215,6 +216,10 @@ impl Apic {
             LocalApic::eoi();
         }
     }
+
+    pub fn current_processor_id() -> ProcessorId {
+        unsafe { LocalApic::current_processor_id() }
+    }
 }
 
 pub type IrqHandler = fn(Irq) -> ();
@@ -223,9 +228,11 @@ pub type IrqHandler = fn(Irq) -> ();
 pub unsafe extern "efiapi" fn apic_handle_irq(irq: Irq) {
     let e = APIC.idt[irq.0 as usize];
     if e != VirtualAddress::NULL {
+        let old_irql = Irql::raise(Irql::Device).unwrap();
         let f = core::mem::transmute::<usize, IrqHandler>(e.0);
         f(irq);
         Apic::eoi();
+        Irql::lower(old_irql).unwrap();
     } else {
         panic!("Why IRQ {} is Enabled, But not installed", irq.0);
     }
@@ -236,8 +243,18 @@ pub unsafe extern "efiapi" fn apic_handle_irq(irq: Irq) {
 pub struct Irq(pub u8);
 
 impl Irq {
-    pub const BASE: InterruptVector = InterruptVector(0x20);
-    pub const MAX: Irq = Irq(127);
+    const BASE: InterruptVector = InterruptVector(0x20);
+    pub const LPC_TIMER: Irq = Irq(0);
+    pub const LPC_PS2K: Irq = Irq(1);
+    pub const LPC_COM2: Irq = Irq(3);
+    pub const LPC_COM1: Irq = Irq(4);
+    pub const LPC_FDC: Irq = Irq(6);
+    pub const LPC_LPT: Irq = Irq(7);
+    pub const LPC_PS2M: Irq = Irq(12);
+    pub const LPC_RTC: Irq = Irq(8);
+    pub const LPC_IDE1: Irq = Irq(14);
+    pub const LPC_IDE2: Irq = Irq(15);
+    const MAX: Irq = Irq(127);
 
     pub const fn as_vec(&self) -> InterruptVector {
         InterruptVector(Self::BASE.0 + self.0)
@@ -503,7 +520,7 @@ impl Hpet {
             measure_div: 0,
         };
 
-        Apic::register(Irq(0), Self::irq_handler).unwrap();
+        Apic::register(Irq::LPC_TIMER, Self::irq_handler).unwrap();
         hpet.main_cnt_period = hpet.read(0) >> 32;
         hpet.write(0x10, 0);
         hpet.write(0x20, 0); // Clear all interrupts
@@ -585,5 +602,6 @@ extern "x86-interrupt" fn timer_handler() {
             .fb()
             .fill_rect(Rect::new(780, 5, 10, 10), Color::from(TIMER_COUNTER as u32));
         LocalApic::eoi();
+        GlobalScheduler::reschedule();
     }
 }

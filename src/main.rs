@@ -3,12 +3,14 @@
 #![feature(llvm_asm)]
 #![no_std]
 #![no_main]
+// use aml;
 use core::fmt::Write;
 use uefi::prelude::*;
 use uefi_pg::myos::arch::cpu::Cpu;
 use uefi_pg::myos::bus::lpc;
 use uefi_pg::myos::io::graphics::*;
 use uefi_pg::myos::io::hid;
+use uefi_pg::myos::thread::*;
 use uefi_pg::*;
 
 uefi_pg_entry!(main);
@@ -37,23 +39,19 @@ fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
     let fb = stdout().fb();
     fb.reset();
     let size = fb.size();
-    let center = Size::<isize>::new(size.width / 2, size.height / 3);
+    let center = Size::<isize>::new(size.width / 2, size.height / 2);
 
     fb.fill_rect(
-        Rect::new(center.width - 55, center.height - 55, 50, 50),
+        Rect::new(center.width - 80, center.height - 75, 50, 100),
         IndexedColor::LightRed.as_color(),
     );
     fb.fill_rect(
-        Rect::new(center.width + 5, center.height - 55, 50, 50),
+        Rect::new(center.width - 25, center.height - 75, 50, 100),
         IndexedColor::LightGreen.as_color(),
     );
     fb.fill_rect(
-        Rect::new(center.width - 55, center.height + 5, 50, 50),
+        Rect::new(center.width + 30, center.height - 75, 50, 100),
         IndexedColor::LightBlue.as_color(),
-    );
-    fb.fill_rect(
-        Rect::new(center.width + 5, center.height + 5, 50, 50),
-        IndexedColor::Yellow.as_color(),
     );
 
     let mut total_memory_size: u64 = 0;
@@ -78,8 +76,12 @@ fn first_child(system: &myos::arch::system::System) {
 
     for i in 0..system.number_of_active_cpus() {
         let cpu = system.cpu(i);
-        println!("CPU index:{} apic_id:{}", i, cpu.apic_id.0);
+        println!("CPU {} apic_id:{}", i, cpu.cpu_id.0);
     }
+
+    Thread::spawn(|| {
+        println!("Hello, thread!");
+    });
 
     loop {
         match lpc::get_key() {

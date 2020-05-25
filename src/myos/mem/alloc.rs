@@ -1,7 +1,8 @@
 // My Poop Allocator
 use core::alloc::{GlobalAlloc, Layout};
+use core::ffi::c_void;
 use core::intrinsics::*;
-use core::ptr::null_mut;
+use core::ptr::*;
 
 #[global_allocator]
 static mut ALLOCATOR: CustomAlloc = CustomAlloc::new(0, 0);
@@ -26,6 +27,21 @@ impl CustomAlloc {
         CustomAlloc {
             base: fixed_base,
             rest: rest + base - fixed_base,
+        }
+    }
+
+    pub unsafe fn zalloc(size: usize) -> Option<NonNull<c_void>> {
+        let size = (size + 15) & !15;
+        loop {
+            let rest = ALLOCATOR.rest;
+            if rest < size {
+                break None;
+            }
+            let (_, acquired) = atomic_cxchg(&mut ALLOCATOR.rest, rest, rest - size);
+            if acquired {
+                let result = atomic_xadd(&mut ALLOCATOR.base, size);
+                break NonNull::new(result as *const c_void as *mut c_void);
+            }
         }
     }
 }

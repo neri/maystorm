@@ -3,10 +3,11 @@
 use crate::myos::arch::apic::Apic;
 use crate::myos::arch::system::*;
 use alloc::boxed::Box;
+use bitflags::*;
 
 // #[derive(Debug)]
 pub struct Cpu {
-    pub apic_id: ProcessorId,
+    pub cpu_id: ProcessorId,
     pub gdt: Box<GlobalDescriptorTable>,
     pub tss: Box<TaskStateSegment>,
 }
@@ -18,7 +19,7 @@ impl Cpu {
         let tss = TaskStateSegment::new();
         let gdt = GlobalDescriptorTable::new(&tss);
         let cpu = Box::new(Cpu {
-            apic_id: cpuid,
+            cpu_id: cpuid,
             gdt: gdt,
             tss: tss,
         });
@@ -37,8 +38,8 @@ impl Cpu {
         }
     }
 
-    pub fn current() -> &'static Box<Cpu> {
-        System::shared().cpu(0)
+    pub fn current_processor_id() -> ProcessorId {
+        Apic::current_processor_id()
     }
 
     pub fn relax() {
@@ -49,14 +50,6 @@ impl Cpu {
 
     pub unsafe fn halt() {
         llvm_asm!("hlt");
-    }
-
-    pub unsafe fn disable() {
-        llvm_asm!("cli");
-    }
-
-    pub unsafe fn enable() {
-        llvm_asm!("sti");
     }
 
     pub unsafe fn reset() -> ! {
@@ -72,10 +65,47 @@ impl Cpu {
         llvm_asm!("outb %al, %dx" :: "{dx}"(port), "{al}"(value));
     }
 
-    pub unsafe fn debug_assert() {
-        // llvm_asm!("int3");
-        llvm_asm!("movabs %eax, (0x7ffffffffff0)");
+    #[must_use]
+    pub unsafe fn lock_irq() -> LockIrqHandle {
+        let mut rax: Eflags;
+        llvm_asm!("
+            pushfq
+            cli
+            pop $0
+            "
+            : "=r"(rax));
+        LockIrqHandle((rax & Eflags::IF).bits as usize)
     }
+
+    pub unsafe fn unlock_irq(handle: LockIrqHandle) {
+        let eflags = Eflags::from_bits_unchecked(handle.0);
+        if eflags.contains(Eflags::IF) {
+            llvm_asm!("sti");
+        }
+    }
+}
+
+bitflags! {
+    pub struct Eflags: usize {
+        const CF = 0x00000001;
+        const PF = 0x00000004;
+        const AF = 0x00000010;
+        const ZF = 0x00000040;
+        const SF = 0x00000080;
+        const TF = 0x00000100;
+        const IF = 0x00000200;
+        const DF = 0x00000400;
+        const OF = 0x00000800;
+        // const IOPLMASK = 0x00003000;
+        // const IOPL3 = IOPLMASK;
+        const NT = 0x00004000;
+        const RF = 0x00010000;
+        const VM = 0x00020000;
+        const AC = 0x00040000;
+        const VIF = 0x00080000;
+        const VIP = 0x00100000;
+        const ID = 0x00200000;
+            }
 }
 
 const MAX_GDT: usize = 8;

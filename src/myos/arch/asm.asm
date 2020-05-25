@@ -25,6 +25,80 @@
 ;   pub unsafe extern "efiapi" fn apic_handle_irq(irq: Irq);
     extern apic_handle_irq
 
+;   fn switch_context(_current: *mut u8, _next: *mut u8);
+%define CTX_SP          0x08
+%define CTX_BP          0x10
+%define CTX_BX          0x18
+%define CTX_SI          0x20
+%define CTX_DI          0x28
+%define CTX_R12         0x30
+%define CTX_R13         0x38
+%define CTX_R14         0x40
+%define CTX_R15         0x48
+%define CTX_TSS_RSP0    0x50
+%define CTX_FPU_BASE    0x80
+    global switch_context
+switch_context:
+
+    mov [rcx + CTX_SP], rsp
+    mov [rcx + CTX_BP], rbp
+    mov [rcx + CTX_BX], rbx
+    mov [rcx + CTX_SI], rsi
+    mov [rcx + CTX_DI], rdi
+    mov [rcx + CTX_R12], r12
+    mov [rcx + CTX_R13], r13
+    mov [rcx + CTX_R14], r14
+    mov [rcx + CTX_R15], r15
+
+    ; call cpu_get_tss
+    ; mov r11, [rax + TSS64_RSP0]
+    ; mov r10, [rdx + CTX_TSS_RSP0]
+    ; mov [rcx + CTX_TSS_RSP0], r11
+    ; mov [rax + TSS64_RSP0], r10
+
+    mov rsp, [rdx + CTX_SP]
+    mov rbp, [rdx + CTX_BP]
+    mov rbx, [rdx + CTX_BX]
+    mov rsi, [rdx + CTX_SI]
+    mov rdi, [rdx + CTX_DI]
+    mov r12, [rdx + CTX_R12]
+    mov r13, [rdx + CTX_R13]
+    mov r14, [rdx + CTX_R14]
+    mov r15, [rdx + CTX_R15]
+
+    xor eax, eax
+    xor ecx, ecx
+    xor edx, edx
+    xor r8d, r8d
+    xor r9d, r9d
+    xor r10d, r10d
+    xor r11d, r11d
+
+    ret
+
+;    fn arch_setup_new_thread(context: *mut u8, new_sp: *mut u8, start: *mut c_void, args: *mut c_void,);
+    global arch_setup_new_thread
+arch_setup_new_thread:
+    lea rax, [rel _new_thread]
+    sub rdx, BYTE 0x18
+    mov [rdx], rax
+    mov [rdx + 0x08], r8
+    mov [rdx + 0x10], r9
+    mov [rcx + CTX_SP], rdx
+    ret
+
+    extern dispose_new_thread
+_new_thread:
+    call dispose_new_thread
+    sti
+    pop rax
+    pop rcx
+    call rax
+    ud2
+
+
+
+
 _irq2:
     push rcx
     mov cl, 2

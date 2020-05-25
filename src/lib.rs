@@ -33,7 +33,7 @@ fn panic(info: &PanicInfo) -> ! {
     println!("{}", info);
     loop {
         unsafe {
-            arch::cpu::Cpu::disable();
+            let _ = arch::cpu::Cpu::lock_irq();
             arch::cpu::Cpu::halt();
         }
     }

@@ -1,6 +1,6 @@
 // A Computer System
 
-use super::super::thread::*;
+use super::super::scheduler::*;
 use super::cpu::*;
 use crate::*;
 use alloc::boxed::Box;
@@ -36,6 +36,10 @@ impl From<usize> for ProcessorId {
 }
 
 #[repr(transparent)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct ProcessorIndex(pub usize);
+
+#[repr(transparent)]
 #[derive(Copy, Clone, PartialEq, PartialOrd)]
 pub struct VirtualAddress(pub usize);
 
@@ -50,6 +54,10 @@ impl VirtualAddress {
         }
     }
 }
+
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone)]
+pub struct LockIrqHandle(pub usize);
 
 pub struct System {
     total_memory_size: u64,
@@ -87,7 +95,7 @@ impl System {
         )));
         Cpu::init();
 
-        ThreadManager::start_threading();
+        GlobalScheduler::start_threading(&SYSTEM);
 
         myos::bus::lpc::LowPinCount::init();
 
@@ -124,8 +132,23 @@ impl System {
     }
 
     #[inline]
-    pub unsafe fn acpi(&self) -> &acpi::Acpi {
+    pub fn acpi(&self) -> &acpi::Acpi {
         self.acpi.as_ref().unwrap()
+    }
+
+    pub fn current_cpu_index(&self) -> Option<usize> {
+        unsafe {
+            let handle = Cpu::lock_irq();
+            let id = Cpu::current_processor_id();
+            for (index, cpu) in self.cpus.iter().enumerate() {
+                if cpu.cpu_id == id {
+                    Cpu::unlock_irq(handle);
+                    return Some(index);
+                }
+            }
+            Cpu::unlock_irq(handle);
+            None
+        }
     }
 
     #[inline]
