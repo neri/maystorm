@@ -80,10 +80,7 @@ impl System {
         }
     }
 
-    pub unsafe fn init<F>(rsdptr: usize, total_memory_size: u64, f: F) -> !
-    where
-        F: FnOnce(&System) -> (),
-    {
+    pub unsafe fn init(rsdptr: usize, total_memory_size: u64, f: fn() -> ()) -> ! {
         let mut my_handler = MyAcpiHandler::new();
 
         SYSTEM.total_memory_size = total_memory_size;
@@ -95,14 +92,15 @@ impl System {
         )));
         Cpu::init();
 
-        GlobalScheduler::start_threading(&SYSTEM);
+        GlobalScheduler::start(&SYSTEM, Self::late_init, f as *const c_void as *mut c_void);
+    }
 
-        myos::bus::lpc::LowPinCount::init();
+    fn late_init(args: *mut c_void) {
+        unsafe {
+            myos::bus::lpc::LowPinCount::init();
 
-        f(Self::shared());
-
-        loop {
-            Cpu::halt();
+            let f = core::mem::transmute::<*mut c_void, fn() -> ()>(args);
+            f();
         }
     }
 

@@ -4,8 +4,8 @@ pub mod io;
 pub mod mem;
 pub mod mux;
 pub mod num;
-pub mod thread;
 pub mod scheduler;
+pub mod thread;
 
 static VERSION: Version = Version::new(0, 0, 1);
 

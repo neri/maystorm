@@ -25,6 +25,85 @@
 ;   pub unsafe extern "efiapi" fn apic_handle_irq(irq: Irq);
     extern apic_handle_irq
 
+    global _int00
+    global _int03
+    global _int06
+    global _int08
+    global _int0D
+    global _int0E
+
+_int00: ; #DE
+    push BYTE 0
+    push BYTE 0x00
+    jmp short _intXX
+
+_int03: ; #DB
+    push BYTE 0
+    push BYTE 0x03
+    jmp short _intXX
+
+_int06: ; #UD
+    push BYTE 0
+    push BYTE 0x06
+    jmp short _intXX
+
+_int08: ; #DF
+    push BYTE 0x08
+    jmp short _intXX
+
+_int0D: ; #GP
+    push BYTE 0x0D
+    jmp short _intXX
+
+_int0E: ; #PF
+    push BYTE 0x0E
+    ; jmp short _intXX
+
+    extern default_int_ex_handler
+_intXX:
+    push rax
+    push rcx
+    push rdx
+    push rbx
+    push rbp
+    push rsi
+    push rdi
+    push r8
+    push r9
+    push r10
+    push r11
+    push r12
+    push r13
+    push r14
+    push r15
+    mov rax, cr2
+    push rax
+    cld
+
+    mov rcx, rsp
+    call default_int_ex_handler
+
+    add rsp, BYTE 8 ; CR2
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rdi
+    pop rsi
+    pop rbp
+    pop rbx
+    pop rdx
+    pop rcx
+    pop rax
+    add rsp, BYTE 16 ; err/intnum
+_iretq:
+    iretq
+
+
 ;   fn switch_context(_current: *mut u8, _next: *mut u8);
 %define CTX_SP          0x08
 %define CTX_BP          0x10

@@ -9,6 +9,7 @@ use super::cpu::*;
 use super::system::*;
 use crate::mux::spinlock::Spinlock;
 use crate::myos::io::graphics::*;
+use crate::myos::mem::alloc::*;
 use crate::myos::scheduler::*;
 use crate::myos::thread::*;
 use crate::stdout;
@@ -23,7 +24,12 @@ static mut APIC: Apic = Apic::new();
 static mut LOCAL_APIC_BASE: Option<NonNull<c_void>> = None;
 
 extern "C" {
-    fn setup_smp_init(vec_sipi: u8, max_cpu: usize, stack_chunk_size: usize, stack_base: *mut u8);
+    fn setup_smp_init(
+        vec_sipi: u8,
+        max_cpu: usize,
+        stack_chunk_size: usize,
+        stack_base: *mut c_void,
+    );
 }
 
 static mut GLOBALLOCK: Spinlock = Spinlock::new();
@@ -131,7 +137,7 @@ impl Apic {
             }
             let count = LocalApic::TimerCurrentCount.read() as u64;
             APIC.lapic_timer_value = ((u32::MAX as u64 - count) * magic_number / 1000) as u32;
-            GlobalScheduler::set_timer(hpet);
+            Timer::set_timer(hpet);
         } else {
             panic!("No Reference Timer found");
         }
@@ -144,8 +150,10 @@ impl Apic {
         // Setup SMP
         let max_cpu = core::cmp::min(System::shared().number_of_cpus(), MAX_CPU);
         let stack_chunk_size = 0x4000;
-        let mut stack_base: Vec<u8> = Vec::with_capacity(max_cpu * stack_chunk_size);
-        setup_smp_init(1, max_cpu, stack_chunk_size, stack_base.as_mut_ptr());
+        let stack_base = CustomAlloc::zalloc(max_cpu * stack_chunk_size)
+            .unwrap()
+            .as_ptr();
+        setup_smp_init(1, max_cpu, stack_chunk_size, stack_base);
         LocalApic::broadcast_init();
         Thread::usleep(10_000);
         LocalApic::broadcast_sipi(1);

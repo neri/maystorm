@@ -10,8 +10,6 @@ use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
 use bitflags::*;
-use core::cell::*;
-use core::mem::*;
 use core::ops::*;
 use core::ptr::*;
 use core::sync::atomic::*;
@@ -53,6 +51,10 @@ impl Timer {
     pub fn until(&self) -> bool {
         let timer = unsafe { TIMER_SOURCE.as_ref().unwrap() };
         timer.until(self.deadline)
+    }
+
+    pub(crate) unsafe fn set_timer(source: Box<dyn TimerSource>) {
+        TIMER_SOURCE = Some(source);
     }
 }
 
@@ -100,64 +102,9 @@ impl Sub<isize> for TimeMeasure {
     }
 }
 
-// Processor Local Scheduler
-struct LocalScheduler {
-    pub index: ProcessorIndex,
-    count: AtomicUsize,
-    idle: &'static Box<NativeThread<'static>>,
-    current: Option<&'static NativeThread<'static>>,
-    retired: Option<&'static NativeThread<'static>>,
-}
-
-impl LocalScheduler {
-    fn new(index: ProcessorIndex) -> Box<Self> {
-        let idle = NativeThread::new(Priority::Idle, ThreadFlags::empty(), None, null_mut());
-        Box::new(Self {
-            index: index,
-            count: AtomicUsize::new(0),
-            idle: idle,
-            current: Some(idle),
-            retired: None,
-        })
-    }
-
-    fn next_thread(lsch: &'static mut Self) {
-        let current = lsch.current.unwrap();
-        let next = match GlobalScheduler::next() {
-            Some(next) => next,
-            None => &lsch.idle,
-        };
-        if current.id == next.id {
-            // TODO: adjust statistics
-        } else {
-            lsch.count.fetch_add(1, Ordering::Relaxed);
-            lsch.retired = Some(current);
-            lsch.current = Some(next);
-            unsafe {
-                switch_context(
-                    &current.context as *const u8 as *mut u8,
-                    &next.context as *const u8 as *mut u8,
-                );
-            }
-            let lsch = GlobalScheduler::local_scheduler();
-            if let Some(retired) = lsch.retired {
-                lsch.retired = None;
-                GlobalScheduler::retire(retired);
-            }
-        }
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn dispose_new_thread() {
-    let lsch = GlobalScheduler::local_scheduler();
-    if let Some(retired) = lsch.retired {
-        lsch.retired = None;
-        GlobalScheduler::retire(retired);
-    }
-}
-
 static mut GLOBAL_SCHEDULER: GlobalScheduler = GlobalScheduler::new();
+const SIZE_OF_RETIRED_QUEUE: usize = 256;
+const SIZE_OF_READY_QUEUE: usize = 256;
 
 // Global System Scheduler
 pub struct GlobalScheduler {
@@ -179,33 +126,43 @@ impl GlobalScheduler {
         }
     }
 
-    pub(crate) unsafe fn set_timer(source: Box<dyn TimerSource>) {
-        TIMER_SOURCE = Some(source);
-    }
-
-    pub(crate) unsafe fn start_threading(system: &System) {
+    pub(crate) unsafe fn start(system: &System, f: fn(*mut c_void) -> (), args: *mut c_void) -> ! {
         let sch = &mut GLOBAL_SCHEDULER;
 
-        sch.retired = Some(ConcurrentRingBuffer::<&NativeThread>::with_capacity(256));
-        let q = ConcurrentRingBuffer::<&NativeThread>::with_capacity(256);
-        sch.ready.push(q);
+        sch.retired = Some(ConcurrentRingBuffer::<&NativeThread>::with_capacity(
+            SIZE_OF_RETIRED_QUEUE,
+        ));
+        sch.ready
+            .push(ConcurrentRingBuffer::<&NativeThread>::with_capacity(
+                SIZE_OF_READY_QUEUE,
+            ));
 
         for index in 0..system.number_of_active_cpus() {
             let lsch = LocalScheduler::new(ProcessorIndex(index));
             sch.lsch.push(lsch);
         }
 
-        for _ in 0..20 {
-            let thread = NativeThread::new(
+        for _ in 0..50 {
+            Self::retire(NativeThread::new(
                 Priority::Normal,
                 ThreadFlags::empty(),
                 Some(Self::scheduler_thread),
                 null_mut(),
-            );
-            Self::retire(thread);
+            ));
         }
 
+        Self::retire(NativeThread::new(
+            Priority::Normal,
+            ThreadFlags::empty(),
+            Some(f),
+            args,
+        ));
+
         sch.is_enabled = true;
+
+        loop {
+            Cpu::halt();
+        }
     }
 
     fn next_thread_id() -> ThreadId {
@@ -213,9 +170,10 @@ impl GlobalScheduler {
         ThreadId(sch.next_thread_id.fetch_add(1, Ordering::Relaxed))
     }
 
+    // Perform a Preemption
     pub(crate) unsafe fn reschedule() {
         let handle = Cpu::lock_irq();
-        let sch = &mut GLOBAL_SCHEDULER;
+        let sch = &GLOBAL_SCHEDULER;
         if sch.is_enabled {
             let lsch = Self::local_scheduler();
             LocalScheduler::next_thread(lsch);
@@ -229,15 +187,16 @@ impl GlobalScheduler {
         sch.lsch.get_mut(cpu_index).unwrap()
     }
 
+    // Get Next Thread from queue
     fn next() -> Option<&'static NativeThread<'static>> {
         let sch = unsafe { &mut GLOBAL_SCHEDULER };
         let next = sch.ready.get_mut(0).and_then(|q| q.read());
         if next.is_none() {
-            let fb = sch.ready.get_mut(0).unwrap();
-            let bb = sch.retired.as_mut().unwrap();
+            let front = sch.ready.get_mut(0).unwrap();
+            let back = sch.retired.as_mut().unwrap();
             loop {
-                if let Some(retired) = bb.read() {
-                    fb.write(retired).unwrap();
+                if let Some(retired) = back.read() {
+                    front.write(retired).unwrap();
                 } else {
                     break None;
                 }
@@ -247,6 +206,7 @@ impl GlobalScheduler {
         }
     }
 
+    // Retire Thread
     fn retire(thread: &'static NativeThread) {
         if !thread.is_idle() {
             let sch = unsafe { &mut GLOBAL_SCHEDULER };
@@ -263,7 +223,6 @@ impl GlobalScheduler {
             }
         }
     }
-    // let sch = unsafe { &mut GLOBAL_SCHEDULER };
 
     fn scheduler_thread(_args: *mut c_void) {
         let id = NativeThread::current_id().0 as isize;
@@ -281,6 +240,63 @@ impl GlobalScheduler {
         for lsch in &sch.lsch {
             println!("{} = {}", lsch.index.0, lsch.count.load(Ordering::Relaxed));
         }
+    }
+}
+
+// Processor Local Scheduler
+struct LocalScheduler {
+    pub index: ProcessorIndex,
+    count: AtomicUsize,
+    idle: &'static NativeThread<'static>,
+    current: &'static NativeThread<'static>,
+    retired: Option<&'static NativeThread<'static>>,
+}
+
+impl LocalScheduler {
+    fn new(index: ProcessorIndex) -> Box<Self> {
+        let idle = NativeThread::new(Priority::Idle, ThreadFlags::empty(), None, null_mut());
+        Box::new(Self {
+            index: index,
+            count: AtomicUsize::new(0),
+            idle: idle,
+            current: idle,
+            retired: None,
+        })
+    }
+
+    fn next_thread(lsch: &'static mut Self) {
+        let current = lsch.current;
+        let next = match GlobalScheduler::next() {
+            Some(next) => next,
+            None => &lsch.idle,
+        };
+        if current.id == next.id {
+            // TODO: adjust statistics
+        } else {
+            lsch.count.fetch_add(1, Ordering::Relaxed);
+            lsch.retired = Some(current);
+            lsch.current = next;
+            unsafe {
+                switch_context(
+                    &current.context as *const u8 as *mut u8,
+                    &next.context as *const u8 as *mut u8,
+                );
+            }
+            let lsch = GlobalScheduler::local_scheduler();
+            if let Some(retired) = lsch.retired {
+                lsch.retired = None;
+                GlobalScheduler::retire(retired);
+            }
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn dispose_new_thread() {
+    let lsch = GlobalScheduler::local_scheduler();
+    if let Some(retired) = lsch.retired {
+        lsch.retired = None;
+        GlobalScheduler::retire(retired);
     }
 }
 
@@ -308,26 +324,27 @@ type ThreadStart = fn(*mut c_void) -> ();
 static mut THREAD_POOL: ThreadPool = ThreadPool::new();
 
 struct ThreadPool<'a> {
-    pool: Vec<Box<NativeThread<'a>>>,
+    vec: Vec<Box<NativeThread<'a>>>,
     lock: Spinlock,
 }
 
 impl ThreadPool<'_> {
     const fn new() -> Self {
         Self {
-            pool: Vec::new(),
+            vec: Vec::new(),
             lock: Spinlock::new(),
         }
     }
 
-    fn add(thread: NativeThread) -> &'static mut Box<NativeThread> {
+    fn add(thread: Box<NativeThread<'static>>) -> &mut NativeThread {
         unsafe {
-            let pool = &mut THREAD_POOL;
-            pool.lock.lock();
-            pool.pool.push(Box::new(thread));
-            let len = pool.pool.len();
-            let x = pool.pool.get_mut(len - 1).unwrap();
-            pool.lock.unlock();
+            let shared = &mut THREAD_POOL;
+            shared.lock.lock();
+            shared.vec.push(thread);
+            let len = shared.vec.len();
+            let x = shared.vec.get_mut(len - 1).unwrap();
+            // let x = shared.vec[len - 1];
+            shared.lock.unlock();
             x
         }
     }
@@ -350,14 +367,14 @@ impl NativeThread<'_> {
         flags: ThreadFlags,
         start: Option<ThreadStart>,
         args: *mut c_void,
-    ) -> &'static mut Box<Self> {
-        let thread = ThreadPool::add(Self {
+    ) -> &'static mut Self {
+        let thread = ThreadPool::add(Box::new(Self {
             context: [0; SIZE_OF_CONTEXT],
             id: GlobalScheduler::next_thread_id(),
             priority: priority,
             attributes: flags,
             name: None,
-        });
+        }));
         if let Some(start) = start {
             unsafe {
                 let stack = CustomAlloc::zalloc(SIZE_OF_STACK).unwrap().as_ptr();
@@ -372,12 +389,12 @@ impl NativeThread<'_> {
         thread
     }
 
-    fn current() -> &'static Self {
-        GlobalScheduler::local_scheduler().current.unwrap()
-    }
+    // fn current() -> &'static Self {
+    //     GlobalScheduler::local_scheduler().current
+    // }
 
     fn current_id() -> ThreadId {
-        GlobalScheduler::local_scheduler().current.unwrap().id
+        GlobalScheduler::local_scheduler().current.id
     }
 
     #[inline]

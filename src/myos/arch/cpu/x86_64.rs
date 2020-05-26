@@ -12,6 +12,14 @@ pub struct Cpu {
     pub tss: Box<TaskStateSegment>,
 }
 
+extern "C" {
+    fn _int00();
+    fn _int03();
+    fn _int06();
+    fn _int08();
+    fn _int0D();
+    fn _int0E();
+}
 //unsafe impl Sync for Cpu {}
 
 impl Cpu {
@@ -106,6 +114,37 @@ bitflags! {
         const VIP = 0x00100000;
         const ID = 0x00200000;
     }
+}
+
+#[repr(C, packed)]
+pub struct X64StackContext {
+    pub cr2: u64,
+    pub r15: u64,
+    pub r14: u64,
+    pub r13: u64,
+    pub r12: u64,
+    pub r11: u64,
+    pub r10: u64,
+    pub r9: u64,
+    pub r8: u64,
+    pub rdi: u64,
+    pub rsi: u64,
+    pub rbp: u64,
+    pub rbx: u64,
+    pub rdx: u64,
+    pub rcx: u64,
+    pub rax: u64,
+    pub vector: InterruptVector,
+    _padding_1: [u8; 7],
+    pub error_code: u16,
+    _padding_2: [u16; 3],
+    pub rip: u64,
+    pub cs: u16,
+    _padding_3: [u16; 3],
+    pub rflags: Eflags,
+    pub rsp: u64,
+    pub ss: u16,
+    _padding_4: [u16; 3],
 }
 
 const MAX_GDT: usize = 8;
@@ -445,20 +484,28 @@ impl InterruptDescriptorTable {
         unsafe {
             Self::load();
             Self::register(
+                Exception::DivideError.as_vec(),
+                VirtualAddress(_int00 as usize),
+            );
+            Self::register(
+                Exception::Breakpoint.as_vec(),
+                VirtualAddress(_int03 as usize),
+            );
+            Self::register(
                 Exception::InvalidOpcode.as_vec(),
-                VirtualAddress(interrupt_ud_handler as usize),
+                VirtualAddress(_int06 as usize),
             );
             Self::register(
                 Exception::DoubleFault.as_vec(),
-                VirtualAddress(interrupt_df_handler as usize),
+                VirtualAddress(_int08 as usize),
             );
             Self::register(
                 Exception::GeneralProtection.as_vec(),
-                VirtualAddress(interrupt_gp_handler as usize),
+                VirtualAddress(_int0D as usize),
             );
             Self::register(
                 Exception::PageFault.as_vec(),
-                VirtualAddress(interrupt_page_handler as usize),
+                VirtualAddress(_int0E as usize),
             );
         }
     }
@@ -540,44 +587,38 @@ impl Msr {
     }
 }
 
-#[repr(C, packed)]
-#[derive(Debug, Copy, Clone)]
-pub struct ExceptionStackFrame {
-    pub rip: VirtualAddress,
-    pub cs: u64,
-    pub flags: u64,
-    pub rsp: VirtualAddress,
-    pub ss: u64,
-}
-
-extern "x86-interrupt" fn interrupt_ud_handler(stack_frame: &ExceptionStackFrame) {
-    panic!("INVALID OPCODE {:?}", stack_frame,);
-}
-
-extern "x86-interrupt" fn interrupt_df_handler(
-    stack_frame: &ExceptionStackFrame,
-    _error_code: u64,
-) {
-    panic!("DOUBLE FAULT {:?}", stack_frame,);
-}
-
-extern "x86-interrupt" fn interrupt_gp_handler(stack_frame: &ExceptionStackFrame, error_code: u64) {
-    panic!(
-        "GENERAL PROTECTION FAULT {:04x} {:?}",
-        error_code, stack_frame,
-    );
-}
-
-extern "x86-interrupt" fn interrupt_page_handler(
-    stack_frame: &ExceptionStackFrame,
-    error_code: u64,
-) {
-    let mut cr2: u64;
+#[no_mangle]
+pub extern "C" fn default_int_ex_handler(ctx: *mut X64StackContext) {
     unsafe {
-        llvm_asm!("mov %cr2, $0":"=r"(cr2));
+        let ctx = ctx.as_ref().unwrap();
+        panic!(
+            "EXCEPTION {:02x} {:04x} ip {:02x}:{:016x} sp {:02x}:{:016x} fl {:08x}
+rax {:016x} rbx {:016x} rcx {:016x} rdx {:016x}
+rbp {:016x} rsi {:016x} rdi {:016x}
+r8  {:016x} r9  {:016x} r10 {:016x} r11 {:016x}
+r12 {:016x} r13 {:016x} r14 {:016x} r15 {:016x}",
+            ctx.vector.0,
+            ctx.error_code,
+            ctx.cs,
+            ctx.rip,
+            ctx.ss,
+            ctx.rsp,
+            ctx.rflags.bits(),
+            ctx.rax,
+            ctx.rbx,
+            ctx.rcx,
+            ctx.rdx,
+            ctx.rbp,
+            ctx.rsi,
+            ctx.rdi,
+            ctx.r8,
+            ctx.r9,
+            ctx.r10,
+            ctx.r11,
+            ctx.r12,
+            ctx.r13,
+            ctx.r14,
+            ctx.r15,
+        );
     }
-    panic!(
-        "PAGE FAULT {:04x} {:016x} {:?}",
-        error_code, cr2, stack_frame,
-    );
 }

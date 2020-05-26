@@ -340,7 +340,10 @@ impl Ps2 {
 }
 
 pub fn get_key() -> Option<(Usage, Modifier)> {
-    let ps2 = unsafe { PS2.as_mut().unwrap() };
+    let ps2 = match unsafe { PS2.as_mut() } {
+        Some(ps2) => ps2,
+        None => return None,
+    };
     while ps2.process_mouse_packet() {}
     ps2.key_buf
         .read()

@@ -1,4 +1,5 @@
 // My Poop Allocator
+use crate::*;
 use core::alloc::{GlobalAlloc, Layout};
 use core::ffi::c_void;
 use core::intrinsics::*;
@@ -51,7 +52,7 @@ unsafe impl GlobalAlloc for CustomAlloc {
         if layout.align() > 16 {
             panic!("Unsupported align {:?}", layout);
         }
-        let req_size = (layout.size() + 15) & !15;
+        let req_size = (layout.size() + 0xF) & !0xF;
         loop {
             let rest = ALLOCATOR.rest;
             if rest < req_size {
@@ -64,7 +65,12 @@ unsafe impl GlobalAlloc for CustomAlloc {
             }
         }
     }
-    unsafe fn dealloc(&self, _ptr: *mut u8, _layout: Layout) {}
+    unsafe fn dealloc(&self, _ptr: *mut u8, _layout: Layout) {
+        // println!("DEALLOC {:08x} {}", _ptr as usize, _layout.size());
+        for i in 0.._layout.size() {
+            _ptr.add(i).write_volatile(0xcc);
+        }
+    }
 }
 
 unsafe impl Sync for CustomAlloc {}

@@ -16,6 +16,7 @@ use core::panic::PanicInfo;
 use core::ptr::NonNull;
 use myos::io::console::GraphicalConsole;
 use myos::io::graphics::FrameBuffer;
+use myos::mux::spinlock::Spinlock;
 use myos::*;
 use uefi::prelude::*;
 
@@ -26,11 +27,19 @@ extern crate alloc;
 #[macro_use()]
 extern crate bitflags;
 
+static mut PANIC_GLOBAL_LOCK: Spinlock = Spinlock::new();
+
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
+    unsafe {
+        PANIC_GLOBAL_LOCK.lock();
+    }
     stdout().set_cursor_enabled(false);
     stdout().set_attribute(0x17);
     println!("{}", info);
+    unsafe {
+        PANIC_GLOBAL_LOCK.unlock();
+    }
     loop {
         unsafe {
             let _ = arch::cpu::Cpu::lock_irq();

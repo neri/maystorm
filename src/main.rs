@@ -17,7 +17,7 @@ uefi_pg_entry!(main);
 
 fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
     let rsdptr = match st.find_config_table(uefi::table::cfg::ACPI2_GUID) {
-        Some(val) => val,
+        Some(val) => val as usize,
         None => {
             writeln!(st.stdout(), "Error: ACPI Table Not Found").unwrap();
             return Status::LOAD_ERROR;
@@ -61,11 +61,13 @@ fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
         }
     }
     unsafe {
-        myos::arch::system::System::init(rsdptr as usize, total_memory_size, first_child);
+        myos::arch::system::System::init(rsdptr, total_memory_size, sysinit);
     }
 }
 
-fn first_child(system: &myos::arch::system::System) {
+fn sysinit() {
+    let system = myos::arch::system::System::shared();
+
     println!(
         "\nMy practice OS version {} Total {} Cores, {} MB Memory",
         myos::MyOs::version(),
@@ -73,11 +75,6 @@ fn first_child(system: &myos::arch::system::System) {
         system.total_memory_size() >> 20,
     );
     println!("Hello, {:#}!", "Rust");
-
-    for i in 0..system.number_of_active_cpus() {
-        let cpu = system.cpu(i);
-        println!("CPU {} apic_id:{}", i, cpu.cpu_id.0);
-    }
 
     Thread::spawn(|| {
         println!("Hello, thread!");
