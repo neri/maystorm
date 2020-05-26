@@ -381,10 +381,16 @@ impl LocalApic {
 
         let myid = LocalApic::current_processor_id();
 
-        // let vec_latimer = Irq(?).as_vec();
+        LocalApic::SpuriousInterrupt.write(0x010F);
+
+        let vec_latimer = Irq(0).as_vec();
         LocalApic::clear_timer();
         LocalApic::set_timer_div(LocalApicTimerDivide::By1);
-        // LocalApic::set_timer(LocalApicTimerMode::Periodic, vec_latimer, APIC.lapic_timer_value);
+        LocalApic::set_timer(
+            LocalApicTimerMode::Periodic,
+            vec_latimer,
+            APIC.lapic_timer_value,
+        );
 
         myid
     }

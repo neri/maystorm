@@ -67,7 +67,7 @@ fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
 
 fn first_child(system: &myos::arch::system::System) {
     println!(
-        "My practice OS version {} Total {} Cores, {} MB Memory",
+        "\nMy practice OS version {} Total {} Cores, {} MB Memory",
         myos::MyOs::version(),
         system.number_of_active_cpus(),
         system.total_memory_size() >> 20,
@@ -87,7 +87,11 @@ fn first_child(system: &myos::arch::system::System) {
         match lpc::get_key() {
             Some((usage, modifier)) => {
                 if usage != hid::Usage::NULL {
-                    print!("{}", hid::HidManager::usage_to_char_109(usage, modifier));
+                    let c = hid::HidManager::usage_to_char_109(usage, modifier);
+                    print!("{}", c);
+                    if c == 'p' {
+                        myos::scheduler::GlobalScheduler::print_statistics();
+                    }
                 }
             }
             None => unsafe { Cpu::halt() },

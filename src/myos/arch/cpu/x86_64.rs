@@ -105,7 +105,7 @@ bitflags! {
         const VIF = 0x00080000;
         const VIP = 0x00100000;
         const ID = 0x00200000;
-            }
+    }
 }
 
 const MAX_GDT: usize = 8;

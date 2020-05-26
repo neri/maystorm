@@ -5,11 +5,13 @@ use super::arch::system::*;
 use crate::myos::io::graphics::*;
 use crate::myos::mem::alloc::*;
 use crate::myos::mux::queue::*;
+use crate::myos::mux::spinlock::*;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
 use bitflags::*;
 use core::cell::*;
+use core::mem::*;
 use core::ops::*;
 use core::ptr::*;
 use core::sync::atomic::*;
@@ -101,19 +103,20 @@ impl Sub<isize> for TimeMeasure {
 // Processor Local Scheduler
 struct LocalScheduler {
     pub index: ProcessorIndex,
-    idle: Box<NativeThread<'static>>,
+    count: AtomicUsize,
+    idle: &'static Box<NativeThread<'static>>,
     current: Option<&'static NativeThread<'static>>,
     retired: Option<&'static NativeThread<'static>>,
 }
 
 impl LocalScheduler {
     fn new(index: ProcessorIndex) -> Box<Self> {
-        let idle =
-            NativeThread::<'static>::new(Priority::Idle, ThreadFlags::empty(), None, null_mut());
+        let idle = NativeThread::new(Priority::Idle, ThreadFlags::empty(), None, null_mut());
         Box::new(Self {
             index: index,
+            count: AtomicUsize::new(0),
             idle: idle,
-            current: None,
+            current: Some(idle),
             retired: None,
         })
     }
@@ -127,6 +130,7 @@ impl LocalScheduler {
         if current.id == next.id {
             // TODO: adjust statistics
         } else {
+            lsch.count.fetch_add(1, Ordering::Relaxed);
             lsch.retired = Some(current);
             lsch.current = Some(next);
             unsafe {
@@ -156,9 +160,8 @@ pub extern "C" fn dispose_new_thread() {
 static mut GLOBAL_SCHEDULER: GlobalScheduler = GlobalScheduler::new();
 
 // Global System Scheduler
-pub(crate) struct GlobalScheduler {
+pub struct GlobalScheduler {
     next_thread_id: AtomicUsize,
-    threads: Vec<Box<NativeThread<'static>>>,
     ready: Vec<Box<ConcurrentRingBuffer<&'static NativeThread<'static>>>>,
     retired: Option<Box<ConcurrentRingBuffer<&'static NativeThread<'static>>>>,
     lsch: Vec<Box<LocalScheduler>>,
@@ -169,7 +172,6 @@ impl GlobalScheduler {
     const fn new() -> Self {
         Self {
             next_thread_id: AtomicUsize::new(0),
-            threads: Vec::new(),
             ready: Vec::new(),
             retired: None,
             lsch: Vec::new(),
@@ -192,16 +194,16 @@ impl GlobalScheduler {
             let lsch = LocalScheduler::new(ProcessorIndex(index));
             sch.lsch.push(lsch);
         }
-        for lsch in sch.lsch.iter_mut() {
-            lsch.current = Some(&lsch.idle);
-        }
 
-        Self::add_thread(NativeThread::new(
-            Priority::Normal,
-            ThreadFlags::empty(),
-            Some(Self::scheduler_thread),
-            null_mut(),
-        ));
+        for _ in 0..20 {
+            let thread = NativeThread::new(
+                Priority::Normal,
+                ThreadFlags::empty(),
+                Some(Self::scheduler_thread),
+                null_mut(),
+            );
+            Self::retire(thread);
+        }
 
         sch.is_enabled = true;
     }
@@ -263,25 +265,24 @@ impl GlobalScheduler {
     }
     // let sch = unsafe { &mut GLOBAL_SCHEDULER };
 
-    fn add_thread(thread: Box<NativeThread<'static>>) {
-        unsafe {
-            SABU_SURETTO = Some(thread);
-            Self::retire(SABU_SURETTO.as_ref().unwrap());
-        }
-    }
-
     fn scheduler_thread(_args: *mut c_void) {
+        let id = NativeThread::current_id().0 as isize;
         let mut counter: usize = 0;
         loop {
             counter += 0x040506;
             stdout()
                 .fb()
-                .fill_rect(Rect::new(50, 50, 10, 10), Color::from(counter as u32));
+                .fill_rect(Rect::new(10 * id, 5, 8, 8), Color::from(counter as u32));
+        }
+    }
+
+    pub fn print_statistics() {
+        let sch = unsafe { &GLOBAL_SCHEDULER };
+        for lsch in &sch.lsch {
+            println!("{} = {}", lsch.index.0, lsch.count.load(Ordering::Relaxed));
         }
     }
 }
-
-static mut SABU_SURETTO: Option<Box<NativeThread>> = None;
 
 bitflags! {
     struct ThreadFlags: usize {
@@ -304,6 +305,34 @@ const SIZE_OF_STACK: usize = 0x10000;
 
 type ThreadStart = fn(*mut c_void) -> ();
 
+static mut THREAD_POOL: ThreadPool = ThreadPool::new();
+
+struct ThreadPool<'a> {
+    pool: Vec<Box<NativeThread<'a>>>,
+    lock: Spinlock,
+}
+
+impl ThreadPool<'_> {
+    const fn new() -> Self {
+        Self {
+            pool: Vec::new(),
+            lock: Spinlock::new(),
+        }
+    }
+
+    fn add(thread: NativeThread) -> &'static mut Box<NativeThread> {
+        unsafe {
+            let pool = &mut THREAD_POOL;
+            pool.lock.lock();
+            pool.pool.push(Box::new(thread));
+            let len = pool.pool.len();
+            let x = pool.pool.get_mut(len - 1).unwrap();
+            pool.lock.unlock();
+            x
+        }
+    }
+}
+
 #[allow(dead_code)]
 struct NativeThread<'a> {
     context: [u8; SIZE_OF_CONTEXT],
@@ -321,8 +350,8 @@ impl NativeThread<'_> {
         flags: ThreadFlags,
         start: Option<ThreadStart>,
         args: *mut c_void,
-    ) -> Box<Self> {
-        let thread = Box::new(Self {
+    ) -> &'static mut Box<Self> {
+        let thread = ThreadPool::add(Self {
             context: [0; SIZE_OF_CONTEXT],
             id: GlobalScheduler::next_thread_id(),
             priority: priority,
@@ -341,6 +370,14 @@ impl NativeThread<'_> {
             }
         }
         thread
+    }
+
+    fn current() -> &'static Self {
+        GlobalScheduler::local_scheduler().current.unwrap()
+    }
+
+    fn current_id() -> ThreadId {
+        GlobalScheduler::local_scheduler().current.unwrap().id
     }
 
     #[inline]

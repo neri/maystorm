@@ -23,12 +23,12 @@ impl Thread {
     //     self.name
     // }
 
-    pub fn spawn<F>(f: F)
+    pub fn spawn<F>(_f: F)
     where
         F: FnOnce() -> (),
     {
         // TODO: spawn
-        f();
+        // f();
     }
 
     // pub fn current<'_>() -> Thread<'_> {
