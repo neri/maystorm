@@ -17,17 +17,22 @@ use core::sync::atomic::*;
 static mut TIMER_SOURCE: Option<Box<dyn TimerSource>> = None;
 
 extern "C" {
-    fn switch_context(current: *mut u8, next: *mut u8);
-    fn arch_setup_new_thread(
-        context: *mut u8,
-        new_sp: *mut c_void,
-        start: usize,
-        args: *mut c_void,
-    );
+    fn sch_switch_context(current: *mut u8, next: *mut u8);
+    fn sch_make_new_thread(context: *mut u8, new_sp: *mut c_void, start: usize, args: *mut c_void);
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct ThreadId(pub usize);
+
+unsafe impl Sync for ThreadId {}
+
+unsafe impl Send for ThreadId {}
+
+impl ThreadId {
+    pub const fn as_u64(&self) -> u64 {
+        self.0 as u64
+    }
+}
 
 pub trait TimerSource {
     fn create(&self, h: TimeMeasure) -> TimeMeasure;
@@ -41,6 +46,10 @@ pub struct Timer {
 }
 
 impl Timer {
+    pub const NULL: Timer = Timer {
+        deadline: TimeMeasure(0),
+    };
+
     pub fn new(duration: TimeMeasure) -> Self {
         let timer = unsafe { TIMER_SOURCE.as_ref().unwrap() };
         Timer {
@@ -49,12 +58,20 @@ impl Timer {
     }
 
     pub fn until(&self) -> bool {
-        let timer = unsafe { TIMER_SOURCE.as_ref().unwrap() };
-        timer.until(self.deadline)
+        if self.is_null() {
+            false
+        } else {
+            let timer = unsafe { TIMER_SOURCE.as_ref().unwrap() };
+            timer.until(self.deadline)
+        }
     }
 
     pub(crate) unsafe fn set_timer(source: Box<dyn TimerSource>) {
         TIMER_SOURCE = Some(source);
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.deadline == Self::NULL.deadline
     }
 }
 
@@ -75,15 +92,15 @@ impl TimeMeasure {
         TimeMeasure(s as i64 * 1000_000)
     }
 
-    pub const fn as_micros(&self) -> i64 {
+    pub const fn as_micros(self) -> i64 {
         self.0 as i64
     }
 
-    pub const fn as_millis(&self) -> i64 {
+    pub const fn as_millis(self) -> i64 {
         self.0 as i64 / 1000
     }
 
-    pub const fn as_secs(&self) -> i64 {
+    pub const fn as_secs(self) -> i64 {
         self.0 as i64 / 1000_000
     }
 }
@@ -106,12 +123,12 @@ static mut GLOBAL_SCHEDULER: GlobalScheduler = GlobalScheduler::new();
 const SIZE_OF_RETIRED_QUEUE: usize = 256;
 const SIZE_OF_READY_QUEUE: usize = 256;
 
-// Global System Scheduler
+/// System Global Scheduler
 pub struct GlobalScheduler {
     next_thread_id: AtomicUsize,
-    ready: Vec<Box<ConcurrentRingBuffer<&'static NativeThread<'static>>>>,
-    retired: Option<Box<ConcurrentRingBuffer<&'static NativeThread<'static>>>>,
-    lsch: Vec<Box<LocalScheduler>>,
+    ready: Vec<Box<ConcurrentRingBuffer<&'static NativeThread>>>,
+    retired: Option<Box<ConcurrentRingBuffer<&'static NativeThread>>>,
+    locals: Vec<Box<LocalScheduler>>,
     is_enabled: bool,
 }
 
@@ -121,13 +138,13 @@ impl GlobalScheduler {
             next_thread_id: AtomicUsize::new(0),
             ready: Vec::new(),
             retired: None,
-            lsch: Vec::new(),
+            locals: Vec::new(),
             is_enabled: false,
         }
     }
 
-    pub(crate) unsafe fn start(system: &System, f: fn(*mut c_void) -> (), args: *mut c_void) -> ! {
-        let sch = &mut GLOBAL_SCHEDULER;
+    pub(crate) fn start(system: &System, f: fn(*mut c_void) -> (), args: *mut c_void) {
+        let sch = unsafe { &mut GLOBAL_SCHEDULER };
 
         sch.retired = Some(ConcurrentRingBuffer::<&NativeThread>::with_capacity(
             SIZE_OF_RETIRED_QUEUE,
@@ -138,11 +155,10 @@ impl GlobalScheduler {
             ));
 
         for index in 0..system.number_of_active_cpus() {
-            let lsch = LocalScheduler::new(ProcessorIndex(index));
-            sch.lsch.push(lsch);
+            sch.locals.push(LocalScheduler::new(ProcessorIndex(index)));
         }
 
-        for _ in 0..50 {
+        for _ in 0..10 {
             Self::retire(NativeThread::new(
                 Priority::Normal,
                 ThreadFlags::empty(),
@@ -160,8 +176,13 @@ impl GlobalScheduler {
 
         sch.is_enabled = true;
 
+        // loop {
+        //     GlobalScheduler::wait_for(None, TimeMeasure(0));
+        // }
         loop {
-            Cpu::halt();
+            unsafe {
+                Cpu::halt();
+            }
         }
     }
 
@@ -176,33 +197,56 @@ impl GlobalScheduler {
         let sch = &GLOBAL_SCHEDULER;
         if sch.is_enabled {
             let lsch = Self::local_scheduler();
-            LocalScheduler::next_thread(lsch);
+            if lsch.current.priority != Priority::Realtime {
+                // FIXME: wicked code
+                let current_mut = &mut *(lsch.current as *const NativeThread as *mut NativeThread);
+                if current_mut.quantum.consume() {
+                    LocalScheduler::next_thread(lsch);
+                }
+            }
         }
         Cpu::unlock_irq(handle);
+    }
+
+    pub fn wait_for(_: Option<NonNull<usize>>, duration: TimeMeasure) {
+        unsafe {
+            let handle = Cpu::lock_irq();
+            let lsch = Self::local_scheduler();
+            {
+                // FIXME: wicked code
+                let current_mut = &mut *(lsch.current as *const NativeThread as *mut NativeThread);
+                current_mut.deadline = Timer::new(duration);
+            }
+            LocalScheduler::next_thread(lsch);
+            Cpu::unlock_irq(handle);
+        }
     }
 
     fn local_scheduler() -> &'static mut LocalScheduler {
         let sch = unsafe { &mut GLOBAL_SCHEDULER };
         let cpu_index = System::shared().current_cpu_index().unwrap();
-        sch.lsch.get_mut(cpu_index).unwrap()
+        sch.locals.get_mut(cpu_index).unwrap()
     }
 
     // Get Next Thread from queue
-    fn next() -> Option<&'static NativeThread<'static>> {
+    fn next() -> Option<&'static NativeThread> {
         let sch = unsafe { &mut GLOBAL_SCHEDULER };
-        let next = sch.ready.get_mut(0).and_then(|q| q.read());
-        if next.is_none() {
-            let front = sch.ready.get_mut(0).unwrap();
-            let back = sch.retired.as_mut().unwrap();
-            loop {
-                if let Some(retired) = back.read() {
-                    front.write(retired).unwrap();
-                } else {
-                    break None;
-                }
+        while let Some(next) = sch.ready.get_mut(0).and_then(|q| q.read()) {
+            if next.deadline.until() {
+                GlobalScheduler::retire(next);
+                continue;
+            } else {
+                return Some(next);
             }
-        } else {
-            next
+        }
+        let front = sch.ready.get_mut(0).unwrap();
+        let back = sch.retired.as_mut().unwrap();
+        loop {
+            if let Some(retired) = back.read() {
+                front.write(retired).unwrap();
+            } else {
+                return None;
+            }
         }
     }
 
@@ -215,16 +259,22 @@ impl GlobalScheduler {
     }
 
     pub fn sleep(duration: TimeMeasure) {
-        let timer = unsafe { TIMER_SOURCE.as_ref().unwrap() };
-        let deadline = timer.create(duration);
-        while timer.until(deadline) {
-            unsafe {
-                Cpu::halt();
+        let sch = unsafe { &GLOBAL_SCHEDULER };
+        if sch.is_enabled {
+            Self::wait_for(None, duration);
+        } else {
+            let timer = unsafe { TIMER_SOURCE.as_ref().unwrap() };
+            let deadline = timer.create(duration);
+            while timer.until(deadline) {
+                unsafe {
+                    Cpu::halt();
+                }
             }
         }
     }
 
     fn scheduler_thread(_args: *mut c_void) {
+        // TODO:
         let id = NativeThread::current_id().0 as isize;
         let mut counter: usize = 0;
         loop {
@@ -232,12 +282,13 @@ impl GlobalScheduler {
             stdout()
                 .fb()
                 .fill_rect(Rect::new(10 * id, 5, 8, 8), Color::from(counter as u32));
+            Self::wait_for(None, TimeMeasure::from_mills(5));
         }
     }
 
     pub fn print_statistics() {
         let sch = unsafe { &GLOBAL_SCHEDULER };
-        for lsch in &sch.lsch {
+        for lsch in &sch.locals {
             println!("{} = {}", lsch.index.0, lsch.count.load(Ordering::Relaxed));
         }
     }
@@ -247,9 +298,9 @@ impl GlobalScheduler {
 struct LocalScheduler {
     pub index: ProcessorIndex,
     count: AtomicUsize,
-    idle: &'static NativeThread<'static>,
-    current: &'static NativeThread<'static>,
-    retired: Option<&'static NativeThread<'static>>,
+    idle: &'static NativeThread,
+    current: &'static NativeThread,
+    retired: Option<&'static NativeThread>,
 }
 
 impl LocalScheduler {
@@ -265,6 +316,10 @@ impl LocalScheduler {
     }
 
     fn next_thread(lsch: &'static mut Self) {
+        unsafe {
+            llvm_asm!(".byte 0xb8, 0xef, 0xbe, 0xad, 0xde":::"eax");
+        }
+        Cpu::check_irq().ok().unwrap();
         let current = lsch.current;
         let next = match GlobalScheduler::next() {
             Some(next) => next,
@@ -277,22 +332,30 @@ impl LocalScheduler {
             lsch.retired = Some(current);
             lsch.current = next;
             unsafe {
-                switch_context(
+                // FIXME: wicked code
+                let current_mut = &mut *(current as *const NativeThread as *mut NativeThread);
+                current_mut.quantum = current_mut.default_quantum;
+                sch_switch_context(
                     &current.context as *const u8 as *mut u8,
                     &next.context as *const u8 as *mut u8,
                 );
             }
             let lsch = GlobalScheduler::local_scheduler();
-            if let Some(retired) = lsch.retired {
-                lsch.retired = None;
-                GlobalScheduler::retire(retired);
+            unsafe {
+                let current_mut = &mut *(current as *const NativeThread as *mut NativeThread);
+                current_mut.deadline = Timer::NULL;
             }
+            let retired = lsch.retired.unwrap();
+            // if let Some(retired) = lsch.retired {
+            lsch.retired = None;
+            GlobalScheduler::retire(retired);
+            // }
         }
     }
 }
 
 #[no_mangle]
-pub extern "C" fn dispose_new_thread() {
+pub extern "C" fn sch_setup_new_thread() {
     let lsch = GlobalScheduler::local_scheduler();
     if let Some(retired) = lsch.retired {
         lsch.retired = None;
@@ -307,6 +370,7 @@ bitflags! {
     }
 }
 
+#[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum Priority {
     Idle = 0,
@@ -316,19 +380,42 @@ pub enum Priority {
     Realtime,
 }
 
-const SIZE_OF_CONTEXT: usize = 512;
-const SIZE_OF_STACK: usize = 0x10000;
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct Quantum(pub usize);
 
-type ThreadStart = fn(*mut c_void) -> ();
+unsafe impl Sync for Quantum {}
+
+impl Quantum {
+    fn consume(&mut self) -> bool {
+        if self.0 > 1 {
+            self.0 -= 1;
+            false
+        } else {
+            true
+        }
+    }
+}
+
+impl From<Priority> for Quantum {
+    fn from(priority: Priority) -> Self {
+        match priority {
+            Priority::High => Quantum(25),
+            Priority::Normal => Quantum(10),
+            Priority::Low => Quantum(5),
+            _ => Quantum(1),
+        }
+    }
+}
 
 static mut THREAD_POOL: ThreadPool = ThreadPool::new();
 
-struct ThreadPool<'a> {
-    vec: Vec<Box<NativeThread<'a>>>,
+struct ThreadPool {
+    vec: Vec<Box<NativeThread>>,
     lock: Spinlock,
 }
 
-impl ThreadPool<'_> {
+impl ThreadPool {
     const fn new() -> Self {
         Self {
             vec: Vec::new(),
@@ -336,50 +423,69 @@ impl ThreadPool<'_> {
         }
     }
 
-    fn add(thread: Box<NativeThread<'static>>) -> &mut NativeThread {
+    fn add(thread: Box<NativeThread>) -> &'static mut NativeThread {
         unsafe {
             let shared = &mut THREAD_POOL;
             shared.lock.lock();
             shared.vec.push(thread);
             let len = shared.vec.len();
             let x = shared.vec.get_mut(len - 1).unwrap();
-            // let x = shared.vec[len - 1];
             shared.lock.unlock();
             x
         }
     }
 }
 
+const SIZE_OF_CONTEXT: usize = 512;
+const SIZE_OF_STACK: usize = 0x10000;
+
+type ThreadStart = fn(*mut c_void) -> ();
+
 #[allow(dead_code)]
-struct NativeThread<'a> {
+pub(crate) struct NativeThread {
     context: [u8; SIZE_OF_CONTEXT],
     id: ThreadId,
     priority: Priority,
+    quantum: Quantum,
+    default_quantum: Quantum,
+    deadline: Timer,
     attributes: ThreadFlags,
-    name: Option<&'a str>,
 }
 
-unsafe impl Sync for NativeThread<'_> {}
+static mut TEMP_STACK_POINTER: AtomicUsize = AtomicUsize::new(0);
 
-impl NativeThread<'_> {
+fn temp_stack() -> *mut core::ffi::c_void {
+    unsafe {
+        let x = TEMP_STACK_POINTER.fetch_add(0x8000, Ordering::Relaxed) as usize;
+        x as *const c_void as *mut c_void
+    }
+}
+
+unsafe impl Sync for NativeThread {}
+
+impl NativeThread {
     fn new(
         priority: Priority,
         flags: ThreadFlags,
         start: Option<ThreadStart>,
         args: *mut c_void,
     ) -> &'static mut Self {
+        let quantum = Quantum::from(priority);
         let thread = ThreadPool::add(Box::new(Self {
             context: [0; SIZE_OF_CONTEXT],
             id: GlobalScheduler::next_thread_id(),
             priority: priority,
+            quantum: quantum,
+            default_quantum: quantum,
+            deadline: Timer::NULL,
             attributes: flags,
-            name: None,
         }));
         if let Some(start) = start {
             unsafe {
-                let stack = CustomAlloc::zalloc(SIZE_OF_STACK).unwrap().as_ptr();
-                arch_setup_new_thread(
-                    &thread.context as *const u8 as *mut u8,
+                // let stack = CustomAlloc::zalloc(SIZE_OF_STACK).unwrap().as_ptr();
+                let stack = temp_stack();
+                sch_make_new_thread(
+                    thread.context.as_mut_ptr(),
                     stack.add(SIZE_OF_STACK),
                     start as usize,
                     args,
@@ -393,8 +499,12 @@ impl NativeThread<'_> {
     //     GlobalScheduler::local_scheduler().current
     // }
 
-    fn current_id() -> ThreadId {
+    pub fn current_id() -> ThreadId {
         GlobalScheduler::local_scheduler().current.id
+    }
+
+    pub fn exit(_exit_code: usize) -> ! {
+        panic!("NO MORE THREAD!!!");
     }
 
     #[inline]
@@ -403,6 +513,7 @@ impl NativeThread<'_> {
     }
 }
 
+#[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum Irql {
     Passive = 0,

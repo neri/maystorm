@@ -2,9 +2,9 @@
 
 use super::graphics::*;
 use crate::*;
+use alloc::boxed::Box;
 use alloc::vec::*;
 use bitflags::*;
-// use alloc::boxed::Box;
 // use core::ptr::NonNull;
 
 const INVALID_UNICHAR: char = '\u{FEFF}';
@@ -96,6 +96,12 @@ pub struct KeyReportRaw {
     pub keydata: [Usage; 6],
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct MinimalKeyEvent {
+    pub usage: Usage,
+    pub modifier: Modifier,
+}
+
 #[derive(Debug)]
 pub struct KeyboardState {
     pub current: KeyReportRaw,
@@ -129,7 +135,7 @@ bitflags! {
 }
 
 pub struct HidManager {
-    devices: Vec<HumanInterfaceDevice>,
+    devices: Vec<Box<HumanInterfaceDevice>>,
     mouse_pointer: Point<isize>,
 }
 
@@ -143,7 +149,7 @@ impl HidManager {
         }
     }
 
-    pub fn add(new_device: HumanInterfaceDevice) -> Result<(), ()> {
+    pub fn add(new_device: Box<HumanInterfaceDevice>) -> Result<(), ()> {
         let manager = unsafe { &mut HID_MANAGER };
         manager.devices.push(new_device);
         Ok(())
@@ -154,8 +160,6 @@ impl HidManager {
         T: Into<isize>,
     {
         let fb = stdout().fb();
-        let r = 2;
-        let pad = 4;
 
         let manager = unsafe { &mut HID_MANAGER };
         let mut pointer = manager.mouse_pointer;
@@ -169,6 +173,8 @@ impl HidManager {
         );
         manager.mouse_pointer = pointer;
 
+        let r = 2;
+        let pad = 4;
         let rect_outer = Rect::new(
             pointer.x - r - pad,
             pointer.y - r - pad,

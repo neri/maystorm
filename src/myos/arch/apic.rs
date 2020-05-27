@@ -117,7 +117,7 @@ impl Apic {
             VirtualAddress(irq_0c_handler as usize),
         );
 
-        // LAPIC timer
+        // Local APIC Timer
         let vec_latimer = Irq(0).as_vec();
         InterruptDescriptorTable::register(vec_latimer, VirtualAddress(timer_handler as usize));
         LocalApic::clear_timer();
@@ -150,9 +150,10 @@ impl Apic {
         // Setup SMP
         let max_cpu = core::cmp::min(System::shared().number_of_cpus(), MAX_CPU);
         let stack_chunk_size = 0x4000;
-        let stack_base = CustomAlloc::zalloc(max_cpu * stack_chunk_size)
-            .unwrap()
-            .as_ptr();
+        // let stack_base = CustomAlloc::zalloc(max_cpu * stack_chunk_size)
+        //     .unwrap()
+        //     .as_ptr();
+        let stack_base = null_mut();
         setup_smp_init(1, max_cpu, stack_chunk_size, stack_base);
         LocalApic::broadcast_init();
         Thread::usleep(10_000);
@@ -161,6 +162,13 @@ impl Apic {
         if System::shared().number_of_cpus() != System::shared().number_of_active_cpus() {
             panic!("Some of the processors are not responding");
         }
+
+        llvm_asm!("
+        mov $$0xcccccccc, %eax
+        mov $$256, %ecx
+        xor %edi, %edi
+        rep stosl
+        ":::"eax","ecx","edi");
     }
 
     pub unsafe fn register(irq: Irq, f: IrqHandler) -> Result<(), ()> {
@@ -252,6 +260,8 @@ pub struct Irq(pub u8);
 
 impl Irq {
     const BASE: InterruptVector = InterruptVector(0x20);
+    const MAX: Irq = Irq(127);
+
     pub const LPC_TIMER: Irq = Irq(0);
     pub const LPC_PS2K: Irq = Irq(1);
     pub const LPC_COM2: Irq = Irq(3);
@@ -262,10 +272,13 @@ impl Irq {
     pub const LPC_RTC: Irq = Irq(8);
     pub const LPC_IDE1: Irq = Irq(14);
     pub const LPC_IDE2: Irq = Irq(15);
-    const MAX: Irq = Irq(127);
 
     pub const fn as_vec(&self) -> InterruptVector {
         InterruptVector(Self::BASE.0 + self.0)
+    }
+
+    pub unsafe fn register(&self, f: IrqHandler) -> Result<(), ()> {
+        Apic::register(*self, f)
     }
 }
 
@@ -349,6 +362,7 @@ impl From<&acpi::interrupt::TriggerMode> for ApicTriggerMode {
 }
 
 #[allow(dead_code)]
+#[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 enum LocalApic {
     Id = 0x20,
@@ -430,12 +444,12 @@ impl LocalApic {
         Self::LvtTimer.write(APIC_REDIR_MASK);
     }
 
-    // Broadcast INIT IPI to all another APs
+    /// Broadcast INIT IPI to all another APs
     unsafe fn broadcast_init() {
         LocalApic::InterruptCommand.write(0x000C4500);
     }
 
-    // Broadcast Startup IPI to all another APs
+    /// Broadcast Startup IPI to all another APs
     unsafe fn broadcast_sipi(init_vec: u8) {
         LocalApic::InterruptCommand.write(0x000C4600 | init_vec as u32);
     }
@@ -453,6 +467,7 @@ enum LocalApicTimerMode {
     TscDeadline = 2 << 17,
 }
 
+#[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq)]
 enum LocalApicTimerDivide {
     By1 = 0b1011,
@@ -520,6 +535,7 @@ impl IoApic {
     }
 }
 
+/// High Precision Event Timer
 struct Hpet {
     base: *mut u64,
     main_cnt_period: u64,
@@ -534,7 +550,7 @@ impl Hpet {
             measure_div: 0,
         };
 
-        Apic::register(Irq::LPC_TIMER, Self::irq_handler).unwrap();
+        Irq::LPC_TIMER.register(Self::irq_handler).unwrap();
         hpet.main_cnt_period = hpet.read(0) >> 32;
         hpet.write(0x10, 0);
         hpet.write(0x20, 0); // Clear all interrupts

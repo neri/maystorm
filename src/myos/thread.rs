@@ -11,8 +11,8 @@ unsafe impl Sync for Thread {}
 unsafe impl Send for Thread {}
 
 impl Thread {
-    fn new() -> Self {
-        Thread { id: ThreadId(0) }
+    pub(crate) fn new(id: ThreadId) -> Self {
+        Thread { id: id }
     }
 
     pub fn id(&self) -> ThreadId {

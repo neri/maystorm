@@ -37,9 +37,6 @@ fn panic(info: &PanicInfo) -> ! {
     stdout().set_cursor_enabled(false);
     stdout().set_attribute(0x17);
     println!("{}", info);
-    unsafe {
-        PANIC_GLOBAL_LOCK.unlock();
-    }
     loop {
         unsafe {
             let _ = arch::cpu::Cpu::lock_irq();

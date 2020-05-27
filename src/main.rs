@@ -10,7 +10,7 @@ use uefi_pg::myos::arch::cpu::Cpu;
 use uefi_pg::myos::bus::lpc;
 use uefi_pg::myos::io::graphics::*;
 use uefi_pg::myos::io::hid;
-use uefi_pg::myos::thread::*;
+use uefi_pg::myos::scheduler::*;
 use uefi_pg::*;
 
 uefi_pg_entry!(main);
@@ -63,22 +63,28 @@ fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
     unsafe {
         myos::arch::system::System::init(rsdptr, total_memory_size, sysinit);
     }
+    loop {
+        unsafe {
+            Cpu::halt();
+        }
+    }
 }
 
 fn sysinit() {
     let system = myos::arch::system::System::shared();
 
     println!(
-        "\nMy practice OS version {} Total {} Cores, {} MB Memory",
+        "
+My practice OS version {} Total {} Cores, {} MB Memory",
         myos::MyOs::version(),
         system.number_of_active_cpus(),
         system.total_memory_size() >> 20,
     );
     println!("Hello, {:#}!", "Rust");
 
-    Thread::spawn(|| {
-        println!("Hello, thread!");
-    });
+    // Thread::spawn(|| {
+    //     println!("Hello, thread!");
+    // });
 
     loop {
         match lpc::get_key() {
@@ -87,11 +93,11 @@ fn sysinit() {
                     let c = hid::HidManager::usage_to_char_109(usage, modifier);
                     print!("{}", c);
                     if c == 'p' {
-                        myos::scheduler::GlobalScheduler::print_statistics();
+                        GlobalScheduler::print_statistics();
                     }
                 }
             }
-            None => unsafe { Cpu::halt() },
+            None => GlobalScheduler::wait_for(None, TimeMeasure(0)),
         }
     }
 }

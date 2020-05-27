@@ -80,7 +80,7 @@ impl System {
         }
     }
 
-    pub unsafe fn init(rsdptr: usize, total_memory_size: u64, f: fn() -> ()) -> ! {
+    pub unsafe fn init(rsdptr: usize, total_memory_size: u64, f: fn() -> ()) {
         let mut my_handler = MyAcpiHandler::new();
 
         SYSTEM.total_memory_size = total_memory_size;
@@ -138,10 +138,10 @@ impl System {
         unsafe {
             let handle = Cpu::lock_irq();
             let id = Cpu::current_processor_id();
-            for (index, cpu) in self.cpus.iter().enumerate() {
+            for cpu in &self.cpus {
                 if cpu.cpu_id == id {
                     Cpu::unlock_irq(handle);
-                    return Some(index);
+                    return Some(cpu.index);
                 }
             }
             Cpu::unlock_irq(handle);
@@ -150,7 +150,8 @@ impl System {
     }
 
     #[inline]
-    pub(crate) unsafe fn activate_cpu(&self, new_cpu: Box<Cpu>) {
+    pub(crate) unsafe fn activate_cpu(&self, mut new_cpu: Box<Cpu>) {
+        new_cpu.index = SYSTEM.cpus.len();
         SYSTEM.cpus.push(new_cpu);
     }
 }

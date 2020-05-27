@@ -20,6 +20,7 @@ impl LowPinCount {
 
 static mut PS2: Option<Box<Ps2>> = None;
 
+/// Personal System/2
 struct Ps2 {
     key_state: Ps2KeyState,
     mos_phase: Ps2MousePhase,
@@ -156,8 +157,8 @@ impl Ps2 {
             modifier: Modifier::empty(),
             mouse_buf: [Ps2Data(0); 3],
         }));
-        Apic::register(Irq::LPC_PS2K, Self::irq_01).unwrap();
-        Apic::register(Irq::LPC_PS2M, Self::irq_12).unwrap();
+        Irq::LPC_PS2K.register(Self::irq_01).unwrap();
+        Irq::LPC_PS2M.register(Self::irq_12).unwrap();
 
         Self::send_command(Ps2Command::WRITE_CONFIG, 1).unwrap();
         Self::send_data(Ps2Data(0x47), 1).unwrap();

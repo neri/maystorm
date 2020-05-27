@@ -37,7 +37,7 @@ _int00: ; #DE
     push BYTE 0x00
     jmp short _intXX
 
-_int03: ; #DB
+_int03: ; #BP
     push BYTE 0
     push BYTE 0x03
     jmp short _intXX
@@ -83,7 +83,7 @@ _intXX:
     mov rcx, rsp
     call default_int_ex_handler
 
-    add rsp, BYTE 8 ; CR2
+    pop rax ; CR2
     pop r15
     pop r14
     pop r13
@@ -104,7 +104,7 @@ _iretq:
     iretq
 
 
-;   fn switch_context(_current: *mut u8, _next: *mut u8);
+;   fn sch_switch_context(current: *mut u8, next: *mut u8);
 %define CTX_SP          0x08
 %define CTX_BP          0x10
 %define CTX_BX          0x18
@@ -116,8 +116,8 @@ _iretq:
 %define CTX_R15         0x48
 %define CTX_TSS_RSP0    0x50
 %define CTX_FPU_BASE    0x80
-    global switch_context
-switch_context:
+    global sch_switch_context
+sch_switch_context:
 
     mov [rcx + CTX_SP], rsp
     mov [rcx + CTX_BP], rbp
@@ -155,9 +155,10 @@ switch_context:
 
     ret
 
-;    fn arch_setup_new_thread(context: *mut u8, new_sp: *mut u8, start: *mut c_void, args: *mut c_void,);
-    global arch_setup_new_thread
-arch_setup_new_thread:
+
+;    fn sch_make_new_thread(context: *mut u8, new_sp: *mut u8, start: *mut c_void, args: *mut c_void,);
+    global sch_make_new_thread
+sch_make_new_thread:
     lea rax, [rel _new_thread]
     sub rdx, BYTE 0x18
     mov [rdx], rax
@@ -166,9 +167,10 @@ arch_setup_new_thread:
     mov [rcx + CTX_SP], rdx
     ret
 
-    extern dispose_new_thread
+
+    extern sch_setup_new_thread
 _new_thread:
-    call dispose_new_thread
+    call sch_setup_new_thread
     sti
     pop rax
     pop rcx

@@ -1,14 +1,14 @@
 // Graphics Console
 use super::font::*;
 use super::graphics::*;
-use crate::myos::mux::spinlock::*;
+// use crate::myos::mux::spinlock::*;
 use core::fmt::Write;
 
 static DEFAULT_ATTRIBUTE: u8 = 0x07;
 
 pub struct GraphicalConsole<'a> {
     fb: FrameBuffer,
-    lock: Spinlock,
+    // lock: Spinlock,
     font: FontDriver<'a>,
     cursor: (isize, isize),
     dims: (isize, isize),
@@ -26,7 +26,7 @@ impl<'a> From<FrameBuffer> for GraphicalConsole<'a> {
         let rows = rect.size.height / font.line_height();
         GraphicalConsole {
             fb: fb,
-            lock: Spinlock::new(),
+            // lock: Spinlock::new(),
             font: font,
             insets: insets,
             cursor: (0, 0),
@@ -182,11 +182,11 @@ impl GraphicalConsole<'_> {
 
 impl Write for GraphicalConsole<'_> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        self.lock.lock();
+        // self.lock.lock();
         for c in s.chars() {
             self.putchar(c);
         }
-        self.lock.unlock();
+        // self.lock.unlock();
         Ok(())
     }
 }

@@ -2,12 +2,14 @@
 
 use crate::myos::arch::apic::Apic;
 use crate::myos::arch::system::*;
+use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;
 
 // #[derive(Debug)]
 pub struct Cpu {
     pub cpu_id: ProcessorId,
+    pub index: usize,
     pub gdt: Box<GlobalDescriptorTable>,
     pub tss: Box<TaskStateSegment>,
 }
@@ -28,6 +30,7 @@ impl Cpu {
         let gdt = GlobalDescriptorTable::new(&tss);
         let cpu = Box::new(Cpu {
             cpu_id: cpuid,
+            index: 0,
             gdt: gdt,
             tss: tss,
         });
@@ -62,7 +65,6 @@ impl Cpu {
 
     pub unsafe fn reset() -> ! {
         // io_out8(0x0CF9, 0x06);
-        // moe_usleep(10000);
         Cpu::out8(0x0092, 0x01);
         loop {
             Cpu::halt()
@@ -74,7 +76,7 @@ impl Cpu {
     }
 
     #[must_use]
-    pub unsafe fn lock_irq() -> LockIrqHandle {
+    pub(crate) unsafe fn lock_irq() -> LockIrqHandle {
         let mut rax: Eflags;
         llvm_asm!("
             pushfq
@@ -85,7 +87,23 @@ impl Cpu {
         LockIrqHandle((rax & Eflags::IF).bits as usize)
     }
 
-    pub unsafe fn unlock_irq(handle: LockIrqHandle) {
+    pub(crate) fn check_irq() -> Result<(), ()> {
+        let mut rax: Eflags;
+        unsafe {
+            llvm_asm!("
+            pushfq
+            pop $0
+            "
+            : "=r"(rax));
+        }
+        if rax.contains(Eflags::IF) {
+            Err(())
+        } else {
+            Ok(())
+        }
+    }
+
+    pub(crate) unsafe fn unlock_irq(handle: LockIrqHandle) {
         let eflags = Eflags::from_bits_unchecked(handle.0);
         if eflags.contains(Eflags::IF) {
             llvm_asm!("sti");
@@ -114,37 +132,6 @@ bitflags! {
         const VIP = 0x00100000;
         const ID = 0x00200000;
     }
-}
-
-#[repr(C, packed)]
-pub struct X64StackContext {
-    pub cr2: u64,
-    pub r15: u64,
-    pub r14: u64,
-    pub r13: u64,
-    pub r12: u64,
-    pub r11: u64,
-    pub r10: u64,
-    pub r9: u64,
-    pub r8: u64,
-    pub rdi: u64,
-    pub rsi: u64,
-    pub rbp: u64,
-    pub rbx: u64,
-    pub rdx: u64,
-    pub rcx: u64,
-    pub rax: u64,
-    pub vector: InterruptVector,
-    _padding_1: [u8; 7],
-    pub error_code: u16,
-    _padding_2: [u16; 3],
-    pub rip: u64,
-    pub cs: u16,
-    _padding_3: [u16; 3],
-    pub rflags: Eflags,
-    pub rsp: u64,
-    pub ss: u16,
-    _padding_4: [u16; 3],
 }
 
 const MAX_GDT: usize = 8;
@@ -253,6 +240,7 @@ pub struct InterruptVector(pub u8);
 // }
 
 #[repr(u8)]
+#[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Exception {
     DivideError = 0,
@@ -535,6 +523,7 @@ impl InterruptDescriptorTable {
 }
 
 #[repr(u32)]
+#[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum Msr {
     Tsc = 0x10,
@@ -587,16 +576,48 @@ impl Msr {
     }
 }
 
+#[repr(C, packed)]
+pub struct X64StackContext {
+    pub cr2: u64,
+    pub r15: u64,
+    pub r14: u64,
+    pub r13: u64,
+    pub r12: u64,
+    pub r11: u64,
+    pub r10: u64,
+    pub r9: u64,
+    pub r8: u64,
+    pub rdi: u64,
+    pub rsi: u64,
+    pub rbp: u64,
+    pub rbx: u64,
+    pub rdx: u64,
+    pub rcx: u64,
+    pub rax: u64,
+    pub vector: InterruptVector,
+    _padding_1: [u8; 7],
+    pub error_code: u16,
+    _padding_2: [u16; 3],
+    pub rip: u64,
+    pub cs: u16,
+    _padding_3: [u16; 3],
+    pub rflags: Eflags,
+    pub rsp: u64,
+    pub ss: u16,
+    _padding_4: [u16; 3],
+}
+
+static mut GLOBAL_EXCEPTION_LOCK: Spinlock = Spinlock::new();
+
 #[no_mangle]
 pub extern "C" fn default_int_ex_handler(ctx: *mut X64StackContext) {
     unsafe {
+        GLOBAL_EXCEPTION_LOCK.lock();
         let ctx = ctx.as_ref().unwrap();
-        panic!(
-            "EXCEPTION {:02x} {:04x} ip {:02x}:{:016x} sp {:02x}:{:016x} fl {:08x}
-rax {:016x} rbx {:016x} rcx {:016x} rdx {:016x}
-rbp {:016x} rsi {:016x} rdi {:016x}
-r8  {:016x} r9  {:016x} r10 {:016x} r11 {:016x}
-r12 {:016x} r13 {:016x} r14 {:016x} r15 {:016x}",
+        stdout().set_cursor_enabled(false);
+        stdout().set_attribute(0x17);
+        println!(
+            "#### EXCEPTION {:02x} {:04x} ip {:02x}:{:016x} sp {:02x}:{:016x} fl {:08x}",
             ctx.vector.0,
             ctx.error_code,
             ctx.cs,
@@ -604,6 +625,13 @@ r12 {:016x} r13 {:016x} r14 {:016x} r15 {:016x}",
             ctx.ss,
             ctx.rsp,
             ctx.rflags.bits(),
+        );
+        GLOBAL_EXCEPTION_LOCK.unlock();
+        println!(
+"rax {:016x} rbx {:016x} rcx {:016x} rdx {:016x}
+rbp {:016x} rsi {:016x} rdi {:016x}
+r8  {:016x} r9  {:016x} r10 {:016x} r11 {:016x}
+r12 {:016x} r13 {:016x} r14 {:016x} r15 {:016x}",
             ctx.rax,
             ctx.rbx,
             ctx.rcx,
@@ -620,5 +648,8 @@ r12 {:016x} r13 {:016x} r14 {:016x} r15 {:016x}",
             ctx.r14,
             ctx.r15,
         );
+        loop {
+            llvm_asm!("hlt");
+        }
     }
 }
