@@ -1,11 +1,37 @@
 // A Computer System
 
-use super::super::scheduler::*;
-use super::cpu::*;
+use crate::myos::arch::cpu::*;
+use crate::myos::scheduler::*;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
 use core::ptr::NonNull;
+
+static VERSION: Version = Version::new(0, 0, 1);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Version {
+    pub maj: usize,
+    pub min: usize,
+    pub rev: usize,
+}
+
+impl Version {
+    pub const fn new(maj: usize, min: usize, rev: usize) -> Self {
+        Version {
+            maj: maj,
+            min: min,
+            rev: rev,
+        }
+    }
+}
+
+use core::fmt;
+impl fmt::Display for Version {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{}.{}", self.maj, self.min, self.rev)
+    }
+}
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -55,10 +81,6 @@ impl VirtualAddress {
     }
 }
 
-#[repr(transparent)]
-#[derive(Debug, Copy, Clone)]
-pub struct LockIrqHandle(pub usize);
-
 pub struct System {
     total_memory_size: u64,
     number_of_cpus: usize,
@@ -80,7 +102,7 @@ impl System {
         }
     }
 
-    pub unsafe fn init(rsdptr: usize, total_memory_size: u64, f: fn() -> ()) {
+    pub unsafe fn init(rsdptr: usize, total_memory_size: u64, f: fn() -> ()) -> ! {
         let mut my_handler = MyAcpiHandler::new();
 
         SYSTEM.total_memory_size = total_memory_size;
@@ -134,25 +156,15 @@ impl System {
         self.acpi.as_ref().unwrap()
     }
 
-    pub fn current_cpu_index(&self) -> Option<usize> {
-        unsafe {
-            let handle = Cpu::lock_irq();
-            let id = Cpu::current_processor_id();
-            for cpu in &self.cpus {
-                if cpu.cpu_id == id {
-                    Cpu::unlock_irq(handle);
-                    return Some(cpu.index);
-                }
-            }
-            Cpu::unlock_irq(handle);
-            None
-        }
+    #[inline]
+    pub(crate) unsafe fn activate_cpu(&self, new_cpu: Box<Cpu>) -> ProcessorIndex {
+        let new_index = SYSTEM.cpus.len();
+        SYSTEM.cpus.push(new_cpu);
+        ProcessorIndex(new_index)
     }
 
-    #[inline]
-    pub(crate) unsafe fn activate_cpu(&self, mut new_cpu: Box<Cpu>) {
-        new_cpu.index = SYSTEM.cpus.len();
-        SYSTEM.cpus.push(new_cpu);
+    pub fn version(&self) -> &'static Version {
+        &VERSION
     }
 }
 

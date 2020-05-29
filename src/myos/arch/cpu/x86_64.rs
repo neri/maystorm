@@ -1,7 +1,7 @@
 // Central Processing Unit
 
 use crate::myos::arch::apic::Apic;
-use crate::myos::arch::system::*;
+use crate::myos::system::*;
 use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;
@@ -9,7 +9,6 @@ use bitflags::*;
 // #[derive(Debug)]
 pub struct Cpu {
     pub cpu_id: ProcessorId,
-    pub index: usize,
     pub gdt: Box<GlobalDescriptorTable>,
     pub tss: Box<TaskStateSegment>,
 }
@@ -22,7 +21,6 @@ extern "C" {
     fn _int0D();
     fn _int0E();
 }
-//unsafe impl Sync for Cpu {}
 
 impl Cpu {
     pub(crate) unsafe fn new(cpuid: ProcessorId) -> Box<Self> {
@@ -30,10 +28,18 @@ impl Cpu {
         let gdt = GlobalDescriptorTable::new(&tss);
         let cpu = Box::new(Cpu {
             cpu_id: cpuid,
-            index: 0,
             gdt: gdt,
             tss: tss,
         });
+
+        // Currently force disabling SSE
+        let mut _temp: usize;
+        llvm_asm!("
+            mov %cr4, $0
+            btr $$9, $0
+            mov $0, %cr4
+            ": "=r"(_temp) ::: "volatile");
+
         cpu
     }
 
@@ -51,6 +57,10 @@ impl Cpu {
 
     pub fn current_processor_id() -> ProcessorId {
         Apic::current_processor_id()
+    }
+
+    pub fn current_processor_index() -> Option<ProcessorIndex> {
+        Apic::current_processor_index()
     }
 
     pub fn relax() {
@@ -75,18 +85,6 @@ impl Cpu {
         llvm_asm!("outb %al, %dx" :: "{dx}"(port), "{al}"(value));
     }
 
-    #[must_use]
-    pub(crate) unsafe fn lock_irq() -> LockIrqHandle {
-        let mut rax: Eflags;
-        llvm_asm!("
-            pushfq
-            cli
-            pop $0
-            "
-            : "=r"(rax));
-        LockIrqHandle((rax & Eflags::IF).bits as usize)
-    }
-
     pub(crate) fn check_irq() -> Result<(), ()> {
         let mut rax: Eflags;
         unsafe {
@@ -94,7 +92,8 @@ impl Cpu {
             pushfq
             pop $0
             "
-            : "=r"(rax));
+            : "=r"(rax)
+            :: "memory");
         }
         if rax.contains(Eflags::IF) {
             Err(())
@@ -103,10 +102,36 @@ impl Cpu {
         }
     }
 
-    pub(crate) unsafe fn unlock_irq(handle: LockIrqHandle) {
-        let eflags = Eflags::from_bits_unchecked(handle.0);
-        if eflags.contains(Eflags::IF) {
-            llvm_asm!("sti");
+    pub(crate) fn without_interrupts<F, R>(f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        let mut rax: Eflags;
+        unsafe {
+            llvm_asm!("
+            pushfq
+            cli
+            pop $0
+            "
+            : "=r"(rax)
+            :: "memory");
+        }
+
+        let r = f();
+
+        if rax.contains(Eflags::IF) {
+            unsafe {
+                llvm_asm!("sti" :::: "volatile");
+            }
+        }
+
+        r
+    }
+
+    pub(crate) unsafe fn stop() -> ! {
+        loop {
+            llvm_asm!("cli");
+            Self::halt();
         }
     }
 }
@@ -433,7 +458,9 @@ impl GlobalDescriptorTable {
             lgdt 6(%rsp)
             add $$0x10, %rsp
             "
-            ::"r"(&self.table), "r"((self.table.len() * 8 - 1) << 48)
+            :
+            : "r"(&self.table), "r"((self.table.len() * 8 - 1) << 48)
+            : "memory"
         );
         llvm_asm!("
             mov %rsp, %rax
@@ -447,8 +474,9 @@ impl GlobalDescriptorTable {
             mov %edx, %fs
             mov %edx, %gs
             "
-            ::"{rcx}"(KERNEL_CODE), "{rdx}"(KERNEL_DATA)
-            :"%rax"
+            :
+            : "{rcx}"(KERNEL_CODE), "{rdx}"(KERNEL_DATA)
+            : "%rax", "memory"
         );
         llvm_asm!("ltr $0"::"r"(TSS));
     }
@@ -505,7 +533,9 @@ impl InterruptDescriptorTable {
             lidt 6(%rsp)
             add $$0x10, %rsp
             "
-            :: "r"(&IDT.raw), "r"((IDT.raw.len() * 8 - 1) << 48)
+            :
+            : "r"(&IDT.raw), "r"((IDT.raw.len() * 8 - 1) << 48)
+            : "memory"
         );
     }
 
@@ -568,7 +598,8 @@ impl Msr {
         let mut edx: u32;
         llvm_asm!("rdmsr"
         : "={eax}"(eax),"={edx}"(edx)
-        : "{ecx}"(*self));
+        : "{ecx}"(*self)
+        :: "volatile");
         MsrResult {
             tuple: EaxEdx { eax: eax, edx: edx },
         }
@@ -628,7 +659,7 @@ pub extern "C" fn default_int_ex_handler(ctx: *mut X64StackContext) {
         );
         GLOBAL_EXCEPTION_LOCK.unlock();
         println!(
-"rax {:016x} rbx {:016x} rcx {:016x} rdx {:016x}
+            "rax {:016x} rbx {:016x} rcx {:016x} rdx {:016x}
 rbp {:016x} rsi {:016x} rdi {:016x}
 r8  {:016x} r9  {:016x} r10 {:016x} r11 {:016x}
 r12 {:016x} r13 {:016x} r14 {:016x} r15 {:016x}",

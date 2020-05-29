@@ -5,7 +5,6 @@ use crate::myos::arch::cpu::Cpu;
 use crate::myos::io::hid::*;
 use crate::myos::mux::queue::*;
 use crate::myos::scheduler::*;
-use crate::myos::thread::*;
 use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;
@@ -167,11 +166,11 @@ impl Ps2 {
         Self::send_command(Ps2Command::ENABLE_SECOND_PORT, 1).unwrap();
 
         Self::send_data(Ps2Data::RESET_COMMAND, 1).unwrap();
-        Thread::usleep(100_000);
+        Timer::usleep(100_000);
         Self::send_data(Ps2Data::ENABLE_SEND, 1).unwrap();
 
         Self::send_second_data(Ps2Data::RESET_COMMAND, 1).unwrap();
-        Thread::usleep(100_000);
+        Timer::usleep(100_000);
         Self::send_second_data(Ps2Data::ENABLE_SEND, 1).unwrap();
 
         Ok(())

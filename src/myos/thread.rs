@@ -1,5 +1,5 @@
 // Thread
-use super::scheduler::{GlobalScheduler, ThreadId, TimeMeasure};
+use super::scheduler::{ThreadId, TimeMeasure, Timer};
 
 #[derive(Debug, Clone)]
 pub struct Thread {
@@ -36,11 +36,7 @@ impl Thread {
     // }
 
     pub fn sleep(duration: TimeMeasure) {
-        GlobalScheduler::sleep(duration);
-    }
-
-    pub fn usleep(us: u64) {
-        Self::sleep(TimeMeasure::from_micros(us));
+        Timer::sleep(duration);
     }
 
     pub fn park() {}

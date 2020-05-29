@@ -1,15 +1,16 @@
 // Thread Scheduler
 
 use super::arch::cpu::Cpu;
-use super::arch::system::*;
 use crate::myos::io::graphics::*;
 use crate::myos::mem::alloc::*;
 use crate::myos::mux::queue::*;
 use crate::myos::mux::spinlock::*;
+use crate::myos::system::*;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
 use bitflags::*;
+use core::intrinsics::*;
 use core::ops::*;
 use core::ptr::*;
 use core::sync::atomic::*;
@@ -57,6 +58,7 @@ impl Timer {
         }
     }
 
+    #[must_use]
     pub fn until(&self) -> bool {
         if self.is_null() {
             false
@@ -72,6 +74,25 @@ impl Timer {
 
     pub fn is_null(&self) -> bool {
         self.deadline == Self::NULL.deadline
+    }
+
+    pub fn sleep(duration: TimeMeasure) {
+        let sch = unsafe { &GLOBAL_SCHEDULER };
+        if sch.is_enabled.load(Ordering::Relaxed) {
+            GlobalScheduler::wait_for(None, duration);
+        } else {
+            let timer = unsafe { TIMER_SOURCE.as_ref().unwrap() };
+            let deadline = timer.create(duration);
+            while timer.until(deadline) {
+                unsafe {
+                    Cpu::halt();
+                }
+            }
+        }
+    }
+
+    pub fn usleep(us: u64) {
+        Self::sleep(TimeMeasure::from_micros(us));
     }
 }
 
@@ -126,10 +147,10 @@ const SIZE_OF_READY_QUEUE: usize = 256;
 /// System Global Scheduler
 pub struct GlobalScheduler {
     next_thread_id: AtomicUsize,
-    ready: Vec<Box<ConcurrentRingBuffer<&'static NativeThread>>>,
-    retired: Option<Box<ConcurrentRingBuffer<&'static NativeThread>>>,
+    ready: Vec<Box<ThreadQueue>>,
+    retired: Option<Box<ThreadQueue>>,
     locals: Vec<Box<LocalScheduler>>,
-    is_enabled: bool,
+    is_enabled: AtomicBool,
 }
 
 impl GlobalScheduler {
@@ -139,26 +160,22 @@ impl GlobalScheduler {
             ready: Vec::new(),
             retired: None,
             locals: Vec::new(),
-            is_enabled: false,
+            is_enabled: AtomicBool::new(false),
         }
     }
 
-    pub(crate) fn start(system: &System, f: fn(*mut c_void) -> (), args: *mut c_void) {
+    pub(crate) fn start(system: &System, f: fn(*mut c_void) -> (), args: *mut c_void) -> ! {
         let sch = unsafe { &mut GLOBAL_SCHEDULER };
 
-        sch.retired = Some(ConcurrentRingBuffer::<&NativeThread>::with_capacity(
-            SIZE_OF_RETIRED_QUEUE,
-        ));
+        sch.retired = Some(ThreadQueue::with_capacity(SIZE_OF_RETIRED_QUEUE));
         sch.ready
-            .push(ConcurrentRingBuffer::<&NativeThread>::with_capacity(
-                SIZE_OF_READY_QUEUE,
-            ));
+            .push(ThreadQueue::with_capacity(SIZE_OF_READY_QUEUE));
 
         for index in 0..system.number_of_active_cpus() {
             sch.locals.push(LocalScheduler::new(ProcessorIndex(index)));
         }
 
-        for _ in 0..10 {
+        for _ in 0..20 {
             Self::retire(NativeThread::new(
                 Priority::Normal,
                 ThreadFlags::empty(),
@@ -174,7 +191,7 @@ impl GlobalScheduler {
             args,
         ));
 
-        sch.is_enabled = true;
+        sch.is_enabled.store(true, Ordering::Relaxed);
 
         // loop {
         //     GlobalScheduler::wait_for(None, TimeMeasure(0));
@@ -192,47 +209,42 @@ impl GlobalScheduler {
     }
 
     // Perform a Preemption
-    pub(crate) unsafe fn reschedule() {
-        let handle = Cpu::lock_irq();
-        let sch = &GLOBAL_SCHEDULER;
-        if sch.is_enabled {
-            let lsch = Self::local_scheduler();
-            if lsch.current.priority != Priority::Realtime {
-                // FIXME: wicked code
-                let current_mut = &mut *(lsch.current as *const NativeThread as *mut NativeThread);
-                if current_mut.quantum.consume() {
-                    LocalScheduler::next_thread(lsch);
+    pub(crate) fn reschedule() {
+        let sch = unsafe { &GLOBAL_SCHEDULER };
+        if sch.is_enabled.load(Ordering::Relaxed) {
+            Cpu::without_interrupts(|| {
+                let lsch = Self::local_scheduler();
+                if lsch.current.borrow().priority != Priority::Realtime {
+                    if lsch.current.using(|current| current.quantum.consume()) {
+                        LocalScheduler::next_thread(lsch);
+                    }
                 }
-            }
+            })
         }
-        Cpu::unlock_irq(handle);
     }
 
+    /// Wait for Event or Timer
     pub fn wait_for(_: Option<NonNull<usize>>, duration: TimeMeasure) {
-        unsafe {
-            let handle = Cpu::lock_irq();
+        Cpu::without_interrupts(|| {
             let lsch = Self::local_scheduler();
-            {
-                // FIXME: wicked code
-                let current_mut = &mut *(lsch.current as *const NativeThread as *mut NativeThread);
-                current_mut.deadline = Timer::new(duration);
-            }
+            lsch.current.using(|current| {
+                current.deadline = Timer::new(duration);
+            });
             LocalScheduler::next_thread(lsch);
-            Cpu::unlock_irq(handle);
-        }
+        });
     }
 
     fn local_scheduler() -> &'static mut LocalScheduler {
         let sch = unsafe { &mut GLOBAL_SCHEDULER };
-        let cpu_index = System::shared().current_cpu_index().unwrap();
-        sch.locals.get_mut(cpu_index).unwrap()
+        let cpu_index = Cpu::current_processor_index().unwrap();
+        sch.locals.get_mut(cpu_index.0).unwrap()
     }
 
     // Get Next Thread from queue
-    fn next() -> Option<&'static NativeThread> {
+    fn next() -> Option<ThreadHandle> {
         let sch = unsafe { &mut GLOBAL_SCHEDULER };
         while let Some(next) = sch.ready.get_mut(0).and_then(|q| q.read()) {
-            if next.deadline.until() {
+            if next.borrow().deadline.until() {
                 GlobalScheduler::retire(next);
                 continue;
             } else {
@@ -251,25 +263,10 @@ impl GlobalScheduler {
     }
 
     // Retire Thread
-    fn retire(thread: &'static NativeThread) {
-        if !thread.is_idle() {
+    fn retire(thread: ThreadHandle) {
+        if !thread.borrow().is_idle() {
             let sch = unsafe { &mut GLOBAL_SCHEDULER };
             sch.retired.as_mut().unwrap().write(thread).unwrap();
-        }
-    }
-
-    pub fn sleep(duration: TimeMeasure) {
-        let sch = unsafe { &GLOBAL_SCHEDULER };
-        if sch.is_enabled {
-            Self::wait_for(None, duration);
-        } else {
-            let timer = unsafe { TIMER_SOURCE.as_ref().unwrap() };
-            let deadline = timer.create(duration);
-            while timer.until(deadline) {
-                unsafe {
-                    Cpu::halt();
-                }
-            }
         }
     }
 
@@ -298,9 +295,9 @@ impl GlobalScheduler {
 struct LocalScheduler {
     pub index: ProcessorIndex,
     count: AtomicUsize,
-    idle: &'static NativeThread,
-    current: &'static NativeThread,
-    retired: Option<&'static NativeThread>,
+    idle: ThreadHandle,
+    current: ThreadHandle,
+    retired: Option<ThreadHandle>,
 }
 
 impl LocalScheduler {
@@ -316,35 +313,28 @@ impl LocalScheduler {
     }
 
     fn next_thread(lsch: &'static mut Self) {
-        unsafe {
-            llvm_asm!(".byte 0xb8, 0xef, 0xbe, 0xad, 0xde":::"eax");
-        }
         Cpu::check_irq().ok().unwrap();
         let current = lsch.current;
         let next = match GlobalScheduler::next() {
             Some(next) => next,
-            None => &lsch.idle,
+            None => lsch.idle,
         };
-        if current.id == next.id {
+        if current.borrow().id == next.borrow().id {
             // TODO: adjust statistics
         } else {
             lsch.count.fetch_add(1, Ordering::Relaxed);
             lsch.retired = Some(current);
             lsch.current = next;
+            current.using(|thread| thread.quantum = thread.default_quantum);
             unsafe {
-                // FIXME: wicked code
-                let current_mut = &mut *(current as *const NativeThread as *mut NativeThread);
-                current_mut.quantum = current_mut.default_quantum;
                 sch_switch_context(
-                    &current.context as *const u8 as *mut u8,
-                    &next.context as *const u8 as *mut u8,
+                    &current.borrow().context as *const u8 as *mut u8,
+                    &next.borrow().context as *const u8 as *mut u8,
                 );
             }
             let lsch = GlobalScheduler::local_scheduler();
-            unsafe {
-                let current_mut = &mut *(current as *const NativeThread as *mut NativeThread);
-                current_mut.deadline = Timer::NULL;
-            }
+            let current = lsch.current;
+            current.using(|thread| thread.deadline = Timer::NULL);
             let retired = lsch.retired.unwrap();
             // if let Some(retired) = lsch.retired {
             lsch.retired = None;
@@ -412,6 +402,7 @@ static mut THREAD_POOL: ThreadPool = ThreadPool::new();
 
 struct ThreadPool {
     vec: Vec<Box<NativeThread>>,
+    len: usize,
     lock: Spinlock,
 }
 
@@ -419,20 +410,60 @@ impl ThreadPool {
     const fn new() -> Self {
         Self {
             vec: Vec::new(),
+            len: 0,
             lock: Spinlock::new(),
         }
     }
 
-    fn add(thread: Box<NativeThread>) -> &'static mut NativeThread {
-        unsafe {
-            let shared = &mut THREAD_POOL;
-            shared.lock.lock();
-            shared.vec.push(thread);
-            let len = shared.vec.len();
-            let x = shared.vec.get_mut(len - 1).unwrap();
-            shared.lock.unlock();
-            x
+    fn add(thread: Box<NativeThread>) -> ThreadHandle {
+        let shared = unsafe { &mut THREAD_POOL };
+        shared.lock.lock();
+        shared.vec.push(thread);
+        let len = shared.vec.len();
+        shared.len = len;
+        shared.lock.unlock();
+        ThreadHandle::new(len).unwrap()
+    }
+}
+
+use core::num::*;
+#[derive(Debug, Copy, Clone, PartialEq)]
+struct ThreadHandle(pub NonZeroUsize);
+
+impl ThreadHandle {
+    pub fn new(val: usize) -> Option<Self> {
+        NonZeroUsize::new(val).map(|x| Self(x))
+    }
+
+    pub const fn as_usize(&self) -> usize {
+        self.0.get()
+    }
+
+    fn get_index(&self) -> usize {
+        self.0.get() as usize - 1
+    }
+
+    #[inline(never)]
+    fn using<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut NativeThread) -> R,
+    {
+        let shared = unsafe { &mut THREAD_POOL };
+        if shared.vec.len() != shared.len {
+            panic!(
+                "Length mismatch expect {} actual {}",
+                shared.len,
+                shared.vec.len()
+            );
         }
+        let thread = shared.vec[self.get_index()].as_mut();
+        f(thread)
+    }
+
+    fn borrow(&self) -> &'static NativeThread {
+        let shared = unsafe { &THREAD_POOL };
+        // shared.vec.get(self.get_index()).unwrap()
+        shared.vec[self.get_index()].as_ref()
     }
 }
 
@@ -452,15 +483,6 @@ pub(crate) struct NativeThread {
     attributes: ThreadFlags,
 }
 
-static mut TEMP_STACK_POINTER: AtomicUsize = AtomicUsize::new(0);
-
-fn temp_stack() -> *mut core::ffi::c_void {
-    unsafe {
-        let x = TEMP_STACK_POINTER.fetch_add(0x8000, Ordering::Relaxed) as usize;
-        x as *const c_void as *mut c_void
-    }
-}
-
 unsafe impl Sync for NativeThread {}
 
 impl NativeThread {
@@ -469,9 +491,9 @@ impl NativeThread {
         flags: ThreadFlags,
         start: Option<ThreadStart>,
         args: *mut c_void,
-    ) -> &'static mut Self {
+    ) -> ThreadHandle {
         let quantum = Quantum::from(priority);
-        let thread = ThreadPool::add(Box::new(Self {
+        let handle = ThreadPool::add(Box::new(Self {
             context: [0; SIZE_OF_CONTEXT],
             id: GlobalScheduler::next_thread_id(),
             priority: priority,
@@ -481,18 +503,17 @@ impl NativeThread {
             attributes: flags,
         }));
         if let Some(start) = start {
-            unsafe {
-                // let stack = CustomAlloc::zalloc(SIZE_OF_STACK).unwrap().as_ptr();
-                let stack = temp_stack();
+            handle.using(|thread| unsafe {
+                let stack = CustomAlloc::zalloc(SIZE_OF_STACK).unwrap().as_ptr();
                 sch_make_new_thread(
                     thread.context.as_mut_ptr(),
                     stack.add(SIZE_OF_STACK),
                     start as usize,
                     args,
                 );
-            }
+            })
         }
-        thread
+        handle
     }
 
     // fn current() -> &'static Self {
@@ -500,7 +521,7 @@ impl NativeThread {
     // }
 
     pub fn current_id() -> ThreadId {
-        GlobalScheduler::local_scheduler().current.id
+        GlobalScheduler::local_scheduler().current.borrow().id
     }
 
     pub fn exit(_exit_code: usize) -> ! {
@@ -537,5 +558,88 @@ impl Irql {
 
     pub fn current() -> Irql {
         Irql::Passive
+    }
+}
+
+struct ThreadQueue {
+    read: AtomicUsize,
+    write: AtomicUsize,
+    // free: AtomicUsize,
+    count: AtomicUsize,
+    mask: usize,
+    buf: [usize; 32],
+}
+
+unsafe impl Sync for ThreadQueue {}
+
+impl ThreadQueue {
+    fn with_capacity(capacity: usize) -> Box<Self> {
+        let capacity: usize = 32;
+        assert_eq!(capacity.count_ones(), 1);
+        let mask = capacity - 1;
+        // let mut buf = Vec::with_capacity(capacity);
+        // for _ in 0..capacity {
+        //     buf.push(0xcccc_cccc_cccc_cccc);
+        // }
+        Box::new(Self {
+            read: AtomicUsize::new(0),
+            write: AtomicUsize::new(0),
+            count: AtomicUsize::new(0),
+            // free: AtomicUsize::new(mask),
+            mask: mask,
+            buf: [0; 32],
+        })
+    }
+
+    fn read(&mut self) -> Option<ThreadHandle> {
+        unsafe {
+            llvm_asm!("mov $$0xdeadbeef, %r8":::"r8":"volatile");
+        }
+        let mask = self.mask;
+        while self.count.load(Ordering::SeqCst) > 0 {
+            let read = self.read.load(Ordering::SeqCst);
+            let result = unsafe {
+                let ptr = self.buf.as_mut_ptr().add(read & mask);
+                atomic_xchg(ptr, 0)
+            };
+            // let _ = self.read.compare_exchange_weak(
+            //     read,
+            //     read + 1,
+            //     Ordering::SeqCst,
+            //     Ordering::Relaxed,
+            // );
+            if result != 0 {
+                self.read.fetch_add(1, Ordering::SeqCst);
+                self.count.fetch_sub(1, Ordering::SeqCst);
+                return ThreadHandle::new(result);
+            }
+            Cpu::relax();
+            // read += 1;
+        }
+        None
+    }
+
+    fn write(&mut self, data: ThreadHandle) -> Result<(), ()> {
+        unsafe {
+            llvm_asm!("mov $$0xdeadbeef, %r9":::"r9":"volatile");
+        }
+        let mask = self.mask;
+        let data = data.as_usize();
+        loop {
+            if self.count.load(Ordering::SeqCst) >= mask {
+                break Err(());
+            }
+            let write = mask & self.write.load(Ordering::SeqCst);
+            let (_, success) = unsafe {
+                let ptr = self.buf.as_mut_ptr().add(write & mask);
+                atomic_cxchg_acq_failrelaxed(ptr, 0, data)
+            };
+            if success {
+                self.count.fetch_add(1, Ordering::SeqCst);
+                self.write.fetch_add(1, Ordering::SeqCst);
+                break Ok(());
+            }
+            Cpu::relax();
+        }
     }
 }

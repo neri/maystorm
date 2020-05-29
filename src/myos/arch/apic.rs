@@ -6,12 +6,11 @@ use core::ffi::c_void;
 use core::ptr::*;
 
 use super::cpu::*;
-use super::system::*;
 use crate::mux::spinlock::Spinlock;
 use crate::myos::io::graphics::*;
 use crate::myos::mem::alloc::*;
 use crate::myos::scheduler::*;
-use crate::myos::thread::*;
+use crate::myos::system::*;
 use crate::stdout;
 use crate::*;
 
@@ -22,6 +21,8 @@ const MAX_CPU: usize = 64;
 
 static mut APIC: Apic = Apic::new();
 static mut LOCAL_APIC_BASE: Option<NonNull<c_void>> = None;
+const INVALID_PROCESSOR_INDEX: u8 = 0xFF;
+static mut CURRENT_PROCESSOR_INDEXES: [u8; 256] = [INVALID_PROCESSOR_INDEX; 256];
 
 extern "C" {
     fn setup_smp_init(
@@ -38,8 +39,9 @@ static mut GLOBALLOCK: Spinlock = Spinlock::new();
 pub unsafe extern "C" fn apic_start_ap(_cpuid: u8) {
     GLOBALLOCK.lock();
     let new_cpu = Cpu::new(LocalApic::init_ap());
-    System::shared().activate_cpu(new_cpu);
-    // println!("Started AP {}", LocalApic::current_processor_id().0);
+    let new_cpuid = new_cpu.cpu_id;
+    let index = System::shared().activate_cpu(new_cpu);
+    CURRENT_PROCESSOR_INDEXES[new_cpuid.0 as usize] = index.0 as u8;
     GLOBALLOCK.unlock();
 }
 
@@ -74,6 +76,7 @@ impl Apic {
 
         // init Local Apic
         APIC.master_apic_id = System::shared().cpu(0).as_ref().cpu_id;
+        CURRENT_PROCESSOR_INDEXES[APIC.master_apic_id.0 as usize] = 0;
         LocalApic::init(acpi_apic.local_apic_address as usize);
 
         // Define Default GSI table for ISA devices
@@ -150,15 +153,14 @@ impl Apic {
         // Setup SMP
         let max_cpu = core::cmp::min(System::shared().number_of_cpus(), MAX_CPU);
         let stack_chunk_size = 0x4000;
-        // let stack_base = CustomAlloc::zalloc(max_cpu * stack_chunk_size)
-        //     .unwrap()
-        //     .as_ptr();
-        let stack_base = null_mut();
+        let stack_base = CustomAlloc::zalloc(max_cpu * stack_chunk_size)
+            .unwrap()
+            .as_ptr();
         setup_smp_init(1, max_cpu, stack_chunk_size, stack_base);
         LocalApic::broadcast_init();
-        Thread::usleep(10_000);
+        Timer::usleep(10_000);
         LocalApic::broadcast_sipi(1);
-        Thread::usleep(200_000);
+        Timer::usleep(200_000);
         if System::shared().number_of_cpus() != System::shared().number_of_active_cpus() {
             panic!("Some of the processors are not responding");
         }
@@ -235,6 +237,15 @@ impl Apic {
 
     pub fn current_processor_id() -> ProcessorId {
         unsafe { LocalApic::current_processor_id() }
+    }
+
+    pub fn current_processor_index() -> Option<ProcessorIndex> {
+        let index = unsafe { CURRENT_PROCESSOR_INDEXES[Self::current_processor_id().0 as usize] };
+        if index != INVALID_PROCESSOR_INDEX {
+            Some(ProcessorIndex(index as usize))
+        } else {
+            None
+        }
     }
 }
 

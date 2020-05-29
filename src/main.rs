@@ -11,6 +11,7 @@ use uefi_pg::myos::bus::lpc;
 use uefi_pg::myos::io::graphics::*;
 use uefi_pg::myos::io::hid;
 use uefi_pg::myos::scheduler::*;
+use uefi_pg::myos::system::*;
 use uefi_pg::*;
 
 uefi_pg_entry!(main);
@@ -61,22 +62,17 @@ fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
         }
     }
     unsafe {
-        myos::arch::system::System::init(rsdptr, total_memory_size, sysinit);
-    }
-    loop {
-        unsafe {
-            Cpu::halt();
-        }
+        System::init(rsdptr, total_memory_size, sysinit);
     }
 }
 
 fn sysinit() {
-    let system = myos::arch::system::System::shared();
+    let system = System::shared();
 
     println!(
         "
 My practice OS version {} Total {} Cores, {} MB Memory",
-        myos::MyOs::version(),
+        system.version(),
         system.number_of_active_cpus(),
         system.total_memory_size() >> 20,
     );
@@ -87,6 +83,9 @@ My practice OS version {} Total {} Cores, {} MB Memory",
     // });
 
     loop {
+        unsafe {
+            Cpu::halt();
+        }
         match lpc::get_key() {
             Some((usage, modifier)) => {
                 if usage != hid::Usage::NULL {

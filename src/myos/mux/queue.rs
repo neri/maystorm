@@ -6,7 +6,10 @@ use alloc::vec::*;
 use core::intrinsics::*;
 use core::sync::atomic::*;
 
-pub struct ConcurrentRingBuffer<T: Sized + Clone + Copy> {
+pub struct ConcurrentRingBuffer<T>
+where
+    T: Sized + Clone + Copy + Sync + Send,
+{
     read: AtomicUsize,
     write: AtomicUsize,
     free: AtomicUsize,
@@ -16,9 +19,12 @@ pub struct ConcurrentRingBuffer<T: Sized + Clone + Copy> {
     buf: Box<[T]>,
 }
 
-unsafe impl<T: Sized + Clone + Copy> Sync for ConcurrentRingBuffer<T> {}
+unsafe impl<T> Sync for ConcurrentRingBuffer<T> where T: Sized + Clone + Copy + Sync + Send {}
 
-impl<T: Sized + Clone + Copy> ConcurrentRingBuffer<T> {
+impl<T> ConcurrentRingBuffer<T>
+where
+    T: Sized + Clone + Copy + Sync + Send,
+{
     pub fn with_capacity(capacity: usize) -> Box<Self> {
         assert_eq!(capacity.count_ones(), 1);
         let mask = capacity - 1;
@@ -50,7 +56,6 @@ impl<T: Sized + Clone + Copy> ConcurrentRingBuffer<T> {
                     let read = self.read.fetch_add(1, Ordering::SeqCst);
                     let result: T;
                     unsafe {
-                        llvm_asm!("mov $$0xdeadbeef, %ecx":::"ecx");
                         let ptr = self.buf.as_ptr().add(read & self.mask);
                         result = ptr.read_volatile();
                     }
@@ -78,12 +83,9 @@ impl<T: Sized + Clone + Copy> ConcurrentRingBuffer<T> {
                 Ok(_) => {
                     let write = self.write.fetch_add(1, Ordering::SeqCst);
                     unsafe {
-                        llvm_asm!("mov $$0xdeadbeef, %eax":::"eax");
                         let ptr = self.buf.as_mut_ptr().add(write & self.mask);
                         ptr.write_volatile(data);
-                        // atomic_store(ptr, data);
                     }
-
                     self.count.fetch_add(1, Ordering::SeqCst);
                     return Ok(());
                 }
