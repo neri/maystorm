@@ -3,14 +3,12 @@
 use super::arch::cpu::Cpu;
 use crate::myos::io::graphics::*;
 use crate::myos::mem::alloc::*;
-use crate::myos::mux::queue::*;
 use crate::myos::mux::spinlock::*;
 use crate::myos::system::*;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
 use bitflags::*;
-use core::intrinsics::*;
 use core::ops::*;
 use core::ptr::*;
 use core::sync::atomic::*;
@@ -105,7 +103,7 @@ impl TimeMeasure {
         TimeMeasure(us as i64)
     }
 
-    pub const fn from_mills(ms: u64) -> Self {
+    pub const fn from_millis(ms: u64) -> Self {
         TimeMeasure(ms as i64 * 1000)
     }
 
@@ -279,7 +277,7 @@ impl GlobalScheduler {
             stdout()
                 .fb()
                 .fill_rect(Rect::new(10 * id, 5, 8, 8), Color::from(counter as u32));
-            Self::wait_for(None, TimeMeasure::from_mills(5));
+            Self::wait_for(None, TimeMeasure::from_millis(5));
         }
     }
 
@@ -564,30 +562,29 @@ impl Irql {
 struct ThreadQueue {
     read: AtomicUsize,
     write: AtomicUsize,
-    // free: AtomicUsize,
-    count: AtomicUsize,
     mask: usize,
-    buf: [usize; 32],
+    lock: Spinlock,
+    buf: Vec<AtomicUsize>,
+    // TODO: lock-free
 }
 
 unsafe impl Sync for ThreadQueue {}
 
 impl ThreadQueue {
     fn with_capacity(capacity: usize) -> Box<Self> {
-        let capacity: usize = 32;
+        // let capacity: usize = 32;
         assert_eq!(capacity.count_ones(), 1);
         let mask = capacity - 1;
-        // let mut buf = Vec::with_capacity(capacity);
-        // for _ in 0..capacity {
-        //     buf.push(0xcccc_cccc_cccc_cccc);
-        // }
+        let mut buf = Vec::<AtomicUsize>::with_capacity(capacity);
+        for _ in 0..capacity {
+            buf.push(AtomicUsize::new(0));
+        }
         Box::new(Self {
             read: AtomicUsize::new(0),
             write: AtomicUsize::new(0),
-            count: AtomicUsize::new(0),
-            // free: AtomicUsize::new(mask),
             mask: mask,
-            buf: [0; 32],
+            lock: Spinlock::new(),
+            buf: buf,
         })
     }
 
@@ -595,51 +592,41 @@ impl ThreadQueue {
         unsafe {
             llvm_asm!("mov $$0xdeadbeef, %r8":::"r8":"volatile");
         }
-        let mask = self.mask;
-        while self.count.load(Ordering::SeqCst) > 0 {
-            let read = self.read.load(Ordering::SeqCst);
-            let result = unsafe {
-                let ptr = self.buf.as_mut_ptr().add(read & mask);
-                atomic_xchg(ptr, 0)
-            };
-            // let _ = self.read.compare_exchange_weak(
-            //     read,
-            //     read + 1,
-            //     Ordering::SeqCst,
-            //     Ordering::Relaxed,
-            // );
-            if result != 0 {
+        self.lock.synchronized(|| {
+            let mask = self.mask;
+            if (mask & (self.write.load(Ordering::SeqCst)))
+                != (mask & (self.read.load(Ordering::SeqCst)))
+            {
+                let read = self.read.load(Ordering::SeqCst);
+                let result = self.buf[read & mask].swap(0, Ordering::SeqCst);
                 self.read.fetch_add(1, Ordering::SeqCst);
-                self.count.fetch_sub(1, Ordering::SeqCst);
                 return ThreadHandle::new(result);
+            } else {
+                None
             }
-            Cpu::relax();
-            // read += 1;
-        }
-        None
+        })
     }
 
     fn write(&mut self, data: ThreadHandle) -> Result<(), ()> {
         unsafe {
             llvm_asm!("mov $$0xdeadbeef, %r9":::"r9":"volatile");
         }
-        let mask = self.mask;
         let data = data.as_usize();
-        loop {
-            if self.count.load(Ordering::SeqCst) >= mask {
-                break Err(());
+        self.lock.synchronized(|| {
+            let mask = self.mask;
+            if (mask & (self.write.load(Ordering::SeqCst) + 1))
+                != (mask & (self.read.load(Ordering::SeqCst)))
+            {
+                let write = mask & self.write.load(Ordering::SeqCst);
+                let success = self.buf[write & mask]
+                    .compare_exchange(0, data, Ordering::SeqCst, Ordering::Relaxed)
+                    .is_ok();
+                if success {
+                    self.write.fetch_add(1, Ordering::SeqCst);
+                    return Ok(());
+                }
             }
-            let write = mask & self.write.load(Ordering::SeqCst);
-            let (_, success) = unsafe {
-                let ptr = self.buf.as_mut_ptr().add(write & mask);
-                atomic_cxchg_acq_failrelaxed(ptr, 0, data)
-            };
-            if success {
-                self.count.fetch_add(1, Ordering::SeqCst);
-                self.write.fetch_add(1, Ordering::SeqCst);
-                break Ok(());
-            }
-            Cpu::relax();
-        }
+            Err(())
+        })
     }
 }

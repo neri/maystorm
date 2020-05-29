@@ -83,9 +83,9 @@ My practice OS version {} Total {} Cores, {} MB Memory",
     // });
 
     loop {
-        unsafe {
-            Cpu::halt();
-        }
+        // unsafe {
+        //     Cpu::halt();
+        // }
         match lpc::get_key() {
             Some((usage, modifier)) => {
                 if usage != hid::Usage::NULL {
@@ -96,7 +96,7 @@ My practice OS version {} Total {} Cores, {} MB Memory",
                     }
                 }
             }
-            None => GlobalScheduler::wait_for(None, TimeMeasure(0)),
+            None => GlobalScheduler::wait_for(None, TimeMeasure::from_millis(10)),
         }
     }
 }

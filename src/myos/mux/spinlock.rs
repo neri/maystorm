@@ -16,7 +16,7 @@ impl Spinlock {
         }
     }
 
-    pub fn lock(&mut self) {
+    pub fn lock(&self) {
         while self.value.compare_and_swap(false, true, Ordering::Relaxed) {
             let mut count = 1;
             while self.value.load(Ordering::Acquire) {
@@ -30,8 +30,18 @@ impl Spinlock {
         fence(Ordering::Acquire);
     }
 
-    pub fn unlock(&mut self) {
+    pub fn unlock(&self) {
         self.value.store(false, Ordering::Relaxed);
         fence(Ordering::Release);
+    }
+
+    pub fn synchronized<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        self.lock();
+        let result = f();
+        self.unlock();
+        result
     }
 }
