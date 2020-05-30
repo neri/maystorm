@@ -1,7 +1,6 @@
 // Graphics Console
 use super::font::*;
 use super::graphics::*;
-// use crate::myos::mux::spinlock::*;
 use core::fmt::Write;
 
 static DEFAULT_ATTRIBUTE: u8 = 0x07;

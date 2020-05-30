@@ -4,7 +4,7 @@ My practice OS for learning Rust
 
 ## Operating Requirements
 
-* 64bit UEFI system
+* 64bit UEFI 2.X + ACPI 2.X
 * Up to 64 logical processor cores
 * XX MB of system memory
 * 800x600 pixels graphics display

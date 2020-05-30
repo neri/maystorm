@@ -102,6 +102,7 @@ impl Cpu {
         }
     }
 
+    #[inline]
     pub(crate) fn without_interrupts<F, R>(f: F) -> R
     where
         F: FnOnce() -> R,

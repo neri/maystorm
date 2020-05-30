@@ -1,5 +1,6 @@
 // Spinlock
 
+// pub use super::Synchronized;
 use crate::myos::arch::cpu::Cpu;
 use core::sync::atomic::*;
 
@@ -30,11 +31,13 @@ impl Spinlock {
         fence(Ordering::Acquire);
     }
 
+    #[inline]
     pub fn unlock(&self) {
         self.value.store(false, Ordering::Relaxed);
         fence(Ordering::Release);
     }
 
+    #[inline]
     pub fn synchronized<F, R>(&self, f: F) -> R
     where
         F: FnOnce() -> R,

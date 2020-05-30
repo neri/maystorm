@@ -5,36 +5,27 @@ use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
 use bitflags::*;
+use core::cmp;
+use core::sync::atomic::*;
 // use core::ptr::NonNull;
 
 const INVALID_UNICHAR: char = '\u{FEFF}';
 
-pub struct HumanInterfaceDevice {
-    pub kind: HidKind,
+pub enum HumanInterfaceDevice {
+    Keyboard(HidKeyboard),
+    Mouse(HidMouse),
 }
 
-impl HumanInterfaceDevice {
-    pub fn new(kind: HidKind) -> Self {
-        Self { kind: kind }
-    }
-
-    pub fn process_key_report(_report: KeyReportRaw) -> Result<(), ()> {
-        Ok(())
-    }
-
-    pub fn process_mouse_report<T>(_report: MouseReport<T>) -> Result<(), ()>
-    where
-        T: Into<isize>,
-    {
-        Ok(())
-    }
+pub struct HidKeyboard {
+    pub state: KeyboardState,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub enum HidKind {
-    General = 0,
-    Keybowrd,
-    Mouse,
+pub struct HidMouse {
+    pub buttons: MouseButton,
+}
+
+pub struct HidGeneric {
+    pub class_id: u32,
 }
 
 #[repr(transparent)]
@@ -88,6 +79,7 @@ impl Modifier {
     }
 }
 
+/// USB HID BIOS Keyboard Raw Report
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
 pub struct KeyReportRaw {
@@ -97,7 +89,7 @@ pub struct KeyReportRaw {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct MinimalKeyEvent {
+pub struct KeyEvent {
     pub usage: Usage,
     pub modifier: Modifier,
 }
@@ -108,6 +100,7 @@ pub struct KeyboardState {
     pub prev: KeyReportRaw,
 }
 
+/// USB HID BIOS Mouse Raw Report
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
 pub struct MouseReportRaw {
@@ -126,6 +119,19 @@ where
     pub y: T,
 }
 
+impl<T> From<MouseReportRaw> for MouseReport<T>
+where
+    T: Into<isize> + From<i8>,
+{
+    fn from(report: MouseReportRaw) -> Self {
+        Self {
+            buttons: report.buttons,
+            x: T::from(report.x),
+            y: T::from(report.y),
+        }
+    }
+}
+
 bitflags! {
     pub struct MouseButton: u8 {
         const LEFT = 0b0000_0001;
@@ -136,7 +142,9 @@ bitflags! {
 
 pub struct HidManager {
     devices: Vec<Box<HumanInterfaceDevice>>,
-    mouse_pointer: Point<isize>,
+    lock: Spinlock,
+    pointer_x: AtomicIsize,
+    pointer_y: AtomicIsize,
 }
 
 static mut HID_MANAGER: HidManager = HidManager::new();
@@ -145,34 +153,53 @@ impl HidManager {
     const fn new() -> Self {
         HidManager {
             devices: Vec::new(),
-            mouse_pointer: Point::new(256, 256),
+            lock: Spinlock::new(),
+            pointer_x: AtomicIsize::new(256),
+            pointer_y: AtomicIsize::new(256),
         }
     }
 
     pub fn add(new_device: Box<HumanInterfaceDevice>) -> Result<(), ()> {
-        let manager = unsafe { &mut HID_MANAGER };
-        manager.devices.push(new_device);
-        Ok(())
+        unsafe { &HID_MANAGER }.lock.synchronized(|| {
+            let manager = unsafe { &mut HID_MANAGER };
+            manager.devices.push(new_device);
+            Ok(())
+        })
     }
 
-    pub fn process_mouse_report<T>(report: MouseReport<T>)
+    fn update_coord(coord: &AtomicIsize, displacement: isize, max_value: isize) {
+        let mut value = coord.load(Ordering::Relaxed);
+        loop {
+            let new_value = cmp::min(cmp::max(value + displacement, 0), max_value);
+            if value == new_value {
+                break;
+            }
+            match coord.compare_exchange(value, new_value, Ordering::SeqCst, Ordering::Relaxed) {
+                Ok(_) => break,
+                Err(actual) => value = actual,
+            }
+        }
+    }
+
+    pub fn pointer() -> Point<isize> {
+        let shared = unsafe { &HID_MANAGER };
+        Point::new(
+            shared.pointer_x.load(Ordering::Relaxed),
+            shared.pointer_y.load(Ordering::Relaxed),
+        )
+    }
+
+    pub fn update_pointer<T>(report: MouseReport<T>)
     where
         T: Into<isize>,
     {
         let fb = stdout().fb();
 
-        let manager = unsafe { &mut HID_MANAGER };
-        let mut pointer = manager.mouse_pointer;
-        pointer.x = core::cmp::min(
-            core::cmp::max(pointer.x + report.x.into(), 0),
-            fb.size().width - 1,
-        );
-        pointer.y = core::cmp::min(
-            core::cmp::max(pointer.y + report.y.into(), 0),
-            fb.size().height - 1,
-        );
-        manager.mouse_pointer = pointer;
+        let shared = unsafe { &HID_MANAGER };
+        Self::update_coord(&shared.pointer_x, report.x.into(), fb.size().width - 1);
+        Self::update_coord(&shared.pointer_y, report.y.into(), fb.size().height - 1);
 
+        let pointer = Self::pointer();
         let r = 2;
         let pad = 4;
         let rect_outer = Rect::new(
@@ -185,6 +212,13 @@ impl HidManager {
 
         fb.fill_rect(rect_outer, Color::from(0x000000));
         fb.fill_rect(rect_inner, Color::from(0xFFFFFF));
+    }
+
+    pub fn process_mouse_report<T>(report: MouseReport<T>)
+    where
+        T: Into<isize>,
+    {
+        Self::update_pointer(report)
     }
 
     pub fn usage_to_char_109(usage: Usage, modifier: Modifier) -> char {

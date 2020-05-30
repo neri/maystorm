@@ -3,7 +3,7 @@
 use crate::myos::arch::cpu::Cpu;
 use alloc::boxed::Box;
 use alloc::vec::*;
-use core::intrinsics::*;
+// use core::intrinsics::*;
 use core::sync::atomic::*;
 
 pub struct ConcurrentRingBuffer<T>
@@ -15,8 +15,7 @@ where
     free: AtomicUsize,
     count: AtomicUsize,
     mask: usize,
-    // buf: Vec<T>,
-    buf: Box<[T]>,
+    buf: Vec<T>,
 }
 
 unsafe impl<T> Sync for ConcurrentRingBuffer<T> where T: Sized + Clone + Copy + Sync + Send {}
@@ -32,7 +31,6 @@ where
         unsafe {
             buf.set_len(capacity);
         }
-        let buf = buf.into_boxed_slice();
         Box::new(Self {
             read: AtomicUsize::new(0),
             write: AtomicUsize::new(0),

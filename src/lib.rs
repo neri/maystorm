@@ -16,7 +16,7 @@ use core::panic::PanicInfo;
 use core::ptr::NonNull;
 use myos::io::console::GraphicalConsole;
 use myos::io::graphics::FrameBuffer;
-use myos::mux::spinlock::Spinlock;
+use myos::sync::spinlock::Spinlock;
 use myos::*;
 use uefi::prelude::*;
 

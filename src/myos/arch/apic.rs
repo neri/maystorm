@@ -6,12 +6,12 @@ use core::ffi::c_void;
 use core::ptr::*;
 
 use super::cpu::*;
-use crate::mux::spinlock::Spinlock;
 use crate::myos::io::graphics::*;
 use crate::myos::mem::alloc::*;
 use crate::myos::scheduler::*;
 use crate::myos::system::*;
 use crate::stdout;
+use crate::sync::spinlock::Spinlock;
 use crate::*;
 
 #[allow(dead_code)]

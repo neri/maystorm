@@ -3,8 +3,8 @@
 use crate::myos::arch::apic::*;
 use crate::myos::arch::cpu::Cpu;
 use crate::myos::io::hid::*;
-use crate::myos::mux::queue::*;
 use crate::myos::scheduler::*;
+use crate::myos::sync::queue::*;
 use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;
