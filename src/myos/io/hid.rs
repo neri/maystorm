@@ -1,6 +1,7 @@
 // Human Interface Devices
 
 use super::graphics::*;
+use crate::myos::sync::queue::*;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
@@ -11,21 +12,12 @@ use core::sync::atomic::*;
 
 const INVALID_UNICHAR: char = '\u{FEFF}';
 
-pub enum HumanInterfaceDevice {
-    Keyboard(HidKeyboard),
-    Mouse(HidMouse),
-}
-
 pub struct HidKeyboard {
     pub state: KeyboardState,
 }
 
 pub struct HidMouse {
-    pub buttons: MouseButton,
-}
-
-pub struct HidGeneric {
-    pub class_id: u32,
+    pub state: MouseState,
 }
 
 #[repr(transparent)]
@@ -100,34 +92,29 @@ pub struct KeyboardState {
     pub prev: KeyReportRaw,
 }
 
-/// USB HID BIOS Mouse Raw Report
-#[repr(C, packed)]
-#[derive(Debug, Copy, Clone)]
-pub struct MouseReportRaw {
-    pub buttons: MouseButton,
-    pub x: i8,
-    pub y: i8,
-}
-
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct MouseReport<T>
 where
-    T: Into<isize>,
+    T: Into<isize> + Copy,
 {
     pub buttons: MouseButton,
     pub x: T,
     pub y: T,
 }
 
-impl<T> From<MouseReportRaw> for MouseReport<T>
+/// USB HID BIOS Mouse Raw Report
+pub type MouseReportRaw = MouseReport<i8>;
+
+impl<T> MouseReport<T>
 where
-    T: Into<isize> + From<i8>,
+    T: Into<isize> + Copy,
 {
-    fn from(report: MouseReportRaw) -> Self {
-        Self {
-            buttons: report.buttons,
-            x: T::from(report.x),
-            y: T::from(report.y),
+    pub fn normalize(&self) -> MouseReport<isize> {
+        MouseReport {
+            buttons: self.buttons,
+            x: self.x.into(),
+            y: self.y.into(),
         }
     }
 }
@@ -137,12 +124,23 @@ bitflags! {
         const LEFT = 0b0000_0001;
         const RIGHT = 0b0000_0010;
         const MIDDLE = 0b0000_0100;
+        const BUTTON4 = 0b0000_1000;
+        const BUTTON5 = 0b0001_0000;
+        const BUTTON6 = 0b0010_0000;
+        const BUTTON7 = 0b0100_0000;
+        const BUTTON8 = 0b1000_0000;
     }
 }
 
+pub struct MouseState {
+    pub buttons: MouseButton,
+    pub prev: MouseButton,
+    pub x: isize,
+    pub y: isize,
+}
+
 pub struct HidManager {
-    devices: Vec<Box<HumanInterfaceDevice>>,
-    lock: Spinlock,
+    // lock: Spinlock,
     pointer_x: AtomicIsize,
     pointer_y: AtomicIsize,
 }
@@ -152,25 +150,16 @@ static mut HID_MANAGER: HidManager = HidManager::new();
 impl HidManager {
     const fn new() -> Self {
         HidManager {
-            devices: Vec::new(),
-            lock: Spinlock::new(),
+            // lock: Spinlock::new(),
             pointer_x: AtomicIsize::new(256),
             pointer_y: AtomicIsize::new(256),
         }
     }
 
-    pub fn add(new_device: Box<HumanInterfaceDevice>) -> Result<(), ()> {
-        unsafe { &HID_MANAGER }.lock.synchronized(|| {
-            let manager = unsafe { &mut HID_MANAGER };
-            manager.devices.push(new_device);
-            Ok(())
-        })
-    }
-
-    fn update_coord(coord: &AtomicIsize, displacement: isize, max_value: isize) {
+    fn update_coord(coord: &AtomicIsize, displacement: isize, min_value: isize, max_value: isize) {
         let mut value = coord.load(Ordering::Relaxed);
         loop {
-            let new_value = cmp::min(cmp::max(value + displacement, 0), max_value);
+            let new_value = cmp::min(cmp::max(value + displacement, min_value), max_value);
             if value == new_value {
                 break;
             }
@@ -189,15 +178,12 @@ impl HidManager {
         )
     }
 
-    pub fn update_pointer<T>(report: MouseReport<T>)
-    where
-        T: Into<isize>,
-    {
+    fn update_pointer(report: MouseReport<isize>) {
         let fb = stdout().fb();
 
         let shared = unsafe { &HID_MANAGER };
-        Self::update_coord(&shared.pointer_x, report.x.into(), fb.size().width - 1);
-        Self::update_coord(&shared.pointer_y, report.y.into(), fb.size().height - 1);
+        Self::update_coord(&shared.pointer_x, report.x, 0, fb.size().width - 1);
+        Self::update_coord(&shared.pointer_y, report.y, 0, fb.size().height - 1);
 
         let pointer = Self::pointer();
         let r = 2;
@@ -216,9 +202,10 @@ impl HidManager {
 
     pub fn process_mouse_report<T>(report: MouseReport<T>)
     where
-        T: Into<isize>,
+        T: Into<isize> + Copy,
     {
-        Self::update_pointer(report)
+        let report = report.normalize();
+        Self::update_pointer(report);
     }
 
     pub fn usage_to_char_109(usage: Usage, modifier: Modifier) -> char {

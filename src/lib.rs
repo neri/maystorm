@@ -3,7 +3,7 @@
 #![feature(abi_efiapi)]
 #![feature(lang_items)]
 #![feature(alloc_error_handler)]
-#![feature(llvm_asm)]
+#![feature(asm)]
 #![feature(core_intrinsics)]
 #![feature(new_uninit)]
 #![feature(const_fn)]

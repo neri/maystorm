@@ -72,7 +72,7 @@ impl Apic {
         }
 
         // disable IRQ
-        llvm_asm!("cli");
+        asm!("cli");
 
         // init Local Apic
         APIC.master_apic_id = System::shared().cpu(0).as_ref().cpu_id;
@@ -100,7 +100,7 @@ impl Apic {
         }
 
         // enable IRQ
-        llvm_asm!("sti");
+        asm!("sti");
 
         // Init IO Apics
         for acpi_ioapic in &acpi_apic.io_apics {
@@ -165,12 +165,16 @@ impl Apic {
             panic!("Some of the processors are not responding");
         }
 
-        llvm_asm!("
-        mov $$0xcccccccc, %eax
-        mov $$256, %ecx
-        xor %edi, %edi
-        rep stosl
-        ":::"eax","ecx","edi");
+        asm!("
+        mov eax, 0xCCCCCCCC
+        mov ecx, 256
+        xor edi, edi
+        rep stosd
+        ",
+            out("eax") _,
+            out("ecx") _,
+            out("edi") _,
+        );
     }
 
     pub unsafe fn register(irq: Irq, f: IrqHandler) -> Result<(), ()> {
@@ -255,13 +259,11 @@ pub type IrqHandler = fn(Irq) -> ();
 pub unsafe extern "efiapi" fn apic_handle_irq(irq: Irq) {
     let e = APIC.idt[irq.0 as usize];
     if e != VirtualAddress::NULL {
-        let old_irql = Irql::raise(Irql::Device).unwrap();
         let f = core::mem::transmute::<usize, IrqHandler>(e.0);
         f(irq);
         Apic::eoi();
-        Irql::lower(old_irql).unwrap();
     } else {
-        panic!("Why IRQ {} is Enabled, But not installed", irq.0);
+        panic!("IRQ {} is Enabled, But not Installed", irq.0);
     }
 }
 
@@ -279,8 +281,8 @@ impl Irq {
     pub const LPC_COM1: Irq = Irq(4);
     pub const LPC_FDC: Irq = Irq(6);
     pub const LPC_LPT: Irq = Irq(7);
-    pub const LPC_PS2M: Irq = Irq(12);
     pub const LPC_RTC: Irq = Irq(8);
+    pub const LPC_PS2M: Irq = Irq(12);
     pub const LPC_IDE1: Irq = Irq(14);
     pub const LPC_IDE2: Irq = Irq(15);
 
@@ -290,6 +292,14 @@ impl Irq {
 
     pub unsafe fn register(&self, f: IrqHandler) -> Result<(), ()> {
         Apic::register(*self, f)
+    }
+
+    pub unsafe fn enable(&self) -> Result<(), ()> {
+        Apic::set_irq_enabled(*self, true)
+    }
+
+    pub unsafe fn disable(&self) -> Result<(), ()> {
+        Apic::set_irq_enabled(*self, false)
     }
 }
 

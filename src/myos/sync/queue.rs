@@ -6,7 +6,7 @@ use alloc::vec::*;
 // use core::intrinsics::*;
 use core::sync::atomic::*;
 
-pub struct ConcurrentRingBuffer<T>
+pub struct RingBuffer<T>
 where
     T: Sized + Clone + Copy + Sync + Send,
 {
@@ -18,9 +18,9 @@ where
     buf: Vec<T>,
 }
 
-unsafe impl<T> Sync for ConcurrentRingBuffer<T> where T: Sized + Clone + Copy + Sync + Send {}
+unsafe impl<T> Sync for RingBuffer<T> where T: Sized + Clone + Copy + Sync + Send {}
 
-impl<T> ConcurrentRingBuffer<T>
+impl<T> RingBuffer<T>
 where
     T: Sized + Clone + Copy + Sync + Send,
 {

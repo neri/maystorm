@@ -1,4 +1,4 @@
-// Legacy PC's Low Pin Count Bus Device
+// PS/2 Device Driver
 
 use crate::myos::arch::apic::*;
 use crate::myos::arch::cpu::Cpu;
@@ -9,24 +9,16 @@ use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;
 
-pub struct LowPinCount {}
-
-impl LowPinCount {
-    pub unsafe fn init() {
-        let _ = Ps2::init();
-    }
-}
-
 static mut PS2: Option<Box<Ps2>> = None;
 
 /// Personal System/2
-struct Ps2 {
+pub(crate) struct Ps2 {
     key_state: Ps2KeyState,
     mos_phase: Ps2MousePhase,
     modifier: Modifier,
     mouse_buf: [Ps2Data; 3],
-    key_buf: Box<ConcurrentRingBuffer<Ps2Data>>,
-    mos_buf: Box<ConcurrentRingBuffer<Ps2Data>>,
+    key_buf: Box<RingBuffer<Ps2Data>>,
+    mos_buf: Box<RingBuffer<Ps2Data>>,
 }
 
 enum Ps2KeyState {
@@ -149,8 +141,8 @@ impl Ps2 {
         }
 
         PS2 = Some(Box::new(Ps2 {
-            key_buf: ConcurrentRingBuffer::<Ps2Data>::with_capacity(64),
-            mos_buf: ConcurrentRingBuffer::<Ps2Data>::with_capacity(256),
+            key_buf: RingBuffer::<Ps2Data>::with_capacity(64),
+            mos_buf: RingBuffer::<Ps2Data>::with_capacity(256),
             key_state: Ps2KeyState::Default,
             mos_phase: Ps2MousePhase::Ack,
             modifier: Modifier::empty(),
@@ -195,23 +187,23 @@ impl Ps2 {
     }
 
     unsafe fn read_data() -> Ps2Data {
-        let mut al: Ps2Data;
-        llvm_asm!("inb $$0x60, %al": "={al}"(al));
-        al
+        let mut al: u8;
+        asm!("in al, 0x60", lateout("al") al);
+        Ps2Data(al)
     }
 
     unsafe fn write_data(data: Ps2Data) {
-        llvm_asm!("outb %al, $$0x60":: "{al}"(data));
+        asm!("out 0x60, al", in("al") data.0);
     }
 
     unsafe fn read_status() -> Ps2Status {
-        let mut al: Ps2Status;
-        llvm_asm!("inb $$0x64, %al": "={al}"(al));
-        al
+        let mut al: u8;
+        asm!("in al, 0x64", lateout("al") al);
+        Ps2Status::from_bits_unchecked(al)
     }
 
     unsafe fn write_command(command: Ps2Command) {
-        llvm_asm!("outb %al, $$0x64":: "{al}"(command));
+        asm!("out 0x64, al", in("al") command.0);
     }
 
     unsafe fn wait_for_write(timeout: u64) -> Result<(), ()> {

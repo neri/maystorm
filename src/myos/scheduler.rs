@@ -3,6 +3,7 @@
 use super::arch::cpu::Cpu;
 use crate::myos::io::graphics::*;
 use crate::myos::mem::alloc::*;
+use crate::myos::sync::queue::*;
 use crate::myos::sync::spinlock::*;
 use crate::myos::system::*;
 use crate::*;
@@ -185,14 +186,10 @@ impl GlobalScheduler {
         }
 
         for _ in 0..30 {
-            Self::retire(NativeThread::new(
-                Priority::Normal,
-                Some(Self::scheduler_thread),
-                null_mut(),
-            ));
+            Self::spawn_f(Self::scheduler_thread, null_mut(), Priority::Normal);
         }
 
-        Self::retire(NativeThread::new(Priority::Normal, Some(f), args));
+        Self::spawn_f(f, args, Priority::Normal);
 
         sch.is_enabled.store(true, Ordering::Relaxed);
 
@@ -214,7 +211,9 @@ impl GlobalScheduler {
     // Perform a Preemption
     pub(crate) fn reschedule() {
         unsafe {
-            llvm_asm!("mov $$0xdeadbeef, %r8d":::"r8":"volatile");
+            asm!("mov r8d, 0xdeadbeef",
+                out("r8") _,
+            );
         }
         if Self::is_enabled() {
             Cpu::without_interrupts(|| {
@@ -233,7 +232,9 @@ impl GlobalScheduler {
         Cpu::without_interrupts(|| {
             let lsch = Self::local_scheduler();
             if let Some(object) = object {
-                object.set(lsch.current_thread()).unwrap();
+                if object.load().is_none() {
+                    return;
+                }
             }
             lsch.current.using(|current| {
                 current.deadline = Timer::new(duration);
@@ -243,7 +244,9 @@ impl GlobalScheduler {
     }
 
     pub fn signal(object: &SignallingObject) {
-        object.unbox();
+        if let Some(thread) = object.unbox() {
+            thread.using(|thread| thread.deadline = Timer::NULL);
+        }
     }
 
     fn local_scheduler() -> &'static mut LocalScheduler {
@@ -255,26 +258,25 @@ impl GlobalScheduler {
     // Get Next Thread from queue
     fn next() -> Option<ThreadHandle> {
         let sch = unsafe { &mut GLOBAL_SCHEDULER };
-        if let Some(next) = sch.urgent.as_mut().unwrap().read() {
-            return Some(next);
-        }
-        while let Some(next) = sch.ready.as_mut().unwrap().read() {
-            if next.borrow().deadline.until() {
-                GlobalScheduler::retire(next);
-                continue;
-            } else {
+        for _ in 0..1 {
+            if let Some(next) = sch.urgent.as_mut().unwrap().read() {
                 return Some(next);
             }
-        }
-        let front = sch.ready.as_mut().unwrap();
-        let back = sch.retired.as_mut().unwrap();
-        loop {
-            if let Some(retired) = back.read() {
+            while let Some(next) = sch.ready.as_mut().unwrap().read() {
+                if next.borrow().deadline.until() {
+                    GlobalScheduler::retire(next);
+                    continue;
+                } else {
+                    return Some(next);
+                }
+            }
+            let front = sch.ready.as_mut().unwrap();
+            let back = sch.retired.as_mut().unwrap();
+            while let Some(retired) = back.read() {
                 front.write(retired).unwrap();
-            } else {
-                return None;
             }
         }
+        None
     }
 
     // Retire Thread
@@ -309,6 +311,12 @@ impl GlobalScheduler {
     pub fn is_enabled() -> bool {
         let sch = unsafe { &GLOBAL_SCHEDULER };
         sch.is_enabled.load(Ordering::Relaxed)
+    }
+
+    pub fn spawn_f(start: ThreadStart, args: *mut c_void, priority: Priority) {
+        assert!(priority.useful());
+        let thread = NativeThread::new(priority, Some(start), args);
+        Self::retire(thread);
     }
 }
 
@@ -482,44 +490,6 @@ impl ThreadHandle {
     }
 }
 
-#[derive(Debug)]
-pub struct SignallingObject(AtomicUsize);
-
-unsafe impl Sync for SignallingObject {}
-
-unsafe impl Send for SignallingObject {}
-
-impl SignallingObject {
-    const NULL: usize = 0;
-
-    pub fn new() -> Box<Self> {
-        Box::new(Self(AtomicUsize::new(Self::NULL)))
-    }
-
-    pub fn set(&self, value: ThreadHandle) -> Result<(), ()> {
-        let value = value.as_usize();
-        match self
-            .0
-            .compare_exchange(Self::NULL, value, Ordering::SeqCst, Ordering::Relaxed)
-        {
-            Ok(_) => Ok(()),
-            Err(_) => Err(()),
-        }
-    }
-
-    pub fn unbox(&self) -> Option<ThreadHandle> {
-        ThreadHandle::new(self.0.swap(Self::NULL, Ordering::SeqCst))
-    }
-
-    pub fn wait(&self, duration: TimeMeasure) {
-        GlobalScheduler::wait_for(Some(self), duration)
-    }
-
-    pub fn signal(&self) {
-        GlobalScheduler::signal(&self)
-    }
-}
-
 const SIZE_OF_CONTEXT: usize = 512;
 const SIZE_OF_STACK: usize = 0x10000;
 
@@ -670,5 +640,59 @@ impl ThreadQueue {
             }
             Err(())
         })
+    }
+}
+
+#[derive(Debug)]
+pub struct SignallingObject(AtomicUsize);
+
+unsafe impl Sync for SignallingObject {}
+
+unsafe impl Send for SignallingObject {}
+
+impl SignallingObject {
+    const NULL: usize = 0;
+
+    pub fn new() -> Self {
+        Self(AtomicUsize::new(NativeThread::current().as_usize()))
+    }
+
+    pub fn set(&self, value: ThreadHandle) -> Result<(), ()> {
+        let value = value.as_usize();
+        match self
+            .0
+            .compare_exchange(Self::NULL, value, Ordering::SeqCst, Ordering::Relaxed)
+        {
+            Ok(_) => Ok(()),
+            Err(_) => Err(()),
+        }
+    }
+
+    pub fn load(&self) -> Option<ThreadHandle> {
+        ThreadHandle::new(self.0.load(Ordering::SeqCst))
+    }
+
+    pub fn unbox(&self) -> Option<ThreadHandle> {
+        ThreadHandle::new(self.0.swap(Self::NULL, Ordering::SeqCst))
+    }
+
+    pub fn wait(&self, duration: TimeMeasure) {
+        GlobalScheduler::wait_for(Some(self), duration)
+    }
+
+    pub fn signal(&self) {
+        GlobalScheduler::signal(&self)
+    }
+}
+
+impl From<usize> for SignallingObject {
+    fn from(value: usize) -> Self {
+        Self(AtomicUsize::new(value))
+    }
+}
+
+impl From<SignallingObject> for usize {
+    fn from(value: SignallingObject) -> usize {
+        value.0.load(Ordering::SeqCst)
     }
 }

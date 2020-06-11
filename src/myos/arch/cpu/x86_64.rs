@@ -34,11 +34,11 @@ impl Cpu {
 
         // Currently force disabling SSE
         let mut _temp: usize;
-        llvm_asm!("
-            mov %cr4, $0
-            btr $$9, $0
-            mov $0, %cr4
-            ": "=r"(_temp) ::: "volatile");
+        asm!("
+        mov {0}, cr4
+        btr {0}, 9
+        mov cr4, {0}
+        ", out(reg) _);
 
         cpu
     }
@@ -65,12 +65,12 @@ impl Cpu {
 
     pub fn relax() {
         unsafe {
-            llvm_asm!("pause");
+            asm!("pause");
         }
     }
 
     pub unsafe fn halt() {
-        llvm_asm!("hlt");
+        asm!("hlt");
     }
 
     pub unsafe fn reset() -> ! {
@@ -82,20 +82,19 @@ impl Cpu {
     }
 
     pub unsafe fn out8(port: u16, value: u8) {
-        llvm_asm!("outb %al, %dx" :: "{dx}"(port), "{al}"(value));
+        asm!("out dx, al", in("dx") port, in("al") value);
     }
 
     pub(crate) fn check_irq() -> Result<(), ()> {
-        let mut rax: Eflags;
-        unsafe {
-            llvm_asm!("
+        let flags = unsafe {
+            let mut rax: usize;
+            asm!("
             pushfq
-            pop $0
-            "
-            : "=r"(rax)
-            :: "memory");
-        }
-        if rax.contains(Eflags::IF) {
+            pop {0}
+            ", lateout(reg) rax);
+            Eflags::from_bits_unchecked(rax)
+        };
+        if flags.contains(Eflags::IF) {
             Err(())
         } else {
             Ok(())
@@ -107,22 +106,21 @@ impl Cpu {
     where
         F: FnOnce() -> R,
     {
-        let mut rax: Eflags;
-        unsafe {
-            llvm_asm!("
+        let flags = unsafe {
+            let mut rax: usize;
+            asm!("
             pushfq
             cli
-            pop $0
-            "
-            : "=r"(rax)
-            :: "memory");
-        }
+            pop {0}
+            ", lateout(reg) rax);
+            Eflags::from_bits_unchecked(rax)
+        };
 
         let r = f();
 
-        if rax.contains(Eflags::IF) {
+        if flags.contains(Eflags::IF) {
             unsafe {
-                llvm_asm!("sti" :::: "volatile");
+                asm!("sti");
             }
         }
 
@@ -131,7 +129,7 @@ impl Cpu {
 
     pub(crate) unsafe fn stop() -> ! {
         loop {
-            llvm_asm!("cli");
+            asm!("cli");
             Self::halt();
         }
     }
@@ -453,33 +451,25 @@ impl GlobalDescriptorTable {
 
     // Reload GDT and Segment Selectors
     pub unsafe fn reload(&self) {
-        llvm_asm!("
-            push $0
-            push $1
-            lgdt 6(%rsp)
-            add $$0x10, %rsp
-            "
-            :
-            : "r"(&self.table), "r"((self.table.len() * 8 - 1) << 48)
-            : "memory"
-        );
-        llvm_asm!("
-            mov %rsp, %rax
-            push %rdx
-            push %rax
-            pushfq
-            push %rcx
-            .byte 0xE8, 2, 0, 0, 0, 0xEB, 0x02, 0x48, 0xCF
-            mov %edx, %ds
-            mov %edx, %es
-            mov %edx, %fs
-            mov %edx, %gs
-            "
-            :
-            : "{rcx}"(KERNEL_CODE), "{rdx}"(KERNEL_DATA)
-            : "%rax", "memory"
-        );
-        llvm_asm!("ltr $0"::"r"(TSS));
+        asm!("
+        push {0}
+        push {1}
+        lgdt [rsp + 6]
+        add rsp, 16
+        ", in(reg) &self.table, in(reg) ((self.table.len() * 8 - 1) << 48));
+        asm!("
+        mov {0}, rsp
+        push {1:r}
+        push {0}
+        pushfq
+        push {2:r}
+        .byte 0xE8, 2, 0, 0, 0, 0xEB, 0x02, 0x48, 0xCF
+        mov ds, {1:e}
+        mov es, {1:e}
+        mov fs, {1:e}
+        mov gs, {1:e}
+        ", out(reg) _, in(reg) KERNEL_DATA.0, in(reg) KERNEL_CODE.0);
+        asm!("ltr {0:x}", in(reg) TSS.0);
     }
 }
 
@@ -528,16 +518,12 @@ impl InterruptDescriptorTable {
     }
 
     pub unsafe fn load() {
-        llvm_asm!("
-            push $0
-            push $1
-            lidt 6(%rsp)
-            add $$0x10, %rsp
-            "
-            :
-            : "r"(&IDT.raw), "r"((IDT.raw.len() * 8 - 1) << 48)
-            : "memory"
-        );
+        asm!("
+            push {0}
+            push {1}
+            lidt [rsp+6]
+            add rsp, 16
+        ", in(reg) &IDT.raw, in(reg) ((IDT.raw.len() * 8 - 1) << 48));
     }
 
     pub unsafe fn register(vec: InterruptVector, offset: VirtualAddress) {
@@ -590,17 +576,13 @@ struct EaxEdx {
 impl Msr {
     pub unsafe fn write(&self, value: u64) {
         let value = MsrResult { qword: value };
-        llvm_asm!("wrmsr"
-        :: "{eax}"(value.tuple.eax),"{edx}"(value.tuple.edx),"{ecx}"(*self));
+        asm!("wrmsr", in("eax") value.tuple.eax, in("edx") value.tuple.edx, in("ecx") *self as u32);
     }
 
     pub unsafe fn read(&self) -> u64 {
         let mut eax: u32;
         let mut edx: u32;
-        llvm_asm!("rdmsr"
-        : "={eax}"(eax),"={edx}"(edx)
-        : "{ecx}"(*self)
-        :: "volatile");
+        asm!("rdmsr", lateout("eax") eax, lateout("edx") edx, in("ecx") *self as u32);
         MsrResult {
             tuple: EaxEdx { eax: eax, edx: edx },
         }
@@ -681,7 +663,7 @@ r12 {:016x} r13 {:016x} r14 {:016x} r15 {:016x}",
             ctx.r15,
         );
         loop {
-            llvm_asm!("hlt");
+            asm!("hlt");
         }
     }
 }

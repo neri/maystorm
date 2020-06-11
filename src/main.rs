@@ -1,6 +1,6 @@
 // My UEFI-Rust Playground
 #![feature(abi_efiapi)]
-#![feature(llvm_asm)]
+#![feature(asm)]
 #![no_std]
 #![no_main]
 // use aml;
@@ -37,24 +37,6 @@ fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
     //////// GUARD //////// exit_boot_services //////// GUARD ////////
     let (_st, mm) = exit_boot_services(st, handle);
 
-    let fb = stdout().fb();
-    fb.reset();
-    let size = fb.size();
-    let center = Size::<isize>::new(size.width / 2, size.height / 2);
-
-    fb.fill_rect(
-        Rect::new(center.width - 80, center.height - 75, 50, 100),
-        IndexedColor::LightRed.as_color(),
-    );
-    fb.fill_rect(
-        Rect::new(center.width - 25, center.height - 75, 50, 100),
-        IndexedColor::LightGreen.as_color(),
-    );
-    fb.fill_rect(
-        Rect::new(center.width + 30, center.height - 75, 50, 100),
-        IndexedColor::LightBlue.as_color(),
-    );
-
     let mut total_memory_size: u64 = 0;
     for mem_desc in mm {
         if mem_desc.ty.is_countable() {
@@ -68,6 +50,24 @@ fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
 
 fn sysinit() {
     let system = System::shared();
+
+    let fb = stdout().fb();
+    fb.reset();
+    let size = fb.size();
+    let center = Point::<isize>::new(size.width / 2, size.height / 2);
+
+    fb.fill_rect(
+        Rect::new(center.x - 85, center.y - 60, 80, 80),
+        IndexedColor::LightRed.as_color(),
+    );
+    fb.fill_rect(
+        Rect::new(center.x - 40, center.y - 20, 80, 80),
+        IndexedColor::LightGreen.as_color(),
+    );
+    fb.fill_rect(
+        Rect::new(center.x + 5, center.y - 60, 80, 80),
+        IndexedColor::LightBlue.as_color(),
+    );
 
     println!(
         "
@@ -86,7 +86,7 @@ My practice OS version {} Total {} Cores, {} MB Memory",
         // unsafe {
         //     Cpu::halt();
         // }
-        match lpc::get_key() {
+        match lpc::ps2::get_key() {
             Some((usage, modifier)) => {
                 if usage != hid::Usage::NULL {
                     let c = hid::HidManager::usage_to_char_109(usage, modifier);
