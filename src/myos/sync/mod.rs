@@ -1,3 +1,4 @@
+pub mod atomic;
 pub mod queue;
 pub mod semaphore;
 pub mod spinlock;

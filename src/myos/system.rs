@@ -119,6 +119,7 @@ impl System {
 
     fn late_init(args: *mut c_void) {
         unsafe {
+            myos::io::hid::HidManager::init();
             myos::bus::lpc::LowPinCount::init();
 
             let f = core::mem::transmute::<*mut c_void, fn() -> ()>(args);

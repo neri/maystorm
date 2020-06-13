@@ -151,17 +151,18 @@ impl Apic {
         );
 
         // Setup SMP
+        let sipi_vec: u8 = 1;
         let max_cpu = core::cmp::min(System::shared().number_of_cpus(), MAX_CPU);
         let stack_chunk_size = 0x4000;
         let stack_base = CustomAlloc::zalloc(max_cpu * stack_chunk_size)
             .unwrap()
             .as_ptr();
-        setup_smp_init(1, max_cpu, stack_chunk_size, stack_base);
+        setup_smp_init(sipi_vec, max_cpu, stack_chunk_size, stack_base);
         LocalApic::broadcast_init();
         Timer::usleep(10_000);
-        LocalApic::broadcast_sipi(1);
+        LocalApic::broadcast_startup(sipi_vec);
         Timer::usleep(200_000);
-        if System::shared().number_of_cpus() != System::shared().number_of_active_cpus() {
+        if System::shared().number_of_active_cpus() != max_cpu {
             panic!("Some of the processors are not responding");
         }
 
@@ -471,7 +472,7 @@ impl LocalApic {
     }
 
     /// Broadcast Startup IPI to all another APs
-    unsafe fn broadcast_sipi(init_vec: u8) {
+    unsafe fn broadcast_startup(init_vec: u8) {
         LocalApic::InterruptCommand.write(0x000C4600 | init_vec as u32);
     }
 

@@ -10,21 +10,14 @@ use uefi_pg::myos::arch::cpu::Cpu;
 use uefi_pg::myos::bus::lpc;
 use uefi_pg::myos::io::graphics::*;
 use uefi_pg::myos::io::hid;
+use uefi_pg::myos::io::hid::*;
 use uefi_pg::myos::scheduler::*;
 use uefi_pg::myos::system::*;
 use uefi_pg::*;
 
 uefi_pg_entry!(main);
 
-fn main(handle: Handle, st: SystemTable<Boot>) -> Status {
-    let rsdptr = match st.find_config_table(uefi::table::cfg::ACPI2_GUID) {
-        Some(val) => val as usize,
-        None => {
-            writeln!(st.stdout(), "Error: ACPI Table Not Found").unwrap();
-            return Status::LOAD_ERROR;
-        }
-    };
-
+fn main(handle: Handle, st: SystemTable<Boot>, rsdptr: usize) {
     // TODO: init custom allocator
     let buf_size = 0x1000000;
     let buf_ptr = st
@@ -52,7 +45,6 @@ fn sysinit() {
     let system = System::shared();
 
     let fb = stdout().fb();
-    fb.reset();
     let size = fb.size();
     let center = Point::<isize>::new(size.width / 2, size.height / 2);
 
@@ -83,17 +75,12 @@ My practice OS version {} Total {} Cores, {} MB Memory",
     // });
 
     loop {
-        // unsafe {
-        //     Cpu::halt();
-        // }
-        match lpc::ps2::get_key() {
-            Some((usage, modifier)) => {
-                if usage != hid::Usage::NULL {
-                    let c = hid::HidManager::usage_to_char_109(usage, modifier);
-                    print!("{}", c);
-                    if c == 'p' {
-                        GlobalScheduler::print_statistics();
-                    }
+        match HidManager::get_key() {
+            Some(key) => {
+                let c = hid::HidManager::usage_to_char_109(key.usage, key.modifier);
+                print!("{}", c);
+                if c == 'p' {
+                    GlobalScheduler::print_statistics();
                 }
             }
             None => GlobalScheduler::wait_for(None, TimeMeasure::from_millis(10)),

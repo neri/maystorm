@@ -7,6 +7,7 @@ use alloc::boxed::Box;
 use alloc::vec::*;
 use bitflags::*;
 use core::cmp;
+use core::num::*;
 use core::sync::atomic::*;
 // use core::ptr::NonNull;
 
@@ -86,6 +87,34 @@ pub struct KeyEvent {
     pub modifier: Modifier,
 }
 
+impl KeyEvent {
+    pub const fn new(usage: Usage, modifier: Modifier) -> Self {
+        Self {
+            usage: usage,
+            modifier: modifier,
+        }
+    }
+}
+
+impl From<NonZeroUsize> for KeyEvent {
+    fn from(value: NonZeroUsize) -> Self {
+        let value = value.get();
+        Self {
+            usage: Usage((value & 0xFF) as u8),
+            modifier: unsafe { Modifier::from_bits_unchecked(((value >> 8) & 0xFF) as u8) },
+        }
+    }
+}
+
+impl Into<NonZeroUsize> for KeyEvent {
+    fn into(self) -> NonZeroUsize {
+        unsafe {
+            NonZeroUsize::new_unchecked(self.usage.0 as usize)
+                | ((self.modifier.bits as usize) << 8)
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct KeyboardState {
     pub current: KeyReportRaw,
@@ -143,16 +172,24 @@ pub struct HidManager {
     // lock: Spinlock,
     pointer_x: AtomicIsize,
     pointer_y: AtomicIsize,
+    key_buf: Box<AtomicLinkedQueue<KeyEvent>>,
 }
 
-static mut HID_MANAGER: HidManager = HidManager::new();
+static mut HID_MANAGER: Option<Box<HidManager>> = None;
 
 impl HidManager {
-    const fn new() -> Self {
+    pub(crate) fn init() {
+        unsafe {
+            HID_MANAGER = Some(Box::new(HidManager::new()));
+        }
+    }
+
+    fn new() -> Self {
         HidManager {
             // lock: Spinlock::new(),
             pointer_x: AtomicIsize::new(256),
             pointer_y: AtomicIsize::new(256),
+            key_buf: AtomicLinkedQueue::with_capacity(256),
         }
     }
 
@@ -171,7 +208,7 @@ impl HidManager {
     }
 
     pub fn pointer() -> Point<isize> {
-        let shared = unsafe { &HID_MANAGER };
+        let shared = unsafe { HID_MANAGER.as_ref().unwrap() };
         Point::new(
             shared.pointer_x.load(Ordering::Relaxed),
             shared.pointer_y.load(Ordering::Relaxed),
@@ -181,7 +218,7 @@ impl HidManager {
     fn update_pointer(report: MouseReport<isize>) {
         let fb = stdout().fb();
 
-        let shared = unsafe { &HID_MANAGER };
+        let shared = unsafe { HID_MANAGER.as_ref().unwrap() };
         Self::update_coord(&shared.pointer_x, report.x, 0, fb.size().width - 1);
         Self::update_coord(&shared.pointer_y, report.y, 0, fb.size().height - 1);
 
@@ -206,6 +243,16 @@ impl HidManager {
     {
         let report = report.normalize();
         Self::update_pointer(report);
+    }
+
+    pub fn send_key_event(v: KeyEvent) {
+        let shared = unsafe { HID_MANAGER.as_ref().unwrap() };
+        shared.key_buf.enqueue(v);
+    }
+
+    pub fn get_key() -> Option<KeyEvent> {
+        let shared = unsafe { HID_MANAGER.as_ref().unwrap() };
+        shared.key_buf.dequeue()
     }
 
     pub fn usage_to_char_109(usage: Usage, modifier: Modifier) -> char {

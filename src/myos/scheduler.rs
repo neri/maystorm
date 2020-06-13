@@ -162,6 +162,8 @@ pub struct GlobalScheduler {
     is_enabled: AtomicBool,
 }
 
+static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
 impl GlobalScheduler {
     const fn new() -> Self {
         Self {
@@ -185,7 +187,7 @@ impl GlobalScheduler {
             sch.locals.push(LocalScheduler::new(ProcessorIndex(index)));
         }
 
-        for _ in 0..30 {
+        for _ in 0..50 {
             Self::spawn_f(Self::scheduler_thread, null_mut(), Priority::Normal);
         }
 
@@ -193,9 +195,6 @@ impl GlobalScheduler {
 
         sch.is_enabled.store(true, Ordering::Relaxed);
 
-        // loop {
-        //     GlobalScheduler::wait_for(None, TimeMeasure(0));
-        // }
         loop {
             unsafe {
                 Cpu::halt();
@@ -290,13 +289,14 @@ impl GlobalScheduler {
 
     fn scheduler_thread(_args: *mut c_void) {
         // TODO:
-        let id = NativeThread::current_id().0 as isize;
+        let id = unsafe { COUNTER.fetch_add(1, Ordering::Relaxed) };
         let mut counter: usize = 0;
         loop {
             counter += 0x040506;
-            stdout()
-                .fb()
-                .fill_rect(Rect::new(10 * id, 5, 8, 8), Color::from(counter as u32));
+            stdout().fb().fill_rect(
+                Rect::new(10 * id as isize, 5, 8, 8),
+                Color::from(counter as u32),
+            );
             Self::wait_for(None, TimeMeasure::from_millis(5));
         }
     }
@@ -574,6 +574,66 @@ impl Irql {
     }
 }
 
+#[derive(Debug)]
+pub struct SignallingObject(AtomicUsize);
+
+unsafe impl Sync for SignallingObject {}
+
+unsafe impl Send for SignallingObject {}
+
+impl SignallingObject {
+    const NULL: usize = 0;
+
+    pub fn new() -> Self {
+        Self(AtomicUsize::new(NativeThread::current().as_usize()))
+    }
+
+    pub fn set(&self, value: ThreadHandle) -> Result<(), ()> {
+        let value = value.as_usize();
+        match self
+            .0
+            .compare_exchange(Self::NULL, value, Ordering::SeqCst, Ordering::Relaxed)
+        {
+            Ok(_) => Ok(()),
+            Err(_) => Err(()),
+        }
+    }
+
+    pub fn load(&self) -> Option<ThreadHandle> {
+        ThreadHandle::new(self.0.load(Ordering::SeqCst))
+    }
+
+    pub fn unbox(&self) -> Option<ThreadHandle> {
+        ThreadHandle::new(self.0.swap(Self::NULL, Ordering::SeqCst))
+    }
+
+    pub fn wait(&self, duration: TimeMeasure) {
+        GlobalScheduler::wait_for(Some(self), duration)
+    }
+
+    pub fn signal(&self) {
+        GlobalScheduler::signal(&self)
+    }
+}
+
+impl From<usize> for SignallingObject {
+    fn from(value: usize) -> Self {
+        Self(AtomicUsize::new(value))
+    }
+}
+
+impl From<SignallingObject> for usize {
+    fn from(value: SignallingObject) -> usize {
+        value.0.load(Ordering::SeqCst)
+    }
+}
+
+#[cfg(feature = "atomic_queue")]
+struct ThreadQueue {
+    repr: Box<AtomicLinkedQueue<usize>>,
+}
+
+#[cfg(not(feature = "atomic_queue"))]
 struct ThreadQueue {
     read: AtomicUsize,
     write: AtomicUsize,
@@ -585,6 +645,27 @@ struct ThreadQueue {
 
 unsafe impl Sync for ThreadQueue {}
 
+#[cfg(feature = "atomic_queue")]
+impl ThreadQueue {
+    const NULL: usize = 0;
+
+    fn with_capacity(capacity: usize) -> Box<Self> {
+        Box::new(Self {
+            repr: AtomicLinkedQueue::with_capacity(capacity),
+        })
+    }
+
+    fn read(&self) -> Option<ThreadHandle> {
+        ThreadHandle::new(self.repr.read_raw())
+    }
+
+    fn write(&self, data: ThreadHandle) -> Result<(), ()> {
+        let value = data.as_usize();
+        self.repr.write_raw(value)
+    }
+}
+
+#[cfg(not(feature = "atomic_queue"))]
 impl ThreadQueue {
     const NULL: usize = 0;
 
@@ -640,59 +721,5 @@ impl ThreadQueue {
             }
             Err(())
         })
-    }
-}
-
-#[derive(Debug)]
-pub struct SignallingObject(AtomicUsize);
-
-unsafe impl Sync for SignallingObject {}
-
-unsafe impl Send for SignallingObject {}
-
-impl SignallingObject {
-    const NULL: usize = 0;
-
-    pub fn new() -> Self {
-        Self(AtomicUsize::new(NativeThread::current().as_usize()))
-    }
-
-    pub fn set(&self, value: ThreadHandle) -> Result<(), ()> {
-        let value = value.as_usize();
-        match self
-            .0
-            .compare_exchange(Self::NULL, value, Ordering::SeqCst, Ordering::Relaxed)
-        {
-            Ok(_) => Ok(()),
-            Err(_) => Err(()),
-        }
-    }
-
-    pub fn load(&self) -> Option<ThreadHandle> {
-        ThreadHandle::new(self.0.load(Ordering::SeqCst))
-    }
-
-    pub fn unbox(&self) -> Option<ThreadHandle> {
-        ThreadHandle::new(self.0.swap(Self::NULL, Ordering::SeqCst))
-    }
-
-    pub fn wait(&self, duration: TimeMeasure) {
-        GlobalScheduler::wait_for(Some(self), duration)
-    }
-
-    pub fn signal(&self) {
-        GlobalScheduler::signal(&self)
-    }
-}
-
-impl From<usize> for SignallingObject {
-    fn from(value: usize) -> Self {
-        Self(AtomicUsize::new(value))
-    }
-}
-
-impl From<SignallingObject> for usize {
-    fn from(value: SignallingObject) -> usize {
-        value.0.load(Ordering::SeqCst)
     }
 }

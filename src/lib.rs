@@ -53,7 +53,7 @@ pub fn stdout<'a>() -> &'static mut GraphicalConsole<'a> {
 
 pub fn startup<F>(handle: Handle, st: SystemTable<Boot>, custom_main: F) -> Status
 where
-    F: Fn(Handle, SystemTable<Boot>) -> Status,
+    F: Fn(Handle, SystemTable<Boot>, usize),
 {
     let bs = st.boot_services();
     if let Ok(gop) = bs.locate_protocol::<uefi::proto::console::gop::GraphicsOutput>() {
@@ -68,7 +68,16 @@ where
         writeln!(st.stdout(), "Error: GOP Not Found").unwrap();
         return Status::UNSUPPORTED;
     }
-    custom_main(handle, st)
+    let rsdptr = match st.find_config_table(uefi::table::cfg::ACPI2_GUID) {
+        Some(val) => val as usize,
+        None => {
+            writeln!(st.stdout(), "Error: ACPI Table Not Found").unwrap();
+            return Status::LOAD_ERROR;
+        }
+    };
+    stdout().fb().reset();
+    custom_main(handle, st, rsdptr);
+    Status::LOAD_ERROR
 }
 
 pub fn exit_boot_services<'a>(
@@ -94,7 +103,7 @@ macro_rules! uefi_pg_entry {
     ($path:path) => {
         #[entry]
         fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
-            let f: fn(Handle, SystemTable<Boot>) -> Status = $path;
+            let f: fn(Handle, SystemTable<Boot>, usize) = $path;
             startup(handle, st, f)
         }
     };
