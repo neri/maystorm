@@ -1,13 +1,12 @@
 // My UEFI-Rust Playground
 #![feature(abi_efiapi)]
-#![feature(asm)]
 #![no_std]
 #![no_main]
+
 // use aml;
 use core::fmt::Write;
 use uefi::prelude::*;
-use uefi_pg::myos::arch::cpu::Cpu;
-use uefi_pg::myos::bus::lpc;
+// use uefi_pg::myos::arch::cpu::Cpu;
 use uefi_pg::myos::io::graphics::*;
 use uefi_pg::myos::io::hid;
 use uefi_pg::myos::io::hid::*;
@@ -50,20 +49,21 @@ fn sysinit() {
 
     fb.fill_rect(
         Rect::new(center.x - 85, center.y - 60, 80, 80),
-        IndexedColor::LightRed.as_color(),
+        IndexedColor::LightRed.into(),
     );
     fb.fill_rect(
         Rect::new(center.x - 40, center.y - 20, 80, 80),
-        IndexedColor::LightGreen.as_color(),
+        IndexedColor::LightGreen.into(),
     );
     fb.fill_rect(
         Rect::new(center.x + 5, center.y - 60, 80, 80),
-        IndexedColor::LightBlue.as_color(),
+        IndexedColor::LightBlue.into(),
     );
 
+    GlobalScheduler::wait_for(None, TimeMeasure::from_millis(100));
+
     println!(
-        "
-My practice OS version {} Total {} Cores, {} MB Memory",
+        "\nMy practice OS version {} Total {} Cores, {} MB Memory",
         system.version(),
         system.number_of_active_cpus(),
         system.total_memory_size() >> 20,

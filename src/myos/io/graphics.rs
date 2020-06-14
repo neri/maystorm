@@ -269,7 +269,7 @@ impl From<[u8; 3]> for Color {
 }
 
 #[repr(u8)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum IndexedColor {
     Black = 0,
     Blue,

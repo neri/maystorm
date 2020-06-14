@@ -1,18 +1,14 @@
 // Advanced Programmable Interrupt Controller
 
-use alloc::boxed::Box;
-use alloc::vec::*;
-use core::ffi::c_void;
-use core::ptr::*;
-
 use super::cpu::*;
-use crate::myos::io::graphics::*;
 use crate::myos::mem::alloc::*;
 use crate::myos::scheduler::*;
 use crate::myos::system::*;
-use crate::stdout;
 use crate::sync::spinlock::Spinlock;
 use crate::*;
+use alloc::boxed::Box;
+use alloc::vec::*;
+use core::ffi::c_void;
 
 #[allow(dead_code)]
 const MSI_BASE: usize = 0xFEE00000;
@@ -37,12 +33,12 @@ static mut GLOBALLOCK: Spinlock = Spinlock::new();
 
 #[no_mangle]
 pub unsafe extern "C" fn apic_start_ap(_cpuid: u8) {
-    GLOBALLOCK.lock();
-    let new_cpu = Cpu::new(LocalApic::init_ap());
-    let new_cpuid = new_cpu.cpu_id;
-    let index = System::shared().activate_cpu(new_cpu);
-    CURRENT_PROCESSOR_INDEXES[new_cpuid.0 as usize] = index.0 as u8;
-    GLOBALLOCK.unlock();
+    GLOBALLOCK.synchronized(|| {
+        let new_cpu = Cpu::new(LocalApic::init_ap());
+        let new_cpuid = new_cpu.cpu_id;
+        let index = System::shared().activate_cpu(new_cpu);
+        CURRENT_PROCESSOR_INDEXES[new_cpuid.0 as usize] = index.0 as u8;
+    });
 }
 
 pub struct Apic {
@@ -540,20 +536,24 @@ impl IoApic {
     unsafe fn read(&mut self, index: IoApicIndex) -> u32 {
         let ptr_index = self.base;
         let ptr_data = self.base.add(0x0010) as *const u32;
-        self.lock.lock();
-        ptr_index.write_volatile(index.0);
-        let value = ptr_data.read_volatile();
-        self.lock.unlock();
+        let value = Cpu::without_interrupts(|| {
+            self.lock.synchronized(|| {
+                ptr_index.write_volatile(index.0);
+                ptr_data.read_volatile()
+            })
+        });
         value
     }
 
     unsafe fn write(&mut self, index: IoApicIndex, data: u32) {
         let ptr_index = self.base;
         let ptr_data = self.base.add(0x0010) as *const u32 as *mut u32;
-        self.lock.lock();
-        ptr_index.write_volatile(index.0);
-        ptr_data.write_volatile(data);
-        self.lock.unlock();
+        Cpu::without_interrupts(|| {
+            self.lock.synchronized(|| {
+                ptr_index.write_volatile(index.0);
+                ptr_data.write_volatile(data);
+            });
+        });
     }
 }
 
@@ -602,12 +602,6 @@ impl Hpet {
 
     fn irq_handler(_irq: Irq) {
         // TODO:
-        unsafe {
-            TIMER_COUNTER += 0x010203;
-            stdout()
-                .fb()
-                .fill_rect(Rect::new(760, 5, 10, 10), Color::from(TIMER_COUNTER as u32));
-        }
     }
 }
 
@@ -645,14 +639,8 @@ extern "x86-interrupt" fn irq_0c_handler() {
     }
 }
 
-static mut TIMER_COUNTER: usize = 0;
-
 extern "x86-interrupt" fn timer_handler() {
     unsafe {
-        TIMER_COUNTER += 0x040506;
-        stdout()
-            .fb()
-            .fill_rect(Rect::new(780, 5, 10, 10), Color::from(TIMER_COUNTER as u32));
         LocalApic::eoi();
         GlobalScheduler::reschedule();
     }

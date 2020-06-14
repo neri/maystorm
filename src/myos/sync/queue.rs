@@ -8,6 +8,18 @@ use core::marker::PhantomData;
 use core::num::*;
 use core::sync::atomic::*;
 
+pub struct AtomicLinkedQueue<T> {
+    head: AtomicLinkedListIndex,
+    tail: AtomicLinkedListIndex,
+    free: AtomicLinkedListIndex,
+    pool: Vec<AtomicLinkedNode>,
+    phantom: PhantomData<T>,
+}
+
+unsafe impl<T> Sync for AtomicLinkedQueue<T> {}
+
+unsafe impl<T> Send for AtomicLinkedQueue<T> {}
+
 #[derive(Copy, Clone, PartialOrd, PartialEq)]
 struct LinkedListIndex(pub usize);
 
@@ -37,7 +49,7 @@ impl AtomicLinkedListIndex {
     }
 
     fn load(&self) -> LinkedListIndex {
-        LinkedListIndex(self.0.load(Ordering::Relaxed))
+        LinkedListIndex(self.0.load(Ordering::Acquire))
     }
 
     fn store(&self, value: LinkedListIndex) {
@@ -59,18 +71,6 @@ impl AtomicLinkedListIndex {
     }
 }
 
-pub struct AtomicLinkedQueue<T> {
-    head: AtomicLinkedListIndex,
-    tail: AtomicLinkedListIndex,
-    free: AtomicLinkedListIndex,
-    pool: Vec<AtomicLinkedNode>,
-    phantom: PhantomData<T>,
-}
-
-unsafe impl<T> Sync for AtomicLinkedQueue<T> {}
-
-unsafe impl<T> Send for AtomicLinkedQueue<T> {}
-
 impl<T> AtomicLinkedQueue<T>
 where
     T: Into<NonZeroUsize> + From<NonZeroUsize>,
@@ -83,6 +83,7 @@ where
             pool: Vec::with_capacity(capacity),
             phantom: PhantomData,
         });
+
         list.pool
             .push(AtomicLinkedNode::new(AtomicLinkedListIndex::new(0)));
         for i in 2..capacity {
@@ -95,6 +96,14 @@ where
         list
     }
 
+    pub fn enqueue(&self, value: T) -> Result<(), ()> {
+        self.enqueue_raw(value.into().get())
+    }
+
+    pub fn dequeue(&self) -> Option<T> {
+        NonZeroUsize::new(self.dequeue_raw()).map(|v| v.into())
+    }
+
     fn item_at(&self, index: LinkedListIndex) -> &AtomicLinkedNode {
         &self.pool[index.0 - 1]
     }
@@ -102,11 +111,22 @@ where
     pub fn dequeue_raw(&self) -> usize {
         loop {
             let head = self.head.load();
+            let tail = self.tail.load();
+            if head == tail {
+                let last_item = self.item_at(tail);
+                let next = last_item.link.load();
+                if next == LinkedListIndex::NULL {
+                    return 0;
+                } else {
+                    let _ = self.tail.cas(tail, next);
+                    continue;
+                }
+            }
             let dummy = self.item_at(head);
             let target = dummy.link.load();
             if target != LinkedListIndex::NULL {
                 let item = self.item_at(target);
-                let result = item.value.load(Ordering::Relaxed);
+                let result = item.value.load(Ordering::Acquire);
                 if self.head.cas(head, target).is_ok() {
                     loop {
                         let free = self.free.load();
@@ -132,7 +152,7 @@ where
             if free != LinkedListIndex::NULL {
                 let item = self.item_at(free);
                 if self.free.cas(free, item.link.load()).is_ok() {
-                    item.value.store(value, Ordering::SeqCst);
+                    item.value.store(value, Ordering::Release);
                     item.link.store(LinkedListIndex::NULL);
                     // println!("W{} {:2x}", free.0, value);
                     break free;
@@ -155,14 +175,6 @@ where
             }
             Cpu::relax();
         }
-    }
-
-    pub fn enqueue(&self, value: T) -> Result<(), ()> {
-        self.enqueue_raw(value.into().get())
-    }
-
-    pub fn dequeue(&self) -> Option<T> {
-        NonZeroUsize::new(self.dequeue_raw()).map(|x| x.into())
     }
 
     // fn print_self(&self, s: &str) {

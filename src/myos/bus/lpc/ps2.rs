@@ -99,7 +99,7 @@ impl Ps2Data {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
 struct CompositePs2Data(pub NonZeroUsize);
 
 enum Ps2DataType {
@@ -113,15 +113,15 @@ impl CompositePs2Data {
         CompositePs2Data(unsafe { NonZeroUsize::new_unchecked(0xFFFFFFFF) });
     const KEY_MIN: usize = 0x001;
     const KEY_MAX: usize = 0x0FF;
-    const MOS_MIN: usize = 0x100;
-    const MOS_MAX: usize = 0x1FF;
+    const MOUSE_MIN: usize = 0x100;
+    const MOUSE_MAX: usize = 0x1FF;
 
     const fn key(value: Ps2Data) -> Self {
         Self(unsafe { NonZeroUsize::new_unchecked(value.0 as usize) })
     }
 
     const fn mouse(value: Ps2Data) -> Self {
-        Self(unsafe { NonZeroUsize::new_unchecked(CompositePs2Data::MOS_MIN + value.0 as usize) })
+        Self(unsafe { NonZeroUsize::new_unchecked(CompositePs2Data::MOUSE_MIN + value.0 as usize) })
     }
 
     fn split(&self) -> Ps2DataType {
@@ -129,8 +129,8 @@ impl CompositePs2Data {
             CompositePs2Data::KEY_MIN..=CompositePs2Data::KEY_MAX => {
                 Ps2DataType::Key(Ps2Data(self.0.get() as u8))
             }
-            CompositePs2Data::MOS_MIN..=CompositePs2Data::MOS_MAX => {
-                Ps2DataType::Mouse(Ps2Data((self.0.get() - CompositePs2Data::MOS_MIN) as u8))
+            CompositePs2Data::MOUSE_MIN..=CompositePs2Data::MOUSE_MAX => {
+                Ps2DataType::Mouse(Ps2Data((self.0.get() - CompositePs2Data::MOUSE_MIN) as u8))
             }
             _ => Ps2DataType::None,
         }
@@ -180,7 +180,7 @@ impl Ps2 {
     const READ_TIMEOUT: u64 = 100_000;
 
     pub unsafe fn init() -> Result<(), ()> {
-        // NO PS2 Controller
+        // NO PS/2 Controller
         if Self::wait_for_write(10).is_err() {
             return Err(());
         }
@@ -221,40 +221,6 @@ impl Ps2 {
         Self::send_second_data(Ps2Data::ENABLE_SEND, 1).unwrap();
 
         Ok(())
-    }
-
-    // IRQ 01 PS/2 Keyboard
-    fn irq_01(_irq: Irq) {
-        unsafe {
-            let ps2 = PS2.as_mut().unwrap();
-            let al = Self::read_data();
-            ps2.buf.enqueue(CompositePs2Data::key(al)).unwrap();
-            ps2.sem.signal();
-        }
-    }
-
-    // IRQ 12 PS/2 Mouse
-    fn irq_12(_irq: Irq) {
-        unsafe {
-            let ps2 = PS2.as_mut().unwrap();
-            let al = Self::read_data();
-            ps2.buf.enqueue(CompositePs2Data::mouse(al)).unwrap();
-            ps2.sem.signal();
-        }
-    }
-
-    fn data_thread(_args: *mut c_void) {
-        let ps2 = unsafe { PS2.as_mut().unwrap() };
-        loop {
-            ps2.sem.wait(TimeMeasure::FOREVER);
-            loop {
-                match ps2.buf.dequeue().unwrap_or(CompositePs2Data::DUMMY).split() {
-                    Ps2DataType::Key(data) => ps2.process_key_data(data),
-                    Ps2DataType::Mouse(data) => ps2.process_mouse_data(data),
-                    Ps2DataType::None => break,
-                }
-            }
-        }
     }
 
     unsafe fn read_data() -> Ps2Data {
@@ -321,6 +287,39 @@ impl Ps2 {
     unsafe fn send_second_data(data: Ps2Data, timeout: u64) -> Result<(), ()> {
         Self::send_command(Ps2Command::WRITE_SECOND_PORT, timeout)
             .and_then(|_| Self::send_data(data, timeout))
+    }
+
+    // IRQ 01 PS/2 Keyboard
+    fn irq_01(_irq: Irq) {
+        let ps2 = unsafe { PS2.as_mut().unwrap() };
+        let al = unsafe { Self::read_data() };
+        if ps2.buf.enqueue(CompositePs2Data::key(al)).is_ok() {
+            ps2.sem.signal();
+        }
+    }
+
+    // IRQ 12 PS/2 Mouse
+    fn irq_12(_irq: Irq) {
+        let ps2 = unsafe { PS2.as_mut().unwrap() };
+        let al = unsafe { Self::read_data() };
+        if ps2.buf.enqueue(CompositePs2Data::mouse(al)).is_ok() {
+            ps2.sem.signal();
+        }
+    }
+
+    // PS/2 thread
+    fn data_thread(_args: *mut c_void) {
+        let ps2 = unsafe { PS2.as_mut().unwrap() };
+        loop {
+            let _ = ps2.sem.wait(TimeMeasure::FOREVER);
+            loop {
+                match ps2.buf.dequeue().unwrap_or(CompositePs2Data::DUMMY).split() {
+                    Ps2DataType::Key(data) => ps2.process_key_data(data),
+                    Ps2DataType::Mouse(data) => ps2.process_mouse_data(data),
+                    Ps2DataType::None => break,
+                }
+            }
+        }
     }
 
     fn process_key_data(&mut self, data: Ps2Data) {

@@ -3,7 +3,6 @@
 use super::arch::cpu::Cpu;
 use crate::myos::io::graphics::*;
 use crate::myos::mem::alloc::*;
-use crate::myos::sync::queue::*;
 use crate::myos::sync::spinlock::*;
 use crate::myos::system::*;
 use crate::*;
@@ -28,12 +27,6 @@ pub struct ThreadId(pub usize);
 unsafe impl Sync for ThreadId {}
 
 unsafe impl Send for ThreadId {}
-
-impl ThreadId {
-    pub const fn as_u64(&self) -> u64 {
-        self.0 as u64
-    }
-}
 
 pub trait TimerSource {
     fn create(&self, h: TimeMeasure) -> TimeMeasure;
@@ -149,8 +142,6 @@ impl Sub<isize> for TimeMeasure {
 }
 
 static mut GLOBAL_SCHEDULER: GlobalScheduler = GlobalScheduler::new();
-const SIZE_OF_URGENT_QUEUE: usize = 512;
-const SIZE_OF_MAIN_QUEUE: usize = 512;
 
 /// System Global Scheduler
 pub struct GlobalScheduler {
@@ -177,6 +168,9 @@ impl GlobalScheduler {
     }
 
     pub(crate) fn start(system: &System, f: fn(*mut c_void) -> (), args: *mut c_void) -> ! {
+        const SIZE_OF_URGENT_QUEUE: usize = 512;
+        const SIZE_OF_MAIN_QUEUE: usize = 512;
+
         let sch = unsafe { &mut GLOBAL_SCHEDULER };
 
         sch.urgent = Some(ThreadQueue::with_capacity(SIZE_OF_URGENT_QUEUE));
@@ -187,9 +181,7 @@ impl GlobalScheduler {
             sch.locals.push(LocalScheduler::new(ProcessorIndex(index)));
         }
 
-        for _ in 0..50 {
-            Self::spawn_f(Self::scheduler_thread, null_mut(), Priority::Normal);
-        }
+        Self::spawn_f(Self::scheduler_thread, null_mut(), Priority::Normal);
 
         Self::spawn_f(f, args, Priority::Normal);
 
@@ -289,15 +281,8 @@ impl GlobalScheduler {
 
     fn scheduler_thread(_args: *mut c_void) {
         // TODO:
-        let id = unsafe { COUNTER.fetch_add(1, Ordering::Relaxed) };
-        let mut counter: usize = 0;
         loop {
-            counter += 0x040506;
-            stdout().fb().fill_rect(
-                Rect::new(10 * id as isize, 5, 8, 8),
-                Color::from(counter as u32),
-            );
-            Self::wait_for(None, TimeMeasure::from_millis(5));
+            Self::wait_for(None, TimeMeasure::from_millis(1000));
         }
     }
 
@@ -628,44 +613,16 @@ impl From<SignallingObject> for usize {
     }
 }
 
-#[cfg(feature = "atomic_queue")]
-struct ThreadQueue {
-    repr: Box<AtomicLinkedQueue<usize>>,
-}
-
-#[cfg(not(feature = "atomic_queue"))]
 struct ThreadQueue {
     read: AtomicUsize,
     write: AtomicUsize,
     mask: usize,
     lock: Spinlock,
     buf: Vec<AtomicUsize>,
-    // TODO: lock-free
 }
 
 unsafe impl Sync for ThreadQueue {}
 
-#[cfg(feature = "atomic_queue")]
-impl ThreadQueue {
-    const NULL: usize = 0;
-
-    fn with_capacity(capacity: usize) -> Box<Self> {
-        Box::new(Self {
-            repr: AtomicLinkedQueue::with_capacity(capacity),
-        })
-    }
-
-    fn read(&self) -> Option<ThreadHandle> {
-        ThreadHandle::new(self.repr.read_raw())
-    }
-
-    fn write(&self, data: ThreadHandle) -> Result<(), ()> {
-        let value = data.as_usize();
-        self.repr.write_raw(value)
-    }
-}
-
-#[cfg(not(feature = "atomic_queue"))]
 impl ThreadQueue {
     const NULL: usize = 0;
 

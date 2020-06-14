@@ -18,7 +18,6 @@ clean:
 
 $(TARGET): src/* src/**/* src/**/**/* src/**/**/**/*
 	rustup run nightly cargo xbuild --release --target $(RUST_ARCH)
-#  --features "atomic_queue"
 
 $(EFI_BOOT):
 	mkdir -p $(EFI_BOOT)

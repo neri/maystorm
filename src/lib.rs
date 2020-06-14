@@ -1,13 +1,13 @@
 // My UEFI-Rust Lib
-#![feature(panic_info_message)]
 #![feature(abi_efiapi)]
-#![feature(lang_items)]
+#![feature(abi_x86_interrupt)]
 #![feature(alloc_error_handler)]
 #![feature(asm)]
-#![feature(core_intrinsics)]
-#![feature(new_uninit)]
 #![feature(const_fn)]
-#![feature(abi_x86_interrupt)]
+#![feature(core_intrinsics)]
+#![feature(lang_items)]
+#![feature(new_uninit)]
+#![feature(panic_info_message)]
 #![no_std]
 
 use core::ffi::c_void;

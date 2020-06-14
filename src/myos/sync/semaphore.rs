@@ -9,6 +9,10 @@ pub struct Semaphore {
     signal_object: AtomicObject<SignallingObject>,
 }
 
+unsafe impl Sync for Semaphore {}
+
+unsafe impl Send for Semaphore {}
+
 impl Semaphore {
     pub const fn new(value: isize) -> Self {
         Self {

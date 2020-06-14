@@ -4,12 +4,10 @@ use super::graphics::*;
 use crate::myos::sync::queue::*;
 use crate::*;
 use alloc::boxed::Box;
-use alloc::vec::*;
 use bitflags::*;
 use core::cmp;
 use core::num::*;
 use core::sync::atomic::*;
-// use core::ptr::NonNull;
 
 const INVALID_UNICHAR: char = '\u{FEFF}';
 
@@ -101,7 +99,7 @@ impl From<NonZeroUsize> for KeyEvent {
         let value = value.get();
         Self {
             usage: Usage((value & 0xFF) as u8),
-            modifier: unsafe { Modifier::from_bits_unchecked(((value >> 8) & 0xFF) as u8) },
+            modifier: unsafe { Modifier::from_bits_unchecked(((value >> 16) & 0xFF) as u8) },
         }
     }
 }
@@ -109,8 +107,9 @@ impl From<NonZeroUsize> for KeyEvent {
 impl Into<NonZeroUsize> for KeyEvent {
     fn into(self) -> NonZeroUsize {
         unsafe {
-            NonZeroUsize::new_unchecked(self.usage.0 as usize)
-                | ((self.modifier.bits as usize) << 8)
+            NonZeroUsize::new_unchecked(
+                self.usage.0 as usize | ((self.modifier.bits as usize) << 16),
+            )
         }
     }
 }
@@ -169,7 +168,6 @@ pub struct MouseState {
 }
 
 pub struct HidManager {
-    // lock: Spinlock,
     pointer_x: AtomicIsize,
     pointer_y: AtomicIsize,
     key_buf: Box<AtomicLinkedQueue<KeyEvent>>,
@@ -193,10 +191,10 @@ impl HidManager {
         }
     }
 
-    fn update_coord(coord: &AtomicIsize, displacement: isize, min_value: isize, max_value: isize) {
+    fn update_coord(coord: &AtomicIsize, movement: isize, min_value: isize, max_value: isize) {
         let mut value = coord.load(Ordering::Relaxed);
         loop {
-            let new_value = cmp::min(cmp::max(value + displacement, min_value), max_value);
+            let new_value = cmp::min(cmp::max(value + movement, min_value), max_value);
             if value == new_value {
                 break;
             }
@@ -247,7 +245,7 @@ impl HidManager {
 
     pub fn send_key_event(v: KeyEvent) {
         let shared = unsafe { HID_MANAGER.as_ref().unwrap() };
-        shared.key_buf.enqueue(v);
+        let _ = shared.key_buf.enqueue(v);
     }
 
     pub fn get_key() -> Option<KeyEvent> {
@@ -261,7 +259,7 @@ impl HidManager {
         if usage >= Usage::ALPHABET_MIN && usage <= Usage::ALPHABET_MAX {
             uni = (usage.0 - Usage::ALPHABET_MIN.0 + 0x61) as char;
         } else if usage >= Usage::NUMBER_MIN && usage <= Usage::NON_ALPHABET_MAX {
-            uni = USAGE_TO_CHAR_NON_ALPLABET[(usage.0 - Usage::NUMBER_MIN.0) as usize];
+            uni = USAGE_TO_CHAR_NON_ALPLABET_109[(usage.0 - Usage::NUMBER_MIN.0) as usize];
             if uni > ' ' && uni < '\x40' && uni != '0' && modifier.is_shift() {
                 uni = (uni as u8 ^ 0x10) as char;
             }
@@ -295,7 +293,7 @@ impl HidManager {
 }
 
 // Non Alphabet
-static USAGE_TO_CHAR_NON_ALPLABET: [char; 27] = [
+static USAGE_TO_CHAR_NON_ALPLABET_109: [char; 27] = [
     '1',
     '2',
     '3',
