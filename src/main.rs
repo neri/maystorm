@@ -16,28 +16,8 @@ use uefi_pg::*;
 
 uefi_pg_entry!(main);
 
-fn main(handle: Handle, st: SystemTable<Boot>, rsdptr: usize) {
-    // TODO: init custom allocator
-    let buf_size = 0x1000000;
-    let buf_ptr = st
-        .boot_services()
-        .allocate_pool(uefi::table::boot::MemoryType::LOADER_DATA, buf_size)
-        .unwrap()
-        .unwrap();
-    myos::mem::alloc::init(buf_ptr as usize, buf_size);
-
-    //////// GUARD //////// exit_boot_services //////// GUARD ////////
-    let (_st, mm) = exit_boot_services(st, handle);
-
-    let mut total_memory_size: u64 = 0;
-    for mem_desc in mm {
-        if mem_desc.ty.is_countable() {
-            total_memory_size += mem_desc.page_count << 12;
-        }
-    }
-    unsafe {
-        System::init(rsdptr, total_memory_size, sysinit);
-    }
+fn main(info: &BootInfo) {
+    System::init(info, sysinit);
 }
 
 fn sysinit() {

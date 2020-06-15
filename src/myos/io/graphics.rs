@@ -349,13 +349,14 @@ pub struct FrameBuffer {
 
 static BIT_MASKS: [u8; 8] = [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
 
-use uefi::proto::console::gop::GraphicsOutput;
-impl From<&mut GraphicsOutput<'_>> for FrameBuffer {
-    fn from(gop: &mut GraphicsOutput) -> Self {
-        let info = gop.current_mode_info();
-        let (mut width, mut height) = info.resolution();
-        let mut fb = gop.frame_buffer();
-        let delta = info.stride();
+impl FrameBuffer {
+    pub unsafe fn from_raw_parts(
+        base: *mut u8,
+        len: usize,
+        delta: usize,
+        size: Size<usize>,
+    ) -> Self {
+        let (mut width, mut height) = (size.width, size.height);
         let mut is_portrait = height > width;
         if is_portrait {
             // portrait
@@ -366,8 +367,8 @@ impl From<&mut GraphicsOutput<'_>> for FrameBuffer {
             is_portrait = true;
         }
         FrameBuffer {
-            base: fb.as_mut_ptr(),
-            len: fb.size(),
+            base: base,
+            len: len,
             size: Size {
                 width: width as isize,
                 height: height as isize,
@@ -376,9 +377,7 @@ impl From<&mut GraphicsOutput<'_>> for FrameBuffer {
             is_portrait: is_portrait,
         }
     }
-}
 
-impl FrameBuffer {
     #[inline]
     pub fn size(&self) -> Size<isize> {
         self.size

@@ -35,7 +35,7 @@ where
 
     #[inline]
     pub fn load(&self) -> Option<T> {
-        Self::into_t(self.repr.load(Ordering::SeqCst))
+        Self::into_t(self.repr.load(Ordering::Acquire))
     }
 
     #[inline]
@@ -55,13 +55,13 @@ where
     #[inline]
     pub fn store(&self, value: Option<T>) {
         let value = Self::from_t(value);
-        self.repr.store(value, Ordering::SeqCst)
+        self.repr.store(value, Ordering::Release)
     }
 
     #[inline]
     pub fn swap(&self, value: Option<T>) -> Option<T> {
         let value = Self::from_t(value);
-        Self::into_t(self.repr.swap(value, Ordering::SeqCst))
+        Self::into_t(self.repr.swap(value, Ordering::AcqRel))
     }
 
     #[inline]

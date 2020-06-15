@@ -10,12 +10,13 @@
 #![feature(panic_info_message)]
 #![no_std]
 
+use alloc::boxed::Box;
 use core::ffi::c_void;
 use core::fmt::Write;
 use core::panic::PanicInfo;
 use core::ptr::NonNull;
 use myos::io::console::GraphicalConsole;
-use myos::io::graphics::FrameBuffer;
+use myos::io::graphics::*;
 use myos::sync::spinlock::Spinlock;
 use myos::*;
 use uefi::prelude::*;
@@ -45,38 +46,117 @@ fn panic(info: &PanicInfo) -> ! {
     }
 }
 
-static mut STDOUT: Option<NonNull<GraphicalConsole>> = None;
+static mut STDOUT: Option<Box<GraphicalConsole>> = None;
 
 pub fn stdout<'a>() -> &'static mut GraphicalConsole<'a> {
-    unsafe { &mut *STDOUT.unwrap().as_ptr() }
+    unsafe { STDOUT.as_mut().unwrap() }
 }
 
+#[repr(C)]
+#[derive(Debug)]
+pub struct BootInfo {
+    pub rsdptr: u64,
+    pub total_memory_size: u64,
+    pub fb: u64,
+    pub fblen: u32,
+    pub fbdelta: u32,
+    pub screenwidth: u32,
+    pub screenheight: u32,
+}
+
+impl BootInfo {
+    const fn new() -> Self {
+        Self {
+            rsdptr: 0,
+            total_memory_size: 0,
+            fb: 0,
+            fblen: 0,
+            fbdelta: 0,
+            screenwidth: 0,
+            screenheight: 0,
+        }
+    }
+}
+
+#[inline]
 pub fn startup<F>(handle: Handle, st: SystemTable<Boot>, custom_main: F) -> Status
 where
-    F: Fn(Handle, SystemTable<Boot>, usize),
+    F: Fn(&BootInfo),
 {
-    let bs = st.boot_services();
-    if let Ok(gop) = bs.locate_protocol::<uefi::proto::console::gop::GraphicsOutput>() {
-        let gop = gop.unwrap();
-        let gop = unsafe { &mut *gop.get() };
-        let fb = FrameBuffer::from(gop);
-        let stdout = GraphicalConsole::from(fb);
-        unsafe {
-            STDOUT = NonNull::new(&stdout as *const _ as *mut _);
-        }
-    } else {
-        writeln!(st.stdout(), "Error: GOP Not Found").unwrap();
-        return Status::UNSUPPORTED;
-    }
-    let rsdptr = match st.find_config_table(uefi::table::cfg::ACPI2_GUID) {
-        Some(val) => val as usize,
+    let mut info = BootInfo::new();
+
+    // Find ACPI Table
+    info.rsdptr = match st.find_config_table(uefi::table::cfg::ACPI2_GUID) {
+        Some(val) => val as u64,
         None => {
             writeln!(st.stdout(), "Error: ACPI Table Not Found").unwrap();
             return Status::LOAD_ERROR;
         }
     };
-    stdout().fb().reset();
-    custom_main(handle, st, rsdptr);
+
+    // Init graphics
+    let bs = st.boot_services();
+    if let Ok(gop) = bs.locate_protocol::<uefi::proto::console::gop::GraphicsOutput>() {
+        let gop = gop.unwrap();
+        let gop = unsafe { &mut *gop.get() };
+        {
+            let gop_info = gop.current_mode_info();
+            let mut fb = gop.frame_buffer();
+            info.fb = fb.as_mut_ptr() as usize as u64;
+            info.fblen = fb.size() as u32;
+            info.fbdelta = gop_info.stride() as u32;
+            let (w, h) = gop_info.resolution();
+            info.screenwidth = w as u32;
+            info.screenheight = h as u32;
+        }
+    } else {
+        writeln!(st.stdout(), "Error: GOP Not Found").unwrap();
+        return Status::UNSUPPORTED;
+    }
+
+    // TODO: init custom allocator
+    let buf_size = 0x1000000;
+    let page_size = 0x1000;
+    let buf_ptr = st
+        .boot_services()
+        .allocate_pages(
+            uefi::table::boot::AllocateType::AnyPages,
+            uefi::table::boot::MemoryType::LOADER_DATA,
+            buf_size / page_size,
+        )
+        .unwrap()
+        .unwrap();
+    myos::mem::alloc::init(buf_ptr as usize, buf_size);
+    //////// GUARD //////// alloc //////// GUARD ////////
+
+    {
+        let fb = unsafe {
+            FrameBuffer::from_raw_parts(
+                info.fb as *mut u8,
+                info.fblen as usize,
+                info.fbdelta as usize,
+                Size::new(info.screenwidth as usize, info.screenheight as usize),
+            )
+        };
+        fb.reset();
+        let stdout = Box::new(GraphicalConsole::from(fb));
+        unsafe {
+            STDOUT = Some(stdout);
+        }
+    }
+
+    //////// GUARD //////// exit_boot_services //////// GUARD ////////
+    let (_st, mm) = exit_boot_services(st, handle);
+
+    let mut total_memory_size: u64 = 0;
+    for mem_desc in mm {
+        if mem_desc.ty.is_countable() {
+            total_memory_size += mem_desc.page_count << 12;
+        }
+    }
+    info.total_memory_size = total_memory_size;
+
+    custom_main(&info);
     Status::LOAD_ERROR
 }
 
@@ -103,7 +183,7 @@ macro_rules! uefi_pg_entry {
     ($path:path) => {
         #[entry]
         fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
-            let f: fn(Handle, SystemTable<Boot>, usize) = $path;
+            let f: fn(&BootInfo) = $path;
             startup(handle, st, f)
         }
     };

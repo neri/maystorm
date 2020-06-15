@@ -102,19 +102,23 @@ impl System {
         }
     }
 
-    pub unsafe fn init(rsdptr: usize, total_memory_size: u64, f: fn() -> ()) -> ! {
-        let mut my_handler = MyAcpiHandler::new();
+    pub fn init(info: &BootInfo, f: fn() -> ()) -> ! {
+        unsafe {
+            let mut my_handler = MyAcpiHandler::new();
+            SYSTEM.acpi = Some(Box::new(
+                acpi::parse_rsdp(&mut my_handler, info.rsdptr as usize).unwrap(),
+            ));
 
-        SYSTEM.total_memory_size = total_memory_size;
-        SYSTEM.acpi = Some(Box::new(acpi::parse_rsdp(&mut my_handler, rsdptr).unwrap()));
-        SYSTEM.number_of_cpus = SYSTEM.acpi().application_processors.len() + 1;
+            SYSTEM.number_of_cpus = SYSTEM.acpi().application_processors.len() + 1;
+            SYSTEM.total_memory_size = info.total_memory_size;
 
-        SYSTEM.cpus.push(Cpu::new(ProcessorId::from(
-            SYSTEM.acpi().boot_processor.unwrap().local_apic_id,
-        )));
-        Cpu::init();
+            SYSTEM.cpus.push(Cpu::new(ProcessorId::from(
+                SYSTEM.acpi().boot_processor.unwrap().local_apic_id,
+            )));
+            Cpu::init();
 
-        GlobalScheduler::start(&SYSTEM, Self::late_init, f as *const c_void as *mut c_void);
+            GlobalScheduler::start(&SYSTEM, Self::late_init, f as *const c_void as *mut c_void);
+        }
     }
 
     fn late_init(args: *mut c_void) {

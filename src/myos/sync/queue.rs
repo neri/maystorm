@@ -1,4 +1,4 @@
-// Atomic Linked Queue - WIP
+// Lock-free Queue - WIP
 
 use crate::myos::arch::cpu::Cpu;
 use crate::*;
@@ -9,10 +9,10 @@ use core::num::*;
 use core::sync::atomic::*;
 
 pub struct AtomicLinkedQueue<T> {
-    head: AtomicLinkedListIndex,
-    tail: AtomicLinkedListIndex,
-    free: AtomicLinkedListIndex,
-    pool: Vec<AtomicLinkedNode>,
+    head: AtomicIndex,
+    tail: AtomicIndex,
+    free: AtomicIndex,
+    pool: Vec<Node>,
     phantom: PhantomData<T>,
 }
 
@@ -20,53 +20,49 @@ unsafe impl<T> Sync for AtomicLinkedQueue<T> {}
 
 unsafe impl<T> Send for AtomicLinkedQueue<T> {}
 
-#[derive(Copy, Clone, PartialOrd, PartialEq)]
-struct LinkedListIndex(pub usize);
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
+struct Index(pub usize);
 
-impl LinkedListIndex {
-    const NULL: LinkedListIndex = LinkedListIndex(0);
+impl Index {
+    const NULL: Index = Index(0);
 }
 
-struct AtomicLinkedNode {
-    link: AtomicLinkedListIndex,
+struct Node {
+    link: AtomicIndex,
     value: AtomicUsize,
 }
 
-impl AtomicLinkedNode {
-    const fn new(link: AtomicLinkedListIndex) -> Self {
+impl Node {
+    const fn new(link: Index) -> Self {
         Self {
-            link: link,
+            link: AtomicIndex::new(link),
             value: AtomicUsize::new(0),
         }
     }
 }
 
-struct AtomicLinkedListIndex(AtomicUsize);
+struct AtomicIndex(AtomicUsize);
 
-impl AtomicLinkedListIndex {
-    const fn new(value: usize) -> Self {
-        Self(AtomicUsize::new(value))
+impl AtomicIndex {
+    const fn new(value: Index) -> Self {
+        Self(AtomicUsize::new(value.0))
     }
 
-    fn load(&self) -> LinkedListIndex {
-        LinkedListIndex(self.0.load(Ordering::Acquire))
+    fn load(&self) -> Index {
+        Index(self.0.load(Ordering::Acquire))
     }
 
-    fn store(&self, value: LinkedListIndex) {
-        self.0.store(value.0, Ordering::SeqCst);
+    fn store(&self, value: Index) {
+        self.0.store(value.0, Ordering::Release);
     }
 
-    fn cas(
-        &self,
-        expected: LinkedListIndex,
-        desired: LinkedListIndex,
-    ) -> Result<(), LinkedListIndex> {
+    fn cas(&self, expected: Index, desired: Index) -> Result<(), Index> {
         match self
             .0
             .compare_exchange(expected.0, desired.0, Ordering::SeqCst, Ordering::Relaxed)
         {
             Ok(_) => Ok(()),
-            Err(v) => Err(LinkedListIndex(v)),
+            Err(v) => Err(Index(v)),
         }
     }
 }
@@ -76,24 +72,21 @@ where
     T: Into<NonZeroUsize> + From<NonZeroUsize>,
 {
     pub fn with_capacity(capacity: usize) -> Box<Self> {
-        let mut list = Box::new(Self {
-            head: AtomicLinkedListIndex::new(1),
-            tail: AtomicLinkedListIndex::new(1),
-            free: AtomicLinkedListIndex::new(2),
+        let mut queue = Box::new(Self {
+            head: AtomicIndex::new(Index(1)),
+            tail: AtomicIndex::new(Index(1)),
+            free: AtomicIndex::new(Index(2)),
             pool: Vec::with_capacity(capacity),
             phantom: PhantomData,
         });
 
-        list.pool
-            .push(AtomicLinkedNode::new(AtomicLinkedListIndex::new(0)));
+        queue.pool.push(Node::new(Index::NULL));
         for i in 2..capacity {
-            list.pool
-                .push(AtomicLinkedNode::new(AtomicLinkedListIndex::new(i + 1)));
+            queue.pool.push(Node::new(Index(i + 1)));
         }
-        list.pool
-            .push(AtomicLinkedNode::new(AtomicLinkedListIndex::new(0)));
+        queue.pool.push(Node::new(Index::NULL));
 
-        list
+        queue
     }
 
     pub fn enqueue(&self, value: T) -> Result<(), ()> {
@@ -104,7 +97,7 @@ where
         NonZeroUsize::new(self.dequeue_raw()).map(|v| v.into())
     }
 
-    fn item_at(&self, index: LinkedListIndex) -> &AtomicLinkedNode {
+    fn item_at(&self, index: Index) -> &Node {
         &self.pool[index.0 - 1]
     }
 
@@ -115,7 +108,7 @@ where
             if head == tail {
                 let last_item = self.item_at(tail);
                 let next = last_item.link.load();
-                if next == LinkedListIndex::NULL {
+                if next == Index::NULL {
                     return 0;
                 } else {
                     let _ = self.tail.cas(tail, next);
@@ -124,7 +117,7 @@ where
             }
             let dummy = self.item_at(head);
             let target = dummy.link.load();
-            if target != LinkedListIndex::NULL {
+            if target != Index::NULL {
                 let item = self.item_at(target);
                 let result = item.value.load(Ordering::Acquire);
                 if self.head.cas(head, target).is_ok() {
@@ -136,7 +129,6 @@ where
                         }
                         Cpu::relax();
                     }
-                    // self.print_self("READ");
                     return result;
                 }
             } else {
@@ -149,12 +141,11 @@ where
     pub fn enqueue_raw(&self, value: usize) -> Result<(), ()> {
         let index = loop {
             let free = self.free.load();
-            if free != LinkedListIndex::NULL {
+            if free != Index::NULL {
                 let item = self.item_at(free);
                 if self.free.cas(free, item.link.load()).is_ok() {
                     item.value.store(value, Ordering::Release);
-                    item.link.store(LinkedListIndex::NULL);
-                    // println!("W{} {:2x}", free.0, value);
+                    item.link.store(Index::NULL);
                     break free;
                 }
             } else {
@@ -165,26 +156,14 @@ where
         loop {
             let tail = self.tail.load();
             let mut last_item = self.item_at(tail);
-            while last_item.link.load() != LinkedListIndex::NULL {
+            while last_item.link.load() != Index::NULL {
                 last_item = self.item_at(last_item.link.load());
             }
-            if last_item.link.cas(LinkedListIndex::NULL, index).is_ok() {
+            if last_item.link.cas(Index::NULL, index).is_ok() {
                 let _ = self.tail.cas(tail, index);
-                // self.print_self("WRITE");
                 return Ok(());
             }
             Cpu::relax();
         }
     }
-
-    // fn print_self(&self, s: &str) {
-    //     println!(
-    //         "{} {:#?} h {} t {} f {}",
-    //         s,
-    //         self as *const _,
-    //         self.head.load().0,
-    //         self.tail.load().0,
-    //         self.free.load().0,
-    //     );
-    // }
 }

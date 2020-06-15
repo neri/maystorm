@@ -645,12 +645,12 @@ impl ThreadQueue {
     fn read(&self) -> Option<ThreadHandle> {
         self.lock.synchronized(|| {
             let mask = self.mask;
-            if (mask & (self.write.load(Ordering::Relaxed)))
-                != (mask & (self.read.load(Ordering::Relaxed)))
+            if (mask & (self.write.load(Ordering::Acquire)))
+                != (mask & (self.read.load(Ordering::Acquire)))
             {
                 let read = self.read.load(Ordering::Acquire);
-                let result = self.buf[read & mask].swap(Self::NULL, Ordering::SeqCst);
-                self.read.fetch_add(1, Ordering::Release);
+                let result = self.buf[read & mask].swap(Self::NULL, Ordering::AcqRel);
+                self.read.fetch_add(1, Ordering::AcqRel);
                 return ThreadHandle::new(result);
             } else {
                 None
@@ -662,15 +662,15 @@ impl ThreadQueue {
         let data = data.as_usize();
         self.lock.synchronized(|| {
             let mask = self.mask;
-            if (mask & (self.write.load(Ordering::Relaxed) + 1))
-                != (mask & (self.read.load(Ordering::Relaxed)))
+            if (mask & (self.write.load(Ordering::Acquire) + 1))
+                != (mask & (self.read.load(Ordering::Acquire)))
             {
                 let write = mask & self.write.load(Ordering::Acquire);
                 let success = self.buf[write & mask]
-                    .compare_exchange(Self::NULL, data, Ordering::SeqCst, Ordering::Relaxed)
+                    .compare_exchange(Self::NULL, data, Ordering::AcqRel, Ordering::Relaxed)
                     .is_ok();
                 if success {
-                    self.write.fetch_add(1, Ordering::Release);
+                    self.write.fetch_add(1, Ordering::AcqRel);
                     return Ok(());
                 } else {
                     // TODO: Inconsistency Error
