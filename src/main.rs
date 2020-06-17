@@ -14,7 +14,7 @@ use uefi_pg::myos::scheduler::*;
 use uefi_pg::myos::system::*;
 use uefi_pg::*;
 
-uefi_pg_entry!(main);
+myos_entry!(main);
 
 fn main(info: &BootInfo) {
     System::init(info, sysinit);

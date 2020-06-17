@@ -33,7 +33,6 @@ impl Cpu {
         });
 
         // Currently force disabling SSE
-        let mut _temp: usize;
         asm!("
         mov {0}, cr4
         btr {0}, 9
@@ -85,7 +84,8 @@ impl Cpu {
         asm!("out dx, al", in("dx") port, in("al") value);
     }
 
-    pub(crate) fn check_irq() -> Result<(), ()> {
+    #[must_use]
+    pub(crate) fn assert_without_interrupt() -> bool {
         let flags = unsafe {
             let mut rax: usize;
             asm!("
@@ -94,11 +94,7 @@ impl Cpu {
             ", lateout(reg) rax);
             Eflags::from_bits_unchecked(rax)
         };
-        if flags.contains(Eflags::IF) {
-            Err(())
-        } else {
-            Ok(())
-        }
+        !flags.contains(Eflags::IF)
     }
 
     #[inline]

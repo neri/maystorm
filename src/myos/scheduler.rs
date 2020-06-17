@@ -1,7 +1,7 @@
 // Thread Scheduler
 
 use super::arch::cpu::Cpu;
-use crate::myos::io::graphics::*;
+// use crate::myos::io::graphics::*;
 use crate::myos::mem::alloc::*;
 use crate::myos::sync::spinlock::*;
 use crate::myos::system::*;
@@ -153,8 +153,6 @@ pub struct GlobalScheduler {
     is_enabled: AtomicBool,
 }
 
-static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
 impl GlobalScheduler {
     const fn new() -> Self {
         Self {
@@ -185,7 +183,7 @@ impl GlobalScheduler {
 
         Self::spawn_f(f, args, Priority::Normal);
 
-        sch.is_enabled.store(true, Ordering::Relaxed);
+        sch.is_enabled.store(true, Ordering::Release);
 
         loop {
             unsafe {
@@ -196,7 +194,7 @@ impl GlobalScheduler {
 
     fn next_thread_id() -> ThreadId {
         let sch = unsafe { &GLOBAL_SCHEDULER };
-        ThreadId(sch.next_thread_id.fetch_add(1, Ordering::Relaxed))
+        ThreadId(sch.next_thread_id.fetch_add(1, Ordering::AcqRel))
     }
 
     // Perform a Preemption
@@ -250,10 +248,10 @@ impl GlobalScheduler {
     fn next() -> Option<ThreadHandle> {
         let sch = unsafe { &mut GLOBAL_SCHEDULER };
         for _ in 0..1 {
-            if let Some(next) = sch.urgent.as_mut().unwrap().read() {
+            if let Some(next) = sch.urgent.as_mut().unwrap().dequeue() {
                 return Some(next);
             }
-            while let Some(next) = sch.ready.as_mut().unwrap().read() {
+            while let Some(next) = sch.ready.as_mut().unwrap().dequeue() {
                 if next.borrow().deadline.until() {
                     GlobalScheduler::retire(next);
                     continue;
@@ -263,8 +261,8 @@ impl GlobalScheduler {
             }
             let front = sch.ready.as_mut().unwrap();
             let back = sch.retired.as_mut().unwrap();
-            while let Some(retired) = back.read() {
-                front.write(retired).unwrap();
+            while let Some(retired) = back.dequeue() {
+                front.enqueue(retired).unwrap();
             }
         }
         None
@@ -275,7 +273,7 @@ impl GlobalScheduler {
         let sch = unsafe { &mut GLOBAL_SCHEDULER };
         let priority = thread.borrow().priority;
         if priority != Priority::Idle {
-            sch.retired.as_mut().unwrap().write(thread).unwrap();
+            sch.retired.as_mut().unwrap().enqueue(thread).unwrap();
         }
     }
 
@@ -295,7 +293,7 @@ impl GlobalScheduler {
 
     pub fn is_enabled() -> bool {
         let sch = unsafe { &GLOBAL_SCHEDULER };
-        sch.is_enabled.load(Ordering::Relaxed)
+        sch.is_enabled.load(Ordering::Acquire)
     }
 
     pub fn spawn_f(start: ThreadStart, args: *mut c_void, priority: Priority) {
@@ -307,7 +305,7 @@ impl GlobalScheduler {
 
 // Processor Local Scheduler
 struct LocalScheduler {
-    pub index: ProcessorIndex,
+    index: ProcessorIndex,
     count: AtomicUsize,
     idle: ThreadHandle,
     current: ThreadHandle,
@@ -327,7 +325,8 @@ impl LocalScheduler {
     }
 
     fn next_thread(lsch: &'static mut Self) {
-        Cpu::check_irq().ok().unwrap();
+        assert!(Cpu::assert_without_interrupt());
+
         let current = lsch.current;
         let next = match GlobalScheduler::next() {
             Some(next) => next,
@@ -514,7 +513,7 @@ impl NativeThread {
                     start as usize,
                     args,
                 );
-            })
+            });
         }
         handle
     }
@@ -585,11 +584,11 @@ impl SignallingObject {
     }
 
     pub fn load(&self) -> Option<ThreadHandle> {
-        ThreadHandle::new(self.0.load(Ordering::SeqCst))
+        ThreadHandle::new(self.0.load(Ordering::Acquire))
     }
 
     pub fn unbox(&self) -> Option<ThreadHandle> {
-        ThreadHandle::new(self.0.swap(Self::NULL, Ordering::SeqCst))
+        ThreadHandle::new(self.0.swap(Self::NULL, Ordering::AcqRel))
     }
 
     pub fn wait(&self, duration: TimeMeasure) {
@@ -609,7 +608,7 @@ impl From<usize> for SignallingObject {
 
 impl From<SignallingObject> for usize {
     fn from(value: SignallingObject) -> usize {
-        value.0.load(Ordering::SeqCst)
+        value.0.load(Ordering::Acquire)
     }
 }
 
@@ -642,7 +641,7 @@ impl ThreadQueue {
         })
     }
 
-    fn read(&self) -> Option<ThreadHandle> {
+    fn dequeue(&self) -> Option<ThreadHandle> {
         self.lock.synchronized(|| {
             let mask = self.mask;
             if (mask & (self.write.load(Ordering::Acquire)))
@@ -658,7 +657,7 @@ impl ThreadQueue {
         })
     }
 
-    fn write(&self, data: ThreadHandle) -> Result<(), ()> {
+    fn enqueue(&self, data: ThreadHandle) -> Result<(), ()> {
         let data = data.as_usize();
         self.lock.synchronized(|| {
             let mask = self.mask;

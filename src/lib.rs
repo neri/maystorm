@@ -52,16 +52,15 @@ pub fn stdout<'a>() -> &'static mut GraphicalConsole<'a> {
     unsafe { STDOUT.as_mut().unwrap() }
 }
 
-#[repr(C)]
-#[derive(Debug)]
+#[repr(C, packed)]
 pub struct BootInfo {
     pub rsdptr: u64,
     pub total_memory_size: u64,
-    pub fb: u64,
-    pub fblen: u32,
-    pub fbdelta: u32,
-    pub screenwidth: u32,
-    pub screenheight: u32,
+    pub fb_base: u64,
+    pub screen_width: u16,
+    pub screen_height: u16,
+    pub fb_delta: u16,
+    pub _reserved: u16,
 }
 
 impl BootInfo {
@@ -69,17 +68,17 @@ impl BootInfo {
         Self {
             rsdptr: 0,
             total_memory_size: 0,
-            fb: 0,
-            fblen: 0,
-            fbdelta: 0,
-            screenwidth: 0,
-            screenheight: 0,
+            fb_base: 0,
+            screen_width: 0,
+            screen_height: 0,
+            fb_delta: 0,
+            _reserved: 0,
         }
     }
 }
 
 #[inline]
-pub fn startup<F>(handle: Handle, st: SystemTable<Boot>, custom_main: F) -> Status
+pub fn startup<F>(handle: Handle, st: SystemTable<Boot>, main: F) -> Status
 where
     F: Fn(&BootInfo),
 {
@@ -102,12 +101,11 @@ where
         {
             let gop_info = gop.current_mode_info();
             let mut fb = gop.frame_buffer();
-            info.fb = fb.as_mut_ptr() as usize as u64;
-            info.fblen = fb.size() as u32;
-            info.fbdelta = gop_info.stride() as u32;
+            info.fb_base = fb.as_mut_ptr() as usize as u64;
+            info.fb_delta = gop_info.stride() as u16;
             let (w, h) = gop_info.resolution();
-            info.screenwidth = w as u32;
-            info.screenheight = h as u32;
+            info.screen_width = w as u16;
+            info.screen_height = h as u16;
         }
     } else {
         writeln!(st.stdout(), "Error: GOP Not Found").unwrap();
@@ -132,10 +130,9 @@ where
     {
         let fb = unsafe {
             FrameBuffer::from_raw_parts(
-                info.fb as *mut u8,
-                info.fblen as usize,
-                info.fbdelta as usize,
-                Size::new(info.screenwidth as usize, info.screenheight as usize),
+                info.fb_base as *mut u8,
+                Size::new(info.screen_width.into(), info.screen_height.into()),
+                info.fb_delta.into(),
             )
         };
         fb.reset();
@@ -156,7 +153,8 @@ where
     }
     info.total_memory_size = total_memory_size;
 
-    custom_main(&info);
+    main(&info);
+
     Status::LOAD_ERROR
 }
 
@@ -179,7 +177,7 @@ pub fn exit_boot_services<'a>(
 }
 
 #[macro_export]
-macro_rules! uefi_pg_entry {
+macro_rules! myos_entry {
     ($path:path) => {
         #[entry]
         fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {

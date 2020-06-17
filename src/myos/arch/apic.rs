@@ -79,7 +79,7 @@ impl Apic {
         for irq in &[1, 12] {
             APIC.gsi_table[*irq as usize] = GsiProps {
                 global_irq: Irq(*irq),
-                polarity: PackedPolarity(0),
+                trigger: PackedTriggerMode(0),
             };
         }
 
@@ -87,9 +87,9 @@ impl Apic {
         for source in &acpi_apic.interrupt_source_overrides {
             let props = GsiProps {
                 global_irq: Irq(source.global_system_interrupt as u8),
-                polarity: PackedPolarity::new(
-                    ApicPolarity::from(&source.polarity),
+                trigger: PackedTriggerMode::new(
                     ApicTriggerMode::from(&source.trigger_mode),
+                    ApicPolarity::from(&source.polarity),
                 ),
             };
             APIC.gsi_table[source.isa_source as usize] = props;
@@ -147,7 +147,7 @@ impl Apic {
         );
 
         // Setup SMP
-        let sipi_vec: u8 = 1;
+        let sipi_vec: u8 = 1; // TODO: dynamic alloc
         let max_cpu = core::cmp::min(System::shared().number_of_cpus(), MAX_CPU);
         let stack_chunk_size = 0x4000;
         let stack_base = CustomAlloc::zalloc(max_cpu * stack_chunk_size)
@@ -168,16 +168,16 @@ impl Apic {
         xor edi, edi
         rep stosd
         ",
-            out("eax") _,
-            out("ecx") _,
-            out("edi") _,
+            lateout("eax") _,
+            lateout("ecx") _,
+            lateout("edi") _,
         );
     }
 
     pub unsafe fn register(irq: Irq, f: IrqHandler) -> Result<(), ()> {
         let props = APIC.gsi_table[irq.0 as usize];
         let global_irq = props.global_irq;
-        let polarity = props.polarity;
+        let trigger = props.trigger;
         if global_irq.0 == 0 {
             return Err(());
         }
@@ -191,7 +191,7 @@ impl Apic {
                 APIC.idt[global_irq.0 as usize] = VirtualAddress(f as usize);
                 let pair = Self::make_redirect_table_entry_pair(
                     global_irq.as_vec(),
-                    polarity,
+                    trigger,
                     APIC.master_apic_id,
                 );
                 ioapic.write(IoApicIndex::redir_table_high(local_irq), pair.1);
@@ -224,10 +224,10 @@ impl Apic {
 
     const fn make_redirect_table_entry_pair(
         vec: InterruptVector,
-        polarity: PackedPolarity,
+        trigger: PackedTriggerMode,
         apic_id: ProcessorId,
     ) -> (u32, u32) {
-        (vec.0 as u32 | polarity.as_redir(), apic_id.as_u32() << 24)
+        (vec.0 as u32 | trigger.as_redir(), apic_id.as_u32() << 24)
     }
 
     fn eoi() {
@@ -309,25 +309,25 @@ impl From<Irq> for InterruptVector {
 #[derive(Debug, Copy, Clone)]
 struct GsiProps {
     global_irq: Irq,
-    polarity: PackedPolarity,
+    trigger: PackedTriggerMode,
 }
 
 impl GsiProps {
     const fn null() -> Self {
         GsiProps {
             global_irq: Irq(0),
-            polarity: PackedPolarity(0),
+            trigger: PackedTriggerMode(0),
         }
     }
 }
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone)]
-struct PackedPolarity(pub u8);
+struct PackedTriggerMode(pub u8);
 
-impl PackedPolarity {
-    const fn new(polarity: ApicPolarity, trigger: ApicTriggerMode) -> Self {
-        Self(polarity.as_packed() | trigger.as_packed())
+impl PackedTriggerMode {
+    const fn new(trigger: ApicTriggerMode, polarity: ApicPolarity) -> Self {
+        Self(trigger.as_packed() | polarity.as_packed())
     }
 
     const fn as_redir(&self) -> u32 {
