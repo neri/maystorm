@@ -3,6 +3,7 @@
 use crate::num::*;
 use core::ops::*;
 
+#[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Point<T: Number> {
     pub x: T,
@@ -68,6 +69,7 @@ impl<T: Number> SubAssign for Point<T> {
     }
 }
 
+#[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Size<T: Number> {
     pub width: T,
@@ -136,6 +138,7 @@ impl<T: Number> SubAssign for Size<T> {
     }
 }
 
+#[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Rect<T: Number> {
     pub origin: Point<T>,
@@ -191,6 +194,7 @@ impl<T: Number> From<Size<T>> for Rect<T> {
     }
 }
 
+#[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct EdgeInsets<T: Number> {
     pub top: T,

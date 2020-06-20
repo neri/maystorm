@@ -1,5 +1,6 @@
 // A Computer System
 
+use crate::boot::BootInfo;
 use crate::myos::arch::cpu::*;
 use crate::myos::scheduler::*;
 use crate::*;

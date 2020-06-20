@@ -3,10 +3,13 @@
 #![no_std]
 #![no_main]
 
+#[cfg(any(target_os = "uefi"))]
+use uefi::prelude::*;
+
 // use aml;
 use core::fmt::Write;
-use uefi::prelude::*;
 // use uefi_pg::myos::arch::cpu::Cpu;
+use uefi_pg::boot::*;
 use uefi_pg::myos::io::graphics::*;
 use uefi_pg::myos::io::hid;
 use uefi_pg::myos::io::hid::*;
@@ -48,7 +51,7 @@ fn sysinit() {
         system.number_of_active_cpus(),
         system.total_memory_size() >> 20,
     );
-    println!("Hello, {:#}!", "Rust");
+    println!("Hello, {}!", "Rust");
 
     // Thread::spawn(|| {
     //     println!("Hello, thread!");
