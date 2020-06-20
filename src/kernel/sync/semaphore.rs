@@ -1,7 +1,7 @@
 // Semaphore
 
 use super::atomic::*;
-use crate::myos::scheduler::*;
+use crate::kernel::scheduler::*;
 use core::sync::atomic::*;
 
 pub struct Semaphore {

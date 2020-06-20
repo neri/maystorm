@@ -1,10 +1,10 @@
 // Thread Scheduler
 
 use super::arch::cpu::Cpu;
-// use crate::myos::io::graphics::*;
-use crate::myos::mem::alloc::*;
-use crate::myos::sync::spinlock::*;
-use crate::myos::system::*;
+// use crate::kernel::io::graphics::*;
+use crate::kernel::mem::alloc::*;
+use crate::kernel::sync::spinlock::*;
+use crate::kernel::system::*;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;

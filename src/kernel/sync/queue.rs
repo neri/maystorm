@@ -1,6 +1,6 @@
 // Lock-free Queue - WIP
 
-use crate::myos::arch::cpu::Cpu;
+use crate::kernel::arch::cpu::Cpu;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;

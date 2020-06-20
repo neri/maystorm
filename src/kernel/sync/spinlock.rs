@@ -1,7 +1,7 @@
 // Spinlock
 
 // pub use super::Synchronized;
-use crate::myos::arch::cpu::Cpu;
+use crate::kernel::arch::cpu::Cpu;
 use core::sync::atomic::*;
 
 pub struct Spinlock {

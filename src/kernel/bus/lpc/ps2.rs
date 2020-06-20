@@ -1,11 +1,11 @@
 // PS/2 Device Driver
 
-use crate::myos::arch::apic::*;
-use crate::myos::arch::cpu::Cpu;
-use crate::myos::io::hid::*;
-use crate::myos::scheduler::*;
-use crate::myos::sync::queue::*;
-use crate::myos::sync::semaphore::*;
+use crate::kernel::arch::apic::*;
+use crate::kernel::arch::cpu::Cpu;
+use crate::kernel::io::hid::*;
+use crate::kernel::scheduler::*;
+use crate::kernel::sync::queue::*;
+use crate::kernel::sync::semaphore::*;
 use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;

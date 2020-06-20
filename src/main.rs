@@ -1,21 +1,22 @@
-// My UEFI-Rust Playground
+// My OS
+
 #![feature(abi_efiapi)]
 #![no_std]
 #![no_main]
 
 #[cfg(any(target_os = "uefi"))]
-use uefi::prelude::*;
+use ::uefi::prelude::*;
 
 // use aml;
 use core::fmt::Write;
-// use uefi_pg::myos::arch::cpu::Cpu;
-use uefi_pg::boot::*;
-use uefi_pg::myos::io::graphics::*;
-use uefi_pg::myos::io::hid;
-use uefi_pg::myos::io::hid::*;
-use uefi_pg::myos::scheduler::*;
-use uefi_pg::myos::system::*;
-use uefi_pg::*;
+use myos::boot::*;
+use myos::kernel::arch::cpu::Cpu;
+use myos::kernel::io::graphics::*;
+use myos::kernel::io::hid;
+use myos::kernel::io::hid::*;
+use myos::kernel::scheduler::*;
+use myos::kernel::system::*;
+use myos::*;
 
 myos_entry!(main);
 
@@ -46,7 +47,7 @@ fn sysinit() {
     GlobalScheduler::wait_for(None, TimeMeasure::from_millis(100));
 
     println!(
-        "\nMy practice OS version {} Total {} Cores, {} MB Memory",
+        "\nmy OS version {} CPU {} CORES, MEMORY {} MB",
         system.version(),
         system.number_of_active_cpus(),
         system.total_memory_size() >> 20,
@@ -62,8 +63,10 @@ fn sysinit() {
             Some(key) => {
                 let c = hid::HidManager::usage_to_char_109(key.usage, key.modifier);
                 print!("{}", c);
-                if c == 'p' {
-                    GlobalScheduler::print_statistics();
+                match c {
+                    'p' => GlobalScheduler::print_statistics(),
+                    '!' => Cpu::breakpoint(),
+                    _ => (),
                 }
             }
             None => GlobalScheduler::wait_for(None, TimeMeasure::from_millis(10)),

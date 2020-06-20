@@ -14,9 +14,11 @@ pub struct FrameBuffer {
 
 static BIT_MASKS: [u8; 8] = [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
 
-impl FrameBuffer {
-    pub unsafe fn from_raw_parts(base: *mut u8, size: Size<usize>, delta: usize) -> Self {
-        let (mut width, mut height) = (size.width, size.height);
+impl From<&crate::boot::BootInfo> for FrameBuffer {
+    fn from(info: &crate::boot::BootInfo) -> Self {
+        let delta = info.fb_delta;
+        let mut width = info.screen_width;
+        let mut height = info.screen_height;
         let mut is_portrait = height > width;
         if is_portrait {
             // portrait
@@ -27,16 +29,18 @@ impl FrameBuffer {
             is_portrait = true;
         }
         FrameBuffer {
-            base: base,
+            base: info.fb_base as *mut u8,
             size: Size {
                 width: width as isize,
                 height: height as isize,
             },
-            delta: delta,
+            delta: delta.into(),
             is_portrait: is_portrait,
         }
     }
+}
 
+impl FrameBuffer {
     #[inline]
     pub fn size(&self) -> Size<isize> {
         self.size

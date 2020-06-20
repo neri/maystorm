@@ -2,13 +2,16 @@
 
 use super::*;
 use crate::*;
-use uefi::prelude::*;
+use ::uefi::prelude::*;
 
 #[macro_export]
 macro_rules! myos_entry {
     ($path:path) => {
         #[entry]
-        fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
+        fn efi_main(
+            handle: ::uefi::Handle,
+            st: ::uefi::table::SystemTable<::uefi::table::Boot>,
+        ) -> ::uefi::Status {
             let f: fn(&BootInfo) = $path;
             startup(handle, st, f)
         }
@@ -62,17 +65,12 @@ where
         )
         .unwrap()
         .unwrap();
-    myos::mem::alloc::init(buf_ptr as usize, buf_size);
-    //////// GUARD //////// alloc //////// GUARD ////////
+    kernel::mem::alloc::init(buf_ptr as usize, buf_size);
+
+    // ----------------------------------------------------------------
 
     {
-        let fb = unsafe {
-            FrameBuffer::from_raw_parts(
-                info.fb_base as *mut u8,
-                Size::new(info.screen_width.into(), info.screen_height.into()),
-                info.fb_delta.into(),
-            )
-        };
+        let fb = FrameBuffer::from(&info);
         fb.reset();
         let stdout = Box::new(GraphicalConsole::from(fb));
         unsafe {
@@ -80,8 +78,10 @@ where
         }
     }
 
-    //////// GUARD //////// exit_boot_services //////// GUARD ////////
+    // ----------------------------------------------------------------
+    // Exit Boot Services
     let (_st, mm) = exit_boot_services(st, handle);
+    // ----------------------------------------------------------------
 
     let mut total_memory_size: u64 = 0;
     for mem_desc in mm {
@@ -115,7 +115,7 @@ pub fn exit_boot_services<'a>(
 }
 
 pub trait MyUefiLib {
-    fn find_config_table(&self, _: uefi::Guid) -> Option<*const c_void>;
+    fn find_config_table(&self, _: ::uefi::Guid) -> Option<*const c_void>;
 }
 
 impl MyUefiLib for SystemTable<::uefi::table::Boot> {
@@ -129,7 +129,7 @@ impl MyUefiLib for SystemTable<::uefi::table::Boot> {
     }
 }
 
-use uefi::table::boot::MemoryType;
+use ::uefi::table::boot::MemoryType;
 pub trait MemoryTypeHelper {
     fn is_conventional_at_runtime(&self) -> bool;
     fn is_countable(&self) -> bool;

@@ -1,10 +1,10 @@
 // Advanced Programmable Interrupt Controller
 
 use super::cpu::*;
-use crate::myos::mem::alloc::*;
-use crate::myos::scheduler::*;
-use crate::myos::system::*;
-use crate::sync::spinlock::Spinlock;
+use crate::kernel::mem::alloc::*;
+use crate::kernel::scheduler::*;
+use crate::kernel::sync::spinlock::Spinlock;
+use crate::kernel::system::*;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;

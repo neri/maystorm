@@ -1,7 +1,7 @@
 // Central Processing Unit
 
-use crate::myos::arch::apic::Apic;
-use crate::myos::system::*;
+use crate::kernel::arch::apic::Apic;
+use crate::kernel::system::*;
 use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;
@@ -70,6 +70,12 @@ impl Cpu {
 
     pub unsafe fn halt() {
         asm!("hlt");
+    }
+
+    pub fn breakpoint() {
+        unsafe {
+            asm!("int3");
+        }
     }
 
     pub unsafe fn reset() -> ! {
@@ -625,9 +631,9 @@ pub extern "C" fn default_int_ex_handler(ctx: *mut X64StackContext) {
         GLOBAL_EXCEPTION_LOCK.lock();
         let ctx = ctx.as_ref().unwrap();
         stdout().set_cursor_enabled(false);
-        stdout().set_attribute(0x17);
+        stdout().set_attribute(0x1F);
         println!(
-            "#### EXCEPTION {:02x} {:04x} ip {:02x}:{:016x} sp {:02x}:{:016x} fl {:08x}",
+            "\n#### EXCEPTION {:02x} {:04x} ip {:02x}:{:016x} sp {:02x}:{:016x} fl {:08x}",
             ctx.vector.0,
             ctx.error_code,
             ctx.cs,

@@ -1,6 +1,6 @@
 // Coordinate Types
 
-use crate::num::*;
+use crate::kernel::num::*;
 use core::ops::*;
 
 #[repr(C)]

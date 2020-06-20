@@ -1,8 +1,8 @@
 // A Computer System
 
 use crate::boot::BootInfo;
-use crate::myos::arch::cpu::*;
-use crate::myos::scheduler::*;
+use crate::kernel::arch::cpu::*;
+use crate::kernel::scheduler::*;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
@@ -124,8 +124,8 @@ impl System {
 
     fn late_init(args: *mut c_void) {
         unsafe {
-            myos::io::hid::HidManager::init();
-            myos::bus::lpc::LowPinCount::init();
+            kernel::io::hid::HidManager::init();
+            kernel::bus::lpc::LowPinCount::init();
 
             let f = core::mem::transmute::<*mut c_void, fn() -> ()>(args);
             f();

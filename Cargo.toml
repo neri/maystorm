@@ -1,5 +1,5 @@
 [package]
-name = "uefi-pg"
+name = "myos"
 version = "0.1.0"
 authors = ["Nerry <108566+neri@users.noreply.github.com>"]
 edition = "2018"
@@ -7,7 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-atomic_queue = []
+# atomic_queue = []
 
 [dependencies]
 uefi = { git = "https://github.com/rust-osdev/uefi-rs.git" }

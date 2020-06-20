@@ -53,6 +53,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "myos"
+version = "0.1.0"
+dependencies = [
+ "acpi",
+ "aml",
+ "bitflags",
+ "uefi",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -110,16 +120,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "uefi-pg"
-version = "0.1.0"
-dependencies = [
- "acpi",
- "aml",
- "bitflags",
- "uefi",
 ]
 
 [[package]]

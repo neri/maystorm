@@ -1,7 +1,7 @@
 // Human Interface Devices
 
 use super::graphics::*;
-use crate::myos::sync::queue::*;
+use crate::kernel::sync::queue::*;
 use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;

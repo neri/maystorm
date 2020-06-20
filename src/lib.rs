@@ -1,4 +1,5 @@
-// My UEFI-Rust Lib
+// My OS
+
 #![feature(abi_efiapi)]
 #![feature(abi_x86_interrupt)]
 #![feature(alloc_error_handler)]
@@ -15,13 +16,13 @@ use core::ffi::c_void;
 use core::fmt::Write;
 use core::panic::PanicInfo;
 use core::ptr::NonNull;
-use myos::io::console::GraphicalConsole;
-use myos::io::graphics::*;
-use myos::sync::spinlock::Spinlock;
-use myos::*;
+use kernel::arch::cpu::Cpu;
+use kernel::io::console::GraphicalConsole;
+use kernel::io::graphics::*;
+use kernel::sync::spinlock::Spinlock;
 
 pub mod boot;
-pub mod myos;
+pub mod kernel;
 
 extern crate alloc;
 
@@ -42,7 +43,7 @@ fn panic(info: &PanicInfo) -> ! {
         PANIC_GLOBAL_LOCK.unlock();
     }
     unsafe {
-        arch::cpu::Cpu::stop();
+        Cpu::stop();
     }
 }
 
