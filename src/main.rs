@@ -47,7 +47,8 @@ fn sysinit() {
     GlobalScheduler::wait_for(None, TimeMeasure::from_millis(100));
 
     println!(
-        "\nmy OS version {} CPU {} CORES, MEMORY {} MB",
+        "\n{} v{} CPU {} CORES, MEMORY {} MB",
+        system.name(),
         system.version(),
         system.number_of_active_cpus(),
         system.total_memory_size() >> 20,

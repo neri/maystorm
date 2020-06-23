@@ -8,6 +8,7 @@ use alloc::boxed::Box;
 use alloc::vec::*;
 use core::ptr::NonNull;
 
+static SYSTEM_NAME: &str = "my OS";
 static VERSION: Version = Version::new(0, 0, 1);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -107,7 +108,7 @@ impl System {
         unsafe {
             let mut my_handler = MyAcpiHandler::new();
             SYSTEM.acpi = Some(Box::new(
-                acpi::parse_rsdp(&mut my_handler, info.rsdptr as usize).unwrap(),
+                ::acpi::parse_rsdp(&mut my_handler, info.rsdptr as usize).unwrap(),
             ));
 
             SYSTEM.number_of_cpus = SYSTEM.acpi().application_processors.len() + 1;
@@ -172,6 +173,10 @@ impl System {
     pub fn version(&self) -> &'static Version {
         &VERSION
     }
+
+    pub fn name(&self) -> &str {
+        &SYSTEM_NAME
+    }
 }
 
 struct MyAcpiHandler {}
@@ -182,8 +187,8 @@ impl MyAcpiHandler {
     }
 }
 
-use acpi::handler::PhysicalMapping;
-impl acpi::handler::AcpiHandler for MyAcpiHandler {
+use ::acpi::handler::PhysicalMapping;
+impl ::acpi::handler::AcpiHandler for MyAcpiHandler {
     unsafe fn map_physical_region<T>(
         &mut self,
         physical_address: usize,
