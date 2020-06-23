@@ -1,4 +1,4 @@
-# uefi-pg
+# My practice OS
 
 My practice OS for learning Rust
 
