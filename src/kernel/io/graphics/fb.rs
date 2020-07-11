@@ -52,7 +52,7 @@ impl FrameBuffer {
     }
 
     pub fn reset(&self) {
-        self.fill_rect(Rect::from(self.size), Color::from(0));
+        self.fill_rect(Rect::from(self.size), Color::zero());
     }
 
     pub fn fill_rect(&self, rect: Rect<isize>, color: Color) {
@@ -96,6 +96,62 @@ impl FrameBuffer {
             for _y in 0..height {
                 for _x in 0..width {
                     ptr.write_volatile(color.rgb());
+                    ptr = ptr.add(1);
+                }
+                ptr = ptr.add(delta_ptr);
+            }
+        }
+    }
+
+    pub fn blend_rect(&self, rect: Rect<isize>, color: Color) {
+        let mut width = rect.size.width;
+        let mut height = rect.size.height;
+        let mut dx = rect.origin.x;
+        let mut dy = rect.origin.y;
+
+        {
+            if dx < 0 {
+                width += dx;
+                dx = 0;
+            }
+            if dy < 0 {
+                height += dy;
+                dy = 0;
+            }
+            let r = dx + width;
+            let b = dy + height;
+            if r >= self.size.width {
+                width = self.size.width - dx;
+            }
+            if b >= self.size.height {
+                height = self.size.height - dy;
+            }
+            if width <= 0 || height <= 0 {
+                return;
+            }
+        }
+
+        if self.is_portrait {
+            let temp = dx;
+            dx = self.size.height - dy - height;
+            dy = temp;
+            swap(&mut width, &mut height);
+        }
+
+        let rhs = color.components();
+        let alpha = rhs.a as usize;
+        let alpha_n = 255 - alpha;
+
+        unsafe {
+            let mut ptr = self.get_fb().add(dx as usize + dy as usize * self.delta);
+            let delta_ptr = self.delta - width as usize;
+            for _y in 0..height {
+                for _x in 0..width {
+                    let lhs = Color::from_argb(ptr.read_volatile()).components();
+                    let c = lhs.blend_each(rhs, |lhs, rhs| {
+                        (((lhs as usize) * alpha_n + (rhs as usize) * alpha) >> 8) as u8
+                    });
+                    ptr.write_volatile(Color::from(c).rgb());
                     ptr = ptr.add(1);
                 }
                 ptr = ptr.add(delta_ptr);

@@ -31,17 +31,17 @@ fn sysinit() {
     let size = fb.size();
     let center = Point::<isize>::new(size.width / 2, size.height / 2);
 
-    fb.fill_rect(
+    fb.blend_rect(
         Rect::new(center.x - 85, center.y - 60, 80, 80),
-        IndexedColor::LightRed.into(),
+        IndexedColor::LightRed.as_color().set_opacity(192),
     );
-    fb.fill_rect(
+    fb.blend_rect(
         Rect::new(center.x - 40, center.y - 20, 80, 80),
-        IndexedColor::LightGreen.into(),
+        IndexedColor::LightGreen.as_color().set_opacity(192),
     );
-    fb.fill_rect(
+    fb.blend_rect(
         Rect::new(center.x + 5, center.y - 60, 80, 80),
-        IndexedColor::LightBlue.into(),
+        IndexedColor::LightBlue.as_color().set_opacity(192),
     );
 
     GlobalScheduler::wait_for(None, TimeMeasure::from_millis(100));

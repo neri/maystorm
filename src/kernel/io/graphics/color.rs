@@ -7,33 +7,73 @@ pub struct Color {
 }
 
 impl Color {
-    pub const fn new(r: u8, g: u8, b: u8) -> Self {
+    pub const TRANPARENT: Self = Self::zero();
+
+    pub const fn zero() -> Self {
+        Color { rgb: 0 }
+    }
+
+    pub const fn from_rgb(rgb: u32) -> Self {
         Color {
-            rgb: ((r as u32) * 0x10000) + ((g as u32) * 0x100) + (b as u32),
+            rgb: rgb | 0xFF000000,
         }
+    }
+
+    pub const fn from_argb(argb: u32) -> Self {
+        Color { rgb: argb }
+    }
+
+    pub fn components(self) -> ColorComponents {
+        self.into()
     }
 
     pub const fn rgb(&self) -> u32 {
         self.rgb
     }
 
-    pub const fn components(&self) -> [u8; 3] {
-        let r = (self.rgb >> 16) as u8;
-        let g = (self.rgb >> 8) as u8;
-        let b = self.rgb as u8;
-        [r, g, b]
+    pub fn alpha(&self) -> u8 {
+        self.components().a
+    }
+
+    pub fn set_opacity(&mut self, alpha: u8) -> Self {
+        self.rgb = (self.rgb & 0x00FFFFFF) | ((alpha as u32) << 24);
+        *self
     }
 }
 
-impl From<u32> for Color {
-    fn from(rgb: u32) -> Self {
-        Color { rgb: rgb }
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+#[cfg(target_endian = "little")]
+pub struct ColorComponents {
+    pub b: u8,
+    pub g: u8,
+    pub r: u8,
+    pub a: u8,
+}
+
+impl ColorComponents {
+    pub fn blend_each<F>(&self, rhs: Self, f: F) -> Self
+    where
+        F: Fn(u8, u8) -> u8,
+    {
+        Self {
+            a: f(self.a, rhs.a),
+            r: f(self.r, rhs.r),
+            g: f(self.g, rhs.g),
+            b: f(self.b, rhs.b),
+        }
     }
 }
 
-impl From<[u8; 3]> for Color {
-    fn from(components: [u8; 3]) -> Self {
-        Color::new(components[0], components[1], components[2])
+impl From<Color> for ColorComponents {
+    fn from(color: Color) -> Self {
+        unsafe { core::mem::transmute(color) }
+    }
+}
+
+impl From<ColorComponents> for Color {
+    fn from(components: ColorComponents) -> Self {
+        unsafe { core::mem::transmute(components) }
     }
 }
 
@@ -86,8 +126,6 @@ static mut SYSTEM_COLOR_PALETTE: [u32; 16] = [
     0x000000, 0x0D47A1, 0x1B5E20, 0x006064, 0xb71c1c, 0x4A148C, 0x795548, 0x9E9E9E, 0x616161,
     0x2196F3, 0x4CAF50, 0x00BCD4, 0xf44336, 0x9C27B0, 0xFFEB3B, 0xFFFFFF,
 ];
-// 0x000000, 0x0000AA, 0x00AA00, 0x00AAAA, 0xAA0000, 0xAA00AA, 0xAA5500, 0xAAAAAA, 0x555555,
-// 0x5555FF, 0x55FF55, 0x55FFFF, 0xFF5555, 0xFF55FF, 0xFFFF55, 0xFFFFFF,
 
 impl IndexedColor {
     pub fn as_rgb(&self) -> u32 {
@@ -95,12 +133,12 @@ impl IndexedColor {
     }
 
     pub fn as_color(&self) -> Color {
-        Color::from(self.as_rgb())
+        Color::from_rgb(self.as_rgb())
     }
 }
 
 impl From<IndexedColor> for Color {
     fn from(index: IndexedColor) -> Self {
-        Color::from(index.as_rgb())
+        Color::from_rgb(index.as_rgb())
     }
 }

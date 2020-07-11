@@ -231,8 +231,8 @@ impl HidManager {
         );
         let rect_inner = Rect::new(pointer.x - r, pointer.y - r, r * 2, r * 2);
 
-        fb.fill_rect(rect_outer, Color::from(0x000000));
-        fb.fill_rect(rect_inner, Color::from(0xFFFFFF));
+        fb.fill_rect(rect_outer, IndexedColor::Black.into());
+        fb.fill_rect(rect_inner, IndexedColor::LightBlue.into());
     }
 
     pub fn process_mouse_report<T>(report: MouseReport<T>)

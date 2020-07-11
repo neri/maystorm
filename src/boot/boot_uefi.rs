@@ -83,6 +83,7 @@ where
     let (_st, mm) = exit_boot_services(st, handle);
     // ----------------------------------------------------------------
 
+    // TODO: manage memory map
     let mut total_memory_size: u64 = 0;
     for mem_desc in mm {
         if mem_desc.ty.is_countable() {

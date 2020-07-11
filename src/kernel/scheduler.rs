@@ -338,7 +338,6 @@ impl LocalScheduler {
             lsch.count.fetch_add(1, Ordering::Relaxed);
             lsch.retired = Some(current);
             lsch.current = next;
-            current.using(|thread| thread.quantum = thread.default_quantum);
             unsafe {
                 sch_switch_context(
                     &current.borrow().context as *const u8 as *mut u8,
@@ -389,18 +388,29 @@ impl Priority {
     }
 }
 
-#[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
-pub struct Quantum(pub u8);
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+struct Quantum {
+    current: u8,
+    default: u8,
+}
 
 unsafe impl Sync for Quantum {}
 
 impl Quantum {
+    const fn new(value: u8) -> Self {
+        Quantum {
+            current: value,
+            default: value,
+        }
+    }
+
     fn consume(&mut self) -> bool {
-        if self.0 > 1 {
-            self.0 -= 1;
+        if self.current > 1 {
+            self.current -= 1;
             false
         } else {
+            self.current = self.default;
             true
         }
     }
@@ -409,10 +419,10 @@ impl Quantum {
 impl From<Priority> for Quantum {
     fn from(priority: Priority) -> Self {
         match priority {
-            Priority::High => Quantum(25),
-            Priority::Normal => Quantum(10),
-            Priority::Low => Quantum(5),
-            _ => Quantum(1),
+            Priority::High => Quantum::new(25),
+            Priority::Normal => Quantum::new(10),
+            Priority::Low => Quantum::new(5),
+            _ => Quantum::new(1),
         }
     }
 }
@@ -485,7 +495,6 @@ pub(crate) struct NativeThread {
     id: ThreadId,
     priority: Priority,
     quantum: Quantum,
-    default_quantum: Quantum,
     deadline: Timer,
     // attributes: ThreadFlags,
     //name: [],
@@ -501,7 +510,6 @@ impl NativeThread {
             id: GlobalScheduler::next_thread_id(),
             priority: priority,
             quantum: quantum,
-            default_quantum: quantum,
             deadline: Timer::NULL,
         }));
         if let Some(start) = start {
