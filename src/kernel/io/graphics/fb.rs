@@ -83,13 +83,6 @@ impl FrameBuffer {
             }
         }
 
-        if self.is_portrait {
-            let temp = dx;
-            dx = self.size.height - dy - height;
-            dy = temp;
-            swap(&mut width, &mut height);
-        }
-
         unsafe {
             let mut ptr = self.get_fb().add(dx as usize + dy as usize * self.delta);
             let delta_ptr = self.delta - width as usize;
@@ -104,6 +97,15 @@ impl FrameBuffer {
     }
 
     pub fn blend_rect(&self, rect: Rect<isize>, color: Color) {
+        let rhs = color.components();
+        let alpha = rhs.a as usize;
+
+        match alpha {
+            255 => return self.fill_rect(rect, color),
+            0 => return,
+            _ => {}
+        }
+
         let mut width = rect.size.width;
         let mut height = rect.size.height;
         let mut dx = rect.origin.x;
@@ -138,10 +140,7 @@ impl FrameBuffer {
             swap(&mut width, &mut height);
         }
 
-        let rhs = color.components();
-        let alpha = rhs.a as usize;
         let alpha_n = 255 - alpha;
-
         unsafe {
             let mut ptr = self.get_fb().add(dx as usize + dy as usize * self.delta);
             let delta_ptr = self.delta - width as usize;
@@ -151,7 +150,7 @@ impl FrameBuffer {
                     let c = lhs.blend_each(rhs, |lhs, rhs| {
                         (((lhs as usize) * alpha_n + (rhs as usize) * alpha) >> 8) as u8
                     });
-                    ptr.write_volatile(Color::from(c).rgb());
+                    ptr.write_volatile(c.into());
                     ptr = ptr.add(1);
                 }
                 ptr = ptr.add(delta_ptr);

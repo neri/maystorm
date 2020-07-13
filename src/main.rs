@@ -3,6 +3,7 @@
 #![feature(abi_efiapi)]
 #![no_std]
 #![no_main]
+#![feature(asm)]
 
 #[cfg(any(target_os = "uefi"))]
 use ::uefi::prelude::*;
@@ -33,15 +34,15 @@ fn sysinit() {
 
     fb.blend_rect(
         Rect::new(center.x - 85, center.y - 60, 80, 80),
-        IndexedColor::LightRed.as_color().set_opacity(192),
+        IndexedColor::LightRed.as_color() * 0.8,
     );
     fb.blend_rect(
         Rect::new(center.x - 40, center.y - 20, 80, 80),
-        IndexedColor::LightGreen.as_color().set_opacity(192),
+        IndexedColor::LightGreen.as_color() * 0.8,
     );
     fb.blend_rect(
         Rect::new(center.x + 5, center.y - 60, 80, 80),
-        IndexedColor::LightBlue.as_color().set_opacity(192),
+        IndexedColor::LightBlue.as_color() * 0.8,
     );
 
     GlobalScheduler::wait_for(None, TimeMeasure::from_millis(100));

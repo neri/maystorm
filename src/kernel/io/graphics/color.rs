@@ -1,26 +1,31 @@
 // Graphics Colors
 
+use core::mem::transmute;
+use core::ops::*;
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Color {
-    rgb: u32,
+    argb: u32,
 }
 
 impl Color {
-    pub const TRANPARENT: Self = Self::zero();
+    pub const TRANSPARENT: Self = Self::zero();
+    pub const BLACK: Self = Self::from_rgb(0x000000);
+    pub const WHITE: Self = Self::from_rgb(0xFFFFFF);
 
     pub const fn zero() -> Self {
-        Color { rgb: 0 }
+        Color { argb: 0 }
     }
 
     pub const fn from_rgb(rgb: u32) -> Self {
         Color {
-            rgb: rgb | 0xFF000000,
+            argb: rgb | 0xFF000000,
         }
     }
 
     pub const fn from_argb(argb: u32) -> Self {
-        Color { rgb: argb }
+        Color { argb: argb }
     }
 
     pub fn components(self) -> ColorComponents {
@@ -28,16 +33,54 @@ impl Color {
     }
 
     pub const fn rgb(&self) -> u32 {
-        self.rgb
+        self.argb & 0x00FFFFFF
     }
 
-    pub fn alpha(&self) -> u8 {
+    pub const fn argb(&self) -> u32 {
+        self.argb
+    }
+
+    pub fn opacity(&self) -> u8 {
         self.components().a
     }
 
-    pub fn set_opacity(&mut self, alpha: u8) -> Self {
-        self.rgb = (self.rgb & 0x00FFFFFF) | ((alpha as u32) << 24);
-        *self
+    pub fn blend_each<F>(self, rhs: Self, f: F) -> Self
+    where
+        F: Fn(u8, u8) -> u8,
+    {
+        self.components().blend_each(rhs.into(), f).into()
+    }
+
+    pub fn blend_color<F>(self, rhs: Self, f: F) -> Self
+    where
+        F: Fn(u8, u8) -> u8,
+    {
+        self.components().blend_color(rhs.into(), f).into()
+    }
+}
+
+impl Add for Color {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        self.blend_each(rhs, |a, b| a.saturating_add(b))
+    }
+}
+
+impl Sub for Color {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        self.blend_each(rhs, |a, b| a.saturating_sub(b))
+    }
+}
+
+impl Mul<f64> for Color {
+    type Output = Self;
+    #[inline]
+    fn mul(self, opacity: f64) -> Self {
+        let alpha = (opacity * 255.0) as u8;
+        let mut components = self.components();
+        components.a = alpha;
+        components.into()
     }
 }
 
@@ -52,7 +95,7 @@ pub struct ColorComponents {
 }
 
 impl ColorComponents {
-    pub fn blend_each<F>(&self, rhs: Self, f: F) -> Self
+    pub fn blend_each<F>(self, rhs: Self, f: F) -> Self
     where
         F: Fn(u8, u8) -> u8,
     {
@@ -63,17 +106,35 @@ impl ColorComponents {
             b: f(self.b, rhs.b),
         }
     }
+
+    pub fn blend_color<F>(self, rhs: Self, f: F) -> Self
+    where
+        F: Fn(u8, u8) -> u8,
+    {
+        Self {
+            a: self.a,
+            r: f(self.r, rhs.r),
+            g: f(self.g, rhs.g),
+            b: f(self.b, rhs.b),
+        }
+    }
 }
 
 impl From<Color> for ColorComponents {
     fn from(color: Color) -> Self {
-        unsafe { core::mem::transmute(color) }
+        unsafe { transmute(color) }
     }
 }
 
 impl From<ColorComponents> for Color {
     fn from(components: ColorComponents) -> Self {
-        unsafe { core::mem::transmute(components) }
+        unsafe { transmute(components) }
+    }
+}
+
+impl Into<u32> for ColorComponents {
+    fn into(self) -> u32 {
+        unsafe { transmute(self) }
     }
 }
 
