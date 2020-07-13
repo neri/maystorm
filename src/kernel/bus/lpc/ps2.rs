@@ -14,7 +14,6 @@ use core::ptr::*;
 
 static mut PS2: Option<Box<Ps2>> = None;
 
-/// Personal System/2
 pub(crate) struct Ps2 {
     key_state: Ps2KeyState,
     mos_phase: Ps2MousePhase,
@@ -29,9 +28,36 @@ enum Ps2KeyState {
     Extend,
 }
 
+bitflags! {
+    struct MouseLeadByte: u8 {
+        const LEFT_BUTTON = 0b0000_0001;
+        const RIGHT_BUTTON = 0b0000_0010;
+        const MIDDLE_BUTTON = 0b0000_0100;
+        const ALWAYS_ONE = 0b0000_1000;
+        const X_SIGN = 0b0001_0000;
+        const Y_SIGN = 0b0010_0000;
+        const X_OVERFLOW = 0b0100_0000;
+        const Y_OVERFLOW = 0b1000_0000;
+
+        const BUTTONS = Self::LEFT_BUTTON.bits | Self::RIGHT_BUTTON.bits | Self::MIDDLE_BUTTON.bits;
+    }
+}
+
+impl From<Ps2Data> for MouseLeadByte {
+    fn from(data: Ps2Data) -> Self {
+        unsafe { MouseLeadByte::from_bits_unchecked(data.0) }
+    }
+}
+
+impl Into<MouseButton> for MouseLeadByte {
+    fn into(self) -> MouseButton {
+        unsafe { MouseButton::from_bits_unchecked(self.bits() & MouseLeadByte::BUTTONS.bits()) }
+    }
+}
+
 enum Ps2MousePhase {
     Ack,
-    Header,
+    Leading,
     X,
     Y,
 }
@@ -39,16 +65,16 @@ enum Ps2MousePhase {
 impl Ps2MousePhase {
     fn next(&mut self) {
         *self = match *self {
-            Ps2MousePhase::Ack => Ps2MousePhase::Header,
-            Ps2MousePhase::Header => Ps2MousePhase::X,
+            Ps2MousePhase::Ack => Ps2MousePhase::Leading,
+            Ps2MousePhase::Leading => Ps2MousePhase::X,
             Ps2MousePhase::X => Ps2MousePhase::Y,
-            Ps2MousePhase::Y => Ps2MousePhase::Header,
+            Ps2MousePhase::Y => Ps2MousePhase::Leading,
         }
     }
 
     fn as_index(&self) -> usize {
         match *self {
-            Ps2MousePhase::Header => 0,
+            Ps2MousePhase::Leading => 0,
             Ps2MousePhase::X => 1,
             Ps2MousePhase::Y => 2,
             _ => 0,
@@ -86,6 +112,7 @@ impl Ps2Data {
     const RESET_COMMAND: Ps2Data = Ps2Data(0xFF);
     const ENABLE_SEND: Ps2Data = Ps2Data(0xF4);
     const DISABLE_SEND: Ps2Data = Ps2Data(0xF5);
+    const SET_DEFAULT: Ps2Data = Ps2Data(0xF6);
 
     const SCAN_EXTEND: Ps2Data = Ps2Data(0xE0);
 
@@ -218,6 +245,7 @@ impl Ps2 {
 
         Self::send_second_data(Ps2Data::RESET_COMMAND, 1).unwrap();
         Timer::usleep(100_000);
+        Self::send_second_data(Ps2Data::SET_DEFAULT, 1).unwrap();
         Self::send_second_data(Ps2Data::ENABLE_SEND, 1).unwrap();
 
         Ok(())
@@ -358,11 +386,11 @@ impl Ps2 {
                     self.mos_phase.next();
                 }
             }
-            Ps2MousePhase::Header => {
+            Ps2MousePhase::Leading => {
                 if (data.0 & 0xC8) == 0x08 {
                     self.mouse_buf[self.mos_phase.as_index()] = data;
+                    self.mos_phase.next();
                 }
-                self.mos_phase.next();
             }
             Ps2MousePhase::X => {
                 self.mouse_buf[self.mos_phase.as_index()] = data;
@@ -371,20 +399,21 @@ impl Ps2 {
             Ps2MousePhase::Y => {
                 self.mouse_buf[self.mos_phase.as_index()] = data;
                 self.mos_phase.next();
-                let mut x = self.mouse_buf[1].0 as i16;
-                let mut y = self.mouse_buf[2].0 as i16;
-                if (self.mouse_buf[0].0 & 0x10) != 0 {
-                    x = x - 256;
+
+                fn conv_movement(data: Ps2Data, sign: bool) -> i16 {
+                    if sign {
+                        ((data.0 as u16) | 0xFF00) as i16
+                    } else {
+                        data.0 as i16
+                    }
                 }
-                if (self.mouse_buf[0].0 & 0x20) != 0 {
-                    y = y - 256;
-                }
+                let lead = MouseLeadByte::from(self.mouse_buf[0]);
+                let x = conv_movement(self.mouse_buf[1], lead.contains(MouseLeadByte::X_SIGN));
+                let y = conv_movement(self.mouse_buf[2], lead.contains(MouseLeadByte::Y_SIGN));
                 let report = MouseReport {
-                    buttons: unsafe {
-                        MouseButton::from_bits_unchecked(self.mouse_buf[0].0 & 0x07)
-                    },
+                    buttons: lead.into(),
                     x: x,
-                    y: -y,
+                    y: 0 - y,
                 };
                 HidManager::process_mouse_report(report);
             }
