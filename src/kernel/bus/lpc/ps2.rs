@@ -16,7 +16,7 @@ static mut PS2: Option<Box<Ps2>> = None;
 
 pub(crate) struct Ps2 {
     key_state: Ps2KeyState,
-    mos_phase: Ps2MousePhase,
+    mouse_phase: Ps2MousePhase,
     modifier: Modifier,
     mouse_buf: [Ps2Data; 3],
     sem: Semaphore,
@@ -55,6 +55,7 @@ impl Into<MouseButton> for MouseLeadByte {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 enum Ps2MousePhase {
     Ack,
     Leading,
@@ -72,8 +73,8 @@ impl Ps2MousePhase {
         }
     }
 
-    fn as_index(&self) -> usize {
-        match *self {
+    fn as_index(self) -> usize {
+        match self {
             Ps2MousePhase::Leading => 0,
             Ps2MousePhase::X => 1,
             Ps2MousePhase::Y => 2,
@@ -116,11 +117,11 @@ impl Ps2Data {
 
     const SCAN_EXTEND: Ps2Data = Ps2Data(0xE0);
 
-    const fn is_break(&self) -> bool {
+    const fn is_break(self) -> bool {
         (self.0 & 0x80) != 0
     }
 
-    const fn scancode(&self) -> u8 {
+    const fn scancode(self) -> u8 {
         self.0 & 0x7F
     }
 }
@@ -151,7 +152,7 @@ impl CompositePs2Data {
         Self(unsafe { NonZeroUsize::new_unchecked(CompositePs2Data::MOUSE_MIN + value.0 as usize) })
     }
 
-    fn split(&self) -> Ps2DataType {
+    fn split(self) -> Ps2DataType {
         match self.0.get() {
             CompositePs2Data::KEY_MIN..=CompositePs2Data::KEY_MAX => {
                 Ps2DataType::Key(Ps2Data(self.0.get() as u8))
@@ -212,10 +213,8 @@ impl Ps2 {
             return Err(());
         }
 
-        // TODO: more better initialization
-
-        // Self::write_command(Ps2Command::DISABLE_FIRST_PORT);
-        // Self::send_command(Ps2Command::DISABLE_SECOND_PORT, 1).unwrap();
+        Self::write_command(Ps2Command::DISABLE_FIRST_PORT);
+        Self::send_command(Ps2Command::DISABLE_SECOND_PORT, 1).unwrap();
 
         for _ in 0..16 {
             let _ = Self::read_data();
@@ -225,7 +224,7 @@ impl Ps2 {
             sem: Semaphore::new(0),
             buf: AtomicLinkedQueue::with_capacity(256),
             key_state: Ps2KeyState::Default,
-            mos_phase: Ps2MousePhase::Ack,
+            mouse_phase: Ps2MousePhase::Ack,
             modifier: Modifier::empty(),
             mouse_buf: [Ps2Data(0); 3],
         }));
@@ -380,25 +379,25 @@ impl Ps2 {
     }
 
     fn process_mouse_data(&mut self, data: Ps2Data) {
-        match self.mos_phase {
+        match self.mouse_phase {
             Ps2MousePhase::Ack => {
                 if data == Ps2Data::ACK {
-                    self.mos_phase.next();
+                    self.mouse_phase.next();
                 }
             }
             Ps2MousePhase::Leading => {
                 if (data.0 & 0xC8) == 0x08 {
-                    self.mouse_buf[self.mos_phase.as_index()] = data;
-                    self.mos_phase.next();
+                    self.mouse_buf[self.mouse_phase.as_index()] = data;
+                    self.mouse_phase.next();
                 }
             }
             Ps2MousePhase::X => {
-                self.mouse_buf[self.mos_phase.as_index()] = data;
-                self.mos_phase.next();
+                self.mouse_buf[self.mouse_phase.as_index()] = data;
+                self.mouse_phase.next();
             }
             Ps2MousePhase::Y => {
-                self.mouse_buf[self.mos_phase.as_index()] = data;
-                self.mos_phase.next();
+                self.mouse_buf[self.mouse_phase.as_index()] = data;
+                self.mouse_phase.next();
 
                 fn conv_movement(data: Ps2Data, sign: bool) -> i16 {
                     if sign {

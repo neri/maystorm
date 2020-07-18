@@ -4,7 +4,7 @@ use crate::kernel::num::*;
 use core::ops::*;
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, Default, PartialEq)]
 pub struct Point<T: Number> {
     pub x: T,
     pub y: T,
@@ -70,7 +70,7 @@ impl<T: Number> SubAssign for Point<T> {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, Default, PartialEq)]
 pub struct Size<T: Number> {
     pub width: T,
     pub height: T,
@@ -139,7 +139,7 @@ impl<T: Number> SubAssign for Size<T> {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, Default, PartialEq)]
 pub struct Rect<T: Number> {
     pub origin: Point<T>,
     pub size: Size<T>,
@@ -156,7 +156,7 @@ impl<T: Number> Rect<T> {
         }
     }
 
-    pub fn insets_by(&self, insets: EdgeInsets<T>) -> Self {
+    pub fn insets_by(self, insets: EdgeInsets<T>) -> Self {
         Rect {
             origin: Point {
                 x: self.origin.x + insets.left,
@@ -195,7 +195,7 @@ impl<T: Number> From<Size<T>> for Rect<T> {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Default, Clone, PartialEq)]
 pub struct EdgeInsets<T: Number> {
     pub top: T,
     pub left: T,

@@ -7,7 +7,6 @@ static DEFAULT_ATTRIBUTE: u8 = 0x07;
 
 pub struct GraphicalConsole<'a> {
     fb: FrameBuffer,
-    // lock: Spinlock,
     font: FontDriver<'a>,
     cursor: (isize, isize),
     dims: (isize, isize),
@@ -25,7 +24,6 @@ impl<'a> From<FrameBuffer> for GraphicalConsole<'a> {
         let rows = rect.size.height / font.line_height();
         GraphicalConsole {
             fb: fb,
-            // lock: Spinlock::new(),
             font: font,
             insets: insets,
             cursor: (0, 0),

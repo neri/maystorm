@@ -40,7 +40,7 @@ impl fmt::Display for Version {
 pub struct ProcessorId(pub u8);
 
 impl ProcessorId {
-    pub const fn as_u32(&self) -> u32 {
+    pub const fn as_u32(self) -> u32 {
         self.0 as u32
     }
 }
@@ -68,14 +68,20 @@ impl From<usize> for ProcessorId {
 pub struct ProcessorIndex(pub usize);
 
 #[repr(transparent)]
-#[derive(Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Default, PartialEq, PartialOrd)]
 pub struct VirtualAddress(pub usize);
 
 impl VirtualAddress {
     pub const NULL: VirtualAddress = VirtualAddress(0);
 
-    pub fn into_nonnull<T>(&self) -> Option<NonNull<T>> {
-        if *self != Self::NULL {
+    pub fn into_nonnull<T>(self) -> Option<NonNull<T>> {
+        self.into()
+    }
+}
+
+impl<T> Into<Option<NonNull<T>>> for VirtualAddress {
+    fn into(self) -> Option<NonNull<T>> {
+        if self != Self::NULL {
             NonNull::new(self.0 as *const T as *mut T)
         } else {
             None

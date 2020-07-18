@@ -23,7 +23,7 @@ pub fn startup<F>(handle: Handle, st: SystemTable<Boot>, main: F) -> Status
 where
     F: Fn(&BootInfo),
 {
-    let mut info = BootInfo::new();
+    let mut info = BootInfo::default();
 
     // Find ACPI Table
     info.rsdptr = match st.find_config_table(::uefi::table::cfg::ACPI2_GUID) {

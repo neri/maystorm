@@ -68,6 +68,22 @@ impl Integer for i64 {}
 impl Integer for usize {}
 impl Integer for isize {}
 
+pub trait UnsignedInteger: Integer {}
+
+impl UnsignedInteger for u8 {}
+impl UnsignedInteger for u16 {}
+impl UnsignedInteger for u32 {}
+impl UnsignedInteger for u64 {}
+impl UnsignedInteger for usize {}
+
+pub trait SignedInteger: Integer + Neg {}
+
+impl SignedInteger for i8 {}
+impl SignedInteger for i16 {}
+impl SignedInteger for i32 {}
+impl SignedInteger for i64 {}
+impl SignedInteger for isize {}
+
 pub trait Zero {
     fn zero() -> Self;
 }

@@ -4,6 +4,7 @@
 use crate::kernel::arch::cpu::Cpu;
 use core::sync::atomic::*;
 
+#[derive(Default)]
 pub struct Spinlock {
     value: AtomicBool,
 }

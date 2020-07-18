@@ -59,13 +59,13 @@ bitflags! {
 }
 
 impl Modifier {
-    pub fn is_shift(&self) -> bool {
+    pub fn is_shift(self) -> bool {
         (self.bits & Self::SHIFT.bits) != 0
     }
-    pub fn is_ctrl(&self) -> bool {
+    pub fn is_ctrl(self) -> bool {
         (self.bits & Self::CTRL.bits) != 0
     }
-    pub fn is_alt(&self) -> bool {
+    pub fn is_alt(self) -> bool {
         (self.bits & Self::ALT.bits) != 0
     }
 }
@@ -138,7 +138,7 @@ impl<T> MouseReport<T>
 where
     T: Into<isize> + Copy,
 {
-    pub fn normalize(&self) -> MouseReport<isize> {
+    pub fn normalize(self) -> MouseReport<isize> {
         MouseReport {
             buttons: self.buttons,
             x: self.x.into(),

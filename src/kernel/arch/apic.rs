@@ -283,20 +283,20 @@ impl Irq {
     pub const LPC_IDE1: Irq = Irq(14);
     pub const LPC_IDE2: Irq = Irq(15);
 
-    pub const fn as_vec(&self) -> InterruptVector {
+    pub const fn as_vec(self) -> InterruptVector {
         InterruptVector(Self::BASE.0 + self.0)
     }
 
-    pub unsafe fn register(&self, f: IrqHandler) -> Result<(), ()> {
-        Apic::register(*self, f)
+    pub unsafe fn register(self, f: IrqHandler) -> Result<(), ()> {
+        Apic::register(self, f)
     }
 
-    pub unsafe fn enable(&self) -> Result<(), ()> {
-        Apic::set_irq_enabled(*self, true)
+    pub unsafe fn enable(self) -> Result<(), ()> {
+        Apic::set_irq_enabled(self, true)
     }
 
-    pub unsafe fn disable(&self) -> Result<(), ()> {
-        Apic::set_irq_enabled(*self, false)
+    pub unsafe fn disable(self) -> Result<(), ()> {
+        Apic::set_irq_enabled(self, false)
     }
 }
 
@@ -330,7 +330,7 @@ impl PackedTriggerMode {
         Self(trigger.as_packed() | polarity.as_packed())
     }
 
-    const fn as_redir(&self) -> u32 {
+    const fn as_redir(self) -> u32 {
         (self.0 as u32) << 12
     }
 }
@@ -342,8 +342,8 @@ enum ApicPolarity {
 }
 
 impl ApicPolarity {
-    const fn as_packed(&self) -> u8 {
-        (*self as u8) << 1
+    const fn as_packed(self) -> u8 {
+        (self as u8) << 1
     }
 }
 
@@ -364,8 +364,8 @@ enum ApicTriggerMode {
 }
 
 impl ApicTriggerMode {
-    const fn as_packed(&self) -> u8 {
-        (*self as u8) << 3
+    const fn as_packed(self) -> u8 {
+        (self as u8) << 3
     }
 }
 

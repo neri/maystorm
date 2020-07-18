@@ -3,7 +3,7 @@
 use core::marker::PhantomData;
 use core::sync::atomic::*;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct AtomicObject<T>
 where
     T: Into<usize> + From<usize>,
@@ -16,10 +16,7 @@ impl<T> AtomicObject<T>
 where
     T: Into<usize> + From<usize>,
 {
-    pub const NULL: AtomicObject<T> = Self {
-        repr: AtomicUsize::new(0),
-        phantom: PhantomData,
-    };
+    pub const NULL: AtomicObject<T> = Self::new(0);
 
     pub const fn new(value: usize) -> Self {
         Self {

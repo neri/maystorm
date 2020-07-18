@@ -32,15 +32,15 @@ impl Color {
         self.into()
     }
 
-    pub const fn rgb(&self) -> u32 {
+    pub const fn rgb(self) -> u32 {
         self.argb & 0x00FFFFFF
     }
 
-    pub const fn argb(&self) -> u32 {
+    pub const fn argb(self) -> u32 {
         self.argb
     }
 
-    pub fn opacity(&self) -> u8 {
+    pub fn opacity(self) -> u8 {
         self.components().a
     }
 
@@ -189,11 +189,11 @@ static mut SYSTEM_COLOR_PALETTE: [u32; 16] = [
 ];
 
 impl IndexedColor {
-    pub fn as_rgb(&self) -> u32 {
-        unsafe { SYSTEM_COLOR_PALETTE[*self as usize] }
+    pub fn as_rgb(self) -> u32 {
+        unsafe { SYSTEM_COLOR_PALETTE[self as usize] }
     }
 
-    pub fn as_color(&self) -> Color {
+    pub fn as_color(self) -> Color {
         Color::from_rgb(self.as_rgb())
     }
 }

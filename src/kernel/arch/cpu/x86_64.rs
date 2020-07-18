@@ -194,11 +194,11 @@ impl Selector {
         Selector((index << 3) as u16 | rpl as u16)
     }
 
-    pub fn rpl(&self) -> PrivilegeLevel {
+    pub fn rpl(self) -> PrivilegeLevel {
         PrivilegeLevel::from(self.0 as usize)
     }
 
-    pub const fn index(&self) -> usize {
+    pub const fn index(self) -> usize {
         (self.0 >> 3) as usize
     }
 }
@@ -213,8 +213,8 @@ pub enum PrivilegeLevel {
 }
 
 impl PrivilegeLevel {
-    pub const fn as_descriptor_entry(&self) -> u64 {
-        let dpl = *self as u64;
+    pub const fn as_descriptor_entry(self) -> u64 {
+        let dpl = self as u64;
         dpl << 13
     }
 }
@@ -241,8 +241,8 @@ pub enum DescriptorType {
 }
 
 impl DescriptorType {
-    pub const fn as_descriptor_entry(&self) -> u64 {
-        let ty = *self as u64;
+    pub const fn as_descriptor_entry(self) -> u64 {
+        let ty = self as u64;
         ty << 40
     }
 }
@@ -292,8 +292,8 @@ pub enum Exception {
 }
 
 impl Exception {
-    pub const fn as_vec(&self) -> InterruptVector {
-        InterruptVector(*self as u8)
+    pub const fn as_vec(self) -> InterruptVector {
+        InterruptVector(self as u8)
     }
 }
 
@@ -339,8 +339,8 @@ pub enum DefaultSize {
 }
 
 impl DefaultSize {
-    pub const fn as_descriptor_entry(&self) -> u64 {
-        *self as u64
+    pub const fn as_descriptor_entry(self) -> u64 {
+        self as u64
     }
 }
 
@@ -355,7 +355,7 @@ impl DescriptorEntry {
     }
 
     #[inline]
-    pub const fn is_null(&self) -> bool {
+    pub const fn is_null(self) -> bool {
         self.0 == 0
     }
 
@@ -569,22 +569,22 @@ union MsrResult {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 struct EaxEdx {
     pub eax: u32,
     pub edx: u32,
 }
 
 impl Msr {
-    pub unsafe fn write(&self, value: u64) {
+    pub unsafe fn write(self, value: u64) {
         let value = MsrResult { qword: value };
-        asm!("wrmsr", in("eax") value.tuple.eax, in("edx") value.tuple.edx, in("ecx") *self as u32);
+        asm!("wrmsr", in("eax") value.tuple.eax, in("edx") value.tuple.edx, in("ecx") self as u32);
     }
 
-    pub unsafe fn read(&self) -> u64 {
+    pub unsafe fn read(self) -> u64 {
         let mut eax: u32;
         let mut edx: u32;
-        asm!("rdmsr", lateout("eax") eax, lateout("edx") edx, in("ecx") *self as u32);
+        asm!("rdmsr", lateout("eax") eax, lateout("edx") edx, in("ecx") self as u32);
         MsrResult {
             tuple: EaxEdx { eax: eax, edx: edx },
         }

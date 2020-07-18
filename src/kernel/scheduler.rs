@@ -34,7 +34,7 @@ pub trait TimerSource {
     fn diff(&self, h: TimeMeasure) -> isize;
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Default)]
 pub struct Timer {
     deadline: TimeMeasure,
 }
@@ -52,7 +52,7 @@ impl Timer {
     }
 
     #[must_use]
-    pub fn until(&self) -> bool {
+    pub fn until(self) -> bool {
         match self.deadline {
             TimeMeasure::NULL => false,
             TimeMeasure::FOREVER => true,
@@ -87,19 +87,19 @@ impl Timer {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, PartialOrd)]
 pub struct TimeMeasure(pub i64);
 
 impl TimeMeasure {
     pub const NULL: TimeMeasure = TimeMeasure(0);
     pub const FOREVER: TimeMeasure = TimeMeasure(i64::MAX);
 
-    pub fn is_null(&self) -> bool {
-        *self == Self::NULL
+    pub fn is_null(self) -> bool {
+        self == Self::NULL
     }
 
-    pub fn is_forever(&self) -> bool {
-        *self == Self::FOREVER
+    pub fn is_forever(self) -> bool {
+        self == Self::FOREVER
     }
 
     pub const fn from_micros(us: u64) -> Self {
@@ -380,8 +380,8 @@ pub enum Priority {
 }
 
 impl Priority {
-    pub fn useful(&self) -> bool {
-        match *self {
+    pub fn useful(self) -> bool {
+        match self {
             Priority::Idle => false,
             _ => true,
         }
@@ -460,16 +460,16 @@ impl ThreadHandle {
         NonZeroUsize::new(val).map(|x| Self(x))
     }
 
-    pub const fn as_usize(&self) -> usize {
+    pub const fn as_usize(self) -> usize {
         self.0.get()
     }
 
-    const fn as_index(&self) -> usize {
+    const fn as_index(self) -> usize {
         self.as_usize() - 1
     }
 
     #[inline]
-    fn using<F, R>(&self, f: F) -> R
+    fn using<F, R>(self, f: F) -> R
     where
         F: FnOnce(&mut NativeThread) -> R,
     {
@@ -478,7 +478,7 @@ impl ThreadHandle {
         f(thread)
     }
 
-    fn borrow(&self) -> &'static NativeThread {
+    fn borrow(self) -> &'static NativeThread {
         let shared = unsafe { &THREAD_POOL };
         shared.vec[self.as_index()].as_ref()
     }
