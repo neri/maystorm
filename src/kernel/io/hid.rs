@@ -11,6 +11,32 @@ use core::sync::atomic::*;
 
 const INVALID_UNICHAR: char = '\u{FEFF}';
 
+const MOUSE_CURSOR_WIDTH: usize = 12;
+const MOUSE_CURSOR_HEIGHT: usize = 20;
+const MOUSE_CURSOR_PALETTE: [u32; 3] = [0x00FF00FF, 0xFFFFFFFF, 0x80000000];
+const MOUSE_CURSOR_SOURCE: [[u8; MOUSE_CURSOR_WIDTH]; MOUSE_CURSOR_HEIGHT] = [
+    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [1, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [1, 2, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+    [1, 2, 2, 2, 1, 0, 0, 0, 0, 0, 0, 0],
+    [1, 2, 2, 2, 2, 1, 0, 0, 0, 0, 0, 0],
+    [1, 2, 2, 2, 2, 2, 1, 0, 0, 0, 0, 0],
+    [1, 2, 2, 2, 2, 2, 2, 1, 0, 0, 0, 0],
+    [1, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0, 0],
+    [1, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0],
+    [1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0],
+    [1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1],
+    [1, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1],
+    [1, 2, 2, 2, 1, 2, 2, 1, 0, 0, 0, 0],
+    [1, 2, 2, 1, 0, 1, 2, 2, 1, 0, 0, 0],
+    [1, 2, 1, 0, 0, 1, 2, 2, 1, 0, 0, 0],
+    [1, 1, 0, 0, 0, 0, 1, 2, 2, 1, 0, 0],
+    [0, 0, 0, 0, 0, 0, 1, 2, 2, 1, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+];
+
 pub struct HidKeyboard {
     pub state: KeyboardState,
 }
@@ -171,6 +197,7 @@ pub struct HidManager {
     pointer_x: AtomicIsize,
     pointer_y: AtomicIsize,
     key_buf: Box<AtomicLinkedQueue<KeyEvent>>,
+    cursor: FrameBuffer,
 }
 
 static mut HID_MANAGER: Option<Box<HidManager>> = None;
@@ -183,11 +210,27 @@ impl HidManager {
     }
 
     fn new() -> Self {
+        let w = MOUSE_CURSOR_WIDTH;
+        let h = MOUSE_CURSOR_HEIGHT;
+        let cursor = FrameBuffer::new(w, h, true);
+        unsafe {
+            let mut p = cursor.get_fb();
+            for y in 0..h {
+                for x in 0..w {
+                    let i = MOUSE_CURSOR_SOURCE[y][x];
+                    let c = MOUSE_CURSOR_PALETTE[i as usize];
+                    p.write_volatile(c);
+                    p = p.add(1);
+                }
+            }
+        }
+
         HidManager {
             // lock: Spinlock::new(),
             pointer_x: AtomicIsize::new(256),
             pointer_y: AtomicIsize::new(256),
             key_buf: AtomicLinkedQueue::with_capacity(256),
+            cursor: cursor,
         }
     }
 
@@ -220,19 +263,8 @@ impl HidManager {
         Self::update_coord(&shared.pointer_x, report.x, 0, fb.size().width - 1);
         Self::update_coord(&shared.pointer_y, report.y, 0, fb.size().height - 1);
 
-        let pointer = Self::pointer();
-        let r = 2;
-        let pad = 4;
-        let rect_outer = Rect::new(
-            pointer.x - r - pad,
-            pointer.y - r - pad,
-            (r + pad) * 2,
-            (r + pad) * 2,
-        );
-        let rect_inner = Rect::new(pointer.x - r, pointer.y - r, r * 2, r * 2);
-
-        fb.fill_rect(rect_outer, IndexedColor::Black.into());
-        fb.fill_rect(rect_inner, IndexedColor::LightBlue.into());
+        let cursor = &shared.cursor;
+        fb.blt(&cursor, Self::pointer(), cursor.bounds());
     }
 
     pub fn process_mouse_report<T>(report: MouseReport<T>)

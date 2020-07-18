@@ -28,22 +28,37 @@ impl Color {
         Color { argb: argb }
     }
 
+    #[inline]
     pub fn components(self) -> ColorComponents {
         self.into()
     }
 
+    #[inline]
     pub const fn rgb(self) -> u32 {
         self.argb & 0x00FFFFFF
     }
 
+    #[inline]
     pub const fn argb(self) -> u32 {
         self.argb
     }
 
+    #[inline]
     pub fn opacity(self) -> u8 {
         self.components().a
     }
 
+    #[inline]
+    pub fn is_opaque(self) -> bool {
+        self.components().is_opaque()
+    }
+
+    #[inline]
+    pub fn is_transparent(self) -> bool {
+        self.components().is_transparent()
+    }
+
+    #[inline]
     pub fn blend_each<F>(self, rhs: Self, f: F) -> Self
     where
         F: Fn(u8, u8) -> u8,
@@ -51,6 +66,7 @@ impl Color {
         self.components().blend_each(rhs.into(), f).into()
     }
 
+    #[inline]
     pub fn blend_color<F>(self, rhs: Self, f: F) -> Self
     where
         F: Fn(u8, u8) -> u8,
@@ -61,6 +77,7 @@ impl Color {
 
 impl Add for Color {
     type Output = Self;
+    #[inline]
     fn add(self, rhs: Self) -> Self {
         self.blend_each(rhs, |a, b| a.saturating_add(b))
     }
@@ -68,6 +85,7 @@ impl Add for Color {
 
 impl Sub for Color {
     type Output = Self;
+    #[inline]
     fn sub(self, rhs: Self) -> Self {
         self.blend_each(rhs, |a, b| a.saturating_sub(b))
     }
@@ -95,6 +113,7 @@ pub struct ColorComponents {
 }
 
 impl ColorComponents {
+    #[inline]
     pub fn blend_each<F>(self, rhs: Self, f: F) -> Self
     where
         F: Fn(u8, u8) -> u8,
@@ -107,6 +126,7 @@ impl ColorComponents {
         }
     }
 
+    #[inline]
     pub fn blend_color<F>(self, rhs: Self, f: F) -> Self
     where
         F: Fn(u8, u8) -> u8,
@@ -117,6 +137,16 @@ impl ColorComponents {
             g: f(self.g, rhs.g),
             b: f(self.b, rhs.b),
         }
+    }
+
+    #[inline]
+    pub fn is_opaque(self) -> bool {
+        self.a == 255
+    }
+
+    #[inline]
+    pub fn is_transparent(self) -> bool {
+        self.a == 0
     }
 }
 
