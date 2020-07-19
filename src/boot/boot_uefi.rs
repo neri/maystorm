@@ -71,7 +71,7 @@ where
 
     {
         let fb = FrameBuffer::from(&info);
-        fb.reset();
+        // fb.reset();
         let stdout = Box::new(GraphicalConsole::from(fb));
         unsafe {
             STDOUT = Some(stdout);

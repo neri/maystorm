@@ -131,6 +131,7 @@ impl System {
 
     fn late_init(args: *mut c_void) {
         unsafe {
+            kernel::io::window::WindowManager::init();
             kernel::io::hid::HidManager::init();
             kernel::bus::lpc::LowPinCount::init();
 

@@ -75,6 +75,12 @@ impl Color {
     }
 }
 
+impl Default for Color {
+    fn default() -> Self {
+        Self::TRANSPARENT
+    }
+}
+
 impl Add for Color {
     type Output = Self;
     #[inline]

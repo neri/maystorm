@@ -3,7 +3,6 @@
 use super::color::*;
 use super::coords::*;
 use crate::kernel::mem::alloc::*;
-use crate::kernel::num::*;
 use bitflags::*;
 use core::mem::swap;
 
@@ -19,6 +18,7 @@ bitflags! {
     pub struct BitmapFlags: usize {
         const PORTRAIT = 0b0000_0001;
         const TRANSPARENT = 0b0000_0010;
+        const UNMANAGED = 0b1000_0000;
     }
 }
 
@@ -30,7 +30,7 @@ impl From<&crate::boot::BootInfo> for FrameBuffer {
         let mut width = info.screen_width;
         let mut height = info.screen_height;
         let mut is_portrait = height > width;
-        let mut flags = BitmapFlags::empty();
+        let mut flags = BitmapFlags::UNMANAGED;
         if is_portrait {
             // portrait
             swap(&mut width, &mut height);
@@ -44,10 +44,7 @@ impl From<&crate::boot::BootInfo> for FrameBuffer {
         }
         FrameBuffer {
             base: info.fb_base as *mut u8,
-            size: Size {
-                width: width as isize,
-                height: height as isize,
-            },
+            size: Size::new(width as isize, height as isize),
             delta: delta.into(),
             flags: flags,
         }
@@ -69,17 +66,32 @@ impl FrameBuffer {
         }
     }
 
+    pub fn with_same_size(fb: &FrameBuffer) -> Self {
+        Self::new(
+            fb.size.width as usize,
+            fb.size.height as usize,
+            fb.is_transparent(),
+        )
+    }
+
     #[inline]
     pub fn size(&self) -> Size<isize> {
         self.size
     }
 
     #[inline]
+    pub fn width(&self) -> isize {
+        self.size.width
+    }
+
+    #[inline]
+    pub fn height(&self) -> isize {
+        self.size.height
+    }
+
+    #[inline]
     pub fn bounds(&self) -> Rect<isize> {
-        Rect {
-            origin: Point::zero(),
-            size: self.size,
-        }
+        Rect::from(self.size)
     }
 
     #[inline]
@@ -88,8 +100,13 @@ impl FrameBuffer {
     }
 
     #[inline]
+    pub fn is_transparent(&self) -> bool {
+        self.flags.contains(BitmapFlags::TRANSPARENT)
+    }
+
+    #[inline]
     pub fn is_opaque(&self) -> bool {
-        !self.flags.contains(BitmapFlags::TRANSPARENT)
+        !self.is_transparent()
     }
 
     #[inline]
@@ -139,25 +156,33 @@ impl FrameBuffer {
         unsafe {
             let mut ptr = self.get_fb().add(dx as usize + dy as usize * self.delta);
             let delta_ptr = self.delta - width as usize;
-            for _y in 0..height {
-                for _x in 0..width {
+            if delta_ptr == 0 {
+                let count = width * height;
+                for _ in 0..count {
                     ptr.write_volatile(color.rgb());
                     ptr = ptr.add(1);
                 }
-                ptr = ptr.add(delta_ptr);
+            } else {
+                for _y in 0..height {
+                    for _x in 0..width {
+                        ptr.write_volatile(color.rgb());
+                        ptr = ptr.add(1);
+                    }
+                    ptr = ptr.add(delta_ptr);
+                }
             }
         }
     }
 
     pub fn blend_rect(&self, rect: Rect<isize>, color: Color) {
         let rhs = color.components();
-        let alpha = rhs.a as usize;
-
-        match alpha {
-            255 => return self.fill_rect(rect, color),
-            0 => return,
-            _ => (),
+        if rhs.is_opaque() {
+            return self.fill_rect(rect, color);
+        } else if rhs.is_transparent() {
+            return;
         }
+        let alpha = rhs.a as usize;
+        let alpha_n = 255 - alpha;
 
         let mut width = rect.size.width;
         let mut height = rect.size.height;
@@ -193,7 +218,6 @@ impl FrameBuffer {
             swap(&mut width, &mut height);
         }
 
-        let alpha_n = 255 - alpha;
         unsafe {
             let mut ptr = self.get_fb().add(dx as usize + dy as usize * self.delta);
             let delta_ptr = self.delta - width as usize;
@@ -233,7 +257,6 @@ impl FrameBuffer {
                 dy = self.size.height - dy - height;
                 let mut ptr = self.get_fb().add(dy as usize + dx as usize * self.delta);
                 let delta_ptr = self.delta - height as usize;
-
                 for x in 0..w8 {
                     for mask in BIT_MASKS.iter() {
                         for y in (0..height).rev() {
@@ -395,6 +418,14 @@ impl FrameBuffer {
                     }
                 }
             }
+        }
+    }
+}
+
+impl Drop for FrameBuffer {
+    fn drop(&mut self) {
+        if !self.flags.contains(BitmapFlags::UNMANAGED) {
+            // TODO: drop bitmap
         }
     }
 }

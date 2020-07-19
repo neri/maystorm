@@ -1,4 +1,5 @@
 pub mod atomic;
+pub mod bits;
 pub mod queue;
 pub mod semaphore;
 pub mod spinlock;

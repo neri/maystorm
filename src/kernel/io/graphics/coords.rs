@@ -11,6 +11,7 @@ pub struct Point<T: Number> {
 }
 
 impl<T: Number> Point<T> {
+    #[inline]
     pub const fn new(x: T, y: T) -> Self {
         Point { x: x, y: y }
     }
@@ -77,6 +78,7 @@ pub struct Size<T: Number> {
 }
 
 impl<T: Number> Size<T> {
+    #[inline]
     pub fn new(width: T, height: T) -> Self {
         Size {
             width: width,
@@ -146,6 +148,7 @@ pub struct Rect<T: Number> {
 }
 
 impl<T: Number> Rect<T> {
+    #[inline]
     pub fn new(x: T, y: T, width: T, height: T) -> Self {
         Rect {
             origin: Point { x: x, y: y },
@@ -156,6 +159,27 @@ impl<T: Number> Rect<T> {
         }
     }
 
+    #[inline]
+    pub const fn x(self) -> T {
+        self.origin.x
+    }
+
+    #[inline]
+    pub const fn y(self) -> T {
+        self.origin.y
+    }
+
+    #[inline]
+    pub const fn width(self) -> T {
+        self.size.width
+    }
+
+    #[inline]
+    pub const fn height(self) -> T {
+        self.size.height
+    }
+
+    #[inline]
     pub fn insets_by(self, insets: EdgeInsets<T>) -> Self {
         Rect {
             origin: Point {
@@ -195,7 +219,91 @@ impl<T: Number> From<Size<T>> for Rect<T> {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Default, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, Default, PartialEq)]
+pub struct Coodinates<T: Number> {
+    pub left: T,
+    pub top: T,
+    pub right: T,
+    pub bottom: T,
+}
+
+impl<T: Number> Coodinates<T> {
+    #[inline]
+    pub fn left_top(self) -> Point<T> {
+        Point::new(self.left, self.top)
+    }
+
+    #[inline]
+    pub fn right_bottom(self) -> Point<T> {
+        Point::new(self.right, self.bottom)
+    }
+
+    #[inline]
+    pub fn left_bottom(self) -> Point<T> {
+        Point::new(self.left, self.bottom)
+    }
+
+    #[inline]
+    pub fn right_top(self) -> Point<T> {
+        Point::new(self.right, self.top)
+    }
+
+    #[inline]
+    pub fn size(self) -> Size<T> {
+        Size::new(self.right - self.left, self.bottom - self.top)
+    }
+
+    #[inline]
+    pub fn from_rect(rect: Rect<T>) -> Option<Coodinates<T>> {
+        if rect.size.width == T::zero() || rect.size.height == T::zero() {
+            None
+        } else {
+            Some(unsafe { Self::from_rect_unchecked(rect) })
+        }
+    }
+
+    #[inline]
+    pub unsafe fn from_rect_unchecked(rect: Rect<T>) -> Coodinates<T> {
+        let left: T;
+        let right: T;
+        if rect.size.width > T::zero() {
+            left = rect.origin.x;
+            right = left + rect.size.width;
+        } else {
+            right = rect.origin.x;
+            left = right + rect.size.width;
+        }
+
+        let top: T;
+        let bottom: T;
+        if rect.size.height > T::zero() {
+            top = rect.origin.y;
+            bottom = top + rect.size.height;
+        } else {
+            bottom = rect.origin.y;
+            top = bottom + rect.size.height;
+        }
+
+        Self {
+            left: left,
+            top: top,
+            right: right,
+            bottom: bottom,
+        }
+    }
+}
+
+impl<T: Number> From<Coodinates<T>> for Rect<T> {
+    fn from(coods: Coodinates<T>) -> Rect<T> {
+        Rect {
+            origin: coods.left_top(),
+            size: coods.size(),
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Default, PartialEq)]
 pub struct EdgeInsets<T: Number> {
     pub top: T,
     pub left: T,
@@ -204,6 +312,7 @@ pub struct EdgeInsets<T: Number> {
 }
 
 impl<T: Number> EdgeInsets<T> {
+    #[inline]
     pub fn new(top: T, left: T, bottom: T, right: T) -> Self {
         EdgeInsets {
             top: top,

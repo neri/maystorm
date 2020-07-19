@@ -1,6 +1,7 @@
 // Human Interface Devices
 
 use super::graphics::*;
+use crate::kernel::io::window::*;
 use crate::kernel::sync::queue::*;
 use crate::*;
 use alloc::boxed::Box;
@@ -10,32 +11,6 @@ use core::num::*;
 use core::sync::atomic::*;
 
 const INVALID_UNICHAR: char = '\u{FEFF}';
-
-const MOUSE_CURSOR_WIDTH: usize = 12;
-const MOUSE_CURSOR_HEIGHT: usize = 20;
-const MOUSE_CURSOR_PALETTE: [u32; 3] = [0x00FF00FF, 0xFFFFFFFF, 0x80000000];
-const MOUSE_CURSOR_SOURCE: [[u8; MOUSE_CURSOR_WIDTH]; MOUSE_CURSOR_HEIGHT] = [
-    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [1, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [1, 2, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0],
-    [1, 2, 2, 2, 1, 0, 0, 0, 0, 0, 0, 0],
-    [1, 2, 2, 2, 2, 1, 0, 0, 0, 0, 0, 0],
-    [1, 2, 2, 2, 2, 2, 1, 0, 0, 0, 0, 0],
-    [1, 2, 2, 2, 2, 2, 2, 1, 0, 0, 0, 0],
-    [1, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0, 0],
-    [1, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0],
-    [1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0],
-    [1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1],
-    [1, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1],
-    [1, 2, 2, 2, 1, 2, 2, 1, 0, 0, 0, 0],
-    [1, 2, 2, 1, 0, 1, 2, 2, 1, 0, 0, 0],
-    [1, 2, 1, 0, 0, 1, 2, 2, 1, 0, 0, 0],
-    [1, 1, 0, 0, 0, 0, 1, 2, 2, 1, 0, 0],
-    [0, 0, 0, 0, 0, 0, 1, 2, 2, 1, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-];
 
 pub struct HidKeyboard {
     pub state: KeyboardState,
@@ -197,7 +172,6 @@ pub struct HidManager {
     pointer_x: AtomicIsize,
     pointer_y: AtomicIsize,
     key_buf: Box<AtomicLinkedQueue<KeyEvent>>,
-    cursor: FrameBuffer,
 }
 
 static mut HID_MANAGER: Option<Box<HidManager>> = None;
@@ -210,39 +184,28 @@ impl HidManager {
     }
 
     fn new() -> Self {
-        let w = MOUSE_CURSOR_WIDTH;
-        let h = MOUSE_CURSOR_HEIGHT;
-        let cursor = FrameBuffer::new(w, h, true);
-        unsafe {
-            let mut p = cursor.get_fb();
-            for y in 0..h {
-                for x in 0..w {
-                    let i = MOUSE_CURSOR_SOURCE[y][x];
-                    let c = MOUSE_CURSOR_PALETTE[i as usize];
-                    p.write_volatile(c);
-                    p = p.add(1);
-                }
-            }
-        }
-
+        let fb = stdout().fb();
         HidManager {
-            // lock: Spinlock::new(),
-            pointer_x: AtomicIsize::new(256),
-            pointer_y: AtomicIsize::new(256),
+            pointer_x: AtomicIsize::new(fb.size().width / 2),
+            pointer_y: AtomicIsize::new(fb.size().height / 2),
             key_buf: AtomicLinkedQueue::with_capacity(256),
-            cursor: cursor,
         }
     }
 
-    fn update_coord(coord: &AtomicIsize, movement: isize, min_value: isize, max_value: isize) {
+    fn update_coord(
+        coord: &AtomicIsize,
+        movement: isize,
+        min_value: isize,
+        max_value: isize,
+    ) -> bool {
         let mut value = coord.load(Ordering::Relaxed);
         loop {
             let new_value = cmp::min(cmp::max(value + movement, min_value), max_value);
             if value == new_value {
-                break;
+                break false;
             }
             match coord.compare_exchange(value, new_value, Ordering::SeqCst, Ordering::Relaxed) {
-                Ok(_) => break,
+                Ok(_) => break true,
                 Err(actual) => value = actual,
             }
         }
@@ -257,14 +220,13 @@ impl HidManager {
     }
 
     fn update_pointer(report: MouseReport<isize>) {
-        let fb = stdout().fb();
-
         let shared = unsafe { HID_MANAGER.as_ref().unwrap() };
-        Self::update_coord(&shared.pointer_x, report.x, 0, fb.size().width - 1);
-        Self::update_coord(&shared.pointer_y, report.y, 0, fb.size().height - 1);
-
-        let cursor = &shared.cursor;
-        fb.blt(&cursor, Self::pointer(), cursor.bounds());
+        let bounds = WindowManager::main_screen_bounds();
+        if Self::update_coord(&shared.pointer_x, report.x, bounds.x(), bounds.width() - 1)
+            | Self::update_coord(&shared.pointer_y, report.y, bounds.y(), bounds.height() - 1)
+        {
+            WindowManager::move_cursor(Self::pointer());
+        }
     }
 
     pub fn process_mouse_report<T>(report: MouseReport<T>)
