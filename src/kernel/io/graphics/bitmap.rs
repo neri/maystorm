@@ -1,4 +1,4 @@
-// Framebuffer
+// Bitmap
 
 use super::color::*;
 use super::coords::*;
@@ -7,7 +7,7 @@ use bitflags::*;
 use core::mem::swap;
 
 #[repr(C)]
-pub struct FrameBuffer {
+pub struct Bitmap {
     base: *mut u8,
     size: Size<isize>,
     delta: usize,
@@ -24,7 +24,7 @@ bitflags! {
 
 static BIT_MASKS: [u8; 8] = [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
 
-impl From<&crate::boot::BootInfo> for FrameBuffer {
+impl From<&crate::boot::BootInfo> for Bitmap {
     fn from(info: &crate::boot::BootInfo) -> Self {
         let delta = info.fb_delta;
         let mut width = info.screen_width;
@@ -42,7 +42,7 @@ impl From<&crate::boot::BootInfo> for FrameBuffer {
         if is_portrait {
             flags.insert(BitmapFlags::PORTRAIT);
         }
-        FrameBuffer {
+        Bitmap {
             base: info.fb_base as *mut u8,
             size: Size::new(width as isize, height as isize),
             delta: delta.into(),
@@ -51,7 +51,7 @@ impl From<&crate::boot::BootInfo> for FrameBuffer {
     }
 }
 
-impl FrameBuffer {
+impl Bitmap {
     pub fn new(width: usize, height: usize, is_transparent: bool) -> Self {
         let fb = unsafe { CustomAlloc::zalloc(width * height * 4).unwrap().as_ptr() } as *mut u8;
         let mut flags = BitmapFlags::empty();
@@ -66,7 +66,7 @@ impl FrameBuffer {
         }
     }
 
-    pub fn with_same_size(fb: &FrameBuffer) -> Self {
+    pub fn with_same_size(fb: &Bitmap) -> Self {
         Self::new(
             fb.size.width as usize,
             fb.size.height as usize,
@@ -110,8 +110,22 @@ impl FrameBuffer {
     }
 
     #[inline]
-    pub unsafe fn get_fb(&self) -> *mut u32 {
+    unsafe fn get_fb(&self) -> *mut u32 {
         self.base as *mut u32
+    }
+
+    #[inline]
+    pub fn update_bitmap<F>(&self, f: F)
+    where
+        F: FnOnce(&mut [Color]),
+    {
+        let slice = unsafe {
+            core::slice::from_raw_parts_mut(
+                self.base as *mut Color,
+                self.delta * self.size.height as usize,
+            )
+        };
+        f(slice);
     }
 
     pub fn reset(&self) {
@@ -159,13 +173,13 @@ impl FrameBuffer {
             if delta_ptr == 0 {
                 let count = width * height;
                 for _ in 0..count {
-                    ptr.write_volatile(color.rgb());
+                    ptr.write_volatile(color.argb());
                     ptr = ptr.add(1);
                 }
             } else {
                 for _y in 0..height {
                     for _x in 0..width {
-                        ptr.write_volatile(color.rgb());
+                        ptr.write_volatile(color.argb());
                         ptr = ptr.add(1);
                     }
                     ptr = ptr.add(delta_ptr);
@@ -235,6 +249,113 @@ impl FrameBuffer {
         }
     }
 
+    pub fn draw_pixels(&self, points: &[Point<isize>], color: Color) {
+        let fb = unsafe { self.get_fb() };
+        for point in points {
+            let mut dx = point.x;
+            let mut dy = point.y;
+            if dx >= 0 && dx < self.size.width && dy >= 0 && dy < self.size.height {
+                if self.is_portrait() {
+                    let temp = dx;
+                    dx = self.size.height - dy - 1;
+                    dy = temp;
+                }
+                unsafe {
+                    fb.add(dx as usize + dy as usize * self.delta)
+                        .write_volatile(color.argb());
+                }
+            }
+        }
+    }
+
+    #[inline]
+    pub fn draw_pixel(&self, point: Point<isize>, color: Color) {
+        self.draw_pixels(&[point], color);
+    }
+
+    pub fn draw_hline(&self, point: Point<isize>, width: isize, color: Color) {
+        let mut dx = point.x;
+        let dy = point.y;
+        let mut w = width;
+
+        {
+            if dy < 0 || dy >= self.size.height {
+                return;
+            }
+            if dx < 0 {
+                w += dx;
+                dx = 0;
+            }
+            let r = dx + w;
+            if r >= self.size.width {
+                w = self.size.width - dx;
+            }
+            if w <= 0 {
+                return;
+            }
+        }
+
+        if self.is_portrait() {
+            // TODO:
+        } else {
+            unsafe {
+                let mut ptr = self.get_fb().add(dx as usize + dy as usize * self.delta);
+                for _ in 0..w {
+                    ptr.write_volatile(color.argb());
+                    ptr = ptr.add(1);
+                }
+            }
+        }
+    }
+
+    pub fn draw_vline(&self, point: Point<isize>, height: isize, color: Color) {
+        let dx = point.x;
+        let mut dy = point.y;
+        let mut h = height;
+
+        {
+            if dx < 0 || dx >= self.size.width {
+                return;
+            }
+            if dy < 0 {
+                h += dy;
+                dy = 0;
+            }
+            let b = dy + h;
+            if b >= self.size.height {
+                h = self.size.height - dy;
+            }
+            if h <= 0 {
+                return;
+            }
+        }
+
+        if self.is_portrait() {
+            // TODO:
+        } else {
+            unsafe {
+                let dd = self.delta;
+                let mut ptr = self.get_fb().add(dx as usize + dy as usize * dd);
+                for _ in 0..h {
+                    ptr.write_volatile(color.argb());
+                    ptr = ptr.add(dd);
+                }
+            }
+        }
+    }
+
+    pub fn draw_rect(&self, rect: Rect<isize>, color: Color) {
+        let coords = Coordinates::from_rect(rect).unwrap();
+        let width = rect.width();
+        let height = rect.height();
+        self.draw_hline(coords.left_top(), width, color);
+        self.draw_hline(coords.left_bottom() - Point::new(0, 1), width, color);
+        if height > 2 {
+            self.draw_vline(coords.left_top() + Point::new(0, 1), height - 2, color);
+            self.draw_vline(coords.right_top() + Point::new(-1, 1), height - 2, color);
+        }
+    }
+
     pub fn draw_pattern(&self, rect: Rect<isize>, pattern: &[u8], color: Color) {
         let width = rect.size.width;
         let mut height = rect.size.height;
@@ -262,7 +383,7 @@ impl FrameBuffer {
                         for y in (0..height).rev() {
                             let data = pattern[(x + y * w8) as usize];
                             if (data & mask) != 0 {
-                                ptr.write_volatile(color.rgb());
+                                ptr.write_volatile(color.argb());
                             }
                             ptr = ptr.add(1);
                         }
@@ -278,7 +399,7 @@ impl FrameBuffer {
                         let data = pattern[src_ptr];
                         for mask in BIT_MASKS.iter() {
                             if (data & mask) != 0 {
-                                ptr.write_volatile(color.rgb());
+                                ptr.write_volatile(color.argb());
                             }
                             ptr = ptr.add(1);
                         }
@@ -422,7 +543,7 @@ impl FrameBuffer {
     }
 }
 
-impl Drop for FrameBuffer {
+impl Drop for Bitmap {
     fn drop(&mut self) {
         if !self.flags.contains(BitmapFlags::UNMANAGED) {
             // TODO: drop bitmap

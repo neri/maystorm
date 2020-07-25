@@ -1,8 +1,8 @@
 // Graphics Services
 
+pub mod bitmap;
 pub mod color;
 pub mod coords;
-pub mod fb;
+pub use bitmap::*;
 pub use color::*;
 pub use coords::*;
-pub use fb::*;

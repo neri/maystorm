@@ -220,14 +220,14 @@ impl<T: Number> From<Size<T>> for Rect<T> {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default, PartialEq)]
-pub struct Coodinates<T: Number> {
+pub struct Coordinates<T: Number> {
     pub left: T,
     pub top: T,
     pub right: T,
     pub bottom: T,
 }
 
-impl<T: Number> Coodinates<T> {
+impl<T: Number> Coordinates<T> {
     #[inline]
     pub fn left_top(self) -> Point<T> {
         Point::new(self.left, self.top)
@@ -254,7 +254,7 @@ impl<T: Number> Coodinates<T> {
     }
 
     #[inline]
-    pub fn from_rect(rect: Rect<T>) -> Option<Coodinates<T>> {
+    pub fn from_rect(rect: Rect<T>) -> Option<Coordinates<T>> {
         if rect.size.width == T::zero() || rect.size.height == T::zero() {
             None
         } else {
@@ -263,7 +263,7 @@ impl<T: Number> Coodinates<T> {
     }
 
     #[inline]
-    pub unsafe fn from_rect_unchecked(rect: Rect<T>) -> Coodinates<T> {
+    pub unsafe fn from_rect_unchecked(rect: Rect<T>) -> Coordinates<T> {
         let left: T;
         let right: T;
         if rect.size.width > T::zero() {
@@ -293,8 +293,8 @@ impl<T: Number> Coodinates<T> {
     }
 }
 
-impl<T: Number> From<Coodinates<T>> for Rect<T> {
-    fn from(coods: Coodinates<T>) -> Rect<T> {
+impl<T: Number> From<Coordinates<T>> for Rect<T> {
+    fn from(coods: Coordinates<T>) -> Rect<T> {
         Rect {
             origin: coods.left_top(),
             size: coods.size(),
@@ -314,11 +314,21 @@ pub struct EdgeInsets<T: Number> {
 impl<T: Number> EdgeInsets<T> {
     #[inline]
     pub fn new(top: T, left: T, bottom: T, right: T) -> Self {
-        EdgeInsets {
+        Self {
             top: top,
             left: left,
             bottom: bottom,
             right: right,
+        }
+    }
+
+    #[inline]
+    pub fn padding_all(value: T) -> Self {
+        Self {
+            top: value,
+            left: value,
+            bottom: value,
+            right: value,
         }
     }
 }
@@ -336,6 +346,52 @@ impl<T: Number> Zero for EdgeInsets<T> {
             left: T::zero(),
             bottom: T::zero(),
             right: T::zero(),
+        }
+    }
+}
+
+impl<T: Number> Add for EdgeInsets<T> {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        Self {
+            top: self.top + rhs.top,
+            left: self.left + rhs.left,
+            bottom: self.bottom + rhs.bottom,
+            right: self.right + rhs.right,
+        }
+    }
+}
+
+impl<T: Number> AddAssign for EdgeInsets<T> {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = Self {
+            top: self.top + rhs.top,
+            left: self.left + rhs.left,
+            bottom: self.bottom + rhs.bottom,
+            right: self.right + rhs.right,
+        }
+    }
+}
+
+impl<T: Number> Sub for EdgeInsets<T> {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        Self {
+            top: self.top - rhs.top,
+            left: self.left - rhs.left,
+            bottom: self.bottom - rhs.bottom,
+            right: self.right - rhs.right,
+        }
+    }
+}
+
+impl<T: Number> SubAssign for EdgeInsets<T> {
+    fn sub_assign(&mut self, rhs: Self) {
+        *self = Self {
+            top: self.top - rhs.top,
+            left: self.left - rhs.left,
+            bottom: self.bottom - rhs.bottom,
+            right: self.right - rhs.right,
         }
     }
 }

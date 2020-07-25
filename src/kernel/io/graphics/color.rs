@@ -236,6 +236,6 @@ impl IndexedColor {
 
 impl From<IndexedColor> for Color {
     fn from(index: IndexedColor) -> Self {
-        Color::from_rgb(index.as_rgb())
+        index.as_color()
     }
 }

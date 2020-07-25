@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::*;
-use ::uefi::prelude::*;
+use uefi::prelude::*;
 
 #[macro_export]
 macro_rules! myos_entry {
@@ -53,6 +53,8 @@ where
         return Status::UNSUPPORTED;
     }
 
+    // ----------------------------------------------------------------
+
     // TODO: init custom allocator
     let buf_size = 0x1000000;
     let page_size = 0x1000;
@@ -70,11 +72,10 @@ where
     // ----------------------------------------------------------------
 
     {
-        let fb = FrameBuffer::from(&info);
-        // fb.reset();
-        let stdout = Box::new(GraphicalConsole::from(fb));
         unsafe {
-            STDOUT = Some(stdout);
+            BOOT_SCREEN = Some(Box::new(Bitmap::from(&info)));
+            let stdout = Box::new(GraphicalConsole::from(boot_screen()));
+            EMCONSOLE = Some(stdout);
         }
     }
 
@@ -130,7 +131,7 @@ impl MyUefiLib for SystemTable<::uefi::table::Boot> {
     }
 }
 
-use ::uefi::table::boot::MemoryType;
+use uefi::table::boot::MemoryType;
 pub trait MemoryTypeHelper {
     fn is_conventional_at_runtime(&self) -> bool;
     fn is_countable(&self) -> bool;

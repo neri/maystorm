@@ -29,6 +29,7 @@ extern crate alloc;
 #[macro_use()]
 extern crate bitflags;
 
+static mut USE_EMCONSOLE: bool = true;
 static mut PANIC_GLOBAL_LOCK: Spinlock = Spinlock::new();
 
 #[panic_handler]
@@ -36,8 +37,10 @@ fn panic(info: &PanicInfo) -> ! {
     unsafe {
         PANIC_GLOBAL_LOCK.lock();
     }
-    stdout().set_cursor_enabled(false);
-    stdout().set_attribute(0x17);
+    set_em_console(true);
+    let stdout = stdout();
+    stdout.set_cursor_enabled(false);
+    stdout.set_attribute(0x17);
     println!("{}", info);
     unsafe {
         PANIC_GLOBAL_LOCK.unlock();
@@ -47,10 +50,37 @@ fn panic(info: &PanicInfo) -> ! {
     }
 }
 
+static mut BOOT_SCREEN: Option<Box<Bitmap>> = None;
+
+static mut EMCONSOLE: Option<Box<GraphicalConsole>> = None;
+
 static mut STDOUT: Option<Box<GraphicalConsole>> = None;
 
+pub fn boot_screen() -> &'static Box<Bitmap> {
+    unsafe { BOOT_SCREEN.as_ref().unwrap() }
+}
+
 pub fn stdout<'a>() -> &'static mut GraphicalConsole<'a> {
-    unsafe { STDOUT.as_mut().unwrap() }
+    unsafe {
+        if USE_EMCONSOLE {
+            EMCONSOLE.as_mut().unwrap()
+        } else {
+            STDOUT.as_mut().unwrap()
+        }
+    }
+}
+
+pub(crate) fn set_em_console(value: bool) {
+    unsafe {
+        USE_EMCONSOLE = value;
+    }
+}
+
+pub fn set_stdout(console: Box<GraphicalConsole<'static>>) {
+    unsafe {
+        STDOUT = Some(console);
+        set_em_console(false);
+    }
 }
 
 #[macro_export]
