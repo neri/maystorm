@@ -12,7 +12,6 @@ use ::uefi::prelude::*;
 use alloc::boxed::Box;
 use core::fmt::Write;
 use myos::boot::*;
-use myos::kernel::arch::cpu::Cpu;
 use myos::kernel::io::console::*;
 use myos::kernel::io::graphics::*;
 use myos::kernel::io::hid;
@@ -35,11 +34,10 @@ fn sysinit() {
     {
         // Status bar
         let bounds = WindowManager::main_screen_bounds();
-        let window = WindowBuilder::default()
+        let window = WindowBuilder::new("Status Bar")
             .style(WindowStyle::CLIENT_RECT)
             .frame(Rect::new(0, 0, bounds.width(), 24))
             .bg_color(Color::from_argb(0xC0EEEEEE))
-            .blank()
             .build();
         window.show();
     }
@@ -48,10 +46,8 @@ fn sysinit() {
 
     {
         // Main Terminal
-        let window = WindowBuilder::default()
-            .title("Terminal")
+        let window = WindowBuilder::new("Terminal")
             .frame(Rect::new(8, 32, 640, 480))
-            .blank()
             .build();
         window.show();
         window.draw(window.client_rect(), |bitmap, _rect| {
@@ -69,8 +65,7 @@ fn sysinit() {
                 IndexedColor::LightBlue.as_color() * 0.8,
             );
         });
-        set_stdout(Box::new(GraphicalConsole::new(window)));
-        stdout().set_attribute(0xF8);
+        set_stdout(Box::new(GraphicalConsole::from(window)));
     }
 
     println!(
@@ -87,15 +82,17 @@ fn sysinit() {
     // });
 
     loop {
+        stdout().set_cursor_enabled(true);
         match HidManager::get_key() {
             Some(key) => {
+                stdout().set_cursor_enabled(false);
                 let c = hid::HidManager::usage_to_char_109(key.usage, key.modifier);
                 print!("{}", c);
-                match c {
-                    'p' => GlobalScheduler::print_statistics(),
-                    '!' => Cpu::breakpoint(),
-                    _ => (),
-                }
+                // match c {
+                //     'p' => GlobalScheduler::print_statistics(),
+                //     '!' => Cpu::breakpoint(),
+                //     _ => (),
+                // }
             }
             None => GlobalScheduler::wait_for(None, TimeMeasure::from_millis(10)),
         }

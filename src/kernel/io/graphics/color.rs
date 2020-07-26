@@ -67,11 +67,12 @@ impl Color {
     }
 
     #[inline]
-    pub fn blend_color<F>(self, rhs: Self, f: F) -> Self
+    pub fn blend_color<F1, F2>(self, rhs: Self, f_rgb: F1, f_a: F2) -> Self
     where
-        F: Fn(u8, u8) -> u8,
+        F1: Fn(u8, u8) -> u8,
+        F2: Fn(u8, u8) -> u8,
     {
-        self.components().blend_color(rhs.into(), f).into()
+        self.components().blend_color(rhs.into(), f_rgb, f_a).into()
     }
 }
 
@@ -133,15 +134,16 @@ impl ColorComponents {
     }
 
     #[inline]
-    pub fn blend_color<F>(self, rhs: Self, f: F) -> Self
+    pub fn blend_color<F1, F2>(self, rhs: Self, f_rgb: F1, f_a: F2) -> Self
     where
-        F: Fn(u8, u8) -> u8,
+        F1: Fn(u8, u8) -> u8,
+        F2: Fn(u8, u8) -> u8,
     {
         Self {
-            a: self.a,
-            r: f(self.r, rhs.r),
-            g: f(self.g, rhs.g),
-            b: f(self.b, rhs.b),
+            a: f_a(self.a, rhs.a),
+            r: f_rgb(self.r, rhs.r),
+            g: f_rgb(self.g, rhs.g),
+            b: f_rgb(self.b, rhs.b),
         }
     }
 

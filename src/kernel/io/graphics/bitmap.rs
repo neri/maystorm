@@ -8,7 +8,7 @@ use core::mem::swap;
 
 #[repr(C)]
 pub struct Bitmap {
-    base: *mut u8,
+    base: *mut u32,
     size: Size<isize>,
     delta: usize,
     flags: BitmapFlags,
@@ -43,7 +43,7 @@ impl From<&crate::boot::BootInfo> for Bitmap {
             flags.insert(BitmapFlags::PORTRAIT);
         }
         Bitmap {
-            base: info.fb_base as *mut u8,
+            base: info.fb_base as *mut u32,
             size: Size::new(width as isize, height as isize),
             delta: delta.into(),
             flags: flags,
@@ -53,17 +53,47 @@ impl From<&crate::boot::BootInfo> for Bitmap {
 
 impl Bitmap {
     pub fn new(width: usize, height: usize, is_transparent: bool) -> Self {
-        let fb = unsafe { CustomAlloc::zalloc(width * height * 4).unwrap().as_ptr() } as *mut u8;
+        let base = unsafe { CustomAlloc::zalloc(width * height * 4).unwrap().as_ptr() } as *mut u32;
         let mut flags = BitmapFlags::empty();
         if is_transparent {
             flags.insert(BitmapFlags::TRANSPARENT);
         }
         Self {
-            base: fb,
+            base,
             size: Size::new(width as isize, height as isize),
             delta: width.into(),
-            flags: flags,
+            flags,
         }
+    }
+
+    pub fn view(&self, rect: Rect<isize>) -> Option<Self> {
+        let mut coords = match Coordinates::from_rect(rect) {
+            None => return None,
+            Some(coords) => coords,
+        };
+        if coords.left < 0 || coords.top < 0 {
+            return None;
+        }
+        if coords.right > self.width() {
+            coords.right = self.width();
+        }
+        if coords.bottom > self.height() {
+            coords.bottom = self.height();
+        }
+
+        let base = unsafe {
+            self.get_fb()
+                .add(coords.left as usize + coords.top as usize * self.delta)
+        };
+        let mut flags = self.flags;
+        flags.insert(BitmapFlags::UNMANAGED);
+
+        Some(Self {
+            base,
+            size: Rect::from(coords).size,
+            delta: self.delta,
+            flags,
+        })
     }
 
     pub fn with_same_size(fb: &Bitmap) -> Self {
@@ -111,14 +141,17 @@ impl Bitmap {
 
     #[inline]
     unsafe fn get_fb(&self) -> *mut u32 {
-        self.base as *mut u32
+        self.base
     }
 
     #[inline]
-    pub fn update_bitmap<F>(&self, f: F)
+    pub fn update_bitmap<F>(&self, f: F) -> Result<(), ()>
     where
         F: FnOnce(&mut [Color]),
     {
+        if self.flags.contains(BitmapFlags::UNMANAGED) || self.delta != self.size.width as usize {
+            return Err(());
+        }
         let slice = unsafe {
             core::slice::from_raw_parts_mut(
                 self.base as *mut Color,
@@ -126,6 +159,7 @@ impl Bitmap {
             )
         };
         f(slice);
+        Ok(())
     }
 
     pub fn reset(&self) {
@@ -238,9 +272,13 @@ impl Bitmap {
             for _y in 0..height {
                 for _x in 0..width {
                     let lhs = Color::from_argb(ptr.read_volatile()).components();
-                    let c = lhs.blend_each(rhs, |lhs, rhs| {
-                        (((lhs as usize) * alpha_n + (rhs as usize) * alpha) / 256) as u8
-                    });
+                    let c = lhs.blend_color(
+                        rhs,
+                        |lhs, rhs| {
+                            (((lhs as usize) * alpha_n + (rhs as usize) * alpha) / 255) as u8
+                        },
+                        |a, b| a.saturating_add(b),
+                    );
                     ptr.write_volatile(c.into());
                     ptr = ptr.add(1);
                 }
@@ -392,9 +430,9 @@ impl Bitmap {
                 }
             } else {
                 let mut src_ptr = 0;
-                let mut ptr = self.get_fb().add(dx as usize + dy as usize * self.delta);
-                let delta_ptr = self.delta - width as usize;
+                let mut ptr0 = self.get_fb().add(dx as usize + dy as usize * self.delta);
                 for _y in 0..height {
+                    let mut ptr = ptr0;
                     for _x in 0..w8 {
                         let data = pattern[src_ptr];
                         for mask in BIT_MASKS.iter() {
@@ -405,7 +443,7 @@ impl Bitmap {
                         }
                         src_ptr += 1;
                     }
-                    ptr = ptr.add(delta_ptr);
+                    ptr0 = ptr0.add(self.delta);
                 }
             }
         }
@@ -451,7 +489,7 @@ impl Bitmap {
 
         if self.is_portrait() {
             let temp = dx;
-            dx = src.size.height - dy;
+            dx = self.size.height - dy;
             dy = temp;
             unsafe {
                 let mut p = self
@@ -478,13 +516,19 @@ impl Bitmap {
                         let mut q = q0.add(x as usize);
                         for _y in 0..height {
                             let c = Color::from_argb(q.read_volatile()).components();
-                            let alpha = c.a as usize;
-                            let alpha_n = 255 - alpha;
-                            let d = c.blend_each(
-                                Color::from_argb(p.read_volatile()).components(),
-                                |a, b| ((a as usize * alpha + b as usize * alpha_n) / 256) as u8,
-                            );
-                            p.write_volatile(d.into());
+                            if c.is_opaque() {
+                                p.write_volatile(c.into());
+                            } else {
+                                let alpha = c.a as usize;
+                                let alpha_n = 255 - alpha;
+                                let d = c.blend_each(
+                                    Color::from_argb(p.read_volatile()).components(),
+                                    |a, b| {
+                                        ((a as usize * alpha + b as usize * alpha_n) / 255) as u8
+                                    },
+                                );
+                                p.write_volatile(d.into());
+                            }
 
                             p = p.add(1);
                             q = q.sub(delta_q);
@@ -524,13 +568,19 @@ impl Bitmap {
                     for _y in 0..height {
                         for _x in 0..width {
                             let c = Color::from_argb(q.read_volatile()).components();
-                            let alpha = c.a as usize;
-                            let alpha_n = 255 - alpha;
-                            let d = c.blend_each(
-                                Color::from_argb(p.read_volatile()).components(),
-                                |a, b| ((a as usize * alpha + b as usize * alpha_n) / 256) as u8,
-                            );
-                            p.write_volatile(d.into());
+                            if c.is_opaque() {
+                                p.write_volatile(c.into());
+                            } else {
+                                let alpha = c.a as usize;
+                                let alpha_n = 255 - alpha;
+                                let d = c.blend_each(
+                                    Color::from_argb(p.read_volatile()).components(),
+                                    |a, b| {
+                                        ((a as usize * alpha + b as usize * alpha_n) / 255) as u8
+                                    },
+                                );
+                                p.write_volatile(d.into());
+                            }
                             p = p.add(1);
                             q = q.add(1);
                         }

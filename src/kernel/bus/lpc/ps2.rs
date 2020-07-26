@@ -244,7 +244,7 @@ impl Ps2 {
 
         Self::send_second_data(Ps2Data::RESET_COMMAND, 1).unwrap();
         Timer::usleep(100_000);
-        Self::send_second_data(Ps2Data::SET_DEFAULT, 1).unwrap();
+        // Self::send_second_data(Ps2Data::SET_DEFAULT, 1).unwrap();
         Self::send_second_data(Ps2Data::ENABLE_SEND, 1).unwrap();
 
         Ok(())

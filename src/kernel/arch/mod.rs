@@ -1,4 +1,4 @@
-pub mod cpu;
-
 #[cfg(any(target_arch = "x86_64"))]
-pub mod apic;
+pub mod x86_64;
+#[cfg(any(target_arch = "x86_64"))]
+pub use x86_64::*;

@@ -73,7 +73,9 @@ where
 
     {
         unsafe {
-            BOOT_SCREEN = Some(Box::new(Bitmap::from(&info)));
+            let screen = Bitmap::from(&info);
+            screen.reset();
+            BOOT_SCREEN = Some(Box::new(screen));
             let stdout = Box::new(GraphicalConsole::from(boot_screen()));
             EMCONSOLE = Some(stdout);
         }

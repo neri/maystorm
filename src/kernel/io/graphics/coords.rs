@@ -13,7 +13,7 @@ pub struct Point<T: Number> {
 impl<T: Number> Point<T> {
     #[inline]
     pub const fn new(x: T, y: T) -> Self {
-        Point { x: x, y: y }
+        Point { x, y }
     }
 }
 
@@ -79,11 +79,8 @@ pub struct Size<T: Number> {
 
 impl<T: Number> Size<T> {
     #[inline]
-    pub fn new(width: T, height: T) -> Self {
-        Size {
-            width: width,
-            height: height,
-        }
+    pub const fn new(width: T, height: T) -> Self {
+        Size { width, height }
     }
 }
 
@@ -149,13 +146,10 @@ pub struct Rect<T: Number> {
 
 impl<T: Number> Rect<T> {
     #[inline]
-    pub fn new(x: T, y: T, width: T, height: T) -> Self {
+    pub const fn new(x: T, y: T, width: T, height: T) -> Self {
         Rect {
-            origin: Point { x: x, y: y },
-            size: Size {
-                width: width,
-                height: height,
-            },
+            origin: Point { x, y },
+            size: Size { width, height },
         }
     }
 
@@ -213,7 +207,7 @@ impl<T: Number> From<Size<T>> for Rect<T> {
     fn from(size: Size<T>) -> Self {
         Rect {
             origin: Point::zero(),
-            size: size,
+            size,
         }
     }
 }
@@ -228,6 +222,15 @@ pub struct Coordinates<T: Number> {
 }
 
 impl<T: Number> Coordinates<T> {
+    pub const fn new(left: T, top: T, right: T, bottom: T) -> Self {
+        Self {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+
     #[inline]
     pub fn left_top(self) -> Point<T> {
         Point::new(self.left, self.top)
@@ -285,10 +288,10 @@ impl<T: Number> Coordinates<T> {
         }
 
         Self {
-            left: left,
-            top: top,
-            right: right,
-            bottom: bottom,
+            left,
+            top,
+            right,
+            bottom,
         }
     }
 }
@@ -313,12 +316,12 @@ pub struct EdgeInsets<T: Number> {
 
 impl<T: Number> EdgeInsets<T> {
     #[inline]
-    pub fn new(top: T, left: T, bottom: T, right: T) -> Self {
+    pub const fn new(top: T, left: T, bottom: T, right: T) -> Self {
         Self {
-            top: top,
-            left: left,
-            bottom: bottom,
-            right: right,
+            top,
+            left,
+            bottom,
+            right,
         }
     }
 

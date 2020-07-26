@@ -1,11 +1,12 @@
 // Graphics Console
-use super::font::*;
+use super::fonts::*;
 use super::graphics::*;
 use crate::kernel::io::window::*;
 use alloc::boxed::Box;
 use core::fmt::Write;
 
-static DEFAULT_ATTRIBUTE: u8 = 0x07;
+static DEFAULT_CONSOLE_ATTRIBUTE: u8 = 0x07;
+static DEFAULT_WINDOW_ATTRIBUTE: u8 = 0xF8;
 
 pub struct GraphicalConsole<'a> {
     handle: Option<WindowHandle>,
@@ -20,7 +21,7 @@ pub struct GraphicalConsole<'a> {
 impl<'a> From<&'a Box<Bitmap>> for GraphicalConsole<'a> {
     fn from(fb: &'a Box<Bitmap>) -> Self {
         let font = FontDriver::system_font();
-        let insets = EdgeInsets::new(4, 4, 4, 4);
+        let insets = EdgeInsets::padding_all(4);
         let rect = Rect::from(fb.size()).insets_by(insets);
         let cols = rect.size.width / font.width();
         let rows = rect.size.height / font.line_height();
@@ -30,17 +31,17 @@ impl<'a> From<&'a Box<Bitmap>> for GraphicalConsole<'a> {
             insets: insets,
             cursor: (0, 0),
             dims: (cols, rows),
-            is_cursor_enabled: true,
-            attribute: DEFAULT_ATTRIBUTE,
+            is_cursor_enabled: false,
+            attribute: DEFAULT_CONSOLE_ATTRIBUTE,
         }
     }
 }
 
-impl<'a> GraphicalConsole<'a> {
-    pub fn new(window: WindowHandle) -> Self {
+impl<'a> From<WindowHandle> for GraphicalConsole<'a> {
+    fn from(window: WindowHandle) -> Self {
         let bitmap = window.get_bitmap().unwrap();
         let font = FontDriver::system_font();
-        let insets = window.content_insets() + EdgeInsets::padding_all(4);
+        let insets = window.content_insets();
         let rect = Rect::from(bitmap.size()).insets_by(insets);
         let cols = rect.size.width / font.width();
         let rows = rect.size.height / font.line_height();
@@ -50,8 +51,8 @@ impl<'a> GraphicalConsole<'a> {
             insets: insets,
             cursor: (0, 0),
             dims: (cols, rows),
-            is_cursor_enabled: true,
-            attribute: DEFAULT_ATTRIBUTE,
+            is_cursor_enabled: false,
+            attribute: DEFAULT_WINDOW_ATTRIBUTE,
         }
     }
 }
@@ -109,7 +110,7 @@ impl GraphicalConsole<'_> {
 
         if old_value || enabled {
             let font = FontDriver::system_font();
-            let cursor_height = 2;
+            let cursor_height = font.line_height();
             let rect = Rect::new(
                 self.insets.left + self.cursor.0 * font.width(),
                 self.insets.top + (self.cursor.1 + 1) * font.line_height() - cursor_height,
@@ -135,7 +136,7 @@ impl GraphicalConsole<'_> {
     fn draw_char(&self, dims: (isize, isize), c: char) {
         let font = FontDriver::system_font();
         let area_rect = Rect::new(dims.0, dims.1, font.width(), font.line_height());
-        let font_rect = Rect::new(dims.0, dims.1, font.width(), font.height());
+        let font_rect = Rect::new(dims.0, dims.1 + font.leading(), font.width(), font.height());
         let bg_color = IndexedColor::from(self.attribute >> 4).as_color();
         let fg_color = IndexedColor::from(self.attribute & 0x0F).as_color();
         self.fb.fill_rect(area_rect, bg_color);
@@ -190,8 +191,26 @@ impl GraphicalConsole<'_> {
             y += 1;
         }
         if y >= self.dims.1 {
-            // TODO: scroll
             y = self.dims.1 - 1;
+
+            if let Some(handle) = self.handle {
+                let font = FontDriver::system_font();
+                let mut rect = Rect::new(
+                    self.insets.left,
+                    self.insets.top + font.line_height(),
+                    self.dims.0 * font.width(),
+                    y * font.line_height(),
+                );
+                let origin = Point::new(self.insets.left, self.insets.top);
+                self.fb.blt(self.fb, origin, rect);
+
+                rect.origin.y = self.insets.top + y * font.line_height();
+                rect.size.height = font.line_height();
+                let bg_color = IndexedColor::from(self.attribute >> 4).as_color();
+                self.fb.fill_rect(rect, bg_color);
+
+                handle.invalidate();
+            }
         }
         (x, y)
     }
