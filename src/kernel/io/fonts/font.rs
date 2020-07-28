@@ -4,6 +4,7 @@ use crate::kernel::io::graphics::*;
 include!("megbtan.rs");
 const SYSTEM_FONT: FontDriver =
     FontDriver::new(FONT_MEGBTAN_WIDTH, FONT_MEGBTAN_HEIGHT, &FONT_MEGBTAN_DATA);
+
 include!("megh0608.rs");
 const SMALL_FONT: FontDriver = FontDriver::new(
     FONT_MEGH0608_WIDTH,

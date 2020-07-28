@@ -15,13 +15,20 @@ use core::sync::atomic::*;
 const MAX_WINDOWS: usize = 256;
 const WINDOW_TITLE_LENGTH: usize = 32;
 
+const WINDOW_BORDER_PADDING: isize = 8;
+const WINDOW_BORDER_SHADOW_PADDING: isize = 7;
 const WINDOW_TITLE_HEIGHT: isize = 24;
 const WINDOW_BASIC_PADDING: isize = 4;
-const DESKTOP_COLOR: u32 = 0x2196F3;
-const WINDOW_BORDER_COLOR: u32 = 0xFF777777;
-const WINDOW_ACTIVE_TITLE_BG_COLOR: u32 = 0xFFCCCCCC;
-const WINDOW_ACTIVE_TITLE_SHADOW_COLOR: u32 = 0xFF999999;
-const WINDOW_ACTIVE_TITLE_FG_COLOR: u32 = 0xFF000000;
+const STATUS_BAR_HEIGHT: isize = 24;
+
+const DESKTOP_COLOR: Color = Color::from_argb(0x2196F3);
+const STATUS_BAR_BG_COLOR: Color = Color::from_argb(0xC0EEEEEE);
+const WINDOW_BORDER_COLOR: Color = Color::from_argb(0xFF777777);
+const WINDOW_ACTIVE_TITLE_BG_COLOR: Color = Color::from_argb(0xC0CCCCCC);
+const WINDOW_ACTIVE_TITLE_SHADOW_COLOR: Color = Color::from_argb(0x99999999);
+const WINDOW_ACTIVE_TITLE_FG_COLOR: Color = Color::from_argb(0xFF000000);
+const WINDOW_INACTIVE_TITLE_BG_COLOR: Color = Color::from_argb(0xFFEEEEEE);
+const WINDOW_INACTIVE_TITLE_FG_COLOR: Color = Color::from_argb(0xFF999999);
 
 // Mouse Pointer
 const MOUSE_POINTER_WIDTH: usize = 12;
@@ -68,8 +75,10 @@ const CLOSE_BUTTON_SOURCE: [[u8; CLOSE_BUTTON_SIZE]; CLOSE_BUTTON_SIZE] = [
 
 #[allow(dead_code)]
 struct Window {
+    next: Option<WindowHandle>,
     frame: Rect<isize>,
     content_insets: EdgeInsets<isize>,
+    shadow_insets: EdgeInsets<isize>,
     attributes: WindowAttributes,
     style: WindowStyle,
     level: WindowLevel,
@@ -93,7 +102,7 @@ bitflags! {
 impl WindowStyle {
     fn as_content_insets(self) -> EdgeInsets<isize> {
         let mut insets = if self.contains(Self::BORDER) {
-            EdgeInsets::padding_all(1)
+            EdgeInsets::padding_all(WINDOW_BORDER_PADDING)
         } else {
             EdgeInsets::zero()
         };
@@ -180,13 +189,38 @@ impl Window {
         // }
     }
 
+    fn show(&self) {
+        // TODO:
+        self.invalidate();
+    }
+
+    fn hide(&self) {
+        // TODO:
+        let frame = self.frame;
+        WindowManager::invalidate_screen(frame);
+    }
+
+    fn title_frame(&self) -> Rect<isize> {
+        if self.style.contains(WindowStyle::TITLE) {
+            Rect::new(
+                WINDOW_BORDER_PADDING,
+                WINDOW_BORDER_PADDING,
+                self.frame.width() - WINDOW_BORDER_PADDING * 2,
+                WINDOW_TITLE_HEIGHT,
+            )
+        } else {
+            Rect::zero()
+        }
+    }
+
     fn draw_frame(&self) {
         if let Some(bitmap) = &self.bitmap {
             if self.style.contains(WindowStyle::BORDER) {
-                bitmap.draw_rect(
-                    Rect::from(bitmap.size()),
-                    Color::from_argb(WINDOW_BORDER_COLOR),
-                );
+                for n in 0..WINDOW_BORDER_PADDING {
+                    let rect = Rect::from(bitmap.size()).insets_by(EdgeInsets::padding_all(n));
+                    let color = Color::TRANSPARENT.set_opacity((1 + n as u8) * 8);
+                    bitmap.draw_rect(rect, color);
+                }
             }
             if self.style.contains(WindowStyle::TITLE) {
                 let shared = WindowManager::shared();
@@ -194,15 +228,30 @@ impl Window {
                 let pad_left = pad_x;
                 let mut pad_right = pad_x;
 
-                let rect = self.title_frame();
-                bitmap.fill_rect(rect, Color::from_rgb(WINDOW_ACTIVE_TITLE_BG_COLOR));
+                let is_active = true;
 
-                let close = shared.resources.close_button.as_ref().unwrap();
-                bitmap.blt(
-                    close,
-                    Point::new(rect.width() - close.width() - pad_right, 8),
-                    close.bounds(),
+                let rect = self.title_frame();
+                bitmap.fill_rect(
+                    rect,
+                    if is_active {
+                        WINDOW_ACTIVE_TITLE_BG_COLOR
+                    } else {
+                        WINDOW_INACTIVE_TITLE_BG_COLOR
+                    },
                 );
+
+                {
+                    let close = shared.resources.close_button.as_ref().unwrap();
+                    let close_pad = (rect.height() - close.height()) / 2;
+                    bitmap.blt(
+                        close,
+                        Point::new(
+                            rect.x() + rect.width() - close.width() - close_pad,
+                            rect.y() + close_pad,
+                        ),
+                        close.bounds(),
+                    );
+                }
                 pad_right = rect.height();
 
                 let title_len = self.title[0] as usize;
@@ -218,28 +267,14 @@ impl Window {
                     // bitmap.blend_rect(rect, Color::from_argb(0x40000000));
                     let mut rect2 = rect;
                     rect2.origin += Point::new(1, 1);
-                    self.draw_string(
-                        &font,
-                        rect2,
-                        Color::from_rgb(WINDOW_ACTIVE_TITLE_SHADOW_COLOR),
-                        text,
-                    );
-                    self.draw_string(
-                        &font,
-                        rect,
-                        Color::from_rgb(WINDOW_ACTIVE_TITLE_FG_COLOR),
-                        text,
-                    );
+                    if is_active {
+                        bitmap.draw_string(&font, rect2, WINDOW_ACTIVE_TITLE_SHADOW_COLOR, text);
+                        bitmap.draw_string(&font, rect, WINDOW_ACTIVE_TITLE_FG_COLOR, text);
+                    } else {
+                        bitmap.draw_string(&font, rect, WINDOW_INACTIVE_TITLE_FG_COLOR, text);
+                    }
                 }
             }
-        }
-    }
-
-    fn title_frame(&self) -> Rect<isize> {
-        if self.style.contains(WindowStyle::TITLE) {
-            Rect::new(1, 1, self.frame.width() - 2, WINDOW_TITLE_HEIGHT - 1)
-        } else {
-            Rect::zero()
         }
     }
 
@@ -255,17 +290,6 @@ impl Window {
     #[inline]
     fn convert_point(&self, point: Point<isize>) -> Point<isize> {
         Point::new(self.frame.origin.x + point.x, self.frame.origin.y + point.y)
-    }
-
-    fn show(&self) {
-        // TODO:
-        self.invalidate();
-    }
-
-    fn hide(&self) {
-        // TODO:
-        let frame = self.frame;
-        WindowManager::invalidate_screen(frame);
     }
 
     fn set_title_array(array: &mut [u8; WINDOW_TITLE_LENGTH], title: &str) {
@@ -287,24 +311,6 @@ impl Window {
         Window::set_title_array(&mut self.title, title);
         self.draw_frame();
         self.invalidate_rect(self.title_frame());
-    }
-
-    fn draw_string(&self, font: &FontDriver, rect: Rect<isize>, color: Color, text: &str) {
-        let bitmap = self.bitmap.as_ref().unwrap();
-
-        let mut cursor = Point::<isize>::zero();
-
-        for c in text.chars() {
-            let font_size = Size::new(font.width(), font.height());
-            let font_rect = Rect {
-                origin: rect.origin + cursor,
-                size: font_size,
-            };
-            if let Some(glyph) = font.glyph_for(c) {
-                bitmap.draw_pattern(font_rect, glyph, color);
-            }
-            cursor.x += font_size.width;
-        }
     }
 }
 
@@ -339,21 +345,6 @@ pub struct WindowBuilder {
     pub no_bitmap: bool,
 }
 
-// impl Default for WindowBuilder {
-//     fn default() -> Self {
-//         let style = WindowStyle::DEFAULT;
-//         Self {
-//             frame: Rect::new(100, 100, 300, 300),
-//             content_insets: style.as_content_insets(),
-//             level: WindowLevel::NORMAL,
-//             style: style,
-//             bg_color: Color::WHITE,
-//             bitmap: None,
-//             title: [0; WINDOW_TITLE_LENGTH],
-//         }
-//     }
-// }
-
 impl WindowBuilder {
     pub fn new(title: &str) -> Self {
         let window = Self {
@@ -370,21 +361,31 @@ impl WindowBuilder {
     }
     #[inline]
     pub fn build(mut self) -> WindowHandle {
-        if !self.no_bitmap && self.bitmap.is_none() {
-            let size = self.frame.size;
-            let bitmap = Bitmap::new(size.width as usize, size.height as usize, true);
-            bitmap.fill_rect(Rect::from(bitmap.size()), self.bg_color);
-            self.bitmap = Some(Box::new(bitmap));
-        }
-
+        let shadow_insets = if self.style.contains(WindowStyle::BORDER) {
+            EdgeInsets::padding_all(WINDOW_BORDER_SHADOW_PADDING)
+        } else {
+            EdgeInsets::zero()
+        };
         let mut frame = self.frame;
         if self.style.contains(WindowStyle::CLIENT_RECT) {
             frame.size.width += self.content_insets.left + self.content_insets.right;
             frame.size.height += self.content_insets.top + self.content_insets.bottom;
         }
+        frame.origin -= Point::new(shadow_insets.left, shadow_insets.top);
+        frame.size.width += shadow_insets.left + shadow_insets.right;
+        frame.size.height += shadow_insets.top + shadow_insets.bottom;
+
+        if !self.no_bitmap && self.bitmap.is_none() {
+            let bitmap = Bitmap::new(frame.width() as usize, frame.height() as usize, true);
+            bitmap.fill_rect(Rect::from(bitmap.size()), self.bg_color);
+            self.bitmap = Some(Box::new(bitmap));
+        }
+
         let window = Window {
-            frame: frame,
+            next: None,
+            frame,
             content_insets: self.content_insets,
+            shadow_insets,
             style: self.style,
             level: self.level,
             bg_color: self.bg_color,
@@ -429,15 +430,6 @@ impl WindowBuilder {
     pub const fn bg_color(mut self, bg_color: Color) -> Self {
         self.bg_color = bg_color;
         self
-    }
-    #[inline]
-    pub fn bitmap(mut self, bitmap: Bitmap) -> Self {
-        let size = bitmap.size();
-        if bitmap.is_transparent() {
-            self.style.insert(WindowStyle::TRANSPARENT);
-        }
-        self.bitmap = Some(Box::new(bitmap));
-        self.size(size)
     }
     #[inline]
     pub const fn no_bitmap(mut self) -> Self {
@@ -554,34 +546,30 @@ impl WindowHandle {
         self.invalidate_rect(self.bounds());
     }
 
-    pub fn draw<F>(self, rect: Rect<isize>, f: F)
+    pub fn draw<F>(self, f: F) -> Result<(), ()>
     where
-        F: FnOnce(&Bitmap, Rect<isize>) -> (),
+        F: FnOnce(&Bitmap) -> (),
     {
         let window = self.borrow();
-        let coords1 = match Coordinates::from_rect(window.bounds().insets_by(window.content_insets))
+        let bitmap = match window.bitmap.as_ref() {
+            Some(bitmap) => bitmap,
+            None => return Err(()),
+        };
+        let coords = match Coordinates::from_rect(window.bounds().insets_by(window.content_insets))
         {
             Some(coords) => coords,
-            None => return,
+            None => return Err(()),
         };
-        let coords2 = match Coordinates::from_rect(rect) {
-            Some(coords) => coords,
-            None => return,
-        };
-        let coords = Coordinates::new(
-            cmp::max(coords1.left, coords2.left),
-            cmp::max(coords1.top, coords2.top),
-            cmp::min(coords1.right, coords2.right),
-            cmp::min(coords1.bottom, coords2.bottom),
-        );
         if coords.left > coords.right || coords.top > coords.bottom {
-            return;
+            return Err(());
         }
 
-        if let Some(bitmap) = window.bitmap.as_ref().unwrap().view(coords.into()) {
-            f(&bitmap, rect);
+        let rect = coords.into();
+        if let Some(bitmap) = bitmap.view(rect) {
+            f(&bitmap);
             window.invalidate_rect(rect);
         }
+        Ok(())
     }
 }
 
@@ -642,44 +630,65 @@ impl WindowManager {
             shared.resources.close_button = Some(Box::new(bitmap));
         };
 
-        shared.root = Some(
-            WindowBuilder::new("Desktop")
-                .style(WindowStyle::CLIENT_RECT)
-                .level(WindowLevel::ROOT)
-                .frame(Rect::from(main_screen.size()))
-                .bg_color(Color::from_rgb(DESKTOP_COLOR))
-                .no_bitmap()
-                .build(),
-        );
-        shared.root.unwrap().show();
+        {
+            // Desktop
+            shared.root = Some(
+                WindowBuilder::new("Desktop")
+                    .style(WindowStyle::CLIENT_RECT)
+                    .level(WindowLevel::ROOT)
+                    .frame(Rect::from(main_screen.size()))
+                    .bg_color(DESKTOP_COLOR)
+                    .no_bitmap()
+                    .build(),
+            );
+            shared.root.unwrap().show();
+        }
 
         {
+            // Pointer
             let w = MOUSE_POINTER_WIDTH;
             let h = MOUSE_POINTER_HEIGHT;
-            let bitmap = Bitmap::new(w, h, true);
-            bitmap
-                .update_bitmap(|bitmap| {
-                    let mut p: usize = 0;
-                    for y in 0..h {
-                        for x in 0..w {
-                            let c = MOUSE_POINTER_PALETTE[MOUSE_POINTER_SOURCE[y][x] as usize];
-                            bitmap[p] = Color::from_argb(c);
-                            p += 1;
-                        }
-                    }
-                })
-                .unwrap();
             shared.pointer = Some(
                 WindowBuilder::new("Pointer")
                     .style(WindowStyle::CLIENT_RECT)
                     .level(WindowLevel::POINTER)
-                    .bitmap(bitmap)
+                    .size(Size::new(w as isize, h as isize))
                     .origin(Point::new(
                         main_screen.width() / 2,
                         main_screen.height() / 2,
                     ))
                     .build(),
             );
+
+            shared
+                .pointer
+                .unwrap()
+                .draw(|bitmap| {
+                    bitmap
+                        .update_bitmap(|bitmap| {
+                            let mut p: usize = 0;
+                            for y in 0..h {
+                                for x in 0..w {
+                                    let c =
+                                        MOUSE_POINTER_PALETTE[MOUSE_POINTER_SOURCE[y][x] as usize];
+                                    bitmap[p] = Color::from_argb(c);
+                                    p += 1;
+                                }
+                            }
+                        })
+                        .unwrap();
+                })
+                .unwrap();
+        }
+
+        {
+            // Status bar
+            let window = WindowBuilder::new("Status Bar")
+                .style(WindowStyle::CLIENT_RECT)
+                .frame(Rect::new(0, 0, main_screen.width(), STATUS_BAR_HEIGHT))
+                .bg_color(STATUS_BAR_BG_COLOR)
+                .build();
+            window.show();
         }
     }
 

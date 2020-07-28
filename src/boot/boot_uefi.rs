@@ -83,7 +83,17 @@ where
 
     // ----------------------------------------------------------------
     // Exit Boot Services
-    let (_st, mm) = exit_boot_services(st, handle);
+
+    // because some UEFI implementations require an additional buffer during exit_boot_services
+    let buf_size = st.boot_services().memory_map_size() * 2;
+    let buf_ptr = st
+        .boot_services()
+        .allocate_pool(::uefi::table::boot::MemoryType::LOADER_DATA, buf_size)
+        .unwrap()
+        .unwrap();
+    let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr, buf_size) };
+    let (_st, mm) = st.exit_boot_services(handle, buf).unwrap().unwrap();
+
     // ----------------------------------------------------------------
 
     // TODO: manage memory map
@@ -100,32 +110,14 @@ where
     Status::LOAD_ERROR
 }
 
-pub fn exit_boot_services<'a>(
-    st: SystemTable<Boot>,
-    image: Handle,
-) -> (
-    SystemTable<::uefi::table::Runtime>,
-    ::uefi::table::boot::MemoryMapIter<'a>,
-) {
-    // because some UEFI implementations require an additional buffer during exit_boot_services
-    let buf_size = st.boot_services().memory_map_size() * 2;
-    let buf_ptr = st
-        .boot_services()
-        .allocate_pool(::uefi::table::boot::MemoryType::LOADER_DATA, buf_size)
-        .unwrap()
-        .unwrap();
-    let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr, buf_size) };
-    st.exit_boot_services(image, buf).unwrap().unwrap()
-}
-
 pub trait MyUefiLib {
     fn find_config_table(&self, _: ::uefi::Guid) -> Option<*const c_void>;
 }
 
 impl MyUefiLib for SystemTable<::uefi::table::Boot> {
-    fn find_config_table(&self, expected: ::uefi::Guid) -> Option<*const c_void> {
+    fn find_config_table(&self, guid: ::uefi::Guid) -> Option<*const c_void> {
         for entry in self.config_table() {
-            if entry.guid == expected {
+            if entry.guid == guid {
                 return Some(entry.address);
             }
         }

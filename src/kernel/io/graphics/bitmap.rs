@@ -2,7 +2,9 @@
 
 use super::color::*;
 use super::coords::*;
+use crate::kernel::io::fonts::*;
 use crate::kernel::mem::alloc::*;
+use crate::kernel::num::*;
 use bitflags::*;
 use core::mem::swap;
 
@@ -18,7 +20,7 @@ bitflags! {
     pub struct BitmapFlags: usize {
         const PORTRAIT = 0b0000_0001;
         const TRANSPARENT = 0b0000_0010;
-        const UNMANAGED = 0b1000_0000;
+        const VIEW = 0b1000_0000;
     }
 }
 
@@ -30,7 +32,7 @@ impl From<&crate::boot::BootInfo> for Bitmap {
         let mut width = info.screen_width;
         let mut height = info.screen_height;
         let mut is_portrait = height > width;
-        let mut flags = BitmapFlags::UNMANAGED;
+        let mut flags = BitmapFlags::VIEW;
         if is_portrait {
             // portrait
             swap(&mut width, &mut height);
@@ -86,7 +88,7 @@ impl Bitmap {
                 .add(coords.left as usize + coords.top as usize * self.delta)
         };
         let mut flags = self.flags;
-        flags.insert(BitmapFlags::UNMANAGED);
+        flags.insert(BitmapFlags::VIEW);
 
         Some(Self {
             base,
@@ -149,7 +151,7 @@ impl Bitmap {
     where
         F: FnOnce(&mut [Color]),
     {
-        if self.flags.contains(BitmapFlags::UNMANAGED) || self.delta != self.size.width as usize {
+        if self.delta != self.size.width as usize {
             return Err(());
         }
         let slice = unsafe {
@@ -591,11 +593,35 @@ impl Bitmap {
             }
         }
     }
+
+    pub fn draw_string(&self, font: &FontDriver, rect: Rect<isize>, color: Color, text: &str) {
+        let mut cursor = Point::<isize>::zero();
+        let coords = Coordinates::from_rect(rect).unwrap();
+
+        for c in text.chars() {
+            let font_size = Size::new(font.width(), font.height());
+            if cursor.x + font_size.width >= coords.right {
+                cursor.x = 0;
+                cursor.y += font.line_height();
+            }
+            if cursor.y + font_size.height >= coords.bottom {
+                break;
+            }
+            let font_rect = Rect {
+                origin: rect.origin + cursor,
+                size: font_size,
+            };
+            if let Some(glyph) = font.glyph_for(c) {
+                self.draw_pattern(font_rect, glyph, color);
+            }
+            cursor.x += font_size.width;
+        }
+    }
 }
 
 impl Drop for Bitmap {
     fn drop(&mut self) {
-        if !self.flags.contains(BitmapFlags::UNMANAGED) {
+        if !self.flags.contains(BitmapFlags::VIEW) {
             // TODO: drop bitmap
         }
     }

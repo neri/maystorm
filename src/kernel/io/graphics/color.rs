@@ -49,6 +49,14 @@ impl Color {
     }
 
     #[inline]
+    pub fn set_opacity(mut self, alpha: u8) -> Self {
+        let mut components = self.components();
+        components.a = alpha;
+        self.argb = components.into();
+        self
+    }
+
+    #[inline]
     pub fn is_opaque(self) -> bool {
         self.components().is_opaque()
     }

@@ -13,6 +13,7 @@ use alloc::boxed::Box;
 use core::fmt::Write;
 use myos::boot::*;
 use myos::kernel::io::console::*;
+use myos::kernel::io::fonts::*;
 use myos::kernel::io::graphics::*;
 use myos::kernel::io::hid;
 use myos::kernel::io::hid::*;
@@ -31,18 +32,25 @@ fn main(info: &BootInfo) {
 fn sysinit() {
     let system = System::shared();
 
+    GlobalScheduler::wait_for(None, TimeMeasure::from_millis(300));
+
     {
-        // Status bar
-        let bounds = WindowManager::main_screen_bounds();
-        let window = WindowBuilder::new("Status Bar")
-            .style(WindowStyle::CLIENT_RECT)
-            .frame(Rect::new(0, 0, bounds.width(), 24))
-            .bg_color(Color::from_argb(0xC0EEEEEE))
+        // Test Window
+        let window = WindowBuilder::new("test")
+            .frame(Rect::new(640, 40, 120, 80))
             .build();
         window.show();
+        window
+            .draw(|bitmap| {
+                bitmap.draw_string(
+                    FontDriver::small_font(),
+                    bitmap.bounds(),
+                    Color::BLACK,
+                    "The quick brown fox jumps over the lazy dog.",
+                );
+            })
+            .unwrap();
     }
-
-    GlobalScheduler::wait_for(None, TimeMeasure::from_millis(300));
 
     {
         // Main Terminal
@@ -50,21 +58,23 @@ fn sysinit() {
             .frame(Rect::new(8, 32, 640, 480))
             .build();
         window.show();
-        window.draw(window.client_rect(), |bitmap, _rect| {
-            let center = Point::<isize>::new(bitmap.width() / 2, bitmap.height() / 2);
-            bitmap.blend_rect(
-                Rect::new(center.x - 85, center.y - 60, 80, 80),
-                IndexedColor::LightRed.as_color() * 0.8,
-            );
-            bitmap.blend_rect(
-                Rect::new(center.x - 40, center.y - 20, 80, 80),
-                IndexedColor::LightGreen.as_color() * 0.8,
-            );
-            bitmap.blend_rect(
-                Rect::new(center.x + 5, center.y - 60, 80, 80),
-                IndexedColor::LightBlue.as_color() * 0.8,
-            );
-        });
+        window
+            .draw(|bitmap| {
+                let center = Point::<isize>::new(bitmap.width() / 2, bitmap.height() / 2);
+                bitmap.blend_rect(
+                    Rect::new(center.x - 85, center.y - 60, 80, 80),
+                    IndexedColor::LightRed.as_color() * 0.8,
+                );
+                bitmap.blend_rect(
+                    Rect::new(center.x - 40, center.y - 20, 80, 80),
+                    IndexedColor::LightGreen.as_color() * 0.8,
+                );
+                bitmap.blend_rect(
+                    Rect::new(center.x + 5, center.y - 60, 80, 80),
+                    IndexedColor::LightBlue.as_color() * 0.8,
+                );
+            })
+            .unwrap();
         set_stdout(Box::new(GraphicalConsole::from(window)));
     }
 
