@@ -611,10 +611,18 @@ impl Bitmap {
                 origin: rect.origin + cursor,
                 size: font_size,
             };
-            if let Some(glyph) = font.glyph_for(c) {
-                self.draw_pattern(font_rect, glyph, color);
+            match c {
+                '\n' => {
+                    cursor.x = 0;
+                    cursor.y += font.line_height();
+                }
+                _ => {
+                    if let Some(glyph) = font.glyph_for(c) {
+                        self.draw_pattern(font_rect, glyph, color);
+                    }
+                    cursor.x += font_size.width;
+                }
             }
-            cursor.x += font_size.width;
         }
     }
 }

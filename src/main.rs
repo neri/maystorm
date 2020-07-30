@@ -35,11 +35,9 @@ fn sysinit() {
     GlobalScheduler::wait_for(None, TimeMeasure::from_millis(300));
 
     {
-        // Test Window
-        let window = WindowBuilder::new("test")
+        let window = WindowBuilder::new("Test 1")
             .frame(Rect::new(640, 40, 120, 80))
             .build();
-        window.show();
         window
             .draw(|bitmap| {
                 bitmap.draw_string(
@@ -50,6 +48,25 @@ fn sysinit() {
                 );
             })
             .unwrap();
+        window.show();
+    }
+
+    {
+        let window = WindowBuilder::new("Test 2")
+            .frame(Rect::new(640, 136, 120, 80))
+            .bg_color(Color::from_argb(0x80000000))
+            .build();
+        window
+            .draw(|bitmap| {
+                bitmap.draw_string(
+                    FontDriver::small_font(),
+                    bitmap.bounds(),
+                    IndexedColor::Yellow.into(),
+                    "ETAOIN SHRDLU CMFWYP VBGKQJ XZ 1234567890",
+                );
+            })
+            .unwrap();
+        window.show();
     }
 
     {
