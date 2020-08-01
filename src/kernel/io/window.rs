@@ -2,14 +2,18 @@
 
 use super::fonts::*;
 use super::graphics::*;
+use crate::kernel::io::hid::*;
 use crate::kernel::mem::Dispose;
 use crate::kernel::num::*;
+use crate::kernel::scheduler::*;
+use crate::kernel::sync::semaphore::*;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
 use bitflags::*;
 use core::cmp;
 use core::num::*;
+use core::ptr::*;
 use core::sync::atomic::*;
 
 const MAX_WINDOWS: usize = 256;
@@ -22,9 +26,9 @@ const WINDOW_BASIC_PADDING: isize = 4;
 const STATUS_BAR_HEIGHT: isize = 24;
 
 const DESKTOP_COLOR: Color = Color::from_argb(0xFF2196F3);
+const BARRIER_COLOR: Color = Color::from_argb(0x80000000);
 const STATUS_BAR_BG_COLOR: Color = Color::from_argb(0xC0EEEEEE);
-const WINDOW_BORDER_COLOR: Color = Color::from_argb(0xFF777777);
-const WINDOW_ACTIVE_TITLE_BG_COLOR: Color = Color::from_argb(0xC0CCCCCC);
+const WINDOW_ACTIVE_TITLE_BG_COLOR: Color = Color::from_argb(0xE0CCCCCC);
 const WINDOW_ACTIVE_TITLE_SHADOW_COLOR: Color = Color::from_argb(0x99999999);
 const WINDOW_ACTIVE_TITLE_FG_COLOR: Color = Color::from_argb(0xFF000000);
 const WINDOW_INACTIVE_TITLE_BG_COLOR: Color = Color::from_argb(0xFFEEEEEE);
@@ -59,7 +63,7 @@ const MOUSE_POINTER_SOURCE: [[u8; MOUSE_POINTER_WIDTH]; MOUSE_POINTER_HEIGHT] = 
 
 // Close button
 const CLOSE_BUTTON_SIZE: usize = 10;
-const CLOSE_BUTTON_PALETTE: [u32; 4] = [0x00000000, 0x30000000, 0x60000000, 0x90000000];
+const CLOSE_BUTTON_PALETTE: [u32; 4] = [0x00000000, 0x40000000, 0x80000000, 0xC0000000];
 const CLOSE_BUTTON_SOURCE: [[u8; CLOSE_BUTTON_SIZE]; CLOSE_BUTTON_SIZE] = [
     [0, 1, 0, 0, 0, 0, 0, 0, 1, 0],
     [1, 3, 2, 0, 0, 0, 0, 2, 3, 1],
@@ -147,10 +151,10 @@ impl WindowAttributes {
 }
 
 impl Window {
-    #[inline]
-    fn bounds(&self) -> Rect<isize> {
-        Rect::from(self.frame.insets_by(self.shadow_insets).size)
-    }
+    // #[inline]
+    // fn bounds(&self) -> Rect<isize> {
+    //     Rect::from(self.frame.insets_by(self.shadow_insets).size)
+    // }
 
     #[inline]
     fn frame(&self) -> Rect<isize> {
@@ -194,7 +198,7 @@ impl Window {
         let mut cursor = WindowManager::shared().root.unwrap();
 
         loop {
-            let window = cursor.borrow();
+            let window = cursor.as_ref();
             if let Some(coords2) = Coordinates::from_rect(window.frame) {
                 if frame.hit_test(window.frame) {
                     let blt_origin = Point::new(
@@ -236,9 +240,9 @@ impl Window {
                 None => break,
             };
         }
-        // if is_offscreen {
-        //     main_screen.blt(off_screen, rect.origin, rect);
-        // }
+        if is_offscreen {
+            main_screen.blt(off_screen, frame.origin, frame);
+        }
     }
 
     fn title_frame(&self) -> Rect<isize> {
@@ -271,7 +275,7 @@ impl Window {
                 for n in 0..WINDOW_BORDER_SHADOW_PADDING {
                     let rect = Rect::from(bitmap.size()).insets_by(EdgeInsets::padding_all(n));
                     let light = 1 + n as u8;
-                    let color = Color::TRANSPARENT.set_opacity(light * light * 2);
+                    let color = Color::TRANSPARENT.set_opacity(light * light);
                     bitmap.draw_rect(rect, color);
                 }
             }
@@ -279,7 +283,6 @@ impl Window {
                 let shared = WindowManager::shared();
                 let pad_x = 8;
                 let pad_left = WINDOW_BORDER_SHADOW_PADDING + pad_x;
-                let mut pad_right = WINDOW_BORDER_SHADOW_PADDING + pad_x;
 
                 let is_active = self.is_active();
 
@@ -305,7 +308,7 @@ impl Window {
                         close.bounds(),
                     );
                 }
-                pad_right = rect.height();
+                let pad_right = rect.height();
 
                 let title_len = self.title[0] as usize;
                 if title_len > 0 {
@@ -338,7 +341,7 @@ impl Window {
 
     fn invalidate_rect(&self, rect: Rect<isize>) {
         if self.attributes.contains(WindowAttributes::VISIBLE) {
-            self.draw_to_screen(rect, false);
+            self.draw_to_screen(rect, true);
         }
     }
 
@@ -453,7 +456,7 @@ impl WindowBuilder {
         };
         window.draw_frame();
         let handle = WindowManager::add(Box::new(window));
-        handle.using(|window| {
+        handle.update(|window| {
             window.this = Some(handle);
         });
         handle
@@ -517,7 +520,7 @@ impl WindowHandle {
     }
 
     #[inline]
-    fn using<F, R>(self, f: F) -> R
+    fn update<F, R>(self, f: F) -> R
     where
         F: FnOnce(&mut Window) -> R,
     {
@@ -526,7 +529,7 @@ impl WindowHandle {
         f(window)
     }
 
-    fn borrow(self) -> &'static Window {
+    fn as_ref(self) -> &'static Window {
         let shared = WindowManager::shared();
         shared.pool[self.as_index()].as_ref()
     }
@@ -534,35 +537,35 @@ impl WindowHandle {
     // :-:-:-:-:
 
     pub fn set_title(self, title: &str) {
-        self.using(|window| {
+        self.update(|window| {
             window.set_title(title);
         });
     }
 
     #[inline]
     pub(crate) fn get_bitmap(self) -> Option<&'static Box<Bitmap>> {
-        self.borrow().bitmap.as_ref()
+        self.as_ref().bitmap.as_ref()
     }
 
     #[inline]
     pub fn frame(self) -> Rect<isize> {
-        self.borrow().frame()
+        self.as_ref().frame()
     }
 
     pub fn set_frame(self, rect: Rect<isize>) {
-        self.using(|window| {
+        self.update(|window| {
             window.set_frame(rect);
         });
     }
 
-    #[inline]
-    pub fn bounds(self) -> Rect<isize> {
-        Rect::from(self.frame().size)
-    }
+    // #[inline]
+    // pub fn bounds(self) -> Rect<isize> {
+    //     Rect::from(self.frame().size)
+    // }
 
     #[inline]
     pub(crate) fn content_insets(self) -> EdgeInsets<isize> {
-        self.borrow().content_insets
+        self.as_ref().content_insets
     }
 
     #[inline]
@@ -591,14 +594,13 @@ impl WindowHandle {
             WindowManager::remove_hierarchy(self);
             WindowManager::add_hierarchy(self);
         });
-        // self.borrow().draw_frame();
-        // self.invalidate();
-        WindowManager::set_active(Some(self));
+        self.as_ref().draw_frame();
+        self.invalidate();
     }
 
     pub fn hide(self) {
         let shared = WindowManager::shared();
-        let frame = self.borrow().frame;
+        let frame = self.as_ref().frame;
         if let Some(active) = shared.active {
             if active == self {
                 WindowManager::set_active(None);
@@ -611,19 +613,19 @@ impl WindowHandle {
     }
 
     pub fn invalidate_rect(self, rect: Rect<isize>) {
-        self.borrow().invalidate_rect(rect);
+        self.as_ref().invalidate_rect(rect);
     }
 
     #[inline]
     pub fn invalidate(self) {
-        self.borrow().invalidate();
+        self.as_ref().invalidate();
     }
 
     pub fn draw<F>(self, f: F) -> Result<(), ()>
     where
         F: FnOnce(&Bitmap) -> (),
     {
-        let window = self.borrow();
+        let window = self.as_ref();
         let bitmap = match window.bitmap.as_ref() {
             Some(bitmap) => bitmap,
             None => return Err(()),
@@ -654,16 +656,65 @@ struct Resources {
     close_button: Option<Box<Bitmap>>,
 }
 
+struct WindowManagerAttributes(AtomicUsize);
+
+#[allow(dead_code)]
+impl WindowManagerAttributes {
+    pub const EMPTY: Self = Self::new(0);
+    pub const MOUSE_MOVE: usize = 0b0000_0001;
+
+    #[inline]
+    pub const fn new(value: usize) -> Self {
+        Self(AtomicUsize::new(value))
+    }
+
+    #[inline]
+    pub fn contains(&self, value: usize) -> bool {
+        (self.0.load(Ordering::Acquire) & value) == value
+    }
+
+    #[inline]
+    pub fn insert(&self, value: usize) {
+        self.0.fetch_or(value, Ordering::AcqRel);
+    }
+
+    #[inline]
+    pub fn remove(&self, value: usize) {
+        self.0.fetch_and(!value, Ordering::AcqRel);
+    }
+
+    fn test_and_clear(&self, bits: usize) -> bool {
+        self.0
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
+                if (x & bits) == bits {
+                    Some(x & !bits)
+                } else {
+                    None
+                }
+            })
+            .is_ok()
+    }
+}
+
 pub struct WindowManager {
+    lock: Spinlock,
+    sem_redraw: Semaphore,
+    attributes: WindowManagerAttributes,
+    pointer_x: AtomicIsize,
+    pointer_y: AtomicIsize,
+    buttons: AtomicUsize,
+    button_pressed: AtomicUsize,
     main_screen: &'static Bitmap,
     off_screen: Box<Bitmap>,
     screen_insets: EdgeInsets<isize>,
     resources: Resources,
-    lock: Spinlock,
     pool: Vec<Box<Window>>,
     root: Option<WindowHandle>,
     pointer: Option<WindowHandle>,
+    barrier: Option<WindowHandle>,
     active: Option<WindowHandle>,
+    captured: Option<WindowHandle>,
+    captured_origin: Point<isize>,
 }
 
 impl WindowManager {
@@ -672,15 +723,24 @@ impl WindowManager {
         let off_screen = Box::new(Bitmap::with_same_size(main_screen));
 
         let wm = WindowManager {
-            main_screen: main_screen,
-            off_screen: off_screen,
+            lock: Spinlock::default(),
+            sem_redraw: Semaphore::new(0),
+            attributes: WindowManagerAttributes::EMPTY,
+            pointer_x: AtomicIsize::new(main_screen.width() / 2),
+            pointer_y: AtomicIsize::new(main_screen.height() / 2),
+            buttons: AtomicUsize::new(0),
+            button_pressed: AtomicUsize::new(0),
+            main_screen,
+            off_screen,
             screen_insets: EdgeInsets::zero(),
             resources: Resources::default(),
             pool: Vec::with_capacity(MAX_WINDOWS),
-            lock: Spinlock::new(),
             root: None,
             pointer: None,
+            barrier: None,
             active: None,
+            captured: None,
+            captured_origin: Point::zero(),
         };
         unsafe {
             WM = Some(Box::new(wm));
@@ -717,8 +777,6 @@ impl WindowManager {
                     .no_bitmap()
                     .build(),
             );
-
-            shared.root.unwrap().invalidate();
         }
 
         {
@@ -730,10 +788,6 @@ impl WindowManager {
                     .style(WindowStyle::CLIENT_RECT)
                     .level(WindowLevel::POINTER)
                     .size(Size::new(w as isize, h as isize))
-                    .origin(Point::new(
-                        main_screen.width() / 2,
-                        main_screen.height() / 2,
-                    ))
                     .bg_color(Color::from_argb(0x80FF00FF))
                     .build(),
             );
@@ -757,6 +811,20 @@ impl WindowManager {
         }
 
         {
+            // Barrier
+            shared.barrier = Some(
+                WindowBuilder::new("Barrier")
+                    .style(WindowStyle::CLIENT_RECT | WindowStyle::TRANSPARENT)
+                    .level(WindowLevel::POPUP_BARRIER)
+                    .frame(Rect::from(main_screen.size()))
+                    .bg_color(BARRIER_COLOR)
+                    .no_bitmap()
+                    .build(),
+            );
+            // shared.barrier.unwrap().show();
+        }
+
+        {
             // Status bar
             let window = WindowBuilder::new("Status Bar")
                 .style(WindowStyle::CLIENT_RECT)
@@ -764,6 +832,57 @@ impl WindowManager {
                 .bg_color(STATUS_BAR_BG_COLOR)
                 .build();
             window.show();
+            shared.screen_insets.top += STATUS_BAR_HEIGHT;
+        }
+
+        GlobalScheduler::spawn_f(Self::window_thread, null_mut(), Priority::Realtime);
+        shared.root.unwrap().invalidate();
+    }
+
+    fn window_thread(_: *mut c_void) {
+        let shared = WindowManager::shared();
+        loop {
+            shared.sem_redraw.wait(TimeMeasure::from_millis(1));
+
+            if shared
+                .attributes
+                .test_and_clear(WindowManagerAttributes::MOUSE_MOVE)
+            {
+                let pointer = shared.pointer.unwrap();
+                let origin = Point::new(
+                    shared.pointer_x.load(Ordering::Acquire),
+                    shared.pointer_y.load(Ordering::Acquire),
+                );
+                let current_button =
+                    MouseButton::from_bits_truncate(shared.buttons.load(Ordering::Acquire) as u8);
+                let button_pressed = MouseButton::from_bits_truncate(
+                    shared.button_pressed.swap(0, Ordering::AcqRel) as u8,
+                );
+
+                if let Some(captured) = shared.captured {
+                    if current_button.contains(MouseButton::LEFT) {
+                        let top = shared.screen_insets.top;
+                        let x = origin.x - shared.captured_origin.x;
+                        let y = cmp::max(origin.y - shared.captured_origin.y, top);
+                        captured.move_to(Point::new(x, y));
+                    } else {
+                        shared.captured = None;
+                    }
+                } else if button_pressed.contains(MouseButton::LEFT) {
+                    let mouse_at = Self::window_at_point(origin);
+                    if let Some(active) = shared.active {
+                        if active != mouse_at {
+                            WindowManager::set_active(Some(mouse_at));
+                        }
+                    } else {
+                        WindowManager::set_active(Some(mouse_at));
+                    }
+                    shared.captured = Some(mouse_at);
+                    shared.captured_origin = origin - mouse_at.as_ref().frame().origin;
+                }
+
+                pointer.move_to(origin);
+            }
         }
     }
 
@@ -792,15 +911,15 @@ impl WindowManager {
     unsafe fn add_hierarchy(window: WindowHandle) {
         let shared = WindowManager::shared();
         let mut cursor = shared.root.unwrap();
-        let level = window.borrow().level;
+        let level = window.as_ref().level;
 
         loop {
-            if let Some(next) = cursor.borrow().next {
-                if level < next.borrow().level {
-                    cursor.using(|cursor| {
+            if let Some(next) = cursor.as_ref().next {
+                if level < next.as_ref().level {
+                    cursor.update(|cursor| {
                         cursor.next = Some(window);
                     });
-                    window.using(|window| {
+                    window.update(|window| {
                         window.next = Some(next);
                     });
                     break;
@@ -808,27 +927,27 @@ impl WindowManager {
                     cursor = next;
                 }
             } else {
-                cursor.using(|cursor| {
+                cursor.update(|cursor| {
                     cursor.next = Some(window);
                 });
                 break;
             }
         }
-        window.borrow().attributes.insert(WindowAttributes::VISIBLE);
+        window.as_ref().attributes.insert(WindowAttributes::VISIBLE);
     }
 
     unsafe fn remove_hierarchy(window: WindowHandle) {
         let shared = WindowManager::shared();
         let mut cursor = shared.root.unwrap();
 
-        window.borrow().attributes.remove(WindowAttributes::VISIBLE);
+        window.as_ref().attributes.remove(WindowAttributes::VISIBLE);
         loop {
-            if let Some(next) = cursor.borrow().next {
+            if let Some(next) = cursor.as_ref().next {
                 if next == window {
-                    cursor.using(|cursor| {
-                        cursor.next = window.borrow().next;
+                    cursor.update(|cursor| {
+                        cursor.next = window.as_ref().next;
                     });
-                    window.using(|window| {
+                    window.update(|window| {
                         window.next = None;
                     });
                     break;
@@ -838,11 +957,6 @@ impl WindowManager {
                 break;
             }
         }
-    }
-
-    pub(crate) fn move_cursor(point: Point<isize>) {
-        let shared = Self::shared();
-        shared.pointer.unwrap().move_to(point);
     }
 
     pub fn main_screen_bounds() -> Rect<isize> {
@@ -859,18 +973,95 @@ impl WindowManager {
         let shared = Self::shared();
         if let Some(old_active) = shared.active {
             shared.active = window;
-            old_active.borrow().draw_frame();
+            old_active.as_ref().draw_frame();
             old_active.invalidate();
             if let Some(active) = window {
-                active.borrow().draw_frame();
-                active.invalidate();
+                // active.as_ref().draw_frame();
+                active.show();
             }
         } else {
             shared.active = window;
             if let Some(active) = window {
-                active.borrow().draw_frame();
-                active.invalidate();
+                // active.as_ref().draw_frame();
+                active.show();
             }
         }
+    }
+
+    fn window_at_point(point: Point<isize>) -> WindowHandle {
+        WindowManager::synchronized(|| {
+            let shared = Self::shared();
+            let mut found = shared.root.unwrap();
+            let mut cursor = found;
+            loop {
+                let window = cursor.as_ref();
+                if window.level == WindowLevel::POINTER {
+                    break found;
+                }
+                if let Some(coords) =
+                    Coordinates::from_rect(window.frame.insets_by(window.shadow_insets))
+                {
+                    if coords.left <= point.x
+                        && coords.right > point.x
+                        && coords.top <= point.y
+                        && coords.bottom > point.y
+                    {
+                        found = cursor;
+                    }
+                }
+                cursor = window.next.unwrap();
+            }
+        })
+    }
+
+    fn update_coord(
+        coord: &AtomicIsize,
+        movement: isize,
+        min_value: isize,
+        max_value: isize,
+    ) -> bool {
+        match coord.fetch_update(Ordering::Acquire, Ordering::Acquire, |value| {
+            let new_value = cmp::min(cmp::max(value + movement, min_value), max_value);
+            if value == new_value {
+                None
+            } else {
+                Some(new_value)
+            }
+        }) {
+            Ok(_) => true,
+            Err(_) => false,
+        }
+    }
+
+    pub fn make_mouse_event(mouse_state: &mut MouseState) {
+        let shared = Self::shared();
+        let bounds = shared.main_screen.bounds();
+
+        let mut pointer = Point::new(0, 0);
+        core::mem::swap(&mut mouse_state.x, &mut pointer.x);
+        core::mem::swap(&mut mouse_state.y, &mut pointer.y);
+        let button_change = mouse_state.current_buttons ^ mouse_state.prev_buttons;
+        let button_pressed = button_change & mouse_state.current_buttons;
+
+        shared.buttons.store(
+            mouse_state.current_buttons.bits() as usize,
+            Ordering::Release,
+        );
+
+        shared
+            .button_pressed
+            .fetch_or(button_pressed.bits() as usize, Ordering::AcqRel);
+
+        Self::update_coord(&shared.pointer_x, pointer.x, bounds.x(), bounds.width() - 1);
+        Self::update_coord(
+            &shared.pointer_y,
+            pointer.y,
+            bounds.y(),
+            bounds.height() - 1,
+        );
+        shared
+            .attributes
+            .insert(WindowManagerAttributes::MOUSE_MOVE);
+        shared.sem_redraw.signal();
     }
 }

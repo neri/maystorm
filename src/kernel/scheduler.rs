@@ -207,8 +207,8 @@ impl GlobalScheduler {
         if Self::is_enabled() {
             Cpu::without_interrupts(|| {
                 let lsch = Self::local_scheduler();
-                if lsch.current.borrow().priority != Priority::Realtime {
-                    if lsch.current.using(|current| current.quantum.consume()) {
+                if lsch.current.as_ref().priority != Priority::Realtime {
+                    if lsch.current.update(|current| current.quantum.consume()) {
                         LocalScheduler::next_thread(lsch);
                     }
                 }
@@ -225,7 +225,7 @@ impl GlobalScheduler {
                     return;
                 }
             }
-            lsch.current.using(|current| {
+            lsch.current.update(|current| {
                 current.deadline = Timer::new(duration);
             });
             LocalScheduler::next_thread(lsch);
@@ -234,7 +234,7 @@ impl GlobalScheduler {
 
     pub fn signal(object: &SignallingObject) {
         if let Some(thread) = object.unbox() {
-            thread.using(|thread| thread.deadline = Timer::NULL);
+            thread.update(|thread| thread.deadline = Timer::NULL);
         }
     }
 
@@ -252,7 +252,7 @@ impl GlobalScheduler {
                 return Some(next);
             }
             while let Some(next) = sch.ready.as_mut().unwrap().dequeue() {
-                if next.borrow().deadline.until() {
+                if next.as_ref().deadline.until() {
                     GlobalScheduler::retire(next);
                     continue;
                 } else {
@@ -271,7 +271,7 @@ impl GlobalScheduler {
     // Retire Thread
     fn retire(thread: ThreadHandle) {
         let sch = unsafe { &mut GLOBAL_SCHEDULER };
-        let priority = thread.borrow().priority;
+        let priority = thread.as_ref().priority;
         if priority != Priority::Idle {
             sch.retired.as_mut().unwrap().enqueue(thread).unwrap();
         }
@@ -332,7 +332,7 @@ impl LocalScheduler {
             Some(next) => next,
             None => lsch.idle,
         };
-        if current.borrow().id == next.borrow().id {
+        if current.as_ref().id == next.as_ref().id {
             // TODO: adjust statistics
         } else {
             lsch.count.fetch_add(1, Ordering::Relaxed);
@@ -340,13 +340,13 @@ impl LocalScheduler {
             lsch.current = next;
             unsafe {
                 sch_switch_context(
-                    &current.borrow().context as *const u8 as *mut u8,
-                    &next.borrow().context as *const u8 as *mut u8,
+                    &current.as_ref().context as *const u8 as *mut u8,
+                    &next.as_ref().context as *const u8 as *mut u8,
                 );
             }
             let lsch = GlobalScheduler::local_scheduler();
             let current = lsch.current;
-            current.using(|thread| thread.deadline = Timer::NULL);
+            current.update(|thread| thread.deadline = Timer::NULL);
             let retired = lsch.retired.unwrap();
             // if let Some(retired) = lsch.retired {
             lsch.retired = None;
@@ -469,7 +469,7 @@ impl ThreadHandle {
     }
 
     #[inline]
-    fn using<F, R>(self, f: F) -> R
+    fn update<F, R>(self, f: F) -> R
     where
         F: FnOnce(&mut NativeThread) -> R,
     {
@@ -478,7 +478,7 @@ impl ThreadHandle {
         f(thread)
     }
 
-    fn borrow(self) -> &'static NativeThread {
+    fn as_ref(self) -> &'static NativeThread {
         let shared = unsafe { &THREAD_POOL };
         shared.vec[self.as_index()].as_ref()
     }
@@ -513,7 +513,7 @@ impl NativeThread {
             deadline: Timer::NULL,
         }));
         if let Some(start) = start {
-            handle.using(|thread| unsafe {
+            handle.update(|thread| unsafe {
                 let stack = CustomAlloc::zalloc(SIZE_OF_STACK).unwrap().as_ptr();
                 sch_make_new_thread(
                     thread.context.as_mut_ptr(),
@@ -527,7 +527,7 @@ impl NativeThread {
     }
 
     pub fn current_id() -> ThreadId {
-        GlobalScheduler::local_scheduler().current.borrow().id
+        GlobalScheduler::local_scheduler().current.as_ref().id
     }
 
     pub fn current() -> ThreadHandle {

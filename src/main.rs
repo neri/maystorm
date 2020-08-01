@@ -15,7 +15,6 @@ use myos::boot::*;
 use myos::kernel::io::console::*;
 use myos::kernel::io::fonts::*;
 use myos::kernel::io::graphics::*;
-use myos::kernel::io::hid;
 use myos::kernel::io::hid::*;
 use myos::kernel::io::window::*;
 use myos::kernel::scheduler::*;
@@ -104,22 +103,15 @@ fn sysinit() {
     );
     println!("Hello, {}!", "Rust");
 
-    // Thread::spawn(|| {
-    //     println!("Hello, thread!");
-    // });
-
     loop {
         stdout().set_cursor_enabled(true);
         match HidManager::get_key() {
             Some(key) => {
                 stdout().set_cursor_enabled(false);
-                let c = hid::HidManager::usage_to_char_109(key.usage, key.modifier);
-                print!("{}", c);
-                // match c {
-                //     'p' => GlobalScheduler::print_statistics(),
-                //     '!' => Cpu::breakpoint(),
-                //     _ => (),
-                // }
+                let c: char = key.into();
+                if c != '\0' {
+                    print!("{}", c);
+                }
             }
             None => GlobalScheduler::wait_for(None, TimeMeasure::from_millis(10)),
         }

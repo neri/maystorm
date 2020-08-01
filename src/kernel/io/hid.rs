@@ -5,19 +5,9 @@ use crate::kernel::sync::queue::*;
 use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;
-use core::cmp;
 use core::num::*;
-use core::sync::atomic::*;
 
 const INVALID_UNICHAR: char = '\u{FEFF}';
-
-pub struct HidKeyboard {
-    pub state: KeyboardState,
-}
-
-pub struct HidMouse {
-    pub state: MouseState,
-}
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -70,6 +60,12 @@ impl Modifier {
     }
 }
 
+bitflags! {
+    pub struct KeyEventFlags: u8 {
+        const BREAK = 0b1000_0000;
+    }
+}
+
 /// USB HID BIOS Keyboard Raw Report
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
@@ -83,14 +79,26 @@ pub struct KeyReportRaw {
 pub struct KeyEvent {
     pub usage: Usage,
     pub modifier: Modifier,
+    pub flags: KeyEventFlags,
 }
 
 impl KeyEvent {
-    pub const fn new(usage: Usage, modifier: Modifier) -> Self {
+    pub const fn new(usage: Usage, modifier: Modifier, flags: KeyEventFlags) -> Self {
         Self {
-            usage: usage,
-            modifier: modifier,
+            usage,
+            modifier,
+            flags,
         }
+    }
+
+    pub fn into_char(self) -> char {
+        HidManager::key_event_to_char(self)
+    }
+}
+
+impl Into<char> for KeyEvent {
+    fn into(self) -> char {
+        self.into_char()
     }
 }
 
@@ -100,6 +108,7 @@ impl From<NonZeroUsize> for KeyEvent {
         Self {
             usage: Usage((value & 0xFF) as u8),
             modifier: unsafe { Modifier::from_bits_unchecked(((value >> 16) & 0xFF) as u8) },
+            flags: unsafe { KeyEventFlags::from_bits_unchecked(((value >> 24) & 0xFF) as u8) },
         }
     }
 }
@@ -108,7 +117,9 @@ impl Into<NonZeroUsize> for KeyEvent {
     fn into(self) -> NonZeroUsize {
         unsafe {
             NonZeroUsize::new_unchecked(
-                self.usage.0 as usize | ((self.modifier.bits as usize) << 16),
+                self.usage.0 as usize
+                    | ((self.modifier.bits as usize) << 16)
+                    | ((self.flags.bits as usize) << 24),
             )
         }
     }
@@ -160,16 +171,34 @@ bitflags! {
     }
 }
 
+impl Default for MouseButton {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+#[derive(Debug, Copy, Clone, Default)]
 pub struct MouseState {
-    pub buttons: MouseButton,
-    pub prev: MouseButton,
+    pub current_buttons: MouseButton,
+    pub prev_buttons: MouseButton,
     pub x: isize,
     pub y: isize,
 }
 
+impl MouseState {
+    pub fn process_mouse_report<T>(&mut self, report: MouseReport<T>)
+    where
+        T: Into<isize> + Copy,
+    {
+        self.prev_buttons = self.current_buttons;
+        self.current_buttons = report.buttons;
+        self.x += report.x.into();
+        self.y += report.y.into();
+        WindowManager::make_mouse_event(self);
+    }
+}
+
 pub struct HidManager {
-    pointer_x: AtomicIsize,
-    pointer_y: AtomicIsize,
     key_buf: Box<AtomicLinkedQueue<KeyEvent>>,
 }
 
@@ -183,70 +212,34 @@ impl HidManager {
     }
 
     fn new() -> Self {
-        let fb = stdout().fb();
         HidManager {
-            pointer_x: AtomicIsize::new(fb.size().width / 2),
-            pointer_y: AtomicIsize::new(fb.size().height / 2),
             key_buf: AtomicLinkedQueue::with_capacity(256),
         }
     }
 
-    fn update_coord(
-        coord: &AtomicIsize,
-        movement: isize,
-        min_value: isize,
-        max_value: isize,
-    ) -> bool {
-        let mut value = coord.load(Ordering::Relaxed);
-        loop {
-            let new_value = cmp::min(cmp::max(value + movement, min_value), max_value);
-            if value == new_value {
-                break false;
-            }
-            match coord.compare_exchange(value, new_value, Ordering::SeqCst, Ordering::Relaxed) {
-                Ok(_) => break true,
-                Err(actual) => value = actual,
-            }
-        }
-    }
-
-    pub fn pointer() -> Point<isize> {
-        let shared = unsafe { HID_MANAGER.as_ref().unwrap() };
-        Point::new(
-            shared.pointer_x.load(Ordering::Relaxed),
-            shared.pointer_y.load(Ordering::Relaxed),
-        )
-    }
-
-    fn update_pointer(report: MouseReport<isize>) {
-        let shared = unsafe { HID_MANAGER.as_ref().unwrap() };
-        let bounds = WindowManager::main_screen_bounds();
-        if Self::update_coord(&shared.pointer_x, report.x, bounds.x(), bounds.width() - 1)
-            | Self::update_coord(&shared.pointer_y, report.y, bounds.y(), bounds.height() - 1)
-        {
-            WindowManager::move_cursor(Self::pointer());
-        }
-    }
-
-    pub fn process_mouse_report<T>(report: MouseReport<T>)
-    where
-        T: Into<isize> + Copy,
-    {
-        let report = report.normalize();
-        Self::update_pointer(report);
+    fn shared() -> &'static HidManager {
+        unsafe { HID_MANAGER.as_ref().unwrap() }
     }
 
     pub fn send_key_event(v: KeyEvent) {
-        let shared = unsafe { HID_MANAGER.as_ref().unwrap() };
+        let shared = HidManager::shared();
         let _ = shared.key_buf.enqueue(v);
     }
 
     pub fn get_key() -> Option<KeyEvent> {
-        let shared = unsafe { HID_MANAGER.as_ref().unwrap() };
+        let shared = HidManager::shared();
         shared.key_buf.dequeue()
     }
 
-    pub fn usage_to_char_109(usage: Usage, modifier: Modifier) -> char {
+    fn key_event_to_char(event: KeyEvent) -> char {
+        if event.flags.contains(KeyEventFlags::BREAK) || event.usage == Usage::NULL {
+            '\0'
+        } else {
+            Self::usage_to_char_109(event.usage, event.modifier)
+        }
+    }
+
+    fn usage_to_char_109(usage: Usage, modifier: Modifier) -> char {
         let mut uni: char = INVALID_UNICHAR;
 
         if usage >= Usage::ALPHABET_MIN && usage <= Usage::ALPHABET_MAX {

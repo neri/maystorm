@@ -50,6 +50,9 @@ fn panic(info: &PanicInfo) -> ! {
     }
 }
 
+#[lang = "eh_personality"]
+extern "C" fn eh_personality() {}
+
 static mut BOOT_SCREEN: Option<Box<Bitmap>> = None;
 
 static mut EMCONSOLE: Option<Box<GraphicalConsole>> = None;

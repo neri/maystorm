@@ -16,6 +16,7 @@ static mut PS2: Option<Box<Ps2>> = None;
 
 pub(crate) struct Ps2 {
     key_state: Ps2KeyState,
+    mouse_state: MouseState,
     mouse_phase: Ps2MousePhase,
     modifier: Modifier,
     mouse_buf: [Ps2Data; 3],
@@ -26,6 +27,12 @@ pub(crate) struct Ps2 {
 enum Ps2KeyState {
     Default,
     Extend,
+}
+
+impl Default for Ps2KeyState {
+    fn default() -> Self {
+        Self::Default
+    }
 }
 
 bitflags! {
@@ -40,6 +47,14 @@ bitflags! {
         const Y_OVERFLOW = 0b1000_0000;
 
         const BUTTONS = Self::LEFT_BUTTON.bits | Self::RIGHT_BUTTON.bits | Self::MIDDLE_BUTTON.bits;
+    }
+}
+
+impl MouseLeadByte {
+    fn is_valid(self) -> bool {
+        self.contains(Self::ALWAYS_ONE)
+            && !self.contains(Self::X_OVERFLOW)
+            && !self.contains(Self::Y_OVERFLOW)
     }
 }
 
@@ -223,10 +238,11 @@ impl Ps2 {
         PS2 = Some(Box::new(Ps2 {
             sem: Semaphore::new(0),
             buf: AtomicLinkedQueue::with_capacity(256),
-            key_state: Ps2KeyState::Default,
+            key_state: Ps2KeyState::default(),
             mouse_phase: Ps2MousePhase::Ack,
             modifier: Modifier::empty(),
             mouse_buf: [Ps2Data(0); 3],
+            mouse_state: MouseState::default(),
         }));
         Irq::LPC_PS2K.register(Self::irq_01).unwrap();
         Irq::LPC_PS2M.register(Self::irq_12).unwrap();
@@ -353,6 +369,11 @@ impl Ps2 {
         if data == Ps2Data::SCAN_EXTEND {
             self.key_state = Ps2KeyState::Extend;
         } else {
+            let flags = if data.is_break() {
+                KeyEventFlags::BREAK
+            } else {
+                KeyEventFlags::empty()
+            };
             let mut scan = data.scancode();
             match self.key_state {
                 Ps2KeyState::Extend => {
@@ -370,10 +391,9 @@ impl Ps2 {
                 } else {
                     self.modifier.insert(bit_position);
                 }
+                HidManager::send_key_event(KeyEvent::new(Usage::NULL, self.modifier, flags));
             } else {
-                if !data.is_break() {
-                    HidManager::send_key_event(KeyEvent::new(usage, self.modifier));
-                }
+                HidManager::send_key_event(KeyEvent::new(usage, self.modifier, flags));
             }
         }
     }
@@ -386,7 +406,7 @@ impl Ps2 {
                 }
             }
             Ps2MousePhase::Leading => {
-                if (data.0 & 0xC8) == 0x08 {
+                if MouseLeadByte::from(data).is_valid() {
                     self.mouse_buf[self.mouse_phase.as_index()] = data;
                     self.mouse_phase.next();
                 }
@@ -399,7 +419,7 @@ impl Ps2 {
                 self.mouse_buf[self.mouse_phase.as_index()] = data;
                 self.mouse_phase.next();
 
-                fn conv_movement(data: Ps2Data, sign: bool) -> i16 {
+                fn movement(data: Ps2Data, sign: bool) -> i16 {
                     if sign {
                         ((data.0 as u16) | 0xFF00) as i16
                     } else {
@@ -407,14 +427,14 @@ impl Ps2 {
                     }
                 }
                 let lead = MouseLeadByte::from(self.mouse_buf[0]);
-                let x = conv_movement(self.mouse_buf[1], lead.contains(MouseLeadByte::X_SIGN));
-                let y = conv_movement(self.mouse_buf[2], lead.contains(MouseLeadByte::Y_SIGN));
+                let x = movement(self.mouse_buf[1], lead.contains(MouseLeadByte::X_SIGN));
+                let y = movement(self.mouse_buf[2], lead.contains(MouseLeadByte::Y_SIGN));
                 let report = MouseReport {
                     buttons: lead.into(),
                     x: x,
                     y: 0 - y,
                 };
-                HidManager::process_mouse_report(report);
+                self.mouse_state.process_mouse_report(report);
             }
         }
     }
