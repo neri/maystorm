@@ -10,7 +10,8 @@ static DEFAULT_WINDOW_ATTRIBUTE: u8 = 0xF8;
 
 pub struct GraphicalConsole<'a> {
     handle: Option<WindowHandle>,
-    fb: &'a Box<Bitmap>,
+    font: &'a FontDriver<'a>,
+    bitmap: &'a Box<Bitmap>,
     cursor: (isize, isize),
     dims: (isize, isize),
     insets: EdgeInsets<isize>,
@@ -19,16 +20,17 @@ pub struct GraphicalConsole<'a> {
 }
 
 impl<'a> From<&'a Box<Bitmap>> for GraphicalConsole<'a> {
-    fn from(fb: &'a Box<Bitmap>) -> Self {
+    fn from(bitmap: &'a Box<Bitmap>) -> Self {
         let font = FontDriver::system_font();
         let insets = EdgeInsets::padding_all(4);
-        let rect = Rect::from(fb.size()).insets_by(insets);
+        let rect = Rect::from(bitmap.size()).insets_by(insets);
         let cols = rect.size.width / font.width();
         let rows = rect.size.height / font.line_height();
         GraphicalConsole {
             handle: None,
-            fb: fb,
-            insets: insets,
+            font,
+            bitmap,
+            insets,
             cursor: (0, 0),
             dims: (cols, rows),
             is_cursor_enabled: false,
@@ -47,8 +49,9 @@ impl<'a> From<WindowHandle> for GraphicalConsole<'a> {
         let rows = rect.size.height / font.line_height();
         GraphicalConsole {
             handle: Some(window),
-            fb: bitmap,
-            insets: insets,
+            font,
+            bitmap,
+            insets,
             cursor: (0, 0),
             dims: (cols, rows),
             is_cursor_enabled: false,
@@ -61,7 +64,7 @@ impl GraphicalConsole<'_> {
     pub fn reset(&mut self) {
         let old_cursor_state = self.set_cursor_enabled(false);
         self.set_cursor_position(0, 0);
-        self.fb.reset();
+        self.bitmap.reset();
         if old_cursor_state {
             self.set_cursor_enabled(old_cursor_state);
         }
@@ -72,7 +75,7 @@ impl GraphicalConsole<'_> {
 
     #[inline]
     pub fn fb(&self) -> &Bitmap {
-        &self.fb
+        &self.bitmap
     }
 
     #[inline]
@@ -109,7 +112,7 @@ impl GraphicalConsole<'_> {
         self.is_cursor_enabled = enabled;
 
         if old_value || enabled {
-            let font = FontDriver::system_font();
+            let font = self.font;
             let cursor_height = font.line_height();
             let rect = Rect::new(
                 self.insets.left + self.cursor.0 * font.width(),
@@ -117,7 +120,7 @@ impl GraphicalConsole<'_> {
                 font.width(),
                 cursor_height,
             );
-            self.fb.fill_rect(
+            self.bitmap.fill_rect(
                 rect,
                 if enabled {
                     IndexedColor::from(self.attribute & 0x0F).as_color()
@@ -134,17 +137,14 @@ impl GraphicalConsole<'_> {
     }
 
     fn draw_char(&self, dims: (isize, isize), c: char) {
-        let font = FontDriver::system_font();
-        let area_rect = Rect::new(dims.0, dims.1, font.width(), font.line_height());
-        let font_rect = Rect::new(dims.0, dims.1 + font.leading(), font.width(), font.height());
+        let font = self.font;
+        let rect = Rect::new(dims.0, dims.1, font.width(), font.line_height());
         let bg_color = IndexedColor::from(self.attribute >> 4).as_color();
         let fg_color = IndexedColor::from(self.attribute & 0x0F).as_color();
-        self.fb.fill_rect(area_rect, bg_color);
-        if let Some(glyph) = font.glyph_for(c) {
-            self.fb.draw_pattern(font_rect, glyph, fg_color);
-        }
+        self.bitmap.fill_rect(rect, bg_color);
+        font.draw_char(c, self.bitmap, rect.origin, fg_color);
         if let Some(handle) = self.handle {
-            handle.invalidate_rect(area_rect);
+            handle.invalidate_rect(rect);
         }
     }
 
@@ -161,7 +161,7 @@ impl GraphicalConsole<'_> {
             }
             _ => {
                 let old_cursor_state = self.set_cursor_enabled(false);
-                let font = FontDriver::system_font();
+                let font = self.font;
                 let (x, y) = self.adjust_cursor(self.cursor);
                 self.draw_char(
                     (
@@ -202,12 +202,12 @@ impl GraphicalConsole<'_> {
                     y * font.line_height(),
                 );
                 let origin = Point::new(self.insets.left, self.insets.top);
-                self.fb.blt(self.fb, origin, rect);
+                self.bitmap.blt(self.bitmap, origin, rect);
 
                 rect.origin.y = self.insets.top + y * font.line_height();
                 rect.size.height = font.line_height();
                 let bg_color = IndexedColor::from(self.attribute >> 4).as_color();
-                self.fb.fill_rect(rect, bg_color);
+                self.bitmap.fill_rect(rect, bg_color);
 
                 handle.invalidate();
             }

@@ -607,19 +607,14 @@ impl Bitmap {
             if cursor.y + font_size.height >= coords.bottom {
                 break;
             }
-            let font_rect = Rect {
-                origin: rect.origin + cursor,
-                size: font_size,
-            };
             match c {
                 '\n' => {
                     cursor.x = 0;
                     cursor.y += font.line_height();
                 }
                 _ => {
-                    if let Some(glyph) = font.glyph_for(c) {
-                        self.draw_pattern(font_rect, glyph, color);
-                    }
+                    let origin = rect.origin + cursor;
+                    font.draw_char(c, self, origin, color);
                     cursor.x += font_size.width;
                 }
             }

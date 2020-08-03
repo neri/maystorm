@@ -52,6 +52,7 @@ fn sysinit() {
 
     {
         let window = WindowBuilder::new("Test 2")
+            .style(WindowStyle::DEFAULT | WindowStyle::PINCHABLE)
             .frame(Rect::new(640, 136, 120, 80))
             .bg_color(Color::from_argb(0x80000000))
             .build();
@@ -71,7 +72,7 @@ fn sysinit() {
     {
         // Main Terminal
         let window = WindowBuilder::new("Terminal")
-            .frame(Rect::new(8, 32, 640, 480))
+            .frame(Rect::new(8, 32, 560, 320))
             .build();
         window.show();
         window
@@ -104,16 +105,24 @@ fn sysinit() {
     println!("Hello, {}!", "Rust");
 
     loop {
-        stdout().set_cursor_enabled(true);
-        match HidManager::get_key() {
-            Some(key) => {
-                stdout().set_cursor_enabled(false);
-                let c: char = key.into();
-                if c != '\0' {
-                    print!("{}", c);
+        print!("\n# ");
+        loop {
+            stdout().set_cursor_enabled(true);
+            match HidManager::get_key() {
+                Some(key) => {
+                    stdout().set_cursor_enabled(false);
+                    let c: char = key.into();
+                    match c {
+                        '\0' => (),
+                        '\r' => {
+                            print!("\nBad command or file name - KERNEL PANIC!!!");
+                            break;
+                        }
+                        _ => print!("{}", c),
+                    }
                 }
+                None => GlobalScheduler::wait_for(None, TimeMeasure::from_millis(10)),
             }
-            None => GlobalScheduler::wait_for(None, TimeMeasure::from_millis(10)),
         }
     }
 }

@@ -44,7 +44,7 @@ impl<'a> FontDriver<'_> {
         &SMALL_FONT
     }
 
-    pub fn glyph_for(&self, c: char) -> Option<&[u8]> {
+    fn glyph_for(&self, c: char) -> Option<&[u8]> {
         let c = c as usize;
         if c > 0x20 && c < 0x80 {
             let base = self.delta * (c - 0x20);
@@ -77,5 +77,17 @@ impl<'a> FontDriver<'_> {
     #[inline]
     pub fn leading(&self) -> isize {
         self.leading
+    }
+
+    pub fn draw_char(&self, c: char, bitmap: &Bitmap, origin: Point<isize>, color: Color) {
+        if let Some(glyph) = self.glyph_for(c) {
+            let rect = Rect::new(
+                origin.x,
+                origin.y + self.leading(),
+                self.width(),
+                self.height(),
+            );
+            bitmap.draw_pattern(rect, glyph, color);
+        }
     }
 }

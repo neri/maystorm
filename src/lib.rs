@@ -9,6 +9,7 @@
 #![feature(lang_items)]
 #![feature(new_uninit)]
 #![feature(panic_info_message)]
+#![feature(option_result_contains)]
 #![no_std]
 
 use alloc::boxed::Box;

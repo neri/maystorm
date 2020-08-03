@@ -187,7 +187,7 @@ impl<T: Number> Rect<T> {
         }
     }
 
-    pub fn hit_test(self, rhs: Self) -> bool {
+    pub fn hit_test_rect(self, rhs: Self) -> bool {
         let cl = match Coordinates::from_rect(self) {
             Some(coords) => coords,
             None => return false,
@@ -198,6 +198,17 @@ impl<T: Number> Rect<T> {
         };
 
         cl.left < cr.right && cr.left < cl.right && cl.top < cr.bottom && cr.top < cl.bottom
+    }
+
+    pub fn hit_test_point(self, point: Point<T>) -> bool {
+        if let Some(coords) = Coordinates::from_rect(self) {
+            coords.left <= point.x
+                && coords.right > point.x
+                && coords.top <= point.y
+                && coords.bottom > point.y
+        } else {
+            false
+        }
     }
 }
 

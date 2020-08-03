@@ -79,7 +79,7 @@ const CLOSE_BUTTON_SOURCE: [[u8; CLOSE_BUTTON_SIZE]; CLOSE_BUTTON_SIZE] = [
 
 #[allow(dead_code)]
 struct Window {
-    this: Option<WindowHandle>,
+    handle: Option<WindowHandle>,
     next: Option<WindowHandle>,
     frame: Rect<isize>,
     shadow_insets: EdgeInsets<isize>,
@@ -200,7 +200,7 @@ impl Window {
         loop {
             let window = cursor.as_ref();
             if let Some(coords2) = Coordinates::from_rect(window.frame) {
-                if frame.hit_test(window.frame) {
+                if frame.hit_test_rect(window.frame) {
                     let blt_origin = Point::new(
                         cmp::max(coords1.left, coords2.left),
                         cmp::max(coords1.top, coords2.top),
@@ -259,14 +259,9 @@ impl Window {
     }
 
     fn is_active(&self) -> bool {
-        if let Some(active) = WindowManager::shared().active {
-            match self.this {
-                Some(this) => active == this,
-                None => false,
-            }
-        } else {
-            false
-        }
+        self.handle
+            .filter(|handle| WindowManager::shared().active.contains(handle))
+            .is_some()
     }
 
     fn draw_frame(&self) {
@@ -442,11 +437,11 @@ impl WindowBuilder {
         };
 
         let window = Window {
-            this: None,
+            handle: None,
             next: None,
             frame,
             shadow_insets,
-            content_insets: content_insets,
+            content_insets,
             style: self.style,
             level: self.level,
             bg_color: self.bg_color,
@@ -457,7 +452,7 @@ impl WindowBuilder {
         window.draw_frame();
         let handle = WindowManager::add(Box::new(window));
         handle.update(|window| {
-            window.this = Some(handle);
+            window.handle = Some(handle);
         });
         handle
     }
@@ -558,13 +553,8 @@ impl WindowHandle {
         });
     }
 
-    // #[inline]
-    // pub fn bounds(self) -> Rect<isize> {
-    //     Rect::from(self.frame().size)
-    // }
-
     #[inline]
-    pub(crate) fn content_insets(self) -> EdgeInsets<isize> {
+    pub fn content_insets(self) -> EdgeInsets<isize> {
         self.as_ref().content_insets
     }
 
@@ -601,10 +591,11 @@ impl WindowHandle {
     pub fn hide(self) {
         let shared = WindowManager::shared();
         let frame = self.as_ref().frame;
-        if let Some(active) = shared.active {
-            if active == self {
-                WindowManager::set_active(None);
-            }
+        if shared.active.contains(&self) {
+            shared.active = None;
+        }
+        if shared.captured.contains(&self) {
+            shared.captured = None;
         }
         WindowManager::synchronized(|| unsafe {
             WindowManager::remove_hierarchy(self);
@@ -787,6 +778,7 @@ impl WindowManager {
                 WindowBuilder::new("Pointer")
                     .style(WindowStyle::CLIENT_RECT)
                     .level(WindowLevel::POINTER)
+                    .origin(shared.pointer())
                     .size(Size::new(w as isize, h as isize))
                     .bg_color(Color::from_argb(0x80FF00FF))
                     .build(),
@@ -842,17 +834,13 @@ impl WindowManager {
     fn window_thread(_: *mut c_void) {
         let shared = WindowManager::shared();
         loop {
-            shared.sem_redraw.wait(TimeMeasure::from_millis(1));
+            let _ = shared.sem_redraw.wait(TimeMeasure::from_millis(1));
 
             if shared
                 .attributes
                 .test_and_clear(WindowManagerAttributes::MOUSE_MOVE)
             {
-                let pointer = shared.pointer.unwrap();
-                let origin = Point::new(
-                    shared.pointer_x.load(Ordering::Acquire),
-                    shared.pointer_y.load(Ordering::Acquire),
-                );
+                let origin = shared.pointer();
                 let current_button =
                     MouseButton::from_bits_truncate(shared.buttons.load(Ordering::Acquire) as u8);
                 let button_pressed = MouseButton::from_bits_truncate(
@@ -877,11 +865,21 @@ impl WindowManager {
                     } else {
                         WindowManager::set_active(Some(mouse_at));
                     }
-                    shared.captured = Some(mouse_at);
-                    shared.captured_origin = origin - mouse_at.as_ref().frame().origin;
+                    let target = mouse_at.as_ref();
+                    if target.style.contains(WindowStyle::PINCHABLE) {
+                        shared.captured = Some(mouse_at);
+                        shared.captured_origin = origin - target.frame().origin;
+                    } else {
+                        let mut title_frame = target.title_frame();
+                        title_frame.origin += target.frame.origin;
+                        if title_frame.hit_test_point(origin) {
+                            shared.captured = Some(mouse_at);
+                            shared.captured_origin = origin - target.frame().origin;
+                        }
+                    }
                 }
 
-                pointer.move_to(origin);
+                shared.pointer.unwrap().move_to(origin);
             }
         }
     }
@@ -998,20 +996,23 @@ impl WindowManager {
                 if window.level == WindowLevel::POINTER {
                     break found;
                 }
-                if let Some(coords) =
-                    Coordinates::from_rect(window.frame.insets_by(window.shadow_insets))
+                if window
+                    .frame
+                    .insets_by(window.shadow_insets)
+                    .hit_test_point(point)
                 {
-                    if coords.left <= point.x
-                        && coords.right > point.x
-                        && coords.top <= point.y
-                        && coords.bottom > point.y
-                    {
-                        found = cursor;
-                    }
+                    found = cursor;
                 }
                 cursor = window.next.unwrap();
             }
         })
+    }
+
+    fn pointer(&self) -> Point<isize> {
+        Point::new(
+            self.pointer_x.load(Ordering::Relaxed),
+            self.pointer_y.load(Ordering::Relaxed),
+        )
     }
 
     fn update_coord(
