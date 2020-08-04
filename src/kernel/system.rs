@@ -8,9 +8,6 @@ use alloc::boxed::Box;
 use alloc::vec::*;
 use core::ptr::NonNull;
 
-static SYSTEM_NAME: &str = "my OS";
-static VERSION: Version = Version::new(0, 0, 1);
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Version {
     pub maj: usize,
@@ -19,12 +16,11 @@ pub struct Version {
 }
 
 impl Version {
-    pub const fn new(maj: usize, min: usize, rev: usize) -> Self {
-        Version {
-            maj: maj,
-            min: min,
-            rev: rev,
-        }
+    const SYSTEM_NAME: &'static str = "my OS";
+    const VERSION: Version = Version::new(0, 0, 1);
+
+    const fn new(maj: usize, min: usize, rev: usize) -> Self {
+        Version { maj, min, rev }
     }
 }
 
@@ -36,7 +32,7 @@ impl fmt::Display for Version {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Default)]
 pub struct ProcessorId(pub u8);
 
 impl ProcessorId {
@@ -88,6 +84,10 @@ impl<T> Into<Option<NonNull<T>>> for VirtualAddress {
         }
     }
 }
+
+#[repr(transparent)]
+#[derive(Copy, Clone, Default, PartialEq, PartialOrd)]
+pub struct PhysicalAddress(pub usize);
 
 pub struct System {
     total_memory_size: u64,
@@ -178,11 +178,11 @@ impl System {
     }
 
     pub fn version(&self) -> &'static Version {
-        &VERSION
+        &Version::VERSION
     }
 
     pub fn name(&self) -> &str {
-        &SYSTEM_NAME
+        &Version::SYSTEM_NAME
     }
 }
 

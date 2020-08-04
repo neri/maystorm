@@ -490,7 +490,7 @@ const SIZE_OF_STACK: usize = 0x10000;
 type ThreadStart = fn(*mut c_void) -> ();
 
 #[allow(dead_code)]
-pub(crate) struct NativeThread {
+struct NativeThread {
     context: [u8; SIZE_OF_CONTEXT],
     id: ThreadId,
     priority: Priority,
@@ -500,8 +500,7 @@ pub(crate) struct NativeThread {
     //name: [],
 }
 
-unsafe impl Sync for NativeThread {}
-
+#[allow(dead_code)]
 impl NativeThread {
     fn new(priority: Priority, start: Option<ThreadStart>, args: *mut c_void) -> ThreadHandle {
         let quantum = Quantum::from(priority);

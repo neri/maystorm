@@ -502,14 +502,17 @@ impl WindowBuilder {
 pub struct WindowHandle(NonZeroUsize);
 
 impl WindowHandle {
-    pub fn new(val: usize) -> Option<Self> {
+    #[inline]
+    fn new(val: usize) -> Option<Self> {
         NonZeroUsize::new(val).map(|x| Self(x))
     }
 
+    #[inline]
     pub const fn as_usize(self) -> usize {
         self.0.get()
     }
 
+    #[inline]
     const fn as_index(self) -> usize {
         self.as_usize() - 1
     }
@@ -524,6 +527,7 @@ impl WindowHandle {
         f(window)
     }
 
+    #[inline]
     fn as_ref(self) -> &'static Window {
         let shared = WindowManager::shared();
         shared.pool[self.as_index()].as_ref()
@@ -603,6 +607,12 @@ impl WindowHandle {
         WindowManager::invalidate_screen(frame);
     }
 
+    #[inline]
+    pub fn set_active(self) {
+        WindowManager::set_active(Some(self));
+    }
+
+    #[inline]
     pub fn invalidate_rect(self, rect: Rect<isize>) {
         self.as_ref().invalidate_rect(rect);
     }
@@ -710,7 +720,7 @@ pub struct WindowManager {
 
 impl WindowManager {
     pub(crate) fn init() {
-        let main_screen = stdout().fb();
+        let main_screen = boot_screen();
         let off_screen = Box::new(Bitmap::with_same_size(main_screen));
 
         let wm = WindowManager {
@@ -820,9 +830,18 @@ impl WindowManager {
             // Status bar
             let window = WindowBuilder::new("Status Bar")
                 .style(WindowStyle::CLIENT_RECT)
+                .level(WindowLevel::HIGHER)
                 .frame(Rect::new(0, 0, main_screen.width(), STATUS_BAR_HEIGHT))
                 .bg_color(STATUS_BAR_BG_COLOR)
                 .build();
+            let _ = window.draw(|bitmap| {
+                bitmap.draw_string(
+                    FontDriver::system_font(),
+                    bitmap.bounds(),
+                    Color::BLACK,
+                    " @ | File  Edit  Window  Help",
+                );
+            });
             window.show();
             shared.screen_insets.top += STATUS_BAR_HEIGHT;
         }
@@ -849,7 +868,11 @@ impl WindowManager {
 
                 if let Some(captured) = shared.captured {
                     if current_button.contains(MouseButton::LEFT) {
-                        let top = shared.screen_insets.top;
+                        let top = if captured.as_ref().level < WindowLevel::HIGHER {
+                            shared.screen_insets.top
+                        } else {
+                            0
+                        };
                         let x = origin.x - shared.captured_origin.x;
                         let y = cmp::max(origin.y - shared.captured_origin.y, top);
                         captured.move_to(Point::new(x, y));

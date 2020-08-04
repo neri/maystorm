@@ -2,6 +2,7 @@
 
 use super::cpu::*;
 use crate::kernel::mem::alloc::*;
+use crate::kernel::mem::mmio::*;
 use crate::kernel::scheduler::*;
 use crate::kernel::sync::spinlock::Spinlock;
 use crate::kernel::system::*;
@@ -10,13 +11,9 @@ use alloc::boxed::Box;
 use alloc::vec::*;
 use core::ffi::c_void;
 
-#[allow(dead_code)]
-const MSI_BASE: usize = 0xFEE00000;
-const APIC_REDIR_MASK: u32 = 0x00010000;
 const MAX_CPU: usize = 64;
 
 static mut APIC: Apic = Apic::new();
-static mut LOCAL_APIC_BASE: Option<NonNull<c_void>> = None;
 const INVALID_PROCESSOR_INDEX: u8 = 0xFF;
 static mut CURRENT_PROCESSOR_INDEXES: [u8; 256] = [INVALID_PROCESSOR_INDEX; 256];
 
@@ -50,6 +47,10 @@ pub struct Apic {
 }
 
 impl Apic {
+    const REDIR_MASK: u32 = 0x00010000;
+    #[allow(dead_code)]
+    const MSI_BASE: usize = 0xFEE00000;
+
     const fn new() -> Self {
         Apic {
             master_apic_id: ProcessorId(0),
@@ -103,18 +104,9 @@ impl Apic {
             APIC.ioapics.push(Box::new(IoApic::new(acpi_ioapic)));
         }
 
-        InterruptDescriptorTable::register(
-            Irq(1).as_vec(),
-            VirtualAddress(irq_01_handler as usize),
-        );
-        InterruptDescriptorTable::register(
-            Irq(2).as_vec(),
-            VirtualAddress(irq_02_handler as usize),
-        );
-        InterruptDescriptorTable::register(
-            Irq(12).as_vec(),
-            VirtualAddress(irq_0c_handler as usize),
-        );
+        InterruptDescriptorTable::register(Irq(1).into(), VirtualAddress(irq_01_handler as usize));
+        InterruptDescriptorTable::register(Irq(2).into(), VirtualAddress(irq_02_handler as usize));
+        InterruptDescriptorTable::register(Irq(12).into(), VirtualAddress(irq_0c_handler as usize));
 
         // Local APIC Timer
         let vec_latimer = Irq(0).as_vec();
@@ -211,9 +203,9 @@ impl Apic {
             if ioapic.global_int <= global_irq && local_irq < ioapic.entries {
                 let mut value = ioapic.read(IoApicIndex::redir_table_low(local_irq * 2));
                 if new_value {
-                    value &= !APIC_REDIR_MASK;
+                    value &= !Apic::REDIR_MASK;
                 } else {
-                    value |= APIC_REDIR_MASK;
+                    value |= Apic::REDIR_MASK;
                 }
                 ioapic.write(IoApicIndex::redir_table_low(local_irq * 2), value);
                 return Ok(());
@@ -265,7 +257,7 @@ pub unsafe extern "efiapi" fn apic_handle_irq(irq: Irq) {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Default)]
 pub struct Irq(pub u8);
 
 impl Irq {
@@ -306,7 +298,7 @@ impl From<Irq> for InterruptVector {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Default)]
 struct GsiProps {
     global_irq: Irq,
     trigger: PackedTriggerMode,
@@ -322,7 +314,7 @@ impl GsiProps {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Default)]
 struct PackedTriggerMode(pub u8);
 
 impl PackedTriggerMode {
@@ -379,6 +371,8 @@ impl From<&acpi::interrupt::TriggerMode> for ApicTriggerMode {
     }
 }
 
+static mut LOCAL_APIC: Option<Box<Mmio>> = None;
+
 #[allow(dead_code)]
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -404,8 +398,7 @@ impl LocalApic {
     const IA32_APIC_BASE_MSR_ENABLE: u64 = 0x00000800;
 
     unsafe fn init(base: usize) {
-        let ptr = base as *const c_void as *mut c_void;
-        LOCAL_APIC_BASE = NonNull::new(ptr);
+        LOCAL_APIC = Some(Mmio::phys(base, 0x1000));
 
         let msr = Msr::ApicBase;
         let val = msr.read();
@@ -417,7 +410,7 @@ impl LocalApic {
 
     unsafe fn init_ap() -> ProcessorId {
         Msr::ApicBase
-            .write(LOCAL_APIC_BASE.unwrap().as_ptr() as u64 | Self::IA32_APIC_BASE_MSR_ENABLE);
+            .write(LOCAL_APIC.as_ref().unwrap().base() as u64 | Self::IA32_APIC_BASE_MSR_ENABLE);
 
         let myid = LocalApic::current_processor_id();
 
@@ -436,13 +429,11 @@ impl LocalApic {
     }
 
     unsafe fn read(&self) -> u32 {
-        let ptr = LOCAL_APIC_BASE.unwrap().as_ptr().add(*self as usize) as *const u32;
-        ptr.read_volatile()
+        LOCAL_APIC.as_ref().unwrap().read_u32(*self as usize)
     }
 
-    unsafe fn write(&self, value: u32) {
-        let ptr = LOCAL_APIC_BASE.unwrap().as_ptr().add(*self as usize) as *const u32 as *mut u32;
-        ptr.write_volatile(value);
+    unsafe fn write(&self, val: u32) {
+        LOCAL_APIC.as_ref().unwrap().write_u32(*self as usize, val);
     }
 
     unsafe fn eoi() {
@@ -459,7 +450,7 @@ impl LocalApic {
     }
 
     unsafe fn clear_timer() {
-        Self::LvtTimer.write(APIC_REDIR_MASK);
+        Self::LvtTimer.write(Apic::REDIR_MASK);
     }
 
     /// Broadcast INIT IPI to all another APs
@@ -512,7 +503,7 @@ impl IoApicIndex {
 
 #[allow(dead_code)]
 struct IoApic {
-    base: *mut u8,
+    mmio: Box<Mmio>,
     global_int: Irq,
     entries: u8,
     id: u8,
@@ -522,7 +513,7 @@ struct IoApic {
 impl IoApic {
     unsafe fn new(acpi_ioapic: &acpi::interrupt::IoApic) -> Self {
         let mut ioapic = IoApic {
-            base: acpi_ioapic.address as usize as *const u8 as *mut u8,
+            mmio: Mmio::phys(acpi_ioapic.address as usize, 0x14),
             global_int: Irq(acpi_ioapic.global_system_interrupt_base as u8),
             entries: 0,
             id: acpi_ioapic.id,
@@ -534,24 +525,19 @@ impl IoApic {
     }
 
     unsafe fn read(&mut self, index: IoApicIndex) -> u32 {
-        let ptr_index = self.base;
-        let ptr_data = self.base.add(0x0010) as *const u32;
-        let value = Cpu::without_interrupts(|| {
+        Cpu::without_interrupts(|| {
             self.lock.synchronized(|| {
-                ptr_index.write_volatile(index.0);
-                ptr_data.read_volatile()
+                self.mmio.write_u8(0x00, index.0);
+                self.mmio.read_u32(0x10)
             })
-        });
-        value
+        })
     }
 
     unsafe fn write(&mut self, index: IoApicIndex, data: u32) {
-        let ptr_index = self.base;
-        let ptr_data = self.base.add(0x0010) as *const u32 as *mut u32;
         Cpu::without_interrupts(|| {
             self.lock.synchronized(|| {
-                ptr_index.write_volatile(index.0);
-                ptr_data.write_volatile(data);
+                self.mmio.write_u8(0x00, index.0);
+                self.mmio.write_u32(0x10, data);
             });
         });
     }
@@ -559,7 +545,7 @@ impl IoApic {
 
 /// High Precision Event Timer
 struct Hpet {
-    base: *mut u64,
+    mmio: Box<Mmio>,
     main_cnt_period: u64,
     measure_div: u64,
 }
@@ -567,7 +553,7 @@ struct Hpet {
 impl Hpet {
     unsafe fn new(info: &acpi::HpetInfo) -> Box<Self> {
         let mut hpet = Hpet {
-            base: info.base_address as *const u64 as *mut u64,
+            mmio: Mmio::phys(info.base_address, 0x1000),
             main_cnt_period: 0,
             measure_div: 0,
         };
@@ -587,13 +573,11 @@ impl Hpet {
     }
 
     unsafe fn read(&self, index: usize) -> u64 {
-        let ptr = self.base.add(index >> 3);
-        ptr.read_volatile()
+        self.mmio.read_u64(index)
     }
 
     unsafe fn write(&self, index: usize, value: u64) {
-        let ptr = self.base.add(index >> 3);
-        ptr.write_volatile(value);
+        self.mmio.write_u64(index, value);
     }
 
     fn measure(&self) -> TimeMeasure {

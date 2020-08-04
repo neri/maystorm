@@ -1,4 +1,5 @@
-// Graphics Console
+// Graphical Console
+
 use super::fonts::*;
 use super::graphics::*;
 use crate::kernel::io::window::*;
@@ -74,11 +75,6 @@ impl GraphicalConsole<'_> {
     }
 
     #[inline]
-    pub fn fb(&self) -> &Bitmap {
-        &self.bitmap
-    }
-
-    #[inline]
     pub fn dims(&self) -> (isize, isize) {
         self.dims
     }
@@ -89,17 +85,12 @@ impl GraphicalConsole<'_> {
     }
 
     #[inline]
-    pub fn set_color(&mut self, foreground: IndexedColor, background: IndexedColor) {
-        self.attribute = (foreground as u8) + ((background as u8) << 4);
-    }
-
-    #[inline]
     pub fn cursor_position(&self) -> (isize, isize) {
         self.cursor
     }
 
     pub fn set_cursor_position(&mut self, x: isize, y: isize) {
-        self.edit_cursor(move |_, _| (x, y));
+        self.update_cursor(move |_, _| (x, y));
     }
 
     #[inline]
@@ -151,13 +142,13 @@ impl GraphicalConsole<'_> {
     pub fn putchar(&mut self, c: char) {
         match c {
             '\x08' => {
-                self.edit_cursor(|x, y| if x > 0 { (x - 1, y) } else { (x, y) });
+                self.update_cursor(|x, y| if x > 0 { (x - 1, y) } else { (x, y) });
             }
             '\n' => {
-                self.edit_cursor(|_, y| (0, y + 1));
+                self.update_cursor(|_, y| (0, y + 1));
             }
             '\r' => {
-                self.edit_cursor(|_, y| (0, y));
+                self.update_cursor(|_, y| (0, y));
             }
             _ => {
                 let old_cursor_state = self.set_cursor_enabled(false);
@@ -216,7 +207,7 @@ impl GraphicalConsole<'_> {
     }
 
     #[inline]
-    fn edit_cursor<F>(&mut self, f: F)
+    fn update_cursor<F>(&mut self, f: F)
     where
         F: FnOnce(isize, isize) -> (isize, isize),
     {

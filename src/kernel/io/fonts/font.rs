@@ -2,15 +2,10 @@
 use crate::kernel::io::graphics::*;
 
 include!("megbtan.rs");
-const SYSTEM_FONT: FontDriver =
-    FontDriver::new(FONT_MEGBTAN_WIDTH, FONT_MEGBTAN_HEIGHT, &FONT_MEGBTAN_DATA);
+const SYSTEM_FONT: FontDriver = FontDriver::new(8, 16, &FONT_MEGBTAN_DATA);
 
 include!("megh0608.rs");
-const SMALL_FONT: FontDriver = FontDriver::new(
-    FONT_MEGH0608_WIDTH,
-    FONT_MEGH0608_HEIGHT,
-    &FONT_MEGH0608_DATA,
-);
+const SMALL_FONT: FontDriver = FontDriver::new(6, 8, &FONT_MEGH0608_DATA);
 
 pub struct FontDriver<'a> {
     size: Size<isize>,

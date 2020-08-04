@@ -74,7 +74,7 @@ fn sysinit() {
         let window = WindowBuilder::new("Terminal")
             .frame(Rect::new(8, 32, 560, 320))
             .build();
-        window.show();
+        window.set_active();
         window
             .draw(|bitmap| {
                 let center = Point::<isize>::new(bitmap.width() / 2, bitmap.height() / 2);
@@ -102,10 +102,9 @@ fn sysinit() {
         system.number_of_active_cpus(),
         system.total_memory_size() >> 20,
     );
-    println!("Hello, {}!", "Rust");
 
     loop {
-        print!("\n# ");
+        print!("# ");
         loop {
             stdout().set_cursor_enabled(true);
             match HidManager::get_key() {
@@ -115,7 +114,7 @@ fn sysinit() {
                     match c {
                         '\0' => (),
                         '\r' => {
-                            print!("\nBad command or file name - KERNEL PANIC!!!");
+                            println!("\nBad command or file name - KERNEL PANIC!!!");
                             break;
                         }
                         _ => print!("{}", c),
