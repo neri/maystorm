@@ -33,3 +33,6 @@ $(OVMF):
 
 run: install $(OVMF)
 	qemu-system-x86_64 -smp 4 -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -monitor stdio
+
+test: install
+	cp mnt/EFI/BOOT/BOOTX64.EFI /Volumes/EFI_TEST/EFI/MEGOS/BOOTX64.EFI

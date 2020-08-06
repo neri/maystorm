@@ -149,7 +149,9 @@ impl Apic {
         LocalApic::broadcast_init();
         Timer::usleep(10_000);
         LocalApic::broadcast_startup(sipi_vec);
-        Timer::usleep(200_000);
+        Timer::usleep(1_000);
+        LocalApic::broadcast_startup(sipi_vec);
+        Timer::usleep(1_000);
         if System::shared().number_of_active_cpus() != max_cpu {
             panic!("Some of the processors are not responding");
         }
@@ -455,12 +457,14 @@ impl LocalApic {
 
     /// Broadcast INIT IPI to all another APs
     unsafe fn broadcast_init() {
-        LocalApic::InterruptCommand.write(0x000C4500);
+        Self::InterruptCommandHigh.write(0);
+        Self::InterruptCommand.write(0x000C4500);
     }
 
     /// Broadcast Startup IPI to all another APs
     unsafe fn broadcast_startup(init_vec: u8) {
-        LocalApic::InterruptCommand.write(0x000C4600 | init_vec as u32);
+        Self::InterruptCommandHigh.write(0);
+        Self::InterruptCommand.write(0x000C4600 | init_vec as u32);
     }
 
     unsafe fn current_processor_id() -> ProcessorId {

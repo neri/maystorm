@@ -6,6 +6,12 @@
 %define IA32_MISC           0x000001A0
 %define IA32_EFER           0xC0000080
 
+%define CR0_PE              0
+%define CR0_PG              31
+%define CR4_PAE             5
+%define EFER_LME            8
+%define EFER_LMA            10
+
 %define SMPINFO             0x0800
 %define SMPINFO_MAX_CPU     0x04
 %define SMPINFO_EFER        0x08
@@ -249,11 +255,12 @@ setup_smp_init:
     sidt [r10 + SMPINFO_IDT]
     mov ecx, IA32_EFER
     rdmsr
+    btr eax, EFER_LMA
     mov [r10 + SMPINFO_EFER], eax
-    mov ecx, IA32_MISC
-    rdmsr
-    mov [r10 + IA32_MISC], eax
-    mov [r10 + IA32_MISC + 4], edx
+    ; mov ecx, IA32_MISC
+    ; rdmsr
+    ; mov [r10 + IA32_MISC], eax
+    ; mov [r10 + IA32_MISC + 4], edx
 
     lea ecx, [r11 + _startup64 - _smp_rm_payload]
     mov edx, KERNEL_CS64
@@ -288,7 +295,7 @@ _ap_startup:
     jmp .loop
 
 
-    ; Payload SMP initialization
+    ; SMP initialization payload
 [bits 16]
 _smp_rm_payload:
     cli
@@ -318,9 +325,9 @@ _smp_rm_payload:
 
     lgdt [bx + SMPINFO_GDTR]
 
-    ; enter to PM
+    ; enter to minimal PM
     mov eax, cr0
-    bts eax, 0
+    bts eax, CR0_PE
     mov cr0, eax
 
     mov ax, KERNEL_SS
@@ -336,10 +343,10 @@ _smp_rm_payload:
     mov eax, [bx + SMPINFO_CR3]
     mov cr3 ,eax
 
-    mov eax, [bx + SMPINFO_MSR_MISC]
-    mov edx, [bx + SMPINFO_MSR_MISC + 4]
-    mov ecx, IA32_MISC
-    wrmsr
+    ; mov eax, [bx + SMPINFO_MSR_MISC]
+    ; mov edx, [bx + SMPINFO_MSR_MISC + 4]
+    ; mov ecx, IA32_MISC
+    ; wrmsr
 
     mov ecx, IA32_EFER
     xor edx, edx
@@ -348,7 +355,7 @@ _smp_rm_payload:
 
     ; enter to LM
     mov eax, cr0
-    bts eax, 31
+    bts eax, CR0_PG
     mov cr0, eax
 
     ; o32 jmp far [bx + SMPINFO_START64]
