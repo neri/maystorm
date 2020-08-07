@@ -384,7 +384,6 @@ impl WindowLevel {
 
 pub struct WindowBuilder {
     pub frame: Rect<isize>,
-    pub content_insets: EdgeInsets<isize>,
     pub style: WindowStyle,
     pub level: WindowLevel,
     pub bg_color: Color,
@@ -396,8 +395,7 @@ pub struct WindowBuilder {
 impl WindowBuilder {
     pub fn new(title: &str) -> Self {
         let window = Self {
-            frame: Rect::new(100, 100, 300, 300),
-            content_insets: EdgeInsets::zero(),
+            frame: Rect::new(-1, -1, 300, 300),
             level: WindowLevel::NORMAL,
             style: WindowStyle::DEFAULT,
             bg_color: Color::WHITE,
@@ -409,20 +407,24 @@ impl WindowBuilder {
     }
     #[inline]
     pub fn build(mut self) -> WindowHandle {
+        let screen_bounds = WindowManager::main_screen_bounds();
         let shadow_insets = if self.style.contains(WindowStyle::BORDER) {
             EdgeInsets::padding_all(WINDOW_BORDER_SHADOW_PADDING)
         } else {
             EdgeInsets::zero()
         };
-        let content_insets = self.content_insets + shadow_insets;
+        let window_insets = self.style.as_content_insets();
+        let content_insets = window_insets + shadow_insets;
         let mut frame = self.frame;
         if self.style.contains(WindowStyle::CLIENT_RECT) {
-            frame.size.width += self.content_insets.left + self.content_insets.right;
-            frame.size.height += self.content_insets.top + self.content_insets.bottom;
+            frame.size += window_insets;
+        }
+        if frame.x() < 0 {
+            frame.origin.x = (screen_bounds.width() - frame.width()) / 2;
+            frame.origin.y = (screen_bounds.height() - frame.height()) / 2;
         }
         frame.origin -= Point::new(shadow_insets.left, shadow_insets.top);
-        frame.size.width += shadow_insets.left + shadow_insets.right;
-        frame.size.height += shadow_insets.top + shadow_insets.bottom;
+        frame.size += shadow_insets;
 
         if !self.no_bitmap && self.bitmap.is_none() {
             let bitmap = Bitmap::new(frame.width() as usize, frame.height() as usize, true);
@@ -459,7 +461,11 @@ impl WindowBuilder {
     #[inline]
     pub fn style(mut self, style: WindowStyle) -> Self {
         self.style = style;
-        self.content_insets = style.as_content_insets();
+        self
+    }
+    #[inline]
+    pub fn style_or(mut self, style: WindowStyle) -> Self {
+        self.style |= style;
         self
     }
     pub fn title(mut self, title: &str) -> Self {

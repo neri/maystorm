@@ -71,9 +71,8 @@ fn sysinit() {
 
     {
         // Main Terminal
-        let window = WindowBuilder::new("Terminal")
-            .frame(Rect::new(8, 32, 560, 320))
-            .build();
+        let console = GraphicalConsole::new("Terminal", (80, 24), None);
+        let window = console.window().unwrap();
         window.set_active();
         window
             .draw(|bitmap| {
@@ -92,7 +91,7 @@ fn sysinit() {
                 );
             })
             .unwrap();
-        set_stdout(Box::new(GraphicalConsole::from(window)));
+        set_stdout(console);
     }
 
     println!(

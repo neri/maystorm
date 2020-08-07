@@ -99,7 +99,7 @@ impl<T: Number> Zero for Size<T> {
     }
 }
 
-impl<T: Number> Add for Size<T> {
+impl<T: Number> Add<Self> for Size<T> {
     type Output = Self;
     fn add(self, rhs: Self) -> Self {
         Size {
@@ -109,7 +109,17 @@ impl<T: Number> Add for Size<T> {
     }
 }
 
-impl<T: Number> AddAssign for Size<T> {
+impl<T: Number> Add<EdgeInsets<T>> for Size<T> {
+    type Output = Self;
+    fn add(self, rhs: EdgeInsets<T>) -> Self {
+        Size {
+            width: self.width + rhs.left + rhs.left,
+            height: self.height + rhs.top + rhs.bottom,
+        }
+    }
+}
+
+impl<T: Number> AddAssign<Self> for Size<T> {
     fn add_assign(&mut self, rhs: Self) {
         *self = Self {
             width: self.width + rhs.width,
@@ -118,12 +128,31 @@ impl<T: Number> AddAssign for Size<T> {
     }
 }
 
-impl<T: Number> Sub for Size<T> {
+impl<T: Number> AddAssign<EdgeInsets<T>> for Size<T> {
+    fn add_assign(&mut self, rhs: EdgeInsets<T>) {
+        *self = Self {
+            width: self.width + rhs.left + rhs.left,
+            height: self.height + rhs.top + rhs.bottom,
+        }
+    }
+}
+
+impl<T: Number> Sub<Self> for Size<T> {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self {
         Size {
             width: self.width - rhs.width,
             height: self.height - rhs.height,
+        }
+    }
+}
+
+impl<T: Number> Sub<EdgeInsets<T>> for Size<T> {
+    type Output = Self;
+    fn sub(self, rhs: EdgeInsets<T>) -> Self {
+        Size {
+            width: self.width - (rhs.left + rhs.left),
+            height: self.height - (rhs.top + rhs.bottom),
         }
     }
 }
@@ -350,7 +379,7 @@ impl<T: Number> EdgeInsets<T> {
     }
 
     #[inline]
-    pub fn padding_all(value: T) -> Self {
+    pub const fn padding_all(value: T) -> Self {
         Self {
             top: value,
             left: value,

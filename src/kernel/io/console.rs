@@ -9,6 +9,8 @@ use core::fmt::Write;
 static DEFAULT_CONSOLE_ATTRIBUTE: u8 = 0x07;
 static DEFAULT_WINDOW_ATTRIBUTE: u8 = 0xF8;
 
+static DEFAULT_CONSOLE_INSETS: EdgeInsets<isize> = EdgeInsets::padding_all(4);
+
 pub struct GraphicalConsole<'a> {
     handle: Option<WindowHandle>,
     font: &'a FontDriver<'a>,
@@ -23,7 +25,7 @@ pub struct GraphicalConsole<'a> {
 impl<'a> From<&'a Box<Bitmap>> for GraphicalConsole<'a> {
     fn from(bitmap: &'a Box<Bitmap>) -> Self {
         let font = FontDriver::system_font();
-        let insets = EdgeInsets::padding_all(4);
+        let insets = DEFAULT_CONSOLE_INSETS;
         let rect = Rect::from(bitmap.size()).insets_by(insets);
         let cols = rect.size.width / font.width();
         let rows = rect.size.height / font.line_height();
@@ -44,7 +46,7 @@ impl<'a> From<WindowHandle> for GraphicalConsole<'a> {
     fn from(window: WindowHandle) -> Self {
         let bitmap = window.get_bitmap().unwrap();
         let font = FontDriver::system_font();
-        let insets = window.content_insets();
+        let insets = window.content_insets() + DEFAULT_CONSOLE_INSETS;
         let rect = Rect::from(bitmap.size()).insets_by(insets);
         let cols = rect.size.width / font.width();
         let rows = rect.size.height / font.line_height();
@@ -62,6 +64,16 @@ impl<'a> From<WindowHandle> for GraphicalConsole<'a> {
 }
 
 impl GraphicalConsole<'_> {
+    pub fn new(title: &str, dims: (isize, isize), font: Option<&FontDriver>) -> Box<Self> {
+        let font = font.unwrap_or(FontDriver::system_font());
+        let size = Size::new(font.width() * dims.0, font.line_height() * dims.1);
+        let window = WindowBuilder::new(title)
+            .style_or(WindowStyle::CLIENT_RECT)
+            .size(size + DEFAULT_CONSOLE_INSETS)
+            .build();
+        Box::new(Self::from(window))
+    }
+
     pub fn reset(&mut self) {
         let old_cursor_state = self.set_cursor_enabled(false);
         self.set_cursor_position(0, 0);
@@ -72,6 +84,11 @@ impl GraphicalConsole<'_> {
         if let Some(handle) = self.handle {
             handle.invalidate();
         }
+    }
+
+    #[inline]
+    pub fn window(&self) -> Option<WindowHandle> {
+        self.handle
     }
 
     #[inline]
