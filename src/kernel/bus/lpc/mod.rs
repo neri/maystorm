@@ -2,7 +2,7 @@
 
 pub mod ps2;
 
-pub struct LowPinCount {}
+pub(crate) struct LowPinCount {}
 
 impl LowPinCount {
     pub unsafe fn init() {

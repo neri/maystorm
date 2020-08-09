@@ -3,7 +3,9 @@ use crate::*;
 use core::alloc::{GlobalAlloc, Layout};
 use core::ffi::c_void;
 use core::intrinsics::*;
+use core::num::*;
 use core::ptr::*;
+use core::sync::atomic::*;
 
 #[global_allocator]
 static mut ALLOCATOR: CustomAlloc = CustomAlloc::new(0, 0);
@@ -20,6 +22,7 @@ pub fn init(base: usize, rest: usize) {
 pub struct CustomAlloc {
     base: usize,
     rest: usize,
+    real_bitmap: [u32; 8],
 }
 
 impl CustomAlloc {
@@ -28,9 +31,16 @@ impl CustomAlloc {
         CustomAlloc {
             base: fixed_base,
             rest: rest + base - fixed_base,
+            real_bitmap: [0; 8],
         }
     }
 
+    pub unsafe fn init_real(bitmap: [u32; 8]) {
+        let shared = &mut ALLOCATOR;
+        shared.real_bitmap = bitmap;
+    }
+
+    /// Allocate Unowned Memory
     pub unsafe fn zalloc(size: usize) -> Option<NonNull<c_void>> {
         let size = (size + 15) & !15;
         loop {
@@ -38,12 +48,47 @@ impl CustomAlloc {
             if rest < size {
                 break None;
             }
-            let (_, acquired) = atomic_cxchg(&mut ALLOCATOR.rest, rest, rest - size);
-            if acquired {
+            if atomic_cxchg(&mut ALLOCATOR.rest, rest, rest - size).1 {
                 let result = atomic_xadd(&mut ALLOCATOR.base, size);
                 break NonNull::new(result as *const c_void as *mut c_void);
             }
         }
+    }
+
+    /// Allocate Page
+    pub unsafe fn z_alloc_page(size: usize) -> Option<NonZeroUsize> {
+        let page_mask = 0xFFF;
+        let size = (size + page_mask * 2 + 1) & !page_mask;
+        loop {
+            let rest = ALLOCATOR.rest;
+            if rest < size {
+                break None;
+            }
+            if atomic_cxchg(&mut ALLOCATOR.rest, rest, rest - size).1 {
+                let result = atomic_xadd(&mut ALLOCATOR.base, size);
+                break NonZeroUsize::new(result & !page_mask);
+            }
+        }
+    }
+
+    /// Allocate Paged Real Memory
+    #[cfg(any(target_arch = "x86_64"))]
+    pub unsafe fn z_alloc_real() -> Option<NonZeroU8> {
+        let shared = &mut ALLOCATOR;
+        for i in 1..160 {
+            let index = i as usize / 32;
+            let bit = (i & 31) as usize;
+            let ptr: &AtomicU32 = transmute(&shared.real_bitmap[index]);
+            let mut result: usize;
+            asm!("
+            lock btr [{0}], {1}
+            sbb {2:e}, {2:e}
+            ", in(reg) ptr, in(reg) bit, lateout(reg) result, );
+            if result != 0 {
+                return NonZeroU8::new(i as u8);
+            }
+        }
+        None
     }
 }
 

@@ -42,15 +42,21 @@ impl<'a> From<&'a Box<Bitmap>> for GraphicalConsole<'a> {
     }
 }
 
-impl<'a> From<WindowHandle> for GraphicalConsole<'a> {
-    fn from(window: WindowHandle) -> Self {
+impl<'a> GraphicalConsole<'a> {
+    pub fn new(title: &str, dims: (isize, isize), font: Option<&'a FontDriver>) -> Box<Self> {
+        let font = font.unwrap_or(FontDriver::system_font());
+        let size = Size::new(font.width() * dims.0, font.line_height() * dims.1);
+        let window = WindowBuilder::new(title)
+            .style_or(WindowStyle::CLIENT_RECT)
+            .size(size + DEFAULT_CONSOLE_INSETS)
+            .build();
+
         let bitmap = window.get_bitmap().unwrap();
-        let font = FontDriver::system_font();
         let insets = window.content_insets() + DEFAULT_CONSOLE_INSETS;
         let rect = Rect::from(bitmap.size()).insets_by(insets);
         let cols = rect.size.width / font.width();
         let rows = rect.size.height / font.line_height();
-        GraphicalConsole {
+        Box::new(GraphicalConsole {
             handle: Some(window),
             font,
             bitmap,
@@ -59,21 +65,11 @@ impl<'a> From<WindowHandle> for GraphicalConsole<'a> {
             dims: (cols, rows),
             is_cursor_enabled: false,
             attribute: DEFAULT_WINDOW_ATTRIBUTE,
-        }
+        })
     }
 }
 
 impl GraphicalConsole<'_> {
-    pub fn new(title: &str, dims: (isize, isize), font: Option<&FontDriver>) -> Box<Self> {
-        let font = font.unwrap_or(FontDriver::system_font());
-        let size = Size::new(font.width() * dims.0, font.line_height() * dims.1);
-        let window = WindowBuilder::new(title)
-            .style_or(WindowStyle::CLIENT_RECT)
-            .size(size + DEFAULT_CONSOLE_INSETS)
-            .build();
-        Box::new(Self::from(window))
-    }
-
     pub fn reset(&mut self) {
         let old_cursor_state = self.set_cursor_enabled(false);
         self.set_cursor_position(0, 0);

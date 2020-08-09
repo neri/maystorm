@@ -3,7 +3,6 @@
 use super::fonts::*;
 use super::graphics::*;
 use crate::kernel::io::hid::*;
-use crate::kernel::mem::Dispose;
 use crate::kernel::num::*;
 use crate::kernel::scheduler::*;
 use crate::kernel::sync::semaphore::*;
@@ -359,12 +358,6 @@ impl Window {
         Window::set_title_array(&mut self.title, title);
         self.draw_frame();
         self.invalidate_rect(self.title_frame());
-    }
-}
-
-impl Dispose for Window {
-    fn dispose(&mut self) {
-        self.bitmap = None;
     }
 }
 

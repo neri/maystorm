@@ -26,6 +26,9 @@ impl Cpu {
     pub(crate) unsafe fn new(cpuid: ProcessorId) -> Box<Self> {
         let tss = TaskStateSegment::new();
         let gdt = GlobalDescriptorTable::new(&tss);
+
+        // let cpuid0 = Cpuid::cpuid(0);
+
         let cpu = Box::new(Cpu {
             cpu_id: cpuid,
             gdt: gdt,
@@ -54,24 +57,29 @@ impl Cpu {
         }
     }
 
+    #[inline]
     pub fn current_processor_id() -> ProcessorId {
         Apic::current_processor_id()
     }
 
+    #[inline]
     pub fn current_processor_index() -> Option<ProcessorIndex> {
         Apic::current_processor_index()
     }
 
+    #[inline]
     pub fn relax() {
         unsafe {
             asm!("pause");
         }
     }
 
+    #[inline]
     pub unsafe fn halt() {
         asm!("hlt");
     }
 
+    #[inline]
     pub fn breakpoint() {
         unsafe {
             asm!("int3");
@@ -86,6 +94,7 @@ impl Cpu {
         }
     }
 
+    #[inline]
     pub unsafe fn out8(port: u16, value: u8) {
         asm!("out dx, al", in("dx") port, in("al") value);
     }
@@ -129,10 +138,80 @@ impl Cpu {
         r
     }
 
+    #[inline]
     pub(crate) unsafe fn stop() -> ! {
         loop {
             asm!("cli");
             Self::halt();
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, Default)]
+pub struct CpuidRegs {
+    pub ebx: u32,
+    pub edx: u32,
+    pub ecx: u32,
+    pub eax: u32,
+}
+
+#[derive(Copy, Clone)]
+pub union Cpuid {
+    pub regs: CpuidRegs,
+    pub bytes: [u8; 16],
+}
+
+impl Cpuid {
+    #[inline]
+    pub fn perform(&mut self) {
+        unsafe {
+            asm!("cpuid",
+            inout("eax") self.regs.eax,
+            inout("ecx") self.regs.ecx,
+            lateout("edx") self.regs.edx,
+            lateout("ebx") self.regs.ebx,
+            );
+        }
+    }
+
+    #[inline]
+    pub fn perform_function(&mut self, eax: u32) {
+        self.regs.eax = eax;
+        self.perform();
+    }
+
+    #[inline]
+    pub fn cpuid(eax: u32) -> Self {
+        let mut p = Cpuid::default();
+        p.perform_function(eax);
+        p
+    }
+
+    #[inline]
+    pub fn eax(&self) -> u32 {
+        unsafe { self.regs.eax }
+    }
+
+    #[inline]
+    pub fn ecx(&self) -> u32 {
+        unsafe { self.regs.ecx }
+    }
+
+    #[inline]
+    pub fn edx(&self) -> u32 {
+        unsafe { self.regs.edx }
+    }
+
+    #[inline]
+    pub fn ebx(&self) -> u32 {
+        unsafe { self.regs.ebx }
+    }
+}
+
+impl Default for Cpuid {
+    fn default() -> Self {
+        Self {
+            regs: CpuidRegs::default(),
         }
     }
 }
@@ -631,21 +710,33 @@ pub extern "C" fn default_int_ex_handler(ctx: *mut X64StackContext) {
         GLOBAL_EXCEPTION_LOCK.lock();
         let ctx = ctx.as_ref().unwrap();
         stdout().set_cursor_enabled(false);
-        stdout().set_attribute(0x1F);
-        println!(
-            "\n#### EXCEPTION {:02x} {:04x} ip {:02x}:{:016x} sp {:02x}:{:016x} fl {:08x}",
-            ctx.vector.0,
-            ctx.error_code,
-            ctx.cs,
-            ctx.rip,
-            ctx.ss,
-            ctx.rsp,
-            ctx.rflags.bits(),
-        );
+        let va_mask = 0xFFFF_FFFF_FFFF;
+        if Exception::PageFault.as_vec() == ctx.vector {
+            println!(
+                "\n#### EXCEPTION {:02x} err {:04x} {:012x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
+                ctx.vector.0,
+                ctx.error_code,
+                ctx.cr2 & va_mask,
+                ctx.cs,
+                ctx.rip & va_mask,
+                ctx.ss,
+                ctx.rsp & va_mask,
+            );
+        } else {
+            println!(
+                "\n#### EXCEPTION {:02x} err {:04x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
+                ctx.vector.0,
+                ctx.error_code,
+                ctx.cs,
+                ctx.rip & va_mask,
+                ctx.ss,
+                ctx.rsp & va_mask,
+            );
+        }
         GLOBAL_EXCEPTION_LOCK.unlock();
         println!(
             "rax {:016x} rbx {:016x} rcx {:016x} rdx {:016x}
-rbp {:016x} rsi {:016x} rdi {:016x}
+rbp {:016x} rsi {:016x} rdi {:016x} rfl {:08x},
 r8  {:016x} r9  {:016x} r10 {:016x} r11 {:016x}
 r12 {:016x} r13 {:016x} r14 {:016x} r15 {:016x}",
             ctx.rax,
@@ -655,6 +746,7 @@ r12 {:016x} r13 {:016x} r14 {:016x} r15 {:016x}",
             ctx.rbp,
             ctx.rsi,
             ctx.rdi,
+            ctx.rflags.bits(),
             ctx.r8,
             ctx.r9,
             ctx.r10,

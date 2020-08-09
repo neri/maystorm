@@ -28,7 +28,7 @@ static BIT_MASKS: [u8; 8] = [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
 
 impl From<&crate::boot::BootInfo> for Bitmap {
     fn from(info: &crate::boot::BootInfo) -> Self {
-        let delta = info.fb_delta;
+        let delta = info.vram_delta;
         let mut width = info.screen_width;
         let mut height = info.screen_height;
         let mut is_portrait = height > width;
@@ -45,7 +45,7 @@ impl From<&crate::boot::BootInfo> for Bitmap {
             flags.insert(BitmapFlags::PORTRAIT);
         }
         Bitmap {
-            base: info.fb_base as *mut u32,
+            base: info.vram_base as *mut u32,
             size: Size::new(width as isize, height as isize),
             delta: delta.into(),
             flags: flags,

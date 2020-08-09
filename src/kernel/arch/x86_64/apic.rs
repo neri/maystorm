@@ -1,6 +1,7 @@
 // Advanced Programmable Interrupt Controller
 
 use super::cpu::*;
+use super::hpet::*;
 use crate::kernel::mem::alloc::*;
 use crate::kernel::mem::mmio::*;
 use crate::kernel::scheduler::*;
@@ -19,7 +20,7 @@ static mut CURRENT_PROCESSOR_INDEXES: [u8; 256] = [INVALID_PROCESSOR_INDEX; 256]
 
 extern "C" {
     fn setup_smp_init(
-        vec_sipi: u8,
+        vec_sipi: InterruptVector,
         max_cpu: usize,
         stack_chunk_size: usize,
         stack_base: *mut c_void,
@@ -38,7 +39,7 @@ pub unsafe extern "C" fn apic_start_ap(_cpuid: u8) {
     });
 }
 
-pub struct Apic {
+pub(super) struct Apic {
     master_apic_id: ProcessorId,
     ioapics: Vec<Box<IoApic>>,
     gsi_table: [GsiProps; 256],
@@ -61,7 +62,7 @@ impl Apic {
         }
     }
 
-    pub(crate) unsafe fn init(acpi_apic: &acpi::interrupt::Apic) {
+    pub unsafe fn init(acpi_apic: &acpi::interrupt::Apic) {
         if acpi_apic.also_has_legacy_pics {
             // disable legacy PICs
             Cpu::out8(0xA1, 0xFF);
@@ -139,7 +140,7 @@ impl Apic {
         );
 
         // Setup SMP
-        let sipi_vec: u8 = 1; // TODO: dynamic alloc
+        let sipi_vec = InterruptVector(CustomAlloc::z_alloc_real().unwrap().get());
         let max_cpu = core::cmp::min(System::shared().number_of_cpus(), MAX_CPU);
         let stack_chunk_size = 0x4000;
         let stack_base = CustomAlloc::zalloc(max_cpu * stack_chunk_size)
@@ -149,9 +150,9 @@ impl Apic {
         LocalApic::broadcast_init();
         Timer::usleep(10_000);
         LocalApic::broadcast_startup(sipi_vec);
-        Timer::usleep(1_000);
+        Timer::usleep(10_000);
         LocalApic::broadcast_startup(sipi_vec);
-        Timer::usleep(1_000);
+        Timer::usleep(10_000);
         if System::shared().number_of_active_cpus() != max_cpu {
             panic!("Some of the processors are not responding");
         }
@@ -462,9 +463,9 @@ impl LocalApic {
     }
 
     /// Broadcast Startup IPI to all another APs
-    unsafe fn broadcast_startup(init_vec: u8) {
+    unsafe fn broadcast_startup(init_vec: InterruptVector) {
         Self::InterruptCommandHigh.write(0);
-        Self::InterruptCommand.write(0x000C4600 | init_vec as u32);
+        Self::InterruptCommand.write(0x000C4600 | init_vec.0 as u32);
     }
 
     unsafe fn current_processor_id() -> ProcessorId {
@@ -544,66 +545,6 @@ impl IoApic {
                 self.mmio.write_u32(0x10, data);
             });
         });
-    }
-}
-
-/// High Precision Event Timer
-struct Hpet {
-    mmio: Box<Mmio>,
-    main_cnt_period: u64,
-    measure_div: u64,
-}
-
-impl Hpet {
-    unsafe fn new(info: &acpi::HpetInfo) -> Box<Self> {
-        let mut hpet = Hpet {
-            mmio: Mmio::phys(info.base_address, 0x1000),
-            main_cnt_period: 0,
-            measure_div: 0,
-        };
-
-        Irq::LPC_TIMER.register(Self::irq_handler).unwrap();
-        hpet.main_cnt_period = hpet.read(0) >> 32;
-        hpet.write(0x10, 0);
-        hpet.write(0x20, 0); // Clear all interrupts
-        hpet.write(0xF0, 0); // Reset MAIN_COUNTER_VALUE
-        hpet.write(0x10, 0x03); // LEG_RT_CNF | ENABLE_CNF
-
-        hpet.measure_div = 1000_000_000 / hpet.main_cnt_period;
-        hpet.write(0x100, 0x0000_004C); // Tn_INT_ENB_CNF | Tn_TYPE_CNF | Tn_VAL_SET_CNF
-        hpet.write(0x108, 1000_000_000_000 / hpet.main_cnt_period);
-
-        Box::new(hpet)
-    }
-
-    unsafe fn read(&self, index: usize) -> u64 {
-        self.mmio.read_u64(index)
-    }
-
-    unsafe fn write(&self, index: usize, value: u64) {
-        self.mmio.write_u64(index, value);
-    }
-
-    fn measure(&self) -> TimeMeasure {
-        unsafe { TimeMeasure((self.read(0xF0) / self.measure_div) as i64) }
-    }
-
-    fn irq_handler(_irq: Irq) {
-        // TODO:
-    }
-}
-
-impl TimerSource for Hpet {
-    fn create(&self, duration: TimeMeasure) -> TimeMeasure {
-        self.measure() + duration.0 as isize
-    }
-
-    fn until(&self, deadline: TimeMeasure) -> bool {
-        (deadline.0 - self.measure().0) > 0
-    }
-
-    fn diff(&self, from: TimeMeasure) -> isize {
-        self.measure().0 as isize - from.0 as isize
     }
 }
 

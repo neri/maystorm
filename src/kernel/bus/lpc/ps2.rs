@@ -14,7 +14,7 @@ use core::ptr::*;
 
 static mut PS2: Option<Box<Ps2>> = None;
 
-pub(crate) struct Ps2 {
+pub(super) struct Ps2 {
     key_state: Ps2KeyState,
     mouse_state: MouseState,
     mouse_phase: Ps2MousePhase,

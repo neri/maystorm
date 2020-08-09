@@ -5,12 +5,12 @@ use crate::*;
 use uefi::prelude::*;
 
 #[macro_export]
-macro_rules! myos_entry {
+macro_rules! entry {
     ($path:path) => {
-        #[entry]
-        fn efi_main(
+        #[no_mangle]
+        pub fn efi_main(
             handle: ::uefi::Handle,
-            st: ::uefi::table::SystemTable<::uefi::table::Boot>,
+            st: Option<::uefi::table::SystemTable<::uefi::table::Boot>>,
         ) -> ::uefi::Status {
             let f: fn(&BootInfo) = $path;
             startup(handle, st, f)
@@ -19,10 +19,30 @@ macro_rules! myos_entry {
 }
 
 #[inline]
-pub fn startup<F>(handle: Handle, st: SystemTable<Boot>, main: F) -> Status
+pub fn startup<F>(handle: Handle, st: Option<SystemTable<Boot>>, main: F) -> Status
 where
     F: Fn(&BootInfo),
 {
+    let st = match st {
+        None => unsafe {
+            let info: &BootInfo = core::mem::transmute(handle);
+
+            kernel::mem::alloc::init(info.static_start as usize, info.free_memory as usize);
+            kernel::mem::alloc::CustomAlloc::init_real(info.real_bitmap);
+
+            let screen = Bitmap::from(info);
+            screen.reset();
+            BOOT_SCREEN = Some(Box::new(screen));
+            let stdout = Box::new(GraphicalConsole::from(boot_screen()));
+            EMCONSOLE = Some(stdout);
+
+            main(&info);
+
+            Cpu::stop();
+        },
+        Some(st) => st,
+    };
+
     let mut info = BootInfo::default();
 
     // Find ACPI Table
@@ -42,8 +62,8 @@ where
         {
             let gop_info = gop.current_mode_info();
             let mut fb = gop.frame_buffer();
-            info.fb_base = fb.as_mut_ptr() as usize as u64;
-            info.fb_delta = gop_info.stride() as u16;
+            info.vram_base = fb.as_mut_ptr() as usize as u64;
+            info.vram_delta = gop_info.stride() as u16;
             let (w, h) = gop_info.resolution();
             info.screen_width = w as u16;
             info.screen_height = h as u16;
@@ -99,11 +119,24 @@ where
     // TODO: manage memory map
     let mut total_memory_size: u64 = 0;
     for mem_desc in mm {
+        if mem_desc.phys_start < 0x100_000 && mem_desc.ty.is_conventional_at_runtime() {
+            let base = mem_desc.phys_start / 0x1000;
+            let count = mem_desc.page_count;
+            let limit = core::cmp::min(base + count, 256);
+            for i in base..limit {
+                let index = i as usize / 32;
+                let bit = 1 << (i & 31);
+                info.real_bitmap[index] |= bit;
+            }
+        }
         if mem_desc.ty.is_countable() {
             total_memory_size += mem_desc.page_count << 12;
         }
     }
     info.total_memory_size = total_memory_size;
+    unsafe {
+        kernel::mem::alloc::CustomAlloc::init_real(info.real_bitmap);
+    }
 
     main(&info);
 

@@ -34,8 +34,7 @@ impl Mmio {
         let delta = size_of::<T>();
         assert!(
             offset + delta <= self.size,
-            "mmio: expected limit {}, but actual offset {}..{}",
-            self.size,
+            "mmio: index {}..{} is out of bounds",
             offset,
             offset + delta,
         );
