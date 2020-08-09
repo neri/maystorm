@@ -1,0 +1,19 @@
+[package]
+authors = ["Nerry <108566+neri@users.noreply.github.com>"]
+edition = "2018"
+name = "kernel"
+version = "0.1.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+# [features]
+
+[dependencies]
+acpi = {git = "https://github.com/rust-osdev/acpi"}
+# aml = {git = "https://github.com/rust-osdev/acpi"}
+bitflags = {}
+bootinfo = {path = "../bootinfo"}
+uefi = {git = "https://github.com/rust-osdev/uefi-rs.git"}
+
+[profile.release]
+opt-level = "z"

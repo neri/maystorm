@@ -1,9 +1,0 @@
-pub mod arch;
-pub mod bus;
-pub mod io;
-pub mod mem;
-pub mod num;
-pub mod scheduler;
-pub mod sync;
-pub mod system;
-pub mod thread;
