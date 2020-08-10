@@ -1,4 +1,4 @@
-.PHONY: all clean run install love
+.PHONY: love all clean run install rust
 
 RUST_ARCH	= x86_64-unknown-uefi
 BOOT_EFI	= BOOTX64.EFI
@@ -7,8 +7,10 @@ EFI_BOOT	= $(MNT)/EFI/BOOT
 OVMF		= var/ovmfx64.fd
 URL_OVMF	= https://github.com/retrage/edk2-nightly/raw/master/bin/RELEASEX64_OVMF.fd
 KERNEL_TARGET	= target/$(RUST_ARCH)/release/kernel.efi
-KERNEL_EXECUTE	= $(EFI_BOOT)/$(BOOT_EFI)
-TARGETS		= $(KERNEL_TARGET)
+BOOT_TARGET	= target/$(RUST_ARCH)/release/boot.efi
+KERNEL_EXECUTE	= $(EFI_BOOT)/kernel.bin
+BOOT_EXECUTE	= $(EFI_BOOT)/$(BOOT_EFI)
+TARGETS		= $(KERNEL_TARGET) $(BOOT_TARGET)
 
 all: $(TARGETS)
 
@@ -21,13 +23,19 @@ clean:
 $(KERNEL_TARGET): src/* src/**/* src/**/**/* src/**/**/**/*
 	rustup run nightly cargo xbuild --release --target $(RUST_ARCH)
 
+$(BOOT_TARGET): src/* src/**/* src/**/**/* src/**/**/**/*
+	rustup run nightly cargo xbuild --release --target $(RUST_ARCH)
+
 $(EFI_BOOT):
 	mkdir -p $(EFI_BOOT)
 
 $(KERNEL_EXECUTE): $(KERNEL_TARGET) $(EFI_BOOT)
 	cp $< $@
 
-install: $(KERNEL_EXECUTE)
+$(BOOT_EXECUTE): $(BOOT_TARGET) $(EFI_BOOT)
+	cp $< $@
+
+install: $(KERNEL_EXECUTE) $(BOOT_EXECUTE)
 
 $(OVMF):
 	-mkdir -p var
@@ -37,4 +45,4 @@ run: install $(OVMF)
 	qemu-system-x86_64 -smp 4 -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -monitor stdio
 
 test: install
-	cp mnt/EFI/BOOT/BOOTX64.EFI /Volumes/EFI_TEST/EFI/MEGOS/BOOTX64.EFI
+	cp $(KERNEL_EXECUTE) /Volumes/EFI_TEST/EFI/MEGOS/BOOTX64.EFI

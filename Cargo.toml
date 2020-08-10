@@ -1,7 +1,9 @@
 [workspace]
 members = [
+  "src/boot",
   "src/bootinfo",
   "src/kernel",
+  "src/hello",
 ]
 
 [profile.release]

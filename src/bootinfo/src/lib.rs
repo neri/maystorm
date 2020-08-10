@@ -1,12 +1,14 @@
 // Boot Info
 #![no_std]
 
+pub mod pe;
+
 #[repr(C, packed)]
 #[derive(Default)]
 pub struct BootInfo {
     pub master_cr3: u64,
-    pub rsdptr: u64,
-    pub smbiod: u64,
+    pub acpi_rsdptr: u64,
+    pub smbios: u64,
     pub vram_base: u64,
     pub screen_width: u16,
     pub screen_height: u16,

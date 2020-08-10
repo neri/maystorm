@@ -46,7 +46,7 @@ where
     let mut info = BootInfo::default();
 
     // Find ACPI Table
-    info.rsdptr = match st.find_config_table(::uefi::table::cfg::ACPI2_GUID) {
+    info.acpi_rsdptr = match st.find_config_table(::uefi::table::cfg::ACPI2_GUID) {
         Some(val) => val as u64,
         None => {
             writeln!(st.stdout(), "Error: ACPI Table Not Found").unwrap();

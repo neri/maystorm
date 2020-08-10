@@ -114,7 +114,7 @@ impl System {
         unsafe {
             let mut my_handler = MyAcpiHandler::new();
             SYSTEM.acpi = Some(Box::new(
-                ::acpi::parse_rsdp(&mut my_handler, info.rsdptr as usize).unwrap(),
+                ::acpi::parse_rsdp(&mut my_handler, info.acpi_rsdptr as usize).unwrap(),
             ));
 
             SYSTEM.number_of_cpus = SYSTEM.acpi().application_processors.len() + 1;
