@@ -11,9 +11,6 @@ version = "0.1.0"
 [dependencies]
 acpi = {git = "https://github.com/rust-osdev/acpi"}
 # aml = {git = "https://github.com/rust-osdev/acpi"}
-bitflags = {}
+bitflags = "1.2"
 bootinfo = {path = "../bootinfo"}
 uefi = {git = "https://github.com/rust-osdev/uefi-rs.git"}
-
-[profile.release]
-opt-level = "z"

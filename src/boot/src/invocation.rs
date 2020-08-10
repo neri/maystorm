@@ -6,6 +6,7 @@ use bootinfo::*;
 pub struct Invocation {}
 
 impl Invocation {
+    #[cfg(any(target_arch = "x86_64"))]
     pub unsafe fn invoke_kernel(
         info: BootInfo,
         entry: VirtualAddress,
@@ -13,6 +14,7 @@ impl Invocation {
     ) -> ! {
         let mut info = info;
         PageManager::finalize(&mut info);
+
         // Set new CR3
         asm!("
         mov cr3, {0}
@@ -28,11 +30,12 @@ impl Invocation {
         xor r8, r8
         xor r9, r9
         call rax
+        ud2
         ",
             in("rax") entry.0,
             in("rcx") &info,
             in("r8") new_sp.0,
+            options(noreturn)
         );
-        loop {}
     }
 }

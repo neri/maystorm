@@ -11,6 +11,7 @@ use boot::*;
 use bootinfo::*;
 use core::ffi::c_void;
 use core::fmt::Write;
+use core::mem::*;
 use uefi::prelude::*;
 
 const PATH_TO_KERNEL: &str = "\\EFI\\BOOT\\kernel.bin";
@@ -57,13 +58,21 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
             let mut fb = gop.frame_buffer();
             info.vram_base = fb.as_mut_ptr() as usize as u64;
             info.vram_delta = gop_info.stride() as u16;
-            let (w, h) = gop_info.resolution();
+            let (mut w, mut h) = gop_info.resolution();
+            if w > info.vram_delta.into() {
+                swap(&mut w, &mut h);
+            }
             info.screen_width = w as u16;
             info.screen_height = h as u16;
         }
     } else {
         writeln!(st.stdout(), "Error: GOP Not Found").unwrap();
         return Status::UNSUPPORTED;
+    }
+
+    {
+        let time = st.runtime_services().get_time().unwrap().unwrap();
+        info.boot_time = unsafe { transmute(time) };
     }
 
     // ----------------------------------------------------------------
@@ -85,7 +94,7 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
 
     let entry = loader.locate(&mut info);
 
-    println!("Now starting myos...");
+    println!("Now starting kernel...");
 
     let stack_size: usize = 0x4000;
     let new_sp = VirtualAddress(info.kernel_base + 0x3FFFF000);

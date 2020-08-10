@@ -10,4 +10,4 @@ version = "0.1.0"
 
 [dependencies]
 # uefi = {git = "https://github.com/rust-osdev/uefi-rs.git"}
-bitflags = {}
+bitflags = "1.2"

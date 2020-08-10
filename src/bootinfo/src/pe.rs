@@ -27,7 +27,7 @@ pub struct CoffHeader {
 
 #[allow(dead_code)]
 #[repr(u16)]
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ImageFileMachine {
     I386 = 0x014C,
     IA64 = 0x0200,
@@ -44,20 +44,20 @@ pub enum ImageFileMachine {
 
 bitflags! {
     pub struct ImageFile: u16 {
-        const RELOCS_STRIPPED = 0x0001;
-        const EXECUTABLE_IMAGE = 0x0002;
-        const LINE_NUMS_STRIPPED = 0x0004;
-        const LOCAL_SYMS_STRIPPED = 0x0008;
-        const MINIMAL_OBJECT = 0x0010;
-        const UPDATE_OBJECT = 0x0020;
-        const _16BIT_MACHINE = 0x0040;
-        const BYTES_REVERSED_LO = 0x0080;
-        const _32BIT_MACHINE = 0x0100;
-        const DEBUG_STRIPPED = 0x0200;
-        const PATCH = 0x0400;
-        const SYSTEM = 0x1000;
-        const DLL = 0x2000;
-        const BYTES_REVERSED_HI = 0x8000;
+        const RELOCS_STRIPPED       = 0x0001;
+        const EXECUTABLE_IMAGE      = 0x0002;
+        const LINE_NUMS_STRIPPED    = 0x0004;
+        const LOCAL_SYMS_STRIPPED   = 0x0008;
+        const MINIMAL_OBJECT        = 0x0010;
+        const UPDATE_OBJECT         = 0x0020;
+        const _16BIT_MACHINE        = 0x0040;
+        const BYTES_REVERSED_LO     = 0x0080;
+        const _32BIT_MACHINE        = 0x0100;
+        const DEBUG_STRIPPED        = 0x0200;
+        const PATCH                 = 0x0400;
+        const SYSTEM                = 0x1000;
+        const DLL                   = 0x2000;
+        const BYTES_REVERSED_HI     = 0x8000;
     }
 }
 
@@ -96,7 +96,7 @@ pub struct OptionalHeader64 {
 
 #[allow(dead_code)]
 #[repr(u16)]
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Magic {
     PE32 = 0x010B,
     PE64 = 0x020B,
@@ -104,7 +104,7 @@ pub enum Magic {
 
 #[allow(dead_code)]
 #[repr(u16)]
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ImageSubsystem {
     Unknown = 0,
     Native = 1,
@@ -125,7 +125,7 @@ pub struct ImageDataDirectory {
 
 #[allow(dead_code)]
 #[repr(usize)]
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd)]
 pub enum ImageDirectoryEntry {
     Export = 0,
     Import = 1,
@@ -165,26 +165,26 @@ pub struct SectionTable {
 
 bitflags! {
     pub struct ImageScn: u32 {
-        const TYPE_DUMMY = 0x00000001;
-        const TYPE_NO_LOAD = 0x00000002;
-        const TYPE_GROUPED = 0x00000004;
-        const TYPE_NO_PAD = 0x00000008;
-        const TYPE_COPY = 0x00000010;
-        const CNT_CODE = 0x00000020;
-        const CNT_INITIALIZED_DATA = 0x00000040;
-        const CNT_UNINITIALIZED_DATA = 0x00000080;
-        const LNK_OTHER = 0x00000100;
-        const LNK_INFO = 0x00000200;
-        const LNK_OVERLAY = 0x00000400;
-        const LNK_REMOVE = 0x00000800;
-        const LNK_COMDAT = 0x00001000;
-        const MEM_DISCARDABLE = 0x02000000;
-        const MEM_NOT_CACHED = 0x04000000;
-        const MEM_NOT_PAGED = 0x08000000;
-        const MEM_SHARED = 0x10000000;
-        const MEM_EXECUTE = 0x20000000;
-        const MEM_READ = 0x40000000;
-        const MEM_WRITE = 0x80000000;
+        const TYPE_DUMMY                = 0x0000_0001;
+        const TYPE_NO_LOAD              = 0x0000_0002;
+        const TYPE_GROUPED              = 0x0000_0004;
+        const TYPE_NO_PAD               = 0x0000_0008;
+        const TYPE_COPY                 = 0x0000_0010;
+        const CNT_CODE                  = 0x0000_0020;
+        const CNT_INITIALIZED_DATA      = 0x0000_0040;
+        const CNT_UNINITIALIZED_DATA    = 0x0000_0080;
+        const LNK_OTHER                 = 0x0000_0100;
+        const LNK_INFO                  = 0x0000_0200;
+        const LNK_OVERLAY               = 0x0000_0400;
+        const LNK_REMOVE                = 0x0000_0800;
+        const LNK_COMDAT                = 0x0000_1000;
+        const MEM_DISCARDABLE           = 0x0200_0000;
+        const MEM_NOT_CACHED            = 0x0400_0000;
+        const MEM_NOT_PAGED             = 0x0800_0000;
+        const MEM_SHARED                = 0x1000_0000;
+        const MEM_EXECUTE               = 0x2000_0000;
+        const MEM_READ                  = 0x4000_0000;
+        const MEM_WRITE                 = 0x8000_0000;
     }
 }
 
@@ -210,7 +210,7 @@ impl BaseReloc {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone)]
 pub struct BaseRelocEntry(u16);
 
 impl BaseRelocEntry {

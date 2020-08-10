@@ -13,21 +13,22 @@ struct PageConfig {}
 impl PageConfig {
     const UEFI_PAGE_SIZE: u64 = 0x0000_1000;
     const N_FIRST_DIRECT_MAP_PAGES: usize = 4;
-    const MAX_PAGE_LEVEL: usize = 4;
-    const SHIFT_PER_LEVEL: usize = 9;
     const KERNEL_HEAP_PAGE: usize = 0x1FF;
     const KERNEL_HEAP_PAGE3: usize = 0x1FE;
     const MAX_REAL_MEMORY: u64 = 0x0000A_0000;
     const MAX_VA: VirtualAddress = VirtualAddress(0x0000_FFFF_FFFF_FFFF);
-
-    const fn level(level: usize, index: usize) -> VirtualAddress {
-        VirtualAddress((index as u64) << (level * Self::SHIFT_PER_LEVEL + 3))
-    }
 }
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, Default, PartialEq, PartialOrd)]
 pub struct VirtualAddress(pub u64);
+
+impl Add<u32> for VirtualAddress {
+    type Output = Self;
+    fn add(self, rhs: u32) -> Self {
+        VirtualAddress(self.0 + rhs as u64)
+    }
+}
 
 impl Add<u64> for VirtualAddress {
     type Output = Self;
@@ -103,7 +104,7 @@ impl PageManager {
         info.total_memory_size = total_memory_size;
 
         // Minimal Paging
-        let common_attributes: PageAttributes = (MProtect::READ | MProtect::WRITE).into();
+        let common_attributes: PageAttributes = (MProtect::RWX).into();
 
         let cr3 = Self::alloc_pages(1);
         shared.master_cr3 = cr3;
@@ -143,10 +144,10 @@ impl PageManager {
         pml3k[PageConfig::KERNEL_HEAP_PAGE3] = shared.pml2k;
 
         info.kernel_base = !PageConfig::MAX_VA.0
-            | PageConfig::level(PageConfig::MAX_PAGE_LEVEL, PageConfig::KERNEL_HEAP_PAGE).0
-            | PageConfig::level(3, PageConfig::KERNEL_HEAP_PAGE3).0;
+            | PageTableEntry::level(PageTableEntry::MAX_PAGE_LEVEL, PageConfig::KERNEL_HEAP_PAGE).0
+            | PageTableEntry::level(3, PageConfig::KERNEL_HEAP_PAGE3).0;
 
-        // Temp Peripherals
+        // TODO: Temp Peripherals
         // FEC00000 IOAPIC
         // FED00000 HPET
         // FEE00000 LocalAPIC
@@ -203,7 +204,7 @@ impl PageManager {
 
     fn va_set_l1<'a>(base: VirtualAddress) -> (&'a mut [PageTableEntry], usize) {
         let shared = Self::shared();
-        let common_attributes: PageAttributes = (MProtect::READ | MProtect::WRITE).into();
+        let common_attributes: PageAttributes = (MProtect::RWX).into();
 
         let page = (base.0 / PageTableEntry::LARGE_PAGE_SIZE) as usize & PageTableEntry::INDEX_MASK;
         let offset =
@@ -237,8 +238,15 @@ impl PageManager {
         blob as usize
     }
 
-    pub fn vprotect(_base: VirtualAddress, _size: usize, _prot: MProtect) {
-        // TODO:
+    pub fn vprotect(base: VirtualAddress, size: usize, prot: MProtect) {
+        let attributes = PageAttributes::from(prot);
+        let size =
+            ceil(size as u64, PageTableEntry::NATIVE_PAGE_SIZE) / PageTableEntry::NATIVE_PAGE_SIZE;
+
+        for i in 0..size {
+            let (p, index) = Self::va_set_l1(base + i * PageTableEntry::NATIVE_PAGE_SIZE);
+            p[index] = PageTableEntry::new(p[index].frame_address(), attributes);
+        }
     }
 }
 
@@ -278,24 +286,26 @@ bitflags! {
         const WRITE = 0x2;
         const EXEC  = 0x4;
         const NONE  = 0x0;
+
+        const RWX = Self::READ.bits() | Self::WRITE.bits() | Self::EXEC.bits();
     }
 }
 
 bitflags! {
     struct PageAttributes: u64 {
-        const PTE_PRESENT       = 0x0000000000000001;
-        const PTE_WRITE         = 0x0000000000000002;
-        const PTE_USER          = 0x0000000000000004;
-        const PTE_PWT           = 0x0000000000000008;
-        const PTE_PCD           = 0x0000000000000010;
-        const PTE_ACCESS        = 0x0000000000000020;
-        const PTE_DIRTY         = 0x0000000000000040;
-        const PTE_PAT           = 0x0000000000000080;
-        const PTE_LARGE         = 0x0000000000000080;
-        const PTE_GLOBAL        = 0x0000000000000100;
-        const PTE_AVL           = 0x0000000000000E00;
-        const PTE_LARGE_PAT     = 0x0000000000001000;
-        const PTE_NOT_EXECUTE   = 0x8000000000000000;
+        const PTE_PRESENT       = 0x0000_0000_0000_0001;
+        const PTE_WRITE         = 0x0000_0000_0000_0002;
+        const PTE_USER          = 0x0000_0000_0000_0004;
+        const PTE_PWT           = 0x0000_0000_0000_0008;
+        const PTE_PCD           = 0x0000_0000_0000_0010;
+        const PTE_ACCESS        = 0x0000_0000_0000_0020;
+        const PTE_DIRTY         = 0x0000_0000_0000_0040;
+        const PTE_PAT           = 0x0000_0000_0000_0080;
+        const PTE_LARGE         = 0x0000_0000_0000_0080;
+        const PTE_GLOBAL        = 0x0000_0000_0000_0100;
+        const PTE_AVL           = 0x0000_0000_0000_0E00;
+        const PTE_LARGE_PAT     = 0x0000_0000_0000_1000;
+        const PTE_NOT_EXECUTE   = 0x8000_0000_0000_0000;
     }
 }
 
@@ -308,9 +318,9 @@ impl From<MProtect> for PageAttributes {
         if prot.contains(MProtect::WRITE) {
             value |= PageAttributes::PTE_WRITE;
         }
-        // if !prot.contains(MProtect::EXEC) {
-        //     value |= PageAttributes::PTE_NOT_EXECUTE;
-        // }
+        if !prot.contains(MProtect::EXEC) {
+            value |= PageAttributes::PTE_NOT_EXECUTE;
+        }
         value
     }
 }
@@ -327,6 +337,8 @@ impl PageTableEntry {
     const N_NATIVE_PAGE_ENTRIES: usize = 512;
     const LARGE_PAGE_SIZE: u64 = 0x0020_0000;
     const INDEX_MASK: usize = 0x1FF;
+    const MAX_PAGE_LEVEL: usize = 4;
+    const SHIFT_PER_LEVEL: usize = 9;
 
     const fn empty() -> Self {
         Self { repr: 0 }
@@ -377,6 +389,10 @@ impl PageTableEntry {
                 pages * Self::N_NATIVE_PAGE_ENTRIES,
             )
         }
+    }
+
+    const fn level(level: usize, index: usize) -> VirtualAddress {
+        VirtualAddress((index as u64) << (level * PageTableEntry::SHIFT_PER_LEVEL + 3))
     }
 }
 

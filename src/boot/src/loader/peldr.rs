@@ -58,13 +58,6 @@ impl ImageLoader<'_> {
             // Step 1 - allocate memory
             let size = header.optional.size_of_image as usize;
             let vmem = PageManager::valloc(base, size) as *const u8 as *mut u8;
-            {
-                let mut p = vmem;
-                for _ in 0..size {
-                    p.write_volatile(0);
-                    p = p.add(1);
-                }
-            }
 
             println!(
                 "Kernel Base: {:08x} => {:08x} Size: {:08x}",
@@ -99,25 +92,16 @@ impl ImageLoader<'_> {
             }
 
             // Step 3 - relocate
-            // TODO:
             let reloc = header.dir[ImageDirectoryEntry::BaseReloc];
             let reloc_size = reloc.size as usize;
             let reloc_base = reloc.rva as usize;
             let mut iter = 0;
-            println!("Reloc_DIR: {:08x} {:08x}", reloc_base, reloc_size);
             while iter < reloc_size {
                 let reloc: &BaseReloc = transmute(vmem.add(reloc_base + iter));
                 let count = reloc.count();
-                println!(
-                    "BaseReloc {:08x} {:08x} {}",
-                    reloc_base + iter,
-                    reloc.rva_base,
-                    count
-                );
                 for i in 0..count {
                     let entry = reloc.entry(i);
                     let rva = reloc.rva_base as u64 + entry.value() as u64;
-                    println!("RelocEntry: {} {}", entry.reloc_type().0, entry.value());
                     match entry.reloc_type() {
                         ImageRelBased::DIR64 => {
                             let p: *mut u64 = transmute(vmem.add(rva as usize));
@@ -130,9 +114,21 @@ impl ImageLoader<'_> {
             }
 
             // Step 4 - attributes
-            // TODO:
+            for section in sec_tbl {
+                let mut prot = MProtect::empty();
+                if section.flags.contains(ImageScn::MEM_READ) {
+                    prot.insert(MProtect::READ);
+                }
+                if section.flags.contains(ImageScn::MEM_WRITE) {
+                    prot.insert(MProtect::WRITE);
+                }
+                if section.flags.contains(ImageScn::MEM_EXECUTE) {
+                    prot.insert(MProtect::EXEC);
+                }
+                PageManager::vprotect(base + section.rva, section.vsize as usize, prot);
+            }
 
-            base + header.optional.entry_point.into()
+            base + header.optional.entry_point
         }
     }
 }

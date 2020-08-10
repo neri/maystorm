@@ -5,7 +5,6 @@
 #![no_main]
 #![feature(asm)]
 
-use core::fmt::Write;
 use core::panic::PanicInfo;
 use uefi::prelude::*;
 
