@@ -248,7 +248,7 @@ impl Apic {
 pub type IrqHandler = fn(Irq) -> ();
 
 #[no_mangle]
-pub unsafe extern "efiapi" fn apic_handle_irq(irq: Irq) {
+pub unsafe extern "C" fn apic_handle_irq(irq: Irq) {
     let e = APIC.idt[irq.0 as usize];
     if e != VirtualAddress::NULL {
         let f = core::mem::transmute::<usize, IrqHandler>(e.0);

@@ -58,7 +58,6 @@ dependencies = [
  "acpi",
  "bitflags",
  "bootinfo",
- "uefi",
 ]
 
 [[package]]

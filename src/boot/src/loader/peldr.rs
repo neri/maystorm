@@ -103,6 +103,7 @@ impl ImageLoader<'_> {
                     let entry = reloc.entry(i);
                     let rva = reloc.rva_base as u64 + entry.value() as u64;
                     match entry.reloc_type() {
+                        ImageRelBased::ABSOLUTE => (),
                         ImageRelBased::DIR64 => {
                             let p: *mut u64 = transmute(vmem.add(rva as usize));
                             p.write_volatile(p.read_volatile() - image_base + base.0);

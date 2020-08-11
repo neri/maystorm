@@ -46,16 +46,12 @@ impl Sub<usize> for VirtualAddress {
 
 pub type PhysicalAddress = u64;
 
-fn ceil(base: PhysicalAddress, page: PhysicalAddress) -> PhysicalAddress {
-    (base + page - 1) & !(page - 1)
-}
-
 static mut PM: PageManager = PageManager::new();
 
 pub struct PageManager {
     pub master_cr3: PhysicalAddress,
-    pub static_start: u64,
-    pub static_free: u64,
+    pub static_start: PhysicalAddress,
+    pub static_free: PhysicalAddress,
     pml2k: PageTableEntry,
 }
 
@@ -84,7 +80,7 @@ impl PageManager {
                 }
             }
             if mem_desc.ty.is_conventional_at_runtime() {
-                if last_pa < PageConfig::MAX_REAL_MEMORY {
+                if last_pa <= PageConfig::MAX_REAL_MEMORY {
                     let base = mem_desc.phys_start / 0x1000;
                     let count = mem_desc.page_count;
                     let limit = core::cmp::min(base + count, 256);
@@ -140,7 +136,6 @@ impl PageManager {
 
         let pml2kp = Self::alloc_pages(1);
         shared.pml2k = PageTableEntry::new(pml2kp, common_attributes);
-        // let pml2k = shared.pml2k.table(1);
         pml3k[PageConfig::KERNEL_HEAP_PAGE3] = shared.pml2k;
 
         info.kernel_base = !PageConfig::MAX_VA.0
@@ -164,10 +159,10 @@ impl PageManager {
 
         // vram (temp)
         let vram_base = info.vram_base;
-        let vram_size = ceil(
+        let vram_size = Self::pages(
             info.vram_delta as u64 * info.screen_height as u64 * 4,
             PageTableEntry::LARGE_PAGE_SIZE,
-        ) / PageTableEntry::LARGE_PAGE_SIZE;
+        ) as u64;
         let offset = vram_base / PageTableEntry::LARGE_PAGE_SIZE;
         for i in 0..vram_size {
             pml2[(offset + i) as usize] = PageTableEntry::new(
@@ -220,11 +215,9 @@ impl PageManager {
     }
 
     pub fn valloc(base: VirtualAddress, size: usize) -> usize {
-        // let shared = Self::shared();
         let common_attributes: PageAttributes = (MProtect::READ | MProtect::WRITE).into();
 
-        let size =
-            ceil(size as u64, PageTableEntry::NATIVE_PAGE_SIZE) / PageTableEntry::NATIVE_PAGE_SIZE;
+        let size = Self::pages(size as u64, PageTableEntry::NATIVE_PAGE_SIZE) as u64;
         let blob = Self::alloc_pages(size as usize);
 
         for i in 0..size {
@@ -240,13 +233,20 @@ impl PageManager {
 
     pub fn vprotect(base: VirtualAddress, size: usize, prot: MProtect) {
         let attributes = PageAttributes::from(prot);
-        let size =
-            ceil(size as u64, PageTableEntry::NATIVE_PAGE_SIZE) / PageTableEntry::NATIVE_PAGE_SIZE;
+        let size = Self::pages(size as u64, PageTableEntry::NATIVE_PAGE_SIZE) as u64;
 
         for i in 0..size {
             let (p, index) = Self::va_set_l1(base + i * PageTableEntry::NATIVE_PAGE_SIZE);
             p[index] = PageTableEntry::new(p[index].frame_address(), attributes);
         }
+    }
+
+    fn ceil(base: PhysicalAddress, page: PhysicalAddress) -> PhysicalAddress {
+        (base + page - 1) & !(page - 1)
+    }
+
+    fn pages(base: PhysicalAddress, page_size: PhysicalAddress) -> usize {
+        (Self::ceil(base, page_size) / page_size) as usize
     }
 }
 

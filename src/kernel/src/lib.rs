@@ -13,7 +13,6 @@
 #![no_std]
 
 pub mod arch;
-pub mod boot;
 pub mod bus;
 pub mod io;
 pub mod mem;
@@ -28,6 +27,7 @@ use crate::io::console::GraphicalConsole;
 use crate::io::graphics::*;
 use crate::sync::spinlock::Spinlock;
 use alloc::boxed::Box;
+use bootinfo::*;
 use core::ffi::c_void;
 use core::fmt::Write;
 use core::panic::PanicInfo;
@@ -36,6 +36,41 @@ extern crate alloc;
 
 #[macro_use()]
 extern crate bitflags;
+
+#[macro_export]
+macro_rules! myos_entry {
+    ($path:path) => {
+        #[no_mangle]
+        pub fn efi_main(info: &BootInfo, mbz: usize) -> usize {
+            let f: fn(&BootInfo) = $path;
+            startup(info, mbz, f)
+        }
+    };
+}
+
+#[inline]
+pub fn startup<F>(info: &BootInfo, mbz: usize, f: F) -> usize
+where
+    F: FnOnce(&BootInfo),
+{
+    if mbz != 0 {
+        return !(isize::MAX as usize) + 1;
+    }
+    unsafe {
+        mem::alloc::init(info.static_start as usize, info.free_memory as usize);
+        mem::alloc::CustomAlloc::init_real(info.real_bitmap);
+
+        let screen = Bitmap::from(info);
+        screen.reset();
+        BOOT_SCREEN = Some(Box::new(screen));
+        let stdout = Box::new(GraphicalConsole::from(boot_screen()));
+        EMCONSOLE = Some(stdout);
+
+        f(&info);
+
+        loop {}
+    }
+}
 
 static mut USE_EMCONSOLE: bool = true;
 static mut PANIC_GLOBAL_LOCK: Spinlock = Spinlock::new();

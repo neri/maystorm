@@ -2,7 +2,6 @@
 #![no_std]
 #![no_main]
 
-use boot::*;
 use bootinfo::*;
 use core::fmt::Write;
 use io::console::*;
@@ -15,7 +14,7 @@ use scheduler::*;
 use system::*;
 extern crate alloc;
 
-entry!(main);
+myos_entry!(main);
 
 fn main(info: &BootInfo) {
     System::init(info, sysinit);

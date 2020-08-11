@@ -34,6 +34,6 @@ impl Blob<'_> {
     }
 
     pub unsafe fn transmute_slice<T>(&self, offset: usize, len: usize) -> &[T] {
-        slice::from_raw_parts_mut(transmute((&self.blob[0] as *const u8).add(offset)), len)
+        slice::from_raw_parts(transmute((&self.blob[0] as *const u8).add(offset)), len)
     }
 }

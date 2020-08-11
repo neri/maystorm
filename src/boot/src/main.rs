@@ -22,14 +22,14 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
     let bs = st.boot_services();
 
     // Load kernel
-    let mut loader = ImageLoader::new(match get_file(handle, &bs, PATH_TO_KERNEL) {
+    let mut kernel = ImageLoader::new(match get_file(handle, &bs, PATH_TO_KERNEL) {
         Ok(blob) => (blob),
         Err(status) => {
             writeln!(st.stdout(), "ERROR: KERNEL NOT FOUND").unwrap();
             return status;
         }
     });
-    if loader.recognize().is_err() {
+    if kernel.recognize().is_err() {
         writeln!(st.stdout(), "ERROR: BAD KERNEL SIGNATURE FOUND").unwrap();
         return Status::UNSUPPORTED;
     }
@@ -92,7 +92,7 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
 
     PageManager::init(&mut info, mm);
 
-    let entry = loader.locate(&mut info);
+    let entry = kernel.locate(&mut info);
 
     println!("Now starting kernel...");
 
