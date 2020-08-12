@@ -8,29 +8,43 @@ use boot::invocation::*;
 use boot::loader::*;
 use boot::page::*;
 use boot::*;
-use bootinfo::*;
+use bootprot::*;
+use config::*;
 use core::ffi::c_void;
 use core::fmt::Write;
 use core::mem::*;
 use uefi::prelude::*;
-
-const PATH_TO_KERNEL: &str = "\\EFI\\BOOT\\kernel.bin";
 
 #[entry]
 fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
     let mut info = BootInfo::default();
     let bs = st.boot_services();
 
+    // Load Config
+    let config = match get_file(handle, &bs, BootSettings::DEFAULT_CONFIG_PATH) {
+        Ok(blob) => match BootSettings::load(unsafe { core::str::from_utf8_unchecked(blob) }) {
+            Ok(result) => result,
+            Err(err) => {
+                writeln!(st.stdout(), "Error in config: {}", err).unwrap();
+                return Status::LOAD_ERROR;
+            }
+        },
+        Err(_) => BootSettings::default(),
+    };
+
+    // Command Line (exp)
+    info.cmdline = config.cmdline().as_ptr() as usize as u64;
+
     // Load kernel
-    let mut kernel = ImageLoader::new(match get_file(handle, &bs, PATH_TO_KERNEL) {
+    let mut kernel = ImageLoader::new(match get_file(handle, &bs, config.kernel_path()) {
         Ok(blob) => (blob),
         Err(status) => {
-            writeln!(st.stdout(), "ERROR: KERNEL NOT FOUND").unwrap();
+            writeln!(st.stdout(), "Error: Load failed {}", config.kernel_path()).unwrap();
             return status;
         }
     });
     if kernel.recognize().is_err() {
-        writeln!(st.stdout(), "ERROR: BAD KERNEL SIGNATURE FOUND").unwrap();
+        writeln!(st.stdout(), "Error: BAD KERNEL SIGNATURE FOUND").unwrap();
         return Status::UNSUPPORTED;
     }
 

@@ -3,8 +3,8 @@
 use crate::blob::*;
 use crate::page::*;
 use crate::*;
-use bootinfo::pe::*;
-use bootinfo::*;
+use bootprot::pe::*;
+use bootprot::*;
 use core::cmp;
 use core::mem::*;
 

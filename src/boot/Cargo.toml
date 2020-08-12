@@ -8,5 +8,8 @@ version = "0.1.0"
 
 [dependencies]
 bitflags = "1.2"
-bootinfo = {path = "../bootinfo"}
+bootprot = {path = "../bootprot"}
+serde = {version = "1.0", default-features = false, features = ["derive"]}
+serde-json-core = {}
+serde_derive = {}
 uefi = {git = "https://github.com/rust-osdev/uefi-rs.git"}

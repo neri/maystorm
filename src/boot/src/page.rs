@@ -1,7 +1,7 @@
 // Minimal Page Manager
 
 use bitflags::*;
-use bootinfo::*;
+use bootprot::*;
 use core::intrinsics::*;
 use core::ops::*;
 use core::slice;
@@ -16,12 +16,15 @@ impl PageConfig {
     const KERNEL_HEAP_PAGE: usize = 0x1FF;
     const KERNEL_HEAP_PAGE3: usize = 0x1FE;
     const MAX_REAL_MEMORY: u64 = 0x0000A_0000;
-    const MAX_VA: VirtualAddress = VirtualAddress(0x0000_FFFF_FFFF_FFFF);
 }
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, Default, PartialEq, PartialOrd)]
 pub struct VirtualAddress(pub u64);
+
+impl VirtualAddress {
+    const MAX: Self = Self(0x0000_FFFF_FFFF_FFFF);
+}
 
 impl Add<u32> for VirtualAddress {
     type Output = Self;
@@ -100,7 +103,7 @@ impl PageManager {
         info.total_memory_size = total_memory_size;
 
         // Minimal Paging
-        let common_attributes: PageAttributes = (MProtect::RWX).into();
+        let common_attributes = PageAttributes::from(MProtect::all());
 
         let cr3 = Self::alloc_pages(1);
         shared.master_cr3 = cr3;
@@ -125,7 +128,7 @@ impl PageManager {
         for i in 0..limit {
             pml2[i] = PageTableEntry::new(
                 i as PhysicalAddress * PageTableEntry::LARGE_PAGE_SIZE,
-                common_attributes | PageAttributes::PTE_LARGE,
+                common_attributes | PageAttributes::LARGE,
             );
         }
 
@@ -138,7 +141,7 @@ impl PageManager {
         shared.pml2k = PageTableEntry::new(pml2kp, common_attributes);
         pml3k[PageConfig::KERNEL_HEAP_PAGE3] = shared.pml2k;
 
-        info.kernel_base = !PageConfig::MAX_VA.0
+        info.kernel_base = !VirtualAddress::MAX.0
             | PageTableEntry::level(PageTableEntry::MAX_PAGE_LEVEL, PageConfig::KERNEL_HEAP_PAGE).0
             | PageTableEntry::level(3, PageConfig::KERNEL_HEAP_PAGE3).0;
 
@@ -152,7 +155,7 @@ impl PageManager {
             for i in 0..2 {
                 pml2[(offset + i) as usize] = PageTableEntry::new(
                     la + i * PageTableEntry::LARGE_PAGE_SIZE,
-                    common_attributes | PageAttributes::PTE_LARGE,
+                    common_attributes | PageAttributes::LARGE,
                 );
             }
         }
@@ -167,7 +170,7 @@ impl PageManager {
         for i in 0..vram_size {
             pml2[(offset + i) as usize] = PageTableEntry::new(
                 vram_base + i * PageTableEntry::LARGE_PAGE_SIZE,
-                common_attributes | PageAttributes::PTE_LARGE,
+                common_attributes | PageAttributes::LARGE,
             );
         }
     }
@@ -199,7 +202,7 @@ impl PageManager {
 
     fn va_set_l1<'a>(base: VirtualAddress) -> (&'a mut [PageTableEntry], usize) {
         let shared = Self::shared();
-        let common_attributes: PageAttributes = (MProtect::RWX).into();
+        let common_attributes = PageAttributes::from(MProtect::all());
 
         let page = (base.0 / PageTableEntry::LARGE_PAGE_SIZE) as usize & PageTableEntry::INDEX_MASK;
         let offset =
@@ -215,7 +218,7 @@ impl PageManager {
     }
 
     pub fn valloc(base: VirtualAddress, size: usize) -> usize {
-        let common_attributes: PageAttributes = (MProtect::READ | MProtect::WRITE).into();
+        let common_attributes = PageAttributes::from(MProtect::READ | MProtect::WRITE);
 
         let size = Self::pages(size as u64, PageTableEntry::NATIVE_PAGE_SIZE) as u64;
         let blob = Self::alloc_pages(size as usize);
@@ -286,26 +289,24 @@ bitflags! {
         const WRITE = 0x2;
         const EXEC  = 0x4;
         const NONE  = 0x0;
-
-        const RWX = Self::READ.bits() | Self::WRITE.bits() | Self::EXEC.bits();
     }
 }
 
 bitflags! {
     struct PageAttributes: u64 {
-        const PTE_PRESENT       = 0x0000_0000_0000_0001;
-        const PTE_WRITE         = 0x0000_0000_0000_0002;
-        const PTE_USER          = 0x0000_0000_0000_0004;
-        const PTE_PWT           = 0x0000_0000_0000_0008;
-        const PTE_PCD           = 0x0000_0000_0000_0010;
-        const PTE_ACCESS        = 0x0000_0000_0000_0020;
-        const PTE_DIRTY         = 0x0000_0000_0000_0040;
-        const PTE_PAT           = 0x0000_0000_0000_0080;
-        const PTE_LARGE         = 0x0000_0000_0000_0080;
-        const PTE_GLOBAL        = 0x0000_0000_0000_0100;
-        const PTE_AVL           = 0x0000_0000_0000_0E00;
-        const PTE_LARGE_PAT     = 0x0000_0000_0000_1000;
-        const PTE_NOT_EXECUTE   = 0x8000_0000_0000_0000;
+        const PRESENT       = 0x0000_0000_0000_0001;
+        const WRITE         = 0x0000_0000_0000_0002;
+        const USER          = 0x0000_0000_0000_0004;
+        const PWT           = 0x0000_0000_0000_0008;
+        const PCD           = 0x0000_0000_0000_0010;
+        const ACCESS        = 0x0000_0000_0000_0020;
+        const DIRTY         = 0x0000_0000_0000_0040;
+        const PAT           = 0x0000_0000_0000_0080;
+        const LARGE         = 0x0000_0000_0000_0080;
+        const GLOBAL        = 0x0000_0000_0000_0100;
+        const AVL           = 0x0000_0000_0000_0E00;
+        const LARGE_PAT     = 0x0000_0000_0000_1000;
+        const NO_EXECUTE    = 0x8000_0000_0000_0000;
     }
 }
 
@@ -313,13 +314,13 @@ impl From<MProtect> for PageAttributes {
     fn from(prot: MProtect) -> Self {
         let mut value = PageAttributes::empty();
         if prot.contains(MProtect::READ) {
-            value |= PageAttributes::PTE_PRESENT;
+            value |= PageAttributes::PRESENT;
         }
         if prot.contains(MProtect::WRITE) {
-            value |= PageAttributes::PTE_WRITE;
+            value |= PageAttributes::WRITE;
         }
         if !prot.contains(MProtect::EXEC) {
-            value |= PageAttributes::PTE_NOT_EXECUTE;
+            value |= PageAttributes::NO_EXECUTE;
         }
         value
     }

@@ -27,7 +27,7 @@ use crate::io::console::GraphicalConsole;
 use crate::io::graphics::*;
 use crate::sync::spinlock::Spinlock;
 use alloc::boxed::Box;
-use bootinfo::*;
+use bootprot::*;
 use core::ffi::c_void;
 use core::fmt::Write;
 use core::panic::PanicInfo;

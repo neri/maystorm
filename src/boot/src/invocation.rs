@@ -1,7 +1,7 @@
 // Kernel Invocation
 
 use crate::page::*;
-use bootinfo::*;
+use bootprot::*;
 
 pub struct Invocation {}
 
@@ -12,8 +12,16 @@ impl Invocation {
         entry: VirtualAddress,
         new_sp: VirtualAddress,
     ) -> ! {
+        const IA32_EFER_MSR: u32 = 0xC000_0080;
         let mut info = info;
         PageManager::finalize(&mut info);
+
+        // Enable NXE
+        asm!("
+        rdmsr
+        bts eax, 11
+        wrmsr
+        ", in("ecx") IA32_EFER_MSR, lateout("eax") _, lateout("edx") _,);
 
         // Set new CR3
         asm!("
@@ -23,18 +31,16 @@ impl Invocation {
 
         // Invoke kernel
         asm!("
-        xor edx, edx
-        xor esi, esi
-        mov rdi, rcx
-        mov rsp, r8
-        xor r8, r8
-        xor r9, r9
-        call rax
+        lea rsp, [{1} - 0x20]
+        call {0}
         ud2
         ",
-            in("rax") entry.0,
+            in(reg) entry.0,
+            in(reg) new_sp.0,
             in("rcx") &info,
-            in("r8") new_sp.0,
+            in("rdx") 0,
+            in("rdi") &info,
+            in("rsi") 0,
             options(noreturn)
         );
     }

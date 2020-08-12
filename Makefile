@@ -20,10 +20,10 @@ clean:
 # $(RUST_ARCH).json:
 # 	rustc +nightly -Z unstable-options --print target-spec-json --target $(RUST_ARCH) | sed -e 's/-sse,+/+sse,-/' > $@
 
-$(KERNEL_TARGET): src/* src/**/* src/**/**/* src/**/**/**/*
+$(KERNEL_TARGET): src/* src/**/* src/**/**/* src/**/**/**/* src/**/**/**/**/*
 	rustup run nightly cargo xbuild --release --target $(RUST_ARCH)
 
-$(BOOT_TARGET): src/* src/**/* src/**/**/* src/**/**/**/*
+$(BOOT_TARGET): src/* src/**/* src/**/**/* src/**/**/**/* src/**/**/**/**/*
 	rustup run nightly cargo xbuild --release --target $(RUST_ARCH)
 
 $(EFI_BOOT):
@@ -43,6 +43,9 @@ $(OVMF):
 
 run: install $(OVMF)
 	qemu-system-x86_64 -smp 4 -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -monitor stdio
+
+runs: install $(OVMF)
+	qemu-system-x86_64 -smp 4 -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -nographic
 
 test: install
 	cp $(KERNEL_EXECUTE) /Volumes/EFI_TEST/EFI/MEGOS/BOOTX64.EFI

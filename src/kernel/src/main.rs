@@ -2,7 +2,7 @@
 #![no_std]
 #![no_main]
 
-use bootinfo::*;
+use bootprot::*;
 use core::fmt::Write;
 use io::console::*;
 use io::fonts::*;

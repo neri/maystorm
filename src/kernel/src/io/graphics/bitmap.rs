@@ -6,7 +6,7 @@ use crate::io::fonts::*;
 use crate::mem::alloc::*;
 use crate::num::*;
 use bitflags::*;
-use bootinfo::BootInfo;
+use bootprot::BootInfo;
 use core::mem::swap;
 
 #[repr(C)]

@@ -5,7 +5,7 @@ use crate::scheduler::*;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
-use bootinfo::BootInfo;
+use bootprot::BootInfo;
 use core::ptr::NonNull;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]

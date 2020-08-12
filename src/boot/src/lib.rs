@@ -10,6 +10,7 @@ use uefi::proto::media::fs::*;
 use uefi::table::boot::MemoryType;
 
 pub mod blob;
+pub mod config;
 pub mod invocation;
 pub mod loader;
 pub mod page;

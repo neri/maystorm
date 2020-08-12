@@ -1,7 +1,7 @@
 [workspace]
 members = [
   "src/boot",
-  "src/bootinfo",
+  "src/bootprot",
   "src/kernel",
   "src/hello",
 ]
