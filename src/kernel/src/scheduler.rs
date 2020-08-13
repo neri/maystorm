@@ -199,11 +199,6 @@ impl GlobalScheduler {
 
     // Perform a Preemption
     pub(crate) fn reschedule() {
-        unsafe {
-            asm!("mov r8d, 0xdeadbeef",
-                out("r8") _,
-            );
-        }
         if Self::is_enabled() {
             Cpu::without_interrupts(|| {
                 let lsch = Self::local_scheduler();

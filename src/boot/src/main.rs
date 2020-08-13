@@ -4,12 +4,12 @@
 #![no_main]
 #![feature(asm)]
 
+use boot::config::*;
 use boot::invocation::*;
 use boot::loader::*;
 use boot::page::*;
 use boot::*;
 use bootprot::*;
-use config::*;
 use core::ffi::c_void;
 use core::fmt::Write;
 use core::mem::*;
@@ -29,7 +29,18 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
                 return Status::LOAD_ERROR;
             }
         },
-        Err(_) => BootSettings::default(),
+        Err(status) => match status {
+            Status::NOT_FOUND => BootSettings::default(),
+            _ => {
+                writeln!(
+                    st.stdout(),
+                    "Error: Load failed {}",
+                    BootSettings::DEFAULT_CONFIG_PATH
+                )
+                .unwrap();
+                return status;
+            }
+        },
     };
 
     // Command Line (exp)
@@ -53,7 +64,7 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
         Some(val) => val as u64,
         None => {
             writeln!(st.stdout(), "Error: ACPI Table Not Found").unwrap();
-            return Status::LOAD_ERROR;
+            return Status::UNSUPPORTED;
         }
     };
 
@@ -106,7 +117,7 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
 
     PageManager::init(&mut info, mm);
 
-    let entry = kernel.locate(&mut info);
+    let entry = kernel.locate(VirtualAddress(info.kernel_base));
 
     println!("Now starting kernel...");
 

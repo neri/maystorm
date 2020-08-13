@@ -1,17 +1,34 @@
 // Portable Executable
 use bitflags::*;
+use core::mem::*;
 use core::slice;
 
 pub const IMAGE_DOS_SIGNATURE: u16 = 0x5A4D;
-pub const IMAGE_NT_SIGNATURE: u32 = 0x00004550;
 pub const EFI_TE_IMAGE_HEADER_SIGNATURE: u16 = 0x5A56;
 
 #[repr(C, packed)]
 pub struct PeHeader64 {
-    pub pe_signature: u32,
+    pub signature: PeSignature,
     pub coff: CoffHeader,
     pub optional: OptionalHeader64,
     pub dir: [ImageDataDirectory; 16],
+}
+
+impl PeHeader64 {
+    pub fn is_valid(&self) -> bool {
+        unsafe { self.signature == PeSignature::IMAGE_NT_SIGNATURE && self.optional.is_valid() }
+    }
+
+    pub const fn size(&self) -> usize {
+        size_of::<PeSignature>() + size_of::<CoffHeader>() + self.coff.size_of_optional as usize
+    }
+}
+
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum PeSignature {
+    #[allow(non_camel_case_types)]
+    IMAGE_NT_SIGNATURE = 0x00004550,
 }
 
 #[repr(C, packed)]
@@ -92,6 +109,12 @@ pub struct OptionalHeader64 {
     pub size_of_heap_commit: u64,
     pub loader_flags: u32,
     pub numer_of_dir: u32,
+}
+
+impl OptionalHeader64 {
+    pub fn is_valid(&self) -> bool {
+        unsafe { self.magic == Magic::PE64 }
+    }
 }
 
 #[allow(dead_code)]

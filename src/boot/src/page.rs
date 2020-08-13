@@ -4,6 +4,7 @@ use bitflags::*;
 use bootprot::*;
 use core::intrinsics::*;
 use core::ops::*;
+use core::ptr;
 use core::slice;
 use uefi::table::boot::*;
 
@@ -191,11 +192,8 @@ impl PageManager {
         unsafe {
             let result = atomic_xadd(&mut shared.static_start, size) as PhysicalAddress;
             atomic_xadd(&mut shared.static_free, 0 - size);
-            let mut ptr = result as *const u64 as *mut u64;
-            for _ in 0..size / 8 {
-                ptr.write_volatile(0);
-                ptr = ptr.add(1);
-            }
+            let ptr = result as *const u8 as *mut u8;
+            ptr::write_bytes(ptr, 0, size as usize);
             result
         }
     }
@@ -315,12 +313,12 @@ impl From<MProtect> for PageAttributes {
         let mut value = PageAttributes::empty();
         if prot.contains(MProtect::READ) {
             value |= PageAttributes::PRESENT;
-        }
-        if prot.contains(MProtect::WRITE) {
-            value |= PageAttributes::WRITE;
-        }
-        if !prot.contains(MProtect::EXEC) {
-            value |= PageAttributes::NO_EXECUTE;
+            if prot.contains(MProtect::WRITE) {
+                value |= PageAttributes::WRITE;
+            }
+            if !prot.contains(MProtect::EXEC) {
+                value |= PageAttributes::NO_EXECUTE;
+            }
         }
         value
     }

@@ -1,6 +1,6 @@
 # My practice OS
 
-My practice OS for learning Rust
+My practice OS written in Rust
 
 ## Operating Requirements
 

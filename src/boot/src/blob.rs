@@ -13,18 +13,26 @@ impl<'a> Blob<'a> {
 }
 
 impl Blob<'_> {
+    #[inline]
+    #[track_caller]
     pub const fn read_u8(&self, offset: usize) -> u8 {
         self.blob[offset]
     }
 
+    #[inline]
+    #[track_caller]
     pub const fn read_u16(&self, offset: usize) -> u16 {
         self.blob[offset] as u16 + self.blob[offset + 1] as u16 * 0x100
     }
 
+    #[inline]
+    #[track_caller]
     pub const fn read_u32(&self, offset: usize) -> u32 {
         self.read_u16(offset) as u32 + self.read_u16(offset + 2) as u32 * 0x10000
     }
 
+    #[inline]
+    #[track_caller]
     pub const fn read_u64(&self, offset: usize) -> u64 {
         self.read_u32(offset) as u64 + self.read_u32(offset + 4) as u64 * 0x10000_0000
     }

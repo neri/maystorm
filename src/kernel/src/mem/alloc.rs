@@ -4,7 +4,7 @@ use core::ffi::c_void;
 use core::intrinsics::*;
 use core::num::*;
 use core::ptr::*;
-use core::sync::atomic::*;
+// use core::sync::atomic::*;
 
 #[global_allocator]
 static mut ALLOCATOR: CustomAlloc = CustomAlloc::new(0, 0);
@@ -70,19 +70,16 @@ impl CustomAlloc {
         }
     }
 
-    /// Allocate Paged Real Memory
+    /// Allocate a page on real memory
     #[cfg(any(target_arch = "x86_64"))]
     pub unsafe fn z_alloc_real() -> Option<NonZeroU8> {
         let shared = &mut ALLOCATOR;
         for i in 1..160 {
-            let index = i as usize / 32;
-            let bit = (i & 31) as usize;
-            let ptr: &AtomicU32 = transmute(&shared.real_bitmap[index]);
-            let mut result: usize;
+            let mut result: u32;
             asm!("
-            lock btr [{0}], {1}
+            lock btr [{0}], {1:e}
             sbb {2:e}, {2:e}
-            ", in(reg) ptr, in(reg) bit, lateout(reg) result, );
+            ", in(reg) &shared.real_bitmap[0], in(reg) i, lateout(reg) result, );
             if result != 0 {
                 return NonZeroU8::new(i as u8);
             }

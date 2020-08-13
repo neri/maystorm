@@ -79,16 +79,16 @@ pub fn get_file(
         Err(err) => return Err(err.status()),
     };
 
-    let mut file = unsafe {
-        RegularFile::new(
-            match root
-                .handle()
-                .open(path, FileMode::Read, FileAttribute::empty())
-            {
-                Ok(handle) => handle.unwrap(),
-                Err(err) => return Err(err.status()),
-            },
-        )
+    let handle = match root
+        .handle()
+        .open(path, FileMode::Read, FileAttribute::empty())
+    {
+        Ok(handle) => handle.unwrap(),
+        Err(err) => return Err(err.status()),
+    };
+    let mut file = match handle.into_type().unwrap().unwrap() {
+        FileType::Regular(file) => file,
+        FileType::Dir(_) => return Err(Status::ACCESS_DENIED),
     };
 
     match file.set_position(u64::MAX) {
