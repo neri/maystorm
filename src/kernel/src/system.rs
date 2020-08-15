@@ -12,22 +12,22 @@ use core::ptr::NonNull;
 pub struct Version {
     pub maj: usize,
     pub min: usize,
-    pub rev: usize,
+    pub rel: usize,
 }
 
 impl Version {
     const SYSTEM_NAME: &'static str = "my OS";
     const VERSION: Version = Version::new(0, 0, 1);
 
-    const fn new(maj: usize, min: usize, rev: usize) -> Self {
-        Version { maj, min, rev }
+    const fn new(maj: usize, min: usize, rel: usize) -> Self {
+        Version { maj, min, rel }
     }
 }
 
 use core::fmt;
 impl fmt::Display for Version {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}.{}.{}", self.maj, self.min, self.rev)
+        write!(f, "{}.{}.{}", self.maj, self.min, self.rel)
     }
 }
 
@@ -133,7 +133,7 @@ impl System {
         unsafe {
             io::window::WindowManager::init();
             io::hid::HidManager::init();
-            bus::lpc::LowPinCount::init();
+            arch::Arch::late_init();
 
             let f = core::mem::transmute::<*mut c_void, fn() -> ()>(args);
             f();

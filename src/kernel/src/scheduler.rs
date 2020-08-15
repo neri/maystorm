@@ -320,7 +320,7 @@ impl LocalScheduler {
     }
 
     fn next_thread(lsch: &'static mut Self) {
-        assert!(Cpu::assert_without_interrupt());
+        Cpu::assert_without_interrupt();
 
         let current = lsch.current;
         let next = match GlobalScheduler::next() {

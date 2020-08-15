@@ -1,13 +1,36 @@
 // Boot Settings
 
-extern crate serde_derive;
+use crate::page::*;
 use serde::Deserialize;
 use serde_json_core::*;
 
+#[serde(deny_unknown_fields)]
 #[derive(Debug, Deserialize)]
 pub struct BootSettings {
-    kernel: Option<&'static str>,
-    cmdline: Option<&'static str>,
+    #[serde(default = "default_kernel")]
+    kernel: &'static str,
+
+    #[serde(default = "default_cmdline")]
+    cmdline: &'static str,
+
+    #[serde(default = "default_base_address")]
+    base_address: u64,
+
+    #[serde(default)]
+    aslr: bool,
+}
+
+fn default_kernel() -> &'static str {
+    "\\EFI\\BOOT\\kernel.bin"
+}
+
+fn default_cmdline() -> &'static str {
+    ""
+}
+
+fn default_base_address() -> u64 {
+    0xFFFF_8000_0000_0000
+    // 0xFFFF_FFFF_8000_0000
 }
 
 impl Default for BootSettings {
@@ -25,13 +48,15 @@ impl BootSettings {
         serde_json_core::from_str(json)
     }
 
-    const DEFAULT_KERNEL_PATH: &'static str = "\\EFI\\BOOT\\kernel.bin";
-    pub fn kernel_path(&self) -> &'static str {
-        self.kernel.unwrap_or(Self::DEFAULT_KERNEL_PATH)
+    pub const fn kernel_path(&self) -> &'static str {
+        self.kernel
     }
 
-    const DEFAULT_CMDLINE: &'static str = "";
-    pub fn cmdline(&self) -> &'static str {
-        self.cmdline.unwrap_or(Self::DEFAULT_CMDLINE)
+    pub const fn cmdline(&self) -> &'static str {
+        self.cmdline
+    }
+
+    pub const fn base_address(&self) -> VirtualAddress {
+        VirtualAddress(self.base_address)
     }
 }

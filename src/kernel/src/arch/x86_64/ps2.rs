@@ -16,9 +16,9 @@ static mut PS2: Option<Box<Ps2>> = None;
 
 pub(super) struct Ps2 {
     key_state: Ps2KeyState,
+    key_modifier: Modifier,
     mouse_state: MouseState,
     mouse_phase: Ps2MousePhase,
-    modifier: Modifier,
     mouse_buf: [Ps2Data; 3],
     sem: Semaphore,
     buf: Box<AtomicLinkedQueue<CompositePs2Data>>,
@@ -239,8 +239,8 @@ impl Ps2 {
             sem: Semaphore::new(0),
             buf: AtomicLinkedQueue::with_capacity(256),
             key_state: Ps2KeyState::default(),
+            key_modifier: Modifier::empty(),
             mouse_phase: Ps2MousePhase::Ack,
-            modifier: Modifier::empty(),
             mouse_buf: [Ps2Data(0); 3],
             mouse_state: MouseState::default(),
         }));
@@ -387,13 +387,13 @@ impl Ps2 {
                 let bit_position =
                     unsafe { Modifier::from_bits_unchecked(1 << (usage.0 - Usage::MOD_MIN.0)) };
                 if data.is_break() {
-                    self.modifier.remove(bit_position);
+                    self.key_modifier.remove(bit_position);
                 } else {
-                    self.modifier.insert(bit_position);
+                    self.key_modifier.insert(bit_position);
                 }
-                HidManager::send_key_event(KeyEvent::new(Usage::NULL, self.modifier, flags));
+                HidManager::send_key_event(KeyEvent::new(Usage::NULL, self.key_modifier, flags));
             } else {
-                HidManager::send_key_event(KeyEvent::new(usage, self.modifier, flags));
+                HidManager::send_key_event(KeyEvent::new(usage, self.key_modifier, flags));
             }
         }
     }

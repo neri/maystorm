@@ -225,12 +225,6 @@ impl Apic {
         (vec.0 as u32 | trigger.as_redir(), apic_id.as_u32() << 24)
     }
 
-    fn eoi() {
-        unsafe {
-            LocalApic::eoi();
-        }
-    }
-
     pub fn current_processor_id() -> ProcessorId {
         unsafe { LocalApic::current_processor_id() }
     }
@@ -253,7 +247,7 @@ pub unsafe extern "C" fn apic_handle_irq(irq: Irq) {
     if e != VirtualAddress::NULL {
         let f = core::mem::transmute::<usize, IrqHandler>(e.0);
         f(irq);
-        Apic::eoi();
+        LocalApic::eoi();
     } else {
         panic!("IRQ {} is Enabled, But not Installed", irq.0);
     }

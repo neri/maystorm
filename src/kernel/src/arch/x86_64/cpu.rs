@@ -87,8 +87,7 @@ impl Cpu {
     }
 
     pub unsafe fn reset() -> ! {
-        // io_out8(0x0CF9, 0x06);
-        Cpu::out8(0x0092, 0x01);
+        asm!("out 0x92, al", in("al") 0x01 as u8);
         loop {
             Cpu::halt()
         }
@@ -99,17 +98,17 @@ impl Cpu {
         asm!("out dx, al", in("dx") port, in("al") value);
     }
 
-    #[must_use]
-    pub(crate) fn assert_without_interrupt() -> bool {
+    #[track_caller]
+    pub(crate) fn assert_without_interrupt() {
         let flags = unsafe {
             let mut rax: usize;
             asm!("
             pushfq
             pop {0}
             ", lateout(reg) rax);
-            Eflags::from_bits_unchecked(rax)
+            Rflags::from_bits_unchecked(rax)
         };
-        !flags.contains(Eflags::IF)
+        assert!(!flags.contains(Rflags::IF));
     }
 
     #[inline]
@@ -124,18 +123,18 @@ impl Cpu {
             cli
             pop {0}
             ", lateout(reg) rax);
-            Eflags::from_bits_unchecked(rax)
+            Rflags::from_bits_unchecked(rax)
         };
 
-        let r = f();
+        let result = f();
 
-        if flags.contains(Eflags::IF) {
+        if flags.contains(Rflags::IF) {
             unsafe {
                 asm!("sti");
             }
         }
 
-        r
+        result
     }
 
     #[inline]
@@ -217,33 +216,26 @@ impl Default for Cpuid {
 }
 
 bitflags! {
-    pub struct Eflags: usize {
-        const CF = 0x00000001;
-        const PF = 0x00000004;
-        const AF = 0x00000010;
-        const ZF = 0x00000040;
-        const SF = 0x00000080;
-        const TF = 0x00000100;
-        const IF = 0x00000200;
-        const DF = 0x00000400;
-        const OF = 0x00000800;
-        // const IOPLMASK = 0x00003000;
-        // const IOPL3 = IOPLMASK;
-        const NT = 0x00004000;
-        const RF = 0x00010000;
-        const VM = 0x00020000;
-        const AC = 0x00040000;
-        const VIF = 0x00080000;
-        const VIP = 0x00100000;
-        const ID = 0x00200000;
+    pub struct Rflags: usize {
+        const CF    = 0x0000_0001;
+        const PF    = 0x0000_0004;
+        const AF    = 0x0000_0010;
+        const ZF    = 0x0000_0040;
+        const SF    = 0x0000_0080;
+        const TF    = 0x0000_0100;
+        const IF    = 0x0000_0200;
+        const DF    = 0x0000_0400;
+        const OF    = 0x0000_0800;
+        const IOPL3 = 0x0000_3000;
+        const NT    = 0x0000_4000;
+        const RF    = 0x0001_0000;
+        const VM    = 0x0002_0000;
+        const AC    = 0x0004_0000;
+        const VIF   = 0x0008_0000;
+        const VIP   = 0x0010_0000;
+        const ID    = 0x0020_0000;
     }
 }
-
-const MAX_GDT: usize = 8;
-const MAX_IDT: usize = 256;
-const KERNEL_CODE: Selector = Selector::new(1, PrivilegeLevel::Kernel);
-const KERNEL_DATA: Selector = Selector::new(2, PrivilegeLevel::Kernel);
-const TSS: Selector = Selector::new(6, PrivilegeLevel::Kernel);
 
 use core::fmt;
 impl fmt::Display for VirtualAddress {
@@ -254,7 +246,7 @@ impl fmt::Display for VirtualAddress {
 
 impl fmt::Debug for VirtualAddress {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "VirtualAddress({:#016x})", self.0)
+        write!(f, "VirtAddr({:#016x})", self.0)
     }
 }
 
@@ -268,6 +260,9 @@ pub struct Selector(pub u16);
 
 impl Selector {
     pub const NULL: Selector = Selector(0);
+    pub const KERNEL_CODE: Selector = Selector::new(1, PrivilegeLevel::Kernel);
+    pub const KERNEL_DATA: Selector = Selector::new(2, PrivilegeLevel::Kernel);
+    pub const TSS: Selector = Selector::new(6, PrivilegeLevel::Kernel);
 
     pub const fn new(index: usize, rpl: PrivilegeLevel) -> Self {
         Selector((index << 3) as u16 | rpl as u16)
@@ -505,22 +500,25 @@ impl DescriptorPair {
 
 #[repr(C, align(16))]
 pub struct GlobalDescriptorTable {
-    table: [DescriptorEntry; MAX_GDT],
+    table: [DescriptorEntry; Self::MAX],
 }
 
 impl GlobalDescriptorTable {
+    const MAX: usize = 8;
+
     pub fn new(tss: &Box<TaskStateSegment>) -> Box<Self> {
         let tss_pair = DescriptorEntry::tss_descriptor(
             VirtualAddress(tss.as_ref() as *const _ as usize),
             tss.limit(),
         );
         let mut gdt = Box::new(GlobalDescriptorTable {
-            table: [DescriptorEntry::null(); MAX_GDT],
+            table: [DescriptorEntry::null(); Self::MAX],
         });
-        gdt.table[KERNEL_CODE.index()] =
+        gdt.table[Selector::KERNEL_CODE.index()] =
             DescriptorEntry::code_segment(PrivilegeLevel::Kernel, DefaultSize::Use64);
-        gdt.table[KERNEL_DATA.index()] = DescriptorEntry::data_segment(PrivilegeLevel::Kernel);
-        let tss_index = TSS.index();
+        gdt.table[Selector::KERNEL_DATA.index()] =
+            DescriptorEntry::data_segment(PrivilegeLevel::Kernel);
+        let tss_index = Selector::TSS.index();
         gdt.table[tss_index] = tss_pair.low;
         gdt.table[tss_index + 1] = tss_pair.high;
 
@@ -549,8 +547,8 @@ impl GlobalDescriptorTable {
         mov es, {1:e}
         mov fs, {1:e}
         mov gs, {1:e}
-        ", out(reg) _, in(reg) KERNEL_DATA.0, in(reg) KERNEL_CODE.0);
-        asm!("ltr {0:x}", in(reg) TSS.0);
+        ", out(reg) _, in(reg) Selector::KERNEL_DATA.0, in(reg) Selector::KERNEL_CODE.0);
+        asm!("ltr {0:x}", in(reg) Selector::TSS.0);
     }
 }
 
@@ -558,13 +556,15 @@ static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
 
 #[repr(C, align(16))]
 pub struct InterruptDescriptorTable {
-    raw: [DescriptorEntry; MAX_IDT * 2],
+    raw: [DescriptorEntry; Self::MAX * 2],
 }
 
 impl InterruptDescriptorTable {
+    const MAX: usize = 256;
+
     const fn new() -> Self {
         InterruptDescriptorTable {
-            raw: [DescriptorEntry::null(); MAX_IDT * 2],
+            raw: [DescriptorEntry::null(); Self::MAX * 2],
         }
     }
 
@@ -610,7 +610,7 @@ impl InterruptDescriptorTable {
     pub unsafe fn register(vec: InterruptVector, offset: VirtualAddress) {
         let pair = DescriptorEntry::gate_descriptor(
             offset,
-            KERNEL_CODE,
+            Selector::KERNEL_CODE,
             PrivilegeLevel::Kernel,
             DescriptorType::InterruptGate,
         );
@@ -696,7 +696,7 @@ pub struct X64StackContext {
     pub rip: u64,
     pub cs: u16,
     _padding_3: [u16; 3],
-    pub rflags: Eflags,
+    pub rflags: Rflags,
     pub rsp: u64,
     pub ss: u16,
     _padding_4: [u16; 3],

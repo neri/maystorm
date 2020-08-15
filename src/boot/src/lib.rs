@@ -27,14 +27,18 @@ impl Uart {
     pub const fn new() -> Self {
         Self {}
     }
+    #[cfg(any(target_arch = "x86_64"))]
+    pub fn cout(c: char) {
+        unsafe {
+            asm!("out dx, al", in("edx") 0x3F8, in("al") c as u8);
+        }
+    }
 }
 
 impl Write for Uart {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        unsafe {
-            for c in s.chars() {
-                asm!("out dx, al", in("edx") 0x3F8, in("al") c as u8);
-            }
+        for c in s.chars() {
+            Self::cout(c);
         }
         Ok(())
     }

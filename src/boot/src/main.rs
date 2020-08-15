@@ -43,8 +43,9 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
         },
     };
 
-    // Command Line (exp)
+    // Load values from config
     info.cmdline = config.cmdline().as_ptr() as usize as u64;
+    info.kernel_base = config.base_address().as_u64();
 
     // Load kernel
     let mut kernel = ImageLoader::new(match get_file(handle, &bs, config.kernel_path()) {

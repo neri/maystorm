@@ -14,8 +14,6 @@ struct PageConfig {}
 impl PageConfig {
     const UEFI_PAGE_SIZE: u64 = 0x0000_1000;
     const N_FIRST_DIRECT_MAP_PAGES: usize = 4;
-    const KERNEL_HEAP_PAGE: usize = 0x1FF;
-    const KERNEL_HEAP_PAGE3: usize = 0x1FE;
     const MAX_REAL_MEMORY: u64 = 0x0000A_0000;
 }
 
@@ -24,7 +22,14 @@ impl PageConfig {
 pub struct VirtualAddress(pub u64);
 
 impl VirtualAddress {
-    const MAX: Self = Self(0x0000_FFFF_FFFF_FFFF);
+    pub const fn as_u64(&self) -> u64 {
+        self.0
+    }
+
+    pub const fn index_of(&self, level: usize) -> usize {
+        (self.0 >> (level * PageTableEntry::SHIFT_PER_LEVEL + PageTableEntry::SHIFT_PTE)) as usize
+            & PageTableEntry::INDEX_MASK
+    }
 }
 
 impl Add<u32> for VirtualAddress {
@@ -134,17 +139,15 @@ impl PageManager {
         }
 
         // kernel memory
+        let kernel_base = VirtualAddress(info.kernel_base);
+
         let pml3kp = Self::alloc_pages(1);
         let pml3k = PageTableEntry::from(pml3kp).table(1);
-        pml4[PageConfig::KERNEL_HEAP_PAGE] = PageTableEntry::new(pml3kp, common_attributes);
+        pml4[kernel_base.index_of(4)] = PageTableEntry::new(pml3kp, common_attributes);
 
         let pml2kp = Self::alloc_pages(1);
         shared.pml2k = PageTableEntry::new(pml2kp, common_attributes);
-        pml3k[PageConfig::KERNEL_HEAP_PAGE3] = shared.pml2k;
-
-        info.kernel_base = !VirtualAddress::MAX.0
-            | PageTableEntry::level(PageTableEntry::MAX_PAGE_LEVEL, PageConfig::KERNEL_HEAP_PAGE).0
-            | PageTableEntry::level(3, PageConfig::KERNEL_HEAP_PAGE3).0;
+        pml3k[kernel_base.index_of(3)] = shared.pml2k;
 
         // TODO: Temp Peripherals
         // FEC00000 IOAPIC
@@ -198,7 +201,7 @@ impl PageManager {
         }
     }
 
-    fn va_set_l1<'a>(base: VirtualAddress) -> (&'a mut [PageTableEntry], usize) {
+    fn va_set_l1<'a>(base: VirtualAddress) -> &'a mut PageTableEntry {
         let shared = Self::shared();
         let common_attributes = PageAttributes::from(MProtect::all());
 
@@ -212,7 +215,8 @@ impl PageManager {
             pml2k[page] = pml1e;
         }
         let pml1 = pml1e.table(1);
-        (pml1, offset)
+
+        &mut pml1[offset]
     }
 
     pub fn valloc(base: VirtualAddress, size: usize) -> usize {
@@ -222,8 +226,8 @@ impl PageManager {
         let blob = Self::alloc_pages(size as usize);
 
         for i in 0..size {
-            let (p, index) = Self::va_set_l1(base + i * PageTableEntry::NATIVE_PAGE_SIZE);
-            p[index] = PageTableEntry::new(
+            let p = Self::va_set_l1(base + i * PageTableEntry::NATIVE_PAGE_SIZE);
+            *p = PageTableEntry::new(
                 blob + i * PageTableEntry::NATIVE_PAGE_SIZE,
                 common_attributes,
             );
@@ -237,8 +241,8 @@ impl PageManager {
         let size = Self::pages(size as u64, PageTableEntry::NATIVE_PAGE_SIZE) as u64;
 
         for i in 0..size {
-            let (p, index) = Self::va_set_l1(base + i * PageTableEntry::NATIVE_PAGE_SIZE);
-            p[index] = PageTableEntry::new(p[index].frame_address(), attributes);
+            let p = Self::va_set_l1(base + i * PageTableEntry::NATIVE_PAGE_SIZE);
+            p.set_attributes(attributes);
         }
     }
 
@@ -338,6 +342,7 @@ impl PageTableEntry {
     const INDEX_MASK: usize = 0x1FF;
     const MAX_PAGE_LEVEL: usize = 4;
     const SHIFT_PER_LEVEL: usize = 9;
+    const SHIFT_PTE: usize = 3;
 
     const fn empty() -> Self {
         Self { repr: 0 }
@@ -388,10 +393,6 @@ impl PageTableEntry {
                 pages * Self::N_NATIVE_PAGE_ENTRIES,
             )
         }
-    }
-
-    const fn level(level: usize, index: usize) -> VirtualAddress {
-        VirtualAddress((index as u64) << (level * PageTableEntry::SHIFT_PER_LEVEL + 3))
     }
 }
 

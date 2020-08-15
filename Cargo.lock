@@ -40,7 +40,6 @@ dependencies = [
  "bootprot",
  "serde",
  "serde-json-core",
- "serde_derive",
  "uefi",
 ]
 
