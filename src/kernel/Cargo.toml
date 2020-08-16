@@ -13,3 +13,5 @@ acpi = {git = "https://github.com/rust-osdev/acpi"}
 # aml = {git = "https://github.com/rust-osdev/acpi"}
 bitflags = "1.2"
 bootprot = {path = "../bootprot"}
+# compiler_builtins = {git = "https://github.com/rust-lang/compiler-builtins"}
+rlibc = "1.0.0"

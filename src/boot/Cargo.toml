@@ -12,4 +12,5 @@ bootprot = {path = "../bootprot"}
 serde = {version = "1.0", default-features = false, features = ["derive"]}
 serde-json-core = "0.1.0"
 #toml = 
+rlibc = "1.0.0"
 uefi = {git = "https://github.com/rust-osdev/uefi-rs.git"}

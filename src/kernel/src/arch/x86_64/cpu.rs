@@ -87,7 +87,8 @@ impl Cpu {
     }
 
     pub unsafe fn reset() -> ! {
-        asm!("out 0x92, al", in("al") 0x01 as u8);
+        Self::out8(0x0CF9, 0x06);
+        // asm!("out 0x92, al", in("al") 0x01 as u8);
         loop {
             Cpu::halt()
         }

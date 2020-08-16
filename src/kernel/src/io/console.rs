@@ -2,7 +2,7 @@
 
 use super::fonts::*;
 use super::graphics::*;
-use crate::io::window::*;
+use crate::window::*;
 use alloc::boxed::Box;
 use core::fmt::Write;
 

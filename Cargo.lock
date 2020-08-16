@@ -38,6 +38,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags",
  "bootprot",
+ "rlibc",
  "serde",
  "serde-json-core",
  "uefi",
@@ -106,6 +107,7 @@ name = "hello"
 version = "0.1.0"
 dependencies = [
  "bootprot",
+ "rlibc",
  "uefi",
 ]
 
@@ -116,6 +118,7 @@ dependencies = [
  "acpi",
  "bitflags",
  "bootprot",
+ "rlibc",
 ]
 
 [[package]]
@@ -144,6 +147,12 @@ checksum = "aa563d17ecb180e500da1cfd2b028310ac758de548efdd203e18f283af693f37"
 dependencies = [
  "proc-macro2",
 ]
+
+[[package]]
+name = "rlibc"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc874b127765f014d792f16763a81245ab80500e2ad921ed4ee9e82481ee08fe"
 
 [[package]]
 name = "serde"

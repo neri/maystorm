@@ -14,7 +14,6 @@ My practice OS written in Rust
 ## Requirements to Build
 
 * Rust nightly
-* cargo-xbuild
 * qemu + ovmf (optional)
 
 ### how to build

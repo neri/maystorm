@@ -8,4 +8,5 @@ version = "0.1.0"
 
 [dependencies]
 bootprot = {path = "../bootprot"}
+rlibc = "1.0.0"
 uefi = {git = "https://github.com/rust-osdev/uefi-rs.git"}

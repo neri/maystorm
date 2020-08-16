@@ -5,6 +5,7 @@
 #![no_main]
 #![feature(asm)]
 
+extern crate rlibc;
 use core::panic::PanicInfo;
 use uefi::prelude::*;
 

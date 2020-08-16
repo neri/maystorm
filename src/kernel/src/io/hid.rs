@@ -1,11 +1,12 @@
 // Human Interface Devices
 
-use crate::io::window::*;
-use crate::sync::queue::*;
 use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;
 use core::num::*;
+use sync::queue::*;
+use system::*;
+use window::*;
 
 const INVALID_UNICHAR: char = '\u{FEFF}';
 
@@ -223,6 +224,9 @@ impl HidManager {
 
     pub fn send_key_event(v: KeyEvent) {
         let shared = HidManager::shared();
+        if v.usage == Usage::DELETE && v.modifier.is_ctrl() && v.modifier.is_alt() {
+            System::reset();
+        }
         let _ = shared.key_buf.enqueue(v);
     }
 

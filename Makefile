@@ -11,6 +11,8 @@ BOOT_TARGET	= target/$(RUST_ARCH)/release/boot.efi
 KERNEL_EXECUTE	= $(EFI_BOOT)/kernel.bin
 BOOT_EXECUTE	= $(EFI_BOOT)/$(BOOT_EFI)
 TARGETS		= $(KERNEL_TARGET) $(BOOT_TARGET)
+# BUILD		= rustup run nightly cargo xbuild --release --target $(RUST_ARCH)
+BUILD		= rustup run nightly cargo build -Z build-std --release --target $(RUST_ARCH)
 
 all: $(TARGETS)
 
@@ -21,10 +23,10 @@ clean:
 # 	rustc +nightly -Z unstable-options --print target-spec-json --target $(RUST_ARCH) | sed -e 's/-sse,+/+sse,-/' > $@
 
 $(KERNEL_TARGET): src/* src/**/* src/**/**/* src/**/**/**/* src/**/**/**/**/*
-	rustup run nightly cargo xbuild --release --target $(RUST_ARCH)
+	$(BUILD)
 
 $(BOOT_TARGET): src/* src/**/* src/**/**/* src/**/**/**/* src/**/**/**/**/*
-	rustup run nightly cargo xbuild --release --target $(RUST_ARCH)
+	$(BUILD)
 
 $(EFI_BOOT):
 	mkdir -p $(EFI_BOOT)

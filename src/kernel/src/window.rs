@@ -1,7 +1,7 @@
 // Windows
 
-use super::fonts::*;
-use super::graphics::*;
+use crate::io::fonts::*;
+use crate::io::graphics::*;
 use crate::io::hid::*;
 use crate::num::*;
 use crate::scheduler::*;

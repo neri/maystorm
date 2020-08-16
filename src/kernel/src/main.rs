@@ -8,11 +8,12 @@ use io::console::*;
 use io::fonts::*;
 use io::graphics::*;
 use io::hid::*;
-use io::window::*;
 use kernel::*;
 use scheduler::*;
 use system::*;
+use window::*;
 extern crate alloc;
+extern crate rlibc;
 
 myos_entry!(main);
 
@@ -107,6 +108,9 @@ fn sysinit() {
                         '\r' => {
                             println!("\nBad command or file name - KERNEL PANIC!!!");
                             break;
+                        }
+                        'r' => {
+                            System::reset();
                         }
                         _ => print!("{}", c),
                     }

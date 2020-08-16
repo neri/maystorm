@@ -131,7 +131,7 @@ impl System {
 
     fn late_init(args: *mut c_void) {
         unsafe {
-            io::window::WindowManager::init();
+            window::WindowManager::init();
             io::hid::HidManager::init();
             arch::Arch::late_init();
 
@@ -183,6 +183,19 @@ impl System {
 
     pub fn name(&self) -> &str {
         &Version::SYSTEM_NAME
+    }
+
+    pub fn reset() -> ! {
+        unsafe {
+            Cpu::reset();
+        }
+    }
+
+    pub fn shutdown() -> ! {
+        // TODO:
+        unsafe {
+            Cpu::stop();
+        }
     }
 }
 

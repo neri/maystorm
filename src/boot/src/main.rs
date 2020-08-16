@@ -14,6 +14,7 @@ use core::ffi::c_void;
 use core::fmt::Write;
 use core::mem::*;
 use uefi::prelude::*;
+extern crate rlibc;
 
 #[entry]
 fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
@@ -120,13 +121,13 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
 
     let entry = kernel.locate(VirtualAddress(info.kernel_base));
 
-    println!("Now starting kernel...");
-
     let stack_size: usize = 0x4000;
     let new_sp = VirtualAddress(info.kernel_base + 0x3FFFF000);
     PageManager::valloc(new_sp - stack_size, stack_size);
 
+    println!("Now starting kernel...");
     unsafe {
+        PageManager::finalize(&mut info);
         Invocation::invoke_kernel(info, entry, new_sp);
     }
 }

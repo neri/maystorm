@@ -13,8 +13,6 @@ impl Invocation {
         new_sp: VirtualAddress,
     ) -> ! {
         const IA32_EFER_MSR: u32 = 0xC000_0080;
-        let mut info = info;
-        PageManager::finalize(&mut info);
 
         // Enable NXE
         asm!("

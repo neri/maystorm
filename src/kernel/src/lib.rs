@@ -21,6 +21,7 @@ pub mod scheduler;
 pub mod sync;
 pub mod system;
 pub mod thread;
+pub mod window;
 
 use crate::arch::cpu::Cpu;
 use crate::io::console::GraphicalConsole;
