@@ -83,15 +83,13 @@ impl ImageLoader<'_> {
             }
 
             // Step 3 - relocate
-            let reloc = header.dir[ImageDirectoryEntry::BaseReloc];
+            let reloc = header.optional.dir[ImageDirectoryEntry::BaseReloc];
             let reloc_size = reloc.size as usize;
             let reloc_base = reloc.rva as usize;
             let mut iter = 0;
             while iter < reloc_size {
                 let reloc: &BaseReloc = transmute(vmem.add(reloc_base + iter));
-                let count = reloc.count();
-                for i in 0..count {
-                    let entry = reloc.entry(i);
+                for entry in reloc.into_iter() {
                     let rva = reloc.rva_base as u64 + entry.value() as u64;
                     match entry.reloc_type() {
                         ImageRelBased::ABSOLUTE => (),

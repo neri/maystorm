@@ -80,18 +80,17 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
     if let Ok(gop) = bs.locate_protocol::<::uefi::proto::console::gop::GraphicsOutput>() {
         let gop = gop.unwrap();
         let gop = unsafe { &mut *gop.get() };
-        {
-            let gop_info = gop.current_mode_info();
-            let mut fb = gop.frame_buffer();
-            info.vram_base = fb.as_mut_ptr() as usize as u64;
-            info.vram_delta = gop_info.stride() as u16;
-            let (mut w, mut h) = gop_info.resolution();
-            if w > info.vram_delta.into() {
-                swap(&mut w, &mut h);
-            }
-            info.screen_width = w as u16;
-            info.screen_height = h as u16;
+
+        let gop_info = gop.current_mode_info();
+        let mut fb = gop.frame_buffer();
+        info.vram_base = fb.as_mut_ptr() as usize as u64;
+        info.vram_delta = gop_info.stride() as u16;
+        let (mut w, mut h) = gop_info.resolution();
+        if w > info.vram_delta.into() {
+            swap(&mut w, &mut h);
         }
+        info.screen_width = w as u16;
+        info.screen_height = h as u16;
     } else {
         writeln!(st.stdout(), "Error: GOP Not Found").unwrap();
         return Status::UNSUPPORTED;
@@ -116,6 +115,20 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
     let (_st, mm) = st.exit_boot_services(handle, buf).unwrap().unwrap();
 
     // ----------------------------------------------------------------
+
+    // let mut mm: Vec<uefi::table::boot::MemoryDescriptor> = mm
+    //     .copied()
+    //     .map(|mut m| {
+    //         m.virt_start = m.phys_start;
+    //         m
+    //     })
+    //     .collect();
+    // unsafe {
+    //     st.runtime_services()
+    //         .set_virtual_address_map(&mut mm)
+    //         .unwrap()
+    //         .unwrap();
+    // }
 
     PageManager::init(&mut info, mm);
 

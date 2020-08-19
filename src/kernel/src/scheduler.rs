@@ -674,7 +674,7 @@ impl ThreadQueue {
                     self.write.fetch_add(1, Ordering::AcqRel);
                     return Ok(());
                 } else {
-                    // TODO: Inconsistency Error
+                    panic!("ThreadQueue Inconsistency Error");
                 }
             }
             Err(())

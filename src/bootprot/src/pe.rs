@@ -10,8 +10,7 @@ pub const EFI_TE_IMAGE_HEADER_SIGNATURE: u16 = 0x5A56;
 pub struct PeHeader64 {
     pub signature: PeSignature,
     pub coff: CoffHeader,
-    pub optional: OptionalHeader64,
-    pub dir: [ImageDataDirectory; 16],
+    pub optional: OptionalHeaderPe64,
 }
 
 impl PeHeader64 {
@@ -79,7 +78,7 @@ bitflags! {
 }
 
 #[repr(C, packed)]
-pub struct OptionalHeader64 {
+pub struct OptionalHeaderPe64 {
     pub magic: Magic,
     pub major_linker_version: u8,
     pub minor_linker_version: u8,
@@ -109,9 +108,10 @@ pub struct OptionalHeader64 {
     pub size_of_heap_commit: u64,
     pub loader_flags: u32,
     pub numer_of_dir: u32,
+    pub dir: [ImageDataDirectory; 16],
 }
 
-impl OptionalHeader64 {
+impl OptionalHeaderPe64 {
     pub fn is_valid(&self) -> bool {
         unsafe { self.magic == Magic::PE64 }
     }
@@ -227,9 +227,37 @@ impl BaseReloc {
     pub const fn count(&self) -> usize {
         (self.size as usize - 8) / 2
     }
-    pub fn entry(&self, index: usize) -> BaseRelocEntry {
+    pub fn entry<'a>(&self, index: usize) -> &'a BaseRelocEntry {
         let array = unsafe { slice::from_raw_parts(&self.entries[0], self.count()) };
-        array[index]
+        &array[index]
+    }
+
+    pub fn into_iter<'a>(&'a self) -> impl Iterator<Item = &'a BaseRelocEntry> {
+        RelocIter::<'a> {
+            repr: &self,
+            index: 0,
+            len: self.count(),
+        }
+    }
+}
+
+struct RelocIter<'a> {
+    repr: &'a BaseReloc,
+    index: usize,
+    len: usize,
+}
+
+impl<'a> Iterator for RelocIter<'a> {
+    type Item = &'a BaseRelocEntry;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index < self.len {
+            let item = self.repr.entry(self.index);
+            self.index += 1;
+            Some(&item)
+        } else {
+            None
+        }
     }
 }
 
