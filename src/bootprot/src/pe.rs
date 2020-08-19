@@ -1,10 +1,13 @@
 // Portable Executable
 use bitflags::*;
+use core::marker::PhantomData;
 use core::mem::*;
 use core::slice;
 
 pub const IMAGE_DOS_SIGNATURE: u16 = 0x5A4D;
 pub const EFI_TE_IMAGE_HEADER_SIGNATURE: u16 = 0x5A56;
+
+pub type Rva = u32;
 
 #[repr(C, packed)]
 pub struct PeHeader64 {
@@ -41,7 +44,7 @@ pub struct CoffHeader {
     pub flags: ImageFile,
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, non_camel_case_types)]
 #[repr(u16)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ImageFileMachine {
@@ -85,8 +88,8 @@ pub struct OptionalHeaderPe64 {
     pub size_of_code: u32,
     pub size_of_data: u32,
     pub size_of_bss: u32,
-    pub entry_point: u32,
-    pub base_of_code: u32,
+    pub entry_point: Rva,
+    pub base_of_code: Rva,
     pub image_base: u64,
     pub section_align: u32,
     pub file_align: u32,
@@ -107,7 +110,7 @@ pub struct OptionalHeaderPe64 {
     pub size_of_heap_reserve: u64,
     pub size_of_heap_commit: u64,
     pub loader_flags: u32,
-    pub numer_of_dir: u32,
+    pub n_dir: u32,
     pub dir: [ImageDataDirectory; 16],
 }
 
@@ -125,44 +128,51 @@ pub enum Magic {
     PE64 = 0x020B,
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, non_camel_case_types)]
 #[repr(u16)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ImageSubsystem {
-    Unknown = 0,
-    Native = 1,
-    WindowsGui = 2,
-    WindowsCui = 3,
-    EfiApplication = 10,
-    EfiBootServiceDriver = 11,
-    EfiRuntimeDriver = 12,
-    EfiRom = 13,
+    UNKNOWN = 0,
+    NATIVE = 1,
+    WINDOWS_GUI = 2,
+    WINDOWS_CUI = 3,
+    OS2_CUI = 5,
+    POSIX_CUI = 7,
+    WINDOWS_CE_GUI = 9,
+    EFI_APPLICATION = 10,
+    EFI_BOOT_SERVICE_DRIVER = 11,
+    EFI_RUNTIME_DRIVER = 12,
+    EFI_ROM = 13,
+    XBOX = 14,
+    WINDOWS_BOOT_APPLICATION = 16,
 }
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct ImageDataDirectory {
-    pub rva: u32,
+    pub rva: Rva,
     pub size: u32,
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, non_camel_case_types)]
 #[repr(usize)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd)]
 pub enum ImageDirectoryEntry {
-    Export = 0,
-    Import = 1,
-    Resource = 2,
-    Exception = 3,
-    Security = 4,
-    BaseReloc = 5,
-    Debug = 6,
-    Copyright = 7,
-    GlobalPtr = 8,
-    Tls = 9,
-    LoadConfig = 10,
-    BoundImport = 11,
-    Iat = 12,
+    ARCHITECTURE = 7,
+    BASERELOC = 5,
+    BOUND_IMPORT = 11,
+    COM_DESCRIPTOR = 14,
+    DEBUG = 6,
+    DELAY_IMPORT = 13,
+    EXCEPTION = 3,
+    EXPORT = 0,
+    GLOBALPTR = 8,
+    IAT = 12,
+    IMPORT = 1,
+    LOAD_CONFIG = 10,
+    RESOURCE = 2,
+    SECURITY = 4,
+    TLS = 9,
 }
 
 impl core::ops::Index<ImageDirectoryEntry> for [ImageDataDirectory] {
@@ -216,14 +226,47 @@ impl ImageScn {
     const TYPE_REGULAR: Self = Self::empty();
 }
 
+pub struct BaseReloc<'a> {
+    base: *const u8,
+    size: usize,
+    index: usize,
+    #[allow(dead_code)]
+    phantom: &'a PhantomData<()>,
+}
+
+impl BaseReloc<'_> {
+    pub unsafe fn new(base: *const u8, size: usize) -> Self {
+        Self {
+            base,
+            size,
+            index: 0,
+            phantom: &PhantomData,
+        }
+    }
+}
+
+impl<'a> Iterator for BaseReloc<'a> {
+    type Item = impl Iterator<Item = (ImageRelBased, Rva)>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index < self.size {
+            let result: &BaseRelocBlock = unsafe { transmute(self.base.add(self.index)) };
+            self.index += result.size as usize;
+            Some(result.into_iter())
+        } else {
+            None
+        }
+    }
+}
+
 #[repr(C, packed)]
-pub struct BaseReloc {
+pub struct BaseRelocBlock {
     pub rva_base: u32,
     pub size: u32,
     entries: [BaseRelocEntry; 1],
 }
 
-impl BaseReloc {
+impl BaseRelocBlock {
     pub const fn count(&self) -> usize {
         (self.size as usize - 8) / 2
     }
@@ -232,8 +275,8 @@ impl BaseReloc {
         &array[index]
     }
 
-    pub fn into_iter<'a>(&'a self) -> impl Iterator<Item = &'a BaseRelocEntry> {
-        RelocIter::<'a> {
+    pub fn into_iter<'a>(&'a self) -> impl Iterator<Item = (ImageRelBased, Rva)> + 'a {
+        BaseRelocBlockIter::<'a> {
             repr: &self,
             index: 0,
             len: self.count(),
@@ -241,20 +284,20 @@ impl BaseReloc {
     }
 }
 
-struct RelocIter<'a> {
-    repr: &'a BaseReloc,
+struct BaseRelocBlockIter<'a> {
+    repr: &'a BaseRelocBlock,
     index: usize,
     len: usize,
 }
 
-impl<'a> Iterator for RelocIter<'a> {
-    type Item = &'a BaseRelocEntry;
+impl<'a> Iterator for BaseRelocBlockIter<'a> {
+    type Item = (ImageRelBased, Rva);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.len {
-            let item = self.repr.entry(self.index);
+            let item: &BaseRelocEntry = self.repr.entry(self.index);
             self.index += 1;
-            Some(&item)
+            Some((item.reloc_type(), self.repr.rva_base + item.offset()))
         } else {
             None
         }
@@ -265,8 +308,8 @@ impl<'a> Iterator for RelocIter<'a> {
 pub struct BaseRelocEntry(u16);
 
 impl BaseRelocEntry {
-    pub const fn value(&self) -> usize {
-        self.0 as usize & 0xFFF
+    pub const fn offset(&self) -> Rva {
+        self.0 as Rva & 0xFFF
     }
 
     pub const fn reloc_type(&self) -> ImageRelBased {

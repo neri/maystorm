@@ -78,20 +78,15 @@ impl ImageLoader<'_> {
                     let p = vmem.add(section.rva as usize);
                     let q: *const u8 = self.blob.transmute(section.file_offset as usize);
                     let z = cmp::min(section.vsize, section.size) as usize;
-                    ptr::copy(q, p, z);
+                    ptr::copy_nonoverlapping(q, p, z);
                 }
             }
 
             // Step 3 - relocate
-            let reloc = header.optional.dir[ImageDirectoryEntry::BaseReloc];
-            let reloc_size = reloc.size as usize;
-            let reloc_base = reloc.rva as usize;
-            let mut iter = 0;
-            while iter < reloc_size {
-                let reloc: &BaseReloc = transmute(vmem.add(reloc_base + iter));
-                for entry in reloc.into_iter() {
-                    let rva = reloc.rva_base as u64 + entry.value() as u64;
-                    match entry.reloc_type() {
+            let reloc = header.optional.dir[ImageDirectoryEntry::BASERELOC];
+            for iter in BaseReloc::new(vmem.add(reloc.rva as usize), reloc.size as usize) {
+                for (ty, rva) in iter {
+                    match ty {
                         ImageRelBased::ABSOLUTE => (),
                         ImageRelBased::DIR64 => {
                             let p: *mut u64 = transmute(vmem.add(rva as usize));
@@ -100,7 +95,6 @@ impl ImageLoader<'_> {
                         _ => (),
                     }
                 }
-                iter += reloc.size as usize;
             }
 
             // Step 4 - attributes
