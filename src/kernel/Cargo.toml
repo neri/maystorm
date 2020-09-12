@@ -15,3 +15,4 @@ bitflags = "1.2"
 bootprot = {path = "../bootprot"}
 # compiler_builtins = {git = "https://github.com/rust-lang/compiler-builtins"}
 rlibc = "1.0.0"
+futures-util = {default-features = false,features = ["alloc"],version = "0.3.4"}

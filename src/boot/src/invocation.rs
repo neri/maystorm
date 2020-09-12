@@ -6,6 +6,7 @@ use bootprot::*;
 pub struct Invocation {}
 
 impl Invocation {
+    /// Invoke kernel
     #[cfg(any(target_arch = "x86_64"))]
     pub unsafe fn invoke_kernel(
         info: BootInfo,
@@ -27,7 +28,6 @@ impl Invocation {
         .byte 0xEB, 0x00
         ", in(reg) info.master_cr3);
 
-        // Invoke kernel
         asm!("
         lea rsp, [{1} - 0x20]
         call {0}
@@ -37,8 +37,8 @@ impl Invocation {
             in(reg) new_sp.0,
             in("rcx") &info,
             in("rdx") 0,
-            in("rdi") &info,
             in("rsi") 0,
+            in("rdi") &info,
             options(noreturn)
         );
     }

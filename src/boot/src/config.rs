@@ -18,6 +18,9 @@ pub struct BootSettings {
 
     #[serde(default)]
     aslr: bool,
+
+    #[serde(default)]
+    headless: bool,
 }
 
 fn default_kernel() -> &'static str {
@@ -48,11 +51,11 @@ impl BootSettings {
         serde_json_core::from_str(json)
     }
 
-    pub const fn kernel_path(&self) -> &'static str {
+    pub const fn kernel_path<'a>(&self) -> &'a str {
         self.kernel
     }
 
-    pub const fn cmdline(&self) -> &'static str {
+    pub const fn cmdline<'a>(&self) -> &'a str {
         self.cmdline
     }
 

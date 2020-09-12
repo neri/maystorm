@@ -14,6 +14,7 @@
 
 pub mod arch;
 pub mod bus;
+// pub mod expr;
 pub mod io;
 pub mod mem;
 pub mod num;

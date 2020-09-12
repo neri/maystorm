@@ -246,7 +246,7 @@ impl Ps2 {
         }));
         Irq::LPC_PS2K.register(Self::irq_01).unwrap();
         Irq::LPC_PS2M.register(Self::irq_12).unwrap();
-        GlobalScheduler::spawn_f(Self::data_thread, null_mut(), Priority::Realtime);
+        MyScheduler::spawn_f(Self::data_thread, null_mut(), Priority::Realtime);
 
         Self::send_command(Ps2Command::WRITE_CONFIG, 1).unwrap();
         Self::send_data(Ps2Data(0x47), 1).unwrap();

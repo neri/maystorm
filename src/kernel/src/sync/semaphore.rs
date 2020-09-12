@@ -50,7 +50,7 @@ impl Semaphore {
                             .map(|signal| signal.wait(TimeMeasure::from_millis(delta)));
                         break;
                     } else {
-                        GlobalScheduler::wait_for(None, TimeMeasure::from_millis(delta));
+                        MyScheduler::wait_for(None, TimeMeasure::from_millis(delta));
                     }
                     if !deadline.until() {
                         return Err(());

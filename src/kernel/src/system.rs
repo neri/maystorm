@@ -91,7 +91,7 @@ pub struct PhysicalAddress(pub usize);
 
 pub struct System {
     total_memory_size: u64,
-    number_of_cpus: usize,
+    num_of_cpus: usize,
     cpus: Vec<Box<Cpu>>,
     acpi: Option<Box<acpi::Acpi>>,
 }
@@ -104,7 +104,7 @@ impl System {
     const fn new() -> Self {
         System {
             total_memory_size: 0,
-            number_of_cpus: 0,
+            num_of_cpus: 0,
             cpus: Vec::new(),
             acpi: None,
         }
@@ -117,15 +117,16 @@ impl System {
                 ::acpi::parse_rsdp(&mut my_handler, info.acpi_rsdptr as usize).unwrap(),
             ));
 
-            SYSTEM.number_of_cpus = SYSTEM.acpi().application_processors.len() + 1;
+            SYSTEM.num_of_cpus = SYSTEM.acpi().application_processors.len() + 1;
             SYSTEM.total_memory_size = info.total_memory_size;
 
             SYSTEM.cpus.push(Cpu::new(ProcessorId::from(
                 SYSTEM.acpi().boot_processor.unwrap().local_apic_id,
             )));
-            Cpu::init();
 
-            GlobalScheduler::start(&SYSTEM, Self::late_init, f as *const c_void as *mut c_void);
+            arch::Arch::init();
+
+            MyScheduler::start(&SYSTEM, Self::late_init, f as *const c_void as *mut c_void);
         }
     }
 
@@ -135,7 +136,7 @@ impl System {
             io::hid::HidManager::init();
             arch::Arch::late_init();
 
-            let f = core::mem::transmute::<*mut c_void, fn() -> ()>(args);
+            let f: fn() = core::mem::transmute(args);
             f();
         }
     }
@@ -146,12 +147,12 @@ impl System {
     }
 
     #[inline]
-    pub fn number_of_cpus(&self) -> usize {
-        self.number_of_cpus
+    pub fn num_of_cpus(&self) -> usize {
+        self.num_of_cpus
     }
 
     #[inline]
-    pub fn number_of_active_cpus(&self) -> usize {
+    pub fn num_of_active_cpus(&self) -> usize {
         self.cpus.len()
     }
 

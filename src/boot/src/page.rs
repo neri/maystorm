@@ -10,20 +10,21 @@ use uefi::table::boot::*;
 
 struct PageConfig {}
 
-#[allow(dead_code)]
 impl PageConfig {
     const UEFI_PAGE_SIZE: u64 = 0x0000_1000;
-    const N_FIRST_DIRECT_MAP_PAGES: usize = 4;
+    const N_DIRECT_MAP_GIGA: usize = 4;
     const MAX_REAL_MEMORY: u64 = 0x0000A_0000;
 }
 
+type IntPtr = u64;
+
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, Default, PartialEq, PartialOrd)]
-pub struct VirtualAddress(pub u64);
+pub struct VirtualAddress(pub IntPtr);
 
 impl VirtualAddress {
     pub const fn as_u64(&self) -> u64 {
-        self.0
+        self.0 as u64
     }
 
     pub const fn index_of(&self, level: usize) -> usize {
@@ -35,21 +36,28 @@ impl VirtualAddress {
 impl Add<u32> for VirtualAddress {
     type Output = Self;
     fn add(self, rhs: u32) -> Self {
-        VirtualAddress(self.0 + rhs as u64)
+        VirtualAddress(self.0 + rhs as IntPtr)
     }
 }
 
 impl Add<u64> for VirtualAddress {
     type Output = Self;
     fn add(self, rhs: u64) -> Self {
-        VirtualAddress(self.0 + rhs)
+        VirtualAddress(self.0 + rhs as IntPtr)
+    }
+}
+
+impl Add<usize> for VirtualAddress {
+    type Output = Self;
+    fn add(self, rhs: usize) -> Self {
+        VirtualAddress(self.0 + rhs as IntPtr)
     }
 }
 
 impl Sub<usize> for VirtualAddress {
     type Output = Self;
     fn sub(self, rhs: usize) -> Self {
-        VirtualAddress(self.0 - rhs as u64)
+        VirtualAddress(self.0 - rhs as IntPtr)
     }
 }
 
@@ -120,7 +128,7 @@ impl PageManager {
         let pml3 = PageTableEntry::from(pml3p).table(1);
         pml4[0] = PageTableEntry::new(pml3p, common_attributes);
 
-        let n_pages = PageConfig::N_FIRST_DIRECT_MAP_PAGES;
+        let n_pages = PageConfig::N_DIRECT_MAP_GIGA;
         let pml2p = Self::alloc_pages(n_pages);
         let pml2 = PageTableEntry::from(pml2p).table(n_pages);
         for i in 0..n_pages {
@@ -154,7 +162,7 @@ impl PageManager {
         // FED00000 HPET
         // FEE00000 LocalAPIC
         {
-            let la = 0xFEC00000;
+            let la = 0xFEC0_0000;
             let offset = la / PageTableEntry::LARGE_PAGE_SIZE;
             for i in 0..2 {
                 pml2[(offset + i) as usize] = PageTableEntry::new(
@@ -306,7 +314,7 @@ bitflags! {
         const PAT           = 0x0000_0000_0000_0080;
         const LARGE         = 0x0000_0000_0000_0080;
         const GLOBAL        = 0x0000_0000_0000_0100;
-        const AVL           = 0x0000_0000_0000_0E00;
+        // const AVL           = 0x0000_0000_0000_0E00;
         const LARGE_PAT     = 0x0000_0000_0000_1000;
         const NO_EXECUTE    = 0x8000_0000_0000_0000;
     }
@@ -335,7 +343,7 @@ struct PageTableEntry {
 
 #[allow(dead_code)]
 impl PageTableEntry {
-    const ADDRESS_BIT: u64 = 0x7FFF_FFFF_FFFF_F000;
+    const ADDRESS_BIT: u64 = 0x0000_FFFF_FFFF_F000;
     const NATIVE_PAGE_SIZE: u64 = 0x0000_1000;
     const N_NATIVE_PAGE_ENTRIES: usize = 512;
     const LARGE_PAGE_SIZE: u64 = 0x0020_0000;

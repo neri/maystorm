@@ -47,7 +47,7 @@ impl<'a> GraphicalConsole<'a> {
         let font = font.unwrap_or(FontDriver::system_font());
         let size = Size::new(font.width() * dims.0, font.line_height() * dims.1);
         let window = WindowBuilder::new(title)
-            .style_or(WindowStyle::CLIENT_RECT)
+            .style_add(WindowStyle::CLIENT_RECT)
             .size(size + DEFAULT_CONSOLE_INSETS)
             .build();
 

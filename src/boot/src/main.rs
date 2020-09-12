@@ -21,7 +21,7 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
     let mut info = BootInfo::default();
     let bs = st.boot_services();
 
-    // Load Config
+    // Load CONFIG
     let config = match get_file(handle, &bs, BootSettings::DEFAULT_CONFIG_PATH) {
         Ok(blob) => match BootSettings::load(unsafe { core::str::from_utf8_unchecked(blob) }) {
             Ok(result) => result,
@@ -44,11 +44,11 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
         },
     };
 
-    // Load values from config
+    // Load values from CONFIG
     info.cmdline = config.cmdline().as_ptr() as usize as u64;
     info.kernel_base = config.base_address().as_u64();
 
-    // Load kernel
+    // Load KERNEL
     let mut kernel = ImageLoader::new(match get_file(handle, &bs, config.kernel_path()) {
         Ok(blob) => (blob),
         Err(status) => {
@@ -70,7 +70,7 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
         }
     };
 
-    // SMBIOS
+    // Find SMBIOS Table
     info.smbios = match st.find_config_table(::uefi::table::cfg::SMBIOS3_GUID) {
         Some(val) => val as u64,
         None => 0,

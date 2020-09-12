@@ -1,4 +1,5 @@
-// _Blobs
+// Blob
+
 use core::mem::*;
 use core::slice;
 
@@ -37,10 +38,14 @@ impl Blob<'_> {
         self.read_u32(offset) as u64 + self.read_u32(offset + 4) as u64 * 0x10000_0000
     }
 
+    #[inline]
+    #[track_caller]
     pub unsafe fn transmute<T>(&self, offset: usize) -> &T {
         transmute((&self.blob[0] as *const u8).add(offset))
     }
 
+    #[inline]
+    #[track_caller]
     pub unsafe fn transmute_slice<T>(&self, offset: usize, len: usize) -> &[T] {
         slice::from_raw_parts(transmute((&self.blob[0] as *const u8).add(offset)), len)
     }

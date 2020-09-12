@@ -14,26 +14,20 @@ pub struct Cpu {
 }
 
 extern "C" {
-    fn _int00();
-    fn _int03();
-    fn _int06();
-    fn _int08();
-    fn _int0D();
-    fn _int0E();
+    fn _asm_int_00() -> !;
+    fn _asm_int_03() -> !;
+    fn _asm_int_06() -> !;
+    fn _asm_int_08() -> !;
+    fn _asm_int_0D() -> !;
+    fn _asm_int_0E() -> !;
 }
 
 impl Cpu {
-    pub(crate) unsafe fn new(cpuid: ProcessorId) -> Box<Self> {
+    pub(crate) unsafe fn new(cpu_id: ProcessorId) -> Box<Self> {
         let tss = TaskStateSegment::new();
         let gdt = GlobalDescriptorTable::new(&tss);
 
-        // let cpuid0 = Cpuid::cpuid(0);
-
-        let cpu = Box::new(Cpu {
-            cpu_id: cpuid,
-            gdt: gdt,
-            tss: tss,
-        });
+        let cpu = Box::new(Cpu { cpu_id, gdt, tss });
 
         // Currently force disabling SSE
         asm!("
@@ -47,14 +41,6 @@ impl Cpu {
 
     pub(crate) unsafe fn init() {
         InterruptDescriptorTable::init();
-
-        if let acpi::InterruptModel::Apic(apic) =
-            System::shared().acpi().interrupt_model.as_ref().unwrap()
-        {
-            Apic::init(apic);
-        } else {
-            panic!("NO APIC");
-        }
     }
 
     #[inline]
@@ -80,6 +66,14 @@ impl Cpu {
     }
 
     #[inline]
+    pub(crate) unsafe fn stop() -> ! {
+        loop {
+            asm!("cli");
+            asm!("hlt");
+        }
+    }
+
+    #[inline]
     pub fn breakpoint() {
         unsafe {
             asm!("int3");
@@ -89,9 +83,7 @@ impl Cpu {
     pub unsafe fn reset() -> ! {
         Self::out8(0x0CF9, 0x06);
         // asm!("out 0x92, al", in("al") 0x01 as u8);
-        loop {
-            Cpu::halt()
-        }
+        Cpu::stop();
     }
 
     #[inline]
@@ -99,6 +91,38 @@ impl Cpu {
         asm!("out dx, al", in("dx") port, in("al") value);
     }
 
+    #[inline]
+    pub unsafe fn in8(port: u16) -> u8 {
+        let mut result: u8;
+        asm!("in al, dx", in("dx") port, lateout("al") result);
+        result
+    }
+
+    #[inline]
+    pub unsafe fn out16(port: u16, value: u16) {
+        asm!("out dx, ax", in("dx") port, in("ax") value);
+    }
+
+    #[inline]
+    pub unsafe fn in16(port: u16) -> u16 {
+        let mut result: u16;
+        asm!("in ax, dx", in("dx") port, lateout("ax") result);
+        result
+    }
+
+    #[inline]
+    pub unsafe fn out32(port: u16, value: u32) {
+        asm!("out dx, eax", in("dx") port, in("eax") value);
+    }
+
+    #[inline]
+    pub unsafe fn in32(port: u16) -> u32 {
+        let mut result: u32;
+        asm!("in eax, dx", in("dx") port, lateout("eax") result);
+        result
+    }
+
+    #[inline]
     #[track_caller]
     pub(crate) fn assert_without_interrupt() {
         let flags = unsafe {
@@ -137,14 +161,6 @@ impl Cpu {
 
         result
     }
-
-    #[inline]
-    pub(crate) unsafe fn stop() -> ! {
-        loop {
-            asm!("cli");
-            Self::halt();
-        }
-    }
 }
 
 #[derive(Debug, Copy, Clone, Default)]
@@ -166,24 +182,24 @@ impl Cpuid {
     pub fn perform(&mut self) {
         unsafe {
             asm!("cpuid",
-            inout("eax") self.regs.eax,
-            inout("ecx") self.regs.ecx,
-            lateout("edx") self.regs.edx,
-            lateout("ebx") self.regs.ebx,
+                inlateout("eax") self.regs.eax,
+                inlateout("ecx") self.regs.ecx,
+                lateout("edx") self.regs.edx,
+                lateout("ebx") self.regs.ebx,
             );
         }
     }
 
     #[inline]
-    pub fn perform_function(&mut self, eax: u32) {
-        self.regs.eax = eax;
-        self.perform();
-    }
-
-    #[inline]
-    pub fn cpuid(eax: u32) -> Self {
-        let mut p = Cpuid::default();
-        p.perform_function(eax);
+    pub fn cpuid(eax: u32, ecx: u32) -> Self {
+        let mut p = Self {
+            regs: CpuidRegs {
+                eax,
+                ecx,
+                ..CpuidRegs::default()
+            },
+        };
+        p.perform();
         p
     }
 
@@ -265,14 +281,17 @@ impl Selector {
     pub const KERNEL_DATA: Selector = Selector::new(2, PrivilegeLevel::Kernel);
     pub const TSS: Selector = Selector::new(6, PrivilegeLevel::Kernel);
 
+    #[inline]
     pub const fn new(index: usize, rpl: PrivilegeLevel) -> Self {
         Selector((index << 3) as u16 | rpl as u16)
     }
 
-    pub fn rpl(self) -> PrivilegeLevel {
-        PrivilegeLevel::from(self.0 as usize)
+    #[inline]
+    pub const fn rpl(self) -> PrivilegeLevel {
+        PrivilegeLevel::from_usize(self.0 as usize)
     }
 
+    #[inline]
     pub const fn index(self) -> usize {
         (self.0 >> 3) as usize
     }
@@ -292,17 +311,20 @@ impl PrivilegeLevel {
         let dpl = self as u64;
         dpl << 13
     }
-}
 
-impl From<usize> for PrivilegeLevel {
-    fn from(value: usize) -> PrivilegeLevel {
+    pub const fn from_usize(value: usize) -> Self {
         match value & 3 {
             0 => PrivilegeLevel::Kernel,
             1 => PrivilegeLevel::System1,
             2 => PrivilegeLevel::System2,
-            3 => PrivilegeLevel::User,
-            _ => unreachable!(),
+            _ => PrivilegeLevel::User,
         }
+    }
+}
+
+impl From<usize> for PrivilegeLevel {
+    fn from(value: usize) -> Self {
+        Self::from_usize(value)
     }
 }
 
@@ -379,6 +401,7 @@ impl From<Exception> for InterruptVector {
 }
 
 #[repr(C, packed)]
+#[derive(Default)]
 pub struct TaskStateSegment {
     reserved_1: u32,
     pub stack_pointer: [u64; 3],
@@ -390,16 +413,10 @@ pub struct TaskStateSegment {
 
 impl TaskStateSegment {
     pub fn new() -> Box<Self> {
-        Box::new(TaskStateSegment {
-            stack_pointer: [0; 3],
-            ist: [0; 7],
-            iomap_base: 0,
-            reserved_1: 0,
-            reserved_2: 0,
-            reserved_3: 0,
-        })
+        Box::new(TaskStateSegment::default())
     }
 
+    #[inline]
     pub fn limit(&self) -> Limit {
         Limit(0x67)
     }
@@ -409,11 +426,12 @@ impl TaskStateSegment {
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum DefaultSize {
     Use16 = 0x0000_0000_0000_0000,
-    Use32 = 0x00C0_0000_0000_0000,
-    Use64 = 0x00A0_0000_0000_0000,
+    Use32 = 0x0040_0000_0000_0000,
+    Use64 = 0x0020_0000_0000_0000,
 }
 
 impl DefaultSize {
+    #[inline]
     pub const fn as_descriptor_entry(self) -> u64 {
         self as u64
     }
@@ -439,16 +457,39 @@ impl DescriptorEntry {
         0x8000_0000_0000
     }
 
-    pub const fn code_segment(dpl: PrivilegeLevel, size: DefaultSize) -> Self {
-        let value = 0x000F9A000000FFFFu64 | dpl.as_descriptor_entry() | size.as_descriptor_entry();
-        DescriptorEntry(value)
+    #[inline]
+    pub const fn granularity() -> u64 {
+        0x0080_0000_0000_0000
     }
 
-    pub const fn data_segment(dpl: PrivilegeLevel) -> Self {
-        let value = 0x008F92000000FFFFu64 | dpl.as_descriptor_entry();
-        DescriptorEntry(value)
+    #[inline]
+    pub const fn big_data() -> u64 {
+        0x0040_0000_0000_0000
     }
 
+    #[inline]
+    pub const fn code_segment(dpl: PrivilegeLevel, size: DefaultSize) -> DescriptorEntry {
+        DescriptorEntry(
+            0x000F_1A00_0000_FFFFu64
+                | Self::present()
+                | Self::granularity()
+                | dpl.as_descriptor_entry()
+                | size.as_descriptor_entry(),
+        )
+    }
+
+    #[inline]
+    pub const fn data_segment(dpl: PrivilegeLevel) -> DescriptorEntry {
+        DescriptorEntry(
+            0x000F_1200_0000_FFFFu64
+                | Self::present()
+                | Self::granularity()
+                | Self::big_data()
+                | dpl.as_descriptor_entry(),
+        )
+    }
+
+    #[inline]
     pub const fn tss_descriptor(offset: VirtualAddress, limit: Limit) -> DescriptorPair {
         let offset = offset.0 as u64;
         let low = DescriptorEntry(
@@ -462,6 +503,7 @@ impl DescriptorEntry {
         DescriptorPair::new(low, high)
     }
 
+    #[inline]
     pub const fn gate_descriptor(
         offset: VirtualAddress,
         sel: Selector,
@@ -491,11 +533,9 @@ pub struct DescriptorPair {
 }
 
 impl DescriptorPair {
+    #[inline]
     pub const fn new(low: DescriptorEntry, high: DescriptorEntry) -> Self {
-        DescriptorPair {
-            low: low,
-            high: high,
-        }
+        DescriptorPair { low, high }
     }
 }
 
@@ -569,34 +609,32 @@ impl InterruptDescriptorTable {
         }
     }
 
-    pub fn init() {
-        unsafe {
-            Self::load();
-            Self::register(
-                Exception::DivideError.as_vec(),
-                VirtualAddress(_int00 as usize),
-            );
-            Self::register(
-                Exception::Breakpoint.as_vec(),
-                VirtualAddress(_int03 as usize),
-            );
-            Self::register(
-                Exception::InvalidOpcode.as_vec(),
-                VirtualAddress(_int06 as usize),
-            );
-            Self::register(
-                Exception::DoubleFault.as_vec(),
-                VirtualAddress(_int08 as usize),
-            );
-            Self::register(
-                Exception::GeneralProtection.as_vec(),
-                VirtualAddress(_int0D as usize),
-            );
-            Self::register(
-                Exception::PageFault.as_vec(),
-                VirtualAddress(_int0E as usize),
-            );
-        }
+    pub unsafe fn init() {
+        Self::load();
+        Self::register(
+            Exception::DivideError.into(),
+            VirtualAddress(_asm_int_00 as usize),
+        );
+        Self::register(
+            Exception::Breakpoint.into(),
+            VirtualAddress(_asm_int_03 as usize),
+        );
+        Self::register(
+            Exception::InvalidOpcode.into(),
+            VirtualAddress(_asm_int_06 as usize),
+        );
+        Self::register(
+            Exception::DoubleFault.into(),
+            VirtualAddress(_asm_int_08 as usize),
+        );
+        Self::register(
+            Exception::GeneralProtection.into(),
+            VirtualAddress(_asm_int_0D as usize),
+        );
+        Self::register(
+            Exception::PageFault.into(),
+            VirtualAddress(_asm_int_0E as usize),
+        );
     }
 
     pub unsafe fn load() {
@@ -643,24 +681,26 @@ pub enum Msr {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-union MsrResult {
+pub union MsrResult {
     pub qword: u64,
     pub tuple: EaxEdx,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
-struct EaxEdx {
+pub struct EaxEdx {
     pub eax: u32,
     pub edx: u32,
 }
 
 impl Msr {
+    #[inline]
     pub unsafe fn write(self, value: u64) {
         let value = MsrResult { qword: value };
         asm!("wrmsr", in("eax") value.tuple.eax, in("edx") value.tuple.edx, in("ecx") self as u32);
     }
 
+    #[inline]
     pub unsafe fn read(self) -> u64 {
         let mut eax: u32;
         let mut edx: u32;
@@ -706,59 +746,60 @@ pub struct X64StackContext {
 static mut GLOBAL_EXCEPTION_LOCK: Spinlock = Spinlock::new();
 
 #[no_mangle]
-pub extern "C" fn default_int_ex_handler(ctx: *mut X64StackContext) {
-    unsafe {
-        GLOBAL_EXCEPTION_LOCK.lock();
-        let ctx = ctx.as_ref().unwrap();
-        stdout().set_cursor_enabled(false);
-        let va_mask = 0xFFFF_FFFF_FFFF;
-        if Exception::PageFault.as_vec() == ctx.vector {
-            println!(
-                "\n#### EXCEPTION {:02x} err {:04x} {:012x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
-                ctx.vector.0,
-                ctx.error_code,
-                ctx.cr2 & va_mask,
-                ctx.cs,
-                ctx.rip & va_mask,
-                ctx.ss,
-                ctx.rsp & va_mask,
-            );
-        } else {
-            println!(
-                "\n#### EXCEPTION {:02x} err {:04x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
-                ctx.vector.0,
-                ctx.error_code,
-                ctx.cs,
-                ctx.rip & va_mask,
-                ctx.ss,
-                ctx.rsp & va_mask,
-            );
-        }
-        GLOBAL_EXCEPTION_LOCK.unlock();
+pub unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext) {
+    GLOBAL_EXCEPTION_LOCK.lock();
+    let ctx = ctx.as_ref().unwrap();
+    stdout().set_cursor_enabled(false);
+    let va_mask = 0xFFFF_FFFF_FFFF;
+    if Exception::PageFault.as_vec() == ctx.vector {
         println!(
-            "rax {:016x} rbx {:016x} rcx {:016x} rdx {:016x}
-rbp {:016x} rsi {:016x} rdi {:016x} rfl {:08x},
-r8  {:016x} r9  {:016x} r10 {:016x} r11 {:016x}
-r12 {:016x} r13 {:016x} r14 {:016x} r15 {:016x}",
-            ctx.rax,
-            ctx.rbx,
-            ctx.rcx,
-            ctx.rdx,
-            ctx.rbp,
-            ctx.rsi,
-            ctx.rdi,
-            ctx.rflags.bits(),
-            ctx.r8,
-            ctx.r9,
-            ctx.r10,
-            ctx.r11,
-            ctx.r12,
-            ctx.r13,
-            ctx.r14,
-            ctx.r15,
+            "\n#### EXCEPTION {:02x} err {:04x} {:012x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
+            ctx.vector.0,
+            ctx.error_code,
+            ctx.cr2 & va_mask,
+            ctx.cs,
+            ctx.rip & va_mask,
+            ctx.ss,
+            ctx.rsp & va_mask,
         );
-        loop {
-            asm!("hlt");
-        }
+    } else {
+        println!(
+            "\n#### EXCEPTION {:02x} err {:04x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
+            ctx.vector.0,
+            ctx.error_code,
+            ctx.cs,
+            ctx.rip & va_mask,
+            ctx.ss,
+            ctx.rsp & va_mask,
+        );
+    }
+    GLOBAL_EXCEPTION_LOCK.unlock();
+
+    println!(
+        "rax {:016x} rsi {:016x} r11 {:016x} rfl {:08x}
+rbx {:016x} rdi {:016x} r12 {:016x}
+rcx {:016x} r8  {:016x} r13 {:016x}
+rdx {:016x} r9  {:016x} r14 {:016x}
+rbp {:016x} r10 {:016x} r15 {:016x}",
+        ctx.rax,
+        ctx.rsi,
+        ctx.r11,
+        ctx.rflags.bits(),
+        ctx.rbx,
+        ctx.rdi,
+        ctx.r12,
+        ctx.rcx,
+        ctx.r8,
+        ctx.r13,
+        ctx.rdx,
+        ctx.r9,
+        ctx.r14,
+        ctx.rbp,
+        ctx.r10,
+        ctx.r15,
+    );
+
+    loop {
+        asm!("hlt");
     }
 }

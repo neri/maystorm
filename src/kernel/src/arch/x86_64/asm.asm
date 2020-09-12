@@ -1,7 +1,7 @@
 ;;
 
-%define KERNEL_CS64         0x10
-%define KERNEL_SS           0x18
+%define KERNEL_CS64         0x08
+%define KERNEL_SS           0x10
 
 %define IA32_MISC           0x000001A0
 %define IA32_EFER           0xC0000080
@@ -31,41 +31,40 @@
 ;   pub unsafe extern "efiapi" fn apic_handle_irq(irq: Irq);
     extern apic_handle_irq
 
-    global _int00
-    global _int03
-    global _int06
-    global _int08
-    global _int0D
-    global _int0E
+    global _asm_int_00
+    global _asm_int_03
+    global _asm_int_06
+    global _asm_int_08
+    global _asm_int_0D
+    global _asm_int_0E
 
-_int00: ; #DE
+_asm_int_00: ; #DE
     push BYTE 0
     push BYTE 0x00
     jmp short _intXX
 
-_int03: ; #BP
+_asm_int_03: ; #BP
     push BYTE 0
     push BYTE 0x03
     jmp short _intXX
 
-_int06: ; #UD
+_asm_int_06: ; #UD
     push BYTE 0
     push BYTE 0x06
     jmp short _intXX
 
-_int08: ; #DF
+_asm_int_08: ; #DF
     push BYTE 0x08
     jmp short _intXX
 
-_int0D: ; #GP
+_asm_int_0D: ; #GP
     push BYTE 0x0D
     jmp short _intXX
 
-_int0E: ; #PF
+_asm_int_0E: ; #PF
     push BYTE 0x0E
     ; jmp short _intXX
 
-    extern default_int_ex_handler
 _intXX:
     push rax
     push rcx
@@ -87,7 +86,8 @@ _intXX:
     cld
 
     mov rcx, rsp
-    call default_int_ex_handler
+    extern cpu_default_exception
+    call cpu_default_exception
 
     pop rax ; CR2
     pop r15
@@ -110,7 +110,7 @@ _iretq:
     iretq
 
 
-;   fn sch_switch_context(current: *mut u8, next: *mut u8);
+;   fn asm_sch_switch_context(current: *mut u8, next: *mut u8);
 %define CTX_SP          0x08
 %define CTX_BP          0x10
 %define CTX_BX          0x18
@@ -122,8 +122,8 @@ _iretq:
 %define CTX_R15         0x48
 %define CTX_TSS_RSP0    0x50
 %define CTX_FPU_BASE    0x80
-    global sch_switch_context
-sch_switch_context:
+    global asm_sch_switch_context
+asm_sch_switch_context:
 
     mov [rcx + CTX_SP], rsp
     mov [rcx + CTX_BP], rbp
@@ -162,9 +162,9 @@ sch_switch_context:
     ret
 
 
-;    fn sch_make_new_thread(context: *mut u8, new_sp: *mut u8, start: *mut c_void, args: *mut c_void,);
-    global sch_make_new_thread
-sch_make_new_thread:
+;    fn asm_sch_make_new_thread(context: *mut u8, new_sp: *mut u8, start: *mut c_void, args: *mut c_void,);
+    global asm_sch_make_new_thread
+asm_sch_make_new_thread:
     lea rax, [rel _new_thread]
     sub rdx, BYTE 0x18
     mov [rdx], rax
@@ -221,9 +221,9 @@ _irqXX:
 
     extern apic_start_ap
 
-;   fn setup_smp_init(vec_sipi: u8, max_cpu: usize, stack_chunk_size: usize, stack_base: *mut u8);
-    global setup_smp_init
-setup_smp_init:
+;   fn asm_apic_setup_sipi(vec_sipi: u8, max_cpu: usize, stack_chunk_size: usize, stack_base: *mut u8);
+    global asm_apic_setup_sipi
+asm_apic_setup_sipi:
     push rsi
     push rdi
 
@@ -240,14 +240,14 @@ setup_smp_init:
     mov [r10 + SMPINFO_STACK_BASE], r9
     lea edx, [r10 + SMPINFO_GDTR]
     lea rsi, [rel _minimal_GDT]
-    mov edi, edx
-    mov ecx, (_end_GDT - _minimal_GDT)/4
+    lea edi, [rdx + 8]
+    mov ecx, (_end_GDT - _minimal_GDT) / 4
     rep movsd
-    mov [edx+2], edx
-    mov word [edx], (_end_GDT - _minimal_GDT)-1
+    mov [rdx + 2], edx
+    mov word [rdx], (_end_GDT - _minimal_GDT) + 7
 
-    mov edx, 1
-    mov [r10], edx
+    mov ecx, 1
+    mov [r10], ecx
     mov rdx, cr4
     mov [r10 + SMPINFO_CR4], edx
     mov rdx, cr3
@@ -294,6 +294,15 @@ _ap_startup:
     hlt
     jmp .loop
 
+
+
+
+[section .rdata]
+    ; Boot time minimal GDT
+_minimal_GDT:
+    dw 0xFFFF, 0x0000, 0x9A00, 0x00AF   ; 08 DPL0 CODE64 FLAT
+    dw 0xFFFF, 0x0000, 0x9200, 0x00CF   ; 10 DPL0 DATA FLAT MANDATORY
+_end_GDT:
 
     ; SMP initialization payload
 [bits 16]
@@ -358,7 +367,6 @@ _smp_rm_payload:
     bts eax, CR0_PG
     mov cr0, eax
 
-    ; o32 jmp far [bx + SMPINFO_START64]
     jmp far dword [bx + SMPINFO_START64]
 
 [BITS 64]
@@ -368,10 +376,3 @@ _startup64:
 
 _end_smp_rm_payload:
 
-    ; Boot time minimal GDT
-_minimal_GDT:
-    dw 0, 0, 0, 0                       ; 00 NULL
-    dw 0xFFFF, 0x0000, 0x9A00, 0x00CF   ; 08 DPL0 CODE32 FLAT HISTORICAL
-    dw 0xFFFF, 0x0000, 0x9A00, 0x00AF   ; 10 DPL0 CODE64 FLAT
-    dw 0xFFFF, 0x0000, 0x9200, 0x00CF   ; 18 DPL0 DATA FLAT MANDATORY
-_end_GDT:

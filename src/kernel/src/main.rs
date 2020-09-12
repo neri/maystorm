@@ -1,7 +1,9 @@
 // My OS Entry
 #![no_std]
 #![no_main]
+#![feature(asm)]
 
+use arch::cpu::*;
 use bootprot::*;
 use core::fmt::Write;
 use io::console::*;
@@ -12,8 +14,13 @@ use kernel::*;
 use scheduler::*;
 use system::*;
 use window::*;
+
 extern crate alloc;
 extern crate rlibc;
+
+// use expr::simple_executor::*;
+// use expr::*;
+// use futures_util::stream::StreamExt;
 
 myos_entry!(main);
 
@@ -23,8 +30,6 @@ fn main(info: &BootInfo) {
 
 fn sysinit() {
     let system = System::shared();
-
-    GlobalScheduler::wait_for(None, TimeMeasure::from_millis(300));
 
     {
         let window = WindowBuilder::new("Test 1")
@@ -91,7 +96,7 @@ fn sysinit() {
         "{} v{} CPU {} CORES, MEMORY {} MB",
         system.name(),
         system.version(),
-        system.number_of_active_cpus(),
+        system.num_of_active_cpus(),
         system.total_memory_size() >> 20,
     );
 
@@ -104,18 +109,22 @@ fn sysinit() {
                     stdout().set_cursor_enabled(false);
                     let c: char = key.into();
                     match c {
+                        '!' => unsafe {
+                            asm!(
+                                "mov rax, 0xdeadbeef
+                            jmp rax"
+                            );
+                        },
+                        //Cpu::breakpoint(),
                         '\0' => (),
                         '\r' => {
                             println!("\nBad command or file name - KERNEL PANIC!!!");
                             break;
                         }
-                        'r' => {
-                            System::reset();
-                        }
                         _ => print!("{}", c),
                     }
                 }
-                None => GlobalScheduler::wait_for(None, TimeMeasure::from_millis(10)),
+                None => Timer::usleep(10000),
             }
         }
     }

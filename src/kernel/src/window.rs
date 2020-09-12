@@ -76,8 +76,401 @@ const CLOSE_BUTTON_SOURCE: [[u8; CLOSE_BUTTON_SIZE]; CLOSE_BUTTON_SIZE] = [
     [0, 1, 0, 0, 0, 0, 0, 0, 1, 0],
 ];
 
+pub struct WindowManager {
+    lock: Spinlock,
+    sem_redraw: Semaphore,
+    attributes: WindowManagerAttributes,
+    pointer_x: AtomicIsize,
+    pointer_y: AtomicIsize,
+    buttons: AtomicUsize,
+    button_pressed: AtomicUsize,
+    main_screen: &'static Bitmap,
+    off_screen: Box<Bitmap>,
+    screen_insets: EdgeInsets<isize>,
+    resources: Resources,
+    pool: Vec<Box<RawWindow>>,
+    root: Option<WindowHandle>,
+    pointer: Option<WindowHandle>,
+    barrier: Option<WindowHandle>,
+    active: Option<WindowHandle>,
+    captured: Option<WindowHandle>,
+    captured_origin: Point<isize>,
+}
+
+impl WindowManager {
+    pub(crate) fn init() {
+        let main_screen = boot_screen();
+        let off_screen = Box::new(Bitmap::with_same_size(main_screen));
+
+        let wm = WindowManager {
+            lock: Spinlock::default(),
+            sem_redraw: Semaphore::new(0),
+            attributes: WindowManagerAttributes::EMPTY,
+            pointer_x: AtomicIsize::new(main_screen.width() / 2),
+            pointer_y: AtomicIsize::new(main_screen.height() / 2),
+            buttons: AtomicUsize::new(0),
+            button_pressed: AtomicUsize::new(0),
+            main_screen,
+            off_screen,
+            screen_insets: EdgeInsets::zero(),
+            resources: Resources::default(),
+            pool: Vec::with_capacity(MAX_WINDOWS),
+            root: None,
+            pointer: None,
+            barrier: None,
+            active: None,
+            captured: None,
+            captured_origin: Point::zero(),
+        };
+        unsafe {
+            WM = Some(Box::new(wm));
+        }
+        let shared = Self::shared();
+
+        {
+            let w = CLOSE_BUTTON_SIZE;
+            let h = CLOSE_BUTTON_SIZE;
+            let bitmap = Bitmap::new(w, h, true);
+            bitmap
+                .update_bitmap(|bitmap| {
+                    let mut p: usize = 0;
+                    for y in 0..h {
+                        for x in 0..w {
+                            let c = CLOSE_BUTTON_PALETTE[CLOSE_BUTTON_SOURCE[y][x] as usize];
+                            bitmap[p] = Color::from_argb(c);
+                            p += 1;
+                        }
+                    }
+                })
+                .unwrap();
+            shared.resources.close_button = Some(Box::new(bitmap));
+        };
+
+        {
+            // Desktop
+            shared.root = Some(
+                WindowBuilder::new("Desktop")
+                    .style(WindowStyle::CLIENT_RECT)
+                    .level(WindowLevel::ROOT)
+                    .frame(Rect::from(main_screen.size()))
+                    .bg_color(DESKTOP_COLOR)
+                    .no_bitmap()
+                    .build(),
+            );
+        }
+
+        {
+            // Pointer
+            let w = MOUSE_POINTER_WIDTH;
+            let h = MOUSE_POINTER_HEIGHT;
+            shared.pointer = Some(
+                WindowBuilder::new("Pointer")
+                    .style(WindowStyle::CLIENT_RECT)
+                    .level(WindowLevel::POINTER)
+                    .origin(shared.pointer())
+                    .size(Size::new(w as isize, h as isize))
+                    .bg_color(Color::from_argb(0x80FF00FF))
+                    .build(),
+            );
+
+            shared
+                .pointer
+                .unwrap()
+                .draw(|bitmap| {
+                    for y in 0..h {
+                        for x in 0..w {
+                            let c = Color::from_argb(
+                                MOUSE_POINTER_PALETTE[MOUSE_POINTER_SOURCE[y][x] as usize],
+                            );
+                            bitmap.draw_pixel(Point::new(x as isize, y as isize), c);
+                        }
+                    }
+                })
+                .unwrap();
+
+            shared.pointer.unwrap().show();
+        }
+
+        {
+            // Barrier
+            shared.barrier = Some(
+                WindowBuilder::new("Barrier")
+                    .style(WindowStyle::CLIENT_RECT | WindowStyle::TRANSPARENT)
+                    .level(WindowLevel::POPUP_BARRIER)
+                    .frame(Rect::from(main_screen.size()))
+                    .bg_color(BARRIER_COLOR)
+                    .no_bitmap()
+                    .build(),
+            );
+            // shared.barrier.unwrap().show();
+        }
+
+        {
+            // Status bar
+            let window = WindowBuilder::new("Status Bar")
+                .style(WindowStyle::CLIENT_RECT)
+                .level(WindowLevel::HIGHER)
+                .frame(Rect::new(0, 0, main_screen.width(), STATUS_BAR_HEIGHT))
+                .bg_color(STATUS_BAR_BG_COLOR)
+                .build();
+            let _ = window.draw(|bitmap| {
+                bitmap.draw_string(
+                    FontDriver::system_font(),
+                    bitmap.bounds(),
+                    Color::BLACK,
+                    " @  File  Edit  Window  Help",
+                );
+            });
+            window.show();
+            shared.screen_insets.top += STATUS_BAR_HEIGHT;
+        }
+
+        MyScheduler::spawn_f(Self::window_thread, null_mut(), Priority::Realtime);
+        shared.root.unwrap().invalidate();
+    }
+
+    fn window_thread(_: *mut c_void) {
+        let shared = WindowManager::shared();
+        loop {
+            let _ = shared.sem_redraw.wait(TimeMeasure::from_millis(1));
+
+            if shared
+                .attributes
+                .test_and_clear(WindowManagerAttributes::MOUSE_MOVE)
+            {
+                let origin = shared.pointer();
+                let current_button =
+                    MouseButton::from_bits_truncate(shared.buttons.load(Ordering::Acquire) as u8);
+                let button_pressed = MouseButton::from_bits_truncate(
+                    shared.button_pressed.swap(0, Ordering::AcqRel) as u8,
+                );
+
+                if let Some(captured) = shared.captured {
+                    if current_button.contains(MouseButton::LEFT) {
+                        let top = if captured.as_ref().level < WindowLevel::HIGHER {
+                            shared.screen_insets.top
+                        } else {
+                            0
+                        };
+                        let x = origin.x - shared.captured_origin.x;
+                        let y = cmp::max(origin.y - shared.captured_origin.y, top);
+                        captured.move_to(Point::new(x, y));
+                    } else {
+                        shared.captured = None;
+                    }
+                } else if button_pressed.contains(MouseButton::LEFT) {
+                    let mouse_at = Self::window_at_point(origin);
+                    if let Some(active) = shared.active {
+                        if active != mouse_at {
+                            WindowManager::set_active(Some(mouse_at));
+                        }
+                    } else {
+                        WindowManager::set_active(Some(mouse_at));
+                    }
+                    let target = mouse_at.as_ref();
+                    if target.style.contains(WindowStyle::PINCHABLE) {
+                        shared.captured = Some(mouse_at);
+                        shared.captured_origin = origin - target.frame().origin;
+                    } else {
+                        let mut title_frame = target.title_frame();
+                        title_frame.origin += target.frame.origin;
+                        if title_frame.hit_test_point(origin) {
+                            shared.captured = Some(mouse_at);
+                            shared.captured_origin = origin - target.frame().origin;
+                        }
+                    }
+                }
+
+                shared.pointer.unwrap().move_to(origin);
+            }
+        }
+    }
+
+    fn shared() -> &'static mut Self {
+        unsafe { WM.as_mut().unwrap() }
+    }
+
+    #[inline]
+    fn synchronized<F, R>(f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        let shared = unsafe { WM.as_ref().unwrap() };
+        shared.lock.synchronized(f)
+    }
+
+    fn add(window: Box<RawWindow>) -> WindowHandle {
+        let len = WindowManager::synchronized(|| {
+            let shared = Self::shared();
+            shared.pool.push(window);
+            shared.pool.len()
+        });
+        WindowHandle::new(len).unwrap()
+    }
+
+    unsafe fn add_hierarchy(window: WindowHandle) {
+        let shared = WindowManager::shared();
+        let mut cursor = shared.root.unwrap();
+        let level = window.as_ref().level;
+
+        loop {
+            if let Some(next) = cursor.as_ref().next {
+                if level < next.as_ref().level {
+                    cursor.update(|cursor| {
+                        cursor.next = Some(window);
+                    });
+                    window.update(|window| {
+                        window.next = Some(next);
+                    });
+                    break;
+                } else {
+                    cursor = next;
+                }
+            } else {
+                cursor.update(|cursor| {
+                    cursor.next = Some(window);
+                });
+                break;
+            }
+        }
+        window.as_ref().attributes.insert(WindowAttributes::VISIBLE);
+    }
+
+    unsafe fn remove_hierarchy(window: WindowHandle) {
+        let shared = WindowManager::shared();
+        let mut cursor = shared.root.unwrap();
+
+        window.as_ref().attributes.remove(WindowAttributes::VISIBLE);
+        loop {
+            if let Some(next) = cursor.as_ref().next {
+                if next == window {
+                    cursor.update(|cursor| {
+                        cursor.next = window.as_ref().next;
+                    });
+                    window.update(|window| {
+                        window.next = None;
+                    });
+                    break;
+                }
+                cursor = next;
+            } else {
+                break;
+            }
+        }
+    }
+
+    pub fn main_screen_bounds() -> Rect<isize> {
+        let shared = Self::shared();
+        shared.main_screen.bounds()
+    }
+
+    pub fn invalidate_screen(rect: Rect<isize>) {
+        let shared = Self::shared();
+        shared.root.unwrap().invalidate_rect(rect);
+    }
+
+    fn set_active(window: Option<WindowHandle>) {
+        let shared = Self::shared();
+        if let Some(old_active) = shared.active {
+            shared.active = window;
+            old_active.as_ref().draw_frame();
+            old_active.invalidate();
+            if let Some(active) = window {
+                // active.as_ref().draw_frame();
+                active.show();
+            }
+        } else {
+            shared.active = window;
+            if let Some(active) = window {
+                // active.as_ref().draw_frame();
+                active.show();
+            }
+        }
+    }
+
+    fn window_at_point(point: Point<isize>) -> WindowHandle {
+        WindowManager::synchronized(|| {
+            let shared = Self::shared();
+            let mut found = shared.root.unwrap();
+            let mut cursor = found;
+            loop {
+                let window = cursor.as_ref();
+                if window.level == WindowLevel::POINTER {
+                    break found;
+                }
+                if window
+                    .frame
+                    .insets_by(window.shadow_insets)
+                    .hit_test_point(point)
+                {
+                    found = cursor;
+                }
+                cursor = window.next.unwrap();
+            }
+        })
+    }
+
+    fn pointer(&self) -> Point<isize> {
+        Point::new(
+            self.pointer_x.load(Ordering::Relaxed),
+            self.pointer_y.load(Ordering::Relaxed),
+        )
+    }
+
+    fn update_coord(
+        coord: &AtomicIsize,
+        movement: isize,
+        min_value: isize,
+        max_value: isize,
+    ) -> bool {
+        match coord.fetch_update(Ordering::Acquire, Ordering::Acquire, |value| {
+            let new_value = cmp::min(cmp::max(value + movement, min_value), max_value);
+            if value == new_value {
+                None
+            } else {
+                Some(new_value)
+            }
+        }) {
+            Ok(_) => true,
+            Err(_) => false,
+        }
+    }
+
+    pub fn make_mouse_event(mouse_state: &mut MouseState) {
+        let shared = Self::shared();
+        let bounds = shared.main_screen.bounds();
+
+        let mut pointer = Point::new(0, 0);
+        core::mem::swap(&mut mouse_state.x, &mut pointer.x);
+        core::mem::swap(&mut mouse_state.y, &mut pointer.y);
+        let button_change = mouse_state.current_buttons ^ mouse_state.prev_buttons;
+        let button_pressed = button_change & mouse_state.current_buttons;
+
+        shared.buttons.store(
+            mouse_state.current_buttons.bits() as usize,
+            Ordering::Release,
+        );
+
+        shared
+            .button_pressed
+            .fetch_or(button_pressed.bits() as usize, Ordering::AcqRel);
+
+        Self::update_coord(&shared.pointer_x, pointer.x, bounds.x(), bounds.width() - 1);
+        Self::update_coord(
+            &shared.pointer_y,
+            pointer.y,
+            bounds.y(),
+            bounds.height() - 1,
+        );
+        shared
+            .attributes
+            .insert(WindowManagerAttributes::MOUSE_MOVE);
+        shared.sem_redraw.signal();
+    }
+}
+
 #[allow(dead_code)]
-struct Window {
+struct RawWindow {
     handle: Option<WindowHandle>,
     next: Option<WindowHandle>,
     frame: Rect<isize>,
@@ -149,7 +542,7 @@ impl WindowAttributes {
     }
 }
 
-impl Window {
+impl RawWindow {
     // #[inline]
     // fn bounds(&self) -> Rect<isize> {
     //     Rect::from(self.frame.insets_by(self.shadow_insets).size)
@@ -355,7 +748,7 @@ impl Window {
     }
 
     fn set_title(&mut self, title: &str) {
-        Window::set_title_array(&mut self.title, title);
+        RawWindow::set_title_array(&mut self.title, title);
         self.draw_frame();
         self.invalidate_rect(self.title_frame());
     }
@@ -410,7 +803,7 @@ impl WindowBuilder {
         let content_insets = window_insets + shadow_insets;
         let mut frame = self.frame;
         if self.style.contains(WindowStyle::CLIENT_RECT) {
-            frame.size += window_insets;
+            frame.size += window_insets + shadow_insets;
         }
         if frame.x() < 0 {
             frame.origin.x = (screen_bounds.width() - frame.width()) / 2;
@@ -431,7 +824,7 @@ impl WindowBuilder {
             WindowAttributes::EMPTY
         };
 
-        let window = Window {
+        let window = RawWindow {
             handle: None,
             next: None,
             frame,
@@ -457,12 +850,12 @@ impl WindowBuilder {
         self
     }
     #[inline]
-    pub fn style_or(mut self, style: WindowStyle) -> Self {
+    pub fn style_add(mut self, style: WindowStyle) -> Self {
         self.style |= style;
         self
     }
     pub fn title(mut self, title: &str) -> Self {
-        Window::set_title_array(&mut self.title, title);
+        RawWindow::set_title_array(&mut self.title, title);
         self
     }
     #[inline]
@@ -519,7 +912,7 @@ impl WindowHandle {
     #[inline]
     fn update<F, R>(self, f: F) -> R
     where
-        F: FnOnce(&mut Window) -> R,
+        F: FnOnce(&mut RawWindow) -> R,
     {
         let shared = WindowManager::shared();
         let window = shared.pool[self.as_index()].as_mut();
@@ -527,7 +920,7 @@ impl WindowHandle {
     }
 
     #[inline]
-    fn as_ref(self) -> &'static Window {
+    fn as_ref(self) -> &'static RawWindow {
         let shared = WindowManager::shared();
         shared.pool[self.as_index()].as_ref()
     }
@@ -693,398 +1086,5 @@ impl WindowManagerAttributes {
                 }
             })
             .is_ok()
-    }
-}
-
-pub struct WindowManager {
-    lock: Spinlock,
-    sem_redraw: Semaphore,
-    attributes: WindowManagerAttributes,
-    pointer_x: AtomicIsize,
-    pointer_y: AtomicIsize,
-    buttons: AtomicUsize,
-    button_pressed: AtomicUsize,
-    main_screen: &'static Bitmap,
-    off_screen: Box<Bitmap>,
-    screen_insets: EdgeInsets<isize>,
-    resources: Resources,
-    pool: Vec<Box<Window>>,
-    root: Option<WindowHandle>,
-    pointer: Option<WindowHandle>,
-    barrier: Option<WindowHandle>,
-    active: Option<WindowHandle>,
-    captured: Option<WindowHandle>,
-    captured_origin: Point<isize>,
-}
-
-impl WindowManager {
-    pub(crate) fn init() {
-        let main_screen = boot_screen();
-        let off_screen = Box::new(Bitmap::with_same_size(main_screen));
-
-        let wm = WindowManager {
-            lock: Spinlock::default(),
-            sem_redraw: Semaphore::new(0),
-            attributes: WindowManagerAttributes::EMPTY,
-            pointer_x: AtomicIsize::new(main_screen.width() / 2),
-            pointer_y: AtomicIsize::new(main_screen.height() / 2),
-            buttons: AtomicUsize::new(0),
-            button_pressed: AtomicUsize::new(0),
-            main_screen,
-            off_screen,
-            screen_insets: EdgeInsets::zero(),
-            resources: Resources::default(),
-            pool: Vec::with_capacity(MAX_WINDOWS),
-            root: None,
-            pointer: None,
-            barrier: None,
-            active: None,
-            captured: None,
-            captured_origin: Point::zero(),
-        };
-        unsafe {
-            WM = Some(Box::new(wm));
-        }
-        let shared = Self::shared();
-
-        {
-            let w = CLOSE_BUTTON_SIZE;
-            let h = CLOSE_BUTTON_SIZE;
-            let bitmap = Bitmap::new(w, h, true);
-            bitmap
-                .update_bitmap(|bitmap| {
-                    let mut p: usize = 0;
-                    for y in 0..h {
-                        for x in 0..w {
-                            let c = CLOSE_BUTTON_PALETTE[CLOSE_BUTTON_SOURCE[y][x] as usize];
-                            bitmap[p] = Color::from_argb(c);
-                            p += 1;
-                        }
-                    }
-                })
-                .unwrap();
-            shared.resources.close_button = Some(Box::new(bitmap));
-        };
-
-        {
-            // Desktop
-            shared.root = Some(
-                WindowBuilder::new("Desktop")
-                    .style(WindowStyle::CLIENT_RECT)
-                    .level(WindowLevel::ROOT)
-                    .frame(Rect::from(main_screen.size()))
-                    .bg_color(DESKTOP_COLOR)
-                    .no_bitmap()
-                    .build(),
-            );
-        }
-
-        {
-            // Pointer
-            let w = MOUSE_POINTER_WIDTH;
-            let h = MOUSE_POINTER_HEIGHT;
-            shared.pointer = Some(
-                WindowBuilder::new("Pointer")
-                    .style(WindowStyle::CLIENT_RECT)
-                    .level(WindowLevel::POINTER)
-                    .origin(shared.pointer())
-                    .size(Size::new(w as isize, h as isize))
-                    .bg_color(Color::from_argb(0x80FF00FF))
-                    .build(),
-            );
-
-            shared
-                .pointer
-                .unwrap()
-                .draw(|bitmap| {
-                    for y in 0..h {
-                        for x in 0..w {
-                            let c = Color::from_argb(
-                                MOUSE_POINTER_PALETTE[MOUSE_POINTER_SOURCE[y][x] as usize],
-                            );
-                            bitmap.draw_pixel(Point::new(x as isize, y as isize), c);
-                        }
-                    }
-                })
-                .unwrap();
-
-            shared.pointer.unwrap().show();
-        }
-
-        {
-            // Barrier
-            shared.barrier = Some(
-                WindowBuilder::new("Barrier")
-                    .style(WindowStyle::CLIENT_RECT | WindowStyle::TRANSPARENT)
-                    .level(WindowLevel::POPUP_BARRIER)
-                    .frame(Rect::from(main_screen.size()))
-                    .bg_color(BARRIER_COLOR)
-                    .no_bitmap()
-                    .build(),
-            );
-            // shared.barrier.unwrap().show();
-        }
-
-        {
-            // Status bar
-            let window = WindowBuilder::new("Status Bar")
-                .style(WindowStyle::CLIENT_RECT)
-                .level(WindowLevel::HIGHER)
-                .frame(Rect::new(0, 0, main_screen.width(), STATUS_BAR_HEIGHT))
-                .bg_color(STATUS_BAR_BG_COLOR)
-                .build();
-            let _ = window.draw(|bitmap| {
-                bitmap.draw_string(
-                    FontDriver::system_font(),
-                    bitmap.bounds(),
-                    Color::BLACK,
-                    " @ | File  Edit  Window  Help",
-                );
-            });
-            window.show();
-            shared.screen_insets.top += STATUS_BAR_HEIGHT;
-        }
-
-        GlobalScheduler::spawn_f(Self::window_thread, null_mut(), Priority::Realtime);
-        shared.root.unwrap().invalidate();
-    }
-
-    fn window_thread(_: *mut c_void) {
-        let shared = WindowManager::shared();
-        loop {
-            let _ = shared.sem_redraw.wait(TimeMeasure::from_millis(1));
-
-            if shared
-                .attributes
-                .test_and_clear(WindowManagerAttributes::MOUSE_MOVE)
-            {
-                let origin = shared.pointer();
-                let current_button =
-                    MouseButton::from_bits_truncate(shared.buttons.load(Ordering::Acquire) as u8);
-                let button_pressed = MouseButton::from_bits_truncate(
-                    shared.button_pressed.swap(0, Ordering::AcqRel) as u8,
-                );
-
-                if let Some(captured) = shared.captured {
-                    if current_button.contains(MouseButton::LEFT) {
-                        let top = if captured.as_ref().level < WindowLevel::HIGHER {
-                            shared.screen_insets.top
-                        } else {
-                            0
-                        };
-                        let x = origin.x - shared.captured_origin.x;
-                        let y = cmp::max(origin.y - shared.captured_origin.y, top);
-                        captured.move_to(Point::new(x, y));
-                    } else {
-                        shared.captured = None;
-                    }
-                } else if button_pressed.contains(MouseButton::LEFT) {
-                    let mouse_at = Self::window_at_point(origin);
-                    if let Some(active) = shared.active {
-                        if active != mouse_at {
-                            WindowManager::set_active(Some(mouse_at));
-                        }
-                    } else {
-                        WindowManager::set_active(Some(mouse_at));
-                    }
-                    let target = mouse_at.as_ref();
-                    if target.style.contains(WindowStyle::PINCHABLE) {
-                        shared.captured = Some(mouse_at);
-                        shared.captured_origin = origin - target.frame().origin;
-                    } else {
-                        let mut title_frame = target.title_frame();
-                        title_frame.origin += target.frame.origin;
-                        if title_frame.hit_test_point(origin) {
-                            shared.captured = Some(mouse_at);
-                            shared.captured_origin = origin - target.frame().origin;
-                        }
-                    }
-                }
-
-                shared.pointer.unwrap().move_to(origin);
-            }
-        }
-    }
-
-    fn shared() -> &'static mut Self {
-        unsafe { WM.as_mut().unwrap() }
-    }
-
-    #[inline]
-    fn synchronized<F, R>(f: F) -> R
-    where
-        F: FnOnce() -> R,
-    {
-        let shared = unsafe { WM.as_ref().unwrap() };
-        shared.lock.synchronized(f)
-    }
-
-    fn add(window: Box<Window>) -> WindowHandle {
-        let len = WindowManager::synchronized(|| {
-            let shared = Self::shared();
-            shared.pool.push(window);
-            shared.pool.len()
-        });
-        WindowHandle::new(len).unwrap()
-    }
-
-    unsafe fn add_hierarchy(window: WindowHandle) {
-        let shared = WindowManager::shared();
-        let mut cursor = shared.root.unwrap();
-        let level = window.as_ref().level;
-
-        loop {
-            if let Some(next) = cursor.as_ref().next {
-                if level < next.as_ref().level {
-                    cursor.update(|cursor| {
-                        cursor.next = Some(window);
-                    });
-                    window.update(|window| {
-                        window.next = Some(next);
-                    });
-                    break;
-                } else {
-                    cursor = next;
-                }
-            } else {
-                cursor.update(|cursor| {
-                    cursor.next = Some(window);
-                });
-                break;
-            }
-        }
-        window.as_ref().attributes.insert(WindowAttributes::VISIBLE);
-    }
-
-    unsafe fn remove_hierarchy(window: WindowHandle) {
-        let shared = WindowManager::shared();
-        let mut cursor = shared.root.unwrap();
-
-        window.as_ref().attributes.remove(WindowAttributes::VISIBLE);
-        loop {
-            if let Some(next) = cursor.as_ref().next {
-                if next == window {
-                    cursor.update(|cursor| {
-                        cursor.next = window.as_ref().next;
-                    });
-                    window.update(|window| {
-                        window.next = None;
-                    });
-                    break;
-                }
-                cursor = next;
-            } else {
-                break;
-            }
-        }
-    }
-
-    pub fn main_screen_bounds() -> Rect<isize> {
-        let shared = Self::shared();
-        shared.main_screen.bounds()
-    }
-
-    pub fn invalidate_screen(rect: Rect<isize>) {
-        let shared = Self::shared();
-        shared.root.unwrap().invalidate_rect(rect);
-    }
-
-    fn set_active(window: Option<WindowHandle>) {
-        let shared = Self::shared();
-        if let Some(old_active) = shared.active {
-            shared.active = window;
-            old_active.as_ref().draw_frame();
-            old_active.invalidate();
-            if let Some(active) = window {
-                // active.as_ref().draw_frame();
-                active.show();
-            }
-        } else {
-            shared.active = window;
-            if let Some(active) = window {
-                // active.as_ref().draw_frame();
-                active.show();
-            }
-        }
-    }
-
-    fn window_at_point(point: Point<isize>) -> WindowHandle {
-        WindowManager::synchronized(|| {
-            let shared = Self::shared();
-            let mut found = shared.root.unwrap();
-            let mut cursor = found;
-            loop {
-                let window = cursor.as_ref();
-                if window.level == WindowLevel::POINTER {
-                    break found;
-                }
-                if window
-                    .frame
-                    .insets_by(window.shadow_insets)
-                    .hit_test_point(point)
-                {
-                    found = cursor;
-                }
-                cursor = window.next.unwrap();
-            }
-        })
-    }
-
-    fn pointer(&self) -> Point<isize> {
-        Point::new(
-            self.pointer_x.load(Ordering::Relaxed),
-            self.pointer_y.load(Ordering::Relaxed),
-        )
-    }
-
-    fn update_coord(
-        coord: &AtomicIsize,
-        movement: isize,
-        min_value: isize,
-        max_value: isize,
-    ) -> bool {
-        match coord.fetch_update(Ordering::Acquire, Ordering::Acquire, |value| {
-            let new_value = cmp::min(cmp::max(value + movement, min_value), max_value);
-            if value == new_value {
-                None
-            } else {
-                Some(new_value)
-            }
-        }) {
-            Ok(_) => true,
-            Err(_) => false,
-        }
-    }
-
-    pub fn make_mouse_event(mouse_state: &mut MouseState) {
-        let shared = Self::shared();
-        let bounds = shared.main_screen.bounds();
-
-        let mut pointer = Point::new(0, 0);
-        core::mem::swap(&mut mouse_state.x, &mut pointer.x);
-        core::mem::swap(&mut mouse_state.y, &mut pointer.y);
-        let button_change = mouse_state.current_buttons ^ mouse_state.prev_buttons;
-        let button_pressed = button_change & mouse_state.current_buttons;
-
-        shared.buttons.store(
-            mouse_state.current_buttons.bits() as usize,
-            Ordering::Release,
-        );
-
-        shared
-            .button_pressed
-            .fetch_or(button_pressed.bits() as usize, Ordering::AcqRel);
-
-        Self::update_coord(&shared.pointer_x, pointer.x, bounds.x(), bounds.width() - 1);
-        Self::update_coord(
-            &shared.pointer_y,
-            pointer.y,
-            bounds.y(),
-            bounds.height() - 1,
-        );
-        shared
-            .attributes
-            .insert(WindowManagerAttributes::MOUSE_MOVE);
-        shared.sem_redraw.signal();
     }
 }

@@ -4,6 +4,12 @@ use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;
 use core::num::*;
+// use core::{
+//     pin::Pin,
+//     task::{Context, Poll},
+// };
+// use futures_util::stream::Stream;
+// use futures_util::task::AtomicWaker;
 use sync::queue::*;
 use system::*;
 use window::*;
@@ -228,12 +234,17 @@ impl HidManager {
             System::reset();
         }
         let _ = shared.key_buf.enqueue(v);
+        // WAKER.wake();
     }
 
     pub fn get_key() -> Option<KeyEvent> {
         let shared = HidManager::shared();
         shared.key_buf.dequeue()
     }
+
+    // pub fn get_key_stream() -> KeyboardStream {
+    //     KeyboardStream::new()
+    // }
 
     fn key_event_to_char(event: KeyEvent) -> char {
         if event.flags.contains(KeyEventFlags::BREAK) || event.usage == Usage::NULL {
@@ -281,6 +292,37 @@ impl HidManager {
         uni
     }
 }
+
+// static WAKER: AtomicWaker = AtomicWaker::new();
+
+// pub struct KeyboardStream {
+//     _private: (),
+// }
+
+// impl KeyboardStream {
+//     fn new() -> Self {
+//         Self { _private: () }
+//     }
+// }
+
+// impl Stream for KeyboardStream {
+//     type Item = KeyEvent;
+
+//     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+//         if let Some(key) = HidManager::get_key() {
+//             return Poll::Ready(Some(key));
+//         }
+
+//         WAKER.register(&cx.waker());
+//         match HidManager::get_key() {
+//             Some(key) => {
+//                 WAKER.take();
+//                 Poll::Ready(Some(key))
+//             }
+//             None => Poll::Pending,
+//         }
+//     }
+// }
 
 // Non Alphabet
 static USAGE_TO_CHAR_NON_ALPLABET_109: [char; 27] = [

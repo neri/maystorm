@@ -113,7 +113,7 @@ impl<T: Number> Add<EdgeInsets<T>> for Size<T> {
     type Output = Self;
     fn add(self, rhs: EdgeInsets<T>) -> Self {
         Size {
-            width: self.width + rhs.left + rhs.left,
+            width: self.width + rhs.left + rhs.right,
             height: self.height + rhs.top + rhs.bottom,
         }
     }
@@ -131,7 +131,7 @@ impl<T: Number> AddAssign<Self> for Size<T> {
 impl<T: Number> AddAssign<EdgeInsets<T>> for Size<T> {
     fn add_assign(&mut self, rhs: EdgeInsets<T>) {
         *self = Self {
-            width: self.width + rhs.left + rhs.left,
+            width: self.width + rhs.left + rhs.right,
             height: self.height + rhs.top + rhs.bottom,
         }
     }

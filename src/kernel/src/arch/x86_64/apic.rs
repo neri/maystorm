@@ -19,7 +19,7 @@ const INVALID_PROCESSOR_INDEX: u8 = 0xFF;
 static mut CURRENT_PROCESSOR_INDEXES: [u8; 256] = [INVALID_PROCESSOR_INDEX; 256];
 
 extern "C" {
-    fn setup_smp_init(
+    fn asm_apic_setup_sipi(
         vec_sipi: InterruptVector,
         max_cpu: usize,
         stack_chunk_size: usize,
@@ -141,19 +141,19 @@ impl Apic {
 
         // Setup SMP
         let sipi_vec = InterruptVector(CustomAlloc::z_alloc_real().unwrap().get());
-        let max_cpu = core::cmp::min(System::shared().number_of_cpus(), MAX_CPU);
+        let max_cpu = core::cmp::min(System::shared().num_of_cpus(), MAX_CPU);
         let stack_chunk_size = 0x4000;
         let stack_base = CustomAlloc::zalloc(max_cpu * stack_chunk_size)
             .unwrap()
             .as_ptr();
-        setup_smp_init(sipi_vec, max_cpu, stack_chunk_size, stack_base);
+        asm_apic_setup_sipi(sipi_vec, max_cpu, stack_chunk_size, stack_base);
         LocalApic::broadcast_init();
         Timer::usleep(10_000);
         LocalApic::broadcast_startup(sipi_vec);
         Timer::usleep(10_000);
         LocalApic::broadcast_startup(sipi_vec);
         Timer::usleep(10_000);
-        if System::shared().number_of_active_cpus() != max_cpu {
+        if System::shared().num_of_active_cpus() != max_cpu {
             panic!("Some of the processors are not responding");
         }
 
@@ -565,6 +565,6 @@ extern "x86-interrupt" fn irq_0c_handler() {
 extern "x86-interrupt" fn timer_handler() {
     unsafe {
         LocalApic::eoi();
-        GlobalScheduler::reschedule();
+        MyScheduler::reschedule();
     }
 }
