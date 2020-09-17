@@ -6,7 +6,8 @@ use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
 use bootprot::BootInfo;
-use core::ptr::NonNull;
+use core::num::*;
+use core::ptr::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Version {
@@ -73,6 +74,10 @@ impl VirtualAddress {
     pub fn into_nonnull<T>(self) -> Option<NonNull<T>> {
         self.into()
     }
+
+    pub fn into_nonzero(self) -> Option<NonZeroUsize> {
+        self.into()
+    }
 }
 
 impl<T> Into<Option<NonNull<T>>> for VirtualAddress {
@@ -82,6 +87,12 @@ impl<T> Into<Option<NonNull<T>>> for VirtualAddress {
         } else {
             None
         }
+    }
+}
+
+impl Into<Option<NonZeroUsize>> for VirtualAddress {
+    fn into(self) -> Option<NonZeroUsize> {
+        NonZeroUsize::new(self.0)
     }
 }
 
@@ -178,11 +189,11 @@ impl System {
         ProcessorIndex(new_index)
     }
 
-    pub fn version(&self) -> &'static Version {
+    pub fn version<'a>(&self) -> &'a Version {
         &Version::VERSION
     }
 
-    pub fn name(&self) -> &str {
+    pub fn name<'a>(&self) -> &'a str {
         &Version::SYSTEM_NAME
     }
 

@@ -3,9 +3,11 @@
 #![no_main]
 #![feature(asm)]
 
-use arch::cpu::*;
+// use arch::cpu::*;
 use bootprot::*;
+use core::ffi::c_void;
 use core::fmt::Write;
+use core::mem::transmute;
 use io::console::*;
 use io::fonts::*;
 use io::graphics::*;
@@ -15,6 +17,7 @@ use scheduler::*;
 use system::*;
 use window::*;
 
+#[macro_use]
 extern crate alloc;
 extern crate rlibc;
 
@@ -24,12 +27,30 @@ extern crate rlibc;
 
 myos_entry!(main);
 
+const STATUS_BAR_HEIGHT: isize = 24;
+const STATUS_BAR_BG_COLOR: Color = Color::from_argb(0xC0EEEEEE);
+
 fn main(info: &BootInfo) {
     System::init(info, sysinit);
 }
 
 fn sysinit() {
     let system = System::shared();
+
+    {
+        let screen_bounds = WindowManager::main_screen_bounds();
+        // Status bar
+        let window = WindowBuilder::new("Status Bar")
+            .style(WindowStyle::CLIENT_RECT | WindowStyle::FLOATING)
+            .frame(Rect::new(0, 0, screen_bounds.width(), STATUS_BAR_HEIGHT))
+            .bg_color(STATUS_BAR_BG_COLOR)
+            .build();
+        MyScheduler::spawn_f(
+            status_bar_thread,
+            unsafe { transmute(window) },
+            Priority::Normal,
+        );
+    }
 
     {
         let window = WindowBuilder::new("Test 1")
@@ -50,7 +71,7 @@ fn sysinit() {
 
     {
         let window = WindowBuilder::new("Test 2")
-            .style(WindowStyle::DEFAULT | WindowStyle::PINCHABLE)
+            .style_add(WindowStyle::PINCHABLE | WindowStyle::FLOATING)
             .frame(Rect::new(670, 136, 120, 80))
             .bg_color(Color::from_argb(0x80000000))
             .build();
@@ -92,13 +113,7 @@ fn sysinit() {
         set_stdout(console);
     }
 
-    println!(
-        "{} v{} CPU {} CORES, MEMORY {} MB",
-        system.name(),
-        system.version(),
-        system.num_of_active_cpus(),
-        system.total_memory_size() >> 20,
-    );
+    println!("{} v{}", system.name(), system.version(),);
 
     loop {
         print!("# ");
@@ -127,5 +142,52 @@ fn sysinit() {
                 None => Timer::usleep(10000),
             }
         }
+    }
+}
+
+fn status_bar_thread(window: *mut c_void) {
+    let window: WindowHandle = unsafe { transmute(window) };
+    let font = FontDriver::system_font();
+
+    window
+        .draw(|bitmap| {
+            let bounds = bitmap.bounds();
+            let rect = Rect::new(
+                0,
+                (bounds.height() - font.line_height()) / 2,
+                bounds.width(),
+                font.line_height(),
+            );
+            bitmap.draw_string(font, rect, IndexedColor::DarkGray.into(), "  My OS  ");
+        })
+        .unwrap();
+    window.show();
+    WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT, 0, 0, 0));
+
+    let mut time_val = 0;
+    loop {
+        time_val += 1; // TODO: true clock
+        let sec = time_val % 60;
+        let min = time_val / 60 % 60;
+        let hour = time_val / 3600 % 24;
+        let time_str = if sec % 2 == 0 {
+            format!("{:02} {:02} {:02}", hour, min, sec)
+        } else {
+            format!("{:02}:{:02}:{:02}", hour, min, sec)
+        };
+
+        let bounds = WindowManager::main_screen_bounds();
+        let width = font.width() * time_str.len() as isize;
+        let rect = Rect::new(
+            bounds.width() - width - font.width() * 2,
+            (window.frame().height() - font.line_height()) / 2,
+            width,
+            font.line_height(),
+        );
+        let _ = window.draw(|bitmap| {
+            bitmap.fill_rect(rect, STATUS_BAR_BG_COLOR);
+            bitmap.draw_string(font, rect, IndexedColor::DarkGray.into(), &time_str);
+        });
+        Timer::usleep(500_000);
     }
 }

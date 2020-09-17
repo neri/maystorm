@@ -1,4 +1,4 @@
-.PHONY: love all clean run install rust
+.PHONY: love all clean install run runs test
 
 RUST_ARCH	= x86_64-unknown-uefi
 EFI_ARCH	= x64
@@ -30,14 +30,6 @@ $(BOOT_TARGET): src/* src/**/* src/**/**/* src/**/**/**/* src/**/**/**/**/*
 $(EFI_BOOT):
 	mkdir -p $(EFI_BOOT)
 
-$(KERNEL_BIN): $(KERNEL_TARGET) $(EFI_BOOT)
-	cp $< $@
-
-$(BOOT_EFI): $(BOOT_TARGET) $(EFI_BOOT)
-	cp $< $@
-
-install: $(KERNEL_BIN) $(BOOT_EFI)
-
 $(OVMF):
 	-mkdir -p var
 	curl -# -L -o $@ $(URL_OVMF)
@@ -48,5 +40,11 @@ run: install $(OVMF)
 runs: install $(OVMF)
 	qemu-system-x86_64 -smp 4 -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -nographic
 
-test: install
-	cp $(KERNEL_BIN) /Volumes/EFI_TEST/EFI/MEGOS/BOOTX64.EFI
+install: $(KERNEL_BIN) $(BOOT_EFI)
+
+$(KERNEL_BIN): $(KERNEL_TARGET) $(EFI_BOOT)
+	cp $< $@
+
+$(BOOT_EFI): $(BOOT_TARGET) $(EFI_BOOT)
+	cp $< $@
+

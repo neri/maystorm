@@ -81,31 +81,35 @@ impl MyScheduler {
     // Perform a Preemption
     pub(crate) fn reschedule() {
         if Self::is_enabled() {
-            Cpu::without_interrupts(|| {
-                let lsch = Self::local_scheduler();
-                if lsch.current.as_ref().priority != Priority::Realtime {
-                    if lsch.current.update(|current| current.quantum.consume()) {
-                        LocalScheduler::next_thread(lsch);
+            unsafe {
+                Cpu::without_interrupts(|| {
+                    let lsch = Self::local_scheduler();
+                    if lsch.current.as_ref().priority != Priority::Realtime {
+                        if lsch.current.update(|current| current.quantum.consume()) {
+                            LocalScheduler::next_thread(lsch);
+                        }
                     }
-                }
-            })
+                });
+            }
         }
     }
 
     /// Wait for Event or Timer
     pub fn wait_for(object: Option<&SignallingObject>, duration: TimeMeasure) {
-        Cpu::without_interrupts(|| {
-            let lsch = Self::local_scheduler();
-            if let Some(object) = object {
-                if object.load().is_none() {
-                    return;
+        unsafe {
+            Cpu::without_interrupts(|| {
+                let lsch = Self::local_scheduler();
+                if let Some(object) = object {
+                    if object.load().is_none() {
+                        return;
+                    }
                 }
-            }
-            lsch.current.update(|current| {
-                current.deadline = Timer::new(duration);
+                lsch.current.update(|current| {
+                    current.deadline = Timer::new(duration);
+                });
+                LocalScheduler::next_thread(lsch);
             });
-            LocalScheduler::next_thread(lsch);
-        });
+        }
     }
 
     pub fn signal(object: &SignallingObject) {

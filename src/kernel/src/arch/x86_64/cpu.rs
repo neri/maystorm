@@ -6,11 +6,12 @@ use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;
 
+#[allow(dead_code)]
 // #[derive(Debug)]
 pub struct Cpu {
     pub cpu_id: ProcessorId,
-    pub gdt: Box<GlobalDescriptorTable>,
-    pub tss: Box<TaskStateSegment>,
+    gdt: Box<GlobalDescriptorTable>,
+    tss: Box<TaskStateSegment>,
 }
 
 extern "C" {
@@ -66,10 +67,20 @@ impl Cpu {
     }
 
     #[inline]
+    pub unsafe fn enable_interrupt() {
+        asm!("sti");
+    }
+
+    #[inline]
+    pub unsafe fn disable_interrupt() {
+        asm!("cli");
+    }
+
+    #[inline]
     pub(crate) unsafe fn stop() -> ! {
         loop {
-            asm!("cli");
-            asm!("hlt");
+            Self::disable_interrupt();
+            Self::halt();
         }
     }
 
@@ -137,26 +148,22 @@ impl Cpu {
     }
 
     #[inline]
-    pub(crate) fn without_interrupts<F, R>(f: F) -> R
+    pub(crate) unsafe fn without_interrupts<F, R>(f: F) -> R
     where
         F: FnOnce() -> R,
     {
-        let flags = unsafe {
-            let mut rax: usize;
-            asm!("
+        let mut rax: usize;
+        asm!("
             pushfq
             cli
             pop {0}
             ", lateout(reg) rax);
-            Rflags::from_bits_unchecked(rax)
-        };
+        let flags = Rflags::from_bits_unchecked(rax);
 
         let result = f();
 
         if flags.contains(Rflags::IF) {
-            unsafe {
-                asm!("sti");
-            }
+            Self::enable_interrupt();
         }
 
         result

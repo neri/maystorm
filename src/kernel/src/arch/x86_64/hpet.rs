@@ -7,7 +7,7 @@ use crate::*;
 use alloc::boxed::Box;
 
 pub(super) struct Hpet {
-    mmio: Box<Mmio>,
+    mmio: Mmio,
     main_cnt_period: u64,
     measure_div: u64,
 }
@@ -15,7 +15,7 @@ pub(super) struct Hpet {
 impl Hpet {
     pub unsafe fn new(info: &acpi::HpetInfo) -> Box<Self> {
         let mut hpet = Hpet {
-            mmio: Mmio::phys(info.base_address, 0x1000),
+            mmio: Mmio::from_phys(info.base_address, 0x1000).unwrap(),
             main_cnt_period: 0,
             measure_div: 0,
         };

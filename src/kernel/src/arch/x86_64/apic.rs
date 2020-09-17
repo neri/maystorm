@@ -69,8 +69,7 @@ impl Apic {
             Cpu::out8(0x21, 0xFF);
         }
 
-        // disable IRQ
-        asm!("cli");
+        Cpu::disable_interrupt();
 
         // init Local Apic
         APIC.master_apic_id = System::shared().cpu(0).as_ref().cpu_id;
@@ -97,8 +96,7 @@ impl Apic {
             APIC.gsi_table[source.isa_source as usize] = props;
         }
 
-        // enable IRQ
-        asm!("sti");
+        Cpu::enable_interrupt();
 
         // Init IO Apics
         for acpi_ioapic in &acpi_apic.io_apics {
@@ -197,7 +195,7 @@ impl Apic {
         Err(())
     }
 
-    pub unsafe fn set_irq_enabled(irq: Irq, new_value: bool) -> Result<(), ()> {
+    pub unsafe fn set_irq_enabled(irq: Irq, enabled: bool) -> Result<(), ()> {
         let props = APIC.gsi_table[irq.0 as usize];
         let global_irq = props.global_irq;
 
@@ -205,7 +203,7 @@ impl Apic {
             let local_irq = global_irq.0 - ioapic.global_int.0;
             if ioapic.global_int <= global_irq && local_irq < ioapic.entries {
                 let mut value = ioapic.read(IoApicIndex::redir_table_low(local_irq * 2));
-                if new_value {
+                if enabled {
                     value &= !Apic::REDIR_MASK;
                 } else {
                     value |= Apic::REDIR_MASK;
@@ -243,13 +241,16 @@ pub type IrqHandler = fn(Irq) -> ();
 
 #[no_mangle]
 pub unsafe extern "C" fn apic_handle_irq(irq: Irq) {
-    let e = APIC.idt[irq.0 as usize];
-    if e != VirtualAddress::NULL {
-        let f = core::mem::transmute::<usize, IrqHandler>(e.0);
-        f(irq);
-        LocalApic::eoi();
-    } else {
-        panic!("IRQ {} is Enabled, But not Installed", irq.0);
+    match APIC.idt[irq.0 as usize].into_nonzero() {
+        Some(entry) => {
+            let f: IrqHandler = core::mem::transmute(entry);
+            f(irq);
+            LocalApic::eoi();
+        }
+        None => {
+            let _ = irq.disable();
+            panic!("IRQ {} is Enabled, But not Installed", irq.0);
+        }
     }
 }
 
@@ -368,7 +369,7 @@ impl From<&acpi::interrupt::TriggerMode> for ApicTriggerMode {
     }
 }
 
-static mut LOCAL_APIC: Option<Box<Mmio>> = None;
+static mut LOCAL_APIC: Option<Mmio> = None;
 
 #[allow(dead_code)]
 #[non_exhaustive]
@@ -395,7 +396,7 @@ impl LocalApic {
     const IA32_APIC_BASE_MSR_ENABLE: u64 = 0x00000800;
 
     unsafe fn init(base: usize) {
-        LOCAL_APIC = Some(Mmio::phys(base, 0x1000));
+        LOCAL_APIC = Mmio::from_phys(base, 0x1000);
 
         let msr = Msr::ApicBase;
         let val = msr.read();
@@ -502,7 +503,7 @@ impl IoApicIndex {
 
 #[allow(dead_code)]
 struct IoApic {
-    mmio: Box<Mmio>,
+    mmio: Mmio,
     global_int: Irq,
     entries: u8,
     id: u8,
@@ -512,7 +513,7 @@ struct IoApic {
 impl IoApic {
     unsafe fn new(acpi_ioapic: &acpi::interrupt::IoApic) -> Self {
         let mut ioapic = IoApic {
-            mmio: Mmio::phys(acpi_ioapic.address as usize, 0x14),
+            mmio: Mmio::from_phys(acpi_ioapic.address as usize, 0x14).unwrap(),
             global_int: Irq(acpi_ioapic.global_system_interrupt_base as u8),
             entries: 0,
             id: acpi_ioapic.id,

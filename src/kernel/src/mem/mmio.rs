@@ -1,9 +1,8 @@
 // Memory Mapped I/O Registers
 
+use super::page::*;
 use crate::system::VirtualAddress;
-use alloc::boxed::Box;
-use core::mem::size_of;
-use core::mem::transmute;
+use core::mem::{size_of, transmute};
 use core::sync::atomic::*;
 
 #[derive(Debug, Copy, Clone)]
@@ -17,12 +16,18 @@ unsafe impl Send for Mmio {}
 unsafe impl Sync for Mmio {}
 
 impl Mmio {
-    pub unsafe fn phys(base: usize, size: usize) -> Box<Self> {
-        Box::new(Self { base, size })
+    pub unsafe fn from_phys(base: usize, size: usize) -> Option<Self> {
+        PageManager::direct_map(base, size).map(|va| Self {
+            base: va.get(),
+            size,
+        })
     }
 
-    pub unsafe fn virt(base: VirtualAddress, size: usize) -> Box<Self> {
-        Box::new(Self { base: base.0, size })
+    pub unsafe fn from_virt(base: VirtualAddress, size: usize) -> Option<Self> {
+        base.into_nonzero().map(|va| Self {
+            base: va.get(),
+            size,
+        })
     }
 
     #[inline]

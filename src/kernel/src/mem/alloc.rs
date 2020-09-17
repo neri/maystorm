@@ -9,7 +9,7 @@ use core::ptr::*;
 #[global_allocator]
 static mut ALLOCATOR: CustomAlloc = CustomAlloc::new(0, 0);
 
-pub fn init(base: usize, rest: usize) {
+pub(super) fn init(base: usize, rest: usize) {
     unsafe {
         if ALLOCATOR.base != 0 {
             panic!("ALLOCATOR has already been initialized");
@@ -34,7 +34,8 @@ impl CustomAlloc {
         }
     }
 
-    pub unsafe fn init_real(bitmap: [u32; 8]) {
+    #[cfg(any(target_arch = "x86_64"))]
+    pub(super) unsafe fn init_real(bitmap: [u32; 8]) {
         let shared = &mut ALLOCATOR;
         shared.real_bitmap = bitmap;
     }
@@ -73,8 +74,9 @@ impl CustomAlloc {
     /// Allocate a page on real memory
     #[cfg(any(target_arch = "x86_64"))]
     pub unsafe fn z_alloc_real() -> Option<NonZeroU8> {
+        let max_real = 0xA0;
         let shared = &mut ALLOCATOR;
-        for i in 1..160 {
+        for i in 1..max_real {
             let mut result: u32;
             asm!("
             lock btr [{0}], {1:e}

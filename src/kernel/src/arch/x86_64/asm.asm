@@ -28,8 +28,15 @@
 [bits 64]
 [section .text]
 
-;   pub unsafe extern "efiapi" fn apic_handle_irq(irq: Irq);
+    ; pub unsafe extern "C" fn apic_start_ap(_cpuid: u8)
+    extern apic_start_ap
+    ; pub unsafe extern "C" fn apic_handle_irq(irq: Irq)
     extern apic_handle_irq
+    ; pub unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext)
+    extern cpu_default_exception
+    ; pub unsafe extern "C" fn sch_setup_new_thread()
+    extern sch_setup_new_thread
+
 
     global _asm_int_00
     global _asm_int_03
@@ -38,34 +45,34 @@
     global _asm_int_0D
     global _asm_int_0E
 
-_asm_int_00: ; #DE
+_asm_int_00: ; #DE Divide Error
     push BYTE 0
     push BYTE 0x00
-    jmp short _intXX
+    jmp short _exception
 
-_asm_int_03: ; #BP
+_asm_int_03: ; #BP Breakpoint
     push BYTE 0
     push BYTE 0x03
-    jmp short _intXX
+    jmp short _exception
 
-_asm_int_06: ; #UD
+_asm_int_06: ; #UD Invalid Opcode
     push BYTE 0
     push BYTE 0x06
-    jmp short _intXX
+    jmp short _exception
 
-_asm_int_08: ; #DF
+_asm_int_08: ; #DF Double Fault
     push BYTE 0x08
-    jmp short _intXX
+    jmp short _exception
 
-_asm_int_0D: ; #GP
+_asm_int_0D: ; #GP General Protection Fault
     push BYTE 0x0D
-    jmp short _intXX
+    jmp short _exception
 
-_asm_int_0E: ; #PF
+_asm_int_0E: ; #PF Page Fault
     push BYTE 0x0E
-    ; jmp short _intXX
+    ; jmp short _exception
 
-_intXX:
+_exception:
     push rax
     push rcx
     push rdx
@@ -86,7 +93,6 @@ _intXX:
     cld
 
     mov rcx, rsp
-    extern cpu_default_exception
     call cpu_default_exception
 
     pop rax ; CR2
@@ -174,7 +180,6 @@ asm_sch_make_new_thread:
     ret
 
 
-    extern sch_setup_new_thread
 _new_thread:
     call sch_setup_new_thread
     sti
@@ -219,7 +224,6 @@ _irqXX:
     pop rcx
     iretq
 
-    extern apic_start_ap
 
 ;   fn asm_apic_setup_sipi(vec_sipi: u8, max_cpu: usize, stack_chunk_size: usize, stack_base: *mut u8);
     global asm_apic_setup_sipi

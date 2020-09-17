@@ -11,6 +11,7 @@ use alloc::boxed::Box;
 use alloc::vec::*;
 use bitflags::*;
 use core::cmp;
+use core::isize;
 use core::num::*;
 use core::ptr::*;
 use core::sync::atomic::*;
@@ -22,11 +23,9 @@ const WINDOW_BORDER_PADDING: isize = 0;
 const WINDOW_BORDER_SHADOW_PADDING: isize = 8;
 const WINDOW_TITLE_HEIGHT: isize = 24;
 const WINDOW_BASIC_PADDING: isize = 4;
-const STATUS_BAR_HEIGHT: isize = 24;
 
 const DESKTOP_COLOR: Color = Color::from_argb(0xFF2196F3);
 const BARRIER_COLOR: Color = Color::from_argb(0x80000000);
-const STATUS_BAR_BG_COLOR: Color = Color::from_argb(0xC0EEEEEE);
 const WINDOW_ACTIVE_TITLE_BG_COLOR: Color = Color::from_argb(0xE0CCCCCC);
 const WINDOW_ACTIVE_TITLE_SHADOW_COLOR: Color = Color::from_argb(0x99999999);
 const WINDOW_ACTIVE_TITLE_FG_COLOR: Color = Color::from_argb(0xFF000000);
@@ -128,6 +127,7 @@ impl WindowManager {
         let shared = Self::shared();
 
         {
+            // Prepare Respurces
             let w = CLOSE_BUTTON_SIZE;
             let h = CLOSE_BUTTON_SIZE;
             let bitmap = Bitmap::new(w, h, true);
@@ -205,32 +205,13 @@ impl WindowManager {
             // shared.barrier.unwrap().show();
         }
 
-        {
-            // Status bar
-            let window = WindowBuilder::new("Status Bar")
-                .style(WindowStyle::CLIENT_RECT)
-                .level(WindowLevel::HIGHER)
-                .frame(Rect::new(0, 0, main_screen.width(), STATUS_BAR_HEIGHT))
-                .bg_color(STATUS_BAR_BG_COLOR)
-                .build();
-            let _ = window.draw(|bitmap| {
-                bitmap.draw_string(
-                    FontDriver::system_font(),
-                    bitmap.bounds(),
-                    Color::BLACK,
-                    " @  File  Edit  Window  Help",
-                );
-            });
-            window.show();
-            shared.screen_insets.top += STATUS_BAR_HEIGHT;
-        }
-
-        MyScheduler::spawn_f(Self::window_thread, null_mut(), Priority::Realtime);
-        shared.root.unwrap().invalidate();
+        MyScheduler::spawn_f(Self::winmgr_thread, null_mut(), Priority::Realtime);
     }
 
-    fn window_thread(_: *mut c_void) {
+    /// Window Manager Thread
+    fn winmgr_thread(_: *mut c_void) {
         let shared = WindowManager::shared();
+        shared.root.unwrap().invalidate();
         loop {
             let _ = shared.sem_redraw.wait(TimeMeasure::from_millis(1));
 
@@ -247,7 +228,7 @@ impl WindowManager {
 
                 if let Some(captured) = shared.captured {
                     if current_button.contains(MouseButton::LEFT) {
-                        let top = if captured.as_ref().level < WindowLevel::HIGHER {
+                        let top = if captured.as_ref().level < WindowLevel::FLOATING {
                             shared.screen_insets.top
                         } else {
                             0
@@ -286,6 +267,7 @@ impl WindowManager {
         }
     }
 
+    #[inline]
     fn shared() -> &'static mut Self {
         unsafe { WM.as_mut().unwrap() }
     }
@@ -309,6 +291,8 @@ impl WindowManager {
     }
 
     unsafe fn add_hierarchy(window: WindowHandle) {
+        Self::remove_hierarchy(window);
+
         let shared = WindowManager::shared();
         let mut cursor = shared.root.unwrap();
         let level = window.as_ref().level;
@@ -359,11 +343,25 @@ impl WindowManager {
         }
     }
 
+    #[inline]
     pub fn main_screen_bounds() -> Rect<isize> {
         let shared = Self::shared();
         shared.main_screen.bounds()
     }
 
+    #[inline]
+    pub fn screen_insets() -> EdgeInsets<isize> {
+        let shared = Self::shared();
+        shared.screen_insets
+    }
+
+    #[inline]
+    pub fn add_screen_insets(insets: EdgeInsets<isize>) {
+        let shared = Self::shared();
+        shared.screen_insets += insets;
+    }
+
+    #[inline]
     pub fn invalidate_screen(rect: Rect<isize>) {
         let shared = Self::shared();
         shared.root.unwrap().invalidate_rect(rect);
@@ -469,6 +467,46 @@ impl WindowManager {
     }
 }
 
+struct WindowManagerAttributes(AtomicUsize);
+
+#[allow(dead_code)]
+impl WindowManagerAttributes {
+    pub const EMPTY: Self = Self::new(0);
+    pub const MOUSE_MOVE: usize = 0b0000_0001;
+
+    #[inline]
+    pub const fn new(value: usize) -> Self {
+        Self(AtomicUsize::new(value))
+    }
+
+    #[inline]
+    pub fn contains(&self, value: usize) -> bool {
+        (self.0.load(Ordering::Acquire) & value) == value
+    }
+
+    #[inline]
+    pub fn insert(&self, value: usize) {
+        self.0.fetch_or(value, Ordering::AcqRel);
+    }
+
+    #[inline]
+    pub fn remove(&self, value: usize) {
+        self.0.fetch_and(!value, Ordering::AcqRel);
+    }
+
+    fn test_and_clear(&self, bits: usize) -> bool {
+        self.0
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
+                if (x & bits) == bits {
+                    Some(x & !bits)
+                } else {
+                    None
+                }
+            })
+            .is_ok()
+    }
+}
+
 #[allow(dead_code)]
 struct RawWindow {
     handle: Option<WindowHandle>,
@@ -491,6 +529,7 @@ bitflags! {
         const CLIENT_RECT = 0b0000_0100;
         const TRANSPARENT = 0b0000_1000;
         const PINCHABLE = 0b0001_0000;
+        const FLOATING = 0b0010_0000;
 
         const DEFAULT = Self::TRANSPARENT.bits | Self::BORDER.bits | Self::TITLE.bits;
     }
@@ -762,7 +801,7 @@ impl WindowLevel {
     pub const ROOT: WindowLevel = WindowLevel(0);
     pub const DESKTOP_ITEMS: WindowLevel = WindowLevel(1);
     pub const NORMAL: WindowLevel = WindowLevel(32);
-    pub const HIGHER: WindowLevel = WindowLevel(64);
+    pub const FLOATING: WindowLevel = WindowLevel(64);
     pub const POPUP_BARRIER: WindowLevel = WindowLevel(96);
     pub const POPUP: WindowLevel = WindowLevel(97);
     pub const POINTER: WindowLevel = WindowLevel(127);
@@ -781,7 +820,7 @@ pub struct WindowBuilder {
 impl WindowBuilder {
     pub fn new(title: &str) -> Self {
         let window = Self {
-            frame: Rect::new(-1, -1, 300, 300),
+            frame: Rect::new(isize::MIN, isize::MIN, 300, 300),
             level: WindowLevel::NORMAL,
             style: WindowStyle::DEFAULT,
             bg_color: Color::WHITE,
@@ -793,7 +832,8 @@ impl WindowBuilder {
     }
     #[inline]
     pub fn build(mut self) -> WindowHandle {
-        let screen_bounds = WindowManager::main_screen_bounds();
+        let screen_bounds =
+            WindowManager::main_screen_bounds().insets_by(WindowManager::shared().screen_insets);
         let shadow_insets = if self.style.contains(WindowStyle::BORDER) {
             EdgeInsets::padding_all(WINDOW_BORDER_SHADOW_PADDING)
         } else {
@@ -805,12 +845,18 @@ impl WindowBuilder {
         if self.style.contains(WindowStyle::CLIENT_RECT) {
             frame.size += window_insets + shadow_insets;
         }
-        if frame.x() < 0 {
-            frame.origin.x = (screen_bounds.width() - frame.width()) / 2;
-            frame.origin.y = (screen_bounds.height() - frame.height()) / 2;
+        if frame.x() == isize::MIN {
+            frame.origin.x = screen_bounds.x() + (screen_bounds.width() - frame.width()) / 2;
+        }
+        if frame.y() == isize::MIN {
+            frame.origin.y = screen_bounds.y() + (screen_bounds.height() - frame.height()) / 2;
         }
         frame.origin -= Point::new(shadow_insets.left, shadow_insets.top);
         frame.size += shadow_insets;
+
+        if self.style.contains(WindowStyle::FLOATING) {
+            self.level = WindowLevel::FLOATING;
+        }
 
         if !self.no_bitmap && self.bitmap.is_none() {
             let bitmap = Bitmap::new(frame.width() as usize, frame.height() as usize, true);
@@ -920,7 +966,7 @@ impl WindowHandle {
     }
 
     #[inline]
-    fn as_ref(self) -> &'static RawWindow {
+    fn as_ref<'a>(self) -> &'a RawWindow {
         let shared = WindowManager::shared();
         shared.pool[self.as_index()].as_ref()
     }
@@ -931,6 +977,13 @@ impl WindowHandle {
         self.update(|window| {
             window.set_title(title);
         });
+    }
+
+    pub fn set_bg_color(self, color: Color) {
+        self.update(|window| {
+            window.bg_color = color;
+        });
+        self.invalidate();
     }
 
     #[inline]
@@ -977,7 +1030,6 @@ impl WindowHandle {
 
     pub fn show(self) {
         WindowManager::synchronized(|| unsafe {
-            WindowManager::remove_hierarchy(self);
             WindowManager::add_hierarchy(self);
         });
         self.as_ref().draw_frame();
@@ -1047,44 +1099,4 @@ static mut WM: Option<Box<WindowManager>> = None;
 #[derive(Default)]
 struct Resources {
     close_button: Option<Box<Bitmap>>,
-}
-
-struct WindowManagerAttributes(AtomicUsize);
-
-#[allow(dead_code)]
-impl WindowManagerAttributes {
-    pub const EMPTY: Self = Self::new(0);
-    pub const MOUSE_MOVE: usize = 0b0000_0001;
-
-    #[inline]
-    pub const fn new(value: usize) -> Self {
-        Self(AtomicUsize::new(value))
-    }
-
-    #[inline]
-    pub fn contains(&self, value: usize) -> bool {
-        (self.0.load(Ordering::Acquire) & value) == value
-    }
-
-    #[inline]
-    pub fn insert(&self, value: usize) {
-        self.0.fetch_or(value, Ordering::AcqRel);
-    }
-
-    #[inline]
-    pub fn remove(&self, value: usize) {
-        self.0.fetch_and(!value, Ordering::AcqRel);
-    }
-
-    fn test_and_clear(&self, bits: usize) -> bool {
-        self.0
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
-                if (x & bits) == bits {
-                    Some(x & !bits)
-                } else {
-                    None
-                }
-            })
-            .is_ok()
-    }
 }

@@ -27,6 +27,7 @@ pub mod window;
 use crate::arch::cpu::Cpu;
 use crate::io::console::GraphicalConsole;
 use crate::io::graphics::*;
+use crate::mem::page::*;
 use crate::sync::spinlock::Spinlock;
 use alloc::boxed::Box;
 use bootprot::*;
@@ -59,8 +60,7 @@ where
         return !(isize::MAX as usize) + 1;
     }
     unsafe {
-        mem::alloc::init(info.static_start as usize, info.free_memory as usize);
-        mem::alloc::CustomAlloc::init_real(info.real_bitmap);
+        PageManager::init(&info);
 
         let screen = Bitmap::from(info);
         screen.reset();
