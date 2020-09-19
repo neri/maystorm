@@ -13,7 +13,6 @@ use bitflags::*;
 use core::cmp;
 use core::isize;
 use core::num::*;
-use core::ptr::*;
 use core::sync::atomic::*;
 
 const MAX_WINDOWS: usize = 256;
@@ -205,11 +204,11 @@ impl WindowManager {
             // shared.barrier.unwrap().show();
         }
 
-        MyScheduler::spawn_f(Self::winmgr_thread, null_mut(), Priority::Realtime);
+        MyScheduler::spawn_f(Self::winmgr_thread, 0, Priority::Realtime);
     }
 
     /// Window Manager Thread
-    fn winmgr_thread(_: *mut c_void) {
+    fn winmgr_thread(_: usize) {
         let shared = WindowManager::shared();
         shared.root.unwrap().invalidate();
         loop {
@@ -847,9 +846,13 @@ impl WindowBuilder {
         }
         if frame.x() == isize::MIN {
             frame.origin.x = screen_bounds.x() + (screen_bounds.width() - frame.width()) / 2;
+        } else if frame.x() < 0 {
+            frame.origin.x += screen_bounds.x() + screen_bounds.width();
         }
         if frame.y() == isize::MIN {
             frame.origin.y = screen_bounds.y() + (screen_bounds.height() - frame.height()) / 2;
+        } else if frame.y() < 0 {
+            frame.origin.y += screen_bounds.y() + screen_bounds.width();
         }
         frame.origin -= Point::new(shadow_insets.left, shadow_insets.top);
         frame.size += shadow_insets;
@@ -983,6 +986,9 @@ impl WindowHandle {
         self.update(|window| {
             window.bg_color = color;
         });
+        if let Some(bitmap) = self.get_bitmap() {
+            bitmap.fill_rect(bitmap.bounds(), color);
+        }
         self.invalidate();
     }
 

@@ -20,7 +20,7 @@ pub struct Bitmap {
 bitflags! {
     pub struct BitmapFlags: usize {
         const PORTRAIT = 0b0000_0001;
-        const TRANSPARENT = 0b0000_0010;
+        const TRANSLUCENT = 0b0000_0010;
         const VIEW = 0b1000_0000;
     }
 }
@@ -55,11 +55,11 @@ impl From<&BootInfo> for Bitmap {
 }
 
 impl Bitmap {
-    pub fn new(width: usize, height: usize, is_transparent: bool) -> Self {
+    pub fn new(width: usize, height: usize, is_translucent: bool) -> Self {
         let base = unsafe { CustomAlloc::zalloc(width * height * 4).unwrap().as_ptr() } as *mut u32;
         let mut flags = BitmapFlags::empty();
-        if is_transparent {
-            flags.insert(BitmapFlags::TRANSPARENT);
+        if is_translucent {
+            flags.insert(BitmapFlags::TRANSLUCENT);
         }
         Self {
             base,
@@ -103,7 +103,7 @@ impl Bitmap {
         Self::new(
             fb.size.width as usize,
             fb.size.height as usize,
-            fb.is_transparent(),
+            fb.is_translucent(),
         )
     }
 
@@ -133,13 +133,13 @@ impl Bitmap {
     }
 
     #[inline]
-    pub fn is_transparent(&self) -> bool {
-        self.flags.contains(BitmapFlags::TRANSPARENT)
+    pub fn is_translucent(&self) -> bool {
+        self.flags.contains(BitmapFlags::TRANSLUCENT)
     }
 
     #[inline]
     pub fn is_opaque(&self) -> bool {
-        !self.is_transparent()
+        !self.is_translucent()
     }
 
     #[inline]

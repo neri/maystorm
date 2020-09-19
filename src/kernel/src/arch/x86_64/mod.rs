@@ -1,6 +1,7 @@
 pub mod apic;
 pub mod cpu;
 pub mod hpet;
+pub mod page;
 pub mod ps2;
 
 use crate::system::*;
@@ -20,9 +21,7 @@ impl Arch {
         }
     }
 
-    pub(crate) fn late_init() {
-        unsafe {
-            let _ = ps2::Ps2::init();
-        }
+    pub(crate) unsafe fn late_init() {
+        let _ = ps2::Ps2::init();
     }
 }

@@ -10,18 +10,12 @@ use alloc::boxed::Box;
 use alloc::vec::*;
 use core::num::*;
 use core::ops::*;
-use core::ptr::*;
 use core::sync::atomic::*;
 // use bitflags::*;
 
 extern "C" {
     fn asm_sch_switch_context(current: *mut u8, next: *mut u8);
-    fn asm_sch_make_new_thread(
-        context: *mut u8,
-        new_sp: *mut c_void,
-        start: usize,
-        args: *mut c_void,
-    );
+    fn asm_sch_make_new_thread(context: *mut u8, new_sp: *mut c_void, start: usize, args: usize);
 }
 
 static mut SCHEDULER: MyScheduler = MyScheduler::new();
@@ -46,7 +40,7 @@ impl MyScheduler {
         }
     }
 
-    pub(super) fn start(system: &System, f: fn(*mut c_void) -> (), args: *mut c_void) -> ! {
+    pub(super) fn start(system: &System, f: fn(usize) -> (), args: usize) -> ! {
         const SIZE_OF_URGENT_QUEUE: usize = 512;
         const SIZE_OF_MAIN_QUEUE: usize = 512;
 
@@ -60,7 +54,7 @@ impl MyScheduler {
             sch.locals.push(LocalScheduler::new(ProcessorIndex(index)));
         }
 
-        Self::spawn_f(Self::scheduler_thread, null_mut(), Priority::High);
+        Self::spawn_f(Self::scheduler_thread, 0, Priority::High);
 
         Self::spawn_f(f, args, Priority::Normal);
 
@@ -157,7 +151,7 @@ impl MyScheduler {
         }
     }
 
-    fn scheduler_thread(_args: *mut c_void) {
+    fn scheduler_thread(_args: usize) {
         // TODO:
         loop {
             Self::wait_for(None, TimeMeasure::from_millis(1000));
@@ -169,7 +163,7 @@ impl MyScheduler {
         sch.is_enabled.load(Ordering::Acquire)
     }
 
-    pub fn spawn_f(start: ThreadStart, args: *mut c_void, priority: Priority) {
+    pub fn spawn_f(start: ThreadStart, args: usize, priority: Priority) {
         assert!(priority.useful());
         let thread = RawThread::new(priority, Some(start), args);
         Self::retire(thread);
@@ -187,7 +181,7 @@ struct LocalScheduler {
 
 impl LocalScheduler {
     fn new(index: ProcessorIndex) -> Box<Self> {
-        let idle = RawThread::new(Priority::Idle, None, null_mut());
+        let idle = RawThread::new(Priority::Idle, None, 0);
         Box::new(Self {
             index,
             idle,
@@ -474,7 +468,7 @@ impl ThreadHandle {
 const SIZE_OF_CONTEXT: usize = 512;
 const SIZE_OF_STACK: usize = 0x10000;
 
-type ThreadStart = fn(*mut c_void) -> ();
+type ThreadStart = fn(usize) -> ();
 
 #[allow(dead_code)]
 struct RawThread {
@@ -489,7 +483,7 @@ struct RawThread {
 
 #[allow(dead_code)]
 impl RawThread {
-    fn new(priority: Priority, start: Option<ThreadStart>, args: *mut c_void) -> ThreadHandle {
+    fn new(priority: Priority, start: Option<ThreadStart>, args: usize) -> ThreadHandle {
         let quantum = Quantum::from(priority);
         let handle = ThreadPool::add(Box::new(Self {
             context: [0; SIZE_OF_CONTEXT],

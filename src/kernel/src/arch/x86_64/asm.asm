@@ -37,7 +37,6 @@
     ; pub unsafe extern "C" fn sch_setup_new_thread()
     extern sch_setup_new_thread
 
-
     global _asm_int_00
     global _asm_int_03
     global _asm_int_06
@@ -141,7 +140,7 @@ asm_sch_switch_context:
     mov [rcx + CTX_R14], r14
     mov [rcx + CTX_R15], r15
 
-    ; call cpu_get_tss
+    ; call cpu_get_tss_base
     ; mov r11, [rax + TSS64_RSP0]
     ; mov r10, [rdx + CTX_TSS_RSP0]
     ; mov [rcx + CTX_TSS_RSP0], r11

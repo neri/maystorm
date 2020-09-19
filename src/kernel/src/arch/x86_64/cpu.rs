@@ -5,13 +5,13 @@ use crate::system::*;
 use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;
+use core::fmt;
+use core::pin::*;
 
 #[allow(dead_code)]
-// #[derive(Debug)]
 pub struct Cpu {
     pub cpu_id: ProcessorId,
-    gdt: Box<GlobalDescriptorTable>,
-    tss: Box<TaskStateSegment>,
+    gdt: Pin<Box<GlobalDescriptorTable>>,
 }
 
 extern "C" {
@@ -25,17 +25,15 @@ extern "C" {
 
 impl Cpu {
     pub(crate) unsafe fn new(cpu_id: ProcessorId) -> Box<Self> {
-        let tss = TaskStateSegment::new();
-        let gdt = GlobalDescriptorTable::new(&tss);
-
-        let cpu = Box::new(Cpu { cpu_id, gdt, tss });
+        let gdt = GlobalDescriptorTable::new();
+        let cpu = Box::new(Cpu { cpu_id, gdt });
 
         // Currently force disabling SSE
         asm!("
-        mov {0}, cr4
-        btr {0}, 9
-        mov cr4, {0}
-        ", out(reg) _);
+            mov {0}, cr4
+            btr {0}, 9
+            mov cr4, {0}
+            ", out(reg) _);
 
         cpu
     }
@@ -91,7 +89,7 @@ impl Cpu {
         }
     }
 
-    pub unsafe fn reset() -> ! {
+    pub(crate) unsafe fn reset() -> ! {
         Self::out8(0x0CF9, 0x06);
         // asm!("out 0x92, al", in("al") 0x01 as u8);
         Cpu::stop();
@@ -139,9 +137,9 @@ impl Cpu {
         let flags = unsafe {
             let mut rax: usize;
             asm!("
-            pushfq
-            pop {0}
-            ", lateout(reg) rax);
+                pushfq
+                pop {0}
+                ", lateout(reg) rax);
             Rflags::from_bits_unchecked(rax)
         };
         assert!(!flags.contains(Rflags::IF));
@@ -170,8 +168,66 @@ impl Cpu {
     }
 }
 
+#[repr(C, align(16))]
+pub struct GlobalDescriptorTable {
+    table: [DescriptorEntry; Self::NUM_ITEMS],
+    tss: TaskStateSegment,
+}
+
+impl GlobalDescriptorTable {
+    const NUM_ITEMS: usize = 8;
+
+    pub fn new() -> Pin<Box<Self>> {
+        let mut gdt = Box::pin(GlobalDescriptorTable {
+            table: [DescriptorEntry::null(); Self::NUM_ITEMS],
+            tss: TaskStateSegment::new(),
+        });
+
+        let tss_pair = DescriptorEntry::tss_descriptor(
+            VirtualAddress(&gdt.tss as *const _ as usize),
+            gdt.tss.limit(),
+        );
+
+        gdt.table[Selector::KERNEL_CODE.index()] =
+            DescriptorEntry::code_segment(PrivilegeLevel::Kernel, DefaultSize::Use64);
+        gdt.table[Selector::KERNEL_DATA.index()] =
+            DescriptorEntry::data_segment(PrivilegeLevel::Kernel);
+        let tss_index = Selector::SYSTEM_TSS.index();
+        gdt.table[tss_index] = tss_pair.low;
+        gdt.table[tss_index + 1] = tss_pair.high;
+
+        unsafe {
+            gdt.reload();
+        }
+        gdt
+    }
+
+    // Reload GDT and Segment Selectors
+    unsafe fn reload(&self) {
+        asm!("
+            push {0}
+            push {1}
+            lgdt [rsp + 6]
+            add rsp, 16
+            ", in(reg) &self.table, in(reg) ((self.table.len() * 8 - 1) << 48));
+        asm!("
+            mov {0}, rsp
+            push {1:r}
+            push {0}
+            pushfq
+            push {2:r}
+            .byte 0xE8, 2, 0, 0, 0, 0xEB, 0x02, 0x48, 0xCF
+            mov ds, {1:e}
+            mov es, {1:e}
+            mov fs, {1:e}
+            mov gs, {1:e}
+            ", out(reg) _, in(reg) Selector::KERNEL_DATA.0, in(reg) Selector::KERNEL_CODE.0);
+        asm!("ltr {0:x}", in(reg) Selector::SYSTEM_TSS.0);
+    }
+}
+
 #[derive(Debug, Copy, Clone, Default)]
-pub struct CpuidRegs {
+struct CpuidRegs {
     pub ebx: u32,
     pub edx: u32,
     pub ecx: u32,
@@ -180,7 +236,7 @@ pub struct CpuidRegs {
 
 #[derive(Copy, Clone)]
 pub union Cpuid {
-    pub regs: CpuidRegs,
+    regs: CpuidRegs,
     pub bytes: [u8; 16],
 }
 
@@ -261,7 +317,6 @@ bitflags! {
     }
 }
 
-use core::fmt;
 impl fmt::Display for VirtualAddress {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:016x}", self.0)
@@ -286,7 +341,7 @@ impl Selector {
     pub const NULL: Selector = Selector(0);
     pub const KERNEL_CODE: Selector = Selector::new(1, PrivilegeLevel::Kernel);
     pub const KERNEL_DATA: Selector = Selector::new(2, PrivilegeLevel::Kernel);
-    pub const TSS: Selector = Selector::new(6, PrivilegeLevel::Kernel);
+    pub const SYSTEM_TSS: Selector = Selector::new(6, PrivilegeLevel::Kernel);
 
     #[inline]
     pub const fn new(index: usize, rpl: PrivilegeLevel) -> Self {
@@ -335,6 +390,7 @@ impl From<usize> for PrivilegeLevel {
     }
 }
 
+#[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum DescriptorType {
     Null = 0,
@@ -419,12 +475,19 @@ pub struct TaskStateSegment {
 }
 
 impl TaskStateSegment {
-    pub fn new() -> Box<Self> {
-        Box::new(TaskStateSegment::default())
+    pub const fn new() -> Self {
+        Self {
+            reserved_1: 0,
+            stack_pointer: [0; 3],
+            reserved_2: 0,
+            ist: [0; 7],
+            reserved_3: 0,
+            iomap_base: 0,
+        }
     }
 
     #[inline]
-    pub fn limit(&self) -> Limit {
+    pub const fn limit(&self) -> Limit {
         Limit(0x67)
     }
 }
@@ -546,65 +609,11 @@ impl DescriptorPair {
     }
 }
 
-#[repr(C, align(16))]
-pub struct GlobalDescriptorTable {
-    table: [DescriptorEntry; Self::MAX],
-}
-
-impl GlobalDescriptorTable {
-    const MAX: usize = 8;
-
-    pub fn new(tss: &Box<TaskStateSegment>) -> Box<Self> {
-        let tss_pair = DescriptorEntry::tss_descriptor(
-            VirtualAddress(tss.as_ref() as *const _ as usize),
-            tss.limit(),
-        );
-        let mut gdt = Box::new(GlobalDescriptorTable {
-            table: [DescriptorEntry::null(); Self::MAX],
-        });
-        gdt.table[Selector::KERNEL_CODE.index()] =
-            DescriptorEntry::code_segment(PrivilegeLevel::Kernel, DefaultSize::Use64);
-        gdt.table[Selector::KERNEL_DATA.index()] =
-            DescriptorEntry::data_segment(PrivilegeLevel::Kernel);
-        let tss_index = Selector::TSS.index();
-        gdt.table[tss_index] = tss_pair.low;
-        gdt.table[tss_index + 1] = tss_pair.high;
-
-        unsafe {
-            gdt.reload();
-        }
-        gdt
-    }
-
-    // Reload GDT and Segment Selectors
-    pub unsafe fn reload(&self) {
-        asm!("
-        push {0}
-        push {1}
-        lgdt [rsp + 6]
-        add rsp, 16
-        ", in(reg) &self.table, in(reg) ((self.table.len() * 8 - 1) << 48));
-        asm!("
-        mov {0}, rsp
-        push {1:r}
-        push {0}
-        pushfq
-        push {2:r}
-        .byte 0xE8, 2, 0, 0, 0, 0xEB, 0x02, 0x48, 0xCF
-        mov ds, {1:e}
-        mov es, {1:e}
-        mov fs, {1:e}
-        mov gs, {1:e}
-        ", out(reg) _, in(reg) Selector::KERNEL_DATA.0, in(reg) Selector::KERNEL_CODE.0);
-        asm!("ltr {0:x}", in(reg) Selector::TSS.0);
-    }
-}
-
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
 
 #[repr(C, align(16))]
 pub struct InterruptDescriptorTable {
-    raw: [DescriptorEntry; Self::MAX * 2],
+    table: [DescriptorEntry; Self::MAX * 2],
 }
 
 impl InterruptDescriptorTable {
@@ -612,11 +621,11 @@ impl InterruptDescriptorTable {
 
     const fn new() -> Self {
         InterruptDescriptorTable {
-            raw: [DescriptorEntry::null(); Self::MAX * 2],
+            table: [DescriptorEntry::null(); Self::MAX * 2],
         }
     }
 
-    pub unsafe fn init() {
+    unsafe fn init() {
         Self::load();
         Self::register(
             Exception::DivideError.into(),
@@ -644,13 +653,13 @@ impl InterruptDescriptorTable {
         );
     }
 
-    pub unsafe fn load() {
+    unsafe fn load() {
         asm!("
             push {0}
             push {1}
             lidt [rsp+6]
             add rsp, 16
-        ", in(reg) &IDT.raw, in(reg) ((IDT.raw.len() * 8 - 1) << 48));
+            ", in(reg) &IDT.table, in(reg) ((IDT.table.len() * 8 - 1) << 48));
     }
 
     pub unsafe fn register(vec: InterruptVector, offset: VirtualAddress) {
@@ -661,8 +670,8 @@ impl InterruptDescriptorTable {
             DescriptorType::InterruptGate,
         );
         let table_offset = vec.0 as usize * 2;
-        IDT.raw[table_offset + 1] = pair.high;
-        IDT.raw[table_offset] = pair.low;
+        IDT.table[table_offset + 1] = pair.high;
+        IDT.table[table_offset] = pair.low;
     }
 }
 

@@ -1,6 +1,6 @@
 // Memory Mapped I/O Registers
 
-use super::page::*;
+use super::memory::*;
 use crate::system::VirtualAddress;
 use core::mem::{size_of, transmute};
 use core::sync::atomic::*;
@@ -17,7 +17,7 @@ unsafe impl Sync for Mmio {}
 
 impl Mmio {
     pub unsafe fn from_phys(base: usize, size: usize) -> Option<Self> {
-        PageManager::direct_map(base, size).map(|va| Self {
+        MemoryManager::direct_map(base, size, MProtect::READ | MProtect::WRITE).map(|va| Self {
             base: va.get(),
             size,
         })
@@ -107,5 +107,27 @@ impl Mmio {
         self.check_limit(offset, &value);
         let ptr: &AtomicU64 = transmute(self.base + offset);
         ptr.store(value, Ordering::Release);
+    }
+
+    #[inline]
+    #[track_caller]
+    pub unsafe fn transmute<T>(&self, offset: usize) -> &T
+    where
+        T: Sized,
+    {
+        let result = transmute((self.base as *const u8).add(offset));
+        self.check_limit(offset, &result);
+        result
+    }
+
+    #[inline]
+    #[track_caller]
+    pub unsafe fn transmute_mut<T>(&self, offset: usize) -> &mut T
+    where
+        T: Sized,
+    {
+        let result = transmute((self.base as *const u8).add(offset));
+        self.check_limit(offset, &result);
+        result
     }
 }

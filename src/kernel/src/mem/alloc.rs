@@ -35,7 +35,7 @@ impl CustomAlloc {
     }
 
     #[cfg(any(target_arch = "x86_64"))]
-    pub(super) unsafe fn init_real(bitmap: [u32; 8]) {
+    pub(crate) unsafe fn init_real(bitmap: [u32; 8]) {
         let shared = &mut ALLOCATOR;
         shared.real_bitmap = bitmap;
     }

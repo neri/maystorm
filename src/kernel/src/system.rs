@@ -82,11 +82,7 @@ impl VirtualAddress {
 
 impl<T> Into<Option<NonNull<T>>> for VirtualAddress {
     fn into(self) -> Option<NonNull<T>> {
-        if self != Self::NULL {
-            NonNull::new(self.0 as *const T as *mut T)
-        } else {
-            None
-        }
+        NonNull::new(self.0 as *const T as *mut T)
     }
 }
 
@@ -101,7 +97,6 @@ impl Into<Option<NonZeroUsize>> for VirtualAddress {
 pub struct PhysicalAddress(pub usize);
 
 pub struct System {
-    total_memory_size: u64,
     num_of_cpus: usize,
     cpus: Vec<Box<Cpu>>,
     acpi: Option<Box<acpi::Acpi>>,
@@ -114,7 +109,6 @@ unsafe impl Sync for System {}
 impl System {
     const fn new() -> Self {
         System {
-            total_memory_size: 0,
             num_of_cpus: 0,
             cpus: Vec::new(),
             acpi: None,
@@ -129,7 +123,6 @@ impl System {
             ));
 
             SYSTEM.num_of_cpus = SYSTEM.acpi().application_processors.len() + 1;
-            SYSTEM.total_memory_size = info.total_memory_size;
 
             SYSTEM.cpus.push(Cpu::new(ProcessorId::from(
                 SYSTEM.acpi().boot_processor.unwrap().local_apic_id,
@@ -137,11 +130,11 @@ impl System {
 
             arch::Arch::init();
 
-            MyScheduler::start(&SYSTEM, Self::late_init, f as *const c_void as *mut c_void);
+            MyScheduler::start(&SYSTEM, Self::late_init, f as *const c_void as usize);
         }
     }
 
-    fn late_init(args: *mut c_void) {
+    fn late_init(args: usize) {
         unsafe {
             window::WindowManager::init();
             io::hid::HidManager::init();
@@ -170,11 +163,6 @@ impl System {
     #[inline]
     pub fn cpu(&self, index: usize) -> &Box<Cpu> {
         &self.cpus[index]
-    }
-
-    #[inline]
-    pub fn total_memory_size(&self) -> u64 {
-        self.total_memory_size
     }
 
     #[inline]

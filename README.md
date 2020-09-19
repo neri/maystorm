@@ -1,14 +1,14 @@
-# My practice OS
+# My first OS
 
-My practice OS written in Rust
+My first OS written in Rust
 
-## Operating Requirements
+## Operating Environments
 
 * 64bit UEFI 2.X + ACPI 2.X
-* Up to 64 logical processor cores
+* x64 processor with up to 64 cores
 * XX MB of system memory
-* 800x600 pixels graphics display
-* PS/2 Keyboard and mouse
+* 800x600 pixels screen
+* PS/2 keyboard and mouse
 * XHCI (in the future)
 
 ## Requirements to Build

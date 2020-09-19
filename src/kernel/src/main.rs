@@ -1,14 +1,15 @@
 // My OS Entry
+// (c) 2020 Nerry
+// License: MIT
+
 #![no_std]
 #![no_main]
 #![feature(asm)]
 
 // use arch::cpu::*;
 use bootprot::*;
-use core::ffi::c_void;
 use core::fmt::Write;
 use core::mem::transmute;
-use io::console::*;
 use io::fonts::*;
 use io::graphics::*;
 use io::hid::*;
@@ -38,8 +39,8 @@ fn sysinit() {
     let system = System::shared();
 
     {
-        let screen_bounds = WindowManager::main_screen_bounds();
         // Status bar
+        let screen_bounds = WindowManager::main_screen_bounds();
         let window = WindowBuilder::new("Status Bar")
             .style(WindowStyle::CLIENT_RECT | WindowStyle::FLOATING)
             .frame(Rect::new(0, 0, screen_bounds.width(), STATUS_BAR_HEIGHT))
@@ -53,8 +54,9 @@ fn sysinit() {
     }
 
     {
-        let window = WindowBuilder::new("Test 1")
-            .frame(Rect::new(670, 40, 120, 80))
+        // Test Window 1
+        let window = WindowBuilder::new("Window 1")
+            .frame(Rect::new(-128, 40, 120, 80))
             .build();
         window
             .draw(|bitmap| {
@@ -70,9 +72,10 @@ fn sysinit() {
     }
 
     {
-        let window = WindowBuilder::new("Test 2")
-            .style_add(WindowStyle::PINCHABLE | WindowStyle::FLOATING)
-            .frame(Rect::new(670, 136, 120, 80))
+        // Test Window 2
+        let window = WindowBuilder::new("Window 2")
+            .style_add(WindowStyle::PINCHABLE)
+            .frame(Rect::new(-128, 150, 120, 80))
             .bg_color(Color::from_argb(0x80000000))
             .build();
         window
@@ -90,26 +93,26 @@ fn sysinit() {
 
     {
         // Main Terminal
-        let console = GraphicalConsole::new("Terminal", (80, 24), None);
+        let console = GraphicalConsole::new("Terminal", (80, 24), None, 0);
         let window = console.window().unwrap();
         window.set_active();
-        // window
-        //     .draw(|bitmap| {
-        //         let center = Point::new(bitmap.width() / 2, bitmap.height() / 2);
-        //         bitmap.blend_rect(
-        //             Rect::new(center.x - 85, center.y - 60, 80, 80),
-        //             IndexedColor::LightRed.as_color() * 0.8,
-        //         );
-        //         bitmap.blend_rect(
-        //             Rect::new(center.x - 40, center.y - 20, 80, 80),
-        //             IndexedColor::LightGreen.as_color() * 0.8,
-        //         );
-        //         bitmap.blend_rect(
-        //             Rect::new(center.x + 5, center.y - 60, 80, 80),
-        //             IndexedColor::LightBlue.as_color() * 0.8,
-        //         );
-        //     })
-        //     .unwrap();
+        window
+            .draw(|bitmap| {
+                let center = Point::new(bitmap.width() / 2, bitmap.height() / 2);
+                bitmap.blend_rect(
+                    Rect::new(center.x - 85, center.y - 60, 80, 80),
+                    IndexedColor::LightRed.as_color() * 0.8,
+                );
+                bitmap.blend_rect(
+                    Rect::new(center.x - 40, center.y - 20, 80, 80),
+                    IndexedColor::LightGreen.as_color() * 0.8,
+                );
+                bitmap.blend_rect(
+                    Rect::new(center.x + 5, center.y - 60, 80, 80),
+                    IndexedColor::LightBlue.as_color() * 0.8,
+                );
+            })
+            .unwrap();
         set_stdout(console);
     }
 
@@ -124,13 +127,6 @@ fn sysinit() {
                     stdout().set_cursor_enabled(false);
                     let c: char = key.into();
                     match c {
-                        '!' => unsafe {
-                            asm!(
-                                "mov rax, 0xdeadbeef
-                            jmp rax"
-                            );
-                        },
-                        //Cpu::breakpoint(),
                         '\0' => (),
                         '\r' => {
                             println!("\nBad command or file name - KERNEL PANIC!!!");
@@ -145,8 +141,8 @@ fn sysinit() {
     }
 }
 
-fn status_bar_thread(window: *mut c_void) {
-    let window: WindowHandle = unsafe { transmute(window) };
+fn status_bar_thread(args: usize) {
+    let window: WindowHandle = unsafe { transmute(args) };
     let font = FontDriver::system_font();
 
     window
