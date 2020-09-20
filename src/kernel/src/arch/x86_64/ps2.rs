@@ -91,7 +91,7 @@ impl Ps2 {
         let deadline = Timer::new(TimeMeasure::from_micros(Self::WRITE_TIMEOUT * timeout));
         while deadline.until() {
             if Self::read_status().contains(Ps2Status::INPUT_FULL) {
-                Cpu::relax();
+                Cpu::spin_loop_hint();
             } else {
                 return Ok(());
             }
@@ -105,7 +105,7 @@ impl Ps2 {
             if Self::read_status().contains(Ps2Status::OUTPUT_FULL) {
                 return Ok(());
             } else {
-                Cpu::relax();
+                Cpu::spin_loop_hint();
             }
         }
         Err(Ps2Error::Timeout)

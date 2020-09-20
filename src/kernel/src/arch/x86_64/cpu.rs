@@ -53,7 +53,7 @@ impl Cpu {
     }
 
     #[inline]
-    pub fn relax() {
+    pub fn spin_loop_hint() {
         unsafe {
             asm!("pause");
         }

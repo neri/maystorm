@@ -1,13 +1,9 @@
 // x64 Paging
 
-use crate::mem::alloc;
+// use crate::mem::alloc;
 use crate::mem::memory::*;
 use bitflags::*;
-use bootprot::*;
-
-pub(crate) unsafe fn arch_page_init(info: &BootInfo) {
-    alloc::CustomAlloc::init_real(info.real_bitmap);
-}
+// use bootprot::*;
 
 pub type PhysicalAddress = u64;
 type PageTableRepr = u64;

@@ -2,7 +2,7 @@
 
 use super::arch::cpu::Cpu;
 // use crate::io::graphics::*;
-use crate::mem::alloc::*;
+use crate::mem::memory::*;
 use crate::sync::spinlock::*;
 use crate::system::*;
 use crate::*;
@@ -11,6 +11,7 @@ use alloc::vec::*;
 use core::num::*;
 use core::ops::*;
 use core::sync::atomic::*;
+use crossbeam_queue::ArrayQueue;
 // use bitflags::*;
 
 extern "C" {
@@ -467,6 +468,7 @@ impl ThreadHandle {
 
 const SIZE_OF_CONTEXT: usize = 512;
 const SIZE_OF_STACK: usize = 0x10000;
+const THREAD_NAME_LENGTH: usize = 32;
 
 type ThreadStart = fn(usize) -> ();
 
@@ -477,8 +479,7 @@ struct RawThread {
     priority: Priority,
     quantum: Quantum,
     deadline: Timer,
-    // attributes: ThreadFlags,
-    //name: [],
+    name: [u8; THREAD_NAME_LENGTH],
 }
 
 #[allow(dead_code)]
@@ -491,10 +492,12 @@ impl RawThread {
             priority,
             quantum,
             deadline: Timer::NULL,
+            name: [0; THREAD_NAME_LENGTH],
         }));
         if let Some(start) = start {
             handle.update(|thread| unsafe {
-                let stack = CustomAlloc::zalloc(SIZE_OF_STACK).unwrap().as_ptr();
+                let stack =
+                    MemoryManager::static_alloc(SIZE_OF_STACK).unwrap().get() as *mut c_void;
                 asm_sch_make_new_thread(
                     thread.context.as_mut_ptr(),
                     stack.add(SIZE_OF_STACK),
@@ -573,70 +576,16 @@ impl From<SignallingObject> for usize {
     }
 }
 
-struct ThreadQueue {
-    read: AtomicUsize,
-    write: AtomicUsize,
-    mask: usize,
-    lock: Spinlock,
-    buf: Vec<AtomicUsize>,
-}
-
-unsafe impl Sync for ThreadQueue {}
+struct ThreadQueue(ArrayQueue<NonZeroUsize>);
 
 impl ThreadQueue {
-    const NULL: usize = 0;
-
     fn with_capacity(capacity: usize) -> Box<Self> {
-        assert_eq!(capacity.count_ones(), 1);
-        let mask = capacity - 1;
-        let mut buf = Vec::<AtomicUsize>::with_capacity(capacity);
-        for _ in 0..capacity {
-            buf.push(AtomicUsize::new(Self::NULL));
-        }
-        Box::new(Self {
-            read: AtomicUsize::new(0),
-            write: AtomicUsize::new(0),
-            mask: mask,
-            lock: Spinlock::new(),
-            buf: buf,
-        })
+        Box::new(Self(ArrayQueue::new(capacity)))
     }
-
     fn dequeue(&self) -> Option<ThreadHandle> {
-        self.lock.synchronized(|| {
-            let mask = self.mask;
-            if (mask & (self.write.load(Ordering::Acquire)))
-                != (mask & (self.read.load(Ordering::Acquire)))
-            {
-                let read = self.read.load(Ordering::Acquire);
-                let result = self.buf[read & mask].swap(Self::NULL, Ordering::AcqRel);
-                self.read.fetch_add(1, Ordering::AcqRel);
-                return ThreadHandle::new(result);
-            } else {
-                None
-            }
-        })
+        self.0.pop().ok().map(|v| ThreadHandle(v))
     }
-
     fn enqueue(&self, data: ThreadHandle) -> Result<(), ()> {
-        let data = data.as_usize();
-        self.lock.synchronized(|| {
-            let mask = self.mask;
-            if (mask & (self.write.load(Ordering::Acquire) + 1))
-                != (mask & (self.read.load(Ordering::Acquire)))
-            {
-                let write = mask & self.write.load(Ordering::Acquire);
-                let success = self.buf[write & mask]
-                    .compare_exchange(Self::NULL, data, Ordering::AcqRel, Ordering::Relaxed)
-                    .is_ok();
-                if success {
-                    self.write.fetch_add(1, Ordering::AcqRel);
-                    return Ok(());
-                } else {
-                    panic!("ThreadQueue Inconsistency Error");
-                }
-            }
-            Err(())
-        })
+        self.0.push(data.0).map_err(|_| ())
     }
 }

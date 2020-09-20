@@ -18,6 +18,7 @@ where
 {
     pub const NULL: AtomicObject<T> = Self::new(0);
 
+    #[inline]
     pub const fn new(value: usize) -> Self {
         Self {
             repr: AtomicUsize::new(value),
@@ -36,16 +37,16 @@ where
     }
 
     #[inline]
+    #[track_caller]
     pub fn unwrap(&self) -> T {
         self.load().unwrap()
     }
 
     #[inline]
     pub fn map<U, F: FnOnce(T) -> U>(&self, f: F) -> Option<U> {
-        if let Some(t) = self.load() {
-            Some(f(t))
-        } else {
-            None
+        match self.load() {
+            Some(t) => Some(f(t)),
+            None => None,
         }
     }
 
@@ -80,17 +81,16 @@ where
     #[inline]
     fn from_t(value: Option<T>) -> usize {
         match value {
-            Some(t) => t.into(),
             None => 0,
+            Some(t) => t.into(),
         }
     }
 
     #[inline]
     fn into_t(value: usize) -> Option<T> {
-        if value != 0 {
-            Some(value.into())
-        } else {
-            None
+        match value {
+            0 => None,
+            _ => Some(value.into()),
         }
     }
 }

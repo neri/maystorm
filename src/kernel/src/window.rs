@@ -74,6 +74,13 @@ const CLOSE_BUTTON_SOURCE: [[u8; CLOSE_BUTTON_SIZE]; CLOSE_BUTTON_SIZE] = [
     [0, 1, 0, 0, 0, 0, 0, 0, 1, 0],
 ];
 
+static mut WM: Option<Box<WindowManager>> = None;
+
+#[derive(Default)]
+struct Resources {
+    close_button: Option<Box<Bitmap>>,
+}
+
 pub struct WindowManager {
     lock: Spinlock,
     sem_redraw: Semaphore,
@@ -1098,11 +1105,4 @@ impl WindowHandle {
         }
         Ok(())
     }
-}
-
-static mut WM: Option<Box<WindowManager>> = None;
-
-#[derive(Default)]
-struct Resources {
-    close_button: Option<Box<Bitmap>>,
 }

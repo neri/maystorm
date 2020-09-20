@@ -10,7 +10,7 @@ use core::num::*;
 // };
 // use futures_util::stream::Stream;
 // use futures_util::task::AtomicWaker;
-use sync::queue::*;
+use crossbeam_queue::ArrayQueue;
 use system::*;
 use window::*;
 
@@ -83,52 +83,37 @@ pub struct KeyReportRaw {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct KeyEvent {
-    pub usage: Usage,
-    pub modifier: Modifier,
-    pub flags: KeyEventFlags,
-}
+pub struct KeyEvent(NonZeroU32);
 
 impl KeyEvent {
     pub const fn new(usage: Usage, modifier: Modifier, flags: KeyEventFlags) -> Self {
-        Self {
-            usage,
-            modifier,
-            flags,
+        unsafe {
+            Self(NonZeroU32::new_unchecked(
+                usage.0 as u32 | ((modifier.bits as u32) << 16) | ((flags.bits as u32) << 24),
+            ))
         }
     }
 
     pub fn into_char(self) -> char {
         HidManager::key_event_to_char(self)
     }
+
+    pub fn usage(self) -> Usage {
+        Usage((self.0.get() & 0xFF) as u8)
+    }
+
+    pub fn modifier(self) -> Modifier {
+        unsafe { Modifier::from_bits_unchecked(((self.0.get() >> 16) & 0xFF) as u8) }
+    }
+
+    pub fn flags(self) -> KeyEventFlags {
+        unsafe { KeyEventFlags::from_bits_unchecked(((self.0.get() >> 24) & 0xFF) as u8) }
+    }
 }
 
 impl Into<char> for KeyEvent {
     fn into(self) -> char {
         self.into_char()
-    }
-}
-
-impl From<NonZeroUsize> for KeyEvent {
-    fn from(value: NonZeroUsize) -> Self {
-        let value = value.get();
-        Self {
-            usage: Usage((value & 0xFF) as u8),
-            modifier: unsafe { Modifier::from_bits_unchecked(((value >> 16) & 0xFF) as u8) },
-            flags: unsafe { KeyEventFlags::from_bits_unchecked(((value >> 24) & 0xFF) as u8) },
-        }
-    }
-}
-
-impl Into<NonZeroUsize> for KeyEvent {
-    fn into(self) -> NonZeroUsize {
-        unsafe {
-            NonZeroUsize::new_unchecked(
-                self.usage.0 as usize
-                    | ((self.modifier.bits as usize) << 16)
-                    | ((self.flags.bits as usize) << 24),
-            )
-        }
     }
 }
 
@@ -214,8 +199,10 @@ impl MouseState {
     }
 }
 
+use core::pin::Pin;
 pub struct HidManager {
-    key_buf: Box<AtomicLinkedQueue<KeyEvent>>,
+    // key_buf: Box<AtomicLinkedQueue<KeyEvent>>,
+    key_buf: Pin<Box<ArrayQueue<KeyEvent>>>,
 }
 
 static mut HID_MANAGER: Option<Box<HidManager>> = None;
@@ -229,7 +216,8 @@ impl HidManager {
 
     fn new() -> Self {
         HidManager {
-            key_buf: AtomicLinkedQueue::with_capacity(256),
+            // key_buf: AtomicLinkedQueue::with_capacity(256),
+            key_buf: Box::pin(ArrayQueue::new(127)),
         }
     }
 
@@ -239,22 +227,24 @@ impl HidManager {
 
     pub fn send_key_event(v: KeyEvent) {
         let shared = HidManager::shared();
-        if v.usage == Usage::DELETE && v.modifier.is_ctrl() && v.modifier.is_alt() {
+        if v.usage() == Usage::DELETE && v.modifier().is_ctrl() && v.modifier().is_alt() {
             System::reset();
         }
-        let _ = shared.key_buf.enqueue(v);
+        // let _ = shared.key_buf.enqueue(v);
+        let _ = shared.key_buf.push(v);
     }
 
     pub fn get_key() -> Option<KeyEvent> {
         let shared = HidManager::shared();
-        shared.key_buf.dequeue()
+        // shared.key_buf.dequeue()
+        shared.key_buf.pop().ok().map(|v| v)
     }
 
     fn key_event_to_char(event: KeyEvent) -> char {
-        if event.flags.contains(KeyEventFlags::BREAK) || event.usage == Usage::NULL {
+        if event.flags().contains(KeyEventFlags::BREAK) || event.usage() == Usage::NULL {
             '\0'
         } else {
-            Self::usage_to_char_109(event.usage, event.modifier)
+            Self::usage_to_char_109(event.usage(), event.modifier())
         }
     }
 

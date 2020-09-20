@@ -28,12 +28,12 @@ impl Spinlock {
 
     pub fn lock(&self) {
         while self.value.compare_and_swap(false, true, Ordering::Acquire) {
-            let mut count = 1;
+            let mut count = 0;
             while self.value.load(Ordering::Relaxed) {
-                for _ in 0..count {
-                    Cpu::relax();
+                for _ in 0..(1 << count) {
+                    Cpu::spin_loop_hint();
                 }
-                count = core::cmp::min(count << 1, 64);
+                count = core::cmp::min(count + 1, 6);
             }
         }
     }

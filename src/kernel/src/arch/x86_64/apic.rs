@@ -2,7 +2,7 @@
 
 use super::cpu::*;
 use super::hpet::*;
-use crate::mem::alloc::*;
+use crate::mem::memory::*;
 use crate::mem::mmio::*;
 use crate::scheduler::*;
 use crate::sync::spinlock::Spinlock;
@@ -118,12 +118,12 @@ impl Apic {
             let magic_number = 100;
             let deadline0 = hpet.create(TimeMeasure(1));
             while hpet.until(deadline0) {
-                Cpu::relax();
+                Cpu::spin_loop_hint();
             }
             let deadline1 = hpet.create(TimeMeasure::from_micros(100_0000 / magic_number));
             LocalApic::TimerInitialCount.write(u32::MAX);
             while hpet.until(deadline1) {
-                Cpu::relax();
+                Cpu::spin_loop_hint();
             }
             let count = LocalApic::TimerCurrentCount.read() as u64;
             APIC.lapic_timer_value = ((u32::MAX as u64 - count) * magic_number / 1000) as u32;
@@ -138,12 +138,12 @@ impl Apic {
         );
 
         // Setup SMP
-        let sipi_vec = InterruptVector(CustomAlloc::z_alloc_real().unwrap().get());
+        let sipi_vec = InterruptVector(MemoryManager::static_alloc_real().unwrap().get());
         let max_cpu = core::cmp::min(System::shared().num_of_cpus(), MAX_CPU);
         let stack_chunk_size = 0x4000;
-        let stack_base = CustomAlloc::zalloc(max_cpu * stack_chunk_size)
+        let stack_base = MemoryManager::static_alloc(max_cpu * stack_chunk_size)
             .unwrap()
-            .as_ptr();
+            .get() as *mut c_void;
         asm_apic_setup_sipi(sipi_vec, max_cpu, stack_chunk_size, stack_base);
         LocalApic::broadcast_init();
         Timer::usleep(10_000);

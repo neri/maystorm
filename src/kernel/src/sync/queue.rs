@@ -127,14 +127,14 @@ where
                         if self.free.cas(free, head).is_ok() {
                             break;
                         }
-                        Cpu::relax();
+                        Cpu::spin_loop_hint();
                     }
                     return result;
                 }
             } else {
                 return 0;
             }
-            Cpu::relax();
+            Cpu::spin_loop_hint();
         }
     }
 
@@ -151,7 +151,7 @@ where
             } else {
                 return Err(());
             }
-            Cpu::relax();
+            Cpu::spin_loop_hint();
         };
         loop {
             let tail = self.tail.load();
@@ -163,7 +163,7 @@ where
                 let _ = self.tail.cas(tail, index);
                 return Ok(());
             }
-            Cpu::relax();
+            Cpu::spin_loop_hint();
         }
     }
 }
