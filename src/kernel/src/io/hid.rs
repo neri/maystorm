@@ -4,12 +4,6 @@ use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;
 use core::num::*;
-// use core::{
-//     pin::Pin,
-//     task::{Context, Poll},
-// };
-// use futures_util::stream::Stream;
-// use futures_util::task::AtomicWaker;
 use crossbeam_queue::ArrayQueue;
 use system::*;
 use window::*;
@@ -23,8 +17,8 @@ pub struct Usage(pub u8);
 #[allow(dead_code)]
 impl Usage {
     pub const NULL: Usage = Usage(0);
-    pub const ALPHABET_MIN: Usage = Usage(0x04);
-    pub const ALPHABET_MAX: Usage = Usage(0x1D);
+    pub const ALPHABET_A: Usage = Usage(0x04);
+    pub const ALPHABET_Z: Usage = Usage(0x1D);
     pub const NUMBER_MIN: Usage = Usage(0x1E);
     pub const NUMBER_MAX: Usage = Usage(0x27);
     pub const NON_ALPHABET_MIN: Usage = Usage(0x28);
@@ -199,10 +193,8 @@ impl MouseState {
     }
 }
 
-use core::pin::Pin;
 pub struct HidManager {
-    // key_buf: Box<AtomicLinkedQueue<KeyEvent>>,
-    key_buf: Pin<Box<ArrayQueue<KeyEvent>>>,
+    key_buf: ArrayQueue<KeyEvent>,
 }
 
 static mut HID_MANAGER: Option<Box<HidManager>> = None;
@@ -216,8 +208,7 @@ impl HidManager {
 
     fn new() -> Self {
         HidManager {
-            // key_buf: AtomicLinkedQueue::with_capacity(256),
-            key_buf: Box::pin(ArrayQueue::new(127)),
+            key_buf: ArrayQueue::new(63),
         }
     }
 
@@ -230,13 +221,11 @@ impl HidManager {
         if v.usage() == Usage::DELETE && v.modifier().is_ctrl() && v.modifier().is_alt() {
             System::reset();
         }
-        // let _ = shared.key_buf.enqueue(v);
         let _ = shared.key_buf.push(v);
     }
 
     pub fn get_key() -> Option<KeyEvent> {
         let shared = HidManager::shared();
-        // shared.key_buf.dequeue()
         shared.key_buf.pop().ok().map(|v| v)
     }
 
@@ -251,8 +240,8 @@ impl HidManager {
     fn usage_to_char_109(usage: Usage, modifier: Modifier) -> char {
         let mut uni: char = INVALID_UNICHAR;
 
-        if usage >= Usage::ALPHABET_MIN && usage <= Usage::ALPHABET_MAX {
-            uni = (usage.0 - Usage::ALPHABET_MIN.0 + 0x61) as char;
+        if usage >= Usage::ALPHABET_A && usage <= Usage::ALPHABET_Z {
+            uni = (usage.0 - Usage::ALPHABET_A.0 + 0x61) as char;
         } else if usage >= Usage::NUMBER_MIN && usage <= Usage::NON_ALPHABET_MAX {
             uni = USAGE_TO_CHAR_NON_ALPLABET_109[(usage.0 - Usage::NUMBER_MIN.0) as usize];
             if uni > ' ' && uni < '\x40' && uni != '0' && modifier.is_shift() {
@@ -289,33 +278,8 @@ impl HidManager {
 
 // Non Alphabet
 static USAGE_TO_CHAR_NON_ALPLABET_109: [char; 27] = [
-    '1',
-    '2',
-    '3',
-    '4',
-    '5',
-    '6',
-    '7',
-    '8',
-    '9',
-    '0',
-    '\x0D',
-    '\x1B',
-    '\x08',
-    '\x09',
-    ' ',
-    '-',
-    '^',
-    '@',
-    '[',
-    ']',
-    INVALID_UNICHAR,
-    ';',
-    ':',
-    '`',
-    ',',
-    '.',
-    '/',
+    '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '\x0D', '\x1B', '\x08', '\x09', ' ', '-',
+    '^', '@', '[', ']', ']', ';', ':', '`', ',', '.', '/',
 ];
 
 // Numpads

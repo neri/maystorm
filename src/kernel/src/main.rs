@@ -9,17 +9,18 @@
 // use arch::cpu::*;
 use bootprot::*;
 use core::fmt::Write;
-use core::mem::transmute;
+// use core::mem::transmute;
 use io::fonts::*;
 use io::graphics::*;
 use io::hid::*;
 use kernel::*;
+use mem::string;
 use scheduler::*;
 use system::*;
 use window::*;
 
-#[macro_use]
-extern crate alloc;
+// #[macro_use]
+// extern crate alloc;
 extern crate rlibc;
 
 // use expr::simple_executor::*;
@@ -38,20 +39,8 @@ fn main(info: &BootInfo) {
 fn sysinit() {
     let system = System::shared();
 
-    {
-        // Status bar
-        let screen_bounds = WindowManager::main_screen_bounds();
-        let window = WindowBuilder::new("Status Bar")
-            .style(WindowStyle::CLIENT_RECT | WindowStyle::FLOATING)
-            .frame(Rect::new(0, 0, screen_bounds.width(), STATUS_BAR_HEIGHT))
-            .bg_color(STATUS_BAR_BG_COLOR)
-            .build();
-        MyScheduler::spawn_f(
-            status_bar_thread,
-            unsafe { transmute(window) },
-            Priority::Normal,
-        );
-    }
+    // Status bar
+    MyScheduler::spawn_f(status_bar_thread, 0, Priority::Normal);
 
     {
         // Test Window 1
@@ -141,8 +130,14 @@ fn sysinit() {
     }
 }
 
-fn status_bar_thread(args: usize) {
-    let window: WindowHandle = unsafe { transmute(args) };
+fn status_bar_thread(_args: usize) {
+    let screen_bounds = WindowManager::main_screen_bounds();
+    let window = WindowBuilder::new("Status Bar")
+        .style(WindowStyle::CLIENT_RECT | WindowStyle::FLOATING)
+        .style_add(WindowStyle::BORDER)
+        .frame(Rect::new(0, 0, screen_bounds.width(), STATUS_BAR_HEIGHT))
+        .bg_color(STATUS_BAR_BG_COLOR)
+        .build();
     let font = FontDriver::system_font();
 
     window
@@ -160,17 +155,21 @@ fn status_bar_thread(args: usize) {
     window.show();
     WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT, 0, 0, 0));
 
+    let mut sb = string::Str255::new();
     let mut time_val = 0;
     loop {
         time_val += 1; // TODO: true clock
         let sec = time_val % 60;
         let min = time_val / 60 % 60;
         let hour = time_val / 3600 % 24;
-        let time_str = if sec % 2 == 0 {
-            format!("{:02} {:02} {:02}", hour, min, sec)
+
+        if sec % 2 == 0 {
+            sformat!(sb, "{:02} {:02} {:02}", hour, min, sec);
         } else {
-            format!("{:02}:{:02}:{:02}", hour, min, sec)
+            sformat!(sb, "{:02}:{:02}:{:02}", hour, min, sec);
         };
+
+        let time_str = sb.as_str();
 
         let bounds = WindowManager::main_screen_bounds();
         let width = font.width() * time_str.len() as isize;

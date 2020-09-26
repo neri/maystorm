@@ -530,12 +530,12 @@ struct RawWindow {
 
 bitflags! {
     pub struct WindowStyle: u8 {
-        const BORDER = 0b0000_0001;
-        const TITLE = 0b0000_0010;
-        const CLIENT_RECT = 0b0000_0100;
-        const TRANSPARENT = 0b0000_1000;
-        const PINCHABLE = 0b0001_0000;
-        const FLOATING = 0b0010_0000;
+        const BORDER        = 0b0000_0001;
+        const TITLE         = 0b0000_0010;
+        const CLIENT_RECT   = 0b0000_0100;
+        const TRANSPARENT   = 0b0000_1000;
+        const PINCHABLE     = 0b0001_0000;
+        const FLOATING      = 0b0010_0000;
 
         const DEFAULT = Self::TRANSPARENT.bits | Self::BORDER.bits | Self::TITLE.bits;
     }
@@ -849,7 +849,7 @@ impl WindowBuilder {
         let content_insets = window_insets + shadow_insets;
         let mut frame = self.frame;
         if self.style.contains(WindowStyle::CLIENT_RECT) {
-            frame.size += window_insets + shadow_insets;
+            frame.size += window_insets;
         }
         if frame.x() == isize::MIN {
             frame.origin.x = screen_bounds.x() + (screen_bounds.width() - frame.width()) / 2;

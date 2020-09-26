@@ -141,7 +141,7 @@ impl Apic {
         let sipi_vec = InterruptVector(MemoryManager::static_alloc_real().unwrap().get());
         let max_cpu = core::cmp::min(System::shared().num_of_cpus(), MAX_CPU);
         let stack_chunk_size = 0x4000;
-        let stack_base = MemoryManager::static_alloc(max_cpu * stack_chunk_size)
+        let stack_base = MemoryManager::zalloc(max_cpu * stack_chunk_size)
             .unwrap()
             .get() as *mut c_void;
         asm_apic_setup_sipi(sipi_vec, max_cpu, stack_chunk_size, stack_base);

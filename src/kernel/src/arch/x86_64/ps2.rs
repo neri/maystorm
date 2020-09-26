@@ -1,9 +1,9 @@
 // PS/2 Device Driver
 
 use crate::arch::apic::*;
-use crate::arch::cpu::Cpu;
 use crate::io::hid::*;
 use crate::scheduler::*;
+use crate::sync::spinlock::*;
 use crate::*;
 use bitflags::*;
 
@@ -88,10 +88,11 @@ impl Ps2 {
     }
 
     unsafe fn wait_for_write(timeout: u64) -> Result<(), Ps2Error> {
+        let mut spin_loop = SpinLoopWait::new();
         let deadline = Timer::new(TimeMeasure::from_micros(Self::WRITE_TIMEOUT * timeout));
         while deadline.until() {
             if Self::read_status().contains(Ps2Status::INPUT_FULL) {
-                Cpu::spin_loop_hint();
+                spin_loop.wait();
             } else {
                 return Ok(());
             }
@@ -100,12 +101,13 @@ impl Ps2 {
     }
 
     unsafe fn wait_for_read(timeout: u64) -> Result<(), Ps2Error> {
+        let mut spin_loop = SpinLoopWait::new();
         let deadline = Timer::new(TimeMeasure::from_micros(timeout * Self::READ_TIMEOUT));
         while deadline.until() {
             if Self::read_status().contains(Ps2Status::OUTPUT_FULL) {
                 return Ok(());
             } else {
-                Cpu::spin_loop_hint();
+                spin_loop.wait();
             }
         }
         Err(Ps2Error::Timeout)
@@ -156,15 +158,15 @@ impl Ps2 {
             } else {
                 KeyEventFlags::empty()
             };
-            let mut scan = data.scancode();
+            let mut scancode = data.scancode();
             match self.key_state {
                 Ps2KeyState::PrefixE0 => {
-                    scan |= 0x80;
+                    scancode |= 0x80;
                     self.key_state = Ps2KeyState::Default;
                 }
                 _ => (),
             }
-            let usage = Usage(PS2_TO_HID[scan as usize]);
+            let usage = Usage(PS2_TO_HID[scancode as usize]);
             if usage >= Usage::MOD_MIN && usage < Usage::MOD_MAX {
                 let bit_position =
                     unsafe { Modifier::from_bits_unchecked(1 << (usage.0 - Usage::MOD_MIN.0)) };

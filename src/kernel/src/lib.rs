@@ -21,13 +21,13 @@ pub mod num;
 pub mod scheduler;
 pub mod sync;
 pub mod system;
-pub mod thread;
 pub mod window;
 
 use crate::arch::cpu::Cpu;
 use crate::io::graphics::GraphicalConsole;
 use crate::io::graphics::*;
 use crate::mem::memory::*;
+use crate::scheduler::*;
 use crate::sync::spinlock::Spinlock;
 use alloc::boxed::Box;
 use bootprot::*;
@@ -82,15 +82,14 @@ fn panic(info: &PanicInfo) -> ! {
     unsafe {
         PANIC_GLOBAL_LOCK.lock();
     }
-    set_em_console(true);
+    // set_em_console(true);
     let stdout = stdout();
     stdout.set_cursor_enabled(false);
     stdout.set_attribute(0x17);
     println!("{}", info);
     unsafe {
+        let _ = MyScheduler::freeze(true);
         PANIC_GLOBAL_LOCK.unlock();
-    }
-    unsafe {
         Cpu::stop();
     }
 }

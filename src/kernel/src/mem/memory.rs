@@ -47,7 +47,10 @@ impl MemoryManager {
         unsafe { &mut MM }
     }
 
-    pub fn direct_map(base: usize, _size: usize, _prot: MProtect) -> Option<NonZeroUsize> {
+    pub fn direct_map(base: usize, size: usize, prot: MProtect) -> Option<NonZeroUsize> {
+        // TODO:
+        let _ = size;
+        let _ = prot;
         NonZeroUsize::new(base)
     }
 
@@ -56,7 +59,8 @@ impl MemoryManager {
         self.total_memory_size
     }
 
-    pub unsafe fn static_alloc(size: usize) -> Option<NonZeroUsize> {
+    // Allocate static page
+    unsafe fn static_alloc(size: usize) -> Option<NonZeroUsize> {
         let shared = Self::shared();
         let page_mask = 0xFFF;
         let size = (size + page_mask * 2 + 1) & !page_mask;
@@ -74,6 +78,22 @@ impl MemoryManager {
                 return NonZeroUsize::new(result);
             }
         }
+    }
+
+    pub unsafe fn zalloc(size: usize) -> Option<NonZeroUsize> {
+        let page_mask = 0x3FFFF;
+        let size = (size + page_mask * 2 + 1) & !page_mask;
+        Self::static_alloc(size)
+    }
+
+    pub unsafe fn zfree(base: Option<NonZeroUsize>, size: usize) -> Result<(), ()> {
+        if let Some(base) = base.map(|v| v.get()) {
+            let ptr = base as *mut u8;
+            for i in 0..size {
+                ptr.add(i).write_volatile(0xcc);
+            }
+        }
+        Ok(())
     }
 
     /// Allocate a page on real memory

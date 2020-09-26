@@ -1,7 +1,6 @@
 // Spinlock
 
-// pub use super::Synchronized;
-use crate::arch::cpu::Cpu;
+use crate::arch::cpu::*;
 use core::sync::atomic::*;
 
 #[derive(Default)]
@@ -28,12 +27,9 @@ impl Spinlock {
 
     pub fn lock(&self) {
         while self.value.compare_and_swap(false, true, Ordering::Acquire) {
-            let mut count = 0;
+            let mut spin_loop = SpinLoopWait::new();
             while self.value.load(Ordering::Relaxed) {
-                for _ in 0..(1 << count) {
-                    Cpu::spin_loop_hint();
-                }
-                count = core::cmp::min(count + 1, 6);
+                spin_loop.wait();
             }
         }
     }
@@ -52,5 +48,30 @@ impl Spinlock {
         let result = f();
         self.unlock();
         result
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct SpinLoopWait {
+    count: usize,
+}
+
+impl SpinLoopWait {
+    pub const fn new() -> Self {
+        Self { count: 0 }
+    }
+
+    pub fn reset(&mut self) {
+        self.count = 0;
+    }
+
+    pub fn wait(&mut self) {
+        let count = self.count;
+        for _ in 0..(1 << count) {
+            Cpu::spin_loop_hint();
+        }
+        if count < 6 {
+            self.count += 1;
+        }
     }
 }

@@ -28,6 +28,7 @@ pub struct MyScheduler {
     retired: Option<Box<ThreadQueue>>,
     locals: Vec<Box<LocalScheduler>>,
     is_enabled: AtomicBool,
+    is_frozen: AtomicBool,
 }
 
 impl MyScheduler {
@@ -38,6 +39,7 @@ impl MyScheduler {
             retired: None,
             locals: Vec::new(),
             is_enabled: AtomicBool::new(false),
+            is_frozen: AtomicBool::new(false),
         }
     }
 
@@ -122,6 +124,9 @@ impl MyScheduler {
     // Get Next Thread from queue
     fn next() -> Option<ThreadHandle> {
         let sch = unsafe { &mut SCHEDULER };
+        if sch.is_frozen.load(Ordering::SeqCst) {
+            return None;
+        }
         for _ in 0..1 {
             if let Some(next) = sch.urgent.as_mut().unwrap().dequeue() {
                 return Some(next);
@@ -164,10 +169,27 @@ impl MyScheduler {
         sch.is_enabled.load(Ordering::Acquire)
     }
 
+    pub(crate) unsafe fn freeze(force: bool) -> Result<(), ()> {
+        let sch = &SCHEDULER;
+        sch.is_frozen.store(true, Ordering::SeqCst);
+        if force {
+            // TODO:
+        }
+        Ok(())
+    }
+
     pub fn spawn_f(start: ThreadStart, args: usize, priority: Priority) {
         assert!(priority.useful());
         let thread = RawThread::new(priority, Some(start), args);
         Self::retire(thread);
+    }
+
+    pub fn spawn<F>(_priority: Priority, _f: F)
+    where
+        F: FnOnce() -> (),
+    {
+        // assert!(priority.useful());
+        unimplemented!();
     }
 }
 
@@ -496,8 +518,7 @@ impl RawThread {
         }));
         if let Some(start) = start {
             handle.update(|thread| unsafe {
-                let stack =
-                    MemoryManager::static_alloc(SIZE_OF_STACK).unwrap().get() as *mut c_void;
+                let stack = MemoryManager::zalloc(SIZE_OF_STACK).unwrap().get() as *mut c_void;
                 asm_sch_make_new_thread(
                     thread.context.as_mut_ptr(),
                     stack.add(SIZE_OF_STACK),

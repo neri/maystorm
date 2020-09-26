@@ -144,7 +144,7 @@ impl GraphicalConsole<'_> {
 
         if old_value || enabled {
             let font = self.font;
-            let cursor_height = font.line_height();
+            let cursor_height = font.line_height() / 8;
             let rect = Rect::new(
                 self.insets.left + self.cursor.0 * font.width(),
                 self.insets.top + (self.cursor.1 + 1) * font.line_height() - cursor_height,
@@ -258,11 +258,9 @@ impl GraphicalConsole<'_> {
 
 impl Write for GraphicalConsole<'_> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        // self.lock.lock();
         for c in s.chars() {
             self.putchar(c);
         }
-        // self.lock.unlock();
         Ok(())
     }
 }

@@ -56,11 +56,7 @@ impl From<&BootInfo> for Bitmap {
 
 impl Bitmap {
     pub fn new(width: usize, height: usize, is_translucent: bool) -> Self {
-        let base = unsafe {
-            MemoryManager::static_alloc(width * height * 4)
-                .unwrap()
-                .get()
-        } as *mut u32;
+        let base = unsafe { MemoryManager::zalloc(width * height * 4).unwrap().get() } as *mut u32;
         let mut flags = BitmapFlags::empty();
         if is_translucent {
             flags.insert(BitmapFlags::TRANSLUCENT);
