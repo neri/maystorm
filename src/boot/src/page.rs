@@ -175,7 +175,7 @@ impl PageManager {
         // vram (temp)
         let vram_base = info.vram_base;
         let vram_size = Self::pages(
-            info.vram_delta as u64 * info.screen_height as u64 * 4,
+            info.vram_stride as u64 * info.screen_height as u64 * 4,
             PageTableEntry::LARGE_PAGE_SIZE,
         ) as u64;
         let offset = vram_base / PageTableEntry::LARGE_PAGE_SIZE;

@@ -43,7 +43,7 @@ impl MyScheduler {
         }
     }
 
-    pub(super) fn start(system: &System, f: fn(usize) -> (), args: usize) -> ! {
+    pub(super) fn start(f: fn(usize) -> (), args: usize) -> ! {
         const SIZE_OF_URGENT_QUEUE: usize = 512;
         const SIZE_OF_MAIN_QUEUE: usize = 512;
 
@@ -53,7 +53,7 @@ impl MyScheduler {
         sch.ready = Some(ThreadQueue::with_capacity(SIZE_OF_MAIN_QUEUE));
         sch.retired = Some(ThreadQueue::with_capacity(SIZE_OF_MAIN_QUEUE));
 
-        for index in 0..system.num_of_active_cpus() {
+        for index in 0..System::num_of_active_cpus() {
             sch.locals.push(LocalScheduler::new(ProcessorIndex(index)));
         }
 

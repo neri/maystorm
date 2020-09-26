@@ -6,10 +6,9 @@
 #![no_main]
 #![feature(asm)]
 
-// use arch::cpu::*;
+use alloc::boxed::Box;
 use bootprot::*;
 use core::fmt::Write;
-// use core::mem::transmute;
 use io::fonts::*;
 use io::graphics::*;
 use io::hid::*;
@@ -19,8 +18,7 @@ use scheduler::*;
 use system::*;
 use window::*;
 
-// #[macro_use]
-// extern crate alloc;
+extern crate alloc;
 extern crate rlibc;
 
 // use expr::simple_executor::*;
@@ -32,80 +30,81 @@ myos_entry!(main);
 const STATUS_BAR_HEIGHT: isize = 24;
 const STATUS_BAR_BG_COLOR: Color = Color::from_argb(0xC0EEEEEE);
 
-fn main(info: &BootInfo) {
-    System::init(info, sysinit);
-}
+fn main() {
+    if System::is_headless() {
+        let uart = &System::uarts()[0];
+        let console = Box::new(io::vt100::Vt100::with_uart(uart));
+        System::set_stdout(console);
+        stdout().reset().unwrap();
+    } else {
+        // Status bar
+        MyScheduler::spawn_f(status_bar_thread, 0, Priority::Normal);
 
-fn sysinit() {
-    let system = System::shared();
+        {
+            // Test Window 1
+            let window = WindowBuilder::new("Window 1")
+                .frame(Rect::new(-128, 40, 120, 80))
+                .build();
+            window
+                .draw(|bitmap| {
+                    bitmap.draw_string(
+                        FontDriver::small_font(),
+                        bitmap.bounds(),
+                        Color::BLACK,
+                        "The quick brown fox jumps over the lazy dog.",
+                    );
+                })
+                .unwrap();
+            window.show();
+        }
 
-    // Status bar
-    MyScheduler::spawn_f(status_bar_thread, 0, Priority::Normal);
+        {
+            // Test Window 2
+            let window = WindowBuilder::new("Window 2")
+                .style_add(WindowStyle::PINCHABLE)
+                .frame(Rect::new(-128, 150, 120, 80))
+                .bg_color(Color::from_argb(0x80000000))
+                .build();
+            window
+                .draw(|bitmap| {
+                    bitmap.draw_string(
+                        FontDriver::small_font(),
+                        bitmap.bounds(),
+                        IndexedColor::Yellow.into(),
+                        "ETAOIN SHRDLU CMFWYP VBGKQJ XZ 1234567890",
+                    );
+                })
+                .unwrap();
+            window.show();
+        }
 
-    {
-        // Test Window 1
-        let window = WindowBuilder::new("Window 1")
-            .frame(Rect::new(-128, 40, 120, 80))
-            .build();
-        window
-            .draw(|bitmap| {
-                bitmap.draw_string(
-                    FontDriver::small_font(),
-                    bitmap.bounds(),
-                    Color::BLACK,
-                    "The quick brown fox jumps over the lazy dog.",
-                );
-            })
-            .unwrap();
-        window.show();
+        {
+            // Main Terminal
+            let console = GraphicalConsole::new("Terminal", (80, 24), None, 0);
+            let window = console.window().unwrap();
+            window.set_active();
+            window
+                .draw(|bitmap| {
+                    let center = Point::new(bitmap.width() / 2, bitmap.height() / 2);
+                    bitmap.blend_rect(
+                        Rect::new(center.x - 85, center.y - 60, 80, 80),
+                        IndexedColor::LightRed.as_color() * 0.8,
+                    );
+                    bitmap.blend_rect(
+                        Rect::new(center.x - 40, center.y - 20, 80, 80),
+                        IndexedColor::LightGreen.as_color() * 0.8,
+                    );
+                    bitmap.blend_rect(
+                        Rect::new(center.x + 5, center.y - 60, 80, 80),
+                        IndexedColor::LightBlue.as_color() * 0.8,
+                    );
+                })
+                .unwrap();
+            System::set_stdout(console);
+        }
     }
 
-    {
-        // Test Window 2
-        let window = WindowBuilder::new("Window 2")
-            .style_add(WindowStyle::PINCHABLE)
-            .frame(Rect::new(-128, 150, 120, 80))
-            .bg_color(Color::from_argb(0x80000000))
-            .build();
-        window
-            .draw(|bitmap| {
-                bitmap.draw_string(
-                    FontDriver::small_font(),
-                    bitmap.bounds(),
-                    IndexedColor::Yellow.into(),
-                    "ETAOIN SHRDLU CMFWYP VBGKQJ XZ 1234567890",
-                );
-            })
-            .unwrap();
-        window.show();
-    }
-
-    {
-        // Main Terminal
-        let console = GraphicalConsole::new("Terminal", (80, 24), None, 0);
-        let window = console.window().unwrap();
-        window.set_active();
-        window
-            .draw(|bitmap| {
-                let center = Point::new(bitmap.width() / 2, bitmap.height() / 2);
-                bitmap.blend_rect(
-                    Rect::new(center.x - 85, center.y - 60, 80, 80),
-                    IndexedColor::LightRed.as_color() * 0.8,
-                );
-                bitmap.blend_rect(
-                    Rect::new(center.x - 40, center.y - 20, 80, 80),
-                    IndexedColor::LightGreen.as_color() * 0.8,
-                );
-                bitmap.blend_rect(
-                    Rect::new(center.x + 5, center.y - 60, 80, 80),
-                    IndexedColor::LightBlue.as_color() * 0.8,
-                );
-            })
-            .unwrap();
-        set_stdout(console);
-    }
-
-    println!("{} v{}", system.name(), system.version(),);
+    println!("{} v{}", System::name(), System::version(),);
 
     loop {
         print!("# ");
@@ -155,34 +154,32 @@ fn status_bar_thread(_args: usize) {
     window.show();
     WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT, 0, 0, 0));
 
-    let mut sb = string::Str255::new();
+    let mut sb = string::Sb255::new();
     let mut time_val = 0;
     loop {
         time_val += 1; // TODO: true clock
+
         let sec = time_val % 60;
         let min = time_val / 60 % 60;
         let hour = time_val / 3600 % 24;
-
         if sec % 2 == 0 {
             sformat!(sb, "{:02} {:02} {:02}", hour, min, sec);
         } else {
             sformat!(sb, "{:02}:{:02}:{:02}", hour, min, sec);
         };
 
-        let time_str = sb.as_str();
-
-        let bounds = WindowManager::main_screen_bounds();
-        let width = font.width() * time_str.len() as isize;
+        let bounds = window.frame();
+        let width = font.width() * sb.len() as isize;
         let rect = Rect::new(
             bounds.width() - width - font.width() * 2,
-            (window.frame().height() - font.line_height()) / 2,
+            (bounds.height() - font.line_height()) / 2,
             width,
             font.line_height(),
         );
         let _ = window.draw(|bitmap| {
             bitmap.fill_rect(rect, STATUS_BAR_BG_COLOR);
-            bitmap.draw_string(font, rect, IndexedColor::DarkGray.into(), &time_str);
+            bitmap.draw_string(font, rect, IndexedColor::DarkGray.into(), sb.as_str());
         });
-        Timer::usleep(500_000);
+        Timer::usleep(1_000_000);
     }
 }

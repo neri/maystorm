@@ -12,7 +12,7 @@ pub struct FontDriver<'a> {
     data: &'a [u8],
     leading: isize,
     line_height: isize,
-    delta: usize,
+    stride: usize,
 }
 
 impl<'a> FontDriver<'_> {
@@ -21,12 +21,12 @@ impl<'a> FontDriver<'_> {
         let height = height as isize;
         let line_height = height * 5 / 4;
         let leading = (line_height - height) / 2;
-        let delta = ((width as usize + 7) >> 3) * height as usize;
+        let stride = ((width as usize + 7) >> 3) * height as usize;
         FontDriver {
             size: Size::new(width, height),
             line_height,
             leading,
-            delta,
+            stride,
             data,
         }
     }
@@ -42,8 +42,8 @@ impl<'a> FontDriver<'_> {
     fn glyph_for(&self, c: char) -> Option<&[u8]> {
         let c = c as usize;
         if c > 0x20 && c < 0x80 {
-            let base = self.delta * (c - 0x20);
-            Some(&self.data[base..base + self.delta])
+            let base = self.stride * (c - 0x20);
+            Some(&self.data[base..base + self.stride])
         } else {
             None
         }

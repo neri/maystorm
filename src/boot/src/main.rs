@@ -47,6 +47,9 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
     // Load values from CONFIG
     info.cmdline = config.cmdline().as_ptr() as usize as u64;
     info.kernel_base = config.base_address().as_u64();
+    if config.is_headless() {
+        info.flags.insert(BootFlags::HEADLESS);
+    }
 
     // Load KERNEL
     let mut kernel = ImageLoader::new(match get_file(handle, &bs, config.kernel_path()) {
@@ -84,9 +87,9 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
         let gop_info = gop.current_mode_info();
         let mut fb = gop.frame_buffer();
         info.vram_base = fb.as_mut_ptr() as usize as u64;
-        info.vram_delta = gop_info.stride() as u16;
+        info.vram_stride = gop_info.stride() as u16;
         let (mut w, mut h) = gop_info.resolution();
-        if w > info.vram_delta.into() {
+        if w > info.vram_stride.into() {
             swap(&mut w, &mut h);
         }
         info.screen_width = w as u16;

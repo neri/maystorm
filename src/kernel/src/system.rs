@@ -1,6 +1,7 @@
 // A Computer System
 
 use crate::arch::cpu::*;
+use crate::bus::uart::*;
 use crate::scheduler::*;
 use crate::*;
 use alloc::boxed::Box;
@@ -100,6 +101,9 @@ pub struct System {
     num_of_cpus: usize,
     cpus: Vec<Box<Cpu>>,
     acpi: Option<Box<acpi::Acpi>>,
+    boot_flags: BootFlags,
+    boot_screen: Option<Box<Bitmap>>,
+    emergency_console: Option<Box<dyn Tty>>,
 }
 
 static mut SYSTEM: System = System::new();
@@ -112,33 +116,47 @@ impl System {
             num_of_cpus: 0,
             cpus: Vec::new(),
             acpi: None,
+            boot_flags: BootFlags::empty(),
+            boot_screen: None,
+            emergency_console: None,
         }
     }
 
     pub fn init(info: &BootInfo, f: fn() -> ()) -> ! {
         unsafe {
+            let shared = &mut SYSTEM;
+            shared.boot_flags = info.flags;
+
+            MemoryManager::init(&info);
+
+            let screen = Bitmap::from(info);
+            screen.reset();
+            shared.boot_screen = Some(Box::new(screen));
+            let stdout = Box::new(GraphicalConsole::from(Self::boot_screen()));
+            shared.emergency_console = Some(stdout);
+
             let mut my_handler = MyAcpiHandler::new();
-            SYSTEM.acpi = Some(Box::new(
+            shared.acpi = Some(Box::new(
                 ::acpi::parse_rsdp(&mut my_handler, info.acpi_rsdptr as usize).unwrap(),
             ));
 
-            SYSTEM.num_of_cpus = SYSTEM.acpi().application_processors.len() + 1;
+            shared.num_of_cpus = Self::acpi().application_processors.len() + 1;
 
-            SYSTEM.cpus.push(Cpu::new(ProcessorId::from(
-                SYSTEM.acpi().boot_processor.unwrap().local_apic_id,
+            shared.cpus.push(Cpu::new(ProcessorId::from(
+                Self::acpi().boot_processor.unwrap().local_apic_id,
             )));
 
             arch::Arch::init();
 
-            MyScheduler::start(&SYSTEM, Self::late_init, f as *const c_void as usize);
+            MyScheduler::start(Self::init_late, f as *const c_void as usize);
         }
     }
 
-    fn late_init(args: usize) {
+    fn init_late(args: usize) {
         unsafe {
             window::WindowManager::init();
             io::hid::HidManager::init();
-            arch::Arch::late_init();
+            arch::Arch::init_late();
 
             let f: fn() = core::mem::transmute(args);
             f();
@@ -146,42 +164,43 @@ impl System {
     }
 
     #[inline]
-    pub fn shared() -> &'static System {
-        unsafe { &SYSTEM }
+    fn shared() -> &'static mut System {
+        unsafe { &mut SYSTEM }
     }
 
     #[inline]
-    pub fn num_of_cpus(&self) -> usize {
-        self.num_of_cpus
+    pub fn num_of_cpus() -> usize {
+        Self::shared().num_of_cpus
     }
 
     #[inline]
-    pub fn num_of_active_cpus(&self) -> usize {
-        self.cpus.len()
+    pub fn num_of_active_cpus() -> usize {
+        Self::shared().cpus.len()
     }
 
     #[inline]
-    pub fn cpu(&self, index: usize) -> &Box<Cpu> {
-        &self.cpus[index]
+    pub fn cpu<'a>(index: usize) -> &'a Box<Cpu> {
+        &Self::shared().cpus[index]
     }
 
     #[inline]
-    pub fn acpi(&self) -> &acpi::Acpi {
-        self.acpi.as_ref().unwrap()
+    pub fn acpi() -> &'static acpi::Acpi {
+        Self::shared().acpi.as_ref().unwrap()
     }
 
     #[inline]
-    pub(crate) unsafe fn activate_cpu(&self, new_cpu: Box<Cpu>) -> ProcessorIndex {
-        let new_index = SYSTEM.cpus.len();
-        SYSTEM.cpus.push(new_cpu);
+    pub(crate) unsafe fn activate_cpu(new_cpu: Box<Cpu>) -> ProcessorIndex {
+        let shared = Self::shared();
+        let new_index = shared.cpus.len();
+        shared.cpus.push(new_cpu);
         ProcessorIndex(new_index)
     }
 
-    pub fn version<'a>(&self) -> &'a Version {
+    pub fn version<'a>() -> &'a Version {
         &Version::VERSION
     }
 
-    pub fn name<'a>(&self) -> &'a str {
+    pub fn name<'a>() -> &'a str {
         &Version::SYSTEM_NAME
     }
 
@@ -197,7 +216,54 @@ impl System {
             Cpu::stop();
         }
     }
+
+    #[inline]
+    pub fn is_headless() -> bool {
+        Self::shared().boot_flags.contains(BootFlags::HEADLESS)
+    }
+
+    #[inline]
+    pub fn uarts<'a>() -> &'a [Box<dyn Uart>] {
+        arch::Arch::uarts()
+    }
+
+    #[inline]
+    #[track_caller]
+    pub fn boot_screen() -> &'static Box<Bitmap> {
+        &Self::shared().boot_screen.as_ref().unwrap()
+    }
+
+    pub fn set_em_console(value: bool) {
+        let _shared = Self::shared();
+        unsafe {
+            USE_EMCONSOLE = value;
+        }
+    }
+
+    pub fn stdout<'a>() -> &'a mut Box<dyn Tty> {
+        let shared = Self::shared();
+        unsafe {
+            if USE_EMCONSOLE {
+                shared.emergency_console.as_mut().unwrap()
+            } else {
+                STDOUT.as_mut().unwrap()
+            }
+        }
+    }
+
+    pub fn set_stdout(console: Box<dyn Tty>) {
+        let _shared = Self::shared();
+
+        unsafe {
+            STDOUT = Some(console);
+            Self::set_em_console(false);
+        }
+    }
 }
+
+static mut USE_EMCONSOLE: bool = true;
+
+static mut STDOUT: Option<Box<dyn Tty>> = None;
 
 struct MyAcpiHandler {}
 

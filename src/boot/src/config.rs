@@ -24,7 +24,7 @@ pub struct BootSettings {
 }
 
 fn default_kernel() -> &'static str {
-    "\\EFI\\BOOT\\kernel.bin"
+    "/EFI/BOOT/kernel.bin"
 }
 
 fn default_cmdline() -> &'static str {
@@ -32,8 +32,7 @@ fn default_cmdline() -> &'static str {
 }
 
 fn default_base_address() -> u64 {
-    0xFFFF_8000_0000_0000
-    // 0xFFFF_FFFF_8000_0000
+    0xFFFF_FFFF_8000_0000
 }
 
 impl Default for BootSettings {
@@ -43,7 +42,7 @@ impl Default for BootSettings {
 }
 
 impl BootSettings {
-    pub const DEFAULT_CONFIG_PATH: &'static str = "\\EFI\\BOOT\\config.json";
+    pub const DEFAULT_CONFIG_PATH: &'static str = "/EFI/BOOT/config.json";
 
     const DEFAULT_JSON: &'static str = r#"{}"#;
 
@@ -61,5 +60,9 @@ impl BootSettings {
 
     pub const fn base_address(&self) -> VirtualAddress {
         VirtualAddress(self.base_address)
+    }
+
+    pub const fn is_headless(&self) -> bool {
+        self.headless
     }
 }

@@ -52,26 +52,24 @@ impl Spinlock {
 }
 
 #[derive(Debug, Default)]
-pub struct SpinLoopWait {
-    count: usize,
-}
+pub struct SpinLoopWait(usize);
 
 impl SpinLoopWait {
     pub const fn new() -> Self {
-        Self { count: 0 }
+        Self(0)
     }
 
     pub fn reset(&mut self) {
-        self.count = 0;
+        self.0 = 0;
     }
 
     pub fn wait(&mut self) {
-        let count = self.count;
+        let count = self.0;
         for _ in 0..(1 << count) {
             Cpu::spin_loop_hint();
         }
         if count < 6 {
-            self.count += 1;
+            self.0 += 1;
         }
     }
 }

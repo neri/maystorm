@@ -47,11 +47,15 @@ impl MemoryManager {
         unsafe { &mut MM }
     }
 
-    pub fn direct_map(base: usize, size: usize, prot: MProtect) -> Option<NonZeroUsize> {
+    pub unsafe fn direct_map(
+        base: usize,
+        size: usize,
+        prot: MProtect,
+    ) -> Result<NonZeroUsize, AllocationError> {
         // TODO:
         let _ = size;
         let _ = prot;
-        NonZeroUsize::new(base)
+        NonZeroUsize::new(base).ok_or(AllocationError::InvalidArgument)
     }
 
     #[inline]
@@ -60,14 +64,14 @@ impl MemoryManager {
     }
 
     // Allocate static page
-    unsafe fn static_alloc(size: usize) -> Option<NonZeroUsize> {
+    unsafe fn static_alloc(size: usize) -> Result<NonZeroUsize, AllocationError> {
         let shared = Self::shared();
         let page_mask = 0xFFF;
         let size = (size + page_mask * 2 + 1) & !page_mask;
         loop {
             let rest = shared.static_rest.load(Ordering::Relaxed);
             if rest < size {
-                return None;
+                return Err(AllocationError::OutOfMemory);
             }
             if shared
                 .static_rest
@@ -75,18 +79,16 @@ impl MemoryManager {
                 .is_ok()
             {
                 let result = shared.static_start.fetch_add(size, Ordering::SeqCst);
-                return NonZeroUsize::new(result);
+                return NonZeroUsize::new(result).ok_or(AllocationError::Unexpected);
             }
         }
     }
 
-    pub unsafe fn zalloc(size: usize) -> Option<NonZeroUsize> {
-        let page_mask = 0x3FFFF;
-        let size = (size + page_mask * 2 + 1) & !page_mask;
+    pub unsafe fn zalloc(size: usize) -> Result<NonZeroUsize, AllocationError> {
         Self::static_alloc(size)
     }
 
-    pub unsafe fn zfree(base: Option<NonZeroUsize>, size: usize) -> Result<(), ()> {
+    pub unsafe fn zfree(base: Option<NonZeroUsize>, size: usize) -> Result<(), DeallocationError> {
         if let Some(base) = base.map(|v| v.get()) {
             let ptr = base as *mut u8;
             for i in 0..size {
@@ -104,9 +106,9 @@ impl MemoryManager {
         for i in 1..max_real {
             let mut result: u32;
             asm!("
-            lock btr [{0}], {1:e}
-            sbb {2:e}, {2:e}
-            ", in(reg) &shared.real_bitmap[0], in(reg) i, lateout(reg) result, );
+                lock btr [{0}], {1:e}
+                sbb {2:e}, {2:e}
+                ", in(reg) &shared.real_bitmap[0], in(reg) i, lateout(reg) result, );
             if result != 0 {
                 return NonZeroU8::new(i as u8);
             }
@@ -122,4 +124,17 @@ bitflags! {
         const EXEC  = 0x4;
         const NONE  = 0x0;
     }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum AllocationError {
+    Unexpected,
+    OutOfMemory,
+    InvalidArgument,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum DeallocationError {
+    Unexpected,
+    InvalidArgument,
 }

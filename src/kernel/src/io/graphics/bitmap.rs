@@ -13,7 +13,7 @@ use core::mem::swap;
 pub struct Bitmap {
     base: *mut u32,
     size: Size<isize>,
-    delta: usize,
+    stride: usize,
     flags: BitmapFlags,
 }
 
@@ -29,7 +29,7 @@ static BIT_MASKS: [u8; 8] = [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
 
 impl From<&BootInfo> for Bitmap {
     fn from(info: &BootInfo) -> Self {
-        let delta = info.vram_delta;
+        let stride = info.vram_stride;
         let mut width = info.screen_width;
         let mut height = info.screen_height;
         let mut is_portrait = height > width;
@@ -38,7 +38,7 @@ impl From<&BootInfo> for Bitmap {
             // portrait
             swap(&mut width, &mut height);
         }
-        if delta > width {
+        if stride > width {
             // GPD micro PC fake landscape mode
             is_portrait = true;
         }
@@ -48,8 +48,8 @@ impl From<&BootInfo> for Bitmap {
         Bitmap {
             base: info.vram_base as *mut u32,
             size: Size::new(width as isize, height as isize),
-            delta: delta.into(),
-            flags: flags,
+            stride: stride.into(),
+            flags,
         }
     }
 }
@@ -64,7 +64,7 @@ impl Bitmap {
         Self {
             base,
             size: Size::new(width as isize, height as isize),
-            delta: width.into(),
+            stride: width.into(),
             flags,
         }
     }
@@ -86,7 +86,7 @@ impl Bitmap {
 
         let base = unsafe {
             self.get_fb()
-                .add(coords.left as usize + coords.top as usize * self.delta)
+                .add(coords.left as usize + coords.top as usize * self.stride)
         };
         let mut flags = self.flags;
         flags.insert(BitmapFlags::VIEW);
@@ -94,7 +94,7 @@ impl Bitmap {
         Some(Self {
             base,
             size: Rect::from(coords).size,
-            delta: self.delta,
+            stride: self.stride,
             flags,
         })
     }
@@ -152,13 +152,13 @@ impl Bitmap {
     where
         F: FnOnce(&mut [Color]),
     {
-        if self.delta != self.size.width as usize {
+        if self.stride != self.size.width as usize {
             return Err(());
         }
         let slice = unsafe {
             core::slice::from_raw_parts_mut(
                 self.base as *mut Color,
-                self.delta * self.size.height as usize,
+                self.stride * self.size.height as usize,
             )
         };
         f(slice);
@@ -205,9 +205,9 @@ impl Bitmap {
         }
 
         unsafe {
-            let mut ptr = self.get_fb().add(dx as usize + dy as usize * self.delta);
-            let delta_ptr = self.delta - width as usize;
-            if delta_ptr == 0 {
+            let mut ptr = self.get_fb().add(dx as usize + dy as usize * self.stride);
+            let stride_ptr = self.stride - width as usize;
+            if stride_ptr == 0 {
                 let count = width * height;
                 for _ in 0..count {
                     ptr.write_volatile(color.argb());
@@ -219,7 +219,7 @@ impl Bitmap {
                         ptr.write_volatile(color.argb());
                         ptr = ptr.add(1);
                     }
-                    ptr = ptr.add(delta_ptr);
+                    ptr = ptr.add(stride_ptr);
                 }
             }
         }
@@ -270,8 +270,8 @@ impl Bitmap {
         }
 
         unsafe {
-            let mut ptr = self.get_fb().add(dx as usize + dy as usize * self.delta);
-            let delta_ptr = self.delta - width as usize;
+            let mut ptr = self.get_fb().add(dx as usize + dy as usize * self.stride);
+            let stride_ptr = self.stride - width as usize;
             for _y in 0..height {
                 for _x in 0..width {
                     let lhs = Color::from_argb(ptr.read_volatile()).components();
@@ -285,7 +285,7 @@ impl Bitmap {
                     ptr.write_volatile(c.into());
                     ptr = ptr.add(1);
                 }
-                ptr = ptr.add(delta_ptr);
+                ptr = ptr.add(stride_ptr);
             }
         }
     }
@@ -302,7 +302,7 @@ impl Bitmap {
                     dy = temp;
                 }
                 unsafe {
-                    fb.add(dx as usize + dy as usize * self.delta)
+                    fb.add(dx as usize + dy as usize * self.stride)
                         .write_volatile(color.argb());
                 }
             }
@@ -340,7 +340,7 @@ impl Bitmap {
             // TODO:
         } else {
             unsafe {
-                let mut ptr = self.get_fb().add(dx as usize + dy as usize * self.delta);
+                let mut ptr = self.get_fb().add(dx as usize + dy as usize * self.stride);
                 for _ in 0..w {
                     ptr.write_volatile(color.argb());
                     ptr = ptr.add(1);
@@ -375,7 +375,7 @@ impl Bitmap {
             // TODO:
         } else {
             unsafe {
-                let dd = self.delta;
+                let dd = self.stride;
                 let mut ptr = self.get_fb().add(dx as usize + dy as usize * dd);
                 for _ in 0..h {
                     ptr.write_volatile(color.argb());
@@ -417,8 +417,8 @@ impl Bitmap {
         unsafe {
             if self.is_portrait() {
                 dy = self.size.height - dy - height;
-                let mut ptr = self.get_fb().add(dy as usize + dx as usize * self.delta);
-                let delta_ptr = self.delta - height as usize;
+                let mut ptr = self.get_fb().add(dy as usize + dx as usize * self.stride);
+                let stride_ptr = self.stride - height as usize;
                 for x in 0..w8 {
                     for mask in BIT_MASKS.iter() {
                         for y in (0..height).rev() {
@@ -428,12 +428,12 @@ impl Bitmap {
                             }
                             ptr = ptr.add(1);
                         }
-                        ptr = ptr.add(delta_ptr);
+                        ptr = ptr.add(stride_ptr);
                     }
                 }
             } else {
                 let mut src_ptr = 0;
-                let mut ptr0 = self.get_fb().add(dx as usize + dy as usize * self.delta);
+                let mut ptr0 = self.get_fb().add(dx as usize + dy as usize * self.stride);
                 for _y in 0..height {
                     let mut ptr = ptr0;
                     for _x in 0..w8 {
@@ -446,7 +446,7 @@ impl Bitmap {
                         }
                         src_ptr += 1;
                     }
-                    ptr0 = ptr0.add(self.delta);
+                    ptr0 = ptr0.add(self.stride);
                 }
             }
         }
@@ -497,12 +497,12 @@ impl Bitmap {
             unsafe {
                 let mut p = self
                     .get_fb()
-                    .add(dx as usize + dy as usize * self.delta - height as usize);
-                let delta_p = self.delta - height as usize;
+                    .add(dx as usize + dy as usize * self.stride - height as usize);
+                let stride_p = self.stride - height as usize;
                 let q0 = src
                     .get_fb()
-                    .add(sx as usize + (sy + height - 1) as usize * src.delta);
-                let delta_q = src.delta;
+                    .add(sx as usize + (sy + height - 1) as usize * src.stride);
+                let stride_q = src.stride;
                 if src.is_opaque() {
                     for x in 0..width {
                         let mut q = q0.add(x as usize);
@@ -510,9 +510,9 @@ impl Bitmap {
                             let c = q.read_volatile();
                             p.write_volatile(c);
                             p = p.add(1);
-                            q = q.sub(delta_q);
+                            q = q.sub(stride_q);
                         }
-                        p = p.add(delta_p);
+                        p = p.add(stride_p);
                     }
                 } else {
                     for x in 0..width {
@@ -534,20 +534,20 @@ impl Bitmap {
                             }
 
                             p = p.add(1);
-                            q = q.sub(delta_q);
+                            q = q.sub(stride_q);
                         }
-                        p = p.add(delta_p);
+                        p = p.add(stride_p);
                     }
                 }
             }
         } else {
             unsafe {
-                let mut p = self.get_fb().add(dx as usize + dy as usize * self.delta);
-                let delta_p = self.delta - width as usize;
-                let mut q = src.get_fb().add(sx as usize + sy as usize * src.delta);
-                let delta_q = src.delta - width as usize;
+                let mut p = self.get_fb().add(dx as usize + dy as usize * self.stride);
+                let stride_p = self.stride - width as usize;
+                let mut q = src.get_fb().add(sx as usize + sy as usize * src.stride);
+                let stride_q = src.stride - width as usize;
                 if src.is_opaque() {
-                    if delta_p == 0 && delta_q == 0 {
+                    if stride_p == 0 && stride_q == 0 {
                         let count = width * height;
                         for _ in 0..count {
                             let c = q.read_volatile();
@@ -563,8 +563,8 @@ impl Bitmap {
                                 p = p.add(1);
                                 q = q.add(1);
                             }
-                            p = p.add(delta_p);
-                            q = q.add(delta_q);
+                            p = p.add(stride_p);
+                            q = q.add(stride_q);
                         }
                     }
                 } else {
@@ -587,8 +587,8 @@ impl Bitmap {
                             p = p.add(1);
                             q = q.add(1);
                         }
-                        p = p.add(delta_p);
-                        q = q.add(delta_q);
+                        p = p.add(stride_p);
+                        q = q.add(stride_q);
                     }
                 }
             }

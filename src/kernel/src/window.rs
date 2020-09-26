@@ -6,6 +6,7 @@ use crate::io::hid::*;
 use crate::num::*;
 use crate::scheduler::*;
 use crate::sync::semaphore::*;
+use crate::system::*;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
@@ -104,7 +105,7 @@ pub struct WindowManager {
 
 impl WindowManager {
     pub(crate) fn init() {
-        let main_screen = boot_screen();
+        let main_screen = System::boot_screen();
         let off_screen = Box::new(Bitmap::with_same_size(main_screen));
 
         let wm = WindowManager {

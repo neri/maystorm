@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::io::fonts::*;
+use crate::io::tty::*;
 use crate::window::*;
 use alloc::boxed::Box;
 use core::fmt::Write;
@@ -82,36 +83,9 @@ impl<'a> GraphicalConsole<'a> {
 }
 
 impl GraphicalConsole<'_> {
-    pub fn reset(&mut self) {
-        let old_cursor_state = self.set_cursor_enabled(false);
-        self.set_cursor_position(0, 0);
-        self.bitmap.reset();
-        if old_cursor_state {
-            self.set_cursor_enabled(old_cursor_state);
-        }
-        if let Some(handle) = self.handle {
-            handle.invalidate();
-        }
-    }
-
     #[inline]
     pub fn window(&self) -> Option<WindowHandle> {
         self.handle
-    }
-
-    #[inline]
-    pub fn dims(&self) -> (isize, isize) {
-        self.dims
-    }
-
-    #[inline]
-    pub fn set_attribute(&mut self, attribute: u8) {
-        self.attribute = NonZeroU8::new(attribute).unwrap_or(self.default_attribute);
-    }
-
-    #[inline]
-    pub fn attribute(&self) -> u8 {
-        self.attribute.get()
     }
 
     #[inline]
@@ -125,48 +99,6 @@ impl GraphicalConsole<'_> {
     }
 
     #[inline]
-    pub fn cursor_position(&self) -> (isize, isize) {
-        self.cursor
-    }
-
-    pub fn set_cursor_position(&mut self, x: isize, y: isize) {
-        self.update_cursor(move |_, _| (x, y));
-    }
-
-    #[inline]
-    pub fn is_cursor_enabled(&self) -> bool {
-        self.is_cursor_enabled
-    }
-
-    pub fn set_cursor_enabled(&mut self, enabled: bool) -> bool {
-        let old_value = self.is_cursor_enabled;
-        self.is_cursor_enabled = enabled;
-
-        if old_value || enabled {
-            let font = self.font;
-            let cursor_height = font.line_height() / 8;
-            let rect = Rect::new(
-                self.insets.left + self.cursor.0 * font.width(),
-                self.insets.top + (self.cursor.1 + 1) * font.line_height() - cursor_height,
-                font.width(),
-                cursor_height,
-            );
-            self.bitmap.fill_rect(
-                rect,
-                if enabled {
-                    self.fg_color()
-                } else {
-                    self.bg_color()
-                },
-            );
-            if let Some(handle) = self.handle {
-                handle.invalidate_rect(rect);
-            }
-        }
-
-        old_value
-    }
-
     fn draw_char(&self, dims: (isize, isize), c: char) {
         let font = self.font;
         let rect = Rect::new(dims.0, dims.1, font.width(), font.line_height());
@@ -257,10 +189,89 @@ impl GraphicalConsole<'_> {
 }
 
 impl Write for GraphicalConsole<'_> {
+    fn write_char(&mut self, c: char) -> core::fmt::Result {
+        self.putchar(c);
+        Ok(())
+    }
+
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         for c in s.chars() {
             self.putchar(c);
         }
         Ok(())
+    }
+}
+
+impl Tty for GraphicalConsole<'_> {
+    fn reset(&mut self) -> Result<(), TtyError> {
+        let old_cursor_state = self.set_cursor_enabled(false);
+        self.set_cursor_position(0, 0);
+        self.bitmap.reset();
+        if old_cursor_state {
+            self.set_cursor_enabled(old_cursor_state);
+        }
+        if let Some(handle) = self.handle {
+            handle.invalidate();
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn dims(&self) -> (isize, isize) {
+        self.dims
+    }
+
+    #[inline]
+    fn cursor_position(&self) -> (isize, isize) {
+        self.cursor
+    }
+
+    #[inline]
+    fn set_cursor_position(&mut self, x: isize, y: isize) {
+        self.update_cursor(move |_, _| (x, y));
+    }
+
+    #[inline]
+    fn is_cursor_enabled(&self) -> bool {
+        self.is_cursor_enabled
+    }
+
+    fn set_cursor_enabled(&mut self, enabled: bool) -> bool {
+        let old_value = self.is_cursor_enabled;
+        self.is_cursor_enabled = enabled;
+
+        if old_value || enabled {
+            let font = self.font;
+            let cursor_height = font.line_height() / 8;
+            let rect = Rect::new(
+                self.insets.left + self.cursor.0 * font.width(),
+                self.insets.top + (self.cursor.1 + 1) * font.line_height() - cursor_height,
+                font.width(),
+                cursor_height,
+            );
+            self.bitmap.fill_rect(
+                rect,
+                if enabled {
+                    self.fg_color()
+                } else {
+                    self.bg_color()
+                },
+            );
+            if let Some(handle) = self.handle {
+                handle.invalidate_rect(rect);
+            }
+        }
+
+        old_value
+    }
+
+    #[inline]
+    fn attribute(&self) -> u8 {
+        self.attribute.get()
+    }
+
+    #[inline]
+    fn set_attribute(&mut self, attribute: u8) {
+        self.attribute = NonZeroU8::new(attribute).unwrap_or(self.default_attribute);
     }
 }

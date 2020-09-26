@@ -34,7 +34,7 @@ pub unsafe extern "C" fn apic_start_ap(_cpuid: u8) {
     GLOBALLOCK.synchronized(|| {
         let new_cpu = Cpu::new(LocalApic::init_ap());
         let new_cpuid = new_cpu.cpu_id;
-        let index = System::shared().activate_cpu(new_cpu);
+        let index = System::activate_cpu(new_cpu);
         CURRENT_PROCESSOR_INDEXES[new_cpuid.0 as usize] = index.0 as u8;
     });
 }
@@ -72,7 +72,7 @@ impl Apic {
         Cpu::disable_interrupt();
 
         // init Local Apic
-        APIC.master_apic_id = System::shared().cpu(0).as_ref().cpu_id;
+        APIC.master_apic_id = System::cpu(0).as_ref().cpu_id;
         CURRENT_PROCESSOR_INDEXES[APIC.master_apic_id.0 as usize] = 0;
         LocalApic::init(acpi_apic.local_apic_address as usize);
 
@@ -112,7 +112,7 @@ impl Apic {
         InterruptDescriptorTable::register(vec_latimer, VirtualAddress(timer_handler as usize));
         LocalApic::clear_timer();
         LocalApic::set_timer_div(LocalApicTimerDivide::By1);
-        if let Some(hpet_info) = &System::shared().acpi().hpet {
+        if let Some(hpet_info) = &System::acpi().hpet {
             // Use HPET
             let hpet = Hpet::new(hpet_info);
             let magic_number = 100;
@@ -139,7 +139,7 @@ impl Apic {
 
         // Setup SMP
         let sipi_vec = InterruptVector(MemoryManager::static_alloc_real().unwrap().get());
-        let max_cpu = core::cmp::min(System::shared().num_of_cpus(), MAX_CPU);
+        let max_cpu = core::cmp::min(System::num_of_cpus(), MAX_CPU);
         let stack_chunk_size = 0x4000;
         let stack_base = MemoryManager::zalloc(max_cpu * stack_chunk_size)
             .unwrap()
@@ -151,7 +151,7 @@ impl Apic {
         Timer::usleep(10_000);
         LocalApic::broadcast_startup(sipi_vec);
         Timer::usleep(10_000);
-        if System::shared().num_of_active_cpus() != max_cpu {
+        if System::num_of_active_cpus() != max_cpu {
             panic!("Some of the processors are not responding");
         }
 
@@ -396,7 +396,7 @@ impl LocalApic {
     const IA32_APIC_BASE_MSR_ENABLE: u64 = 0x00000800;
 
     unsafe fn init(base: usize) {
-        LOCAL_APIC = Mmio::from_phys(base, 0x1000);
+        LOCAL_APIC = Mmio::from_phys(base, 0x1000).ok();
 
         let msr = Msr::ApicBase;
         let val = msr.read();

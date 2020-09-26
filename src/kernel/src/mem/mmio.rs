@@ -16,7 +16,7 @@ unsafe impl Send for Mmio {}
 unsafe impl Sync for Mmio {}
 
 impl Mmio {
-    pub unsafe fn from_phys(base: usize, size: usize) -> Option<Self> {
+    pub unsafe fn from_phys(base: usize, size: usize) -> Result<Self, AllocationError> {
         MemoryManager::direct_map(base, size, MProtect::READ | MProtect::WRITE).map(|va| Self {
             base: va.get(),
             size,
@@ -61,7 +61,7 @@ impl Mmio {
         let mut result = 0;
         self.check_limit(offset, &result);
         let ptr: &AtomicU8 = transmute(self.base + offset);
-        result = ptr.load(Ordering::Acquire);
+        result = ptr.load(Ordering::SeqCst);
         result
     }
 
@@ -71,7 +71,7 @@ impl Mmio {
         let mut result = 0;
         self.check_limit(offset, &result);
         let ptr: &AtomicU32 = transmute(self.base + offset);
-        result = ptr.load(Ordering::Acquire);
+        result = ptr.load(Ordering::SeqCst);
         result
     }
 
@@ -81,7 +81,7 @@ impl Mmio {
         let mut result = 0;
         self.check_limit(offset, &result);
         let ptr: &AtomicU64 = transmute(self.base + offset);
-        result = ptr.load(Ordering::Acquire);
+        result = ptr.load(Ordering::SeqCst);
         result
     }
 
@@ -90,7 +90,7 @@ impl Mmio {
     pub unsafe fn write_u8(&self, offset: usize, value: u8) {
         self.check_limit(offset, &value);
         let ptr: &AtomicU8 = transmute(self.base + offset);
-        ptr.store(value, Ordering::Release);
+        ptr.store(value, Ordering::SeqCst);
     }
 
     #[inline]
@@ -98,7 +98,7 @@ impl Mmio {
     pub unsafe fn write_u32(&self, offset: usize, value: u32) {
         self.check_limit(offset, &value);
         let ptr: &AtomicU32 = transmute(self.base + offset);
-        ptr.store(value, Ordering::Release);
+        ptr.store(value, Ordering::SeqCst);
     }
 
     #[inline]
@@ -106,7 +106,7 @@ impl Mmio {
     pub unsafe fn write_u64(&self, offset: usize, value: u64) {
         self.check_limit(offset, &value);
         let ptr: &AtomicU64 = transmute(self.base + offset);
-        ptr.store(value, Ordering::Release);
+        ptr.store(value, Ordering::SeqCst);
     }
 
     #[inline]
