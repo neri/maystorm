@@ -2,11 +2,16 @@
 
 use super::*;
 use crate::io::fonts::*;
+use crate::io::hid::*;
 use crate::io::tty::*;
 use crate::window::*;
 use alloc::boxed::Box;
+use alloc::sync::Arc;
 use core::fmt::Write;
+use core::future::Future;
 use core::num::*;
+use core::pin::Pin;
+use core::task::{Context, Poll};
 
 static DEFAULT_CONSOLE_ATTRIBUTE: NonZeroU8 = unsafe { NonZeroU8::new_unchecked(0x07) };
 static DEFAULT_WINDOW_ATTRIBUTE: NonZeroU8 = unsafe { NonZeroU8::new_unchecked(0xF8) };
@@ -60,7 +65,7 @@ impl<'a> GraphicalConsole<'a> {
             .size(size + DEFAULT_CONSOLE_INSETS)
             .build();
 
-        let bitmap = window.get_bitmap().unwrap();
+        let bitmap = window.bitmap().unwrap();
         let insets = window.content_insets() + DEFAULT_CONSOLE_INSETS;
         let rect = Rect::from(bitmap.size()).insets_by(insets);
         let cols = rect.size.width / font.width();
@@ -202,7 +207,7 @@ impl Write for GraphicalConsole<'_> {
     }
 }
 
-impl Tty for GraphicalConsole<'_> {
+impl TtyWrite for GraphicalConsole<'_> {
     fn reset(&mut self) -> Result<(), TtyError> {
         let old_cursor_state = self.set_cursor_enabled(false);
         self.set_cursor_position(0, 0);
@@ -273,5 +278,33 @@ impl Tty for GraphicalConsole<'_> {
     #[inline]
     fn set_attribute(&mut self, attribute: u8) {
         self.attribute = NonZeroU8::new(attribute).unwrap_or(self.default_attribute);
+    }
+}
+
+impl TtyRead for GraphicalConsole<'_> {
+    fn read_async(&self) -> Pin<Box<dyn Future<Output = TtyReadResult> + '_>> {
+        Box::pin(VtReader {
+            _vt: Arc::new(self),
+        })
+    }
+}
+
+impl Tty for GraphicalConsole<'_> {}
+
+struct VtReader<'a> {
+    _vt: Arc<&'a GraphicalConsole<'a>>,
+}
+
+impl Future for VtReader<'_> {
+    type Output = TtyReadResult;
+
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match HidManager::get_key() {
+            None => Poll::Pending,
+            Some(e) => {
+                let c = e.into();
+                Poll::Ready(Ok(c))
+            }
+        }
     }
 }

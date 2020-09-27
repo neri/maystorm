@@ -1,9 +1,13 @@
 // VT100
 
 use super::tty::*;
-use crate::bus::uart::*;
+use crate::dev::uart::*;
 use alloc::boxed::Box;
+use alloc::sync::Arc;
 use core::fmt::Write;
+use core::future::Future;
+use core::pin::Pin;
+use core::task::{Context, Poll};
 
 pub struct Vt100<'a> {
     uart: &'a Box<dyn Uart>,
@@ -33,11 +37,10 @@ impl Write for Vt100<'_> {
     }
 }
 
-impl Tty for Vt100<'_> {
+impl TtyWrite for Vt100<'_> {
     fn reset(&mut self) -> Result<(), TtyError> {
         //self.output_str("\x1bc");
         self.output_str("\x1b[2J\x1b[H")
-            .map_err(|_| TtyError::DeviceError)
     }
 
     fn dims(&self) -> (isize, isize) {
@@ -69,5 +72,29 @@ impl Tty for Vt100<'_> {
     fn set_attribute(&mut self, attribute: u8) {
         let _ = attribute;
         // TODO:
+    }
+}
+
+impl TtyRead for Vt100<'_> {
+    fn read_async(&self) -> Pin<Box<dyn Future<Output = TtyReadResult> + '_>> {
+        Box::pin(Vt100Reader { vt: Arc::new(self) })
+    }
+}
+
+impl Tty for Vt100<'_> {}
+
+struct Vt100Reader<'a> {
+    vt: Arc<&'a Vt100<'a>>,
+}
+
+impl Future for Vt100Reader<'_> {
+    type Output = TtyReadResult;
+
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match self.vt.uart.read() {
+            Ok(c) => Poll::Ready(Ok(c as char)),
+            Err(TtyError::NotReady) => Poll::Pending,
+            Err(err) => Poll::Ready(Err(err)),
+        }
     }
 }

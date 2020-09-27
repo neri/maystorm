@@ -1,14 +1,18 @@
 // A Computer System
 
 use crate::arch::cpu::*;
-use crate::bus::uart::*;
+use crate::dev::uart::*;
+use crate::io::tty::*;
+use crate::io::vt100::*;
 use crate::scheduler::*;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
 use bootprot::BootInfo;
+use core::fmt::*;
 use core::num::*;
 use core::ptr::*;
+use core::sync::atomic::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Version {
@@ -103,7 +107,9 @@ pub struct System {
     acpi: Option<Box<acpi::Acpi>>,
     boot_flags: BootFlags,
     boot_screen: Option<Box<Bitmap>>,
+    stdout: Option<Box<dyn Tty>>,
     emergency_console: Option<Box<dyn Tty>>,
+    use_emergency_console: AtomicBool,
 }
 
 static mut SYSTEM: System = System::new();
@@ -118,7 +124,9 @@ impl System {
             acpi: None,
             boot_flags: BootFlags::empty(),
             boot_screen: None,
+            stdout: None,
             emergency_console: None,
+            use_emergency_console: AtomicBool::new(true),
         }
     }
 
@@ -126,14 +134,21 @@ impl System {
         unsafe {
             let shared = &mut SYSTEM;
             shared.boot_flags = info.flags;
+            // shared.boot_flags.insert(BootFlags::HEADLESS);
 
             MemoryManager::init(&info);
 
-            let screen = Bitmap::from(info);
-            screen.reset();
-            shared.boot_screen = Some(Box::new(screen));
-            let stdout = Box::new(GraphicalConsole::from(Self::boot_screen()));
-            shared.emergency_console = Some(stdout);
+            if System::is_headless() {
+                let uart = arch::Arch::master_uart().unwrap();
+                let stdout = Box::new(Vt100::with_uart(&uart));
+                shared.emergency_console = Some(stdout);
+            } else {
+                let screen = Bitmap::from(info);
+                screen.reset();
+                shared.boot_screen = Some(Box::new(screen));
+                let stdout = Box::new(GraphicalConsole::from(shared.boot_screen.as_ref().unwrap()));
+                shared.emergency_console = Some(stdout);
+            }
 
             let mut my_handler = MyAcpiHandler::new();
             shared.acpi = Some(Box::new(
@@ -153,8 +168,11 @@ impl System {
     }
 
     fn init_late(args: usize) {
+        let shared = Self::shared();
         unsafe {
-            window::WindowManager::init();
+            if let Some(main_screen) = shared.boot_screen.as_ref() {
+                window::WindowManager::init(main_screen);
+            }
             io::hid::HidManager::init();
             arch::Arch::init_late();
 
@@ -204,17 +222,12 @@ impl System {
         &Version::SYSTEM_NAME
     }
 
-    pub fn reset() -> ! {
-        unsafe {
-            Cpu::reset();
-        }
+    pub unsafe fn reset() -> ! {
+        Cpu::reset();
     }
 
-    pub fn shutdown() -> ! {
-        // TODO:
-        unsafe {
-            Cpu::stop();
-        }
+    pub unsafe fn shutdown() -> ! {
+        todo!();
     }
 
     #[inline]
@@ -227,43 +240,26 @@ impl System {
         arch::Arch::uarts()
     }
 
-    #[inline]
-    #[track_caller]
-    pub fn boot_screen() -> &'static Box<Bitmap> {
-        &Self::shared().boot_screen.as_ref().unwrap()
-    }
-
     pub fn set_em_console(value: bool) {
-        let _shared = Self::shared();
-        unsafe {
-            USE_EMCONSOLE = value;
-        }
+        let shared = Self::shared();
+        shared.use_emergency_console.store(value, Ordering::SeqCst);
     }
 
     pub fn stdout<'a>() -> &'a mut Box<dyn Tty> {
         let shared = Self::shared();
-        unsafe {
-            if USE_EMCONSOLE {
-                shared.emergency_console.as_mut().unwrap()
-            } else {
-                STDOUT.as_mut().unwrap()
-            }
+        if shared.use_emergency_console.load(Ordering::SeqCst) {
+            shared.emergency_console.as_mut().unwrap()
+        } else {
+            shared.stdout.as_mut().unwrap()
         }
     }
 
     pub fn set_stdout(console: Box<dyn Tty>) {
-        let _shared = Self::shared();
-
-        unsafe {
-            STDOUT = Some(console);
-            Self::set_em_console(false);
-        }
+        let shared = Self::shared();
+        shared.stdout = Some(console);
+        Self::set_em_console(false);
     }
 }
-
-static mut USE_EMCONSOLE: bool = true;
-
-static mut STDOUT: Option<Box<dyn Tty>> = None;
 
 struct MyAcpiHandler {}
 

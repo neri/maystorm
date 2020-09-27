@@ -1,4 +1,4 @@
-// Human Interface Devices
+// Human Interface Device Manager
 
 use crate::*;
 use alloc::boxed::Box;
@@ -42,22 +42,21 @@ bitflags! {
         const RSHIFT = 0b0010_0000;
         const RALT = 0b0100_0000;
         const RGUI = 0b1000_0000;
-
-        const SHIFT = Self::LSHIFT.bits | Self::RSHIFT.bits;
-        const CTRL = Self::LCTRL.bits | Self::RCTRL.bits;
-        const ALT = Self::LALT.bits | Self::RALT.bits;
     }
 }
 
 impl Modifier {
+    #[inline]
     pub fn is_shift(self) -> bool {
-        (self.bits & Self::SHIFT.bits) != 0
+        (self.bits & (Self::LSHIFT.bits | Self::RSHIFT.bits)) != 0
     }
+    #[inline]
     pub fn is_ctrl(self) -> bool {
-        (self.bits & Self::CTRL.bits) != 0
+        (self.bits & (Self::LCTRL.bits | Self::RCTRL.bits)) != 0
     }
+    #[inline]
     pub fn is_alt(self) -> bool {
-        (self.bits & Self::ALT.bits) != 0
+        (self.bits & (Self::LALT.bits | Self::RALT.bits)) != 0
     }
 }
 
@@ -146,14 +145,14 @@ where
 
 bitflags! {
     pub struct MouseButton: u8 {
-        const LEFT = 0b0000_0001;
-        const RIGHT = 0b0000_0010;
-        const MIDDLE = 0b0000_0100;
-        const BUTTON4 = 0b0000_1000;
-        const BUTTON5 = 0b0001_0000;
-        const BUTTON6 = 0b0010_0000;
-        const BUTTON7 = 0b0100_0000;
-        const BUTTON8 = 0b1000_0000;
+        const LEFT      = 0b0000_0001;
+        const RIGHT     = 0b0000_0010;
+        const MIDDLE    = 0b0000_0100;
+        const BUTTON4   = 0b0000_1000;
+        const BUTTON5   = 0b0001_0000;
+        const BUTTON6   = 0b0010_0000;
+        const BUTTON7   = 0b0100_0000;
+        const BUTTON8   = 0b1000_0000;
     }
 }
 
@@ -219,7 +218,9 @@ impl HidManager {
     pub fn send_key_event(v: KeyEvent) {
         let shared = HidManager::shared();
         if v.usage() == Usage::DELETE && v.modifier().is_ctrl() && v.modifier().is_alt() {
-            System::reset();
+            unsafe {
+                System::reset();
+            }
         }
         let _ = shared.key_buf.push(v);
     }

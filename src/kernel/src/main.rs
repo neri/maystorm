@@ -9,9 +9,10 @@
 use alloc::boxed::Box;
 use bootprot::*;
 use core::fmt::Write;
+use core::future::Future;
+use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 use io::fonts::*;
 use io::graphics::*;
-use io::hid::*;
 use kernel::*;
 use mem::string;
 use scheduler::*;
@@ -32,9 +33,6 @@ const STATUS_BAR_BG_COLOR: Color = Color::from_argb(0xC0EEEEEE);
 
 fn main() {
     if System::is_headless() {
-        let uart = &System::uarts()[0];
-        let console = Box::new(io::vt100::Vt100::with_uart(uart));
-        System::set_stdout(console);
         stdout().reset().unwrap();
     } else {
         // Status bar
@@ -106,27 +104,52 @@ fn main() {
 
     println!("{} v{}", System::name(), System::version(),);
 
+    // unsafe {
+    //     mem::memory::MemoryManager::exhaust();
+    // }
+    let waker = dummy_waker();
+    let mut repl = Box::pin(repl());
+    let mut cx = Context::from_waker(&waker);
+    loop {
+        match repl.as_mut().poll(&mut cx) {
+            Poll::Ready(_) => break,
+            Poll::Pending => Timer::usleep(100000),
+        }
+    }
+}
+
+async fn repl() {
     loop {
         print!("# ");
         loop {
             stdout().set_cursor_enabled(true);
-            match HidManager::get_key() {
-                Some(key) => {
-                    stdout().set_cursor_enabled(false);
-                    let c: char = key.into();
-                    match c {
-                        '\0' => (),
-                        '\r' => {
-                            println!("\nBad command or file name - KERNEL PANIC!!!");
-                            break;
-                        }
-                        _ => print!("{}", c),
+            if let Ok(c) = stdout().read_async().await {
+                stdout().set_cursor_enabled(false);
+                match c {
+                    '\0' => (),
+                    '\r' => {
+                        println!("\nBad command or file name - KERNEL PANIC!!!");
+                        break;
                     }
+                    _ => print!("{}", c),
                 }
-                None => Timer::usleep(10000),
             }
         }
     }
+}
+
+fn dummy_waker() -> Waker {
+    unsafe { Waker::from_raw(dummy_raw_waker()) }
+}
+
+fn dummy_raw_waker() -> RawWaker {
+    fn no_op(_: *const ()) {}
+    fn clone(_: *const ()) -> RawWaker {
+        dummy_raw_waker()
+    }
+
+    let vtable = &RawWakerVTable::new(clone, no_op, no_op, no_op);
+    RawWaker::new(0 as *const (), vtable)
 }
 
 fn status_bar_thread(_args: usize) {

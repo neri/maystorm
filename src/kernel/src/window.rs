@@ -1,4 +1,4 @@
-// Windows
+// A Window System
 
 use crate::io::fonts::*;
 use crate::io::graphics::*;
@@ -6,7 +6,6 @@ use crate::io::hid::*;
 use crate::num::*;
 use crate::scheduler::*;
 use crate::sync::semaphore::*;
-use crate::system::*;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
@@ -77,11 +76,6 @@ const CLOSE_BUTTON_SOURCE: [[u8; CLOSE_BUTTON_SIZE]; CLOSE_BUTTON_SIZE] = [
 
 static mut WM: Option<Box<WindowManager>> = None;
 
-#[derive(Default)]
-struct Resources {
-    close_button: Option<Box<Bitmap>>,
-}
-
 pub struct WindowManager {
     lock: Spinlock,
     sem_redraw: Semaphore,
@@ -103,9 +97,13 @@ pub struct WindowManager {
     captured_origin: Point<isize>,
 }
 
+#[derive(Default)]
+struct Resources {
+    close_button: Option<Box<Bitmap>>,
+}
+
 impl WindowManager {
-    pub(crate) fn init() {
-        let main_screen = System::boot_screen();
+    pub(crate) fn init(main_screen: &'static Box<Bitmap>) {
         let off_screen = Box::new(Bitmap::with_same_size(main_screen));
 
         let wm = WindowManager {
@@ -154,7 +152,7 @@ impl WindowManager {
         };
 
         {
-            // Desktop
+            // Root Window (Desktop)
             shared.root = Some(
                 WindowBuilder::new("Desktop")
                     .style(WindowStyle::CLIENT_RECT)
@@ -170,19 +168,15 @@ impl WindowManager {
             // Pointer
             let w = MOUSE_POINTER_WIDTH;
             let h = MOUSE_POINTER_HEIGHT;
-            shared.pointer = Some(
-                WindowBuilder::new("Pointer")
-                    .style(WindowStyle::CLIENT_RECT)
-                    .level(WindowLevel::POINTER)
-                    .origin(shared.pointer())
-                    .size(Size::new(w as isize, h as isize))
-                    .bg_color(Color::from_argb(0x80FF00FF))
-                    .build(),
-            );
+            let pointer = WindowBuilder::new("Pointer")
+                .style(WindowStyle::CLIENT_RECT)
+                .level(WindowLevel::POINTER)
+                .origin(shared.pointer())
+                .size(Size::new(w as isize, h as isize))
+                .bg_color(Color::from_argb(0x80FF00FF))
+                .build();
 
-            shared
-                .pointer
-                .unwrap()
+            pointer
                 .draw(|bitmap| {
                     for y in 0..h {
                         for x in 0..w {
@@ -195,11 +189,12 @@ impl WindowManager {
                 })
                 .unwrap();
 
-            shared.pointer.unwrap().show();
+            pointer.show();
+            shared.pointer = Some(pointer);
         }
 
         {
-            // Barrier
+            // Popup Window Barrier
             shared.barrier = Some(
                 WindowBuilder::new("Barrier")
                     .style(WindowStyle::CLIENT_RECT | WindowStyle::TRANSPARENT)
@@ -209,7 +204,6 @@ impl WindowManager {
                     .no_bitmap()
                     .build(),
             );
-            // shared.barrier.unwrap().show();
         }
 
         MyScheduler::spawn_f(Self::winmgr_thread, 0, Priority::Realtime);
@@ -275,6 +269,12 @@ impl WindowManager {
     }
 
     #[inline]
+    pub fn is_enabled() -> bool {
+        unsafe { WM.is_some() }
+    }
+
+    #[inline]
+    #[track_caller]
     fn shared() -> &'static mut Self {
         unsafe { WM.as_mut().unwrap() }
     }
@@ -442,6 +442,9 @@ impl WindowManager {
     }
 
     pub fn make_mouse_event(mouse_state: &mut MouseState) {
+        if !Self::is_enabled() {
+            return;
+        }
         let shared = Self::shared();
         let bounds = shared.main_screen.bounds();
 
@@ -474,6 +477,7 @@ impl WindowManager {
     }
 }
 
+#[derive(Default)]
 struct WindowManagerAttributes(AtomicUsize);
 
 #[allow(dead_code)]
@@ -704,6 +708,8 @@ impl RawWindow {
 
     fn draw_frame(&self) {
         if let Some(bitmap) = &self.bitmap {
+            let is_active = self.is_active();
+
             if self.style.contains(WindowStyle::BORDER) {
                 for n in 0..WINDOW_BORDER_SHADOW_PADDING {
                     let rect = Rect::from(bitmap.size()).insets_by(EdgeInsets::padding_all(n));
@@ -716,8 +722,6 @@ impl RawWindow {
                 let shared = WindowManager::shared();
                 let pad_x = 8;
                 let pad_left = WINDOW_BORDER_SHADOW_PADDING + pad_x;
-
-                let is_active = self.is_active();
 
                 let rect = self.title_frame();
                 bitmap.fill_rect(
@@ -743,17 +747,14 @@ impl RawWindow {
                 }
                 let pad_right = rect.height();
 
-                let title_len = self.title[0] as usize;
-                if title_len > 0 {
+                if let Some(text) = self.title() {
                     let font = FontDriver::system_font();
-                    let text = core::str::from_utf8(&self.title[1..title_len]).unwrap();
                     let mut rect = rect;
                     let pad_y = (rect.height() - font.height()) / 2;
                     rect.origin.y += pad_y;
                     rect.size.height -= pad_y * 2;
                     rect.origin.x += pad_left;
                     rect.size.width -= pad_left + pad_right;
-                    // bitmap.blend_rect(rect, Color::from_argb(0x40000000));
                     let mut rect2 = rect;
                     rect2.origin += Point::new(1, 1);
                     if is_active {
@@ -780,15 +781,12 @@ impl RawWindow {
 
     fn set_title_array(array: &mut [u8; WINDOW_TITLE_LENGTH], title: &str) {
         let mut i = 1;
-        for c in title.chars() {
+        for c in title.bytes() {
             if i >= WINDOW_TITLE_LENGTH {
                 break;
             }
-            let c = c as usize;
-            if c < 128 {
-                array[i] = c as u8;
-                i += 1;
-            }
+            array[i] = c;
+            i += 1;
         }
         array[0] = i as u8;
     }
@@ -797,6 +795,15 @@ impl RawWindow {
         RawWindow::set_title_array(&mut self.title, title);
         self.draw_frame();
         self.invalidate_rect(self.title_frame());
+    }
+
+    fn title<'a>(&self) -> Option<&'a str> {
+        let len = self.title[0] as usize;
+        match len {
+            0 => None,
+            _ => core::str::from_utf8(unsafe { core::slice::from_raw_parts(&self.title[1], len) })
+                .ok(),
+        }
     }
 }
 
@@ -990,18 +997,22 @@ impl WindowHandle {
         });
     }
 
+    pub fn title<'a>(self) -> Option<&'a str> {
+        self.as_ref().title()
+    }
+
     pub fn set_bg_color(self, color: Color) {
         self.update(|window| {
             window.bg_color = color;
         });
-        if let Some(bitmap) = self.get_bitmap() {
+        if let Some(bitmap) = self.bitmap() {
             bitmap.fill_rect(bitmap.bounds(), color);
         }
         self.invalidate();
     }
 
     #[inline]
-    pub(crate) fn get_bitmap(self) -> Option<&'static Box<Bitmap>> {
+    pub(crate) fn bitmap(self) -> Option<&'static Box<Bitmap>> {
         self.as_ref().bitmap.as_ref()
     }
 
@@ -1080,30 +1091,38 @@ impl WindowHandle {
         self.as_ref().invalidate();
     }
 
-    pub fn draw<F>(self, f: F) -> Result<(), ()>
+    pub fn draw<F>(self, f: F) -> Result<(), WindowDrawingError>
     where
         F: FnOnce(&Bitmap) -> (),
     {
         let window = self.as_ref();
         let bitmap = match window.bitmap.as_ref() {
             Some(bitmap) => bitmap,
-            None => return Err(()),
+            None => return Err(WindowDrawingError::NoBitmap),
         };
         let coords = match Coordinates::from_rect(
             Rect::from(window.frame.size).insets_by(window.content_insets),
         ) {
             Some(coords) => coords,
-            None => return Err(()),
+            None => return Err(WindowDrawingError::InconsistentCoordinates),
         };
         if coords.left > coords.right || coords.top > coords.bottom {
-            return Err(());
+            return Err(WindowDrawingError::InconsistentCoordinates);
         }
 
         let rect = coords.into();
         if let Some(bitmap) = bitmap.view(rect) {
             f(&bitmap);
             window.invalidate_rect(rect);
+        } else {
+            return Err(WindowDrawingError::InconsistentCoordinates);
         }
         Ok(())
     }
+}
+
+#[derive(Debug)]
+pub enum WindowDrawingError {
+    NoBitmap,
+    InconsistentCoordinates,
 }

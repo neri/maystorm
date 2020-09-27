@@ -1,7 +1,6 @@
 // Thread Scheduler
 
 use super::arch::cpu::Cpu;
-// use crate::io::graphics::*;
 use crate::mem::memory::*;
 use crate::sync::spinlock::*;
 use crate::system::*;
@@ -124,7 +123,7 @@ impl MyScheduler {
     // Get Next Thread from queue
     fn next() -> Option<ThreadHandle> {
         let sch = unsafe { &mut SCHEDULER };
-        if sch.is_frozen.load(Ordering::SeqCst) {
+        if sch.is_frozen.load(Ordering::Acquire) {
             return None;
         }
         for _ in 0..1 {
@@ -171,7 +170,7 @@ impl MyScheduler {
 
     pub(crate) unsafe fn freeze(force: bool) -> Result<(), ()> {
         let sch = &SCHEDULER;
-        sch.is_frozen.store(true, Ordering::SeqCst);
+        sch.is_frozen.store(true, Ordering::Release);
         if force {
             // TODO:
         }
@@ -189,7 +188,7 @@ impl MyScheduler {
         F: FnOnce() -> (),
     {
         // assert!(priority.useful());
-        unimplemented!();
+        todo!();
     }
 }
 
@@ -228,8 +227,8 @@ impl LocalScheduler {
             lsch.current = next;
             unsafe {
                 asm_sch_switch_context(
-                    &current.as_ref().context as *const u8 as *mut u8,
-                    &next.as_ref().context as *const u8 as *mut u8,
+                    &current.as_ref().context as *const _ as *mut _,
+                    &next.as_ref().context as *const _ as *mut _,
                 );
             }
             let lsch = MyScheduler::local_scheduler();

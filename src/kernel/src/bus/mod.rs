@@ -1,3 +1,1 @@
 // Bus
-
-pub mod uart;

@@ -1,22 +1,20 @@
 pub mod apic;
+pub mod comport;
 pub mod cpu;
 pub mod hpet;
 pub mod page;
 pub mod ps2;
-pub mod serial;
 
-use crate::bus::uart::*;
+use crate::dev::uart::*;
 use crate::system::*;
 use alloc::boxed::Box;
-use alloc::vec::*;
-use serial::*;
+// use alloc::vec::*;
+use comport::*;
 
-static mut UARTS: Vec<Box<dyn Uart>> = Vec::new();
-
-pub struct Arch;
+pub(crate) struct Arch;
 
 impl Arch {
-    pub(crate) unsafe fn init() {
+    pub unsafe fn init() {
         cpu::Cpu::init();
 
         if let acpi::InterruptModel::Apic(apic) = System::acpi().interrupt_model.as_ref().unwrap() {
@@ -24,16 +22,19 @@ impl Arch {
         } else {
             panic!("NO APIC");
         }
-
-        UARTS = SerialPort::all_ports();
     }
 
-    pub(crate) unsafe fn init_late() {
+    pub unsafe fn init_late() {
+        ComPort::init_late();
         let _ = ps2::Ps2::init();
     }
 
+    pub unsafe fn master_uart() -> Option<&'static Box<dyn Uart>> {
+        ComPort::init_first()
+    }
+
     #[inline]
-    pub(crate) fn uarts<'a>() -> &'a [Box<dyn Uart>] {
-        unsafe { UARTS.as_slice() }
+    pub fn uarts<'a>() -> &'a [Box<dyn Uart>] {
+        ComPort::ports()
     }
 }

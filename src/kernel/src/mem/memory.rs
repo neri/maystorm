@@ -10,8 +10,9 @@ static mut MM: MemoryManager = MemoryManager::new();
 
 pub struct MemoryManager {
     total_memory_size: u64,
+    page_size_min: usize,
     static_start: AtomicUsize,
-    static_rest: AtomicUsize,
+    static_free: AtomicUsize,
     #[cfg(any(target_arch = "x86_64"))]
     real_bitmap: [u32; 8],
 }
@@ -20,8 +21,9 @@ impl MemoryManager {
     const fn new() -> Self {
         Self {
             total_memory_size: 0,
+            page_size_min: 0x1000,
             static_start: AtomicUsize::new(0),
-            static_rest: AtomicUsize::new(0),
+            static_free: AtomicUsize::new(0),
             #[cfg(any(target_arch = "x86_64"))]
             real_bitmap: [0; 8],
         }
@@ -34,7 +36,7 @@ impl MemoryManager {
             .static_start
             .store(info.static_start as usize, Ordering::Relaxed);
         shared
-            .static_rest
+            .static_free
             .store(info.free_memory as usize, Ordering::Relaxed);
 
         if cfg!(any(target_arch = "x86_64")) {
@@ -63,19 +65,24 @@ impl MemoryManager {
         self.total_memory_size
     }
 
-    // Allocate static page
+    #[inline]
+    pub fn page_size_min(&self) -> usize {
+        self.page_size_min
+    }
+
+    /// Allocate static pages
     unsafe fn static_alloc(size: usize) -> Result<NonZeroUsize, AllocationError> {
         let shared = Self::shared();
         let page_mask = 0xFFF;
         let size = (size + page_mask * 2 + 1) & !page_mask;
         loop {
-            let rest = shared.static_rest.load(Ordering::Relaxed);
-            if rest < size {
+            let left = shared.static_free.load(Ordering::Relaxed);
+            if left < size {
                 return Err(AllocationError::OutOfMemory);
             }
             if shared
-                .static_rest
-                .compare_exchange_weak(rest, rest - size, Ordering::SeqCst, Ordering::Relaxed)
+                .static_free
+                .compare_exchange_weak(left, left - size, Ordering::SeqCst, Ordering::Relaxed)
                 .is_ok()
             {
                 let result = shared.static_start.fetch_add(size, Ordering::SeqCst);
@@ -84,10 +91,12 @@ impl MemoryManager {
         }
     }
 
+    /// Allocate kernel memory
     pub unsafe fn zalloc(size: usize) -> Result<NonZeroUsize, AllocationError> {
         Self::static_alloc(size)
     }
 
+    /// Deallocate kernel memory
     pub unsafe fn zfree(base: Option<NonZeroUsize>, size: usize) -> Result<(), DeallocationError> {
         if let Some(base) = base.map(|v| v.get()) {
             let ptr = base as *mut u8;
@@ -114,6 +123,10 @@ impl MemoryManager {
             }
         }
         None
+    }
+
+    pub unsafe fn exhaust() {
+        Self::shared().static_free.store(0, Ordering::SeqCst);
     }
 }
 

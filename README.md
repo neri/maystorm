@@ -14,6 +14,7 @@ My first OS written in Rust
 ## Requirements to Build
 
 * Rust nightly
+* nasm
 * qemu + ovmf (optional)
 
 ### how to build
@@ -27,6 +28,12 @@ $ make
 ```
 $ make run
 ```
+
+## History
+
+### 2020-05-09
+
+* Initial Commit
 
 ## License
 
