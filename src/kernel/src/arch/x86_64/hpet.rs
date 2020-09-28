@@ -5,6 +5,7 @@ use crate::mem::mmio::*;
 use crate::scheduler::*;
 use crate::*;
 use alloc::boxed::Box;
+use core::time::Duration;
 
 pub(super) struct Hpet {
     mmio: Mmio,
@@ -42,8 +43,8 @@ impl Hpet {
         self.mmio.write_u64(index, value);
     }
 
-    fn measure(&self) -> TimeMeasure {
-        unsafe { TimeMeasure((self.read(0xF0) / self.measure_div) as i64) }
+    fn measure(&self) -> TimeSpec {
+        (unsafe { self.read(0xF0) } / self.measure_div) as TimeSpec
     }
 
     fn irq_handler(_irq: Irq) {
@@ -52,15 +53,15 @@ impl Hpet {
 }
 
 impl TimerSource for Hpet {
-    fn create(&self, duration: TimeMeasure) -> TimeMeasure {
-        self.measure() + duration.0 as isize
+    fn create(&self, duration: Duration) -> TimeSpec {
+        self.measure() + duration.as_micros() as TimeSpec + 1
     }
 
-    fn until(&self, deadline: TimeMeasure) -> bool {
-        (deadline.0 - self.measure().0) > 0
+    fn until(&self, deadline: TimeSpec) -> bool {
+        deadline > self.measure()
     }
 
-    fn diff(&self, from: TimeMeasure) -> isize {
-        self.measure().0 as isize - from.0 as isize
+    fn monotonic(&self) -> Duration {
+        Duration::from_micros(self.measure())
     }
 }

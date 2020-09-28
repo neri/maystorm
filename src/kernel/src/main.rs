@@ -178,17 +178,16 @@ fn status_bar_thread(_args: usize) {
     WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT, 0, 0, 0));
 
     let mut sb = string::Sb255::new();
-    let mut time_val = 0;
     loop {
-        time_val += 1; // TODO: true clock
+        let time = System::system_time();
 
-        let sec = time_val % 60;
-        let min = time_val / 60 % 60;
-        let hour = time_val / 3600 % 24;
+        let sec = time.secs % 60;
+        let min = time.secs / 60 % 60;
+        let hour = time.secs / 3600 % 24;
         if sec % 2 == 0 {
-            sformat!(sb, "{:02} {:02} {:02}", hour, min, sec);
+            sformat!(sb, "{:2} {:02} {:02}", hour, min, sec);
         } else {
-            sformat!(sb, "{:02}:{:02}:{:02}", hour, min, sec);
+            sformat!(sb, "{:2}:{:02}:{:02}", hour, min, sec);
         };
 
         let bounds = window.frame();
@@ -203,6 +202,6 @@ fn status_bar_thread(_args: usize) {
             bitmap.fill_rect(rect, STATUS_BAR_BG_COLOR);
             bitmap.draw_string(font, rect, IndexedColor::DarkGray.into(), sb.as_str());
         });
-        Timer::usleep(1_000_000);
+        Timer::usleep(500_000);
     }
 }

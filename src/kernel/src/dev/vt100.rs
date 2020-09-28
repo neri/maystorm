@@ -1,7 +1,7 @@
 // VT100
 
-use super::tty::*;
 use crate::dev::uart::*;
+use crate::io::tty::*;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use core::fmt::Write;

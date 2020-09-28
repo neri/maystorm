@@ -10,6 +10,7 @@ use alloc::vec::*;
 use core::num::*;
 use core::ops::*;
 use core::sync::atomic::*;
+use core::time::Duration;
 use crossbeam_queue::ArrayQueue;
 // use bitflags::*;
 
@@ -91,7 +92,7 @@ impl MyScheduler {
     }
 
     /// Wait for Event or Timer
-    pub fn wait_for(object: Option<&SignallingObject>, duration: TimeMeasure) {
+    pub fn wait_for(object: Option<&SignallingObject>, duration: Duration) {
         unsafe {
             Cpu::without_interrupts(|| {
                 let lsch = Self::local_scheduler();
@@ -110,7 +111,7 @@ impl MyScheduler {
 
     pub fn signal(object: &SignallingObject) {
         if let Some(thread) = object.unbox() {
-            thread.update(|thread| thread.deadline = Timer::NULL);
+            thread.update(|thread| thread.deadline = Timer::JUST);
         }
     }
 
@@ -159,7 +160,7 @@ impl MyScheduler {
     fn scheduler_thread(_args: usize) {
         // TODO:
         loop {
-            Self::wait_for(None, TimeMeasure::from_millis(1000));
+            Self::wait_for(None, Duration::from_millis(1000));
         }
     }
 
@@ -233,7 +234,7 @@ impl LocalScheduler {
             }
             let lsch = MyScheduler::local_scheduler();
             let current = lsch.current;
-            current.update(|thread| thread.deadline = Timer::NULL);
+            current.update(|thread| thread.deadline = Timer::JUST);
             let retired = lsch.retired.unwrap();
             lsch.retired = None;
             MyScheduler::retire(retired);
@@ -259,46 +260,52 @@ pub struct ThreadId(pub usize);
 
 static mut TIMER_SOURCE: Option<Box<dyn TimerSource>> = None;
 
+pub type TimeSpec = u64;
+
 pub trait TimerSource {
-    fn create(&self, h: TimeMeasure) -> TimeMeasure;
-    fn until(&self, h: TimeMeasure) -> bool;
-    fn diff(&self, h: TimeMeasure) -> isize;
+    fn create(&self, h: Duration) -> TimeSpec;
+    #[must_use]
+    fn until(&self, h: TimeSpec) -> bool;
+    fn monotonic(&self) -> Duration;
 }
 
 #[derive(Debug, Copy, Clone, Default)]
 pub struct Timer {
-    deadline: TimeMeasure,
+    deadline: TimeSpec,
 }
 
 impl Timer {
-    pub const NULL: Timer = Timer {
-        deadline: TimeMeasure::NULL,
-    };
+    pub const JUST: Timer = Timer { deadline: 0 };
 
-    pub fn new(duration: TimeMeasure) -> Self {
+    #[inline]
+    pub fn new(duration: Duration) -> Self {
         let timer = unsafe { TIMER_SOURCE.as_ref().unwrap() };
         Timer {
             deadline: timer.create(duration),
         }
     }
 
+    #[inline]
+    pub fn is_just(&self) -> bool {
+        self.deadline == 0
+    }
+
     #[must_use]
     pub fn until(self) -> bool {
-        match self.deadline {
-            TimeMeasure::NULL => false,
-            TimeMeasure::FOREVER => true,
-            _ => {
-                let timer = unsafe { TIMER_SOURCE.as_ref().unwrap() };
-                timer.until(self.deadline)
-            }
+        if self.is_just() {
+            false
+        } else {
+            let timer = unsafe { TIMER_SOURCE.as_ref().unwrap() };
+            timer.until(self.deadline)
         }
     }
 
+    #[inline]
     pub(crate) unsafe fn set_timer(source: Box<dyn TimerSource>) {
         TIMER_SOURCE = Some(source);
     }
 
-    pub fn sleep(duration: TimeMeasure) {
+    pub fn sleep(duration: Duration) {
         if MyScheduler::is_enabled() {
             MyScheduler::wait_for(None, duration);
         } else {
@@ -313,62 +320,12 @@ impl Timer {
     }
 
     pub fn usleep(us: u64) {
-        Self::sleep(TimeMeasure::from_micros(us));
-    }
-}
-
-#[repr(transparent)]
-#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, PartialOrd)]
-pub struct TimeMeasure(pub i64);
-
-impl TimeMeasure {
-    pub const NULL: TimeMeasure = TimeMeasure(0);
-    pub const FOREVER: TimeMeasure = TimeMeasure(i64::MAX);
-
-    pub fn is_null(self) -> bool {
-        self == Self::NULL
+        Self::sleep(Duration::from_micros(us));
     }
 
-    pub fn is_forever(self) -> bool {
-        self == Self::FOREVER
-    }
-
-    pub const fn from_micros(us: u64) -> Self {
-        TimeMeasure(us as i64)
-    }
-
-    pub const fn from_millis(ms: u64) -> Self {
-        TimeMeasure(ms as i64 * 1000)
-    }
-
-    pub const fn from_secs(s: u64) -> Self {
-        TimeMeasure(s as i64 * 1000_000)
-    }
-
-    pub const fn as_micros(self) -> i64 {
-        self.0 as i64
-    }
-
-    pub const fn as_millis(self) -> i64 {
-        self.0 as i64 / 1000
-    }
-
-    pub const fn as_secs(self) -> i64 {
-        self.0 as i64 / 1000_000
-    }
-}
-
-impl Add<isize> for TimeMeasure {
-    type Output = Self;
-    fn add(self, rhs: isize) -> Self {
-        Self(self.0 + rhs as i64)
-    }
-}
-
-impl Sub<isize> for TimeMeasure {
-    type Output = Self;
-    fn sub(self, rhs: isize) -> Self {
-        Self(self.0 - rhs as i64)
+    #[inline]
+    pub fn monotonic() -> Duration {
+        unsafe { TIMER_SOURCE.as_ref() }.unwrap().monotonic()
     }
 }
 
@@ -512,7 +469,7 @@ impl RawThread {
             id: MyScheduler::next_thread_id(),
             priority,
             quantum,
-            deadline: Timer::NULL,
+            deadline: Timer::JUST,
             name: [0; THREAD_NAME_LENGTH],
         }));
         if let Some(start) = start {
@@ -575,7 +532,7 @@ impl SignallingObject {
         ThreadHandle::new(self.0.swap(Self::NULL, Ordering::AcqRel))
     }
 
-    pub fn wait(&self, duration: TimeMeasure) {
+    pub fn wait(&self, duration: Duration) {
         MyScheduler::wait_for(Some(self), duration)
     }
 

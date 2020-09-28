@@ -14,6 +14,7 @@ use core::cmp;
 use core::isize;
 use core::num::*;
 use core::sync::atomic::*;
+use core::time::Duration;
 
 const MAX_WINDOWS: usize = 256;
 const WINDOW_TITLE_LENGTH: usize = 32;
@@ -214,7 +215,7 @@ impl WindowManager {
         let shared = WindowManager::shared();
         shared.root.unwrap().invalidate();
         loop {
-            let _ = shared.sem_redraw.wait(TimeMeasure::from_millis(1));
+            let _ = shared.sem_redraw.wait(Duration::from_millis(1));
 
             if shared
                 .attributes

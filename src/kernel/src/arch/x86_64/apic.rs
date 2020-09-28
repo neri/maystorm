@@ -11,6 +11,7 @@ use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
 use core::ffi::c_void;
+use core::time::Duration;
 
 const MAX_CPU: usize = 64;
 
@@ -116,11 +117,11 @@ impl Apic {
             // Use HPET
             let hpet = Hpet::new(hpet_info);
             let magic_number = 100;
-            let deadline0 = hpet.create(TimeMeasure(1));
+            let deadline0 = hpet.create(Duration::from_micros(1));
             while hpet.until(deadline0) {
                 Cpu::spin_loop_hint();
             }
-            let deadline1 = hpet.create(TimeMeasure::from_micros(100_0000 / magic_number));
+            let deadline1 = hpet.create(Duration::from_micros(100_0000 / magic_number));
             LocalApic::TimerInitialCount.write(u32::MAX);
             while hpet.until(deadline1) {
                 Cpu::spin_loop_hint();

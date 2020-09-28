@@ -2,8 +2,8 @@
 
 use crate::arch::cpu::*;
 use crate::dev::uart::*;
+use crate::dev::vt100::*;
 use crate::io::tty::*;
-use crate::io::vt100::*;
 use crate::scheduler::*;
 use crate::*;
 use alloc::boxed::Box;
@@ -230,6 +230,10 @@ impl System {
         todo!();
     }
 
+    pub fn system_time() -> SystemTime {
+        arch::Arch::system_time()
+    }
+
     #[inline]
     pub fn is_headless() -> bool {
         Self::shared().boot_flags.contains(BootFlags::HEADLESS)
@@ -259,6 +263,11 @@ impl System {
         shared.stdout = Some(console);
         Self::set_em_console(false);
     }
+}
+
+pub struct SystemTime {
+    pub secs: u64,
+    pub nanos: u32,
 }
 
 struct MyAcpiHandler {}

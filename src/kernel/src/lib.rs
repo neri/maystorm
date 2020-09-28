@@ -10,6 +10,7 @@
 #![feature(new_uninit)]
 #![feature(panic_info_message)]
 #![feature(option_result_contains)]
+#![feature(duration_zero)]
 #![no_std]
 
 pub mod arch;

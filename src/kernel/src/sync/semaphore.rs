@@ -3,6 +3,7 @@
 use super::atomic::*;
 use crate::scheduler::*;
 use core::sync::atomic::*;
+use core::time::Duration;
 
 pub struct Semaphore {
     value: AtomicIsize,
@@ -35,8 +36,8 @@ impl Semaphore {
         }
     }
 
-    pub fn wait(&self, duration: TimeMeasure) -> Result<(), ()> {
-        const MAX_DELTA: u64 = 100;
+    pub fn wait(&self, duration: Duration) -> Result<(), ()> {
+        const MAX_DELTA: u64 = 7;
         let deadline = Timer::new(duration);
         loop {
             if self.try_to().is_ok() {
@@ -47,10 +48,10 @@ impl Semaphore {
                     let signal = SignallingObject::new();
                     if self.signal_object.cas(None, Some(signal)).is_ok() {
                         self.signal_object
-                            .map(|signal| signal.wait(TimeMeasure::from_millis(delta)));
+                            .map(|signal| signal.wait(Duration::from_millis(delta)));
                         break;
                     } else {
-                        MyScheduler::wait_for(None, TimeMeasure::from_millis(delta));
+                        MyScheduler::wait_for(None, Duration::from_millis(delta));
                     }
                     if !deadline.until() {
                         return Err(());
@@ -69,15 +70,4 @@ impl Semaphore {
             }
         }
     }
-
-    // #[inline]
-    // pub fn synchronized<F, R>(&self, duration: TimeMeasure, f: F) -> R
-    // where
-    //     F: FnOnce() -> R,
-    // {
-    //     self.wait(duration);
-    //     let result = f();
-    //     self.signal();
-    //     result
-    // }
 }

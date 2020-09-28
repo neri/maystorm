@@ -4,6 +4,7 @@ pub mod cpu;
 pub mod hpet;
 pub mod page;
 pub mod ps2;
+pub mod rtc;
 
 use crate::dev::uart::*;
 use crate::system::*;
@@ -22,6 +23,8 @@ impl Arch {
         } else {
             panic!("NO APIC");
         }
+
+        rtc::Rtc::init();
     }
 
     pub unsafe fn init_late() {
@@ -29,6 +32,7 @@ impl Arch {
         let _ = ps2::Ps2::init();
     }
 
+    #[inline]
     pub unsafe fn master_uart() -> Option<&'static Box<dyn Uart>> {
         ComPort::init_first()
     }
@@ -36,5 +40,10 @@ impl Arch {
     #[inline]
     pub fn uarts<'a>() -> &'a [Box<dyn Uart>] {
         ComPort::ports()
+    }
+
+    #[inline]
+    pub fn system_time() -> SystemTime {
+        rtc::Rtc::system_time()
     }
 }
