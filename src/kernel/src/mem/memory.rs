@@ -1,6 +1,8 @@
 // Memory Manager
 
 // use crate::arch::page::*;
+use super::slab::*;
+use alloc::boxed::Box;
 use bitflags::*;
 use bootprot::*;
 use core::num::*;
@@ -13,6 +15,7 @@ pub struct MemoryManager {
     page_size_min: usize,
     static_start: AtomicUsize,
     static_free: AtomicUsize,
+    slab: Option<Box<SlabAllocator>>,
     #[cfg(any(target_arch = "x86_64"))]
     real_bitmap: [u32; 8],
 }
@@ -24,6 +27,7 @@ impl MemoryManager {
             page_size_min: 0x1000,
             static_start: AtomicUsize::new(0),
             static_free: AtomicUsize::new(0),
+            slab: None,
             #[cfg(any(target_arch = "x86_64"))]
             real_bitmap: [0; 8],
         }
@@ -38,6 +42,7 @@ impl MemoryManager {
         shared
             .static_free
             .store(info.free_memory as usize, Ordering::Relaxed);
+        shared.slab = Some(SlabAllocator::new());
 
         if cfg!(any(target_arch = "x86_64")) {
             shared.real_bitmap = info.real_bitmap;
@@ -93,15 +98,29 @@ impl MemoryManager {
 
     /// Allocate kernel memory
     pub unsafe fn zalloc(size: usize) -> Result<NonZeroUsize, AllocationError> {
+        let shared = Self::shared();
+        if let Some(slab) = &shared.slab {
+            match slab.alloc(size) {
+                Ok(result) => return Ok(result),
+                Err(AllocationError::Unsupported) => (),
+                Err(err) => return Err(err),
+            }
+        }
         Self::static_alloc(size)
     }
 
     /// Deallocate kernel memory
     pub unsafe fn zfree(base: Option<NonZeroUsize>, size: usize) -> Result<(), DeallocationError> {
-        if let Some(base) = base.map(|v| v.get()) {
-            let ptr = base as *mut u8;
-            for i in 0..size {
-                ptr.add(i).write_volatile(0xcc);
+        if let Some(base) = base {
+            let ptr = base.get() as *mut u8;
+            ptr.write_bytes(0xCC, size);
+
+            let shared = Self::shared();
+            if let Some(slab) = &shared.slab {
+                match slab.free(base, size) {
+                    Ok(_) => (),
+                    Err(err) => return Err(err),
+                }
             }
         }
         Ok(())
@@ -144,10 +163,12 @@ pub enum AllocationError {
     Unexpected,
     OutOfMemory,
     InvalidArgument,
+    Unsupported,
 }
 
 #[derive(Debug, Copy, Clone)]
 pub enum DeallocationError {
     Unexpected,
     InvalidArgument,
+    Unsupported,
 }

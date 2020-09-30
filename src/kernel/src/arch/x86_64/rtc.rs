@@ -1,9 +1,9 @@
 // Real Time Clock
 
 use super::cpu::*;
-use crate::scheduler::*;
 use crate::sync::spinlock::*;
 use crate::system::*;
+use crate::task::scheduler::*;
 
 static mut RTC: Rtc = Rtc::new();
 
@@ -58,7 +58,6 @@ impl Rtc {
     }
 }
 
-#[repr(u8)]
 #[derive(Debug, Copy, Clone)]
 #[allow(dead_code)]
 enum Cmos {

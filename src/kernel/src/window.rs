@@ -4,8 +4,8 @@ use crate::io::fonts::*;
 use crate::io::graphics::*;
 use crate::io::hid::*;
 use crate::num::*;
-use crate::scheduler::*;
 use crate::sync::semaphore::*;
+use crate::task::scheduler::*;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
@@ -290,12 +290,12 @@ impl WindowManager {
     }
 
     fn add(window: Box<RawWindow>) -> WindowHandle {
-        let len = WindowManager::synchronized(|| {
+        let id = WindowManager::synchronized(|| {
             let shared = Self::shared();
             shared.pool.push(window);
             shared.pool.len()
         });
-        WindowHandle::new(len).unwrap()
+        WindowHandle::new(id).unwrap()
     }
 
     unsafe fn add_hierarchy(window: WindowHandle) {
@@ -969,8 +969,7 @@ impl WindowHandle {
         self.0.get()
     }
 
-    #[inline]
-    const fn as_index(self) -> usize {
+    const fn into_index(self) -> usize {
         self.as_usize() - 1
     }
 
@@ -980,14 +979,14 @@ impl WindowHandle {
         F: FnOnce(&mut RawWindow) -> R,
     {
         let shared = WindowManager::shared();
-        let window = shared.pool[self.as_index()].as_mut();
+        let window = shared.pool[self.into_index()].as_mut();
         f(window)
     }
 
     #[inline]
     fn as_ref<'a>(self) -> &'a RawWindow {
         let shared = WindowManager::shared();
-        shared.pool[self.as_index()].as_ref()
+        shared.pool[self.into_index()].as_ref()
     }
 
     // :-:-:-:-:

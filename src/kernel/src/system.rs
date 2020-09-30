@@ -4,7 +4,7 @@ use crate::arch::cpu::*;
 use crate::dev::uart::*;
 use crate::dev::vt100::*;
 use crate::io::tty::*;
-use crate::scheduler::*;
+use crate::task::scheduler::*;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;

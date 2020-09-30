@@ -15,8 +15,8 @@ use io::fonts::*;
 use io::graphics::*;
 use kernel::*;
 use mem::string;
-use scheduler::*;
 use system::*;
+use task::scheduler::*;
 use window::*;
 
 extern crate alloc;
@@ -180,10 +180,10 @@ fn status_bar_thread(_args: usize) {
     let mut sb = string::Sb255::new();
     loop {
         let time = System::system_time();
-
-        let sec = time.secs % 60;
-        let min = time.secs / 60 % 60;
-        let hour = time.secs / 3600 % 24;
+        let tod = time.secs % 86400;
+        let sec = tod % 60;
+        let min = tod / 60 % 60;
+        let hour = tod / 3600;
         if sec % 2 == 0 {
             sformat!(sb, "{:2} {:02} {:02}", hour, min, sec);
         } else {

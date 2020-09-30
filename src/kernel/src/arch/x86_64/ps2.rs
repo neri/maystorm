@@ -2,8 +2,8 @@
 
 use crate::arch::apic::*;
 use crate::io::hid::*;
-use crate::scheduler::*;
 use crate::sync::spinlock::*;
+use crate::task::scheduler::*;
 use crate::*;
 use bitflags::*;
 use core::time::Duration;

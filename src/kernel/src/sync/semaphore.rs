@@ -1,7 +1,7 @@
 // Semaphore
 
 use super::atomic::*;
-use crate::scheduler::*;
+use crate::task::scheduler::*;
 use core::sync::atomic::*;
 use core::time::Duration;
 

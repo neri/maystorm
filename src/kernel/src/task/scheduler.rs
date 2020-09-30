@@ -1,11 +1,12 @@
 // Thread Scheduler
 
-use super::arch::cpu::Cpu;
+use crate::arch::cpu::Cpu;
 use crate::mem::memory::*;
 use crate::sync::spinlock::*;
 use crate::system::*;
 use crate::*;
 use alloc::boxed::Box;
+// use alloc::sync::Arc;
 use alloc::vec::*;
 use core::num::*;
 use core::ops::*;
@@ -43,7 +44,7 @@ impl MyScheduler {
         }
     }
 
-    pub(super) fn start(f: fn(usize) -> (), args: usize) -> ! {
+    pub(crate) fn start(f: fn(usize) -> (), args: usize) -> ! {
         const SIZE_OF_URGENT_QUEUE: usize = 512;
         const SIZE_OF_MAIN_QUEUE: usize = 512;
 
@@ -402,13 +403,22 @@ impl ThreadPool {
         }
     }
 
+    #[inline]
+    fn synchronized<F, R>(f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        let shared = unsafe { &THREAD_POOL };
+        shared.lock.synchronized(f)
+    }
+
     fn add(thread: Box<RawThread>) -> ThreadHandle {
-        let shared = unsafe { &mut THREAD_POOL };
-        shared.lock.lock();
-        shared.vec.push(thread);
-        let len = shared.vec.len();
-        shared.lock.unlock();
-        ThreadHandle::new(len).unwrap()
+        let id = Self::synchronized(|| {
+            let shared = unsafe { &mut THREAD_POOL };
+            shared.vec.push(thread);
+            shared.vec.len()
+        });
+        ThreadHandle::new(id).unwrap()
     }
 }
 
@@ -416,15 +426,17 @@ impl ThreadPool {
 pub struct ThreadHandle(NonZeroUsize);
 
 impl ThreadHandle {
+    #[inline]
     pub fn new(val: usize) -> Option<Self> {
         NonZeroUsize::new(val).map(|x| Self(x))
     }
 
+    #[inline]
     pub const fn as_usize(self) -> usize {
         self.0.get()
     }
 
-    const fn as_index(self) -> usize {
+    const fn into_index(self) -> usize {
         self.as_usize() - 1
     }
 
@@ -434,13 +446,13 @@ impl ThreadHandle {
         F: FnOnce(&mut RawThread) -> R,
     {
         let shared = unsafe { &mut THREAD_POOL };
-        let thread = shared.vec[self.as_index()].as_mut();
+        let thread = shared.vec[self.into_index()].as_mut();
         f(thread)
     }
 
-    fn as_ref(self) -> &'static RawThread {
+    fn as_ref<'a>(self) -> &'a RawThread {
         let shared = unsafe { &THREAD_POOL };
-        shared.vec[self.as_index()].as_ref()
+        shared.vec[self.into_index()].as_ref()
     }
 }
 
@@ -487,7 +499,7 @@ impl RawThread {
     }
 
     pub fn current_id() -> ThreadId {
-        MyScheduler::local_scheduler().current.as_ref().id
+        Self::current().as_ref().id
     }
 
     pub fn current() -> ThreadHandle {
@@ -495,7 +507,7 @@ impl RawThread {
     }
 
     pub fn exit(_exit_code: usize) -> ! {
-        panic!("NO MORE THREAD!!!");
+        unimplemented!();
     }
 }
 

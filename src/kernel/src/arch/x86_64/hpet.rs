@@ -2,7 +2,7 @@
 
 use super::apic::*;
 use crate::mem::mmio::*;
-use crate::scheduler::*;
+use crate::task::scheduler::*;
 use crate::*;
 use alloc::boxed::Box;
 use core::time::Duration;
