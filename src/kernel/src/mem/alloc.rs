@@ -18,12 +18,12 @@ impl CustomAlloc {
 
 unsafe impl GlobalAlloc for CustomAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        MemoryManager::zalloc(layout.size())
+        MemoryManager::zalloc_layout(layout)
             .map(|v| v.get())
             .unwrap_or(0) as *mut u8
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        let _ = MemoryManager::zfree(NonZeroUsize::new(ptr as usize), layout.size());
+        let _ = MemoryManager::zfree(NonZeroUsize::new(ptr as usize), layout);
     }
 }
 

@@ -39,7 +39,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
-name = "boot"
+name = "boot-efi"
 version = "0.1.0"
 dependencies = [
  "bitflags",
@@ -151,15 +151,6 @@ dependencies = [
  "generic-array 0.13.2",
  "hash32",
  "stable_deref_trait",
-]
-
-[[package]]
-name = "hello"
-version = "0.1.0"
-dependencies = [
- "bootprot",
- "rlibc",
- "uefi",
 ]
 
 [[package]]

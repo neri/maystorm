@@ -4,11 +4,11 @@
 #![no_main]
 #![feature(asm)]
 
-use boot::config::*;
-use boot::invocation::*;
-use boot::loader::*;
-use boot::page::*;
-use boot::*;
+use boot_efi::config::*;
+use boot_efi::invocation::*;
+use boot_efi::loader::*;
+use boot_efi::page::*;
+use boot_efi::*;
 use bootprot::*;
 use core::ffi::c_void;
 use core::fmt::Write;
@@ -94,15 +94,15 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
         }
         info.screen_width = w as u16;
         info.screen_height = h as u16;
-    } else {
+    } else if !info.flags.contains(BootFlags::HEADLESS) {
         writeln!(st.stdout(), "Error: GOP Not Found").unwrap();
         return Status::UNSUPPORTED;
     }
 
-    {
-        let time = st.runtime_services().get_time().unwrap().unwrap();
-        info.boot_time = unsafe { transmute(time) };
-    }
+    // {
+    //     let time = st.runtime_services().get_time().unwrap().unwrap();
+    //     info.boot_time = unsafe { transmute(time) };
+    // }
 
     // ----------------------------------------------------------------
     // Exit Boot Services

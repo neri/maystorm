@@ -176,7 +176,7 @@ impl Ps2 {
                 } else {
                     self.key_modifier.insert(bit_position);
                 }
-                HidManager::send_key_event(KeyEvent::new(Usage::NULL, self.key_modifier, flags));
+                HidManager::send_key_event(KeyEvent::new(Usage::NONE, self.key_modifier, flags));
             } else {
                 HidManager::send_key_event(KeyEvent::new(usage, self.key_modifier, flags));
             }

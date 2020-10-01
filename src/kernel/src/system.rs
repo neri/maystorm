@@ -150,6 +150,8 @@ impl System {
                 shared.emergency_console = Some(stdout);
             }
 
+            MemoryManager::init_late();
+
             let mut my_handler = MyAcpiHandler::new();
             shared.acpi = Some(Box::new(
                 ::acpi::parse_rsdp(&mut my_handler, info.acpi_rsdptr as usize).unwrap(),

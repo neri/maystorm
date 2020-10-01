@@ -16,7 +16,7 @@ pub struct Usage(pub u8);
 
 #[allow(dead_code)]
 impl Usage {
-    pub const NULL: Usage = Usage(0);
+    pub const NONE: Usage = Usage(0);
     pub const ALPHABET_A: Usage = Usage(0x04);
     pub const ALPHABET_Z: Usage = Usage(0x1D);
     pub const NUMBER_MIN: Usage = Usage(0x1E);
@@ -231,7 +231,7 @@ impl HidManager {
     }
 
     fn key_event_to_char(event: KeyEvent) -> char {
-        if event.flags().contains(KeyEventFlags::BREAK) || event.usage() == Usage::NULL {
+        if event.flags().contains(KeyEventFlags::BREAK) || event.usage() == Usage::NONE {
             '\0'
         } else {
             Self::usage_to_char_109(event.usage(), event.modifier())

@@ -5,6 +5,7 @@ use super::slab::*;
 use alloc::boxed::Box;
 use bitflags::*;
 use bootprot::*;
+use core::alloc::Layout;
 use core::num::*;
 use core::sync::atomic::*;
 
@@ -42,11 +43,15 @@ impl MemoryManager {
         shared
             .static_free
             .store(info.free_memory as usize, Ordering::Relaxed);
-        shared.slab = Some(SlabAllocator::new());
 
         if cfg!(any(target_arch = "x86_64")) {
             shared.real_bitmap = info.real_bitmap;
         }
+    }
+
+    pub(crate) unsafe fn init_late() {
+        let shared = Self::shared();
+        shared.slab = Some(Box::new(SlabAllocator::new()));
     }
 
     #[inline]
@@ -76,10 +81,10 @@ impl MemoryManager {
     }
 
     /// Allocate static pages
-    unsafe fn static_alloc(size: usize) -> Result<NonZeroUsize, AllocationError> {
+    unsafe fn static_alloc(layout: Layout) -> Result<NonZeroUsize, AllocationError> {
         let shared = Self::shared();
-        let page_mask = 0xFFF;
-        let size = (size + page_mask * 2 + 1) & !page_mask;
+        let page_mask = shared.page_size_min() - 1;
+        let size = (layout.size() + page_mask * 2 + 1) & !page_mask;
         loop {
             let left = shared.static_free.load(Ordering::Relaxed);
             if left < size {
@@ -96,28 +101,40 @@ impl MemoryManager {
         }
     }
 
-    /// Allocate kernel memory
+    /// Allocate kernel memory (old form)
     pub unsafe fn zalloc(size: usize) -> Result<NonZeroUsize, AllocationError> {
         let shared = Self::shared();
+        match Layout::from_size_align(size, shared.page_size_min()) {
+            Ok(layout) => Self::zalloc_layout(layout),
+            Err(_) => Err(AllocationError::InvalidArgument),
+        }
+    }
+
+    /// Allocate kernel memory
+    pub unsafe fn zalloc_layout(layout: Layout) -> Result<NonZeroUsize, AllocationError> {
+        let shared = Self::shared();
         if let Some(slab) = &shared.slab {
-            match slab.alloc(size) {
+            match slab.alloc(layout) {
                 Ok(result) => return Ok(result),
                 Err(AllocationError::Unsupported) => (),
                 Err(err) => return Err(err),
             }
         }
-        Self::static_alloc(size)
+        Self::static_alloc(layout)
     }
 
     /// Deallocate kernel memory
-    pub unsafe fn zfree(base: Option<NonZeroUsize>, size: usize) -> Result<(), DeallocationError> {
+    pub unsafe fn zfree(
+        base: Option<NonZeroUsize>,
+        layout: Layout,
+    ) -> Result<(), DeallocationError> {
         if let Some(base) = base {
             let ptr = base.get() as *mut u8;
-            ptr.write_bytes(0xCC, size);
+            ptr.write_bytes(0xCC, layout.size());
 
             let shared = Self::shared();
             if let Some(slab) = &shared.slab {
-                match slab.free(base, size) {
+                match slab.free(base, layout) {
                     Ok(_) => (),
                     Err(err) => return Err(err),
                 }

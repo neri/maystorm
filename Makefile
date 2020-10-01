@@ -7,8 +7,8 @@ EFI_BOOT	= $(MNT)/efi/boot
 KERNEL_BIN	= $(EFI_BOOT)/kernel.bin
 BOOT_EFI	= $(EFI_BOOT)/boot$(EFI_ARCH).efi
 KERNEL_TARGET	= target/$(RUST_ARCH)/release/kernel.efi
-BOOT_TARGET	= target/$(RUST_ARCH)/release/boot.efi
-TARGETS		= $(KERNEL_TARGET) $(BOOT_TARGET)
+BOOT_EFI_TARGET	= target/$(RUST_ARCH)/release/boot-efi.efi
+TARGETS		= $(KERNEL_TARGET) $(BOOT_EFI_TARGET)
 BUILD		= rustup run nightly cargo build -Z build-std --release --target $(RUST_ARCH).json
 OVMF		= var/ovmfx64.fd
 URL_OVMF	= https://github.com/retrage/edk2-nightly/raw/master/bin/RELEASEX64_OVMF.fd
@@ -24,7 +24,7 @@ clean:
 $(KERNEL_TARGET): src/* src/**/* src/**/**/* src/**/**/**/* src/**/**/**/**/*
 	$(BUILD)
 
-$(BOOT_TARGET): src/* src/**/* src/**/**/* src/**/**/**/* src/**/**/**/**/*
+$(BOOT_EFI_TARGET): src/* src/**/* src/**/**/* src/**/**/**/* src/**/**/**/**/*
 	$(BUILD)
 
 $(EFI_BOOT):
@@ -45,6 +45,6 @@ install: $(KERNEL_BIN) $(BOOT_EFI)
 $(KERNEL_BIN): $(KERNEL_TARGET) $(EFI_BOOT)
 	cp $< $@
 
-$(BOOT_EFI): $(BOOT_TARGET) $(EFI_BOOT)
+$(BOOT_EFI): $(BOOT_EFI_TARGET) $(EFI_BOOT)
 	cp $< $@
 

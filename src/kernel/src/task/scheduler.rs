@@ -84,7 +84,7 @@ impl MyScheduler {
                     let lsch = Self::local_scheduler();
                     if lsch.current.as_ref().priority != Priority::Realtime {
                         if lsch.current.update(|current| current.quantum.consume()) {
-                            LocalScheduler::next_thread(lsch);
+                            LocalScheduler::switch_to_next(lsch);
                         }
                     }
                 });
@@ -105,7 +105,7 @@ impl MyScheduler {
                 lsch.current.update(|current| {
                     current.deadline = Timer::new(duration);
                 });
-                LocalScheduler::next_thread(lsch);
+                LocalScheduler::switch_to_next(lsch);
             });
         }
     }
@@ -214,7 +214,7 @@ impl LocalScheduler {
         })
     }
 
-    fn next_thread(lsch: &'static mut Self) {
+    unsafe fn switch_to_next(lsch: &'static mut Self) {
         Cpu::assert_without_interrupt();
 
         let current = lsch.current;
@@ -223,16 +223,16 @@ impl LocalScheduler {
             None => lsch.idle,
         };
         if current.as_ref().id == next.as_ref().id {
+            // Identical thread
+
             // TODO: adjust statistics
         } else {
             lsch.retired = Some(current);
             lsch.current = next;
-            unsafe {
-                asm_sch_switch_context(
-                    &current.as_ref().context as *const _ as *mut _,
-                    &next.as_ref().context as *const _ as *mut _,
-                );
-            }
+            asm_sch_switch_context(
+                &current.as_ref().context as *const _ as *mut _,
+                &next.as_ref().context as *const _ as *mut _,
+            );
             let lsch = MyScheduler::local_scheduler();
             let current = lsch.current;
             current.update(|thread| thread.deadline = Timer::JUST);
@@ -519,7 +519,7 @@ unsafe impl Sync for SignallingObject {}
 unsafe impl Send for SignallingObject {}
 
 impl SignallingObject {
-    const NULL: usize = 0;
+    const NONE: usize = 0;
 
     pub fn new() -> Self {
         Self(AtomicUsize::new(RawThread::current().as_usize()))
@@ -529,7 +529,7 @@ impl SignallingObject {
         let value = value.as_usize();
         match self
             .0
-            .compare_exchange(Self::NULL, value, Ordering::SeqCst, Ordering::Relaxed)
+            .compare_exchange(Self::NONE, value, Ordering::SeqCst, Ordering::Relaxed)
         {
             Ok(_) => Ok(()),
             Err(_) => Err(()),
@@ -541,7 +541,7 @@ impl SignallingObject {
     }
 
     pub fn unbox(&self) -> Option<ThreadHandle> {
-        ThreadHandle::new(self.0.swap(Self::NULL, Ordering::AcqRel))
+        ThreadHandle::new(self.0.swap(Self::NONE, Ordering::AcqRel))
     }
 
     pub fn wait(&self, duration: Duration) {

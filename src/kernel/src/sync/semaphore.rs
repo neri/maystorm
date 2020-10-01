@@ -18,7 +18,7 @@ impl Semaphore {
     pub const fn new(value: isize) -> Self {
         Self {
             value: AtomicIsize::new(value),
-            signal_object: AtomicObject::NULL,
+            signal_object: AtomicObject::NONE,
         }
     }
 

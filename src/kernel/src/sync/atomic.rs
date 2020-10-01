@@ -16,7 +16,7 @@ impl<T> AtomicObject<T>
 where
     T: Into<usize> + From<usize>,
 {
-    pub const NULL: AtomicObject<T> = Self::new(0);
+    pub const NONE: AtomicObject<T> = Self::new(0);
 
     #[inline]
     pub const fn new(value: usize) -> Self {

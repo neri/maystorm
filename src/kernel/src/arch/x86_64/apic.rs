@@ -57,7 +57,7 @@ impl Apic {
         Apic {
             master_apic_id: ProcessorId(0),
             ioapics: Vec::new(),
-            gsi_table: [GsiProps::null(); 256],
+            gsi_table: [GsiProps::zero(); 256],
             idt: [VirtualAddress::NULL; Irq::MAX.0 as usize],
             lapic_timer_value: 0,
         }
@@ -304,7 +304,7 @@ struct GsiProps {
 }
 
 impl GsiProps {
-    const fn null() -> Self {
+    const fn zero() -> Self {
         GsiProps {
             global_irq: Irq(0),
             trigger: PackedTriggerMode(0),
