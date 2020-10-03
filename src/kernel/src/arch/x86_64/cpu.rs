@@ -10,7 +10,8 @@ use core::pin::*;
 
 #[allow(dead_code)]
 pub struct Cpu {
-    pub cpu_id: ProcessorId,
+    // cpu_id: ProcessorId,
+    pub cpu_index: ProcessorIndex,
     gdt: Pin<Box<GlobalDescriptorTable>>,
 }
 
@@ -24,9 +25,16 @@ extern "C" {
 }
 
 impl Cpu {
-    pub(crate) unsafe fn new(cpu_id: ProcessorId) -> Box<Self> {
+    pub(crate) unsafe fn init() {
+        InterruptDescriptorTable::init();
+    }
+
+    pub(crate) unsafe fn new() -> Box<Self> {
         let gdt = GlobalDescriptorTable::new();
-        let cpu = Box::new(Cpu { cpu_id, gdt });
+        let cpu = Box::new(Cpu {
+            cpu_index: ProcessorIndex(0),
+            gdt,
+        });
 
         // Currently force disabling SSE
         asm!("
@@ -36,10 +44,6 @@ impl Cpu {
             ", out(reg) _);
 
         cpu
-    }
-
-    pub(crate) unsafe fn init() {
-        InterruptDescriptorTable::init();
     }
 
     #[inline]

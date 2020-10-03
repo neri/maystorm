@@ -30,7 +30,7 @@ impl ComPort {
 
     pub unsafe fn init_first() -> Option<&'static Box<dyn Uart>> {
         for port in Self::TEMPLATES.iter() {
-            if port.is_alive() {
+            if port.exists() {
                 COM_PORTS.push(Box::new(*port));
             }
         }
@@ -47,7 +47,7 @@ impl ComPort {
         unsafe { COM_PORTS.as_slice() }
     }
 
-    unsafe fn is_alive(&self) -> bool {
+    unsafe fn exists(&self) -> bool {
         for data in [0xFFu8, 0x00, 0x55, 0xAA].iter() {
             self.write_reg(7, *data);
             let result = self.read_reg(7);

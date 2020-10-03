@@ -22,6 +22,7 @@ impl Hpet {
         };
 
         Irq::LPC_TIMER.register(Self::irq_handler).unwrap();
+
         hpet.main_cnt_period = hpet.read(0) >> 32;
         hpet.write(0x10, 0);
         hpet.write(0x20, 0); // Clear all interrupts

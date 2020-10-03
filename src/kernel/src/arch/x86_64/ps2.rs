@@ -36,7 +36,7 @@ impl Ps2 {
     pub unsafe fn init() -> Result<(), Ps2Error> {
         // NO PS/2 Controller
         match Self::wait_for_write(10) {
-            Err(err) => return Err(err),
+            Err(_) => return Err(Ps2Error::Unsupported),
             Ok(_) => (),
         }
 
@@ -227,6 +227,7 @@ impl Ps2 {
 
 #[derive(Debug)]
 pub(super) enum Ps2Error {
+    Unsupported,
     Timeout,
 }
 

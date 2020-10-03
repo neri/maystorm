@@ -161,9 +161,9 @@ impl MemoryManager {
         None
     }
 
-    pub unsafe fn exhaust() {
-        Self::shared().static_free.store(0, Ordering::SeqCst);
-    }
+    // pub unsafe fn exhaust() {
+    //     Self::shared().static_free.store(0, Ordering::SeqCst);
+    // }
 }
 
 bitflags! {

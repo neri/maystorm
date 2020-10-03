@@ -104,9 +104,6 @@ fn main() {
 
     println!("{} v{}", System::name(), System::version(),);
 
-    // unsafe {
-    //     mem::memory::MemoryManager::exhaust();
-    // }
     let waker = dummy_waker();
     let mut repl = Box::pin(repl());
     let mut cx = Context::from_waker(&waker);

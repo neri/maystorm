@@ -18,14 +18,14 @@ pub struct SlabAllocator {
 
 impl SlabAllocator {
     pub unsafe fn new() -> Self {
-        let sizes = [32, 64, 128, 256, 512];
+        let sizes = [32, 64, 128, 256, 512, 1024];
 
-        // println!(
-        //     "SLAB_INFO: sizes {} cache {} header {}",
-        //     sizes.len(),
-        //     core::mem::size_of::<SlabCache>(),
-        //     core::mem::size_of::<SlabChunkHeader>()
-        // );
+        println!(
+            "SLAB_INFO: sizes {} cache {} header {}",
+            sizes.len(),
+            core::mem::size_of::<SlabCache>(),
+            core::mem::size_of::<SlabChunkHeader>()
+        );
 
         let mut vec: Vec<SlabCache> = Vec::with_capacity(sizes.len());
         for item_size in &sizes {
@@ -74,7 +74,7 @@ struct SlabCache {
 
 impl SlabCache {
     fn new(block_size: UsizeSmall) -> Self {
-        let min_bitmap_size = 1;
+        let min_bitmap_size = 4;
         let mut chunk_size_shift = 12;
         let mut items_per_chunk: UsizeSmall;
         let mut bitmap_size: UsizeSmall;
@@ -90,7 +90,7 @@ impl SlabCache {
         let chunk_size = 1 << chunk_size_shift;
 
         println!(
-            "SLAB: size {:4} chunk {:4x} count {:3} bitmap {:2} gap {:3}",
+            "SLAB: block {:4} chunk {:4x} count {:3} bitmap {:2} gap {:3}",
             block_size,
             chunk_size,
             items_per_chunk,
@@ -174,11 +174,11 @@ impl SlabChunkHeader {
             })
             .is_ok()
         {
-            for i in 0..self.count {
+            for i in 0..self.count as usize {
                 unsafe {
                     let mut result: usize;
                     asm!("
-                        lock bts [{0}], {1:r}
+                        lock bts [{0}], {1}
                         sbb {2}, {2}
                         ", in(reg) &self.bitmap[0], in(reg) i, lateout(reg) result);
                     if result == 0 {
@@ -194,9 +194,7 @@ impl SlabChunkHeader {
 
     fn free(&self, index: usize) {
         unsafe {
-            asm!("
-                lock btr [{0}], {1}
-                ", in(reg) &self.bitmap[0], in(reg) index);
+            asm!("lock btr [{0}], {1}", in(reg) &self.bitmap[0], in(reg) index);
         }
         self.free.fetch_add(1, Ordering::Relaxed);
     }

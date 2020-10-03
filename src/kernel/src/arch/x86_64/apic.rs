@@ -31,12 +31,12 @@ extern "C" {
 static mut GLOBALLOCK: Spinlock = Spinlock::new();
 
 #[no_mangle]
-pub unsafe extern "C" fn apic_start_ap(_cpuid: u8) {
+pub unsafe extern "C" fn apic_start_ap() {
     GLOBALLOCK.synchronized(|| {
-        let new_cpu = Cpu::new(LocalApic::init_ap());
-        let new_cpuid = new_cpu.cpu_id;
+        let new_cpu = Cpu::new();
+        let apicid = LocalApic::init_ap();
         let index = System::activate_cpu(new_cpu);
-        CURRENT_PROCESSOR_INDEXES[new_cpuid.0 as usize] = index.0 as u8;
+        CURRENT_PROCESSOR_INDEXES[apicid.0 as usize] = index.0 as u8;
     });
 }
 
@@ -57,7 +57,7 @@ impl Apic {
         Apic {
             master_apic_id: ProcessorId(0),
             ioapics: Vec::new(),
-            gsi_table: [GsiProps::zero(); 256],
+            gsi_table: [GsiProps::default(); 256],
             idt: [VirtualAddress::NULL; Irq::MAX.0 as usize],
             lapic_timer_value: 0,
         }
@@ -73,7 +73,7 @@ impl Apic {
         Cpu::disable_interrupt();
 
         // init Local Apic
-        APIC.master_apic_id = System::cpu(0).as_ref().cpu_id;
+        APIC.master_apic_id = System::acpi().boot_processor.unwrap().local_apic_id.into();
         CURRENT_PROCESSOR_INDEXES[APIC.master_apic_id.0 as usize] = 0;
         LocalApic::init(acpi_apic.local_apic_address as usize);
 
@@ -157,15 +157,12 @@ impl Apic {
         }
 
         asm!("
-        mov eax, 0xCCCCCCCC
-        mov ecx, 256
-        xor edi, edi
-        rep stosd
-        ",
-            lateout("eax") _,
-            lateout("ecx") _,
-            lateout("edi") _,
-        );
+            mov eax, 0xCCCCCCCC
+            mov ecx, 256
+            xor edi, edi
+            rep stosd
+            ",
+            lateout("eax") _, lateout("ecx") _, lateout("edi") _,);
     }
 
     pub unsafe fn register(irq: Irq, f: IrqHandler) -> Result<(), ()> {
@@ -304,7 +301,7 @@ struct GsiProps {
 }
 
 impl GsiProps {
-    const fn zero() -> Self {
+    const fn default() -> Self {
         GsiProps {
             global_irq: Irq(0),
             trigger: PackedTriggerMode(0),
@@ -411,7 +408,7 @@ impl LocalApic {
         Msr::ApicBase
             .write(LOCAL_APIC.as_ref().unwrap().base() as u64 | Self::IA32_APIC_BASE_MSR_ENABLE);
 
-        let myid = LocalApic::current_processor_id();
+        let apicid = LocalApic::current_processor_id();
 
         LocalApic::SpuriousInterrupt.write(0x010F);
 
@@ -424,7 +421,7 @@ impl LocalApic {
             APIC.lapic_timer_value,
         );
 
-        myid
+        apicid
     }
 
     unsafe fn read(&self) -> u32 {

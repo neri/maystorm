@@ -77,23 +77,23 @@ impl VirtualAddress {
     pub const NULL: VirtualAddress = VirtualAddress(0);
 
     pub fn into_nonnull<T>(self) -> Option<NonNull<T>> {
-        self.into()
+        NonNull::new(self.0 as *const T as *mut T)
     }
 
-    pub fn into_nonzero(self) -> Option<NonZeroUsize> {
-        self.into()
+    pub const fn into_nonzero(self) -> Option<NonZeroUsize> {
+        NonZeroUsize::new(self.0)
     }
 }
 
 impl<T> Into<Option<NonNull<T>>> for VirtualAddress {
     fn into(self) -> Option<NonNull<T>> {
-        NonNull::new(self.0 as *const T as *mut T)
+        self.into_nonnull()
     }
 }
 
 impl Into<Option<NonZeroUsize>> for VirtualAddress {
     fn into(self) -> Option<NonZeroUsize> {
-        NonZeroUsize::new(self.0)
+        self.into_nonzero()
     }
 }
 
@@ -158,10 +158,8 @@ impl System {
             ));
 
             shared.num_of_cpus = Self::acpi().application_processors.len() + 1;
-
-            shared.cpus.push(Cpu::new(ProcessorId::from(
-                Self::acpi().boot_processor.unwrap().local_apic_id,
-            )));
+            shared.cpus.reserve(shared.num_of_cpus);
+            shared.cpus.push(Cpu::new());
 
             arch::Arch::init();
 
@@ -209,17 +207,20 @@ impl System {
     }
 
     #[inline]
-    pub(crate) unsafe fn activate_cpu(new_cpu: Box<Cpu>) -> ProcessorIndex {
+    pub(crate) unsafe fn activate_cpu(mut new_cpu: Box<Cpu>) -> ProcessorIndex {
         let shared = Self::shared();
-        let new_index = shared.cpus.len();
+        let new_index = ProcessorIndex(shared.cpus.len());
+        new_cpu.cpu_index = new_index;
         shared.cpus.push(new_cpu);
-        ProcessorIndex(new_index)
+        new_index
     }
 
+    #[inline]
     pub fn version<'a>() -> &'a Version {
         &Version::VERSION
     }
 
+    #[inline]
     pub fn name<'a>() -> &'a str {
         &Version::SYSTEM_NAME
     }
@@ -271,6 +272,8 @@ pub struct SystemTime {
     pub secs: u64,
     pub nanos: u32,
 }
+
+//-//-//-//-//
 
 struct MyAcpiHandler {}
 
