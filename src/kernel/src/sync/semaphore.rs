@@ -43,15 +43,15 @@ impl Semaphore {
             if self.try_to().is_ok() {
                 return Ok(());
             } else {
-                let mut delta: u64 = 1;
+                let mut delta: u64 = 0;
                 loop {
                     let signal = SignallingObject::new();
                     if self.signal_object.cas(None, Some(signal)).is_ok() {
                         self.signal_object
-                            .map(|signal| signal.wait(Duration::from_millis(delta)));
+                            .map(|signal| signal.wait(Duration::from_millis(1 << delta)));
                         break;
                     } else {
-                        MyScheduler::wait_for(None, Duration::from_millis(delta));
+                        MyScheduler::wait_for(None, Duration::from_millis(1 << delta));
                     }
                     if !deadline.until() {
                         return Err(());

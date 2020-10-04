@@ -11,6 +11,7 @@ use bootprot::*;
 use core::fmt::Write;
 use core::future::Future;
 use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+use core::time::Duration;
 use io::fonts::*;
 use io::graphics::*;
 use kernel::*;
@@ -36,7 +37,7 @@ fn main() {
         stdout().reset().unwrap();
     } else {
         // Status bar
-        MyScheduler::spawn_f(status_bar_thread, 0, Priority::Normal);
+        MyScheduler::spawn_f(status_bar_thread, 0, "status bar", SpawnOption::new());
 
         {
             // Test Window 1
@@ -100,6 +101,8 @@ fn main() {
                 .unwrap();
             System::set_stdout(console);
         }
+
+        MyScheduler::spawn_f(top_thread, 0, "top", SpawnOption::new());
     }
 
     println!("{} v{}", System::name(), System::version(),);
@@ -176,15 +179,22 @@ fn status_bar_thread(_args: usize) {
 
     let mut sb = string::Sb255::new();
     loop {
+        sb.clear();
+
+        let usage = MyScheduler::usage();
+        let usage0 = usage / 10;
+        let usage1 = usage % 10;
+        write!(sb, "{:3}.{:1}%  ", usage0, usage1).unwrap();
+
         let time = System::system_time();
         let tod = time.secs % 86400;
         let sec = tod % 60;
         let min = tod / 60 % 60;
         let hour = tod / 3600;
         if sec % 2 == 0 {
-            sformat!(sb, "{:2} {:02} {:02}", hour, min, sec);
+            write!(sb, "{:2} {:02} {:02}", hour, min, sec).unwrap();
         } else {
-            sformat!(sb, "{:2}:{:02}:{:02}", hour, min, sec);
+            write!(sb, "{:2}:{:02}:{:02}", hour, min, sec).unwrap();
         };
 
         let bounds = window.frame();
@@ -200,5 +210,34 @@ fn status_bar_thread(_args: usize) {
             bitmap.draw_string(font, rect, IndexedColor::DarkGray.into(), sb.as_str());
         });
         Timer::usleep(500_000);
+    }
+}
+
+fn top_thread(_args: usize) {
+    let bg_color = Color::from_argb(0x80000000);
+    let fg_color = IndexedColor::Yellow.into();
+
+    let window = WindowBuilder::new("CPU Monitor")
+        .style_add(WindowStyle::CLIENT_RECT | WindowStyle::FLOATING)
+        .frame(Rect::new(-330, -230, 320, 200))
+        .bg_color(bg_color)
+        .build();
+    let font = FontDriver::small_font();
+
+    window.show();
+
+    let mut sb = string::StringBuffer::with_capacity(0x1000);
+    loop {
+        MyScheduler::print_statistics(&mut sb);
+
+        window
+            .draw(|bitmap| {
+                let rect = bitmap.bounds().insets_by(EdgeInsets::padding_all(4));
+                bitmap.fill_rect(rect, bg_color);
+                bitmap.draw_string(font, rect, fg_color, sb.as_str());
+            })
+            .unwrap();
+
+        Timer::sleep(Duration::from_secs(1));
     }
 }

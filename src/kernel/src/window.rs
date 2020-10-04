@@ -207,7 +207,9 @@ impl WindowManager {
             );
         }
 
-        MyScheduler::spawn_f(Self::winmgr_thread, 0, Priority::Realtime);
+        SpawnOption::with_priority(Priority::High)
+            .new_pid()
+            .spawn_f(Self::winmgr_thread, 0, "Window Manager");
     }
 
     /// Window Manager Thread
@@ -868,7 +870,7 @@ impl WindowBuilder {
         if frame.y() == isize::MIN {
             frame.origin.y = screen_bounds.y() + (screen_bounds.height() - frame.height()) / 2;
         } else if frame.y() < 0 {
-            frame.origin.y += screen_bounds.y() + screen_bounds.width();
+            frame.origin.y += screen_bounds.y() + screen_bounds.height();
         }
         frame.origin -= Point::new(shadow_insets.left, shadow_insets.top);
         frame.size += shadow_insets;

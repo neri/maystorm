@@ -40,7 +40,7 @@ impl Write for Vt100<'_> {
 impl TtyWrite for Vt100<'_> {
     fn reset(&mut self) -> Result<(), TtyError> {
         //self.output_str("\x1bc");
-        self.output_str("\x1b[2J\x1b[H")
+        self.output_str("\x1b[H\x1b[2J")
     }
 
     fn dims(&self) -> (isize, isize) {
