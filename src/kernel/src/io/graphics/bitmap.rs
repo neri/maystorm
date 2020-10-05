@@ -3,10 +3,13 @@
 use super::color::*;
 use super::coords::*;
 use crate::io::fonts::*;
-use crate::mem::memory::*;
 use crate::num::*;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 use bitflags::*;
 use bootprot::BootInfo;
+use byteorder::*;
+use core::cell::RefCell;
 use core::mem::swap;
 
 #[repr(C)]
@@ -15,6 +18,7 @@ pub struct Bitmap {
     size: Size<isize>,
     stride: usize,
     flags: BitmapFlags,
+    managed: Option<Arc<RefCell<Vec<Color>>>>,
 }
 
 bitflags! {
@@ -50,13 +54,18 @@ impl From<&BootInfo> for Bitmap {
             size: Size::new(width as isize, height as isize),
             stride: stride.into(),
             flags,
+            managed: None,
         }
     }
 }
 
 impl Bitmap {
     pub fn new(width: usize, height: usize, is_translucent: bool) -> Self {
-        let base = unsafe { MemoryManager::zalloc(width * height * 4).unwrap().get() } as *mut u32;
+        let mut vec = Vec::with_capacity(width * height);
+        unsafe {
+            vec.set_len(vec.capacity());
+        }
+        let base = &vec[0] as *const _ as *mut _;
         let mut flags = BitmapFlags::empty();
         if is_translucent {
             flags.insert(BitmapFlags::TRANSLUCENT);
@@ -66,7 +75,61 @@ impl Bitmap {
             size: Size::new(width as isize, height as isize),
             stride: width.into(),
             flags,
+            managed: Some(Arc::new(RefCell::new(vec))),
         }
+    }
+
+    pub fn from_vec(
+        vec: Arc<RefCell<Vec<Color>>>,
+        width: usize,
+        height: usize,
+        is_translucent: bool,
+    ) -> Self {
+        let base = vec.borrow().as_ptr() as *mut _;
+        let mut flags = BitmapFlags::empty();
+        if is_translucent {
+            flags.insert(BitmapFlags::TRANSLUCENT);
+        }
+        Self {
+            base,
+            size: Size::new(width as isize, height as isize),
+            stride: width.into(),
+            flags,
+            managed: Some(vec),
+        }
+    }
+
+    pub fn from_msdib(dib: &[u8]) -> Option<Self> {
+        if LE::read_u16(dib) != 0x4D42 {
+            return None;
+        }
+        let bpp = LE::read_u16(&dib[0x1C..0x1E]) as usize;
+        match bpp {
+            24 | 32 => (),
+            _ => return None,
+        }
+        let offset = LE::read_u32(&dib[0x0A..0x0E]) as usize;
+        let width = LE::read_u32(&dib[0x12..0x16]) as usize;
+        let height = LE::read_u32(&dib[0x16..0x1A]) as usize;
+        let bpp8 = bpp / 8;
+        let stride = (width * bpp8 + 3) & !3;
+        let mut bits = Vec::with_capacity(width * height);
+        for y in 0..height {
+            let mut src = offset + (height - y - 1) * stride;
+            for _ in 0..width {
+                let b = dib[src] as u32;
+                let g = dib[src + 1] as u32;
+                let r = dib[src + 2] as u32;
+                bits.push(Color::from_rgb(b + g * 0x100 + r * 0x10000));
+                src += bpp8;
+            }
+        }
+        Some(Self::from_vec(
+            Arc::new(RefCell::new(bits)),
+            width,
+            height,
+            false,
+        ))
     }
 
     pub fn view(&self, rect: Rect<isize>) -> Option<Self> {
@@ -88,14 +151,13 @@ impl Bitmap {
             self.get_fb()
                 .add(coords.left as usize + coords.top as usize * self.stride)
         };
-        let mut flags = self.flags;
-        flags.insert(BitmapFlags::VIEW);
 
         Some(Self {
             base,
             size: Rect::from(coords).size,
             stride: self.stride,
-            flags,
+            flags: self.flags | BitmapFlags::VIEW,
+            managed: self.managed.clone(),
         })
     }
 
@@ -619,14 +681,6 @@ impl Bitmap {
                     cursor.x += font_size.width;
                 }
             }
-        }
-    }
-}
-
-impl Drop for Bitmap {
-    fn drop(&mut self) {
-        if !self.flags.contains(BitmapFlags::VIEW) {
-            // TODO: drop bitmap
         }
     }
 }

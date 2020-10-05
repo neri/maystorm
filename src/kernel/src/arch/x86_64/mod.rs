@@ -18,8 +18,8 @@ impl Arch {
     pub unsafe fn init() {
         cpu::Cpu::init();
 
-        if let acpi::InterruptModel::Apic(apic) = System::acpi().interrupt_model.as_ref().unwrap() {
-            apic::Apic::init(apic);
+        if let acpi::InterruptModel::Apic(apic) = System::acpi_platform().interrupt_model {
+            apic::Apic::init(&apic);
         } else {
             panic!("NO APIC");
         }

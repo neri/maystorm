@@ -217,7 +217,7 @@ impl WindowManager {
         let shared = WindowManager::shared();
         shared.root.unwrap().invalidate();
         loop {
-            let _ = shared.sem_redraw.wait(Duration::from_millis(1));
+            let _ = shared.sem_redraw.wait(Duration::from_millis(100));
 
             if shared
                 .attributes

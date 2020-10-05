@@ -32,12 +32,22 @@ impl<T: Number> Zero for Point<T> {
     }
 }
 
-impl<T: Number> Add for Point<T> {
+impl<T: Number> Add<Self> for Point<T> {
     type Output = Self;
     fn add(self, rhs: Self) -> Self {
         Point {
             x: self.x + rhs.x,
             y: self.y + rhs.y,
+        }
+    }
+}
+
+impl<T: Number> Add<Size<T>> for Point<T> {
+    type Output = Self;
+    fn add(self, rhs: Size<T>) -> Self {
+        Point {
+            x: self.x + rhs.width,
+            y: self.y + rhs.height,
         }
     }
 }
@@ -51,12 +61,22 @@ impl<T: Number> AddAssign for Point<T> {
     }
 }
 
-impl<T: Number> Sub for Point<T> {
+impl<T: Number> Sub<Self> for Point<T> {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self {
         Point {
             x: self.x - rhs.x,
             y: self.y - rhs.y,
+        }
+    }
+}
+
+impl<T: Number> Sub<Size<T>> for Point<T> {
+    type Output = Self;
+    fn sub(self, rhs: Size<T>) -> Self {
+        Point {
+            x: self.x - rhs.width,
+            y: self.y - rhs.height,
         }
     }
 }
@@ -166,6 +186,26 @@ impl<T: Number> SubAssign for Size<T> {
     }
 }
 
+impl<T: Number> Mul<T> for Size<T> {
+    type Output = Self;
+    fn mul(self, rhs: T) -> Self::Output {
+        Self {
+            width: self.width * rhs,
+            height: self.height * rhs,
+        }
+    }
+}
+
+impl<T: Number> Div<T> for Size<T> {
+    type Output = Self;
+    fn div(self, rhs: T) -> Self::Output {
+        Self {
+            width: self.width / rhs,
+            height: self.height / rhs,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default, PartialEq)]
 pub struct Rect<T: Number> {
@@ -238,6 +278,16 @@ impl<T: Number> Rect<T> {
         } else {
             false
         }
+    }
+
+    pub fn center(&self) -> Point<T>
+    where
+        T: Div2,
+    {
+        Point::new(
+            self.origin.x + self.size.width.div2(),
+            self.origin.y + self.size.height.div2(),
+        )
     }
 }
 

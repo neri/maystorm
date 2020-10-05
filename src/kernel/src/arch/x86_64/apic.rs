@@ -8,6 +8,7 @@ use crate::sync::spinlock::Spinlock;
 use crate::system::*;
 use crate::task::scheduler::*;
 use crate::*;
+use acpi;
 use alloc::boxed::Box;
 use alloc::vec::*;
 use core::ffi::c_void;
@@ -63,7 +64,7 @@ impl Apic {
         }
     }
 
-    pub unsafe fn init(acpi_apic: &acpi::interrupt::Apic) {
+    pub unsafe fn init(acpi_apic: &acpi::platform::Apic) {
         if acpi_apic.also_has_legacy_pics {
             // disable legacy PICs
             Cpu::out8(0xA1, 0xFF);
@@ -73,7 +74,12 @@ impl Apic {
         Cpu::disable_interrupt();
 
         // init Local Apic
-        APIC.master_apic_id = System::acpi().boot_processor.unwrap().local_apic_id.into();
+        APIC.master_apic_id = System::acpi_platform()
+            .processor_info
+            .unwrap()
+            .boot_processor
+            .local_apic_id
+            .into();
         CURRENT_PROCESSOR_INDEXES[APIC.master_apic_id.0 as usize] = 0;
         LocalApic::init(acpi_apic.local_apic_address as usize);
 
@@ -113,9 +119,9 @@ impl Apic {
         InterruptDescriptorTable::register(vec_latimer, VirtualAddress(timer_handler as usize));
         LocalApic::clear_timer();
         LocalApic::set_timer_div(LocalApicTimerDivide::By1);
-        if let Some(hpet_info) = &System::acpi().hpet {
+        if let Ok(hpet_info) = acpi::HpetInfo::new(System::acpi()) {
             // Use HPET
-            let hpet = Hpet::new(hpet_info);
+            let hpet = Hpet::new(&hpet_info);
             let magic_number = 100;
             let deadline0 = hpet.create(Duration::from_micros(1));
             while hpet.until(deadline0) {
@@ -335,12 +341,12 @@ impl ApicPolarity {
     }
 }
 
-impl From<&acpi::interrupt::Polarity> for ApicPolarity {
-    fn from(src: &acpi::interrupt::Polarity) -> Self {
+impl From<&acpi::platform::Polarity> for ApicPolarity {
+    fn from(src: &acpi::platform::Polarity) -> Self {
         match *src {
-            acpi::interrupt::Polarity::SameAsBus => ApicPolarity::ActiveHigh,
-            acpi::interrupt::Polarity::ActiveHigh => ApicPolarity::ActiveHigh,
-            acpi::interrupt::Polarity::ActiveLow => ApicPolarity::ActiveLow,
+            acpi::platform::Polarity::SameAsBus => ApicPolarity::ActiveHigh,
+            acpi::platform::Polarity::ActiveHigh => ApicPolarity::ActiveHigh,
+            acpi::platform::Polarity::ActiveLow => ApicPolarity::ActiveLow,
         }
     }
 }
@@ -357,12 +363,12 @@ impl ApicTriggerMode {
     }
 }
 
-impl From<&acpi::interrupt::TriggerMode> for ApicTriggerMode {
-    fn from(src: &acpi::interrupt::TriggerMode) -> Self {
+impl From<&acpi::platform::TriggerMode> for ApicTriggerMode {
+    fn from(src: &acpi::platform::TriggerMode) -> Self {
         match *src {
-            acpi::interrupt::TriggerMode::SameAsBus => ApicTriggerMode::Edge,
-            acpi::interrupt::TriggerMode::Edge => ApicTriggerMode::Edge,
-            acpi::interrupt::TriggerMode::Level => ApicTriggerMode::Level,
+            acpi::platform::TriggerMode::SameAsBus => ApicTriggerMode::Edge,
+            acpi::platform::TriggerMode::Edge => ApicTriggerMode::Edge,
+            acpi::platform::TriggerMode::Level => ApicTriggerMode::Level,
         }
     }
 }
@@ -509,7 +515,7 @@ struct IoApic {
 }
 
 impl IoApic {
-    unsafe fn new(acpi_ioapic: &acpi::interrupt::IoApic) -> Self {
+    unsafe fn new(acpi_ioapic: &acpi::platform::IoApic) -> Self {
         let mut ioapic = IoApic {
             mmio: Mmio::from_phys(acpi_ioapic.address as usize, 0x14).unwrap(),
             global_int: Irq(acpi_ioapic.global_system_interrupt_base as u8),

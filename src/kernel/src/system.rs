@@ -104,7 +104,7 @@ pub struct PhysicalAddress(pub usize);
 pub struct System {
     num_of_cpus: usize,
     cpus: Vec<Box<Cpu>>,
-    acpi: Option<Box<acpi::Acpi>>,
+    acpi: Option<Box<acpi::AcpiTables<MyAcpiHandler>>>,
     boot_flags: BootFlags,
     boot_screen: Option<Box<Bitmap>>,
     stdout: Option<Box<dyn Tty>>,
@@ -152,12 +152,17 @@ impl System {
 
             MemoryManager::init_late();
 
-            let mut my_handler = MyAcpiHandler::new();
             shared.acpi = Some(Box::new(
-                ::acpi::parse_rsdp(&mut my_handler, info.acpi_rsdptr as usize).unwrap(),
+                acpi::AcpiTables::from_rsdp(MyAcpiHandler::new(), info.acpi_rsdptr as usize)
+                    .unwrap(),
             ));
 
-            shared.num_of_cpus = Self::acpi().application_processors.len() + 1;
+            shared.num_of_cpus = Self::acpi_platform()
+                .processor_info
+                .unwrap()
+                .application_processors
+                .len()
+                + 1;
             shared.cpus.reserve(shared.num_of_cpus);
             shared.cpus.push(Cpu::new());
 
@@ -202,8 +207,15 @@ impl System {
     }
 
     #[inline]
-    pub fn acpi() -> &'static acpi::Acpi {
+    #[track_caller]
+    pub fn acpi() -> &'static acpi::AcpiTables<MyAcpiHandler> {
         Self::shared().acpi.as_ref().unwrap()
+    }
+
+    #[inline]
+    #[track_caller]
+    pub fn acpi_platform() -> acpi::PlatformInfo {
+        Self::acpi().platform_info().unwrap()
     }
 
     #[inline]
@@ -275,27 +287,29 @@ pub struct SystemTime {
 
 //-//-//-//-//
 
-struct MyAcpiHandler {}
+#[derive(Clone)]
+pub struct MyAcpiHandler {}
 
 impl MyAcpiHandler {
-    fn new() -> Self {
+    const fn new() -> Self {
         MyAcpiHandler {}
     }
 }
 
-use acpi::handler::PhysicalMapping;
-impl ::acpi::handler::AcpiHandler for MyAcpiHandler {
+use ::acpi::PhysicalMapping;
+impl ::acpi::AcpiHandler for MyAcpiHandler {
     unsafe fn map_physical_region<T>(
-        &mut self,
+        &self,
         physical_address: usize,
         size: usize,
-    ) -> PhysicalMapping<T> {
-        PhysicalMapping::<T> {
+    ) -> PhysicalMapping<Self, T> {
+        PhysicalMapping {
             physical_start: physical_address,
             virtual_start: NonNull::new(physical_address as *mut T).unwrap(),
             region_length: size,
             mapped_length: size,
+            handler: Self::new(),
         }
     }
-    fn unmap_physical_region<T>(&mut self, _region: PhysicalMapping<T>) {}
+    fn unmap_physical_region<T>(&self, _region: &PhysicalMapping<Self, T>) {}
 }

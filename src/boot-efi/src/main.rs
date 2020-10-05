@@ -90,6 +90,7 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
         info.vram_stride = gop_info.stride() as u16;
         let (mut w, mut h) = gop_info.resolution();
         if w > info.vram_stride.into() {
+            // GPD micro PC fake landscape mode
             swap(&mut w, &mut h);
         }
         info.screen_width = w as u16;

@@ -6,6 +6,7 @@
 #![no_main]
 #![feature(asm)]
 
+use acpi;
 use alloc::boxed::Box;
 use bootprot::*;
 use core::fmt::Write;
@@ -33,6 +34,7 @@ const STATUS_BAR_HEIGHT: isize = 24;
 const STATUS_BAR_BG_COLOR: Color = Color::from_argb(0xC0EEEEEE);
 
 fn main() {
+    let mut main_window: Option<WindowHandle> = None;
     if System::is_headless() {
         stdout().reset().unwrap();
     } else {
@@ -82,24 +84,25 @@ fn main() {
             let console = GraphicalConsole::new("Terminal", (80, 24), None, 0);
             let window = console.window().unwrap();
             window.set_active();
-            window
-                .draw(|bitmap| {
-                    let center = Point::new(bitmap.width() / 2, bitmap.height() / 2);
-                    bitmap.blend_rect(
-                        Rect::new(center.x - 85, center.y - 60, 80, 80),
-                        IndexedColor::LightRed.as_color() * 0.8,
-                    );
-                    bitmap.blend_rect(
-                        Rect::new(center.x - 40, center.y - 20, 80, 80),
-                        IndexedColor::LightGreen.as_color() * 0.8,
-                    );
-                    bitmap.blend_rect(
-                        Rect::new(center.x + 5, center.y - 60, 80, 80),
-                        IndexedColor::LightBlue.as_color() * 0.8,
-                    );
-                })
-                .unwrap();
+            // window
+            //     .draw(|bitmap| {
+            //         let center = Point::new(bitmap.width() / 2, bitmap.height() / 2);
+            //         bitmap.blend_rect(
+            //             Rect::new(center.x - 85, center.y - 60, 80, 80),
+            //             IndexedColor::LightRed.as_color() * 0.8,
+            //         );
+            //         bitmap.blend_rect(
+            //             Rect::new(center.x - 40, center.y - 20, 80, 80),
+            //             IndexedColor::LightGreen.as_color() * 0.8,
+            //         );
+            //         bitmap.blend_rect(
+            //             Rect::new(center.x + 5, center.y - 60, 80, 80),
+            //             IndexedColor::LightBlue.as_color() * 0.8,
+            //         );
+            //     })
+            //     .unwrap();
             System::set_stdout(console);
+            main_window = Some(window);
         }
 
         MyScheduler::spawn_f(top_thread, 0, "top", SpawnOption::new());

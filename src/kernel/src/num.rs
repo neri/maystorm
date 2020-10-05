@@ -11,6 +11,11 @@ pub trait Number:
     + AddAssign
     + Sub<Output = Self>
     + SubAssign
+    + Div<Output = Self>
+    + Mul<Output = Self>
+    + MulAssign
+    + Div<Output = Self>
+    + DivAssign
     + PartialOrd
     + PartialEq
 {
@@ -233,5 +238,15 @@ impl One for f32 {
 impl One for f64 {
     fn one() -> Self {
         1.0
+    }
+}
+
+pub trait Div2 {
+    fn div2(self) -> Self;
+}
+
+impl Div2 for isize {
+    fn div2(self) -> Self {
+        self / 2
     }
 }
