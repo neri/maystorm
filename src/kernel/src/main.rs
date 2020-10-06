@@ -6,7 +6,7 @@
 #![no_main]
 #![feature(asm)]
 
-use acpi;
+// use acpi;
 use alloc::boxed::Box;
 use bootprot::*;
 use core::fmt::Write;
@@ -34,14 +34,13 @@ const STATUS_BAR_HEIGHT: isize = 24;
 const STATUS_BAR_BG_COLOR: Color = Color::from_argb(0xC0EEEEEE);
 
 fn main() {
-    let mut main_window: Option<WindowHandle> = None;
     if System::is_headless() {
         stdout().reset().unwrap();
     } else {
         // Status bar
         MyScheduler::spawn_f(status_bar_thread, 0, "status bar", SpawnOption::new());
 
-        {
+        if false {
             // Test Window 1
             let window = WindowBuilder::new("Window 1")
                 .frame(Rect::new(-128, 40, 120, 80))
@@ -59,7 +58,7 @@ fn main() {
             window.show();
         }
 
-        {
+        if false {
             // Test Window 2
             let window = WindowBuilder::new("Window 2")
                 .style_add(WindowStyle::PINCHABLE)
@@ -84,25 +83,7 @@ fn main() {
             let console = GraphicalConsole::new("Terminal", (80, 24), None, 0);
             let window = console.window().unwrap();
             window.set_active();
-            // window
-            //     .draw(|bitmap| {
-            //         let center = Point::new(bitmap.width() / 2, bitmap.height() / 2);
-            //         bitmap.blend_rect(
-            //             Rect::new(center.x - 85, center.y - 60, 80, 80),
-            //             IndexedColor::LightRed.as_color() * 0.8,
-            //         );
-            //         bitmap.blend_rect(
-            //             Rect::new(center.x - 40, center.y - 20, 80, 80),
-            //             IndexedColor::LightGreen.as_color() * 0.8,
-            //         );
-            //         bitmap.blend_rect(
-            //             Rect::new(center.x + 5, center.y - 60, 80, 80),
-            //             IndexedColor::LightBlue.as_color() * 0.8,
-            //         );
-            //     })
-            //     .unwrap();
             System::set_stdout(console);
-            main_window = Some(window);
         }
 
         MyScheduler::spawn_f(top_thread, 0, "top", SpawnOption::new());
@@ -220,7 +201,7 @@ fn top_thread(_args: usize) {
     let bg_color = Color::from_argb(0x80000000);
     let fg_color = IndexedColor::Yellow.into();
 
-    let window = WindowBuilder::new("CPU Monitor")
+    let window = WindowBuilder::new("Activity Monitor")
         .style_add(WindowStyle::CLIENT_RECT | WindowStyle::FLOATING)
         .frame(Rect::new(-330, -230, 320, 200))
         .bg_color(bg_color)

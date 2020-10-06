@@ -6,11 +6,12 @@
 #![feature(asm)]
 #![feature(const_fn)]
 #![feature(core_intrinsics)]
+#![feature(duration_zero)]
+#![feature(global_asm)]
 #![feature(lang_items)]
 #![feature(new_uninit)]
-#![feature(panic_info_message)]
 #![feature(option_result_contains)]
-#![feature(duration_zero)]
+#![feature(panic_info_message)]
 #![no_std]
 
 pub mod arch;

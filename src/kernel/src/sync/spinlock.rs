@@ -8,8 +8,6 @@ pub struct Spinlock {
     value: AtomicBool,
 }
 
-unsafe impl Sync for Spinlock {}
-
 impl Spinlock {
     pub const fn new() -> Self {
         Self {

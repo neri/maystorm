@@ -6,13 +6,11 @@ use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;
 use core::fmt;
-use core::pin::*;
 
 #[allow(dead_code)]
 pub struct Cpu {
-    // cpu_id: ProcessorId,
     pub cpu_index: ProcessorIndex,
-    gdt: Pin<Box<GlobalDescriptorTable>>,
+    gdt: Box<GlobalDescriptorTable>,
 }
 
 extern "C" {
@@ -181,8 +179,8 @@ pub struct GlobalDescriptorTable {
 impl GlobalDescriptorTable {
     const NUM_ITEMS: usize = 8;
 
-    pub fn new() -> Pin<Box<Self>> {
-        let mut gdt = Box::pin(GlobalDescriptorTable {
+    pub fn new() -> Box<Self> {
+        let mut gdt = Box::new(GlobalDescriptorTable {
             table: [DescriptorEntry::null(); Self::NUM_ITEMS],
             tss: TaskStateSegment::new(),
         });

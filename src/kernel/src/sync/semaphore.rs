@@ -10,10 +10,6 @@ pub struct Semaphore {
     signal_object: AtomicObject<SignallingObject>,
 }
 
-unsafe impl Sync for Semaphore {}
-
-unsafe impl Send for Semaphore {}
-
 impl Semaphore {
     pub const fn new(value: isize) -> Self {
         Self {
@@ -56,7 +52,9 @@ impl Semaphore {
                     if !deadline.until() {
                         return Err(());
                     }
-                    delta = core::cmp::min(delta << 1, MAX_DELTA);
+                    if delta < MAX_DELTA {
+                        delta += 1;
+                    }
                 }
             }
         }

@@ -114,8 +114,6 @@ pub struct System {
 
 static mut SYSTEM: System = System::new();
 
-unsafe impl Sync for System {}
-
 impl System {
     const fn new() -> Self {
         System {

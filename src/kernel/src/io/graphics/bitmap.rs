@@ -114,15 +114,29 @@ impl Bitmap {
         let bpp8 = bpp / 8;
         let stride = (width * bpp8 + 3) & !3;
         let mut bits = Vec::with_capacity(width * height);
-        for y in 0..height {
-            let mut src = offset + (height - y - 1) * stride;
-            for _ in 0..width {
-                let b = dib[src] as u32;
-                let g = dib[src + 1] as u32;
-                let r = dib[src + 2] as u32;
-                bits.push(Color::from_rgb(b + g * 0x100 + r * 0x10000));
-                src += bpp8;
+        match bpp {
+            24 => {
+                for y in 0..height {
+                    let mut src = offset + (height - y - 1) * stride;
+                    for _ in 0..width {
+                        let b = dib[src] as u32;
+                        let g = dib[src + 1] as u32;
+                        let r = dib[src + 2] as u32;
+                        bits.push(Color::from_rgb(b + g * 0x100 + r * 0x10000));
+                        src += bpp8;
+                    }
+                }
             }
+            32 => {
+                for y in 0..height {
+                    let mut src = offset + (height - y - 1) * stride;
+                    for _ in 0..width {
+                        bits.push(Color::from_rgb(LE::read_u32(&dib[src..src + bpp8])));
+                        src += bpp8;
+                    }
+                }
+            }
+            _ => unimplemented!(),
         }
         Some(Self::from_vec(
             Arc::new(RefCell::new(bits)),

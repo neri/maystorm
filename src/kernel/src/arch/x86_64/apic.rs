@@ -15,6 +15,7 @@ use core::ffi::c_void;
 use core::time::Duration;
 
 const MAX_CPU: usize = 64;
+const STACK_CHUNK_SIZE: usize = 0x4000;
 
 static mut APIC: Apic = Apic::new();
 const INVALID_PROCESSOR_INDEX: u8 = 0xFF;
@@ -147,17 +148,19 @@ impl Apic {
         // Setup SMP
         let sipi_vec = InterruptVector(MemoryManager::static_alloc_real().unwrap().get());
         let max_cpu = core::cmp::min(System::num_of_cpus(), MAX_CPU);
-        let stack_chunk_size = 0x4000;
+        let stack_chunk_size = STACK_CHUNK_SIZE;
         let stack_base = MemoryManager::zalloc(max_cpu * stack_chunk_size)
             .unwrap()
             .get() as *mut c_void;
         asm_apic_setup_sipi(sipi_vec, max_cpu, stack_chunk_size, stack_base);
+
         LocalApic::broadcast_init();
         Timer::usleep(10_000);
         LocalApic::broadcast_startup(sipi_vec);
         Timer::usleep(10_000);
         LocalApic::broadcast_startup(sipi_vec);
         Timer::usleep(10_000);
+
         if System::num_of_active_cpus() != max_cpu {
             panic!("Some of the processors are not responding");
         }

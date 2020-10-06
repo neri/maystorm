@@ -207,6 +207,22 @@ impl WindowManager {
             );
         }
 
+        // {
+        //     let data = include_bytes!("wall.bmp");
+        //     let wallpaper = Bitmap::from_msdib(data).unwrap();
+        //     let window = WindowBuilder::new("wall")
+        //         .style(WindowStyle::CLIENT_RECT)
+        //         .level(WindowLevel::DESKTOP_ITEMS)
+        //         .frame(wallpaper.size().into())
+        //         .build();
+        //     window
+        //         .draw(|bitmap| {
+        //             bitmap.blt(&wallpaper, Point::zero(), wallpaper.size().into());
+        //         })
+        //         .unwrap();
+        //     window.show();
+        // }
+
         SpawnOption::with_priority(Priority::High)
             .new_pid()
             .spawn_f(Self::winmgr_thread, 0, "Window Manager");
@@ -738,12 +754,13 @@ impl RawWindow {
 
                 {
                     let close = shared.resources.close_button.as_ref().unwrap();
-                    let close_pad = (rect.height() - close.height()) / 2;
+                    let close_pad_v = (rect.height() - close.height()) / 2;
+                    let close_pad_h = close_pad_v + 8;
                     bitmap.blt(
                         close,
                         Point::new(
-                            rect.x() + rect.width() - close.width() - close_pad,
-                            rect.y() + close_pad,
+                            rect.x() + rect.width() - close.width() - close_pad_h,
+                            rect.y() + close_pad_v,
                         ),
                         close.bounds(),
                     );

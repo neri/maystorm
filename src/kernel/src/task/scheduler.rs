@@ -118,7 +118,7 @@ impl MyScheduler {
                     let lsch = Self::local_scheduler();
                     if lsch.current.as_ref().priority != Priority::Realtime {
                         if lsch.current.update(|current| current.quantum.consume()) {
-                            LocalScheduler::switch_to_next(lsch);
+                            LocalScheduler::switch_context(lsch);
                         }
                     }
                 });
@@ -138,7 +138,7 @@ impl MyScheduler {
                 current.update(|current| {
                     current.deadline = Timer::new(duration);
                 });
-                LocalScheduler::switch_to_next(lsch);
+                LocalScheduler::switch_context(lsch);
             });
         }
     }
@@ -160,7 +160,7 @@ impl MyScheduler {
     // Get Next Thread from queue
     fn next() -> Option<ThreadHandle> {
         let sch = Self::shared();
-        if sch.is_frozen.load(Ordering::Acquire) {
+        if sch.is_frozen.load(Ordering::SeqCst) {
             return None;
         }
         for _ in 0..1 {
@@ -225,7 +225,7 @@ impl MyScheduler {
 
     pub(crate) unsafe fn freeze(force: bool) -> Result<(), ()> {
         let sch = Self::shared();
-        sch.is_frozen.store(true, Ordering::Release);
+        sch.is_frozen.store(true, Ordering::SeqCst);
         if force {
             // TODO:
         }
@@ -243,7 +243,7 @@ impl MyScheduler {
         Self::retire(thread);
     }
 
-    pub fn spawn<F>(_priority: Priority, _f: F)
+    pub fn spawn<F>(_f: F)
     where
         F: FnOnce() -> (),
     {
@@ -309,39 +309,37 @@ impl LocalScheduler {
         })
     }
 
-    unsafe fn switch_to_next(lsch: &'static mut Self) {
+    unsafe fn switch_context(lsch: &'static mut Self) {
         Cpu::assert_without_interrupt();
 
         let current = lsch.current;
-        let next = match MyScheduler::next() {
-            Some(next) => next,
-            None => lsch.idle,
-        };
+        let next = MyScheduler::next().unwrap_or(lsch.idle);
         current.update(|thread| {
-            let diff =
-                Timer::monotonic().as_micros() as u64 - thread.measure.load(Ordering::Relaxed);
+            let now = Timer::monotonic().as_micros() as u64;
+            let diff = now - thread.measure.load(Ordering::SeqCst);
             thread.cpu_time.fetch_add(diff, Ordering::SeqCst);
             thread.load0.fetch_add(diff as u32, Ordering::SeqCst);
-            thread
-                .measure
-                .store(Timer::monotonic().as_micros() as u64, Ordering::SeqCst);
+            thread.measure.store(now, Ordering::SeqCst);
         });
-        if current.as_ref().id == next.as_ref().id {
-            // Identical thread
-        } else {
+        if current.as_ref().id != next.as_ref().id {
             lsch.retired = Some(current);
             lsch.current = next;
+
+            //-//-//-//-//
             asm_sch_switch_context(
                 &current.as_ref().context as *const _ as *mut _,
                 &next.as_ref().context as *const _ as *mut _,
             );
+            //-//-//-//-//
+
             let lsch = MyScheduler::local_scheduler();
             let current = lsch.current;
             current.update(|thread| {
                 thread
                     .measure
                     .store(Timer::monotonic().as_micros() as u64, Ordering::SeqCst);
-                thread.deadline = Timer::JUST
+                thread.deadline = Timer::JUST;
+                // thread.quantum.reset();
             });
             let retired = lsch.retired.unwrap();
             lsch.retired = None;
@@ -509,14 +507,17 @@ struct Quantum {
     default: u8,
 }
 
-unsafe impl Sync for Quantum {}
-
 impl Quantum {
     const fn new(value: u8) -> Self {
         Quantum {
             current: value,
             default: value,
         }
+    }
+
+    #[allow(dead_code)]
+    fn reset(&mut self) {
+        self.current = self.default;
     }
 
     fn consume(&mut self) -> bool {
@@ -708,10 +709,6 @@ impl RawThread {
 
 #[derive(Debug)]
 pub struct SignallingObject(AtomicUsize);
-
-unsafe impl Sync for SignallingObject {}
-
-unsafe impl Send for SignallingObject {}
 
 impl SignallingObject {
     const NONE: usize = 0;

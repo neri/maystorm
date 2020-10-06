@@ -11,10 +11,6 @@ pub struct Mmio {
     size: usize,
 }
 
-unsafe impl Send for Mmio {}
-
-unsafe impl Sync for Mmio {}
-
 impl Mmio {
     pub unsafe fn from_phys(base: usize, size: usize) -> Result<Self, AllocationError> {
         MemoryManager::direct_map(base, size, MProtect::READ | MProtect::WRITE).map(|va| Self {

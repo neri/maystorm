@@ -188,42 +188,6 @@ _new_thread:
     ud2
 
 
-
-
-_irq2:
-    push rcx
-    mov cl, 2
-    jmp _irqXX
-_irq1:
-    push rcx
-    mov cl, 1
-    jmp _irqXX
-_irq0:
-    push rcx
-    mov cl, 0
-;   jmp _irqXX
-
-_irqXX:
-    push rax
-    push rdx
-    push r8
-    push r9
-    push r10
-    push r11
-    cld
-
-    call apic_handle_irq
-
-    pop r11
-    pop r10
-    pop r9
-    pop r8
-    pop rdx
-    pop rax
-    pop rcx
-    iretq
-
-
 ;   fn asm_apic_setup_sipi(vec_sipi: u8, max_cpu: usize, stack_chunk_size: usize, stack_base: *mut u8);
     global asm_apic_setup_sipi
 asm_apic_setup_sipi:
