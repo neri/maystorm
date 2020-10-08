@@ -14,8 +14,8 @@ acpi = {git = "https://github.com/rust-osdev/acpi"}
 # aml = {git = "https://github.com/rust-osdev/acpi"}
 bitflags = "1.2"
 bootprot = {path = "../bootprot"}
-# compiler_builtins = {git = "https://github.com/rust-lang/compiler-builtins"}
 byteorder = {default-features = false}
 crossbeam-queue = {version = "0.2.1", default-features = false, features = ["alloc"]}
 futures-util = {default-features = false, features = ["alloc"], version = "0.3.4"}
 rlibc = "1.0.0"
+# compiler_builtins = {git = "https://github.com/rust-lang/compiler-builtins"}

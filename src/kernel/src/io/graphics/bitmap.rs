@@ -690,8 +690,7 @@ impl Bitmap {
                     cursor.y += font.line_height();
                 }
                 _ => {
-                    let origin = rect.origin + cursor;
-                    font.draw_char(c, self, origin, color);
+                    font.draw_char(c, self, rect.origin + cursor, color);
                     cursor.x += font_size.width;
                 }
             }

@@ -82,6 +82,7 @@ fn main() {
             // Main Terminal
             let console = GraphicalConsole::new("Terminal", (80, 24), None, 0);
             let window = console.window().unwrap();
+            window.move_to(Point::new(16, 40));
             window.set_active();
             System::set_stdout(console);
         }

@@ -98,42 +98,16 @@ pub struct WindowManager {
     captured_origin: Point<isize>,
 }
 
-#[derive(Default)]
 struct Resources {
-    close_button: Option<Box<Bitmap>>,
+    close_button: Bitmap,
+    corner_shadow: Bitmap,
 }
 
 impl WindowManager {
     pub(crate) fn init(main_screen: &'static Box<Bitmap>) {
         let off_screen = Box::new(Bitmap::with_same_size(main_screen));
 
-        let wm = WindowManager {
-            lock: Spinlock::default(),
-            sem_redraw: Semaphore::new(0),
-            attributes: WindowManagerAttributes::EMPTY,
-            pointer_x: AtomicIsize::new(main_screen.width() / 2),
-            pointer_y: AtomicIsize::new(main_screen.height() / 2),
-            buttons: AtomicUsize::new(0),
-            button_pressed: AtomicUsize::new(0),
-            main_screen,
-            off_screen,
-            screen_insets: EdgeInsets::zero(),
-            resources: Resources::default(),
-            pool: Vec::with_capacity(MAX_WINDOWS),
-            root: None,
-            pointer: None,
-            barrier: None,
-            active: None,
-            captured: None,
-            captured_origin: Point::zero(),
-        };
-        unsafe {
-            WM = Some(Box::new(wm));
-        }
-        let shared = Self::shared();
-
-        {
-            // Prepare Respurces
+        let close_button = {
             let w = CLOSE_BUTTON_SIZE;
             let h = CLOSE_BUTTON_SIZE;
             let bitmap = Bitmap::new(w, h, true);
@@ -149,8 +123,63 @@ impl WindowManager {
                     }
                 })
                 .unwrap();
-            shared.resources.close_button = Some(Box::new(bitmap));
+            bitmap
         };
+
+        let corner_shadow = {
+            let w = WINDOW_BORDER_SHADOW_PADDING;
+            let h = WINDOW_BORDER_SHADOW_PADDING;
+            let bitmap = Bitmap::new(w as usize * 2, h as usize * 2, false);
+            bitmap.reset();
+            bitmap
+                .update_bitmap(|bitmap| {
+                    // TODO:
+                    for q in 0..WINDOW_BORDER_SHADOW_PADDING {
+                        let c = WINDOW_BORDER_SHADOW_PADDING - q;
+                        let refer = c * c;
+                        let color = (q + 1) * (q + 1);
+                        let mut cursor = 0;
+                        for x in -w..w {
+                            for y in -h..h {
+                                if (x * x + y * y) < refer {
+                                    bitmap[cursor] = Color::TRANSPARENT.set_opacity(color as u8);
+                                }
+                                cursor += 1;
+                            }
+                        }
+                    }
+                })
+                .unwrap();
+            bitmap
+        };
+
+        let wm = Some(Box::new(WindowManager {
+            lock: Spinlock::default(),
+            sem_redraw: Semaphore::new(0),
+            attributes: WindowManagerAttributes::EMPTY,
+            pointer_x: AtomicIsize::new(main_screen.width() / 2),
+            pointer_y: AtomicIsize::new(main_screen.height() / 2),
+            buttons: AtomicUsize::new(0),
+            button_pressed: AtomicUsize::new(0),
+            main_screen,
+            off_screen,
+            screen_insets: EdgeInsets::zero(),
+            resources: Resources {
+                close_button,
+                corner_shadow,
+            },
+            pool: Vec::with_capacity(MAX_WINDOWS),
+            root: None,
+            pointer: None,
+            barrier: None,
+            active: None,
+            captured: None,
+            captured_origin: Point::zero(),
+        }));
+        unsafe {
+            WM = wm;
+        }
+        let shared = Self::shared();
 
         {
             // Root Window (Desktop)
@@ -730,12 +759,32 @@ impl RawWindow {
             let is_active = self.is_active();
 
             if self.style.contains(WindowStyle::BORDER) {
-                for n in 0..WINDOW_BORDER_SHADOW_PADDING {
-                    let rect = Rect::from(bitmap.size()).insets_by(EdgeInsets::padding_all(n));
+                let q = WINDOW_BORDER_SHADOW_PADDING;
+                let rect = Rect::from(bitmap.size());
+                for n in 0..q {
+                    let rect = rect.insets_by(EdgeInsets::padding_all(n));
                     let light = 1 + n as u8;
                     let color = Color::TRANSPARENT.set_opacity(light * light);
                     bitmap.draw_rect(rect, color);
                 }
+                let shared = WindowManager::shared();
+                let corner = &shared.resources.corner_shadow;
+                bitmap.blt(corner, Point::new(0, 0), Rect::new(0, 0, q, q));
+                bitmap.blt(
+                    corner,
+                    Point::new(rect.width() - q, 0),
+                    Rect::new(q, 0, q, q),
+                );
+                bitmap.blt(
+                    corner,
+                    Point::new(0, rect.height() - q),
+                    Rect::new(0, q, q, q),
+                );
+                bitmap.blt(
+                    corner,
+                    Point::new(rect.width() - q, rect.height() - q),
+                    Rect::new(q, q, q, q),
+                );
             }
             if self.style.contains(WindowStyle::TITLE) {
                 let shared = WindowManager::shared();
@@ -753,7 +802,7 @@ impl RawWindow {
                 );
 
                 {
-                    let close = shared.resources.close_button.as_ref().unwrap();
+                    let close = &shared.resources.close_button;
                     let close_pad_v = (rect.height() - close.height()) / 2;
                     let close_pad_h = close_pad_v + 8;
                     bitmap.blt(
