@@ -9,7 +9,6 @@ use crate::task::scheduler::*;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
-use alloc::vec::*;
 use bitflags::*;
 use core::cmp;
 use core::isize;

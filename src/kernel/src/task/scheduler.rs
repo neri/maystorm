@@ -10,9 +10,12 @@ use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::*;
 use core::fmt::Write;
+use core::future::Future;
 use core::num::*;
 use core::ops::*;
+use core::pin::Pin;
 use core::sync::atomic::*;
+use core::task::{Context, Poll};
 use core::time::Duration;
 use crossbeam_queue::ArrayQueue;
 // use bitflags::*;
@@ -438,12 +441,14 @@ impl Timer {
     }
 
     #[inline]
+    #[must_use]
     pub fn is_just(&self) -> bool {
         self.deadline == 0
     }
 
+    #[inline]
     #[must_use]
-    pub fn until(self) -> bool {
+    pub fn until(&self) -> bool {
         if self.is_just() {
             false
         } else {
@@ -476,13 +481,39 @@ impl Timer {
     }
 
     #[inline]
+    #[must_use]
     pub fn monotonic() -> Duration {
         unsafe { TIMER_SOURCE.as_ref() }.unwrap().monotonic()
     }
 
     #[inline]
+    #[must_use]
     pub fn measure() -> u64 {
         Self::monotonic().as_micros() as u64
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn sleep_async(duration: Duration) -> AsyncTimer {
+        AsyncTimer {
+            timer: Self::new(duration),
+        }
+    }
+}
+
+pub struct AsyncTimer {
+    timer: Timer,
+}
+
+impl Future for AsyncTimer {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.timer.until() {
+            Poll::Pending
+        } else {
+            Poll::Ready(())
+        }
     }
 }
 

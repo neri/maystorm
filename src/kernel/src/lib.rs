@@ -32,11 +32,11 @@ use crate::io::graphics::*;
 use crate::io::tty::*;
 use crate::mem::memory::*;
 use crate::sync::spinlock::Spinlock;
+use crate::system::*;
 use crate::task::scheduler::*;
 use alloc::boxed::Box;
 use bootprot::*;
 use core::ffi::c_void;
-// use core::fmt::Write;
 use core::panic::PanicInfo;
 
 extern crate alloc;
@@ -93,7 +93,7 @@ fn panic(info: &PanicInfo) -> ! {
     unsafe {
         PANIC_GLOBAL_LOCK.lock();
     }
-    // set_em_console(true);
+    System::set_em_console(true);
     let stdout = stdout();
     stdout.set_cursor_enabled(false);
     stdout.set_attribute(0x17);

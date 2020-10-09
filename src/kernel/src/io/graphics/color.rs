@@ -162,12 +162,12 @@ impl ColorComponents {
     }
 
     #[inline]
-    pub fn is_opaque(self) -> bool {
+    pub const fn is_opaque(self) -> bool {
         self.a == 255
     }
 
     #[inline]
-    pub fn is_transparent(self) -> bool {
+    pub const fn is_transparent(self) -> bool {
         self.a == 0
     }
 }

@@ -8,10 +8,12 @@
 
 // use acpi;
 use alloc::boxed::Box;
+use alloc::vec::*;
 use bootprot::*;
 use core::fmt::Write;
 use core::future::Future;
-use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+use core::pin::Pin;
+use core::task::{Context, RawWaker, RawWakerVTable, Waker};
 use core::time::Duration;
 use io::fonts::*;
 use io::graphics::*;
@@ -37,33 +39,10 @@ fn main() {
     if System::is_headless() {
         stdout().reset().unwrap();
     } else {
-        // Status bar
-        MyScheduler::spawn_f(status_bar_thread, 0, "status bar", SpawnOption::new());
-
-        if false {
-            // Test Window 2
-            let window = WindowBuilder::new("Window 2")
-                .style_add(WindowStyle::PINCHABLE)
-                .frame(Rect::new(-128, 150, 120, 80))
-                .bg_color(Color::from_argb(0x80000000))
-                .build();
-            window
-                .draw(|bitmap| {
-                    bitmap.draw_string(
-                        FontDriver::small_font(),
-                        bitmap.bounds(),
-                        IndexedColor::Yellow.into(),
-                        "ETAOIN SHRDLU CMFWYP VBGKQJ XZ 1234567890",
-                    );
-                })
-                .unwrap();
-            window.show();
-        }
-
         {
             // Main Terminal
-            let console = GraphicalConsole::new("Terminal", (40, 10), None, 0);
-            let window = console.window().unwrap();
+            let (console, window) =
+                GraphicalConsole::new("Terminal", (40, 10), FontDriver::system_font(), 0, 0);
             window.move_to(Point::new(16, 40));
             window.set_active();
             System::set_stdout(console);
@@ -72,13 +51,13 @@ fn main() {
         if false {
             // Test Window 1
             let window = WindowBuilder::new("Hello")
-                .frame(Rect::new(isize::MIN, isize::MIN, 160, 96))
+                .frame(Rect::new(isize::MIN, isize::MIN, 256, 120))
                 .build();
             window
                 .draw(|bitmap| {
                     bitmap.fill_round_rect(
                         Rect::new(0, 4, 104, 30),
-                        12,
+                        8,
                         IndexedColor::LightBlue.into(),
                     );
                     bitmap.draw_string(
@@ -91,24 +70,31 @@ fn main() {
                 .unwrap();
             window.set_active();
         }
-
-        MyScheduler::spawn_f(top_thread, 0, "top", SpawnOption::new());
     }
 
-    println!("{} v{}", System::name(), System::version(),);
+    let mut tasks: Vec<Pin<Box<dyn Future<Output = ()>>>> = Vec::new();
+
+    tasks.push(Box::pin(repl_main()));
+
+    if System::is_headless() {
+    } else {
+        tasks.push(Box::pin(status_bar_main()));
+        tasks.push(Box::pin(activity_monitor_main()));
+    }
 
     let waker = dummy_waker();
-    let mut repl = Box::pin(repl());
     let mut cx = Context::from_waker(&waker);
     loop {
-        match repl.as_mut().poll(&mut cx) {
-            Poll::Ready(_) => break,
-            Poll::Pending => Timer::usleep(100000),
+        for task in &mut tasks {
+            let _ = task.as_mut().poll(&mut cx);
         }
+        Timer::usleep(100_000);
     }
 }
 
-async fn repl() {
+async fn repl_main() {
+    println!("{} v{}", System::name(), System::version(),);
+
     loop {
         print!("# ");
         loop {
@@ -118,7 +104,7 @@ async fn repl() {
                 match c {
                     '\0' => (),
                     '\r' => {
-                        println!("\nBad command or file name - KERNEL PANIC!!!");
+                        println!("\nBad command or filename");
                         break;
                     }
                     _ => print!("{}", c),
@@ -142,7 +128,7 @@ fn dummy_raw_waker() -> RawWaker {
     RawWaker::new(0 as *const (), vtable)
 }
 
-fn status_bar_thread(_args: usize) {
+async fn status_bar_main() {
     let screen_bounds = WindowManager::main_screen_bounds();
     let window = WindowBuilder::new("Status Bar")
         .style(WindowStyle::CLIENT_RECT | WindowStyle::FLOATING)
@@ -169,6 +155,8 @@ fn status_bar_thread(_args: usize) {
 
     let mut sb = string::Sb255::new();
     loop {
+        Timer::sleep_async(Duration::from_millis(500)).await;
+
         sb.clear();
 
         let usage = MyScheduler::usage();
@@ -199,11 +187,10 @@ fn status_bar_thread(_args: usize) {
             bitmap.fill_rect(rect, STATUS_BAR_BG_COLOR);
             bitmap.draw_string(font, rect, IndexedColor::DarkGray.into(), sb.as_str());
         });
-        Timer::usleep(500_000);
     }
 }
 
-fn top_thread(_args: usize) {
+async fn activity_monitor_main() {
     let bg_color = Color::from_argb(0x80000000);
     let fg_color = IndexedColor::Yellow.into();
 
@@ -219,7 +206,6 @@ fn top_thread(_args: usize) {
     let mut sb = string::StringBuffer::with_capacity(0x1000);
     loop {
         MyScheduler::print_statistics(&mut sb);
-
         window
             .draw(|bitmap| {
                 let rect = bitmap.bounds().insets_by(EdgeInsets::padding_all(4));
@@ -228,6 +214,6 @@ fn top_thread(_args: usize) {
             })
             .unwrap();
 
-        Timer::sleep(Duration::from_secs(1));
+        Timer::sleep_async(Duration::from_millis(1000)).await;
     }
 }

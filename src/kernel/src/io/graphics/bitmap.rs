@@ -4,6 +4,7 @@ use super::color::*;
 use super::coords::*;
 use crate::io::fonts::*;
 use crate::num::*;
+use crate::*;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use bitflags::*;
@@ -11,6 +12,7 @@ use bootprot::BootInfo;
 use byteorder::*;
 use core::cell::RefCell;
 use core::mem::swap;
+use core::slice;
 
 #[repr(C)]
 pub struct Bitmap {
@@ -162,7 +164,7 @@ impl Bitmap {
         }
 
         let base = unsafe {
-            self.get_fb()
+            self.fb_unsafe()
                 .add(coords.left as usize + coords.top as usize * self.stride)
         };
 
@@ -175,26 +177,26 @@ impl Bitmap {
         })
     }
 
-    pub fn with_same_size(fb: &Bitmap) -> Self {
+    pub fn with_same_size(src: &Bitmap) -> Self {
         Self::new(
-            fb.size.width as usize,
-            fb.size.height as usize,
-            fb.is_translucent(),
+            src.size.width as usize,
+            src.size.height as usize,
+            src.is_translucent(),
         )
     }
 
     #[inline]
-    pub fn size(&self) -> Size<isize> {
+    pub const fn size(&self) -> Size<isize> {
         self.size
     }
 
     #[inline]
-    pub fn width(&self) -> isize {
+    pub const fn width(&self) -> isize {
         self.size.width
     }
 
     #[inline]
-    pub fn height(&self) -> isize {
+    pub const fn height(&self) -> isize {
         self.size.height
     }
 
@@ -204,23 +206,33 @@ impl Bitmap {
     }
 
     #[inline]
-    pub fn is_portrait(&self) -> bool {
+    pub const fn is_portrait(&self) -> bool {
         self.flags.contains(BitmapFlags::PORTRAIT)
     }
 
     #[inline]
-    pub fn is_translucent(&self) -> bool {
+    pub const fn is_translucent(&self) -> bool {
         self.flags.contains(BitmapFlags::TRANSLUCENT)
     }
 
     #[inline]
-    pub fn is_opaque(&self) -> bool {
+    pub const fn is_opaque(&self) -> bool {
         !self.is_translucent()
     }
 
     #[inline]
-    unsafe fn get_fb(&self) -> *mut u32 {
+    const unsafe fn fb_unsafe(&self) -> *mut u32 {
         self.base
+    }
+
+    #[inline]
+    fn get_fb<'a>(&self) -> &'a mut [Color] {
+        unsafe {
+            slice::from_raw_parts_mut(
+                self.base as *mut Color,
+                self.stride * self.height() as usize,
+            )
+        }
     }
 
     #[inline]
@@ -231,18 +243,35 @@ impl Bitmap {
         if self.stride != self.size.width as usize {
             return Err(());
         }
-        let slice = unsafe {
-            core::slice::from_raw_parts_mut(
-                self.base as *mut Color,
-                self.stride * self.size.height as usize,
-            )
-        };
-        f(slice);
+        f(self.get_fb());
         Ok(())
     }
 
     pub fn reset(&self) {
         self.fill_rect(Rect::from(self.size), Color::zero());
+    }
+
+    #[inline]
+    fn memset_colors(fb: &mut [Color], cursor: usize, size: usize, color: Color) {
+        let slice = &mut fb[cursor..cursor + size];
+        for i in 0..size {
+            slice[i] = color;
+        }
+    }
+
+    #[inline]
+    fn memcpy_colors(
+        dest: &mut [Color],
+        dest_cursor: usize,
+        src: &[Color],
+        src_cursor: usize,
+        size: usize,
+    ) {
+        let dest = &mut dest[dest_cursor..dest_cursor + size];
+        let src = &src[src_cursor..src_cursor + size];
+        for i in 0..size {
+            dest[i] = src[i];
+        }
     }
 
     pub fn fill_rect(&self, rect: Rect<isize>, color: Color) {
@@ -280,24 +309,16 @@ impl Bitmap {
             swap(&mut width, &mut height);
         }
 
-        unsafe {
-            let mut ptr = self.get_fb().add(dx as usize + dy as usize * self.stride);
-            let stride_ptr = self.stride - width as usize;
-            if stride_ptr == 0 {
-                let count = width * height;
-                for _ in 0..count {
-                    ptr.write_volatile(color.argb());
-                    ptr = ptr.add(1);
-                }
-            } else {
-                for _y in 0..height {
-                    for _x in 0..width {
-                        ptr.write_volatile(color.argb());
-                        ptr = ptr.add(1);
-                    }
-                    ptr = ptr.add(stride_ptr);
-                }
+        let fb = self.get_fb();
+        let mut cursor = dx as usize + dy as usize * self.stride;
+        if self.stride - width as usize > 0 {
+            let stride = self.stride;
+            for _ in 0..height {
+                Self::memset_colors(fb, cursor, width as usize, color);
+                cursor += stride;
             }
+        } else {
+            Self::memset_colors(fb, cursor, width as usize * height as usize, color);
         }
     }
 
@@ -345,29 +366,30 @@ impl Bitmap {
             swap(&mut width, &mut height);
         }
 
-        unsafe {
-            let mut ptr = self.get_fb().add(dx as usize + dy as usize * self.stride);
-            let stride_ptr = self.stride - width as usize;
-            for _y in 0..height {
-                for _x in 0..width {
-                    let lhs = Color::from_argb(ptr.read_volatile()).components();
-                    let c = lhs.blend_color(
+        let fb = self.get_fb();
+        let mut cursor = dx as usize + dy as usize * self.stride;
+        let stride = self.stride - width as usize;
+        for _ in 0..height {
+            for _ in 0..width {
+                let lhs = fb[cursor].components();
+                let c = lhs
+                    .blend_color(
                         rhs,
                         |lhs, rhs| {
                             (((lhs as usize) * alpha_n + (rhs as usize) * alpha) / 255) as u8
                         },
                         |a, b| a.saturating_add(b),
-                    );
-                    ptr.write_volatile(c.into());
-                    ptr = ptr.add(1);
-                }
-                ptr = ptr.add(stride_ptr);
+                    )
+                    .into();
+                fb[cursor] = c;
+                cursor += 1;
             }
+            cursor += stride;
         }
     }
 
     pub fn draw_pixels(&self, points: &[Point<isize>], color: Color) {
-        let fb = unsafe { self.get_fb() };
+        let fb = self.get_fb();
         for point in points {
             let mut dx = point.x;
             let mut dy = point.y;
@@ -377,10 +399,7 @@ impl Bitmap {
                     dx = self.size.height - dy - 1;
                     dy = temp;
                 }
-                unsafe {
-                    fb.add(dx as usize + dy as usize * self.stride)
-                        .write_volatile(color.argb());
-                }
+                fb[dx as usize + dy as usize * self.stride] = color;
             }
         }
     }
@@ -415,13 +434,9 @@ impl Bitmap {
         if self.is_portrait() {
             todo!();
         } else {
-            unsafe {
-                let mut ptr = self.get_fb().add(dx as usize + dy as usize * self.stride);
-                for _ in 0..w {
-                    ptr.write_volatile(color.argb());
-                    ptr = ptr.add(1);
-                }
-            }
+            let fb = self.get_fb();
+            let cursor = dx as usize + dy as usize * self.stride;
+            Self::memset_colors(fb, cursor, w as usize, color);
         }
     }
 
@@ -450,13 +465,12 @@ impl Bitmap {
         if self.is_portrait() {
             todo!();
         } else {
-            unsafe {
-                let dd = self.stride;
-                let mut ptr = self.get_fb().add(dx as usize + dy as usize * dd);
-                for _ in 0..h {
-                    ptr.write_volatile(color.argb());
-                    ptr = ptr.add(dd);
-                }
+            let fb = self.get_fb();
+            let stride = self.stride;
+            let mut cursor = dx as usize + dy as usize * stride;
+            for _ in 0..h {
+                fb[cursor] = color;
+                cursor += stride;
             }
         }
     }
@@ -551,45 +565,44 @@ impl Bitmap {
             height = h_limit;
         }
 
-        // TODO: more better clipping
+        // TODO:
         if dx < 0 || dx >= self.size.width || dy < 0 || dy >= self.size.height || height == 0 {
             return;
         }
 
-        unsafe {
-            if self.is_portrait() {
-                dy = self.size.height - dy - height;
-                let mut ptr = self.get_fb().add(dy as usize + dx as usize * self.stride);
-                let stride_ptr = self.stride - height as usize;
-                for x in 0..w8 {
+        let fb = self.get_fb();
+        if self.is_portrait() {
+            dy = self.size.height - dy - height;
+            let mut cursor = dy as usize + dx as usize * self.stride;
+            let stride = self.stride - height as usize;
+            for x in 0..w8 {
+                for mask in BIT_MASKS.iter() {
+                    for y in (0..height).rev() {
+                        let data = pattern[(x + y * w8) as usize];
+                        if (data & mask) != 0 {
+                            fb[cursor] = color;
+                        }
+                        cursor += 1;
+                    }
+                    cursor += stride;
+                }
+            }
+        } else {
+            let mut src_cursor = 0;
+            let mut cursor = dx as usize + dy as usize * self.stride;
+            let stride = self.stride - 8 * w8 as usize;
+            for _ in 0..height {
+                for _ in 0..w8 {
+                    let data = pattern[src_cursor];
                     for mask in BIT_MASKS.iter() {
-                        for y in (0..height).rev() {
-                            let data = pattern[(x + y * w8) as usize];
-                            if (data & mask) != 0 {
-                                ptr.write_volatile(color.argb());
-                            }
-                            ptr = ptr.add(1);
+                        if (data & mask) != 0 {
+                            fb[cursor] = color;
                         }
-                        ptr = ptr.add(stride_ptr);
+                        cursor += 1;
                     }
+                    src_cursor += 1;
                 }
-            } else {
-                let mut src_ptr = 0;
-                let mut ptr0 = self.get_fb().add(dx as usize + dy as usize * self.stride);
-                for _y in 0..height {
-                    let mut ptr = ptr0;
-                    for _x in 0..w8 {
-                        let data = pattern[src_ptr];
-                        for mask in BIT_MASKS.iter() {
-                            if (data & mask) != 0 {
-                                ptr.write_volatile(color.argb());
-                            }
-                            ptr = ptr.add(1);
-                        }
-                        src_ptr += 1;
-                    }
-                    ptr0 = ptr0.add(self.stride);
-                }
+                cursor += stride;
             }
         }
     }
@@ -613,11 +626,11 @@ impl Bitmap {
                 height += dy;
                 dy = 0;
             }
-            if width > src.size.width {
-                width = src.size.width;
+            if width > sx + src.size.width {
+                width = src.size.width - sx;
             }
-            if height > src.size.height {
-                height = src.size.height;
+            if height > sy + src.size.height {
+                height = src.size.height - sy;
             }
             let r = dx + width;
             let b = dy + height;
@@ -632,106 +645,79 @@ impl Bitmap {
             }
         }
 
+        let width = width as usize;
+        let height = height as usize;
+
         if self.is_portrait() {
             let temp = dx;
             dx = self.size.height - dy;
             dy = temp;
-            unsafe {
-                let mut p = self
-                    .get_fb()
-                    .add(dx as usize + dy as usize * self.stride - height as usize);
-                let stride_p = self.stride - height as usize;
-                let q0 = src
-                    .get_fb()
-                    .add(sx as usize + (sy + height - 1) as usize * src.stride);
-                let stride_q = src.stride;
-                if src.is_opaque() {
-                    for x in 0..width {
-                        let mut q = q0.add(x as usize);
-                        for _y in 0..height {
-                            let c = q.read_volatile();
-                            p.write_volatile(c);
-                            p = p.add(1);
-                            q = q.sub(stride_q);
-                        }
-                        p = p.add(stride_p);
+            let dest_fb = self.get_fb();
+            let src_fb = src.get_fb();
+            let mut p = dx as usize + dy as usize * self.stride - height as usize;
+            let q0 = sx as usize + (sy as usize + height - 1) * src.stride;
+            let stride_p = self.stride - height;
+            let stride_q = src.stride;
+            if src.is_opaque() {
+                for x in 0..width {
+                    let mut q = q0 + x;
+                    for _ in 0..height {
+                        dest_fb[p] = src_fb[q];
+                        p += 1;
+                        q -= stride_q;
                     }
-                } else {
-                    for x in 0..width {
-                        let mut q = q0.add(x as usize);
-                        for _y in 0..height {
-                            let c = Color::from_argb(q.read_volatile()).components();
-                            if c.is_opaque() {
-                                p.write_volatile(c.into());
-                            } else {
-                                let alpha = c.a as usize;
-                                let alpha_n = 255 - alpha;
-                                let d = c.blend_each(
-                                    Color::from_argb(p.read_volatile()).components(),
-                                    |a, b| {
-                                        ((a as usize * alpha + b as usize * alpha_n) / 255) as u8
-                                    },
-                                );
-                                p.write_volatile(d.into());
-                            }
+                    p += stride_p;
+                }
+            } else {
+                for x in 0..width {
+                    let mut q = q0 + x;
+                    for _ in 0..height {
+                        let c = src_fb[q].components();
+                        let alpha_l = c.a;
+                        let alpha_r = 255 - alpha_l;
+                        let c = c.blend_each(dest_fb[p].components(), |a, b| {
+                            ((a as usize * alpha_l as usize + b as usize * alpha_r as usize) / 255)
+                                as u8
+                        });
+                        dest_fb[p] = c.into();
 
-                            p = p.add(1);
-                            q = q.sub(stride_q);
-                        }
-                        p = p.add(stride_p);
+                        p += 1;
+                        q -= stride_q;
                     }
+                    p += stride_p;
                 }
             }
         } else {
-            unsafe {
-                let mut p = self.get_fb().add(dx as usize + dy as usize * self.stride);
-                let stride_p = self.stride - width as usize;
-                let mut q = src.get_fb().add(sx as usize + sy as usize * src.stride);
-                let stride_q = src.stride - width as usize;
-                if src.is_opaque() {
-                    if stride_p == 0 && stride_q == 0 {
-                        let count = width * height;
-                        for _ in 0..count {
-                            let c = q.read_volatile();
-                            p.write_volatile(c);
-                            p = p.add(1);
-                            q = q.add(1);
-                        }
-                    } else {
-                        for _y in 0..height {
-                            for _x in 0..width {
-                                let c = q.read_volatile();
-                                p.write_volatile(c);
-                                p = p.add(1);
-                                q = q.add(1);
-                            }
-                            p = p.add(stride_p);
-                            q = q.add(stride_q);
-                        }
+            let dest_fb = self.get_fb();
+            let src_fb = src.get_fb();
+            let mut dest_cursor = dx as usize + dy as usize * self.stride;
+            let mut src_cursor = sx as usize + sy as usize * src.stride;
+
+            if src.is_opaque() {
+                for _ in 0..height {
+                    Self::memcpy_colors(dest_fb, dest_cursor, src_fb, src_cursor, width);
+                    dest_cursor += self.stride;
+                    src_cursor += src.stride;
+                }
+            } else {
+                let stride_dest = self.stride - width;
+                let stride_src = src.stride - width;
+                for _ in 0..height {
+                    for _ in 0..width {
+                        let c = src_fb[src_cursor].components();
+                        let alpha_l = c.a;
+                        let alpha_r = 255 - alpha_l;
+                        let c = c.blend_each(dest_fb[dest_cursor].components(), |a, b| {
+                            ((a as usize * alpha_l as usize + b as usize * alpha_r as usize) / 255)
+                                as u8
+                        });
+                        dest_fb[dest_cursor] = c.into();
+
+                        dest_cursor += 1;
+                        src_cursor += 1;
                     }
-                } else {
-                    for _y in 0..height {
-                        for _x in 0..width {
-                            let c = Color::from_argb(q.read_volatile()).components();
-                            if c.is_opaque() {
-                                p.write_volatile(c.into());
-                            } else {
-                                let alpha = c.a as usize;
-                                let alpha_n = 255 - alpha;
-                                let d = c.blend_each(
-                                    Color::from_argb(p.read_volatile()).components(),
-                                    |a, b| {
-                                        ((a as usize * alpha + b as usize * alpha_n) / 255) as u8
-                                    },
-                                );
-                                p.write_volatile(d.into());
-                            }
-                            p = p.add(1);
-                            q = q.add(1);
-                        }
-                        p = p.add(stride_p);
-                        q = q.add(stride_q);
-                    }
+                    dest_cursor += stride_dest;
+                    src_cursor += stride_src;
                 }
             }
         }

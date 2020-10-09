@@ -15,6 +15,7 @@ use core::task::{Context, Poll};
 
 static DEFAULT_CONSOLE_ATTRIBUTE: NonZeroU8 = unsafe { NonZeroU8::new_unchecked(0x07) };
 static DEFAULT_WINDOW_ATTRIBUTE: NonZeroU8 = unsafe { NonZeroU8::new_unchecked(0xF8) };
+static DEFAULT_WINDOW_OPACITY: NonZeroU8 = unsafe { NonZeroU8::new_unchecked(0xFF) };
 
 static DEFAULT_CONSOLE_INSETS: EdgeInsets<isize> = EdgeInsets::padding_all(4);
 
@@ -28,6 +29,7 @@ pub struct GraphicalConsole<'a> {
     is_cursor_enabled: bool,
     attribute: NonZeroU8,
     default_attribute: NonZeroU8,
+    alpha: u8,
 }
 
 impl<'a> From<&'a Box<Bitmap>> for GraphicalConsole<'a> {
@@ -47,6 +49,7 @@ impl<'a> From<&'a Box<Bitmap>> for GraphicalConsole<'a> {
             is_cursor_enabled: false,
             attribute: DEFAULT_CONSOLE_ATTRIBUTE,
             default_attribute: DEFAULT_CONSOLE_ATTRIBUTE,
+            alpha: u8::MAX,
         }
     }
 }
@@ -55,10 +58,10 @@ impl<'a> GraphicalConsole<'a> {
     pub fn new(
         title: &str,
         dims: (isize, isize),
-        font: Option<&'a FontDriver>,
+        font: &'a FontDriver,
         attribute: u8,
-    ) -> Box<Self> {
-        let font = font.unwrap_or(FontDriver::system_font());
+        alpha: u8,
+    ) -> (Box<Self>, WindowHandle) {
         let size = Size::new(font.width() * dims.0, font.line_height() * dims.1);
         let window = WindowBuilder::new(title)
             .style_add(WindowStyle::CLIENT_RECT)
@@ -81,9 +84,12 @@ impl<'a> GraphicalConsole<'a> {
             is_cursor_enabled: false,
             attribute,
             default_attribute: attribute,
+            alpha: NonZeroU8::new(alpha)
+                .unwrap_or(DEFAULT_WINDOW_OPACITY)
+                .get(),
         });
         window.set_bg_color(console.bg_color());
-        console
+        (console, window)
     }
 }
 
@@ -100,7 +106,9 @@ impl GraphicalConsole<'_> {
 
     #[inline]
     fn bg_color(&self) -> Color {
-        IndexedColor::from(self.attribute.get() >> 4).as_color()
+        IndexedColor::from(self.attribute.get() >> 4)
+            .as_color()
+            .set_opacity(self.alpha)
     }
 
     #[inline]
@@ -160,7 +168,7 @@ impl GraphicalConsole<'_> {
             y = self.dims.1 - 1;
 
             if let Some(handle) = self.handle {
-                let font = FontDriver::system_font();
+                let font = self.font;
                 let mut rect = Rect::new(
                     self.insets.left,
                     self.insets.top + font.line_height(),
