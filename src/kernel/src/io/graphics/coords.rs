@@ -52,6 +52,16 @@ impl<T: Number> Add<Size<T>> for Point<T> {
     }
 }
 
+impl<T: Number> Add<T> for Point<T> {
+    type Output = Self;
+    fn add(self, rhs: T) -> Self {
+        Point {
+            x: self.x + rhs,
+            y: self.y + rhs,
+        }
+    }
+}
+
 impl<T: Number> AddAssign for Point<T> {
     fn add_assign(&mut self, rhs: Self) {
         *self = Self {
@@ -77,6 +87,16 @@ impl<T: Number> Sub<Size<T>> for Point<T> {
         Point {
             x: self.x - rhs.width,
             y: self.y - rhs.height,
+        }
+    }
+}
+
+impl<T: Number> Sub<T> for Point<T> {
+    type Output = Self;
+    fn sub(self, rhs: T) -> Self {
+        Point {
+            x: self.x - rhs,
+            y: self.y - rhs,
         }
     }
 }
@@ -223,6 +243,11 @@ impl<T: Number> Rect<T> {
     }
 
     #[inline]
+    pub const fn origin(self) -> Point<T> {
+        self.origin
+    }
+
+    #[inline]
     pub const fn x(self) -> T {
         self.origin.x
     }
@@ -230,6 +255,11 @@ impl<T: Number> Rect<T> {
     #[inline]
     pub const fn y(self) -> T {
         self.origin.y
+    }
+
+    #[inline]
+    pub const fn size(self) -> Size<T> {
+        self.size
     }
 
     #[inline]

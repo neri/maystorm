@@ -136,7 +136,7 @@ impl Bitmap {
                     }
                 }
             }
-            _ => unimplemented!(),
+            _ => unreachable!(),
         }
         Some(Self::from_vec(
             Arc::new(RefCell::new(bits)),
@@ -413,7 +413,7 @@ impl Bitmap {
         }
 
         if self.is_portrait() {
-            // TODO:
+            todo!();
         } else {
             unsafe {
                 let mut ptr = self.get_fb().add(dx as usize + dy as usize * self.stride);
@@ -448,7 +448,7 @@ impl Bitmap {
         }
 
         if self.is_portrait() {
-            // TODO:
+            todo!();
         } else {
             unsafe {
                 let dd = self.stride;
@@ -470,6 +470,72 @@ impl Bitmap {
         if height > 2 {
             self.draw_vline(coords.left_top() + Point::new(0, 1), height - 2, color);
             self.draw_vline(coords.right_top() + Point::new(-1, 1), height - 2, color);
+        }
+    }
+
+    pub fn fill_circle(&self, origin: Point<isize>, radius: isize, color: Color) {
+        let rect = Rect {
+            origin: origin - radius,
+            size: Size::new(radius * 2, radius * 2),
+        };
+        self.fill_round_rect(rect, radius, color);
+    }
+
+    pub fn fill_round_rect(&self, rect: Rect<isize>, radius: isize, color: Color) {
+        let width = rect.size.width;
+        let height = rect.size.height;
+        let dx = rect.origin.x;
+        let dy = rect.origin.y;
+
+        let mut radius = radius;
+        if radius * 2 > width {
+            radius = width / 2;
+        }
+        if radius * 2 > height {
+            radius = height / 2;
+        }
+
+        let lh = height - radius * 2;
+        if lh > 0 {
+            let rect_line = Rect::new(dx, dy + radius, width, lh);
+            self.fill_rect(rect_line, color);
+        }
+
+        let mut d = 1 - radius;
+        let mut dh = 3;
+        let mut dd = 5 - 2 * radius;
+        let mut cx = 0;
+        let mut cy = radius;
+        let qh = height - 1;
+
+        while cx <= cy {
+            if d < 0 {
+                d += dh;
+                dd += 2;
+            } else {
+                d += dd;
+                dh += 2;
+                dd += 4;
+                cy -= 1;
+            }
+
+            {
+                let bx = radius - cy;
+                let by = radius - cx;
+                let dw = width - bx * 2;
+                self.draw_hline(Point::new(dx + bx, dy + by), dw, color);
+                self.draw_hline(Point::new(dx + bx, dy + qh - by), dw, color);
+            }
+
+            {
+                let bx = radius - cx;
+                let by = radius - cy;
+                let dw = width - bx * 2;
+                self.draw_hline(Point::new(dx + bx, dy + by), dw, color);
+                self.draw_hline(Point::new(dx + bx, dy + qh - by), dw, color);
+            }
+
+            cx += 1;
         }
     }
 

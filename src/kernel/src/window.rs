@@ -8,6 +8,7 @@ use crate::sync::semaphore::*;
 use crate::task::scheduler::*;
 use crate::*;
 use alloc::boxed::Box;
+use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::*;
 use bitflags::*;
 use core::cmp;
@@ -16,7 +17,7 @@ use core::num::*;
 use core::sync::atomic::*;
 use core::time::Duration;
 
-const MAX_WINDOWS: usize = 256;
+// const MAX_WINDOWS: usize = 256;
 const WINDOW_TITLE_LENGTH: usize = 32;
 
 const WINDOW_BORDER_PADDING: isize = 0;
@@ -89,7 +90,8 @@ pub struct WindowManager {
     off_screen: Box<Bitmap>,
     screen_insets: EdgeInsets<isize>,
     resources: Resources,
-    pool: Vec<Box<RawWindow>>,
+    pool: BTreeMap<WindowHandle, Box<RawWindow>>,
+    pool_lock: Spinlock,
     root: Option<WindowHandle>,
     pointer: Option<WindowHandle>,
     barrier: Option<WindowHandle>,
@@ -131,25 +133,12 @@ impl WindowManager {
             let h = WINDOW_BORDER_SHADOW_PADDING;
             let bitmap = Bitmap::new(w as usize * 2, h as usize * 2, false);
             bitmap.reset();
-            bitmap
-                .update_bitmap(|bitmap| {
-                    // TODO:
-                    for q in 0..WINDOW_BORDER_SHADOW_PADDING {
-                        let c = WINDOW_BORDER_SHADOW_PADDING - q;
-                        let refer = c * c;
-                        let color = (q + 1) * (q + 1);
-                        let mut cursor = 0;
-                        for x in -w..w {
-                            for y in -h..h {
-                                if (x * x + y * y) < refer {
-                                    bitmap[cursor] = Color::TRANSPARENT.set_opacity(color as u8);
-                                }
-                                cursor += 1;
-                            }
-                        }
-                    }
-                })
-                .unwrap();
+            let center = bitmap.bounds().center();
+            for q in 0..WINDOW_BORDER_SHADOW_PADDING {
+                let r = WINDOW_BORDER_SHADOW_PADDING - q;
+                let density = ((q + 1) * (q + 1)) as u8;
+                bitmap.fill_circle(center, r, Color::gray(0, density));
+            }
             bitmap
         };
 
@@ -168,7 +157,8 @@ impl WindowManager {
                 close_button,
                 corner_shadow,
             },
-            pool: Vec::with_capacity(MAX_WINDOWS),
+            pool: BTreeMap::new(),
+            pool_lock: Spinlock::default(),
             root: None,
             pointer: None,
             barrier: None,
@@ -336,13 +326,35 @@ impl WindowManager {
         shared.lock.synchronized(f)
     }
 
-    fn add(window: Box<RawWindow>) -> WindowHandle {
-        let id = WindowManager::synchronized(|| {
+    fn next_window_handle() -> WindowHandle {
+        static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
+        WindowHandle::new(NEXT_ID.fetch_add(1, Ordering::SeqCst)).unwrap()
+    }
+
+    #[inline]
+    fn synchronized_pool<F, R>(f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        let shared = unsafe { WM.as_ref().unwrap() };
+        shared.pool_lock.synchronized(f)
+    }
+
+    fn add(window: Box<RawWindow>) {
+        WindowManager::synchronized_pool(|| {
             let shared = Self::shared();
-            shared.pool.push(window);
-            shared.pool.len()
-        });
-        WindowHandle::new(id).unwrap()
+            shared.pool.insert(window.handle, window);
+        })
+    }
+
+    #[inline]
+    fn get(&self, key: &WindowHandle) -> Option<&Box<RawWindow>> {
+        Self::synchronized_pool(|| self.pool.get(key))
+    }
+
+    #[inline]
+    fn get_mut(&mut self, key: &WindowHandle) -> Option<&mut Box<RawWindow>> {
+        Self::synchronized_pool(move || self.pool.get_mut(key))
     }
 
     unsafe fn add_hierarchy(window: WindowHandle) {
@@ -568,7 +580,7 @@ impl WindowManagerAttributes {
 
 #[allow(dead_code)]
 struct RawWindow {
-    handle: Option<WindowHandle>,
+    handle: WindowHandle,
     next: Option<WindowHandle>,
     frame: Rect<isize>,
     shadow_insets: EdgeInsets<isize>,
@@ -749,9 +761,7 @@ impl RawWindow {
     }
 
     fn is_active(&self) -> bool {
-        self.handle
-            .filter(|handle| WindowManager::shared().active.contains(handle))
-            .is_some()
+        WindowManager::shared().active.contains(&self.handle)
     }
 
     fn draw_frame(&self) {
@@ -929,12 +939,12 @@ impl WindowBuilder {
             frame.size += window_insets;
         }
         if frame.x() == isize::MIN {
-            frame.origin.x = screen_bounds.x() + (screen_bounds.width() - frame.width()) / 2;
+            frame.origin.x = (screen_bounds.width() - frame.width()) / 2;
         } else if frame.x() < 0 {
             frame.origin.x += screen_bounds.x() + screen_bounds.width();
         }
         if frame.y() == isize::MIN {
-            frame.origin.y = screen_bounds.y() + (screen_bounds.height() - frame.height()) / 2;
+            frame.origin.y = (screen_bounds.height() - frame.height()) / 2;
         } else if frame.y() < 0 {
             frame.origin.y += screen_bounds.y() + screen_bounds.height();
         }
@@ -957,8 +967,9 @@ impl WindowBuilder {
             WindowAttributes::EMPTY
         };
 
+        let handle = WindowManager::next_window_handle();
         let window = RawWindow {
-            handle: None,
+            handle,
             next: None,
             frame,
             shadow_insets,
@@ -970,11 +981,8 @@ impl WindowBuilder {
             title: self.title,
             attributes,
         };
-        window.draw_frame();
-        let handle = WindowManager::add(Box::new(window));
-        handle.update(|window| {
-            window.handle = Some(handle);
-        });
+        // window.draw_frame();
+        WindowManager::add(Box::new(window));
         handle
     }
     #[inline]
@@ -1023,7 +1031,7 @@ impl WindowBuilder {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct WindowHandle(NonZeroUsize);
 
 impl WindowHandle {
@@ -1033,28 +1041,19 @@ impl WindowHandle {
     }
 
     #[inline]
-    pub const fn as_usize(self) -> usize {
-        self.0.get()
-    }
-
-    const fn into_index(self) -> usize {
-        self.as_usize() - 1
-    }
-
-    #[inline]
-    fn update<F, R>(self, f: F) -> R
+    fn update<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&mut RawWindow) -> R,
     {
         let shared = WindowManager::shared();
-        let window = shared.pool[self.into_index()].as_mut();
+        let window = shared.get_mut(self).unwrap();
         f(window)
     }
 
     #[inline]
-    fn as_ref<'a>(self) -> &'a RawWindow {
+    fn as_ref<'a>(&self) -> &'a RawWindow {
         let shared = WindowManager::shared();
-        shared.pool[self.into_index()].as_ref()
+        shared.get(self).as_ref().unwrap()
     }
 
     // :-:-:-:-:

@@ -194,21 +194,26 @@ impl MyScheduler {
     }
 
     fn scheduler_thread(_args: usize) {
+        let expect = 1_000_000;
+        let mut measure;
         loop {
-            Self::wait_for(None, Duration::from_secs(1));
+            measure = Timer::measure();
+            Self::wait_for(None, Duration::from_micros(expect));
+            let now = Timer::measure();
+            let actual = now - measure;
 
             let sch = Self::shared();
             let mut usage = 0;
             for thread in sch.pool.dic.values() {
-                let load = thread.load0.load(Ordering::SeqCst);
+                let load0 = thread.load0.swap(0, Ordering::SeqCst);
+                let load = u32::min(load0 / 1000, 1000) * expect as u32 / actual as u32;
                 thread.load.store(load, Ordering::SeqCst);
-                thread.load0.fetch_sub(load, Ordering::SeqCst);
                 if thread.priority != Priority::Idle {
                     usage += load;
                 }
             }
             sch.usage.store(
-                u32::min(usage / System::num_of_active_cpus() as u32, 1_000_000),
+                u32::min(usage / System::num_of_active_cpus() as u32, 1000),
                 Ordering::SeqCst,
             );
         }
@@ -216,7 +221,7 @@ impl MyScheduler {
 
     pub fn usage() -> u32 {
         let sch = Self::shared();
-        sch.usage.load(Ordering::Relaxed) / 1000
+        sch.usage.load(Ordering::Relaxed)
     }
 
     pub fn is_enabled() -> bool {
@@ -256,7 +261,7 @@ impl MyScheduler {
         sb.clear();
         writeln!(sb, "PID THID Quan Pri Usage CPU Time Name").unwrap();
         for thread in sch.pool.dic.values() {
-            let load = u32::min(thread.load.load(Ordering::Relaxed) / 1_000, 999);
+            let load = u32::min(thread.load.load(Ordering::Relaxed), 999);
             let load0 = load % 10;
             let load1 = load / 10;
 
@@ -315,7 +320,7 @@ impl LocalScheduler {
         let current = lsch.current;
         let next = MyScheduler::next().unwrap_or(lsch.idle);
         current.update(|thread| {
-            let now = Timer::monotonic().as_micros() as u64;
+            let now = Timer::measure();
             let diff = now - thread.measure.load(Ordering::SeqCst);
             thread.cpu_time.fetch_add(diff, Ordering::SeqCst);
             thread.load0.fetch_add(diff as u32, Ordering::SeqCst);
@@ -335,9 +340,7 @@ impl LocalScheduler {
             let lsch = MyScheduler::local_scheduler();
             let current = lsch.current;
             current.update(|thread| {
-                thread
-                    .measure
-                    .store(Timer::monotonic().as_micros() as u64, Ordering::SeqCst);
+                thread.measure.store(Timer::measure(), Ordering::SeqCst);
                 thread.deadline = Timer::JUST;
                 // thread.quantum.reset();
             });
@@ -357,9 +360,7 @@ pub unsafe extern "C" fn sch_setup_new_thread() {
     let lsch = MyScheduler::local_scheduler();
     let current = lsch.current;
     current.update(|thread| {
-        thread
-            .measure
-            .store(Timer::monotonic().as_micros() as u64, Ordering::SeqCst);
+        thread.measure.store(Timer::measure(), Ordering::SeqCst);
     });
     if let Some(retired) = lsch.retired {
         lsch.retired = None;
@@ -477,6 +478,11 @@ impl Timer {
     #[inline]
     pub fn monotonic() -> Duration {
         unsafe { TIMER_SOURCE.as_ref() }.unwrap().monotonic()
+    }
+
+    #[inline]
+    pub fn measure() -> u64 {
+        Self::monotonic().as_micros() as u64
     }
 }
 

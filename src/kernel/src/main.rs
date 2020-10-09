@@ -41,24 +41,6 @@ fn main() {
         MyScheduler::spawn_f(status_bar_thread, 0, "status bar", SpawnOption::new());
 
         if false {
-            // Test Window 1
-            let window = WindowBuilder::new("Window 1")
-                .frame(Rect::new(-128, 40, 120, 80))
-                .build();
-            window
-                .draw(|bitmap| {
-                    bitmap.draw_string(
-                        FontDriver::small_font(),
-                        bitmap.bounds(),
-                        Color::BLACK,
-                        "The quick brown fox jumps over the lazy dog.",
-                    );
-                })
-                .unwrap();
-            window.show();
-        }
-
-        if false {
             // Test Window 2
             let window = WindowBuilder::new("Window 2")
                 .style_add(WindowStyle::PINCHABLE)
@@ -80,11 +62,34 @@ fn main() {
 
         {
             // Main Terminal
-            let console = GraphicalConsole::new("Terminal", (80, 24), None, 0);
+            let console = GraphicalConsole::new("Terminal", (40, 10), None, 0);
             let window = console.window().unwrap();
             window.move_to(Point::new(16, 40));
             window.set_active();
             System::set_stdout(console);
+        }
+
+        if false {
+            // Test Window 1
+            let window = WindowBuilder::new("Hello")
+                .frame(Rect::new(isize::MIN, isize::MIN, 160, 96))
+                .build();
+            window
+                .draw(|bitmap| {
+                    bitmap.fill_round_rect(
+                        Rect::new(0, 4, 104, 30),
+                        12,
+                        IndexedColor::LightBlue.into(),
+                    );
+                    bitmap.draw_string(
+                        FontDriver::system_font(),
+                        bitmap.bounds().insets_by(EdgeInsets::new(8, 8, 4, 8)),
+                        Color::WHITE,
+                        "Hello Rust!",
+                    );
+                })
+                .unwrap();
+            window.set_active();
         }
 
         MyScheduler::spawn_f(top_thread, 0, "top", SpawnOption::new());

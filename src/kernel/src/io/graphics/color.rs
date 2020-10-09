@@ -25,7 +25,13 @@ impl Color {
     }
 
     pub const fn from_argb(argb: u32) -> Self {
-        Color { argb: argb }
+        Color { argb }
+    }
+
+    pub const fn gray(white: u8, alpha: u8) -> Self {
+        Self {
+            argb: white as u32 * 0x00_01_01_01 + alpha as u32 * 0x01_00_00_00,
+        }
     }
 
     #[inline]
