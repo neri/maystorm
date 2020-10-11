@@ -14,8 +14,10 @@ use core::pin::Pin;
 use core::task::{Context, Poll};
 
 static DEFAULT_CONSOLE_ATTRIBUTE: NonZeroU8 = unsafe { NonZeroU8::new_unchecked(0x07) };
-static DEFAULT_WINDOW_ATTRIBUTE: NonZeroU8 = unsafe { NonZeroU8::new_unchecked(0xF8) };
-static DEFAULT_WINDOW_OPACITY: NonZeroU8 = unsafe { NonZeroU8::new_unchecked(0xFF) };
+static DEFAULT_WINDOW_ATTRIBUTE: NonZeroU8 = unsafe { NonZeroU8::new_unchecked(0x0F) };
+static DEFAULT_WINDOW_OPACITY: NonZeroU8 = unsafe { NonZeroU8::new_unchecked(0xE0) };
+// static DEFAULT_WINDOW_ATTRIBUTE: NonZeroU8 = unsafe { NonZeroU8::new_unchecked(0xF8) };
+// static DEFAULT_WINDOW_OPACITY: NonZeroU8 = unsafe { NonZeroU8::new_unchecked(0xFF) };
 
 static DEFAULT_CONSOLE_INSETS: EdgeInsets<isize> = EdgeInsets::padding_all(4);
 
@@ -176,7 +178,7 @@ impl GraphicalConsole<'_> {
                     y * font.line_height(),
                 );
                 let origin = Point::new(self.insets.left, self.insets.top);
-                self.bitmap.blt(self.bitmap, origin, rect);
+                self.bitmap.blt(self.bitmap, origin, rect, BltOption::COPY);
 
                 rect.origin.y = self.insets.top + y * font.line_height();
                 rect.size.height = font.line_height();
@@ -310,8 +312,11 @@ impl Future for VtReader<'_> {
         match HidManager::get_key() {
             None => Poll::Pending,
             Some(e) => {
-                let c = e.into();
-                Poll::Ready(Ok(c))
+                if e.flags().contains(KeyEventFlags::BREAK) || e.usage() == Usage::NONE {
+                    Poll::Ready(Err(TtyError::SkipData))
+                } else {
+                    Poll::Ready(Ok(e.into()))
+                }
             }
         }
     }

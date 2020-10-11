@@ -1,5 +1,6 @@
 // A Window System
 
+use super::view::*;
 use crate::io::fonts::*;
 use crate::io::graphics::*;
 use crate::io::hid::*;
@@ -9,6 +10,7 @@ use crate::task::scheduler::*;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
+use alloc::vec::*;
 use bitflags::*;
 use core::cmp;
 use core::isize;
@@ -27,7 +29,7 @@ const WINDOW_BASIC_PADDING: isize = 4;
 const DESKTOP_COLOR: Color = Color::from_argb(0xFF2196F3);
 const BARRIER_COLOR: Color = Color::from_argb(0x80000000);
 const WINDOW_ACTIVE_TITLE_BG_COLOR: Color = Color::from_argb(0xE0CCCCCC);
-const WINDOW_ACTIVE_TITLE_SHADOW_COLOR: Color = Color::from_argb(0x99999999);
+const WINDOW_ACTIVE_TITLE_SHADOW_COLOR: Color = Color::from_argb(0xF0999999);
 const WINDOW_ACTIVE_TITLE_FG_COLOR: Color = Color::from_argb(0xFF000000);
 const WINDOW_INACTIVE_TITLE_BG_COLOR: Color = Color::from_argb(0xFFEEEEEE);
 const WINDOW_INACTIVE_TITLE_FG_COLOR: Color = Color::from_argb(0xFF999999);
@@ -109,22 +111,16 @@ impl WindowManager {
         let off_screen = Box::new(Bitmap::with_same_size(main_screen));
 
         let close_button = {
-            let w = CLOSE_BUTTON_SIZE;
-            let h = CLOSE_BUTTON_SIZE;
-            let bitmap = Bitmap::new(w, h, true);
-            bitmap
-                .update_bitmap(|bitmap| {
-                    let mut p: usize = 0;
-                    for y in 0..h {
-                        for x in 0..w {
-                            let c = CLOSE_BUTTON_PALETTE[CLOSE_BUTTON_SOURCE[y][x] as usize];
-                            bitmap[p] = Color::from_argb(c);
-                            p += 1;
-                        }
-                    }
-                })
-                .unwrap();
-            bitmap
+            let width = CLOSE_BUTTON_SIZE;
+            let height = CLOSE_BUTTON_SIZE;
+            let mut vec = Vec::with_capacity(width * height);
+            for y in 0..height {
+                for x in 0..width {
+                    let argb = CLOSE_BUTTON_PALETTE[CLOSE_BUTTON_SOURCE[y][x] as usize];
+                    vec.push(Color::from_argb(argb));
+                }
+            }
+            Bitmap::from_vec(vec, width, height, true)
         };
 
         let corner_shadow = {
@@ -235,7 +231,7 @@ impl WindowManager {
         //         .build();
         //     window
         //         .draw(|bitmap| {
-        //             bitmap.blt(&wallpaper, Point::zero(), wallpaper.size().into());
+        //             bitmap.blt(&wallpaper, Point::zero(), wallpaper.size().into(), BltOption::empty());
         //         })
         //         .unwrap();
         //     window.show();
@@ -251,7 +247,7 @@ impl WindowManager {
         let shared = WindowManager::shared();
         shared.root.unwrap().invalidate();
         loop {
-            let _ = shared.sem_redraw.wait(Duration::from_millis(100));
+            let _ = shared.sem_redraw.wait(Duration::from_millis(1000));
 
             if shared
                 .attributes
@@ -589,6 +585,7 @@ struct RawWindow {
     level: WindowLevel,
     bg_color: Color,
     bitmap: Option<Box<Bitmap>>,
+    view: Option<Box<dyn ViewTrait>>,
     title: [u8; WINDOW_TITLE_LENGTH],
 }
 
@@ -726,7 +723,7 @@ impl RawWindow {
                     );
 
                     if let Some(bitmap) = &window.bitmap {
-                        target_screen.blt(bitmap, blt_origin, blt_rect);
+                        target_screen.blt(bitmap, blt_origin, blt_rect, BltOption::empty());
                     } else {
                         if window.style.contains(WindowStyle::TRANSPARENT) {
                             target_screen.blend_rect(blt_rect, window.bg_color);
@@ -742,7 +739,7 @@ impl RawWindow {
             };
         }
         if is_offscreen {
-            main_screen.blt(off_screen, frame.origin, frame);
+            main_screen.blt(off_screen, frame.origin, frame, BltOption::empty());
         }
     }
 
@@ -778,21 +775,29 @@ impl RawWindow {
                 }
                 let shared = WindowManager::shared();
                 let corner = &shared.resources.corner_shadow;
-                bitmap.blt(corner, Point::new(0, 0), Rect::new(0, 0, q, q));
+                bitmap.blt(
+                    corner,
+                    Point::new(0, 0),
+                    Rect::new(0, 0, q, q),
+                    BltOption::empty(),
+                );
                 bitmap.blt(
                     corner,
                     Point::new(rect.width() - q, 0),
                     Rect::new(q, 0, q, q),
+                    BltOption::empty(),
                 );
                 bitmap.blt(
                     corner,
                     Point::new(0, rect.height() - q),
                     Rect::new(0, q, q, q),
+                    BltOption::empty(),
                 );
                 bitmap.blt(
                     corner,
                     Point::new(rect.width() - q, rect.height() - q),
                     Rect::new(q, q, q, q),
+                    BltOption::empty(),
                 );
             }
             if self.style.contains(WindowStyle::TITLE) {
@@ -821,6 +826,7 @@ impl RawWindow {
                             rect.y() + close_pad_v,
                         ),
                         close.bounds(),
+                        BltOption::empty(),
                     );
                 }
                 let pad_right = rect.height();
@@ -922,6 +928,7 @@ impl WindowBuilder {
         };
         window.title(title).style(WindowStyle::DEFAULT)
     }
+
     #[inline]
     pub fn build(mut self) -> WindowHandle {
         let screen_bounds =
@@ -979,50 +986,66 @@ impl WindowBuilder {
             bitmap: self.bitmap,
             title: self.title,
             attributes,
+            view: None,
         };
         // window.draw_frame();
         WindowManager::add(Box::new(window));
         handle
     }
+
     #[inline]
     pub fn style(mut self, style: WindowStyle) -> Self {
         self.style = style;
         self
     }
+
     #[inline]
     pub fn style_add(mut self, style: WindowStyle) -> Self {
         self.style |= style;
         self
     }
+
     pub fn title(mut self, title: &str) -> Self {
         RawWindow::set_title_array(&mut self.title, title);
         self
     }
+
     #[inline]
     const fn level(mut self, level: WindowLevel) -> Self {
         self.level = level;
         self
     }
+
     #[inline]
     pub const fn frame(mut self, frame: Rect<isize>) -> Self {
         self.frame = frame;
         self
     }
+
+    #[inline]
+    pub const fn center(mut self) -> Self {
+        self.frame.origin = Point::new(isize::MIN, isize::MIN);
+        self
+    }
+
     #[inline]
     pub const fn origin(mut self, origin: Point<isize>) -> Self {
         self.frame.origin = origin;
         self
     }
+
     #[inline]
     pub const fn size(mut self, size: Size<isize>) -> Self {
         self.frame.size = size;
         self
     }
+
     #[inline]
     pub const fn bg_color(mut self, bg_color: Color) -> Self {
         self.bg_color = bg_color;
         self
     }
+
     #[inline]
     pub const fn no_bitmap(mut self) -> Self {
         self.no_bitmap = true;
@@ -1040,6 +1063,7 @@ impl WindowHandle {
     }
 
     #[inline]
+    #[track_caller]
     fn update<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&mut RawWindow) -> R,
@@ -1050,6 +1074,7 @@ impl WindowHandle {
     }
 
     #[inline]
+    #[track_caller]
     fn as_ref<'a>(&self) -> &'a RawWindow {
         let shared = WindowManager::shared();
         shared.get(self).as_ref().unwrap()
@@ -1161,14 +1186,25 @@ impl WindowHandle {
     where
         F: FnOnce(&Bitmap) -> (),
     {
+        self.draw_in_rect(self.frame().size().into(), f)
+    }
+
+    pub fn draw_in_rect<F>(self, rect: Rect<isize>, f: F) -> Result<(), WindowDrawingError>
+    where
+        F: FnOnce(&Bitmap) -> (),
+    {
         let window = self.as_ref();
         let bitmap = match window.bitmap.as_ref() {
             Some(bitmap) => bitmap,
             None => return Err(WindowDrawingError::NoBitmap),
         };
-        let coords = match Coordinates::from_rect(
-            Rect::from(window.frame.size).insets_by(window.content_insets),
-        ) {
+        let bounds = Rect::from(window.frame.size).insets_by(window.content_insets);
+        let coords = match Coordinates::from_rect(Rect::new(
+            rect.x() + bounds.x(),
+            rect.y() + bounds.y(),
+            isize::min(rect.width(), bounds.width()),
+            isize::min(rect.height(), bounds.height()),
+        )) {
             Some(coords) => coords,
             None => return Err(WindowDrawingError::InconsistentCoordinates),
         };
@@ -1184,6 +1220,30 @@ impl WindowHandle {
             return Err(WindowDrawingError::InconsistentCoordinates);
         }
         Ok(())
+    }
+
+    #[inline]
+    pub fn view<'a>(self) -> Option<&'a mut Box<dyn ViewTrait>> {
+        let shared = WindowManager::shared();
+        let window = shared.get_mut(&self).unwrap();
+        window.view.as_mut()
+    }
+
+    #[inline]
+    pub fn set_view(self, view: Box<dyn ViewTrait>) {
+        self.update(|window| {
+            window.view = Some(view);
+            if let Some(view) = window.view.as_mut() {
+                view.move_to(Some(self));
+            }
+        });
+    }
+
+    pub fn load_view_if_needed(self) {
+        if self.as_ref().view.is_none() {
+            let view = Box::new(View::with_frame(self.frame().size().into()));
+            self.set_view(view);
+        }
     }
 }
 

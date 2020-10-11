@@ -81,12 +81,8 @@ impl Bitmap {
         }
     }
 
-    pub fn from_vec(
-        vec: Arc<RefCell<Vec<Color>>>,
-        width: usize,
-        height: usize,
-        is_translucent: bool,
-    ) -> Self {
+    pub fn from_vec(vec: Vec<Color>, width: usize, height: usize, is_translucent: bool) -> Self {
+        let vec = Arc::new(RefCell::new(vec));
         let base = vec.borrow().as_ptr() as *mut _;
         let mut flags = BitmapFlags::empty();
         if is_translucent {
@@ -140,12 +136,7 @@ impl Bitmap {
             }
             _ => unreachable!(),
         }
-        Some(Self::from_vec(
-            Arc::new(RefCell::new(bits)),
-            width,
-            height,
-            false,
-        ))
+        Some(Self::from_vec(bits, width, height, false))
     }
 
     pub fn view(&self, rect: Rect<isize>) -> Option<Self> {
@@ -251,11 +242,40 @@ impl Bitmap {
         self.fill_rect(Rect::from(self.size), Color::zero());
     }
 
-    #[inline]
     fn memset_colors(fb: &mut [Color], cursor: usize, size: usize, color: Color) {
         let slice = &mut fb[cursor..cursor + size];
-        for i in 0..size {
-            slice[i] = color;
+        unsafe {
+            let color32 = color.argb();
+            let mut ptr: *mut u32 = core::mem::transmute(&slice[0]);
+            let mut remain = size;
+
+            while (ptr as usize & 0xF) != 0 && remain > 0 {
+                ptr.write_volatile(color32);
+                ptr = ptr.add(1);
+                remain -= 1;
+            }
+
+            if remain > 4 {
+                let color128 = color32 as u128
+                    | (color32 as u128) << 32
+                    | (color32 as u128) << 64
+                    | (color32 as u128) << 96;
+                let count = remain / 4;
+                let mut ptr2 = ptr as *mut u128;
+
+                for _ in 0..count {
+                    ptr2.write_volatile(color128);
+                    ptr2 = ptr2.add(1);
+                }
+
+                ptr = ptr2 as *mut u32;
+                remain -= count * 4;
+            }
+
+            for _ in 0..remain {
+                ptr.write_volatile(color32);
+                ptr = ptr.add(1);
+            }
         }
     }
 
@@ -271,6 +291,21 @@ impl Bitmap {
         let src = &src[src_cursor..src_cursor + size];
         for i in 0..size {
             dest[i] = src[i];
+        }
+    }
+
+    #[inline]
+    fn blend_line(
+        dest: &mut [Color],
+        dest_cursor: usize,
+        src: &[Color],
+        src_cursor: usize,
+        size: usize,
+    ) {
+        let dest = &mut dest[dest_cursor..dest_cursor + size];
+        let src = &src[src_cursor..src_cursor + size];
+        for i in 0..size {
+            dest[i] = dest[i].blend(src[i]);
         }
     }
 
@@ -388,7 +423,7 @@ impl Bitmap {
         }
     }
 
-    pub fn draw_pixels(&self, points: &[Point<isize>], color: Color) {
+    pub fn draw_multiple_pixels(&self, points: &[Point<isize>], color: Color) {
         let fb = self.get_fb();
         for point in points {
             let mut dx = point.x;
@@ -406,7 +441,7 @@ impl Bitmap {
 
     #[inline]
     pub fn draw_pixel(&self, point: Point<isize>, color: Color) {
-        self.draw_pixels(&[point], color);
+        self.draw_multiple_pixels(&[point], color);
     }
 
     pub fn draw_hline(&self, point: Point<isize>, width: isize, color: Color) {
@@ -487,6 +522,14 @@ impl Bitmap {
         }
     }
 
+    pub fn draw_circle(&self, origin: Point<isize>, radius: isize, color: Color) {
+        let rect = Rect {
+            origin: origin - radius,
+            size: Size::new(radius * 2, radius * 2),
+        };
+        self.draw_round_rect(rect, radius, color);
+    }
+
     pub fn fill_circle(&self, origin: Point<isize>, radius: isize, color: Color) {
         let rect = Rect {
             origin: origin - radius,
@@ -515,24 +558,12 @@ impl Bitmap {
             self.fill_rect(rect_line, color);
         }
 
-        let mut d = 1 - radius;
-        let mut dh = 3;
-        let mut dd = 5 - 2 * radius;
-        let mut cx = 0;
-        let mut cy = radius;
+        let mut cx = radius;
+        let mut cy = 0;
+        let mut f = -2 * radius + 3;
         let qh = height - 1;
 
-        while cx <= cy {
-            if d < 0 {
-                d += dh;
-                dd += 2;
-            } else {
-                d += dd;
-                dh += 2;
-                dd += 4;
-                cy -= 1;
-            }
-
+        while cx >= cy {
             {
                 let bx = radius - cy;
                 let by = radius - cx;
@@ -549,7 +580,78 @@ impl Bitmap {
                 self.draw_hline(Point::new(dx + bx, dy + qh - by), dw, color);
             }
 
-            cx += 1;
+            if f >= 0 {
+                cx -= 1;
+                f -= 4 * cx;
+            }
+            cy += 1;
+            f += 4 * cy + 2;
+        }
+    }
+
+    pub fn draw_round_rect(&self, rect: Rect<isize>, radius: isize, color: Color) {
+        let width = rect.size.width;
+        let height = rect.size.height;
+        let dx = rect.origin.x;
+        let dy = rect.origin.y;
+
+        let mut radius = radius;
+        if radius * 2 > width {
+            radius = width / 2;
+        }
+        if radius * 2 > height {
+            radius = height / 2;
+        }
+
+        let lh = height - radius * 2;
+        if lh > 0 {
+            self.draw_vline(Point::new(dx, dy + radius), lh, color);
+            self.draw_vline(Point::new(dx + width - 1, dy + radius), lh, color);
+        }
+        let lw = width - radius * 2;
+        if lw > 0 {
+            self.draw_hline(Point::new(dx + radius, dy), lw, color);
+            self.draw_hline(Point::new(dx + radius, dy + height - 1), lw, color);
+        }
+
+        let mut cx = radius;
+        let mut cy = 0;
+        let mut f = -2 * radius + 3;
+        let qh = height - 1;
+
+        while cx >= cy {
+            {
+                let bx = radius - cy;
+                let by = radius - cx;
+                let dw = width - bx * 2 - 1;
+                let points = [
+                    Point::new(dx + bx, dy + by),
+                    Point::new(dx + bx, dy + qh - by),
+                    Point::new(dx + bx + dw, dy + by),
+                    Point::new(dx + bx + dw, dy + qh - by),
+                ];
+                self.draw_multiple_pixels(&points, color);
+            }
+
+            {
+                let bx = radius - cx;
+                let by = radius - cy;
+                let dw = width - bx * 2 - 1;
+                let points = [
+                    Point::new(dx + bx, dy + by),
+                    Point::new(dx + bx, dy + qh - by),
+                    Point::new(dx + bx + dw, dy + by),
+                    Point::new(dx + bx + dw, dy + qh - by),
+                ];
+                self.draw_multiple_pixels(&points, color);
+            }
+
+            if f >= 0 {
+                cx -= 1;
+                f -= 4 * cx;
+            }
+            cy += 1;
+            f += 4 * cy + 2;
         }
     }
 
@@ -607,7 +709,7 @@ impl Bitmap {
         }
     }
 
-    pub fn blt(&self, src: &Self, origin: Point<isize>, rect: Rect<isize>) {
+    pub fn blt(&self, src: &Self, origin: Point<isize>, rect: Rect<isize>, option: BltOption) {
         let mut dx = origin.x;
         let mut dy = origin.y;
         let mut sx = rect.origin.x;
@@ -658,7 +760,7 @@ impl Bitmap {
             let q0 = sx as usize + (sy as usize + height - 1) * src.stride;
             let stride_p = self.stride - height;
             let stride_q = src.stride;
-            if src.is_opaque() {
+            if option.contains(BltOption::COPY) || src.is_opaque() {
                 for x in 0..width {
                     let mut q = q0 + x;
                     for _ in 0..height {
@@ -693,31 +795,17 @@ impl Bitmap {
             let mut dest_cursor = dx as usize + dy as usize * self.stride;
             let mut src_cursor = sx as usize + sy as usize * src.stride;
 
-            if src.is_opaque() {
+            if option.contains(BltOption::COPY) || src.is_opaque() {
                 for _ in 0..height {
                     Self::memcpy_colors(dest_fb, dest_cursor, src_fb, src_cursor, width);
                     dest_cursor += self.stride;
                     src_cursor += src.stride;
                 }
             } else {
-                let stride_dest = self.stride - width;
-                let stride_src = src.stride - width;
                 for _ in 0..height {
-                    for _ in 0..width {
-                        let c = src_fb[src_cursor].components();
-                        let alpha_l = c.a;
-                        let alpha_r = 255 - alpha_l;
-                        let c = c.blend_each(dest_fb[dest_cursor].components(), |a, b| {
-                            ((a as usize * alpha_l as usize + b as usize * alpha_r as usize) / 255)
-                                as u8
-                        });
-                        dest_fb[dest_cursor] = c.into();
-
-                        dest_cursor += 1;
-                        src_cursor += 1;
-                    }
-                    dest_cursor += stride_dest;
-                    src_cursor += stride_src;
+                    Self::blend_line(dest_fb, dest_cursor, src_fb, src_cursor, width);
+                    dest_cursor += self.stride;
+                    src_cursor += src.stride;
                 }
             }
         }
@@ -728,7 +816,7 @@ impl Bitmap {
         let coords = Coordinates::from_rect(rect).unwrap();
 
         for c in text.chars() {
-            let font_size = Size::new(font.width(), font.height());
+            let font_size = Size::new(font.width_of(c), font.height());
             if cursor.x + font_size.width >= coords.right {
                 cursor.x = 0;
                 cursor.y += font.line_height();
@@ -747,5 +835,23 @@ impl Bitmap {
                 }
             }
         }
+    }
+
+    /// query known modes for benchmark
+    pub fn known_bench_modes() -> &'static [usize] {
+        &[]
+    }
+
+    /// Do benchmark
+    pub fn bench(_dest: &Self, _src: &Self, mode: usize, _count: usize) {
+        match mode {
+            _ => unreachable!(),
+        }
+    }
+}
+
+bitflags! {
+    pub struct BltOption: usize {
+        const COPY = 0b0000_0001;
     }
 }

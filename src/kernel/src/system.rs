@@ -134,7 +134,7 @@ impl System {
             shared.boot_flags = info.flags;
             // shared.boot_flags.insert(BootFlags::HEADLESS);
 
-            MemoryManager::init(&info);
+            MemoryManager::init_first(&info);
 
             if System::is_headless() {
                 let uart = arch::Arch::master_uart().unwrap();
@@ -148,7 +148,7 @@ impl System {
                 shared.emergency_console = Some(stdout);
             }
 
-            MemoryManager::init_late();
+            MemoryManager::init2();
 
             shared.acpi = Some(Box::new(
                 acpi::AcpiTables::from_rsdp(MyAcpiHandler::new(), info.acpi_rsdptr as usize)
@@ -173,6 +173,8 @@ impl System {
     fn init_late(args: usize) {
         let shared = Self::shared();
         unsafe {
+            MemoryManager::init_late();
+
             if let Some(main_screen) = shared.boot_screen.as_ref() {
                 window::WindowManager::init(main_screen);
             }

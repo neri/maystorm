@@ -1,12 +1,12 @@
 // Human Interface Device Manager
 
+use crate::system::*;
+use crate::window::*;
 use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;
 use core::num::*;
 use crossbeam_queue::ArrayQueue;
-use system::*;
-use window::*;
 
 const INVALID_UNICHAR: char = '\u{FEFF}';
 

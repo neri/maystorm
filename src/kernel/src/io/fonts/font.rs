@@ -15,7 +15,7 @@ pub struct FontDriver<'a> {
     stride: usize,
 }
 
-impl<'a> FontDriver<'_> {
+impl FontDriver<'_> {
     const fn new(width: usize, height: usize, data: &'static [u8]) -> FontDriver<'static> {
         let width = width as isize;
         let height = height as isize;
@@ -39,8 +39,8 @@ impl<'a> FontDriver<'_> {
         &SMALL_FONT
     }
 
-    fn glyph_for(&self, c: char) -> Option<&[u8]> {
-        let c = c as usize;
+    fn glyph_for(&self, character: char) -> Option<&[u8]> {
+        let c = character as usize;
         if c > 0x20 && c < 0x80 {
             let base = self.stride * (c - 0x20);
             Some(&self.data[base..base + self.stride])
@@ -50,32 +50,38 @@ impl<'a> FontDriver<'_> {
     }
 
     #[inline]
-    pub fn size(&self) -> Size<isize> {
+    pub const fn size(&self) -> Size<isize> {
         self.size
     }
 
     #[inline]
-    pub fn width(&self) -> isize {
+    pub const fn width(&self) -> isize {
         self.size.width
     }
 
     #[inline]
-    pub fn height(&self) -> isize {
+    pub const fn height(&self) -> isize {
         self.size.height
     }
 
     #[inline]
-    pub fn line_height(&self) -> isize {
+    pub const fn line_height(&self) -> isize {
         self.line_height
     }
 
     #[inline]
-    pub fn leading(&self) -> isize {
+    pub const fn leading(&self) -> isize {
         self.leading
     }
 
-    pub fn draw_char(&self, c: char, bitmap: &Bitmap, origin: Point<isize>, color: Color) {
-        if let Some(glyph) = self.glyph_for(c) {
+    #[inline]
+    pub fn width_of(&self, character: char) -> isize {
+        let _ = character;
+        self.width()
+    }
+
+    pub fn draw_char(&self, character: char, bitmap: &Bitmap, origin: Point<isize>, color: Color) {
+        if let Some(glyph) = self.glyph_for(character) {
             let rect = Rect::new(
                 origin.x,
                 origin.y + self.leading(),
@@ -85,4 +91,8 @@ impl<'a> FontDriver<'_> {
             bitmap.draw_pattern(rect, glyph, color);
         }
     }
+}
+
+pub struct TextAttributes {
+    _phantom: (),
 }

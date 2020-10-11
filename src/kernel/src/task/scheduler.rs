@@ -262,7 +262,7 @@ impl MyScheduler {
     pub fn print_statistics(sb: &mut StringBuffer) {
         let sch = Self::shared();
         sb.clear();
-        writeln!(sb, "PID THID Quan Pri Usage CPU Time Name").unwrap();
+        writeln!(sb, "PID THID priority usage  cpu time name").unwrap();
         for thread in sch.pool.dic.values() {
             let load = u32::min(thread.load.load(Ordering::Relaxed), 999);
             let load0 = load % 10;

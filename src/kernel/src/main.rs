@@ -21,6 +21,7 @@ use kernel::*;
 use mem::string;
 use system::*;
 use task::scheduler::*;
+use window::view::*;
 use window::*;
 
 extern crate alloc;
@@ -36,6 +37,7 @@ const STATUS_BAR_HEIGHT: isize = 24;
 const STATUS_BAR_BG_COLOR: Color = Color::from_argb(0xC0EEEEEE);
 
 fn main() {
+    let mut _main_window: Option<WindowHandle> = None;
     if System::is_headless() {
         stdout().reset().unwrap();
     } else {
@@ -46,41 +48,40 @@ fn main() {
             window.move_to(Point::new(16, 40));
             window.set_active();
             System::set_stdout(console);
+            _main_window = Some(window);
         }
 
         if false {
             // Test Window 1
             let window = WindowBuilder::new("Hello")
-                .frame(Rect::new(isize::MIN, isize::MIN, 256, 120))
+                .size(Size::new(256, 256))
+                .center()
                 .build();
+
+            window.load_view_if_needed();
+
+            let mut text_view = TextView::new("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
+            text_view.set_background_color(IndexedColor::Yellow.into());
+            text_view.set_tint_color(IndexedColor::Red.into());
+            window.view().unwrap().add_subview(text_view);
+
             window
-                .draw(|bitmap| {
-                    bitmap.fill_round_rect(
-                        Rect::new(0, 4, 104, 30),
-                        8,
-                        IndexedColor::LightBlue.into(),
-                    );
-                    bitmap.draw_string(
-                        FontDriver::system_font(),
-                        bitmap.bounds().insets_by(EdgeInsets::new(8, 8, 4, 8)),
-                        Color::WHITE,
-                        "Hello Rust!",
-                    );
-                })
-                .unwrap();
+                .view()
+                .unwrap()
+                .draw_in_rect(window.frame().size().into());
+
             window.set_active();
         }
     }
 
     let mut tasks: Vec<Pin<Box<dyn Future<Output = ()>>>> = Vec::new();
 
-    tasks.push(Box::pin(repl_main()));
-
     if System::is_headless() {
     } else {
         tasks.push(Box::pin(status_bar_main()));
         tasks.push(Box::pin(activity_monitor_main()));
     }
+    tasks.push(Box::pin(repl_main(_main_window)));
 
     let waker = dummy_waker();
     let mut cx = Context::from_waker(&waker);
@@ -92,23 +93,26 @@ fn main() {
     }
 }
 
-async fn repl_main() {
+async fn repl_main(_main_window: Option<WindowHandle>) {
     println!("{} v{}", System::name(), System::version(),);
+
+    // println!("Benchmarking...");
+    // let bench_count = 0x1000;
+    // let bitmap1 = Bitmap::new(1024, 1024, false);
+    // let bitmap2 = Bitmap::new(512, 512, false);
+    // for i in Bitmap::known_bench_modes() {
+    //     let time0 = Timer::monotonic();
+    //     Bitmap::bench(&bitmap1, &bitmap2, *i, bench_count);
+    //     let time1 = Timer::monotonic();
+    //     let v = (time1.as_micros() - time0.as_micros()) as u64;
+    //     println!("Bench {} = {}", *i, v as u64);
+    // }
 
     loop {
         print!("# ");
-        loop {
-            stdout().set_cursor_enabled(true);
-            if let Ok(c) = stdout().read_async().await {
-                stdout().set_cursor_enabled(false);
-                match c {
-                    '\0' => (),
-                    '\r' => {
-                        println!("\nBad command or filename");
-                        break;
-                    }
-                    _ => print!("{}", c),
-                }
+        if let Some(cmdline) = stdout().read_line_async(126).await {
+            if cmdline.len() > 0 {
+                println!("Command not found: {}", cmdline);
             }
         }
     }
@@ -195,7 +199,7 @@ async fn activity_monitor_main() {
     let fg_color = IndexedColor::Yellow.into();
 
     let window = WindowBuilder::new("Activity Monitor")
-        .style_add(WindowStyle::CLIENT_RECT | WindowStyle::FLOATING)
+        .style_add(WindowStyle::CLIENT_RECT | WindowStyle::FLOATING | WindowStyle::PINCHABLE)
         .frame(Rect::new(-330, -230, 320, 200))
         .bg_color(bg_color)
         .build();

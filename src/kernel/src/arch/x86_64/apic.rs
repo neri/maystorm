@@ -162,7 +162,7 @@ impl Apic {
         Timer::usleep(10_000);
 
         if System::num_of_active_cpus() != max_cpu {
-            panic!("Some of the processors are not responding");
+            panic!("Some of application processors are not responding");
         }
 
         asm!("

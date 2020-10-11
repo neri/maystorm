@@ -88,6 +88,17 @@ impl Color {
     {
         self.components().blend_color(rhs.into(), f_rgb, f_a).into()
     }
+
+    #[inline]
+    pub fn blend(self, other: Self) -> Self {
+        let c = other.components();
+        let alpha_l = c.a;
+        let alpha_r = 255 - alpha_l;
+        c.blend_each(self.components(), |a, b| {
+            ((a as usize * alpha_l as usize + b as usize * alpha_r as usize) / 255) as u8
+        })
+        .into()
+    }
 }
 
 impl Default for Color {
@@ -236,7 +247,7 @@ impl From<u8> for IndexedColor {
 }
 
 static mut SYSTEM_COLOR_PALETTE: [u32; 16] = [
-    0x000000, 0x0D47A1, 0x1B5E20, 0x006064, 0xb71c1c, 0x4A148C, 0x795548, 0x9E9E9E, 0x616161,
+    0x212121, 0x0D47A1, 0x1B5E20, 0x006064, 0xb71c1c, 0x4A148C, 0x795548, 0x9E9E9E, 0x616161,
     0x2196F3, 0x4CAF50, 0x00BCD4, 0xf44336, 0x9C27B0, 0xFFEB3B, 0xFFFFFF,
 ];
 

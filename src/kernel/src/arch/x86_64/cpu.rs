@@ -791,7 +791,6 @@ pub unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext) {
             ctx.rsp & va_mask,
         );
     }
-    GLOBAL_EXCEPTION_LOCK.unlock();
 
     println!(
         "rax {:016x} rsi {:016x} r11 {:016x} rfl {:08x}
@@ -817,6 +816,7 @@ rbp {:016x} r10 {:016x} r15 {:016x}",
         ctx.r15,
     );
 
+    GLOBAL_EXCEPTION_LOCK.unlock();
     loop {
         asm!("hlt");
     }

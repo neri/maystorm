@@ -96,7 +96,7 @@ fn panic(info: &PanicInfo) -> ! {
     System::set_em_console(true);
     let stdout = stdout();
     stdout.set_cursor_enabled(false);
-    stdout.set_attribute(0x17);
+    // stdout.set_attribute(0x17);
     println!("{}", info);
     unsafe {
         let _ = MyScheduler::freeze(true);

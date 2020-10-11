@@ -2,6 +2,7 @@
 
 // use crate::arch::page::*;
 use super::slab::*;
+use crate::task::scheduler::*;
 use alloc::boxed::Box;
 use bitflags::*;
 use bootprot::*;
@@ -34,7 +35,7 @@ impl MemoryManager {
         }
     }
 
-    pub(crate) unsafe fn init(info: &BootInfo) {
+    pub(crate) unsafe fn init_first(info: &BootInfo) {
         let shared = Self::shared();
         shared.total_memory_size = info.total_memory_size;
         shared
@@ -49,9 +50,22 @@ impl MemoryManager {
         }
     }
 
-    pub(crate) unsafe fn init_late() {
+    pub(crate) unsafe fn init2() {
         let shared = Self::shared();
         shared.slab = Some(Box::new(SlabAllocator::new()));
+    }
+
+    pub(crate) unsafe fn init_late() {
+        SpawnOption::new()
+            .priority(Priority::Realtime)
+            .new_pid()
+            .spawn_f(Self::page_thread, 0, "Page");
+    }
+
+    fn page_thread(_args: usize) {
+        loop {
+            Timer::usleep(1000_000);
+        }
     }
 
     #[inline]
