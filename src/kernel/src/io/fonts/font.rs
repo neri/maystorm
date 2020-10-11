@@ -7,6 +7,7 @@ const SYSTEM_FONT: FontDriver = FontDriver::new(8, 16, &FONT_MEGBTAN_DATA);
 include!("megh0608.rs");
 const SMALL_FONT: FontDriver = FontDriver::new(6, 8, &FONT_MEGH0608_DATA);
 
+#[derive(Debug)]
 pub struct FontDriver<'a> {
     size: Size<isize>,
     data: &'a [u8],
@@ -91,8 +92,4 @@ impl FontDriver<'_> {
             bitmap.draw_pattern(rect, glyph, color);
         }
     }
-}
-
-pub struct TextAttributes {
-    _phantom: (),
 }

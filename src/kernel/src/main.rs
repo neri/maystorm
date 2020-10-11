@@ -18,6 +18,7 @@ use core::time::Duration;
 use io::fonts::*;
 use io::graphics::*;
 use kernel::*;
+use mem::memory::*;
 use mem::string;
 use system::*;
 use task::scheduler::*;
@@ -32,9 +33,6 @@ extern crate rlibc;
 // use futures_util::stream::StreamExt;
 
 myos_entry!(main);
-
-const STATUS_BAR_HEIGHT: isize = 24;
-const STATUS_BAR_BG_COLOR: Color = Color::from_argb(0xC0EEEEEE);
 
 fn main() {
     let mut _main_window: Option<WindowHandle> = None;
@@ -51,24 +49,44 @@ fn main() {
             _main_window = Some(window);
         }
 
-        if false {
+        if true {
             // Test Window 1
             let window = WindowBuilder::new("Hello")
-                .size(Size::new(256, 256))
+                .size(Size::new(400, 200))
                 .center()
                 .build();
 
-            window.load_view_if_needed();
+            if let Some(view) = window.view() {
+                let mut shape = View::with_frame(Rect::new(16, 40, 50, 50));
+                shape.set_border_radius(20);
+                shape.set_background_color(IndexedColor::Yellow.into());
+                shape.set_border_color(IndexedColor::Red.into());
+                view.add_subview(shape);
 
-            let mut text_view = TextView::new("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
-            text_view.set_background_color(IndexedColor::Yellow.into());
-            text_view.set_tint_color(IndexedColor::Red.into());
-            window.view().unwrap().add_subview(text_view);
+                let mut rect = view.bounds().insets_by(EdgeInsets::new(16, 80, 0, 16));
+                rect.size.height = 100;
+                let mut text_view = TextView::with_text("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
+                text_view.set_frame(rect);
+                text_view.set_max_lines(0);
+                view.add_subview(text_view);
 
-            window
-                .view()
-                .unwrap()
-                .draw_in_rect(window.frame().size().into());
+                let vertical_base = Coordinates::from_rect(rect).unwrap().bottom + 20;
+
+                let mut button = Button::new(ButtonType::Default);
+                button.set_title("OK");
+                button.set_frame(Rect::new(10, vertical_base, 120, 30));
+                view.add_subview(button);
+
+                let mut button = Button::new(ButtonType::Normal);
+                button.set_title("Cancel");
+                button.set_frame(Rect::new(140, vertical_base, 120, 30));
+                view.add_subview(button);
+
+                let mut button = Button::new(ButtonType::Destructive);
+                button.set_title("Destructive");
+                button.set_frame(Rect::new(270, vertical_base, 120, 30));
+                view.add_subview(button);
+            }
 
             window.set_active();
         }
@@ -96,23 +114,22 @@ fn main() {
 async fn repl_main(_main_window: Option<WindowHandle>) {
     println!("{} v{}", System::name(), System::version(),);
 
-    // println!("Benchmarking...");
-    // let bench_count = 0x1000;
-    // let bitmap1 = Bitmap::new(1024, 1024, false);
-    // let bitmap2 = Bitmap::new(512, 512, false);
-    // for i in Bitmap::known_bench_modes() {
-    //     let time0 = Timer::monotonic();
-    //     Bitmap::bench(&bitmap1, &bitmap2, *i, bench_count);
-    //     let time1 = Timer::monotonic();
-    //     let v = (time1.as_micros() - time0.as_micros()) as u64;
-    //     println!("Bench {} = {}", *i, v as u64);
-    // }
-
+    let mut sb = string::StringBuffer::with_capacity(0x1000);
     loop {
         print!("# ");
         if let Some(cmdline) = stdout().read_line_async(126).await {
             if cmdline.len() > 0 {
-                println!("Command not found: {}", cmdline);
+                // TODO: A better way
+                if cmdline == "cls" {
+                    stdout().reset().unwrap();
+                } else if cmdline == "memory" {
+                    MemoryManager::statistics(&mut sb);
+                    print!("{}", sb.as_str());
+                } else if cmdline == "ver" {
+                    println!("{} v{}", System::name(), System::version(),);
+                } else {
+                    println!("Command not found: {}", cmdline);
+                }
             }
         }
     }
@@ -133,12 +150,16 @@ fn dummy_raw_waker() -> RawWaker {
 }
 
 async fn status_bar_main() {
+    const STATUS_BAR_HEIGHT: isize = 24;
+    let bg_color = Color::from_argb(0xC0EEEEEE);
+    let fg_color = IndexedColor::Black.into();
+
     let screen_bounds = WindowManager::main_screen_bounds();
     let window = WindowBuilder::new("Status Bar")
-        .style(WindowStyle::CLIENT_RECT | WindowStyle::FLOATING)
+        .style(WindowStyle::NAKED | WindowStyle::FLOATING)
         .style_add(WindowStyle::BORDER)
         .frame(Rect::new(0, 0, screen_bounds.width(), STATUS_BAR_HEIGHT))
-        .bg_color(STATUS_BAR_BG_COLOR)
+        .bg_color(bg_color)
         .build();
     let font = FontDriver::system_font();
 
@@ -151,7 +172,7 @@ async fn status_bar_main() {
                 bounds.width(),
                 font.line_height(),
             );
-            bitmap.draw_string(font, rect, IndexedColor::DarkGray.into(), "  My OS  ");
+            bitmap.draw_string(font, rect, fg_color, "  My OS  ");
         })
         .unwrap();
     window.show();
@@ -188,8 +209,8 @@ async fn status_bar_main() {
             font.line_height(),
         );
         let _ = window.draw(|bitmap| {
-            bitmap.fill_rect(rect, STATUS_BAR_BG_COLOR);
-            bitmap.draw_string(font, rect, IndexedColor::DarkGray.into(), sb.as_str());
+            bitmap.fill_rect(rect, bg_color);
+            bitmap.draw_string(font, rect, fg_color, sb.as_str());
         });
     }
 }
@@ -199,8 +220,8 @@ async fn activity_monitor_main() {
     let fg_color = IndexedColor::Yellow.into();
 
     let window = WindowBuilder::new("Activity Monitor")
-        .style_add(WindowStyle::CLIENT_RECT | WindowStyle::FLOATING | WindowStyle::PINCHABLE)
-        .frame(Rect::new(-330, -230, 320, 200))
+        .style_add(WindowStyle::NAKED | WindowStyle::FLOATING | WindowStyle::PINCHABLE)
+        .frame(Rect::new(-330, -180, 320, 150))
         .bg_color(bg_color)
         .build();
     let font = FontDriver::small_font();

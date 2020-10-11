@@ -11,7 +11,7 @@ use crossbeam_queue::ArrayQueue;
 const INVALID_UNICHAR: char = '\u{FEFF}';
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord)]
 pub struct Usage(pub u8);
 
 #[allow(dead_code)]
@@ -91,16 +91,24 @@ impl KeyEvent {
         HidManager::key_event_to_char(self)
     }
 
-    pub fn usage(self) -> Usage {
+    pub const fn usage(self) -> Usage {
         Usage((self.0.get() & 0xFF) as u8)
     }
 
-    pub fn modifier(self) -> Modifier {
+    pub const fn modifier(self) -> Modifier {
         unsafe { Modifier::from_bits_unchecked(((self.0.get() >> 16) & 0xFF) as u8) }
     }
 
-    pub fn flags(self) -> KeyEventFlags {
+    pub const fn flags(self) -> KeyEventFlags {
         unsafe { KeyEventFlags::from_bits_unchecked(((self.0.get() >> 24) & 0xFF) as u8) }
+    }
+
+    pub fn key_data(self) -> Option<Self> {
+        if self.usage() != Usage::NONE && !self.flags().contains(KeyEventFlags::BREAK) {
+            Some(self)
+        } else {
+            None
+        }
     }
 }
 

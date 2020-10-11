@@ -811,30 +811,12 @@ impl Bitmap {
         }
     }
 
+    // #[deprecated]
     pub fn draw_string(&self, font: &FontDriver, rect: Rect<isize>, color: Color, text: &str) {
-        let mut cursor = Point::<isize>::zero();
-        let coords = Coordinates::from_rect(rect).unwrap();
-
-        for c in text.chars() {
-            let font_size = Size::new(font.width_of(c), font.height());
-            if cursor.x + font_size.width >= coords.right {
-                cursor.x = 0;
-                cursor.y += font.line_height();
-            }
-            if cursor.y + font_size.height >= coords.bottom {
-                break;
-            }
-            match c {
-                '\n' => {
-                    cursor.x = 0;
-                    cursor.y += font.line_height();
-                }
-                _ => {
-                    font.draw_char(c, self, rect.origin + cursor, color);
-                    cursor.x += font_size.width;
-                }
-            }
-        }
+        let mut string = AttributedString::new(text);
+        string.font = font;
+        string.color = color;
+        string.draw(&self, rect);
     }
 
     /// query known modes for benchmark
@@ -853,5 +835,87 @@ impl Bitmap {
 bitflags! {
     pub struct BltOption: usize {
         const COPY = 0b0000_0001;
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct AttributedString<'a> {
+    pub text: &'a str,
+    pub font: &'a FontDriver<'a>,
+    pub color: Color,
+}
+
+impl<'a> AttributedString<'a> {
+    pub const fn new(text: &'a str) -> Self {
+        Self {
+            text,
+            font: FontDriver::system_font(),
+            color: Color::BLACK,
+        }
+    }
+
+    pub fn bounding_size(&self, size: Size<isize>) -> Size<isize> {
+        let mut max_width = 0;
+        let mut max_height = 0;
+        let mut cursor = Point::new(0, 0);
+        for c in self.text.chars() {
+            let font_size = Size::new(self.font.width_of(c), self.font.line_height());
+
+            let expected_width = cursor.x + font_size.width;
+            if max_width < expected_width && expected_width <= size.width {
+                max_width = expected_width;
+            }
+            if expected_width >= size.width {
+                cursor.x = 0;
+                cursor.y += font_size.height;
+            }
+
+            let expected_height = cursor.y + font_size.height;
+            if expected_height > size.height {
+                break;
+            }
+
+            match c {
+                '\n' => {
+                    cursor.x = 0;
+                    cursor.y += self.font.line_height();
+                }
+                _ => {
+                    max_height = cursor.y + font_size.height;
+                    cursor.x += font_size.width;
+                }
+            }
+        }
+        Size::new(max_width, max_height)
+    }
+
+    pub fn draw(&self, bitmap: &Bitmap, rect: Rect<isize>) {
+        let mut cursor = Point::<isize>::zero();
+        let coords = match Coordinates::from_rect(rect) {
+            Some(coords) => coords,
+            None => return,
+        };
+
+        for c in self.text.chars() {
+            let font_size = Size::new(self.font.width_of(c), self.font.line_height());
+            if cursor.x + font_size.width > coords.right {
+                cursor.x = 0;
+                cursor.y += self.font.line_height();
+            }
+            if cursor.y + font_size.height > coords.bottom {
+                break;
+            }
+            match c {
+                '\n' => {
+                    cursor.x = 0;
+                    cursor.y += self.font.line_height();
+                }
+                _ => {
+                    self.font
+                        .draw_char(c, bitmap, rect.origin + cursor, self.color);
+                    cursor.x += font_size.width;
+                }
+            }
+        }
     }
 }

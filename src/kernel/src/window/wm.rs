@@ -24,39 +24,38 @@ const WINDOW_TITLE_LENGTH: usize = 32;
 const WINDOW_BORDER_PADDING: isize = 0;
 const WINDOW_BORDER_SHADOW_PADDING: isize = 8;
 const WINDOW_TITLE_HEIGHT: isize = 24;
-const WINDOW_BASIC_PADDING: isize = 4;
 
 const DESKTOP_COLOR: Color = Color::from_argb(0xFF2196F3);
 const BARRIER_COLOR: Color = Color::from_argb(0x80000000);
-const WINDOW_ACTIVE_TITLE_BG_COLOR: Color = Color::from_argb(0xE0CCCCCC);
-const WINDOW_ACTIVE_TITLE_SHADOW_COLOR: Color = Color::from_argb(0xF0999999);
-const WINDOW_ACTIVE_TITLE_FG_COLOR: Color = Color::from_argb(0xFF000000);
+const WINDOW_ACTIVE_TITLE_BG_COLOR: Color = Color::from_argb(0xE0BDBDBD);
+const WINDOW_ACTIVE_TITLE_SHADOW_COLOR: Color = Color::from_argb(0xFF9E9E9E);
+const WINDOW_ACTIVE_TITLE_FG_COLOR: Color = Color::from_argb(0xFF212121);
 const WINDOW_INACTIVE_TITLE_BG_COLOR: Color = Color::from_argb(0xFFEEEEEE);
-const WINDOW_INACTIVE_TITLE_FG_COLOR: Color = Color::from_argb(0xFF999999);
+const WINDOW_INACTIVE_TITLE_FG_COLOR: Color = Color::from_argb(0xFF9E9E9E);
 
 // Mouse Pointer
 const MOUSE_POINTER_WIDTH: usize = 12;
 const MOUSE_POINTER_HEIGHT: usize = 20;
-const MOUSE_POINTER_PALETTE: [u32; 3] = [0x00FF00FF, 0xFFFFFFFF, 0xFF000000];
+const MOUSE_POINTER_PALETTE: [u32; 4] = [0x00FF00FF, 0xFFFFFFFF, 0xFF999999, 0xFF000000];
 const MOUSE_POINTER_SOURCE: [[u8; MOUSE_POINTER_WIDTH]; MOUSE_POINTER_HEIGHT] = [
     [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     [1, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-    [1, 2, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0],
-    [1, 2, 2, 2, 1, 0, 0, 0, 0, 0, 0, 0],
-    [1, 2, 2, 2, 2, 1, 0, 0, 0, 0, 0, 0],
-    [1, 2, 2, 2, 2, 2, 1, 0, 0, 0, 0, 0],
-    [1, 2, 2, 2, 2, 2, 2, 1, 0, 0, 0, 0],
-    [1, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0, 0],
-    [1, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0],
-    [1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 0],
-    [1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1],
-    [1, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1],
-    [1, 2, 2, 2, 1, 2, 2, 1, 0, 0, 0, 0],
-    [1, 2, 2, 1, 0, 1, 2, 2, 1, 0, 0, 0],
-    [1, 2, 1, 0, 0, 1, 2, 2, 1, 0, 0, 0],
-    [1, 1, 0, 0, 0, 0, 1, 2, 2, 1, 0, 0],
-    [0, 0, 0, 0, 0, 0, 1, 2, 2, 1, 0, 0],
+    [1, 3, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+    [1, 3, 3, 2, 1, 0, 0, 0, 0, 0, 0, 0],
+    [1, 3, 3, 3, 2, 1, 0, 0, 0, 0, 0, 0],
+    [1, 3, 3, 3, 3, 2, 1, 0, 0, 0, 0, 0],
+    [1, 3, 3, 3, 3, 3, 2, 1, 0, 0, 0, 0],
+    [1, 3, 3, 3, 3, 3, 3, 2, 1, 0, 0, 0],
+    [1, 3, 3, 3, 3, 3, 3, 3, 2, 1, 0, 0],
+    [1, 3, 3, 3, 3, 3, 3, 3, 3, 2, 1, 0],
+    [1, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 1],
+    [1, 3, 3, 3, 3, 3, 2, 1, 1, 1, 1, 1],
+    [1, 3, 3, 2, 1, 2, 3, 1, 0, 0, 0, 0],
+    [1, 3, 2, 1, 0, 1, 3, 2, 1, 0, 0, 0],
+    [1, 2, 1, 0, 0, 1, 2, 3, 1, 0, 0, 0],
+    [1, 1, 0, 0, 0, 0, 1, 3, 2, 1, 0, 0],
+    [0, 0, 0, 0, 0, 0, 1, 2, 3, 1, 0, 0],
     [0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0],
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
 ];
@@ -170,7 +169,7 @@ impl WindowManager {
             // Root Window (Desktop)
             shared.root = Some(
                 WindowBuilder::new("Desktop")
-                    .style(WindowStyle::CLIENT_RECT)
+                    .style(WindowStyle::NAKED)
                     .level(WindowLevel::ROOT)
                     .frame(Rect::from(main_screen.size()))
                     .bg_color(DESKTOP_COLOR)
@@ -184,7 +183,7 @@ impl WindowManager {
             let w = MOUSE_POINTER_WIDTH;
             let h = MOUSE_POINTER_HEIGHT;
             let pointer = WindowBuilder::new("Pointer")
-                .style(WindowStyle::CLIENT_RECT)
+                .style(WindowStyle::NAKED)
                 .level(WindowLevel::POINTER)
                 .origin(shared.pointer())
                 .size(Size::new(w as isize, h as isize))
@@ -212,7 +211,7 @@ impl WindowManager {
             // Popup Window Barrier
             shared.barrier = Some(
                 WindowBuilder::new("Barrier")
-                    .style(WindowStyle::CLIENT_RECT | WindowStyle::TRANSPARENT)
+                    .style(WindowStyle::NAKED | WindowStyle::TRANSPARENT)
                     .level(WindowLevel::POPUP_BARRIER)
                     .frame(Rect::from(main_screen.size()))
                     .bg_color(BARRIER_COLOR)
@@ -225,13 +224,18 @@ impl WindowManager {
         //     let data = include_bytes!("wall.bmp");
         //     let wallpaper = Bitmap::from_msdib(data).unwrap();
         //     let window = WindowBuilder::new("wall")
-        //         .style(WindowStyle::CLIENT_RECT)
+        //         .style(WindowStyle::NAKED)
         //         .level(WindowLevel::DESKTOP_ITEMS)
         //         .frame(wallpaper.size().into())
         //         .build();
         //     window
         //         .draw(|bitmap| {
-        //             bitmap.blt(&wallpaper, Point::zero(), wallpaper.size().into(), BltOption::empty());
+        //             bitmap.blt(
+        //                 &wallpaper,
+        //                 Point::zero(),
+        //                 wallpaper.size().into(),
+        //                 BltOption::empty(),
+        //             );
         //         })
         //         .unwrap();
         //     window.show();
@@ -593,7 +597,7 @@ bitflags! {
     pub struct WindowStyle: u8 {
         const BORDER        = 0b0000_0001;
         const TITLE         = 0b0000_0010;
-        const CLIENT_RECT   = 0b0000_0100;
+        const NAKED         = 0b0000_0100;
         const TRANSPARENT   = 0b0000_1000;
         const PINCHABLE     = 0b0001_0000;
         const FLOATING      = 0b0010_0000;
@@ -611,9 +615,6 @@ impl WindowStyle {
         };
         if self.contains(Self::TITLE) {
             insets.top += WINDOW_TITLE_HEIGHT;
-        }
-        if !self.contains(Self::CLIENT_RECT) {
-            insets += EdgeInsets::padding_all(WINDOW_BASIC_PADDING);
         }
         insets
     }
@@ -653,6 +654,11 @@ impl RawWindow {
     // fn bounds(&self) -> Rect<isize> {
     //     Rect::from(self.frame.insets_by(self.shadow_insets).size)
     // }
+
+    #[inline]
+    fn actual_bounds(&self) -> Rect<isize> {
+        self.frame.size().into()
+    }
 
     #[inline]
     fn frame(&self) -> Rect<isize> {
@@ -852,9 +858,18 @@ impl RawWindow {
         }
     }
 
-    #[inline]
-    fn invalidate(&self) {
-        self.invalidate_rect(Rect::from(self.frame.size));
+    fn invalidate(&mut self) {
+        if let Some(bitmap) = self.bitmap.as_ref() {
+            if let Some(view) = self.view.as_mut() {
+                view.layout_if_needed();
+                if let Some(ctx) =
+                    bitmap.view(Rect::from(self.frame.size).insets_by(self.content_insets))
+                {
+                    view.draw_in_context(ctx);
+                }
+            }
+        }
+        self.invalidate_rect(self.actual_bounds());
     }
 
     fn invalidate_rect(&self, rect: Rect<isize>) {
@@ -941,7 +956,7 @@ impl WindowBuilder {
         let window_insets = self.style.as_content_insets();
         let content_insets = window_insets + shadow_insets;
         let mut frame = self.frame;
-        if self.style.contains(WindowStyle::CLIENT_RECT) {
+        if self.style.contains(WindowStyle::NAKED) {
             frame.size += window_insets;
         }
         if frame.x() == isize::MIN {
@@ -990,6 +1005,9 @@ impl WindowBuilder {
         };
         // window.draw_frame();
         WindowManager::add(Box::new(window));
+        if !self.style.contains(WindowStyle::NAKED) {
+            handle.load_view_if_needed();
+        }
         handle
     }
 
@@ -1179,7 +1197,7 @@ impl WindowHandle {
 
     #[inline]
     pub fn invalidate(self) {
-        self.as_ref().invalidate();
+        self.update(|window| window.invalidate());
     }
 
     pub fn draw<F>(self, f: F) -> Result<(), WindowDrawingError>
@@ -1229,20 +1247,16 @@ impl WindowHandle {
         window.view.as_mut()
     }
 
-    #[inline]
-    pub fn set_view(self, view: Box<dyn ViewTrait>) {
-        self.update(|window| {
-            window.view = Some(view);
-            if let Some(view) = window.view.as_mut() {
-                view.move_to(Some(self));
-            }
-        });
-    }
-
     pub fn load_view_if_needed(self) {
         if self.as_ref().view.is_none() {
-            let view = Box::new(View::with_frame(self.frame().size().into()));
-            self.set_view(view);
+            let mut view = View::with_frame(self.frame().size().into());
+            self.update(|window| {
+                view.set_background_color(window.bg_color);
+                window.view = Some(view);
+                if let Some(view) = window.view.as_mut() {
+                    view.move_to(Some(self));
+                }
+            });
         }
     }
 }

@@ -53,6 +53,7 @@ impl ImageLoader<'_> {
             // Step 1 - allocate memory
             let size = header.optional.size_of_image as usize;
             let vmem = PageManager::valloc(base, size) as *const u8 as *mut u8;
+            vmem.write_bytes(0, size);
 
             println!(
                 "Kernel Base: {:08x} => {:08x} Size: {:08x}",

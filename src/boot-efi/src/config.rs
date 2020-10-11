@@ -21,6 +21,9 @@ pub struct BootSettings {
 
     #[serde(default)]
     headless: bool,
+
+    #[serde(default)]
+    debug_mode: bool,
 }
 
 fn default_kernel() -> &'static str {
@@ -64,5 +67,9 @@ impl BootSettings {
 
     pub const fn is_headless(&self) -> bool {
         self.headless
+    }
+
+    pub const fn is_debug_mode(&self) -> bool {
+        self.debug_mode
     }
 }

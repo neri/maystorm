@@ -17,22 +17,22 @@ impl Invocation {
 
         // Enable NXE
         asm!("
-        rdmsr
-        bts eax, 11
-        wrmsr
-        ", in("ecx") IA32_EFER_MSR, lateout("eax") _, lateout("edx") _,);
+            rdmsr
+            bts eax, 11
+            wrmsr
+            ", in("ecx") IA32_EFER_MSR, lateout("eax") _, lateout("edx") _,);
 
         // Set new CR3
         asm!("
-        mov cr3, {0}
-        .byte 0xEB, 0x00
-        ", in(reg) info.master_cr3);
+            mov cr3, {0}
+            .byte 0xEB, 0x00
+            ", in(reg) info.master_cr3);
 
         asm!("
-        lea rsp, [{1} - 0x20]
-        call {0}
-        ud2
-        ",
+            lea rsp, [{1} - 0x20]
+            call {0}
+            ud2
+            ",
             in(reg) entry.0,
             in(reg) new_sp.0,
             in("rcx") &info,

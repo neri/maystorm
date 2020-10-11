@@ -276,12 +276,12 @@ impl MyScheduler {
 
             writeln!(
                 sb,
-                "{:3} {:3} {:2}/{:2} {:1} {:2}.{:1} {:3}:{:02}:{:02}.{:02} {}",
+                "{:3} {:3} {:1} {:2}/{:2} {:2}.{:1} {:3}:{:02}:{:02}.{:02} {}",
                 thread.pid.0,
                 thread.id.0,
+                thread.priority as usize,
                 thread.quantum.current,
                 thread.quantum.default,
-                thread.priority as usize,
                 load1,
                 load0,
                 hour,

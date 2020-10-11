@@ -9,7 +9,7 @@ use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
 use bootprot::BootInfo;
-use core::fmt::*;
+use core::fmt;
 use core::num::*;
 use core::ptr::*;
 use core::sync::atomic::*;
@@ -30,7 +30,6 @@ impl Version {
     }
 }
 
-use core::fmt;
 impl fmt::Display for Version {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}.{}.{}", self.maj, self.min, self.rel)
@@ -110,6 +109,8 @@ pub struct System {
     stdout: Option<Box<dyn Tty>>,
     emergency_console: Option<Box<dyn Tty>>,
     use_emergency_console: AtomicBool,
+    boot_vram: usize,
+    boot_vram_stride: usize,
 }
 
 static mut SYSTEM: System = System::new();
@@ -125,16 +126,24 @@ impl System {
             stdout: None,
             emergency_console: None,
             use_emergency_console: AtomicBool::new(true),
+            boot_vram: 0,
+            boot_vram_stride: 0,
         }
     }
 
     pub fn init(info: &BootInfo, f: fn() -> ()) -> ! {
         unsafe {
             let shared = &mut SYSTEM;
+            shared.boot_vram = info.vram_base as usize;
+            shared.boot_vram_stride = info.vram_stride as usize;
             shared.boot_flags = info.flags;
             // shared.boot_flags.insert(BootFlags::HEADLESS);
 
+            Self::debug_tick();
+
             MemoryManager::init_first(&info);
+
+            Self::debug_tick();
 
             if System::is_headless() {
                 let uart = arch::Arch::master_uart().unwrap();
@@ -142,18 +151,24 @@ impl System {
                 shared.emergency_console = Some(stdout);
             } else {
                 let screen = Bitmap::from(info);
-                screen.reset();
+                // screen.reset();
                 shared.boot_screen = Some(Box::new(screen));
                 let stdout = Box::new(GraphicalConsole::from(shared.boot_screen.as_ref().unwrap()));
                 shared.emergency_console = Some(stdout);
             }
 
+            Self::debug_tick();
+
             MemoryManager::init2();
+
+            Self::debug_tick();
 
             shared.acpi = Some(Box::new(
                 acpi::AcpiTables::from_rsdp(MyAcpiHandler::new(), info.acpi_rsdptr as usize)
                     .unwrap(),
             ));
+
+            Self::debug_tick();
 
             shared.num_of_cpus = Self::acpi_platform()
                 .processor_info
@@ -164,22 +179,50 @@ impl System {
             shared.cpus.reserve(shared.num_of_cpus);
             shared.cpus.push(Cpu::new());
 
+            Self::debug_tick();
+
             arch::Arch::init();
 
+            Self::debug_tick();
+
             MyScheduler::start(Self::init_late, f as *const c_void as usize);
+        }
+    }
+
+    pub fn debug_tick() {
+        let shared = Self::shared();
+        static mut DEBUG_PTR: usize = 0;
+        if shared.boot_flags.contains(BootFlags::DEBUG_MODE) {
+            unsafe {
+                if DEBUG_PTR == 0 {
+                    DEBUG_PTR = shared.boot_vram_stride * 6 + 6;
+                }
+                let vram = shared.boot_vram as *mut u32;
+                vram.add(DEBUG_PTR).write_volatile(0xCCCCCC);
+                DEBUG_PTR += 4;
+            }
         }
     }
 
     fn init_late(args: usize) {
         let shared = Self::shared();
         unsafe {
+            print!("F");
+
             MemoryManager::init_late();
+
+            print!("G");
 
             if let Some(main_screen) = shared.boot_screen.as_ref() {
                 window::WindowManager::init(main_screen);
             }
+
+            print!("H");
+
             io::hid::HidManager::init();
             arch::Arch::init_late();
+
+            print!("H");
 
             let f: fn() = core::mem::transmute(args);
             f();

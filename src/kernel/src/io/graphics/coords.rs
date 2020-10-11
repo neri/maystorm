@@ -1,6 +1,7 @@
 // Coordinate Types
 
 use crate::num::*;
+use core::fmt;
 use core::ops::*;
 
 #[repr(C)]
@@ -17,9 +18,9 @@ impl<T: Number> Point<T> {
     }
 }
 
-impl<T: Number> From<(T, T)> for Point<T> {
-    fn from(p: (T, T)) -> Self {
-        Self::new(p.0, p.1)
+impl<T: Number + fmt::Display> fmt::Display for Point<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Point {{{}, {}}}", self.x, self.y,)
     }
 }
 
@@ -124,9 +125,9 @@ impl<T: Number> Size<T> {
     }
 }
 
-impl<T: Number> From<(T, T)> for Size<T> {
-    fn from(p: (T, T)) -> Self {
-        Self::new(p.0, p.1)
+impl<T: Number + fmt::Display> fmt::Display for Size<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Size {{{}, {}}}", self.width, self.height,)
     }
 }
 
@@ -321,9 +322,16 @@ impl<T: Number> Rect<T> {
     }
 }
 
-impl<T: Number> From<(T, T, T, T)> for Rect<T> {
-    fn from(p: (T, T, T, T)) -> Self {
-        Self::new(p.0, p.1, p.2, p.3)
+impl<T: Number + fmt::Display> fmt::Display for Rect<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Rect {{{}, {}}} {{{}, {}}}",
+            self.x(),
+            self.y(),
+            self.width(),
+            self.height()
+        )
     }
 }
 
@@ -466,12 +474,6 @@ impl<T: Number> EdgeInsets<T> {
             bottom: value,
             right: value,
         }
-    }
-}
-
-impl<T: Number> From<(T, T, T, T)> for EdgeInsets<T> {
-    fn from(p: (T, T, T, T)) -> Self {
-        Self::new(p.0, p.1, p.2, p.3)
     }
 }
 

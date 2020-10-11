@@ -6,19 +6,33 @@
 #![feature(asm)]
 
 extern crate rlibc;
+use bootprot::*;
 use core::panic::PanicInfo;
-use uefi::prelude::*;
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
     loop {}
 }
 
-#[entry]
-fn efi_main(_handle: Handle, _st: SystemTable<Boot>) -> Status {
+#[no_mangle]
+pub fn efi_main(info: &BootInfo, mbz: usize) -> usize {
+    if mbz != 0 {
+        return !(isize::MAX as usize) + 1;
+    }
     unsafe {
-        for c in b"Hello, world!\n" {
-            asm!("out dx, al", in("edx") 0x3F8, in("al") *c);
+        let mut vram = info.vram_base as usize as *mut u32;
+        let width = info.vram_stride as usize;
+        let height = info.screen_height as usize;
+
+        for y in 0..height {
+            for x in 0..width {
+                if ((x ^ y) & 1) == 0 {
+                    vram.write_volatile(0xFF00FF);
+                } else {
+                    vram.write_volatile(0xFFFFFF);
+                }
+                vram = vram.add(1);
+            }
         }
 
         loop {

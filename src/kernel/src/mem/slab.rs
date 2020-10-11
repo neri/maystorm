@@ -62,6 +62,18 @@ impl SlabAllocator {
         }
         Err(DeallocationError::Unsupported)
     }
+
+    pub fn statistics(&self) -> Vec<(usize, usize, usize)> {
+        let mut vec = Vec::with_capacity(self.vec.len());
+        for item in &self.vec {
+            vec.push((
+                item.block_size as usize,
+                item.first_chunk.free.load(Ordering::Relaxed) as usize,
+                item.first_chunk.count as usize,
+            ));
+        }
+        vec
+    }
 }
 
 #[derive(Debug)]

@@ -2,11 +2,13 @@
 
 // use crate::arch::page::*;
 use super::slab::*;
+use super::string::*;
 use crate::task::scheduler::*;
 use alloc::boxed::Box;
 use bitflags::*;
 use bootprot::*;
 use core::alloc::Layout;
+use core::fmt::Write;
 use core::num::*;
 use core::sync::atomic::*;
 
@@ -17,6 +19,7 @@ pub struct MemoryManager {
     page_size_min: usize,
     static_start: AtomicUsize,
     static_free: AtomicUsize,
+    static_total: usize,
     slab: Option<Box<SlabAllocator>>,
     #[cfg(any(target_arch = "x86_64"))]
     real_bitmap: [u32; 8],
@@ -29,6 +32,7 @@ impl MemoryManager {
             page_size_min: 0x1000,
             static_start: AtomicUsize::new(0),
             static_free: AtomicUsize::new(0),
+            static_total: 0,
             slab: None,
             #[cfg(any(target_arch = "x86_64"))]
             real_bitmap: [0; 8],
@@ -38,6 +42,7 @@ impl MemoryManager {
     pub(crate) unsafe fn init_first(info: &BootInfo) {
         let shared = Self::shared();
         shared.total_memory_size = info.total_memory_size;
+        shared.static_total = info.free_memory as usize;
         shared
             .static_start
             .store(info.static_start as usize, Ordering::Relaxed);
@@ -173,6 +178,22 @@ impl MemoryManager {
             }
         }
         None
+    }
+
+    pub fn statistics(sb: &mut StringBuffer) {
+        let shared = Self::shared();
+        sb.clear();
+        writeln!(sb, "Total: {} KB", shared.total_memory_size / 1024).unwrap();
+        writeln!(
+            sb,
+            "Kernel: {} / {} KB",
+            shared.static_free.load(Ordering::Relaxed) / 1024,
+            shared.static_total / 1024,
+        )
+        .unwrap();
+        // for slab in shared.slab.as_ref().unwrap().statistics() {
+        //     writeln!(sb, "Slab {:4}: {:3} / {:3}", slab.0, slab.1, slab.2).unwrap();
+        // }
     }
 
     // pub unsafe fn exhaust() {

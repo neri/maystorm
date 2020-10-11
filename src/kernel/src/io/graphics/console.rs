@@ -66,7 +66,7 @@ impl<'a> GraphicalConsole<'a> {
     ) -> (Box<Self>, WindowHandle) {
         let size = Size::new(font.width() * dims.0, font.line_height() * dims.1);
         let window = WindowBuilder::new(title)
-            .style_add(WindowStyle::CLIENT_RECT)
+            .style_add(WindowStyle::NAKED)
             .size(size + DEFAULT_CONSOLE_INSETS)
             .build();
 
@@ -221,13 +221,21 @@ impl TtyWrite for GraphicalConsole<'_> {
     fn reset(&mut self) -> Result<(), TtyError> {
         let old_cursor_state = self.set_cursor_enabled(false);
         self.set_cursor_position(0, 0);
-        self.bitmap.reset();
+
+        if let Some(window) = self.window() {
+            window
+                .draw(|bitmap| {
+                    bitmap.fill_rect(bitmap.bounds(), self.bg_color());
+                })
+                .unwrap();
+        } else {
+            self.bitmap.reset();
+        }
+
         if old_cursor_state {
             self.set_cursor_enabled(old_cursor_state);
         }
-        if let Some(handle) = self.handle {
-            handle.invalidate();
-        }
+
         Ok(())
     }
 
@@ -311,13 +319,10 @@ impl Future for VtReader<'_> {
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         match HidManager::get_key() {
             None => Poll::Pending,
-            Some(e) => {
-                if e.flags().contains(KeyEventFlags::BREAK) || e.usage() == Usage::NONE {
-                    Poll::Ready(Err(TtyError::SkipData))
-                } else {
-                    Poll::Ready(Ok(e.into()))
-                }
-            }
+            Some(e) => match e.key_data() {
+                Some(key) => Poll::Ready(Ok(key.into())),
+                None => Poll::Ready(Err(TtyError::SkipData)),
+            },
         }
     }
 }

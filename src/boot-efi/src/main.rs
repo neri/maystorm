@@ -50,6 +50,9 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
     if config.is_headless() {
         info.flags.insert(BootFlags::HEADLESS);
     }
+    if config.is_debug_mode() {
+        info.flags.insert(BootFlags::DEBUG_MODE);
+    }
 
     // Load KERNEL
     let mut kernel = ImageLoader::new(match get_file(handle, &bs, config.kernel_path()) {
@@ -88,13 +91,13 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
         let mut fb = gop.frame_buffer();
         info.vram_base = fb.as_mut_ptr() as usize as u64;
         info.vram_stride = gop_info.stride() as u16;
-        let (mut w, mut h) = gop_info.resolution();
-        if w > info.vram_stride.into() {
+        let (mut width, mut height) = gop_info.resolution();
+        if width > info.vram_stride.into() {
             // GPD micro PC fake landscape mode
-            swap(&mut w, &mut h);
+            swap(&mut width, &mut height);
         }
-        info.screen_width = w as u16;
-        info.screen_height = h as u16;
+        info.screen_width = width as u16;
+        info.screen_height = height as u16;
     } else if !info.flags.contains(BootFlags::HEADLESS) {
         writeln!(st.stdout(), "Error: GOP Not Found").unwrap();
         return Status::UNSUPPORTED;
