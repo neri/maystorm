@@ -259,11 +259,26 @@ impl MyScheduler {
         todo!();
     }
 
-    pub fn print_statistics(sb: &mut StringBuffer) {
+    pub fn get_idle_statistics(vec: &mut Vec<u32>) {
+        let sch = Self::shared();
+        vec.clear();
+        for thread in sch.pool.dic.values() {
+            if thread.priority != Priority::Idle {
+                break;
+            }
+            vec.push(thread.load.load(Ordering::Relaxed));
+        }
+    }
+
+    pub fn print_statistics(sb: &mut StringBuffer, exclude_idle: bool) {
         let sch = Self::shared();
         sb.clear();
-        writeln!(sb, "PID THID priority usage  cpu time name").unwrap();
+        writeln!(sb, "PID priority usage   cpu time name").unwrap();
         for thread in sch.pool.dic.values() {
+            if exclude_idle && thread.priority == Priority::Idle {
+                continue;
+            }
+
             let load = u32::min(thread.load.load(Ordering::Relaxed), 999);
             let load0 = load % 10;
             let load1 = load / 10;
@@ -276,9 +291,8 @@ impl MyScheduler {
 
             writeln!(
                 sb,
-                "{:3} {:3} {:1} {:2}/{:2} {:2}.{:1} {:3}:{:02}:{:02}.{:02} {}",
+                "{:3} {:1} {:2}/{:2} {:2}.{:1} {:3}:{:02}:{:02}.{:02} {} {}",
                 thread.pid.0,
-                thread.id.0,
                 thread.priority as usize,
                 thread.quantum.current,
                 thread.quantum.default,
@@ -288,6 +302,7 @@ impl MyScheduler {
                 min,
                 sec,
                 dsec,
+                thread.id.0,
                 thread.name().unwrap_or("")
             )
             .unwrap();

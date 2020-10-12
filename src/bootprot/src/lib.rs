@@ -28,8 +28,9 @@ pub struct BootInfo {
 
 bitflags! {
     pub struct BootFlags: u16 {
-        const HEADLESS      = 0b0000_0000_0000_0001;
-        const DEBUG_MODE    = 0b0000_0000_0000_0010;
+        const PORTRAIT      = 0b0000_0000_0000_0001;
+        const HEADLESS      = 0b0000_0000_0000_0010;
+        const DEBUG_MODE    = 0b0000_0000_0000_0100;
     }
 }
 

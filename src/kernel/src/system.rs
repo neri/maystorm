@@ -151,7 +151,6 @@ impl System {
                 shared.emergency_console = Some(stdout);
             } else {
                 let screen = Bitmap::from(info);
-                // screen.reset();
                 shared.boot_screen = Some(Box::new(screen));
                 let stdout = Box::new(GraphicalConsole::from(shared.boot_screen.as_ref().unwrap()));
                 shared.emergency_console = Some(stdout);
@@ -189,6 +188,7 @@ impl System {
         }
     }
 
+    #[inline]
     pub fn debug_tick() {
         let shared = Self::shared();
         static mut DEBUG_PTR: usize = 0;
@@ -207,22 +207,16 @@ impl System {
     fn init_late(args: usize) {
         let shared = Self::shared();
         unsafe {
-            print!("F");
-
             MemoryManager::init_late();
 
-            print!("G");
+            io::fonts::FontDriver::init();
 
             if let Some(main_screen) = shared.boot_screen.as_ref() {
                 window::WindowManager::init(main_screen);
             }
 
-            print!("H");
-
             io::hid::HidManager::init();
             arch::Arch::init_late();
-
-            print!("H");
 
             let f: fn() = core::mem::transmute(args);
             f();

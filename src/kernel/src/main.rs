@@ -42,7 +42,7 @@ fn main() {
         {
             // Main Terminal
             let (console, window) =
-                GraphicalConsole::new("Terminal", (40, 10), FontDriver::system_font(), 0, 0);
+                GraphicalConsole::new("Terminal", (40, 10), FontDriver::system_font_static(), 0, 0);
             window.move_to(Point::new(16, 40));
             window.set_active();
             System::set_stdout(console);
@@ -51,23 +51,67 @@ fn main() {
 
         if true {
             // Test Window 1
-            let window = WindowBuilder::new("Hello")
-                .size(Size::new(400, 200))
+            let window = WindowBuilder::new("Welcome")
+                .size(Size::new(512, 384))
                 .center()
                 .build();
 
             if let Some(view) = window.view() {
-                let mut shape = View::with_frame(Rect::new(16, 40, 50, 50));
-                shape.set_border_radius(20);
-                shape.set_background_color(IndexedColor::Yellow.into());
-                shape.set_border_color(IndexedColor::Red.into());
+                let mut rect = view.bounds();
+                rect.size.height = 56;
+                let mut shape = View::with_frame(rect);
+                shape.set_background_color(Color::from_rgb(0x64B5F6));
                 view.add_subview(shape);
 
-                let mut rect = view.bounds().insets_by(EdgeInsets::new(16, 80, 0, 16));
-                rect.size.height = 100;
-                let mut text_view = TextView::with_text("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
+                // let mut shape = View::with_frame(Rect::new(16, 80, 50, 50));
+                // shape.set_border_radius(20);
+                // shape.set_background_color(IndexedColor::Yellow.into());
+                // shape.set_border_color(IndexedColor::Red.into());
+                // view.add_subview(shape);
+
+                let mut rect = view.bounds().insets_by(EdgeInsets::new(16, 16, 0, 16));
+                rect.size.height = 32;
+                let mut text_view = TextView::with_text("Welcome to My OS !");
+                text_view.set_font(FontDriver::with_hershey(32));
+                text_view.set_tint_color(IndexedColor::White.into());
                 text_view.set_frame(rect);
-                text_view.set_max_lines(0);
+                text_view.set_max_lines(1);
+                view.add_subview(text_view);
+
+                rect.origin.y += rect.size.height + 20;
+                rect.size.height = 20;
+                let mut text_view = TextView::with_text("My OS is my first OS written in Rust.");
+                text_view.set_font(FontDriver::with_hershey(20));
+                text_view.set_tint_color(IndexedColor::Green.into());
+                text_view.set_frame(rect);
+                text_view.set_max_lines(2);
+                view.add_subview(text_view);
+
+                rect.origin.y += rect.size.height + 10;
+                rect.size.height = 24 * 2;
+                let mut text_view = TextView::with_text("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
+                text_view.set_font(FontDriver::with_hershey(24));
+                text_view.set_tint_color(IndexedColor::DarkGray.into());
+                text_view.set_frame(rect);
+                text_view.set_max_lines(2);
+                view.add_subview(text_view);
+
+                rect.origin.y += rect.size.height + 10;
+                rect.size.height = 20 * 2;
+                let mut text_view = TextView::with_text("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
+                text_view.set_font(FontDriver::with_hershey(20));
+                text_view.set_tint_color(IndexedColor::DarkGray.into());
+                text_view.set_frame(rect);
+                text_view.set_max_lines(2);
+                view.add_subview(text_view);
+
+                rect.origin.y += rect.size.height + 10;
+                rect.size.height = 32;
+                let mut text_view = TextView::with_text("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
+                text_view.set_font(FontDriver::with_hershey(16));
+                text_view.set_tint_color(IndexedColor::DarkGray.into());
+                text_view.set_frame(rect);
+                text_view.set_max_lines(2);
                 view.add_subview(text_view);
 
                 let vertical_base = Coordinates::from_rect(rect).unwrap().bottom + 20;
@@ -152,7 +196,7 @@ fn dummy_raw_waker() -> RawWaker {
 async fn status_bar_main() {
     const STATUS_BAR_HEIGHT: isize = 24;
     let bg_color = Color::from_argb(0xC0EEEEEE);
-    let fg_color = IndexedColor::Black.into();
+    let fg_color = IndexedColor::DarkGray.into();
 
     let screen_bounds = WindowManager::main_screen_bounds();
     let window = WindowBuilder::new("Status Bar")
@@ -161,23 +205,29 @@ async fn status_bar_main() {
         .frame(Rect::new(0, 0, screen_bounds.width(), STATUS_BAR_HEIGHT))
         .bg_color(bg_color)
         .build();
-    let font = FontDriver::system_font();
+
+    let mut ats = AttributedString::new("");
+    ats.set_font(FontDriver::with_hershey(STATUS_BAR_HEIGHT - 4));
+    ats.set_color(fg_color);
 
     window
         .draw(|bitmap| {
             let bounds = bitmap.bounds();
+            ats.set_text("My OS");
+            let size = ats.bounding_size(Size::new(isize::MAX, isize::MAX));
             let rect = Rect::new(
-                0,
-                (bounds.height() - font.line_height()) / 2,
-                bounds.width(),
-                font.line_height(),
+                16,
+                (bounds.height() - size.height) / 2,
+                size.width,
+                size.height,
             );
-            bitmap.draw_string(font, rect, fg_color, "  My OS  ");
+            ats.draw(&bitmap, rect);
         })
         .unwrap();
     window.show();
     WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT, 0, 0, 0));
 
+    ats.set_font(FontDriver::system_font());
     let mut sb = string::Sb255::new();
     loop {
         Timer::sleep_async(Duration::from_millis(500)).await;
@@ -201,16 +251,17 @@ async fn status_bar_main() {
         };
 
         let bounds = window.frame();
-        let width = font.width() * sb.len() as isize;
+        let width = ats.font().width() * sb.len() as isize;
         let rect = Rect::new(
-            bounds.width() - width - font.width() * 2,
-            (bounds.height() - font.line_height()) / 2,
+            bounds.width() - width - ats.font().width() * 2,
+            (bounds.height() - ats.font().line_height()) / 2,
             width,
-            font.line_height(),
+            ats.font().line_height(),
         );
         let _ = window.draw(|bitmap| {
             bitmap.fill_rect(rect, bg_color);
-            bitmap.draw_string(font, rect, fg_color, sb.as_str());
+            ats.set_text(sb.as_str());
+            ats.draw(&bitmap, rect);
         });
     }
 }
@@ -218,24 +269,73 @@ async fn status_bar_main() {
 async fn activity_monitor_main() {
     let bg_color = Color::from_argb(0x80000000);
     let fg_color = IndexedColor::Yellow.into();
+    let graph_sub_color = IndexedColor::LightGreen.into();
+    let graph_main_color = IndexedColor::Yellow.into();
+    let graph_border_color = IndexedColor::LightGray.into();
 
+    Timer::sleep_async(Duration::from_millis(1000)).await;
     let window = WindowBuilder::new("Activity Monitor")
         .style_add(WindowStyle::NAKED | WindowStyle::FLOATING | WindowStyle::PINCHABLE)
         .frame(Rect::new(-330, -180, 320, 150))
         .bg_color(bg_color)
         .build();
-    let font = FontDriver::small_font();
 
     window.show();
 
+    let mut ats = AttributedString::new("");
+    ats.set_font(FontDriver::small_font());
+    ats.set_color(fg_color);
+
+    let num_of_cpus = System::num_of_cpus();
+    let mut usage_temp = Vec::with_capacity(num_of_cpus);
+    // let mut usage_history = 0;
+
     let mut sb = string::StringBuffer::with_capacity(0x1000);
     loop {
-        MyScheduler::print_statistics(&mut sb);
+        MyScheduler::get_idle_statistics(&mut usage_temp);
+        MyScheduler::print_statistics(&mut sb, true);
         window
             .draw(|bitmap| {
-                let rect = bitmap.bounds().insets_by(EdgeInsets::padding_all(4));
+                for cpu_index in 0..num_of_cpus {
+                    let padding = 4;
+                    let item_size = Size::new(
+                        (bitmap.bounds().width() - padding) / num_of_cpus as isize - padding,
+                        40,
+                    );
+                    let rect = Rect::new(
+                        padding + cpu_index as isize * (item_size.width + padding),
+                        padding,
+                        item_size.width,
+                        item_size.height,
+                    );
+                    bitmap.fill_rect(rect, bg_color);
+                    let h_lines = 4;
+                    let v_lines = 4;
+                    for i in 1..h_lines {
+                        let point = Point::new(rect.x(), rect.y() + i * item_size.height / h_lines);
+                        bitmap.draw_hline(point, item_size.width, graph_sub_color);
+                    }
+                    for i in 1..v_lines {
+                        let point = Point::new(rect.x() + i * item_size.width / v_lines, rect.y());
+                        bitmap.draw_vline(point, item_size.height, graph_sub_color);
+                    }
+
+                    let value =
+                        (item_size.height - 2) * (1000 - usage_temp[cpu_index] as isize) / 1000;
+                    let vrect = Rect::new(
+                        rect.x() + 1,
+                        rect.y() + item_size.height - value - 1,
+                        item_size.width - 2,
+                        value,
+                    );
+                    bitmap.fill_rect(vrect, graph_main_color);
+
+                    bitmap.draw_rect(rect, graph_border_color);
+                }
+                let rect = bitmap.bounds().insets_by(EdgeInsets::new(48, 4, 4, 4));
                 bitmap.fill_rect(rect, bg_color);
-                bitmap.draw_string(font, rect, fg_color, sb.as_str());
+                ats.set_text(sb.as_str());
+                ats.draw(&bitmap, rect);
             })
             .unwrap();
 

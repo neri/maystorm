@@ -25,9 +25,9 @@ pub struct Bitmap {
 
 bitflags! {
     pub struct BitmapFlags: usize {
-        const PORTRAIT = 0b0000_0001;
-        const TRANSLUCENT = 0b0000_0010;
-        const VIEW = 0b1000_0000;
+        const PORTRAIT      = 0b0000_0001;
+        const TRANSLUCENT   = 0b0000_0010;
+        const VIEW          = 0b1000_0000;
     }
 }
 
@@ -35,26 +35,22 @@ static BIT_MASKS: [u8; 8] = [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
 
 impl From<&BootInfo> for Bitmap {
     fn from(info: &BootInfo) -> Self {
-        let stride = info.vram_stride;
-        let mut width = info.screen_width;
-        let mut height = info.screen_height;
-        let mut is_portrait = height > width;
+        let stride = info.vram_stride as usize;
+        let width = info.screen_width as isize;
+        let height = info.screen_height as isize;
+        let mut is_portrait = false;
         let mut flags = BitmapFlags::VIEW;
-        if is_portrait {
-            // portrait
-            swap(&mut width, &mut height);
-        }
-        if stride > width {
-            // GPD micro PC fake landscape mode
+        if info.flags.contains(BootFlags::PORTRAIT) {
             is_portrait = true;
+            // swap(&mut width, &mut height);
         }
         if is_portrait {
             flags.insert(BitmapFlags::PORTRAIT);
         }
         Bitmap {
-            base: info.vram_base as *mut u32,
-            size: Size::new(width as isize, height as isize),
-            stride: stride.into(),
+            base: info.vram_base as usize as *mut u32,
+            size: Size::new(width, height),
+            stride,
             flags,
             managed: None,
         }
@@ -192,6 +188,11 @@ impl Bitmap {
     }
 
     #[inline]
+    pub const fn stride(&self) -> usize {
+        self.stride
+    }
+
+    #[inline]
     pub fn bounds(&self) -> Rect<isize> {
         Rect::from(self.size)
     }
@@ -221,7 +222,11 @@ impl Bitmap {
         unsafe {
             slice::from_raw_parts_mut(
                 self.base as *mut Color,
-                self.stride * self.height() as usize,
+                if self.is_portrait() {
+                    self.width() as usize * self.stride
+                } else {
+                    self.stride * self.height() as usize
+                },
             )
         }
     }
@@ -755,7 +760,7 @@ impl Bitmap {
             dx = self.size.height - dy;
             dy = temp;
             let dest_fb = self.get_fb();
-            let src_fb = src.get_fb();
+            let src_fb = src.get_fb() as &[Color];
             let mut p = dx as usize + dy as usize * self.stride - height as usize;
             let q0 = sx as usize + (sy as usize + height - 1) * src.stride;
             let stride_p = self.stride - height;
@@ -771,23 +776,24 @@ impl Bitmap {
                     p += stride_p;
                 }
             } else {
-                for x in 0..width {
-                    let mut q = q0 + x;
-                    for _ in 0..height {
-                        let c = src_fb[q].components();
-                        let alpha_l = c.a;
-                        let alpha_r = 255 - alpha_l;
-                        let c = c.blend_each(dest_fb[p].components(), |a, b| {
-                            ((a as usize * alpha_l as usize + b as usize * alpha_r as usize) / 255)
-                                as u8
-                        });
-                        dest_fb[p] = c.into();
+                unimplemented!();
+                // for x in 0..width {
+                //     let mut q = q0 + x;
+                //     for _ in 0..height {
+                //         let c = src_fb[q].components();
+                //         let alpha_l = c.a;
+                //         let alpha_r = 255 - alpha_l;
+                //         let c = c.blend_each(dest_fb[p].components(), |a, b| {
+                //             ((a as usize * alpha_l as usize + b as usize * alpha_r as usize) / 255)
+                //                 as u8
+                //         });
+                //         dest_fb[p] = c.into();
 
-                        p += 1;
-                        q -= stride_q;
-                    }
-                    p += stride_p;
-                }
+                //         p += 1;
+                //         q -= stride_q;
+                //     }
+                //     p += stride_p;
+                // }
             }
         } else {
             let dest_fb = self.get_fb();
@@ -811,10 +817,47 @@ impl Bitmap {
         }
     }
 
+    pub fn draw_line(&self, c0: Point<isize>, c1: Point<isize>, color: Color) {
+        let d = Point::new(
+            if c1.x > c0.x {
+                c1.x - c0.x
+            } else {
+                c0.x - c1.x
+            },
+            if c1.y > c0.y {
+                c1.y - c0.y
+            } else {
+                c0.y - c1.y
+            },
+        );
+
+        let s = Point::new(
+            if c1.x > c0.x { 1 } else { -1 },
+            if c1.y > c0.y { 1 } else { -1 },
+        );
+
+        let mut c0 = c0;
+        let mut e = d.x - d.y;
+        loop {
+            self.draw_pixel(c0, color);
+            if c0.x == c1.x && c0.y == c1.y {
+                break;
+            }
+            let e2 = 2 * e;
+            if e2 > -d.y {
+                e -= d.y;
+                c0.x += s.x;
+            }
+            if e2 < d.x {
+                e += d.x;
+                c0.y += s.y;
+            }
+        }
+    }
+
     // #[deprecated]
-    pub fn draw_string(&self, font: &FontDriver, rect: Rect<isize>, color: Color, text: &str) {
+    pub fn draw_string(&self, _font: &FontDriver, rect: Rect<isize>, color: Color, text: &str) {
         let mut string = AttributedString::new(text);
-        string.font = font;
         string.color = color;
         string.draw(&self, rect);
     }
@@ -838,20 +881,53 @@ bitflags! {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
 pub struct AttributedString<'a> {
-    pub text: &'a str,
-    pub font: &'a FontDriver<'a>,
-    pub color: Color,
+    text: &'a str,
+    font: Box<FontDriver<'a>>,
+    color: Color,
 }
 
 impl<'a> AttributedString<'a> {
-    pub const fn new(text: &'a str) -> Self {
+    pub fn new(text: &'a str) -> Self {
         Self {
             text,
             font: FontDriver::system_font(),
             color: Color::BLACK,
         }
+    }
+
+    pub fn with(text: &'a str, font: Box<FontDriver<'a>>, color: Color) -> Self {
+        Self { text, font, color }
+    }
+
+    #[inline]
+    pub const fn text(&self) -> &str {
+        self.text
+    }
+
+    #[inline]
+    pub fn set_text(&mut self, text: &'a str) {
+        self.text = text;
+    }
+
+    #[inline]
+    pub const fn color(&self) -> Color {
+        self.color
+    }
+
+    #[inline]
+    pub fn set_color(&mut self, color: Color) {
+        self.color = color;
+    }
+
+    #[inline]
+    pub fn set_font(&mut self, font: Box<FontDriver<'a>>) {
+        self.font = font;
+    }
+
+    #[inline]
+    pub fn font(&self) -> &'a FontDriver {
+        self.font.as_ref()
     }
 
     pub fn bounding_size(&self, size: Size<isize>) -> Size<isize> {

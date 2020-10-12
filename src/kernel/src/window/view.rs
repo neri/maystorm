@@ -389,12 +389,12 @@ impl<'a> TextView<'a> {
     }
 
     pub fn set_text(&mut self, text: &'a str) {
-        self.text.text = text;
+        self.text.set_text(text);
         self.set_needs_layout();
     }
 
-    pub fn set_font(&mut self, font: &'a FontDriver) {
-        self.text.font = font;
+    pub fn set_font(&mut self, font: Box<FontDriver<'a>>) {
+        self.text.set_font(font);
         self.set_needs_layout();
     }
 
@@ -429,11 +429,11 @@ impl ViewTrait for TextView<'_> {
             max_width = isize::MAX;
         }
         let max_height = if self.max_lines > 0 {
-            self.max_lines as isize * self.text.font.line_height()
+            self.max_lines as isize * self.text.font().line_height()
         } else {
             isize::MAX
         };
-        self.intrinsic_size = if self.text.text.len() > 0 {
+        self.intrinsic_size = if self.text.text().len() > 0 {
             self.text.bounding_size(Size::new(max_width, max_height))
         } else {
             Size::new(0, 0)
@@ -445,7 +445,7 @@ impl ViewTrait for TextView<'_> {
     }
 
     fn set_tint_color(&mut self, color: Color) {
-        self.text.color = color;
+        self.text.set_color(color);
         self.base_view_mut().set_tint_color(color);
     }
 
@@ -455,7 +455,7 @@ impl ViewTrait for TextView<'_> {
         // ctx.draw_rect(self.intrinsic_size().into(), IndexedColor::Blue.into());
         // ctx.draw_rect(self.bounds(), IndexedColor::Red.into());
 
-        if self.text.text.len() > 0 {
+        if self.text.text().len() > 0 {
             self.text.draw(&ctx, self.intrinsic_size().into());
         }
 
@@ -488,6 +488,7 @@ impl<'a> Button<'a> {
         });
         button.set_border_radius(8);
         button.set_button_type(button_type);
+        button.title_label.set_font(FontDriver::with_hershey(20));
 
         button
     }

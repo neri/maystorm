@@ -90,12 +90,32 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
         let gop_info = gop.current_mode_info();
         let mut fb = gop.frame_buffer();
         info.vram_base = fb.as_mut_ptr() as usize as u64;
-        info.vram_stride = gop_info.stride() as u16;
+
+        let stride = gop_info.stride();
         let (mut width, mut height) = gop_info.resolution();
-        if width > info.vram_stride.into() {
-            // GPD micro PC fake landscape mode
+
+        if height > width {
+            info.flags.insert(BootFlags::PORTRAIT);
             swap(&mut width, &mut height);
         }
+        if width > stride {
+            // GPD micro PC fake landscape mode
+            info.flags.insert(BootFlags::PORTRAIT);
+        }
+
+        // let width = 800;
+        // let height = 600;
+        // let stride = 600;
+        // info.flags.insert(BootFlags::PORTRAIT);
+
+        // write_boc2(0x0004, 0x0000);
+        // write_boc2(0x0001, 600);
+        // write_boc2(0x0002, 800);
+        // write_boc2(0x0003, 32);
+        // write_boc2(0x0005, 0x0000);
+        // write_boc2(0x0004, 0x0001);
+
+        info.vram_stride = stride as u16;
         info.screen_width = width as u16;
         info.screen_height = height as u16;
     } else if !info.flags.contains(BootFlags::HEADLESS) {
@@ -149,6 +169,15 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
     unsafe {
         PageManager::finalize(&mut info);
         Invocation::invoke_kernel(info, entry, new_sp);
+    }
+}
+
+#[allow(dead_code)]
+#[cfg(any(target_arch = "x86_64"))]
+fn write_boc2(addr: u16, data: u16) {
+    unsafe {
+        asm!("out dx, ax", in("dx") 0x1ce, in("ax") addr);
+        asm!("out dx, ax", in("dx") 0x1cf, in("ax") data);
     }
 }
 

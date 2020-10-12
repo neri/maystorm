@@ -36,7 +36,7 @@ pub struct GraphicalConsole<'a> {
 
 impl<'a> From<&'a Box<Bitmap>> for GraphicalConsole<'a> {
     fn from(bitmap: &'a Box<Bitmap>) -> Self {
-        let font = FontDriver::system_font();
+        let font = FontDriver::system_font_static();
         let insets = DEFAULT_CONSOLE_INSETS;
         let rect = Rect::from(bitmap.size()).insets_by(insets);
         let cols = rect.size.width / font.width();
@@ -60,10 +60,10 @@ impl<'a> GraphicalConsole<'a> {
     pub fn new(
         title: &str,
         dims: (isize, isize),
-        font: &'a FontDriver,
+        font: &'a FontDriver<'a>,
         attribute: u8,
         alpha: u8,
-    ) -> (Box<Self>, WindowHandle) {
+    ) -> (Box<GraphicalConsole<'a>>, WindowHandle) {
         let size = Size::new(font.width() * dims.0, font.line_height() * dims.1);
         let window = WindowBuilder::new(title)
             .style_add(WindowStyle::NAKED)
