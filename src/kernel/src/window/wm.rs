@@ -28,7 +28,7 @@ const WINDOW_TITLE_HEIGHT: isize = 24;
 const DESKTOP_COLOR: Color = Color::from_argb(0xFF2196F3);
 const BARRIER_COLOR: Color = Color::from_argb(0x80000000);
 const WINDOW_ACTIVE_TITLE_BG_COLOR: Color = Color::from_argb(0xF0E0E0E0);
-const WINDOW_ACTIVE_TITLE_SHADOW_COLOR: Color = Color::from_argb(0xFF9E9E9E);
+// const WINDOW_ACTIVE_TITLE_SHADOW_COLOR: Color = Color::from_argb(0xFF9E9E9E);
 const WINDOW_ACTIVE_TITLE_FG_COLOR: Color = Color::from_argb(0xFF212121);
 const WINDOW_INACTIVE_TITLE_BG_COLOR: Color = Color::from_argb(0xFFEEEEEE);
 const WINDOW_INACTIVE_TITLE_FG_COLOR: Color = Color::from_argb(0xFF9E9E9E);
@@ -103,6 +103,7 @@ pub struct WindowManager {
 struct Resources {
     close_button: Bitmap,
     corner_shadow: Bitmap,
+    font: FontDescriptor,
 }
 
 impl WindowManager {
@@ -150,7 +151,7 @@ impl WindowManager {
             resources: Resources {
                 close_button,
                 corner_shadow,
-                // font: FontDriver::system_font(),
+                font: FontDescriptor::label_font(),
             },
             pool: BTreeMap::new(),
             pool_lock: Spinlock::default(),
@@ -840,25 +841,21 @@ impl RawWindow {
                 let pad_right = rect.height();
 
                 if let Some(text) = self.title() {
-                    let font = FontDriver::system_font();
+                    let font = shared.resources.font;
                     let mut rect = rect;
-                    let pad_y = (rect.height() - font.height()) / 2;
+                    let pad_y = (rect.height() - font.point()) / 2;
                     rect.origin.y += pad_y;
                     rect.size.height -= pad_y * 2;
                     rect.origin.x += pad_left;
                     rect.size.width -= pad_left + pad_right;
                     let mut rect2 = rect;
                     rect2.origin += Point::new(1, 1);
-                    let mut ats =
-                        AttributedString::with(text, font, WINDOW_ACTIVE_TITLE_SHADOW_COLOR);
                     if is_active {
-                        ats.set_color(WINDOW_ACTIVE_TITLE_SHADOW_COLOR);
-                        ats.draw(&bitmap, rect2);
-                        ats.set_color(WINDOW_ACTIVE_TITLE_FG_COLOR);
-                        ats.draw(&bitmap, rect);
+                        AttributedString::with(text, font, WINDOW_ACTIVE_TITLE_FG_COLOR)
+                            .draw(&bitmap, rect);
                     } else {
-                        ats.set_color(WINDOW_INACTIVE_TITLE_FG_COLOR);
-                        ats.draw(&bitmap, rect);
+                        AttributedString::with(text, font, WINDOW_INACTIVE_TITLE_FG_COLOR)
+                            .draw(&bitmap, rect);
                     }
                 }
             }

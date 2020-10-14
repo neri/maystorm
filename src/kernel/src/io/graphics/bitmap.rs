@@ -12,6 +12,7 @@ use bootprot::BootInfo;
 use byteorder::*;
 use core::cell::RefCell;
 use core::mem::swap;
+// use core::ptr::*;
 use core::slice;
 
 #[repr(C)]
@@ -430,10 +431,12 @@ impl Bitmap {
 
     pub fn draw_multiple_pixels(&self, points: &[Point<isize>], color: Color) {
         let fb = self.get_fb();
+        let width = self.width();
+        let height = self.height();
         for point in points {
             let mut dx = point.x;
             let mut dy = point.y;
-            if dx >= 0 && dx < self.size.width && dy >= 0 && dy < self.size.height {
+            if dx >= 0 && dx < width && dy >= 0 && dy < height {
                 if self.is_portrait() {
                     let temp = dx;
                     dx = self.size.height - dy - 1;
@@ -444,9 +447,44 @@ impl Bitmap {
         }
     }
 
-    #[inline]
     pub fn draw_pixel(&self, point: Point<isize>, color: Color) {
         self.draw_multiple_pixels(&[point], color);
+    }
+
+    pub fn blend_multiple_pixels(&self, points: &[Point<isize>], color: Color) {
+        let fb = self.get_fb();
+        let width = self.width();
+        let height = self.height();
+        let color = color.components();
+        let alpha = color.a as usize;
+        let alpha_n = 255 - alpha;
+        for point in points {
+            let mut dx = point.x;
+            let mut dy = point.y;
+            if dx >= 0 && dx < width && dy >= 0 && dy < height {
+                if self.is_portrait() {
+                    let temp = dx;
+                    dx = self.size.height - dy - 1;
+                    dy = temp;
+                }
+                let cursor = dx as usize + dy as usize * self.stride();
+                let lhs = fb[cursor].components();
+                let c = lhs
+                    .blend_color(
+                        color,
+                        |lhs, rhs| {
+                            (((lhs as usize) * alpha_n + (rhs as usize) * alpha) / 255) as u8
+                        },
+                        |a, b| a.saturating_add(b),
+                    )
+                    .into();
+                fb[cursor] = c;
+            }
+        }
+    }
+
+    pub fn blend_pixel(&self, point: Point<isize>, color: Color) {
+        self.blend_multiple_pixels(&[point], color);
     }
 
     pub fn draw_hline(&self, point: Point<isize>, width: isize, color: Color) {
@@ -855,11 +893,14 @@ impl Bitmap {
         }
     }
 
-    // #[deprecated]
-    pub fn draw_string(&self, _font: &FontDriver, rect: Rect<isize>, color: Color, text: &str) {
-        let mut string = AttributedString::new(text);
-        string.color = color;
-        string.draw(&self, rect);
+    pub fn translate(&self, buffer: &[u8], origin: Point<isize>, size: Size<isize>, color: Color) {
+        for y in 0..size.height {
+            for x in 0..size.width {
+                let mut c = color.components();
+                c.a = buffer[x as usize + y as usize * size.width as usize];
+                self.blend_pixel(origin + Point::new(x, y), c.into());
+            }
+        }
     }
 
     /// query known modes for benchmark
@@ -883,7 +924,7 @@ bitflags! {
 
 pub struct AttributedString<'a> {
     text: &'a str,
-    font: Box<FontDriver<'a>>,
+    font: FontDescriptor,
     color: Color,
 }
 
@@ -891,12 +932,12 @@ impl<'a> AttributedString<'a> {
     pub fn new(text: &'a str) -> Self {
         Self {
             text,
-            font: FontDriver::system_font(),
+            font: FontDescriptor::system_font(),
             color: Color::BLACK,
         }
     }
 
-    pub fn with(text: &'a str, font: Box<FontDriver<'a>>, color: Color) -> Self {
+    pub fn with(text: &'a str, font: FontDescriptor, color: Color) -> Self {
         Self { text, font, color }
     }
 
@@ -921,13 +962,13 @@ impl<'a> AttributedString<'a> {
     }
 
     #[inline]
-    pub fn set_font(&mut self, font: Box<FontDriver<'a>>) {
+    pub fn set_font(&mut self, font: FontDescriptor) {
         self.font = font;
     }
 
     #[inline]
-    pub fn font(&self) -> &'a FontDriver {
-        self.font.as_ref()
+    pub fn font(&self) -> &FontDescriptor {
+        &self.font
     }
 
     pub fn bounding_size(&self, size: Size<isize>) -> Size<isize> {
@@ -991,6 +1032,217 @@ impl<'a> AttributedString<'a> {
                         .draw_char(c, bitmap, rect.origin + cursor, self.color);
                     cursor.x += font_size.width;
                 }
+            }
+        }
+    }
+}
+
+pub struct OperationalBitmap {
+    size: Size<isize>,
+    data: Vec<u8>,
+}
+
+impl OperationalBitmap {
+    pub const fn new(width: usize, height: usize) -> Self {
+        let data = Vec::new();
+        Self {
+            size: Size::new(width as isize, height as isize),
+            data,
+        }
+    }
+
+    #[inline]
+    pub const fn size(&self) -> Size<isize> {
+        self.size
+    }
+
+    #[inline]
+    pub fn bounds(&self) -> Rect<isize> {
+        self.size.into()
+    }
+
+    #[inline]
+    pub const fn width(&self) -> isize {
+        self.size.width
+    }
+
+    #[inline]
+    pub const fn height(&self) -> isize {
+        self.size.height
+    }
+
+    #[inline]
+    pub const fn stride(&self) -> usize {
+        self.size.width as usize
+    }
+
+    pub fn reset(&mut self) {
+        let count = self.stride() * self.height() as usize;
+        if self.data.capacity() >= count {
+            for i in 0..count {
+                self.data[i] = 0;
+            }
+        } else {
+            self.data.resize(count, 0);
+        }
+    }
+
+    pub fn set_pixel(&mut self, point: Point<isize>, color: u8) {
+        self.set_pixels(&[point], color);
+    }
+
+    pub fn set_pixels(&mut self, points: &[Point<isize>], color: u8) {
+        let width = self.width();
+        let height = self.height();
+        let stride = self.stride();
+        for point in points {
+            let dx = point.x;
+            let dy = point.y;
+            if dx > 0 && dx < width && dy > 0 && dy < height {
+                self.data[dx as usize + dy as usize * stride] = color;
+            }
+        }
+    }
+
+    pub fn saturating_add_pixel(&mut self, point: Point<isize>, color: u8) {
+        self.saturating_add_pixels(&[point], color);
+    }
+
+    pub fn saturating_add_pixels(&mut self, points: &[Point<isize>], color: u8) {
+        let width = self.width();
+        let height = self.height();
+        let stride = self.stride();
+        for point in points {
+            let dx = point.x;
+            let dy = point.y;
+            if dx > 0 && dx < width && dy > 0 && dy < height {
+                let index = dx as usize + dy as usize * stride;
+                self.data[index] = self.data[index].saturating_add(color);
+            }
+        }
+    }
+
+    pub fn saturating_sub_pixels(&mut self, points: &[Point<isize>], color: u8) {
+        let width = self.width();
+        let height = self.height();
+        let stride = self.stride();
+        for point in points {
+            let dx = point.x;
+            let dy = point.y;
+            if dx > 0 && dx < width && dy > 0 && dy < height {
+                let index = dx as usize + dy as usize * stride;
+                self.data[index] = self.data[index].saturating_sub(color);
+            }
+        }
+    }
+
+    pub fn blend_pixels(&mut self, points: &[Point<isize>], color: u8, alpha: u8) {
+        let width = self.width();
+        let height = self.height();
+        let stride = self.stride();
+        let alpha = alpha as usize;
+        let alpha_n = 255 - alpha;
+        let alpha_color = alpha * color as usize;
+        for point in points {
+            let dx = point.x;
+            let dy = point.y;
+            if dx > 0 && dx < width && dy > 0 && dy < height {
+                let index = dx as usize + dy as usize * stride;
+                self.data[index] =
+                    ((self.data[index] as usize * alpha_n + alpha_color) / 255) as u8;
+            }
+        }
+    }
+
+    pub fn fill_rect(&mut self, rect: Rect<isize>, color: u8) {
+        let mut width = rect.size.width;
+        let mut height = rect.size.height;
+        let mut dx = rect.origin.x;
+        let mut dy = rect.origin.y;
+
+        {
+            if dx < 0 {
+                width += dx;
+                dx = 0;
+            }
+            if dy < 0 {
+                height += dy;
+                dy = 0;
+            }
+            let r = dx + width;
+            let b = dy + height;
+            if r >= self.size.width {
+                width = self.size.width - dx;
+            }
+            if b >= self.size.height {
+                height = self.size.height - dy;
+            }
+            if width <= 0 || height <= 0 {
+                return;
+            }
+        }
+
+        let mut index = dx as usize + dy as usize * self.stride();
+        let stride = self.stride() - width as usize;
+        for _ in 0..height {
+            for _ in 0..width {
+                self.data[index] = color;
+                index += 1;
+            }
+            index += stride;
+        }
+    }
+
+    pub fn draw_line<F>(&mut self, c0: Point<isize>, c1: Point<isize>, mut f: F)
+    where
+        F: FnMut(&mut Self, Point<isize>),
+    {
+        let d = Point::new(
+            if c1.x > c0.x {
+                c1.x - c0.x
+            } else {
+                c0.x - c1.x
+            },
+            if c1.y > c0.y {
+                c1.y - c0.y
+            } else {
+                c0.y - c1.y
+            },
+        );
+
+        let s = Point::new(
+            if c1.x > c0.x { 1 } else { -1 },
+            if c1.y > c0.y { 1 } else { -1 },
+        );
+
+        let mut c0 = c0;
+        let mut e = d.x - d.y;
+        loop {
+            f(self, c0);
+
+            if c0.x == c1.x && c0.y == c1.y {
+                break;
+            }
+            let e2 = 2 * e;
+            if e2 > -d.y {
+                e -= d.y;
+                c0.x += s.x;
+            }
+            if e2 < d.x {
+                e += d.x;
+                c0.y += s.y;
+            }
+        }
+    }
+
+    pub fn translate<F>(&self, origin: Point<isize>, new_size: Size<isize>, f: F)
+    where
+        F: Fn(Point<isize>, u8),
+    {
+        for y in 0..new_size.height {
+            for x in 0..new_size.width {
+                let index = x as usize * 2 + y as usize * 2 * self.stride();
+                f(origin + Point::new(x, y), self.data[index]);
             }
         }
     }

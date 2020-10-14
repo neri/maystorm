@@ -209,7 +209,7 @@ impl System {
         unsafe {
             MemoryManager::init_late();
 
-            io::fonts::FontDriver::init();
+            io::fonts::FontManager::init();
 
             if let Some(main_screen) = shared.boot_screen.as_ref() {
                 window::WindowManager::init(main_screen);

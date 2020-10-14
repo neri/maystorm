@@ -42,7 +42,7 @@ fn main() {
         {
             // Main Terminal
             let (console, window) =
-                GraphicalConsole::new("Terminal", (40, 10), FontDriver::system_font_static(), 0, 0);
+                GraphicalConsole::new("Terminal", (40, 10), FontManager::fixed_system_font(), 0, 0);
             window.move_to(Point::new(16, 40));
             window.set_active();
             System::set_stdout(console);
@@ -70,19 +70,28 @@ fn main() {
                 // view.add_subview(shape);
 
                 let mut rect = view.bounds().insets_by(EdgeInsets::new(16, 16, 0, 16));
-                rect.size.height = 32;
+                rect.size.height = 40;
                 let mut text_view = TextView::with_text("Welcome to My OS !");
-                text_view.set_font(FontDriver::with_hershey(32));
+                FontDescriptor::new(FontFamily::Cursive, 32).map(|font| text_view.set_font(font));
                 text_view.set_tint_color(IndexedColor::White.into());
                 text_view.set_frame(rect);
                 text_view.set_max_lines(1);
                 view.add_subview(text_view);
 
-                rect.origin.y += rect.size.height + 20;
-                rect.size.height = 20;
+                rect.origin.y += rect.size.height + 10;
+                rect.size.height = 24;
                 let mut text_view = TextView::with_text("My OS is my first OS written in Rust.");
-                text_view.set_font(FontDriver::with_hershey(20));
+                FontDescriptor::new(FontFamily::SystemUI, 20).map(|font| text_view.set_font(font));
                 text_view.set_tint_color(IndexedColor::Green.into());
+                text_view.set_frame(rect);
+                text_view.set_max_lines(2);
+                view.add_subview(text_view);
+
+                rect.origin.y += rect.size.height + 10;
+                rect.size.height = 28 * 2;
+                let mut text_view = TextView::with_text("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
+                FontDescriptor::new(FontFamily::Serif, 24).map(|font| text_view.set_font(font));
+                text_view.set_tint_color(IndexedColor::DarkGray.into());
                 text_view.set_frame(rect);
                 text_view.set_max_lines(2);
                 view.add_subview(text_view);
@@ -90,7 +99,7 @@ fn main() {
                 rect.origin.y += rect.size.height + 10;
                 rect.size.height = 24 * 2;
                 let mut text_view = TextView::with_text("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
-                text_view.set_font(FontDriver::with_hershey(24));
+                FontDescriptor::new(FontFamily::SansSerif, 20).map(|font| text_view.set_font(font));
                 text_view.set_tint_color(IndexedColor::DarkGray.into());
                 text_view.set_frame(rect);
                 text_view.set_max_lines(2);
@@ -99,16 +108,7 @@ fn main() {
                 rect.origin.y += rect.size.height + 10;
                 rect.size.height = 20 * 2;
                 let mut text_view = TextView::with_text("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
-                text_view.set_font(FontDriver::with_hershey(20));
-                text_view.set_tint_color(IndexedColor::DarkGray.into());
-                text_view.set_frame(rect);
-                text_view.set_max_lines(2);
-                view.add_subview(text_view);
-
-                rect.origin.y += rect.size.height + 10;
-                rect.size.height = 32;
-                let mut text_view = TextView::with_text("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
-                text_view.set_font(FontDriver::with_hershey(16));
+                FontDescriptor::new(FontFamily::Cursive, 16).map(|font| text_view.set_font(font));
                 text_view.set_tint_color(IndexedColor::DarkGray.into());
                 text_view.set_frame(rect);
                 text_view.set_max_lines(2);
@@ -155,6 +155,7 @@ fn main() {
     }
 }
 
+#[allow(dead_code)]
 async fn repl_main(_main_window: Option<WindowHandle>) {
     println!("{} v{}", System::name(), System::version(),);
 
@@ -193,6 +194,7 @@ fn dummy_raw_waker() -> RawWaker {
     RawWaker::new(0 as *const (), vtable)
 }
 
+#[allow(dead_code)]
 async fn status_bar_main() {
     const STATUS_BAR_HEIGHT: isize = 24;
     let bg_color = Color::from_argb(0xC0EEEEEE);
@@ -206,14 +208,11 @@ async fn status_bar_main() {
         .bg_color(bg_color)
         .build();
 
-    let mut ats = AttributedString::new("");
-    ats.set_font(FontDriver::with_hershey(STATUS_BAR_HEIGHT - 4));
-    ats.set_color(fg_color);
+    let mut ats = AttributedString::with("My OS", FontDescriptor::label_font(), fg_color);
 
     window
         .draw(|bitmap| {
             let bounds = bitmap.bounds();
-            ats.set_text("My OS");
             let size = ats.bounding_size(Size::new(isize::MAX, isize::MAX));
             let rect = Rect::new(
                 16,
@@ -227,7 +226,7 @@ async fn status_bar_main() {
     window.show();
     WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT, 0, 0, 0));
 
-    ats.set_font(FontDriver::system_font());
+    ats.set_font(FontDescriptor::system_font());
     let mut sb = string::Sb255::new();
     loop {
         Timer::sleep_async(Duration::from_millis(500)).await;
@@ -251,9 +250,9 @@ async fn status_bar_main() {
         };
 
         let bounds = window.frame();
-        let width = ats.font().width() * sb.len() as isize;
+        let width = ats.bounding_size(Size::new(isize::MAX, isize::MAX)).width;
         let rect = Rect::new(
-            bounds.width() - width - ats.font().width() * 2,
+            bounds.width() - width - 16,
             (bounds.height() - ats.font().line_height()) / 2,
             width,
             ats.font().line_height(),
@@ -266,6 +265,7 @@ async fn status_bar_main() {
     }
 }
 
+#[allow(dead_code)]
 async fn activity_monitor_main() {
     let bg_color = Color::from_argb(0x80000000);
     let fg_color = IndexedColor::Yellow.into();
@@ -283,7 +283,7 @@ async fn activity_monitor_main() {
     window.show();
 
     let mut ats = AttributedString::new("");
-    ats.set_font(FontDriver::small_font());
+    FontDescriptor::new(FontFamily::SmallSystem, 8).map(|font| ats.set_font(font));
     ats.set_color(fg_color);
 
     let num_of_cpus = System::num_of_cpus();
@@ -299,7 +299,10 @@ async fn activity_monitor_main() {
                 for cpu_index in 0..num_of_cpus {
                     let padding = 4;
                     let item_size = Size::new(
-                        (bitmap.bounds().width() - padding) / num_of_cpus as isize - padding,
+                        isize::max(
+                            (bitmap.bounds().width() - padding) / num_of_cpus as isize - padding,
+                            20,
+                        ),
                         40,
                     );
                     let rect = Rect::new(

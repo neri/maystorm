@@ -3,21 +3,175 @@
 use crate::io::graphics::*;
 use crate::*;
 use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
 use alloc::vec::*;
-// use core::num::*;
 
 include!("megbtan.rs");
-const SYSTEM_FONT: FontDriver = FontDriver::with_rasterized(8, 16, &FONT_MEGBTAN_DATA);
+const SYSTEM_FONT: FixedFontDriver = FixedFontDriver::new(8, 16, &FONT_MEGBTAN_DATA);
 
 include!("megh0608.rs");
-const SMALL_FONT: FontDriver = FontDriver::with_rasterized(6, 8, &FONT_MEGH0608_DATA);
+const SMALL_FONT: FixedFontDriver = FixedFontDriver::new(6, 8, &FONT_MEGH0608_DATA);
 
-const DUMMY_ARRAY: [u8; 0] = [];
+static mut FONT_MANAGER: FontManager = FontManager::new();
 
-static mut HERSHEY_FONT: Option<Box<HersheyFontCache>> = None;
+pub struct FontManager {
+    fonts: Option<BTreeMap<FontFamily, Box<dyn FontDriver>>>,
+    lock: Spinlock,
+    buffer: OperationalBitmap,
+}
 
-pub struct FontDriver<'a> {
-    font_type: FontType,
+impl FontManager {
+    const fn new() -> Self {
+        Self {
+            fonts: None,
+            lock: Spinlock::new(),
+            buffer: OperationalBitmap::new(96, 96),
+        }
+    }
+
+    #[inline]
+    fn shared<'a>() -> &'a mut Self {
+        unsafe { &mut FONT_MANAGER }
+    }
+
+    pub(crate) fn init() {
+        let shared = Self::shared();
+
+        let mut fonts: BTreeMap<FontFamily, Box<dyn FontDriver>> = BTreeMap::new();
+
+        fonts.insert(FontFamily::FixedSystem, Box::new(SYSTEM_FONT));
+        fonts.insert(FontFamily::SmallSystem, Box::new(SMALL_FONT));
+
+        let font = Box::new(HersheyFont::new(
+            32,
+            include_bytes!("../../../../../ext/hershey/futuram.jhf"),
+        ));
+        fonts.insert(FontFamily::SystemUI, font);
+
+        let font = Box::new(HersheyFont::new(
+            32,
+            include_bytes!("../../../../../ext/hershey/cursive.jhf"),
+        ));
+        fonts.insert(FontFamily::Cursive, font);
+
+        let font = Box::new(HersheyFont::new(
+            32,
+            include_bytes!("../../../../../ext/hershey/futural.jhf"),
+        ));
+        fonts.insert(FontFamily::SansSerif, font);
+
+        let font = Box::new(HersheyFont::new(
+            32,
+            include_bytes!("../../../../../ext/hershey/timesr.jhf"),
+        ));
+        fonts.insert(FontFamily::Serif, font);
+
+        shared.fonts = Some(fonts);
+    }
+
+    fn driver_for(family: FontFamily) -> Option<&'static dyn FontDriver> {
+        let shared = Self::shared();
+        shared
+            .fonts
+            .as_ref()
+            .and_then(|v| v.get(&family))
+            .map(|v| v.as_ref())
+    }
+
+    pub const fn fixed_system_font() -> &'static FixedFontDriver<'static> {
+        &SYSTEM_FONT
+    }
+}
+
+#[non_exhaustive]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum FontFamily {
+    SystemUI,
+    SansSerif,
+    Serif,
+    Cursive,
+    FixedSystem,
+    SmallSystem,
+}
+
+#[derive(Copy, Clone)]
+pub struct FontDescriptor {
+    driver: &'static dyn FontDriver,
+    point: isize,
+}
+
+impl FontDescriptor {
+    pub fn new(family: FontFamily, point: isize) -> Option<Self> {
+        FontManager::driver_for(family).map(|driver| {
+            if driver.is_scalable() {
+                Self { driver, point }
+            } else {
+                Self {
+                    driver,
+                    point: driver.raw_height(),
+                }
+            }
+        })
+    }
+
+    pub fn system_font() -> Self {
+        Self::new(FontFamily::FixedSystem, 0).unwrap()
+    }
+
+    pub fn label_font() -> Self {
+        Self::new(FontFamily::SystemUI, 16).unwrap_or(Self::system_font())
+    }
+
+    #[inline]
+    pub const fn point(&self) -> isize {
+        self.point
+    }
+
+    #[inline]
+    pub const fn line_height(&self) -> isize {
+        self.point
+    }
+
+    #[inline]
+    pub fn width_of(&self, character: char) -> isize {
+        if self.point == self.driver.raw_height() {
+            self.driver.width_of(character)
+        } else {
+            self.driver.width_of(character) * self.point / self.driver.raw_height()
+        }
+    }
+
+    #[inline]
+    pub fn is_scalable(&self) -> bool {
+        self.driver.is_scalable()
+    }
+
+    pub fn draw_char(&self, character: char, bitmap: &Bitmap, origin: Point<isize>, color: Color) {
+        self.driver
+            .draw_char(character, bitmap, origin, self.point, color)
+    }
+}
+
+pub trait FontDriver {
+    fn is_scalable(&self) -> bool;
+
+    fn raw_height(&self) -> isize;
+
+    fn raw_line_height(&self) -> isize;
+
+    fn width_of(&self, character: char) -> isize;
+
+    fn draw_char(
+        &self,
+        character: char,
+        bitmap: &Bitmap,
+        origin: Point<isize>,
+        height: isize,
+        color: Color,
+    );
+}
+
+pub struct FixedFontDriver<'a> {
     size: Size<isize>,
     data: &'a [u8],
     leading: isize,
@@ -25,42 +179,14 @@ pub struct FontDriver<'a> {
     stride: usize,
 }
 
-#[derive(Debug, Copy, Clone)]
-pub enum FontType {
-    Rasterized,
-    Hershey,
-}
-
-impl<'a> FontDriver<'a> {
-    pub fn with_hershey(point: isize) -> Box<FontDriver<'a>> {
-        let width = point / 2;
-        let height = point;
-        let line_height = height;
-        let leading = (line_height - height) / 2;
-        Box::new(FontDriver {
-            font_type: FontType::Hershey,
-            size: Size::new(width, height),
-            line_height,
-            leading,
-            stride: 0,
-            data: &DUMMY_ARRAY,
-        })
-    }
-}
-
-impl FontDriver<'_> {
-    pub const fn with_rasterized(
-        width: usize,
-        height: usize,
-        data: &'static [u8],
-    ) -> FontDriver<'static> {
+impl FixedFontDriver<'_> {
+    pub const fn new(width: usize, height: usize, data: &'static [u8]) -> FixedFontDriver<'static> {
         let width = width as isize;
         let height = height as isize;
         let line_height = height * 5 / 4;
         let leading = (line_height - height) / 2;
         let stride = ((width as usize + 7) >> 3) * height as usize;
-        FontDriver {
-            font_type: FontType::Rasterized,
+        FixedFontDriver {
             size: Size::new(width, height),
             line_height,
             leading,
@@ -69,59 +195,14 @@ impl FontDriver<'_> {
         }
     }
 
-    pub(crate) fn init() {
-        let hershey = HersheyFontCache::new();
-        unsafe {
-            HERSHEY_FONT = Some(Box::new(hershey));
-        }
-    }
-
-    pub const fn system_font_static() -> &'static FontDriver<'static> {
-        &SYSTEM_FONT
-    }
-
-    pub fn system_font() -> Box<FontDriver<'static>> {
-        Box::new(SYSTEM_FONT)
-    }
-
-    pub fn small_font() -> Box<FontDriver<'static>> {
-        Box::new(SMALL_FONT)
-    }
-
-    #[inline]
-    pub const fn size(&self) -> Size<isize> {
-        self.size
-    }
-
     #[inline]
     pub const fn width(&self) -> isize {
         self.size.width
     }
 
     #[inline]
-    pub const fn height(&self) -> isize {
-        self.size.height
-    }
-
-    #[inline]
     pub const fn line_height(&self) -> isize {
         self.line_height
-    }
-
-    #[inline]
-    pub const fn leading(&self) -> isize {
-        self.leading
-    }
-
-    #[inline]
-    pub fn width_of(&self, character: char) -> isize {
-        match self.font_type {
-            FontType::Rasterized => self.width(),
-            FontType::Hershey => unsafe {
-                let shared = HERSHEY_FONT.as_ref().unwrap();
-                shared.width_for(character) * self.height() / shared.point
-            },
-        }
     }
 
     /// Glyph Data for Rasterized Font
@@ -134,80 +215,24 @@ impl FontDriver<'_> {
             None
         }
     }
+}
 
-    pub fn draw_char(&self, character: char, bitmap: &Bitmap, origin: Point<isize>, color: Color) {
-        match self.font_type {
-            FontType::Rasterized => {
-                if let Some(glyph) = self.glyph_for(character) {
-                    let rect = Rect::new(
-                        origin.x,
-                        origin.y + self.leading(),
-                        self.width(),
-                        self.height(),
-                    );
-                    bitmap.draw_pattern(rect, glyph, color);
-                }
-            }
-            FontType::Hershey => {
-                let shared = unsafe { HERSHEY_FONT.as_ref().unwrap() };
-                // let width = shared.width_for(character);
-                // bitmap.draw_rect(
-                //     Rect::new(origin.x, origin.y, width, self.height()),
-                //     Color::from_rgb(0xFFCCFF),
-                // );
-                shared.draw_char(character, bitmap, origin, self.height(), color);
-            }
-        }
+impl FontDriver for FixedFontDriver<'_> {
+    fn is_scalable(&self) -> bool {
+        false
     }
-}
 
-#[allow(dead_code)]
-pub struct HersheyFontCache<'a> {
-    point: isize,
-    data: &'a [u8],
-    bitmap: Bitmap,
-    width_array: Vec<isize>,
-}
+    fn raw_height(&self) -> isize {
+        self.size.height
+    }
 
-impl<'a> HersheyFontCache<'a> {
-    fn new() -> Self {
-        let point = 32;
+    fn raw_line_height(&self) -> isize {
+        self.line_height
+    }
 
-        let bitmap = Bitmap::new(point as usize, point as usize * 96, true);
-        bitmap.reset();
-        // let data = include_bytes!("futuram.jhf");
-        let data = &[];
-
-        let mut font = Self {
-            point,
-            data,
-            bitmap,
-            width_array: Vec::with_capacity(256),
-        };
-
-        for c in 0x20..0x80 {
-            let character = c as u8 as char;
-
-            let data = match font.glyph_for(character) {
-                Some((base, last)) => &font.data[base..last],
-                None => break,
-            };
-
-            let w1 = data[8] as isize - 0x52;
-            let w2 = data[9] as isize - 0x52;
-            font.width_array.push(w2 - w1);
-
-            let position = (character as isize - 0x20) * 32;
-            font.draw_data(
-                data,
-                &font.bitmap,
-                Point::new(0, position),
-                font.point,
-                Color::from_argb(0xFF000000),
-            );
-        }
-
-        font
+    fn width_of(&self, character: char) -> isize {
+        let _ = character;
+        self.size.width
     }
 
     fn draw_char(
@@ -215,14 +240,57 @@ impl<'a> HersheyFontCache<'a> {
         character: char,
         bitmap: &Bitmap,
         origin: Point<isize>,
-        point: isize,
+        height: isize,
         color: Color,
     ) {
-        let data = match self.glyph_for(character) {
-            Some((base, last)) => &self.data[base..last],
-            None => return,
+        let _ = height;
+        if let Some(glyph) = self.glyph_for(character) {
+            let rect = Rect::new(
+                origin.x,
+                origin.y + self.leading,
+                self.width(),
+                self.raw_height(),
+            );
+            bitmap.draw_pattern(rect, glyph, color);
+        }
+    }
+}
+
+struct HersheyFont<'a> {
+    data: &'a [u8],
+    line_height: isize,
+    glyph_info: Vec<(usize, usize, isize)>,
+}
+
+impl<'a> HersheyFont<'a> {
+    const MAGIC_20: isize = 0x20;
+    const MAGIC_52: isize = 0x52;
+    const POINT: isize = 32;
+
+    fn new(line_height: isize, font_data: &'a [u8]) -> Self {
+        let mut font = Self {
+            data: font_data,
+            line_height,
+            glyph_info: Vec::with_capacity(96),
         };
-        self.draw_data(data, &bitmap, origin, point, color);
+
+        for c in 0x20..0x80 {
+            let character = c as u8 as char;
+
+            let (base, last) = match font.find_glyph(character) {
+                Some(tuple) => tuple,
+                None => break,
+            };
+
+            let data = &font_data[base..last];
+
+            let w1 = data[8] as isize - Self::MAGIC_52;
+            let w2 = data[9] as isize - Self::MAGIC_52;
+
+            font.glyph_info.push((base, last, w2 - w1));
+        }
+
+        font
     }
 
     fn draw_data(
@@ -230,62 +298,80 @@ impl<'a> HersheyFontCache<'a> {
         data: &[u8],
         bitmap: &Bitmap,
         origin: Point<isize>,
-        point: isize,
+        width: isize,
+        height: isize,
         color: Color,
     ) {
+        let _ = width;
         if data.len() >= 12 {
-            let n_pairs = (data[6] & 0x0F) * 10 + (data[7] & 0x0F);
-            let left = data[8] as isize - 0x40;
+            FontManager::shared().lock.synchronized(|| {
+                let shared = FontManager::shared();
+                shared.buffer.reset();
 
-            let center = Point::new(origin.x + point / 2 - 1, origin.y + point / 2 - 1);
-            let mut cursor = 10;
-            let mut c0: Option<Point<isize>> = None;
-            for _ in 1..n_pairs {
-                let c1 = data[cursor];
-                let c2 = data[cursor + 1];
-                if c1 != 0x20 && c2 != 0x52 {
-                    let d1 = c1 as isize - 0x52 - left;
-                    let d2 = c2 as isize - 0x52;
-                    let c1 = center + Point::new(d1 * point / 32, d2 * point / 32);
-                    if let Some(c0) = c0 {
-                        bitmap.draw_line(c0, c1, color)
+                let n_pairs = (data[6] & 0x0F) * 10 + (data[7] & 0x0F);
+                let left = data[8] as isize - Self::MAGIC_52;
+
+                let center = Point::new(
+                    shared.buffer.width() / 2 - 1,
+                    shared.buffer.height() / 2 - 1,
+                );
+                let mut cursor = 10;
+                let mut c0: Option<Point<isize>> = None;
+                for _ in 1..n_pairs {
+                    let c1 = data[cursor] as isize;
+                    let c2 = data[cursor + 1] as isize;
+                    if c1 == Self::MAGIC_20 && c2 == Self::MAGIC_52 {
+                        c0 = None;
+                    } else {
+                        let d1 = c1 - Self::MAGIC_52;
+                        let d2 = c2 - Self::MAGIC_52;
+                        let c1 = center
+                            + Point::new(
+                                d1 * 2 * height / Self::POINT,
+                                d2 * 2 * height / Self::POINT,
+                            );
+                        if let Some(c0) = c0 {
+                            shared.buffer.draw_line(c0, c1, |bitmap, point| {
+                                let level1 = 120;
+                                // let level2 = 16;
+
+                                // bitmap.saturating_add_pixel(point + Point::new(-1, -1), level2);
+                                bitmap.saturating_add_pixel(point + Point::new(0, -1), level1);
+                                // bitmap.saturating_add_pixel(point + Point::new(1, -1), level2);
+
+                                bitmap.saturating_add_pixel(point + Point::new(-1, 0), level1);
+                                bitmap.set_pixel(point, 0xFF);
+                                bitmap.saturating_add_pixel(point + Point::new(1, 0), level1);
+
+                                // bitmap.saturating_add_pixel(point + Point::new(-1, 1), level2);
+                                bitmap.saturating_add_pixel(point + Point::new(0, 1), level1);
+                                // bitmap.saturating_add_pixel(point + Point::new(1, 1), level2);
+                            });
+                        }
+                        c0 = Some(c1);
                     }
-                    c0 = Some(c1);
-                } else {
-                    c0 = None;
+                    cursor += 2;
                 }
-                cursor += 2;
-            }
+
+                let shared = FontManager::shared();
+                let offset_x = (shared.buffer.width() / 4) + left * height / self.raw_height() - 1;
+                let offset_y = (shared.buffer.height() / 2 - height) / 2;
+                shared.buffer.translate(
+                    origin - Point::new(offset_x, offset_y),
+                    shared.buffer.size() / 2,
+                    |point, alpha| {
+                        if alpha > 0 {
+                            let mut c = color.components();
+                            c.a = alpha;
+                            bitmap.blend_pixel(point, c.into());
+                        }
+                    },
+                );
+            })
         }
     }
 
-    #[allow(dead_code)]
-    fn draw_cache(
-        &self,
-        character: char,
-        bitmap: &Bitmap,
-        origin: Point<isize>,
-        font: &FontDriver,
-        color: Color,
-    ) {
-        let w = self.width_for(character);
-        if w > 0 {
-            let _ = color;
-            let _ = font;
-
-            bitmap.draw_rect(
-                Rect::new(origin.x, origin.y, w, self.point),
-                Color::from_rgb(0xFFFFCCFF),
-            );
-
-            let c = character as isize - 0x20;
-            let origin = Point::new(origin.x, origin.y);
-            let rect = Rect::new(0, c * self.point, w, self.point);
-            bitmap.blt(&self.bitmap, origin, rect, BltOption::empty());
-        }
-    }
-
-    fn glyph_for(&self, character: char) -> Option<(usize, usize)> {
+    fn find_glyph(&self, character: char) -> Option<(usize, usize)> {
         let c = character as usize;
         if c >= 0x20 && c < 0x80 {
             let c = c - 0x20;
@@ -310,14 +396,49 @@ impl<'a> HersheyFontCache<'a> {
         None
     }
 
-    fn width_for(&self, character: char) -> isize {
-        let i = character as usize;
-        if i >= 0x20 && i < 0x80 {
-            let i = i - 0x20;
-            if i < self.width_array.len() {
-                return self.width_array[i];
-            }
+    fn glyph_for(&self, character: char) -> Option<(usize, usize, isize)> {
+        let i = (character as usize) - 0x20;
+        if i < (0x80 - 0x20) && i < self.glyph_info.len() {
+            return Some(self.glyph_info[i]);
         }
-        0
+        None
+    }
+}
+
+impl FontDriver for HersheyFont<'_> {
+    fn is_scalable(&self) -> bool {
+        true
+    }
+
+    fn raw_height(&self) -> isize {
+        Self::POINT
+    }
+
+    #[inline]
+    fn raw_line_height(&self) -> isize {
+        self.line_height
+    }
+
+    fn width_of(&self, character: char) -> isize {
+        match self.glyph_for(character) {
+            Some(info) => info.2,
+            None => 0,
+        }
+    }
+
+    fn draw_char(
+        &self,
+        character: char,
+        bitmap: &Bitmap,
+        origin: Point<isize>,
+        point: isize,
+        color: Color,
+    ) {
+        let (base, last, width) = match self.glyph_for(character) {
+            Some(info) => info,
+            None => return,
+        };
+        let data = &self.data[base..last];
+        self.draw_data(data, &bitmap, origin, width, point, color);
     }
 }

@@ -393,7 +393,7 @@ impl<'a> TextView<'a> {
         self.set_needs_layout();
     }
 
-    pub fn set_font(&mut self, font: Box<FontDriver<'a>>) {
+    pub fn set_font(&mut self, font: FontDescriptor) {
         self.text.set_font(font);
         self.set_needs_layout();
     }
@@ -488,7 +488,7 @@ impl<'a> Button<'a> {
         });
         button.set_border_radius(8);
         button.set_button_type(button_type);
-        button.title_label.set_font(FontDriver::with_hershey(20));
+        button.title_label.set_font(FontDescriptor::label_font());
 
         button
     }

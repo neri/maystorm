@@ -23,7 +23,7 @@ static DEFAULT_CONSOLE_INSETS: EdgeInsets<isize> = EdgeInsets::padding_all(4);
 
 pub struct GraphicalConsole<'a> {
     handle: Option<WindowHandle>,
-    font: &'a FontDriver<'a>,
+    font: &'a FixedFontDriver<'a>,
     bitmap: &'a Box<Bitmap>,
     cursor: (isize, isize),
     dims: (isize, isize),
@@ -36,7 +36,7 @@ pub struct GraphicalConsole<'a> {
 
 impl<'a> From<&'a Box<Bitmap>> for GraphicalConsole<'a> {
     fn from(bitmap: &'a Box<Bitmap>) -> Self {
-        let font = FontDriver::system_font_static();
+        let font = FontManager::fixed_system_font();
         let insets = DEFAULT_CONSOLE_INSETS;
         let rect = Rect::from(bitmap.size()).insets_by(insets);
         let cols = rect.size.width / font.width();
@@ -60,7 +60,7 @@ impl<'a> GraphicalConsole<'a> {
     pub fn new(
         title: &str,
         dims: (isize, isize),
-        font: &'a FontDriver<'a>,
+        font: &'a FixedFontDriver<'a>,
         attribute: u8,
         alpha: u8,
     ) -> (Box<GraphicalConsole<'a>>, WindowHandle) {
@@ -118,7 +118,7 @@ impl GraphicalConsole<'_> {
         let font = self.font;
         let rect = Rect::new(dims.0, dims.1, font.width(), font.line_height());
         self.bitmap.fill_rect(rect, self.bg_color());
-        font.draw_char(c, self.bitmap, rect.origin, self.fg_color());
+        font.draw_char(c, self.bitmap, rect.origin, 0, self.fg_color());
         if let Some(handle) = self.handle {
             handle.invalidate_rect(rect);
         }
