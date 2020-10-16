@@ -100,10 +100,12 @@ pub struct WindowManager {
     captured_origin: Point<isize>,
 }
 
+#[allow(dead_code)]
 struct Resources {
     close_button: Bitmap,
     corner_shadow: Bitmap,
-    font: FontDescriptor,
+    title_font: FontDescriptor,
+    label_font: FontDescriptor,
 }
 
 impl WindowManager {
@@ -151,7 +153,8 @@ impl WindowManager {
             resources: Resources {
                 close_button,
                 corner_shadow,
-                font: FontDescriptor::label_font(),
+                title_font: FontManager::title_font(),
+                label_font: FontManager::label_font(),
             },
             pool: BTreeMap::new(),
             pool_lock: Spinlock::default(),
@@ -843,7 +846,7 @@ impl RawWindow {
                 let pad_right = rect.height();
 
                 if let Some(text) = self.title() {
-                    let font = shared.resources.font;
+                    let font = shared.resources.title_font;
                     let pad_y = (rect.height() - font.point()) / 2;
                     let rect = rect.insets_by(EdgeInsets::new(pad_y, pad_left, pad_y, pad_right));
                     if is_active {

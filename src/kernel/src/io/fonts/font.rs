@@ -44,19 +44,19 @@ impl FontManager {
 
         let font = Box::new(HersheyFont::new(
             0,
-            include_bytes!("../../../../../ext/hershey/futuram.jhf"),
+            include_bytes!("../../../../../ext/hershey/futural.jhf"),
         ));
         fonts.insert(FontFamily::SystemUI, font);
 
         let font = Box::new(HersheyFont::new(
-            8,
+            4,
             include_bytes!("../../../../../ext/hershey/cursive.jhf"),
         ));
         fonts.insert(FontFamily::Cursive, font);
 
         let font = Box::new(HersheyFont::new(
             0,
-            include_bytes!("../../../../../ext/hershey/futural.jhf"),
+            include_bytes!("../../../../../ext/hershey/futuram.jhf"),
         ));
         fonts.insert(FontFamily::SansSerif, font);
 
@@ -65,12 +65,6 @@ impl FontManager {
             include_bytes!("../../../../../ext/hershey/timesr.jhf"),
         ));
         fonts.insert(FontFamily::Serif, font);
-
-        let font = Box::new(HersheyFont::new(
-            0,
-            include_bytes!("../../../../../ext/hershey/japanese.jhf"),
-        ));
-        fonts.insert(FontFamily::Japanese, font);
 
         shared.fonts = Some(fonts);
     }
@@ -86,6 +80,18 @@ impl FontManager {
 
     pub const fn fixed_system_font() -> &'static FixedFontDriver<'static> {
         &SYSTEM_FONT
+    }
+
+    pub fn system_font() -> FontDescriptor {
+        FontDescriptor::new(FontFamily::FixedSystem, 0).unwrap()
+    }
+
+    pub fn title_font() -> FontDescriptor {
+        FontDescriptor::new(FontFamily::SansSerif, 16).unwrap_or(Self::system_font())
+    }
+
+    pub fn label_font() -> FontDescriptor {
+        FontDescriptor::new(FontFamily::SystemUI, 16).unwrap_or(Self::system_font())
     }
 }
 
@@ -115,24 +121,17 @@ impl FontDescriptor {
                 Self {
                     driver,
                     point: point as i32,
-                    line_height: (driver.raw_line_height() * point / driver.raw_height()) as i32,
+                    line_height: (driver.preferred_line_height() * point / driver.base_height())
+                        as i32,
                 }
             } else {
                 Self {
                     driver,
-                    point: driver.raw_height() as i32,
-                    line_height: driver.raw_line_height() as i32,
+                    point: driver.base_height() as i32,
+                    line_height: driver.preferred_line_height() as i32,
                 }
             }
         })
-    }
-
-    pub fn system_font() -> Self {
-        Self::new(FontFamily::FixedSystem, 0).unwrap()
-    }
-
-    pub fn label_font() -> Self {
-        Self::new(FontFamily::SystemUI, 16).unwrap_or(Self::system_font())
     }
 
     #[inline]
@@ -147,10 +146,10 @@ impl FontDescriptor {
 
     #[inline]
     pub fn width_of(&self, character: char) -> isize {
-        if self.point() == self.driver.raw_height() {
+        if self.point() == self.driver.base_height() {
             self.driver.width_of(character)
         } else {
-            self.driver.width_of(character) * self.point() / self.driver.raw_height()
+            self.driver.width_of(character) * self.point() / self.driver.base_height()
         }
     }
 
@@ -168,9 +167,9 @@ impl FontDescriptor {
 pub trait FontDriver {
     fn is_scalable(&self) -> bool;
 
-    fn raw_height(&self) -> isize;
+    fn base_height(&self) -> isize;
 
-    fn raw_line_height(&self) -> isize;
+    fn preferred_line_height(&self) -> isize;
 
     fn width_of(&self, character: char) -> isize;
 
@@ -231,18 +230,22 @@ impl FixedFontDriver<'_> {
 }
 
 impl FontDriver for FixedFontDriver<'_> {
+    #[inline]
     fn is_scalable(&self) -> bool {
         false
     }
 
-    fn raw_height(&self) -> isize {
+    #[inline]
+    fn base_height(&self) -> isize {
         self.size.height
     }
 
-    fn raw_line_height(&self) -> isize {
+    #[inline]
+    fn preferred_line_height(&self) -> isize {
         self.line_height
     }
 
+    #[inline]
     fn width_of(&self, character: char) -> isize {
         let _ = character;
         self.size.width
@@ -262,13 +265,14 @@ impl FontDriver for FixedFontDriver<'_> {
                 origin.x,
                 origin.y + self.leading,
                 self.width(),
-                self.raw_height(),
+                self.base_height(),
             );
             bitmap.draw_pattern(rect, glyph, color);
         }
     }
 }
 
+#[allow(dead_code)]
 struct HersheyFont<'a> {
     data: &'a [u8],
     line_height: isize,
@@ -279,11 +283,13 @@ impl<'a> HersheyFont<'a> {
     const MAGIC_20: isize = 0x20;
     const MAGIC_52: isize = 0x52;
     const POINT: isize = 32;
+    const DESCENT: isize = 2;
 
     fn new(extra_height: isize, font_data: &'a [u8]) -> Self {
+        let descent = Self::DESCENT + extra_height;
         let mut font = Self {
             data: font_data,
-            line_height: Self::POINT + extra_height,
+            line_height: Self::POINT + descent,
             glyph_info: Vec::with_capacity(96),
         };
 
@@ -345,33 +351,31 @@ impl<'a> HersheyFont<'a> {
                             );
                         if let Some(c0) = c0 {
                             shared.buffer.draw_line(c0, c1, |bitmap, point| {
-                                match bitmap.read_pixel(point) {
-                                    None | Some(0xFF) => (),
-                                    Some(_) => {
-                                        let level1 = 120;
-                                        // let level2 = 16;
+                                bitmap.restrict(
+                                    point,
+                                    EdgeInsets::padding_all(1),
+                                    |bitmap| unsafe {
+                                        if bitmap.read_pixel_unsafe(point) != 0xFF {
+                                            let level1 = 120;
 
-                                        // bitmap.saturating_add_pixel(point + Point::new(-1, -1), level2);
-                                        bitmap.saturating_add_pixel(
-                                            point + Point::new(0, -1),
-                                            level1,
-                                        );
-                                        // bitmap.saturating_add_pixel(point + Point::new(1, -1), level2);
+                                            bitmap.process_pixel(point + Point::new(0, -1), |v| {
+                                                v.saturating_add(level1)
+                                            });
 
-                                        bitmap.saturating_add_pixel(
-                                            point + Point::new(-1, 0),
-                                            level1,
-                                        );
-                                        bitmap.set_pixel(point, 0xFF);
-                                        bitmap
-                                            .saturating_add_pixel(point + Point::new(1, 0), level1);
+                                            bitmap.process_pixel(point + Point::new(-1, 0), |v| {
+                                                v.saturating_add(level1)
+                                            });
+                                            bitmap.set_pixel_unsafe(point, 0xFF);
+                                            bitmap.process_pixel(point + Point::new(1, 0), |v| {
+                                                v.saturating_add(level1)
+                                            });
 
-                                        // bitmap.saturating_add_pixel(point + Point::new(-1, 1), level2);
-                                        bitmap
-                                            .saturating_add_pixel(point + Point::new(0, 1), level1);
-                                        // bitmap.saturating_add_pixel(point + Point::new(1, 1), level2);
-                                    }
-                                }
+                                            bitmap.process_pixel(point + Point::new(0, 1), |v| {
+                                                v.saturating_add(level1)
+                                            });
+                                        }
+                                    },
+                                );
                             });
                         }
                         c0 = Some(c1);
@@ -379,10 +383,31 @@ impl<'a> HersheyFont<'a> {
                     cursor += 2;
                 }
 
+                // DEBUG
+                if false {
+                    let rect = Rect::new(
+                        origin.x,
+                        origin.y,
+                        width * height / Self::POINT,
+                        self.line_height * height / Self::POINT,
+                    );
+                    bitmap.draw_rect(rect, Color::from_rgb(0xFFCCFF));
+                    bitmap.draw_hline(
+                        Point::new(origin.x, origin.y + height - 1),
+                        width * height / Self::POINT,
+                        Color::from_rgb(0xFFFF33),
+                    );
+                    bitmap.draw_hline(
+                        Point::new(origin.x, origin.y + height * 3 / 4),
+                        width * height / Self::POINT,
+                        Color::from_rgb(0xFF3333),
+                    );
+                }
+
                 let shared = FontManager::shared();
-                let offset_x = (shared.buffer.width() / 4) + left * height / self.raw_height() - 1;
+                let offset_x = (shared.buffer.width() / 4) + left * height / self.base_height() - 1;
                 let offset_y = (shared.buffer.height() / 2 - height) / 2;
-                shared.buffer.translate(
+                shared.buffer.transform(
                     origin - Point::new(offset_x, offset_y),
                     shared.buffer.size() / 2,
                     |point, alpha| {
@@ -432,16 +457,18 @@ impl<'a> HersheyFont<'a> {
 }
 
 impl FontDriver for HersheyFont<'_> {
+    #[inline]
     fn is_scalable(&self) -> bool {
         true
     }
 
-    fn raw_height(&self) -> isize {
+    #[inline]
+    fn base_height(&self) -> isize {
         Self::POINT
     }
 
     #[inline]
-    fn raw_line_height(&self) -> isize {
+    fn preferred_line_height(&self) -> isize {
         self.line_height
     }
 

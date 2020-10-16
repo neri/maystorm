@@ -12,7 +12,6 @@ use bootprot::BootInfo;
 use byteorder::*;
 use core::cell::RefCell;
 use core::mem::swap;
-// use core::ptr::*;
 use core::slice;
 
 #[repr(C)]
@@ -932,7 +931,7 @@ impl<'a> AttributedString<'a> {
     pub fn new(text: &'a str) -> Self {
         Self {
             text,
-            font: FontDescriptor::system_font(),
+            font: FontManager::system_font(),
             color: Color::BLACK,
         }
     }
@@ -1043,9 +1042,9 @@ pub struct OperationalBitmap {
 }
 
 impl OperationalBitmap {
-    pub const fn new(width: usize, height: usize) -> Self {
+    pub const fn new(width: usize, height: usize) -> OperationalBitmap {
         let data = Vec::new();
-        Self {
+        OperationalBitmap {
             size: Size::new(width as isize, height as isize),
             data,
         }
@@ -1090,119 +1089,60 @@ impl OperationalBitmap {
     pub fn read_pixel(&self, point: Point<isize>) -> Option<u8> {
         let width = self.width();
         let height = self.height();
-        let stride = self.stride();
         let dx = point.x;
         let dy = point.y;
         if dx > 0 && dx < width && dy > 0 && dy < height {
-            Some(self.data[dx as usize + dy as usize * stride])
+            unsafe { Some(self.read_pixel_unsafe(point)) }
         } else {
             None
         }
     }
 
+    #[inline]
+    pub unsafe fn read_pixel_unsafe(&self, point: Point<isize>) -> u8 {
+        self.data[point.x as usize + point.y as usize * self.stride()]
+    }
+
     pub fn set_pixel(&mut self, point: Point<isize>, color: u8) {
-        self.set_pixels(&[point], color);
-    }
-
-    pub fn set_pixels(&mut self, points: &[Point<isize>], color: u8) {
         let width = self.width();
         let height = self.height();
+        let dx = point.x;
+        let dy = point.y;
+        if dx > 0 && dx < width && dy > 0 && dy < height {
+            unsafe { self.set_pixel_unsafe(point, color) }
+        }
+    }
+
+    #[inline]
+    pub unsafe fn set_pixel_unsafe(&mut self, point: Point<isize>, color: u8) {
         let stride = self.stride();
-        for point in points {
-            let dx = point.x;
-            let dy = point.y;
-            if dx > 0 && dx < width && dy > 0 && dy < height {
-                self.data[dx as usize + dy as usize * stride] = color;
-            }
-        }
+        self.data[point.x as usize + point.y as usize * stride] = color;
     }
 
-    pub fn saturating_add_pixel(&mut self, point: Point<isize>, color: u8) {
-        self.saturating_add_pixels(&[point], color);
-    }
-
-    pub fn saturating_add_pixels(&mut self, points: &[Point<isize>], color: u8) {
-        let width = self.width();
-        let height = self.height();
+    #[inline]
+    pub unsafe fn process_pixel<F>(&mut self, point: Point<isize>, f: F)
+    where
+        F: FnOnce(u8) -> u8,
+    {
         let stride = self.stride();
-        for point in points {
-            let dx = point.x;
-            let dy = point.y;
-            if dx > 0 && dx < width && dy > 0 && dy < height {
-                let index = dx as usize + dy as usize * stride;
-                self.data[index] = self.data[index].saturating_add(color);
-            }
-        }
+        let pixel = &mut self.data[point.x as usize + point.y as usize * stride];
+        *pixel = f(*pixel);
     }
 
-    pub fn saturating_sub_pixels(&mut self, points: &[Point<isize>], color: u8) {
-        let width = self.width();
-        let height = self.height();
-        let stride = self.stride();
-        for point in points {
-            let dx = point.x;
-            let dy = point.y;
-            if dx > 0 && dx < width && dy > 0 && dy < height {
-                let index = dx as usize + dy as usize * stride;
-                self.data[index] = self.data[index].saturating_sub(color);
-            }
-        }
-    }
-
-    pub fn blend_pixels(&mut self, points: &[Point<isize>], color: u8, alpha: u8) {
-        let width = self.width();
-        let height = self.height();
-        let stride = self.stride();
-        let alpha = alpha as usize;
-        let alpha_n = 255 - alpha;
-        let alpha_color = alpha * color as usize;
-        for point in points {
-            let dx = point.x;
-            let dy = point.y;
-            if dx > 0 && dx < width && dy > 0 && dy < height {
-                let index = dx as usize + dy as usize * stride;
-                self.data[index] =
-                    ((self.data[index] as usize * alpha_n + alpha_color) / 255) as u8;
-            }
-        }
-    }
-
-    pub fn fill_rect(&mut self, rect: Rect<isize>, color: u8) {
-        let mut width = rect.size.width;
-        let mut height = rect.size.height;
-        let mut dx = rect.origin.x;
-        let mut dy = rect.origin.y;
-
-        {
-            if dx < 0 {
-                width += dx;
-                dx = 0;
-            }
-            if dy < 0 {
-                height += dy;
-                dy = 0;
-            }
-            let r = dx + width;
-            let b = dy + height;
-            if r >= self.size.width {
-                width = self.size.width - dx;
-            }
-            if b >= self.size.height {
-                height = self.size.height - dy;
-            }
-            if width <= 0 || height <= 0 {
-                return;
-            }
-        }
-
-        let mut index = dx as usize + dy as usize * self.stride();
-        let stride = self.stride() - width as usize;
-        for _ in 0..height {
-            for _ in 0..width {
-                self.data[index] = color;
-                index += 1;
-            }
-            index += stride;
+    #[inline]
+    pub fn restrict<F, R>(
+        &mut self,
+        point: Point<isize>,
+        insets: EdgeInsets<isize>,
+        f: F,
+    ) -> Option<R>
+    where
+        F: FnOnce(&mut OperationalBitmap) -> R,
+    {
+        if self.bounds().insets_by(insets).hit_test_point(point) {
+            Some(f(self))
+        } else {
+            None
         }
     }
 
@@ -1248,7 +1188,7 @@ impl OperationalBitmap {
         }
     }
 
-    pub fn translate<F>(&self, origin: Point<isize>, new_size: Size<isize>, f: F)
+    pub fn transform<F>(&self, origin: Point<isize>, new_size: Size<isize>, f: F)
     where
         F: Fn(Point<isize>, u8),
     {

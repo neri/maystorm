@@ -65,7 +65,7 @@ fn main() {
                 view.add_subview(shape);
 
                 let mut rect = view.bounds().insets_by(EdgeInsets::new(16, 16, 0, 16));
-                rect.size.height = 40;
+                rect.size.height = 44;
                 let mut text_view = TextView::with_text("Welcome to My OS !");
                 FontDescriptor::new(FontFamily::Cursive, 32).map(|font| text_view.set_font(font));
                 text_view.set_tint_color(IndexedColor::White.into());
@@ -83,30 +83,43 @@ fn main() {
                 // view.add_subview(text_view);
 
                 rect.origin.y += rect.size.height + 10;
-                rect.size.height = 28 * 2;
                 let mut text_view = TextView::with_text("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
+                // let mut text_view = TextView::with_text("The quick brown fox jumps over the lazy dog.");
+                text_view.set_frame(rect);
                 FontDescriptor::new(FontFamily::Serif, 24).map(|font| text_view.set_font(font));
                 text_view.set_tint_color(IndexedColor::DarkGray.into());
-                text_view.set_frame(rect);
                 text_view.set_max_lines(2);
+                text_view.set_bounds(
+                    text_view
+                        .size_that_fits(Size::new(rect.width(), isize::MAX))
+                        .into(),
+                );
                 view.add_subview(text_view);
 
                 rect.origin.y += rect.size.height + 10;
-                rect.size.height = 28 * 2;
                 let mut text_view = TextView::with_text("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
-                FontDescriptor::new(FontFamily::SansSerif, 24).map(|font| text_view.set_font(font));
+                text_view.set_frame(rect);
+                FontDescriptor::new(FontFamily::SansSerif, 20).map(|font| text_view.set_font(font));
                 text_view.set_tint_color(IndexedColor::DarkGray.into());
-                text_view.set_frame(rect);
                 text_view.set_max_lines(2);
+                text_view.set_bounds(
+                    text_view
+                        .size_that_fits(Size::new(rect.width(), isize::MAX))
+                        .into(),
+                );
                 view.add_subview(text_view);
 
                 rect.origin.y += rect.size.height + 10;
-                rect.size.height = 20 * 2;
                 let mut text_view = TextView::with_text("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
+                text_view.set_frame(rect);
                 FontDescriptor::new(FontFamily::Cursive, 16).map(|font| text_view.set_font(font));
                 text_view.set_tint_color(IndexedColor::DarkGray.into());
-                text_view.set_frame(rect);
                 text_view.set_max_lines(2);
+                text_view.set_bounds(
+                    text_view
+                        .size_that_fits(Size::new(rect.width(), isize::MAX))
+                        .into(),
+                );
                 view.add_subview(text_view);
 
                 let vertical_base = Coordinates::from_rect(rect).unwrap().bottom + 20;
@@ -203,7 +216,7 @@ async fn status_bar_main() {
         .bg_color(bg_color)
         .build();
 
-    let mut ats = AttributedString::with("My OS", FontDescriptor::label_font(), fg_color);
+    let mut ats = AttributedString::with("My OS", FontManager::title_font(), fg_color);
 
     window
         .draw(|bitmap| {
@@ -221,7 +234,7 @@ async fn status_bar_main() {
     window.show();
     WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT, 0, 0, 0));
 
-    ats.set_font(FontDescriptor::system_font());
+    ats.set_font(FontManager::system_font());
     let mut sb = string::Sb255::new();
     loop {
         Timer::sleep_async(Duration::from_millis(500)).await;
@@ -262,7 +275,7 @@ async fn status_bar_main() {
 
 #[allow(dead_code)]
 async fn activity_monitor_main() {
-    let bg_color = Color::from_argb(0x80000000);
+    let bg_color = Color::from(IndexedColor::Black).set_opacity(0xC0);
     let fg_color = IndexedColor::Yellow.into();
     let graph_sub_color = IndexedColor::LightGreen.into();
     let graph_main_color = IndexedColor::Yellow.into();
@@ -300,13 +313,14 @@ async fn activity_monitor_main() {
         MyScheduler::get_idle_statistics(&mut usage_temp);
         for i in 0..num_of_cpus {
             usage_history[i * n_items + usage_cursor] =
-                (u32::min(usage_temp[i], 999) * 255 / 999) as u8;
+                (u32::min(usage_temp[i], 999) * 254 / 999) as u8;
         }
         usage_cursor = (usage_cursor + 1) % n_items;
 
         MyScheduler::print_statistics(&mut sb, true);
         window
             .draw(|bitmap| {
+                bitmap.fill_rect(bitmap.bounds(), bg_color);
                 for cpu_index in 0..num_of_cpus {
                     let padding = 4;
                     let item_size = Size::new(
@@ -326,7 +340,6 @@ async fn activity_monitor_main() {
                         item_size.width,
                         item_size.height,
                     );
-                    bitmap.fill_rect(rect, bg_color);
                     let h_lines = 4;
                     let v_lines = 4;
                     for i in 1..h_lines {

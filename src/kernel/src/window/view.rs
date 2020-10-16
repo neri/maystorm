@@ -48,6 +48,12 @@ pub trait ViewTrait {
         self.frame().size.into()
     }
 
+    fn set_bounds(&mut self, rect: Rect<isize>) {
+        let mut frame = self.frame();
+        frame.size = rect.size;
+        self.set_frame(frame);
+    }
+
     fn center(&self) -> Point<isize> {
         self.frame().center()
     }
@@ -74,8 +80,8 @@ pub trait ViewTrait {
         self.base_view().draw_in_context(ctx);
     }
 
-    fn draw_if_needed(&self, ctx: Bitmap) {
-        self.base_view().draw_if_needed(ctx);
+    fn draw_if_needed(&mut self, ctx: Bitmap) {
+        self.base_view_mut().draw_if_needed(ctx);
     }
 
     // Basic Properties
@@ -274,8 +280,9 @@ impl ViewTrait for BaseView {
         self.flags.insert(ViewFlag::NEEDS_DISPLAY);
     }
 
-    fn draw_if_needed(&self, ctx: Bitmap) {
+    fn draw_if_needed(&mut self, ctx: Bitmap) {
         if self.flags.contains(ViewFlag::NEEDS_DISPLAY) {
+            self.flags.remove(ViewFlag::NEEDS_DISPLAY);
             self.draw_in_context(ctx);
         }
     }
@@ -412,13 +419,21 @@ impl<'a> TextView<'a> {
         self.set_needs_layout();
     }
 
+    pub fn font(&self) -> &FontDescriptor {
+        self.text.font()
+    }
+
     pub fn set_max_lines(&mut self, max_lines: usize) {
         self.max_lines = max_lines;
         self.set_needs_layout();
     }
 
-    pub fn max_libnes(&self) -> usize {
+    pub fn max_lines(&self) -> usize {
         self.max_lines
+    }
+
+    pub fn size_that_fits(&self, size: Size<isize>) -> Size<isize> {
+        self.text.bounding_size(size)
     }
 }
 
@@ -502,7 +517,7 @@ impl<'a> Button<'a> {
         });
         button.set_corner_radius(12);
         button.set_button_type(button_type);
-        button.title_label.set_font(FontDescriptor::label_font());
+        button.title_label.set_font(FontManager::label_font());
 
         button
     }
@@ -558,7 +573,7 @@ impl<'a> ViewTrait for Button<'a> {
         rect.size.width = isize::min(rect.width(), size.width);
         rect.size.height = isize::min(rect.height(), size.height);
         rect.origin.x = (self.frame().width() - rect.width()) / 2;
-        rect.origin.y = (self.frame().height() - rect.height()) / 2;
+        rect.origin.y = (self.frame().height() - self.title_label.font().point()) / 2;
         self.title_label.set_frame(rect);
 
         self.base_view_mut().layout_subviews();
