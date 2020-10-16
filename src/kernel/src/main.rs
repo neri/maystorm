@@ -61,13 +61,8 @@ fn main() {
                 rect.size.height = 56;
                 let mut shape = View::with_frame(rect);
                 shape.set_background_color(Color::from_rgb(0x64B5F6));
+                // shape.set_background_color(Color::from_rgb(0xFF9800));
                 view.add_subview(shape);
-
-                // let mut shape = View::with_frame(Rect::new(16, 80, 50, 50));
-                // shape.set_border_radius(20);
-                // shape.set_background_color(IndexedColor::Yellow.into());
-                // shape.set_border_color(IndexedColor::Red.into());
-                // view.add_subview(shape);
 
                 let mut rect = view.bounds().insets_by(EdgeInsets::new(16, 16, 0, 16));
                 rect.size.height = 40;
@@ -78,14 +73,14 @@ fn main() {
                 text_view.set_max_lines(1);
                 view.add_subview(text_view);
 
-                rect.origin.y += rect.size.height + 10;
-                rect.size.height = 24;
-                let mut text_view = TextView::with_text("My OS is my first OS written in Rust.");
-                FontDescriptor::new(FontFamily::SystemUI, 20).map(|font| text_view.set_font(font));
-                text_view.set_tint_color(IndexedColor::Green.into());
-                text_view.set_frame(rect);
-                text_view.set_max_lines(2);
-                view.add_subview(text_view);
+                // rect.origin.y += rect.size.height + 10;
+                // rect.size.height = 24;
+                // let mut text_view = TextView::with_text("~ A toy that displays a picture ~");
+                // FontDescriptor::new(FontFamily::Cursive, 20).map(|font| text_view.set_font(font));
+                // text_view.set_tint_color(IndexedColor::Green.into());
+                // text_view.set_frame(rect);
+                // text_view.set_max_lines(2);
+                // view.add_subview(text_view);
 
                 rect.origin.y += rect.size.height + 10;
                 rect.size.height = 28 * 2;
@@ -97,9 +92,9 @@ fn main() {
                 view.add_subview(text_view);
 
                 rect.origin.y += rect.size.height + 10;
-                rect.size.height = 24 * 2;
+                rect.size.height = 28 * 2;
                 let mut text_view = TextView::with_text("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
-                FontDescriptor::new(FontFamily::SansSerif, 20).map(|font| text_view.set_font(font));
+                FontDescriptor::new(FontFamily::SansSerif, 24).map(|font| text_view.set_font(font));
                 text_view.set_tint_color(IndexedColor::DarkGray.into());
                 text_view.set_frame(rect);
                 text_view.set_max_lines(2);
@@ -248,6 +243,7 @@ async fn status_bar_main() {
         } else {
             write!(sb, "{:2}:{:02}:{:02}", hour, min, sec).unwrap();
         };
+        ats.set_text(sb.as_str());
 
         let bounds = window.frame();
         let width = ats.bounding_size(Size::new(isize::MAX, isize::MAX)).width;
@@ -259,7 +255,6 @@ async fn status_bar_main() {
         );
         let _ = window.draw(|bitmap| {
             bitmap.fill_rect(rect, bg_color);
-            ats.set_text(sb.as_str());
             ats.draw(&bitmap, rect);
         });
     }
@@ -273,7 +268,8 @@ async fn activity_monitor_main() {
     let graph_main_color = IndexedColor::Yellow.into();
     let graph_border_color = IndexedColor::LightGray.into();
 
-    Timer::sleep_async(Duration::from_millis(1000)).await;
+    Timer::sleep_async(Duration::from_millis(2000)).await;
+
     let window = WindowBuilder::new("Activity Monitor")
         .style_add(WindowStyle::NAKED | WindowStyle::FLOATING | WindowStyle::PINCHABLE)
         .frame(Rect::new(-330, -180, 320, 150))
@@ -287,21 +283,40 @@ async fn activity_monitor_main() {
     ats.set_color(fg_color);
 
     let num_of_cpus = System::num_of_cpus();
+    let n_items = 64;
     let mut usage_temp = Vec::with_capacity(num_of_cpus);
-    // let mut usage_history = 0;
+    let mut usage_cursor = 0;
+    let mut usage_history = {
+        let count = num_of_cpus * n_items;
+        let mut vec = Vec::with_capacity(count);
+        for _ in 0..count {
+            vec.push(u8::MAX);
+        }
+        vec
+    };
 
     let mut sb = string::StringBuffer::with_capacity(0x1000);
     loop {
         MyScheduler::get_idle_statistics(&mut usage_temp);
+        for i in 0..num_of_cpus {
+            usage_history[i * n_items + usage_cursor] =
+                (u32::min(usage_temp[i], 999) * 255 / 999) as u8;
+        }
+        usage_cursor = (usage_cursor + 1) % n_items;
+
         MyScheduler::print_statistics(&mut sb, true);
         window
             .draw(|bitmap| {
                 for cpu_index in 0..num_of_cpus {
                     let padding = 4;
                     let item_size = Size::new(
-                        isize::max(
-                            (bitmap.bounds().width() - padding) / num_of_cpus as isize - padding,
-                            20,
+                        isize::min(
+                            isize::max(
+                                (bitmap.bounds().width() - padding) / num_of_cpus as isize
+                                    - padding,
+                                16,
+                            ),
+                            n_items as isize,
                         ),
                         40,
                     );
@@ -323,16 +338,23 @@ async fn activity_monitor_main() {
                         bitmap.draw_vline(point, item_size.height, graph_sub_color);
                     }
 
-                    let value =
-                        (item_size.height - 2) * (1000 - usage_temp[cpu_index] as isize) / 1000;
-                    let vrect = Rect::new(
-                        rect.x() + 1,
-                        rect.y() + item_size.height - value - 1,
-                        item_size.width - 2,
-                        value,
-                    );
-                    bitmap.fill_rect(vrect, graph_main_color);
-
+                    let limit = item_size.width as usize - 2;
+                    for i in 0..limit {
+                        let scale = item_size.height - 2;
+                        let value1 = usage_history
+                            [cpu_index * n_items + ((usage_cursor + i - limit) % n_items)]
+                            as isize
+                            * scale
+                            / 255;
+                        let value2 = usage_history
+                            [cpu_index * n_items + ((usage_cursor + i - 1 - limit) % n_items)]
+                            as isize
+                            * scale
+                            / 255;
+                        let c0 = Point::new(rect.x() + i as isize + 1, rect.y() + 1 + value1);
+                        let c1 = Point::new(rect.x() + i as isize, rect.y() + 1 + value2);
+                        bitmap.draw_line(c0, c1, graph_main_color);
+                    }
                     bitmap.draw_rect(rect, graph_border_color);
                 }
                 let rect = bitmap.bounds().insets_by(EdgeInsets::new(48, 4, 4, 4));

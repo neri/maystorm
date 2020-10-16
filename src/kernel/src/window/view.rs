@@ -74,6 +74,10 @@ pub trait ViewTrait {
         self.base_view().draw_in_context(ctx);
     }
 
+    fn draw_if_needed(&self, ctx: Bitmap) {
+        self.base_view().draw_if_needed(ctx);
+    }
+
     // Basic Properties
 
     fn background_color(&self) -> Color {
@@ -97,11 +101,11 @@ pub trait ViewTrait {
         self.base_view_mut().set_border_color(color)
     }
 
-    fn border_radius(&self) -> isize {
-        self.base_view().border_radius()
+    fn corner_radius(&self) -> isize {
+        self.base_view().corner_radius()
     }
-    fn set_border_radius(&mut self, radius: isize) {
-        self.base_view_mut().set_border_radius(radius);
+    fn set_corner_radius(&mut self, radius: isize) {
+        self.base_view_mut().set_corner_radius(radius);
     }
 
     fn is_enabled(&self) -> bool {
@@ -134,7 +138,7 @@ pub struct BaseView {
     background_color: Color,
     tint_color: Color,
     border_color: Color,
-    border_radius: isize,
+    corner_radius: isize,
     flags: ViewFlag,
 }
 
@@ -159,10 +163,14 @@ impl BaseView {
 
     fn common_draw(&self, ctx: &Bitmap) {
         if !self.background_color().is_transparent() {
-            ctx.fill_round_rect(self.bounds(), self.border_radius(), self.background_color());
+            if self.corner_radius() > 0 {
+                ctx.fill_round_rect(self.bounds(), self.corner_radius(), self.background_color());
+            } else {
+                ctx.blend_rect(self.bounds(), self.background_color());
+            }
         }
         if !self.border_color().is_transparent() {
-            ctx.draw_round_rect(self.bounds(), self.border_radius(), self.border_color());
+            ctx.draw_round_rect(self.bounds(), self.corner_radius(), self.border_color());
         }
     }
 }
@@ -176,7 +184,7 @@ impl Default for BaseView {
             background_color: Color::WHITE,
             tint_color: IndexedColor::Black.into(),
             border_color: Color::TRANSPARENT,
-            border_radius: 0,
+            corner_radius: 0,
             flags: ViewFlag::DEFAULT,
         }
     }
@@ -266,6 +274,12 @@ impl ViewTrait for BaseView {
         self.flags.insert(ViewFlag::NEEDS_DISPLAY);
     }
 
+    fn draw_if_needed(&self, ctx: Bitmap) {
+        if self.flags.contains(ViewFlag::NEEDS_DISPLAY) {
+            self.draw_in_context(ctx);
+        }
+    }
+
     fn draw_in_context(&self, ctx: Bitmap) {
         for view in &self.subviews {
             if let Some(ctx) = ctx.view(view.frame()) {
@@ -297,11 +311,11 @@ impl ViewTrait for BaseView {
         self.border_color = color;
     }
 
-    fn border_radius(&self) -> isize {
-        self.border_radius
+    fn corner_radius(&self) -> isize {
+        self.corner_radius
     }
-    fn set_border_radius(&mut self, radius: isize) {
-        self.border_radius = radius;
+    fn set_corner_radius(&mut self, radius: isize) {
+        self.corner_radius = radius;
     }
 
     fn is_enabled(&self) -> bool {
@@ -486,7 +500,7 @@ impl<'a> Button<'a> {
             title_insets: EdgeInsets::new(4, 16, 4, 16),
             button_type,
         });
-        button.set_border_radius(8);
+        button.set_corner_radius(12);
         button.set_button_type(button_type);
         button.title_label.set_font(FontDescriptor::label_font());
 

@@ -229,7 +229,8 @@ impl WindowManager {
         //     let window = WindowBuilder::new("wall")
         //         .style(WindowStyle::NAKED)
         //         .level(WindowLevel::DESKTOP_ITEMS)
-        //         .frame(wallpaper.size().into())
+        //         .size(wallpaper.size())
+        //         .center()
         //         .build();
         //     window
         //         .draw(|bitmap| {
@@ -677,11 +678,12 @@ impl RawWindow {
             new_frame.height() + self.shadow_insets.top + self.shadow_insets.bottom,
         );
         if old_frame != new_frame {
+            let sized = old_frame.size() != new_frame.size();
             self.frame = new_frame;
             if self.attributes.contains(WindowAttributes::VISIBLE) {
                 WindowManager::invalidate_screen(old_frame);
                 self.draw_frame();
-                self.invalidate();
+                self.invalidate(sized);
             }
         }
     }
@@ -812,7 +814,7 @@ impl RawWindow {
             if self.style.contains(WindowStyle::TITLE) {
                 let shared = WindowManager::shared();
                 let pad_x = 8;
-                let pad_left = WINDOW_BORDER_SHADOW_PADDING + pad_x;
+                let pad_left = pad_x;
 
                 let rect = self.title_frame();
                 bitmap.fill_rect(
@@ -842,14 +844,8 @@ impl RawWindow {
 
                 if let Some(text) = self.title() {
                     let font = shared.resources.font;
-                    let mut rect = rect;
                     let pad_y = (rect.height() - font.point()) / 2;
-                    rect.origin.y += pad_y;
-                    rect.size.height -= pad_y * 2;
-                    rect.origin.x += pad_left;
-                    rect.size.width -= pad_left + pad_right;
-                    let mut rect2 = rect;
-                    rect2.origin += Point::new(1, 1);
+                    let rect = rect.insets_by(EdgeInsets::new(pad_y, pad_left, pad_y, pad_right));
                     if is_active {
                         AttributedString::with(text, font, WINDOW_ACTIVE_TITLE_FG_COLOR)
                             .draw(&bitmap, rect);
@@ -862,14 +858,17 @@ impl RawWindow {
         }
     }
 
-    fn invalidate(&mut self) {
+    fn invalidate(&mut self, is_resized: bool) {
         if let Some(bitmap) = self.bitmap.as_ref() {
             if let Some(view) = self.view.as_mut() {
+                if is_resized {
+                    view.set_needs_layout();
+                }
                 view.layout_if_needed();
                 if let Some(ctx) =
                     bitmap.view(Rect::from(self.frame.size).insets_by(self.content_insets))
                 {
-                    view.draw_in_context(ctx);
+                    view.draw_if_needed(ctx);
                 }
             }
         }
@@ -1201,7 +1200,7 @@ impl WindowHandle {
 
     #[inline]
     pub fn invalidate(self) {
-        self.update(|window| window.invalidate());
+        self.update(|window| window.invalidate(false));
     }
 
     pub fn draw<F>(self, f: F) -> Result<(), WindowDrawingError>

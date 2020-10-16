@@ -1087,6 +1087,19 @@ impl OperationalBitmap {
         }
     }
 
+    pub fn read_pixel(&self, point: Point<isize>) -> Option<u8> {
+        let width = self.width();
+        let height = self.height();
+        let stride = self.stride();
+        let dx = point.x;
+        let dy = point.y;
+        if dx > 0 && dx < width && dy > 0 && dy < height {
+            Some(self.data[dx as usize + dy as usize * stride])
+        } else {
+            None
+        }
+    }
+
     pub fn set_pixel(&mut self, point: Point<isize>, color: u8) {
         self.set_pixels(&[point], color);
     }

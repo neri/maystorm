@@ -86,7 +86,7 @@ struct SlabCache {
 
 impl SlabCache {
     fn new(block_size: UsizeSmall) -> Self {
-        let min_bitmap_size = 4;
+        let min_bitmap_size = 8;
         let mut chunk_size_shift = 12;
         let mut items_per_chunk: UsizeSmall;
         let mut bitmap_size: UsizeSmall;

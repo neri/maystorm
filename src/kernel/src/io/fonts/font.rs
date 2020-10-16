@@ -43,28 +43,34 @@ impl FontManager {
         fonts.insert(FontFamily::SmallSystem, Box::new(SMALL_FONT));
 
         let font = Box::new(HersheyFont::new(
-            32,
+            0,
             include_bytes!("../../../../../ext/hershey/futuram.jhf"),
         ));
         fonts.insert(FontFamily::SystemUI, font);
 
         let font = Box::new(HersheyFont::new(
-            32,
+            8,
             include_bytes!("../../../../../ext/hershey/cursive.jhf"),
         ));
         fonts.insert(FontFamily::Cursive, font);
 
         let font = Box::new(HersheyFont::new(
-            32,
+            0,
             include_bytes!("../../../../../ext/hershey/futural.jhf"),
         ));
         fonts.insert(FontFamily::SansSerif, font);
 
         let font = Box::new(HersheyFont::new(
-            32,
+            0,
             include_bytes!("../../../../../ext/hershey/timesr.jhf"),
         ));
         fonts.insert(FontFamily::Serif, font);
+
+        let font = Box::new(HersheyFont::new(
+            0,
+            include_bytes!("../../../../../ext/hershey/japanese.jhf"),
+        ));
+        fonts.insert(FontFamily::Japanese, font);
 
         shared.fonts = Some(fonts);
     }
@@ -92,23 +98,30 @@ pub enum FontFamily {
     Cursive,
     FixedSystem,
     SmallSystem,
+    Japanese,
 }
 
 #[derive(Copy, Clone)]
 pub struct FontDescriptor {
     driver: &'static dyn FontDriver,
-    point: isize,
+    point: i32,
+    line_height: i32,
 }
 
 impl FontDescriptor {
     pub fn new(family: FontFamily, point: isize) -> Option<Self> {
         FontManager::driver_for(family).map(|driver| {
             if driver.is_scalable() {
-                Self { driver, point }
+                Self {
+                    driver,
+                    point: point as i32,
+                    line_height: (driver.raw_line_height() * point / driver.raw_height()) as i32,
+                }
             } else {
                 Self {
                     driver,
-                    point: driver.raw_height(),
+                    point: driver.raw_height() as i32,
+                    line_height: driver.raw_line_height() as i32,
                 }
             }
         })
@@ -124,20 +137,20 @@ impl FontDescriptor {
 
     #[inline]
     pub const fn point(&self) -> isize {
-        self.point
+        self.point as isize
     }
 
     #[inline]
     pub const fn line_height(&self) -> isize {
-        self.point
+        self.line_height as isize
     }
 
     #[inline]
     pub fn width_of(&self, character: char) -> isize {
-        if self.point == self.driver.raw_height() {
+        if self.point() == self.driver.raw_height() {
             self.driver.width_of(character)
         } else {
-            self.driver.width_of(character) * self.point / self.driver.raw_height()
+            self.driver.width_of(character) * self.point() / self.driver.raw_height()
         }
     }
 
@@ -148,7 +161,7 @@ impl FontDescriptor {
 
     pub fn draw_char(&self, character: char, bitmap: &Bitmap, origin: Point<isize>, color: Color) {
         self.driver
-            .draw_char(character, bitmap, origin, self.point, color)
+            .draw_char(character, bitmap, origin, self.point(), color)
     }
 }
 
@@ -267,10 +280,10 @@ impl<'a> HersheyFont<'a> {
     const MAGIC_52: isize = 0x52;
     const POINT: isize = 32;
 
-    fn new(line_height: isize, font_data: &'a [u8]) -> Self {
+    fn new(extra_height: isize, font_data: &'a [u8]) -> Self {
         let mut font = Self {
             data: font_data,
-            line_height,
+            line_height: Self::POINT + extra_height,
             glyph_info: Vec::with_capacity(96),
         };
 
@@ -332,20 +345,33 @@ impl<'a> HersheyFont<'a> {
                             );
                         if let Some(c0) = c0 {
                             shared.buffer.draw_line(c0, c1, |bitmap, point| {
-                                let level1 = 120;
-                                // let level2 = 16;
+                                match bitmap.read_pixel(point) {
+                                    None | Some(0xFF) => (),
+                                    Some(_) => {
+                                        let level1 = 120;
+                                        // let level2 = 16;
 
-                                // bitmap.saturating_add_pixel(point + Point::new(-1, -1), level2);
-                                bitmap.saturating_add_pixel(point + Point::new(0, -1), level1);
-                                // bitmap.saturating_add_pixel(point + Point::new(1, -1), level2);
+                                        // bitmap.saturating_add_pixel(point + Point::new(-1, -1), level2);
+                                        bitmap.saturating_add_pixel(
+                                            point + Point::new(0, -1),
+                                            level1,
+                                        );
+                                        // bitmap.saturating_add_pixel(point + Point::new(1, -1), level2);
 
-                                bitmap.saturating_add_pixel(point + Point::new(-1, 0), level1);
-                                bitmap.set_pixel(point, 0xFF);
-                                bitmap.saturating_add_pixel(point + Point::new(1, 0), level1);
+                                        bitmap.saturating_add_pixel(
+                                            point + Point::new(-1, 0),
+                                            level1,
+                                        );
+                                        bitmap.set_pixel(point, 0xFF);
+                                        bitmap
+                                            .saturating_add_pixel(point + Point::new(1, 0), level1);
 
-                                // bitmap.saturating_add_pixel(point + Point::new(-1, 1), level2);
-                                bitmap.saturating_add_pixel(point + Point::new(0, 1), level1);
-                                // bitmap.saturating_add_pixel(point + Point::new(1, 1), level2);
+                                        // bitmap.saturating_add_pixel(point + Point::new(-1, 1), level2);
+                                        bitmap
+                                            .saturating_add_pixel(point + Point::new(0, 1), level1);
+                                        // bitmap.saturating_add_pixel(point + Point::new(1, 1), level2);
+                                    }
+                                }
                             });
                         }
                         c0 = Some(c1);
