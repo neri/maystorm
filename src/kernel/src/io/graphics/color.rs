@@ -14,20 +14,24 @@ impl Color {
     pub const BLACK: Self = Self::from_rgb(0x000000);
     pub const WHITE: Self = Self::from_rgb(0xFFFFFF);
 
+    #[inline]
     pub const fn zero() -> Self {
         Color { argb: 0 }
     }
 
+    #[inline]
     pub const fn from_rgb(rgb: u32) -> Self {
         Color {
             argb: rgb | 0xFF000000,
         }
     }
 
+    #[inline]
     pub const fn from_argb(argb: u32) -> Self {
         Color { argb }
     }
 
+    #[inline]
     pub const fn gray(white: u8, alpha: u8) -> Self {
         Self {
             argb: white as u32 * 0x00_01_01_01 + alpha as u32 * 0x01_00_00_00,
@@ -50,8 +54,8 @@ impl Color {
     }
 
     #[inline]
-    pub fn opacity(self) -> u8 {
-        self.components().a
+    pub const fn opacity(self) -> u8 {
+        (self.argb >> 24) as u8
     }
 
     #[inline]
@@ -63,13 +67,13 @@ impl Color {
     }
 
     #[inline]
-    pub fn is_opaque(self) -> bool {
-        self.components().is_opaque()
+    pub const fn is_opaque(self) -> bool {
+        self.opacity() == 0xFF
     }
 
     #[inline]
-    pub fn is_transparent(self) -> bool {
-        self.components().is_transparent()
+    pub const fn is_transparent(self) -> bool {
+        self.opacity() == 0
     }
 
     #[inline]

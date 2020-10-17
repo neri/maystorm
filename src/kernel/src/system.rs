@@ -184,6 +184,10 @@ impl System {
 
             Self::debug_tick();
 
+            bus::pci::Pci::init();
+
+            Self::debug_tick();
+
             MyScheduler::start(Self::init_late, f as *const c_void as usize);
         }
     }

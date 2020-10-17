@@ -11,6 +11,7 @@ use bitflags::*;
 use bootprot::BootInfo;
 use byteorder::*;
 use core::cell::RefCell;
+use core::marker::PhantomData;
 use core::mem::swap;
 use core::slice;
 
@@ -32,6 +33,14 @@ bitflags! {
 }
 
 static BIT_MASKS: [u8; 8] = [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
+
+pub trait BitmapView {}
+
+pub struct Restricted {}
+impl BitmapView for Restricted {}
+
+pub struct Direct {}
+impl BitmapView for Direct {}
 
 impl From<&BootInfo> for Bitmap {
     fn from(info: &BootInfo) -> Self {
@@ -1036,20 +1045,15 @@ impl<'a> AttributedString<'a> {
     }
 }
 
-pub struct OperationalBitmap {
+pub type OperationalBitmapResticted = OperationalBitmap<Restricted>;
+
+pub struct OperationalBitmap<View: BitmapView> {
     size: Size<isize>,
     data: Vec<u8>,
+    _phantom: PhantomData<View>,
 }
 
-impl OperationalBitmap {
-    pub const fn new(width: usize, height: usize) -> OperationalBitmap {
-        let data = Vec::new();
-        OperationalBitmap {
-            size: Size::new(width as isize, height as isize),
-            data,
-        }
-    }
-
+impl<View: BitmapView> OperationalBitmap<View> {
     #[inline]
     pub const fn size(&self) -> Size<isize> {
         self.size
@@ -1086,69 +1090,51 @@ impl OperationalBitmap {
         }
     }
 
-    pub fn read_pixel(&self, point: Point<isize>) -> Option<u8> {
-        let width = self.width();
-        let height = self.height();
-        let dx = point.x;
-        let dy = point.y;
-        if dx > 0 && dx < width && dy > 0 && dy < height {
-            unsafe { Some(self.read_pixel_unsafe(point)) }
+    #[inline]
+    pub fn restrict<F, R>(&self, point: Point<isize>, insets: EdgeInsets<isize>, f: F) -> Option<R>
+    where
+        F: FnOnce(&OperationalBitmap<Direct>) -> R,
+    {
+        if self.bounds().insets_by(insets).hit_test_point(point) {
+            Some(f(unsafe { core::mem::transmute(self) }))
         } else {
             None
         }
     }
 
     #[inline]
-    pub unsafe fn read_pixel_unsafe(&self, point: Point<isize>) -> u8 {
-        self.data[point.x as usize + point.y as usize * self.stride()]
-    }
-
-    pub fn set_pixel(&mut self, point: Point<isize>, color: u8) {
-        let width = self.width();
-        let height = self.height();
-        let dx = point.x;
-        let dy = point.y;
-        if dx > 0 && dx < width && dy > 0 && dy < height {
-            unsafe { self.set_pixel_unsafe(point, color) }
-        }
-    }
-
-    #[inline]
-    pub unsafe fn set_pixel_unsafe(&mut self, point: Point<isize>, color: u8) {
-        let stride = self.stride();
-        self.data[point.x as usize + point.y as usize * stride] = color;
-    }
-
-    #[inline]
-    pub unsafe fn process_pixel<F>(&mut self, point: Point<isize>, f: F)
-    where
-        F: FnOnce(u8) -> u8,
-    {
-        let stride = self.stride();
-        let pixel = &mut self.data[point.x as usize + point.y as usize * stride];
-        *pixel = f(*pixel);
-    }
-
-    #[inline]
-    pub fn restrict<F, R>(
+    pub fn restrict_mut<F, R>(
         &mut self,
         point: Point<isize>,
         insets: EdgeInsets<isize>,
         f: F,
     ) -> Option<R>
     where
-        F: FnOnce(&mut OperationalBitmap) -> R,
+        F: FnOnce(&mut OperationalBitmap<Direct>) -> R,
     {
         if self.bounds().insets_by(insets).hit_test_point(point) {
-            Some(f(self))
+            Some(f(unsafe { core::mem::transmute(self) }))
         } else {
             None
         }
     }
 
+    pub fn transform<F>(&self, origin: Point<isize>, new_size: Size<isize>, f: F)
+    where
+        F: Fn(Point<isize>, u8),
+    {
+        // TODO:
+        for y in 0..new_size.height {
+            for x in 0..new_size.width {
+                let index = x as usize * 2 + y as usize * 2 * self.stride();
+                f(origin + Point::new(x, y), self.data[index]);
+            }
+        }
+    }
+
     pub fn draw_line<F>(&mut self, c0: Point<isize>, c1: Point<isize>, mut f: F)
     where
-        F: FnMut(&mut Self, Point<isize>),
+        F: FnMut(&mut OperationalBitmap<Restricted>, Point<isize>),
     {
         let d = Point::new(
             if c1.x > c0.x {
@@ -1171,7 +1157,7 @@ impl OperationalBitmap {
         let mut c0 = c0;
         let mut e = d.x - d.y;
         loop {
-            f(self, c0);
+            f(unsafe { core::mem::transmute(&mut *self) }, c0);
 
             if c0.x == c1.x && c0.y == c1.y {
                 break;
@@ -1187,16 +1173,62 @@ impl OperationalBitmap {
             }
         }
     }
+}
 
-    pub fn transform<F>(&self, origin: Point<isize>, new_size: Size<isize>, f: F)
-    where
-        F: Fn(Point<isize>, u8),
-    {
-        for y in 0..new_size.height {
-            for x in 0..new_size.width {
-                let index = x as usize * 2 + y as usize * 2 * self.stride();
-                f(origin + Point::new(x, y), self.data[index]);
-            }
+impl OperationalBitmap<Restricted> {
+    pub const fn new(width: usize, height: usize) -> Self {
+        let data = Vec::new();
+        Self {
+            size: Size::new(width as isize, height as isize),
+            data,
+            _phantom: PhantomData,
         }
+    }
+
+    #[inline]
+    pub fn get_pixel(&self, point: Point<isize>) -> Option<u8> {
+        self.restrict(point, EdgeInsets::zero(), |bitmap| bitmap.get_pixel(point))
+    }
+
+    #[inline]
+    pub fn set_pixel(&mut self, point: Point<isize>, color: u8) {
+        self.restrict_mut(point, EdgeInsets::zero(), |bitmap| {
+            bitmap.set_pixel(point, color)
+        });
+    }
+}
+
+impl OperationalBitmap<Direct> {
+    #[inline]
+    pub fn fetch_all(&mut self) -> &mut [u8] {
+        self.data.as_mut_slice()
+    }
+
+    #[inline]
+    pub fn fetch_line(&mut self, y: isize) -> &mut [u8] {
+        let stride = self.stride();
+        let index = y as usize * stride;
+        &mut self.data[index..index + stride]
+    }
+
+    #[inline]
+    pub fn get_pixel(&self, point: Point<isize>) -> u8 {
+        self.data[point.x as usize + point.y as usize * self.stride()]
+    }
+
+    #[inline]
+    pub fn set_pixel(&mut self, point: Point<isize>, color: u8) {
+        let stride = self.stride();
+        self.data[point.x as usize + point.y as usize * stride] = color;
+    }
+
+    #[inline]
+    pub fn process_pixel<F>(&mut self, point: Point<isize>, f: F)
+    where
+        F: FnOnce(u8) -> u8,
+    {
+        let stride = self.stride();
+        let pixel = &mut self.data[point.x as usize + point.y as usize * stride];
+        *pixel = f(*pixel);
     }
 }

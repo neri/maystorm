@@ -5,6 +5,7 @@ use crate::system::*;
 use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;
+use bus::pci::*;
 use core::fmt;
 
 #[allow(dead_code)]
@@ -167,6 +168,25 @@ impl Cpu {
         }
 
         result
+    }
+
+    const PCI_CONFIG_ENABLED: u32 = 0x8000_0000;
+
+    #[inline]
+    pub(crate) unsafe fn read_pci(addr: PciConfigAddress) -> u32 {
+        Cpu::without_interrupts(|| {
+            Cpu::out32(0xCF8, addr.as_u32() | Self::PCI_CONFIG_ENABLED);
+            Cpu::in32(0xCFC)
+        })
+    }
+
+    #[inline]
+    #[allow(dead_code)]
+    pub(crate) unsafe fn write_pci(addr: PciConfigAddress, value: u32) {
+        Cpu::without_interrupts(|| {
+            Cpu::out32(0xCF8, addr.as_u32() | Self::PCI_CONFIG_ENABLED);
+            Cpu::out32(0xCFC, value);
+        })
     }
 }
 

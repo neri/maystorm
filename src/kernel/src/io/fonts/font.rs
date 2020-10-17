@@ -17,7 +17,7 @@ static mut FONT_MANAGER: FontManager = FontManager::new();
 pub struct FontManager {
     fonts: Option<BTreeMap<FontFamily, Box<dyn FontDriver>>>,
     lock: Spinlock,
-    buffer: OperationalBitmap,
+    buffer: OperationalBitmapResticted,
 }
 
 impl FontManager {
@@ -25,7 +25,7 @@ impl FontManager {
         Self {
             fonts: None,
             lock: Spinlock::new(),
-            buffer: OperationalBitmap::new(96, 96),
+            buffer: OperationalBitmapResticted::new(96, 96),
         }
     }
 
@@ -40,7 +40,7 @@ impl FontManager {
         let mut fonts: BTreeMap<FontFamily, Box<dyn FontDriver>> = BTreeMap::new();
 
         fonts.insert(FontFamily::FixedSystem, Box::new(SYSTEM_FONT));
-        fonts.insert(FontFamily::SmallSystem, Box::new(SMALL_FONT));
+        fonts.insert(FontFamily::SmallFixed, Box::new(SMALL_FONT));
 
         let font = Box::new(HersheyFont::new(
             0,
@@ -103,7 +103,7 @@ pub enum FontFamily {
     Serif,
     Cursive,
     FixedSystem,
-    SmallSystem,
+    SmallFixed,
     Japanese,
 }
 
@@ -296,15 +296,15 @@ impl<'a> HersheyFont<'a> {
         for c in 0x20..0x80 {
             let character = c as u8 as char;
 
-            let (base, last) = match font.find_glyph(character) {
+            let (base, last) = match font.search_for_glyph(character) {
                 Some(tuple) => tuple,
                 None => break,
             };
 
             let data = &font_data[base..last];
 
-            let w1 = data[8] as isize - Self::MAGIC_52;
-            let w2 = data[9] as isize - Self::MAGIC_52;
+            let w1 = data[8] as isize;
+            let w2 = data[9] as isize;
 
             font.glyph_info.push((base, last, w2 - w1));
         }
@@ -351,31 +351,26 @@ impl<'a> HersheyFont<'a> {
                             );
                         if let Some(c0) = c0 {
                             shared.buffer.draw_line(c0, c1, |bitmap, point| {
-                                bitmap.restrict(
-                                    point,
-                                    EdgeInsets::padding_all(1),
-                                    |bitmap| unsafe {
-                                        if bitmap.read_pixel_unsafe(point) != 0xFF {
-                                            let level1 = 120;
+                                bitmap.restrict_mut(point, EdgeInsets::padding_all(1), |bitmap| {
+                                    if bitmap.get_pixel(point) != u8::MAX {
+                                        let level1 = 120;
 
-                                            bitmap.process_pixel(point + Point::new(0, -1), |v| {
-                                                v.saturating_add(level1)
-                                            });
+                                        bitmap.process_pixel(point + Point::new(0, -1), |v| {
+                                            v.saturating_add(level1)
+                                        });
 
-                                            bitmap.process_pixel(point + Point::new(-1, 0), |v| {
-                                                v.saturating_add(level1)
-                                            });
-                                            bitmap.set_pixel_unsafe(point, 0xFF);
-                                            bitmap.process_pixel(point + Point::new(1, 0), |v| {
-                                                v.saturating_add(level1)
-                                            });
+                                        let line = bitmap.fetch_line(point.y);
+                                        line[point.x as usize - 1] =
+                                            line[point.x as usize - 1].saturating_add(level1);
+                                        line[point.x as usize] = u8::MAX;
+                                        line[point.x as usize + 1] =
+                                            line[point.x as usize + 1].saturating_add(level1);
 
-                                            bitmap.process_pixel(point + Point::new(0, 1), |v| {
-                                                v.saturating_add(level1)
-                                            });
-                                        }
-                                    },
-                                );
+                                        bitmap.process_pixel(point + Point::new(0, 1), |v| {
+                                            v.saturating_add(level1)
+                                        });
+                                    }
+                                });
                             });
                         }
                         c0 = Some(c1);
@@ -422,7 +417,7 @@ impl<'a> HersheyFont<'a> {
         }
     }
 
-    fn find_glyph(&self, character: char) -> Option<(usize, usize)> {
+    fn search_for_glyph(&self, character: char) -> Option<(usize, usize)> {
         let c = character as usize;
         if c >= 0x20 && c < 0x80 {
             let c = c - 0x20;

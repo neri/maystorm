@@ -15,6 +15,7 @@ use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, RawWaker, RawWakerVTable, Waker};
 use core::time::Duration;
+// use dev::rng::*;
 use io::fonts::*;
 use io::graphics::*;
 use kernel::*;
@@ -42,14 +43,14 @@ fn main() {
         {
             // Main Terminal
             let (console, window) =
-                GraphicalConsole::new("Terminal", (40, 10), FontManager::fixed_system_font(), 0, 0);
+                GraphicalConsole::new("Terminal", (80, 24), FontManager::fixed_system_font(), 0, 0);
             window.move_to(Point::new(16, 40));
             window.set_active();
             System::set_stdout(console);
             _main_window = Some(window);
         }
 
-        if true {
+        if false {
             // Test Window 1
             let window = WindowBuilder::new("Welcome")
                 .size(Size::new(512, 384))
@@ -167,6 +168,8 @@ fn main() {
 async fn repl_main(_main_window: Option<WindowHandle>) {
     println!("{} v{}", System::name(), System::version(),);
 
+    cmd_lspci(&[]);
+
     let mut sb = string::StringBuffer::with_capacity(0x1000);
     loop {
         print!("# ");
@@ -180,12 +183,42 @@ async fn repl_main(_main_window: Option<WindowHandle>) {
                     print!("{}", sb.as_str());
                 } else if cmdline == "ver" {
                     println!("{} v{}", System::name(), System::version(),);
+                } else if cmdline == "lspci" {
+                    cmd_lspci(&[]);
                 } else {
                     println!("Command not found: {}", cmdline);
                 }
             }
         }
     }
+}
+
+fn cmd_lspci(_args: &[&str]) -> isize {
+    for device in bus::pci::Pci::devices() {
+        let addr = device.address();
+        println!(
+            "{:02x}.{:02x}.{} {:04x}:{:04x} {:06x} {}",
+            addr.0,
+            addr.1,
+            addr.2,
+            device.vendor_id().0,
+            device.device_id().0,
+            device.class_code(),
+            device.class_string(),
+        );
+        for function in device.functions() {
+            let addr = function.address();
+            println!(
+                "     .{} {:04x}:{:04x} {:06x} {}",
+                addr.2,
+                function.vendor_id().0,
+                function.device_id().0,
+                function.class_code(),
+                function.class_string(),
+            );
+        }
+    }
+    0
 }
 
 fn dummy_waker() -> Waker {
@@ -281,7 +314,7 @@ async fn activity_monitor_main() {
     let graph_main_color = IndexedColor::Yellow.into();
     let graph_border_color = IndexedColor::LightGray.into();
 
-    Timer::sleep_async(Duration::from_millis(2000)).await;
+    // Timer::sleep_async(Duration::from_millis(2000)).await;
 
     let window = WindowBuilder::new("Activity Monitor")
         .style_add(WindowStyle::NAKED | WindowStyle::FLOATING | WindowStyle::PINCHABLE)
@@ -292,7 +325,7 @@ async fn activity_monitor_main() {
     window.show();
 
     let mut ats = AttributedString::new("");
-    FontDescriptor::new(FontFamily::SmallSystem, 8).map(|font| ats.set_font(font));
+    FontDescriptor::new(FontFamily::SmallFixed, 8).map(|font| ats.set_font(font));
     ats.set_color(fg_color);
 
     let num_of_cpus = System::num_of_cpus();
