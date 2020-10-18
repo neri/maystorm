@@ -1,4 +1,4 @@
-.PHONY: love all clean install run runs test
+.PHONY: love all clean install iso run runs test
 
 RUST_ARCH	= x86_64-unknown-uefi
 EFI_ARCH	= x64
@@ -6,9 +6,10 @@ MNT			= ./mnt
 EFI_BOOT	= $(MNT)/efi/boot
 KERNEL_BIN	= $(EFI_BOOT)/kernel.bin
 BOOT_EFI	= $(EFI_BOOT)/boot$(EFI_ARCH).efi
-KERNEL_TARGET	= target/$(RUST_ARCH)/release/kernel.efi
-BOOT_EFI_TARGET	= target/$(RUST_ARCH)/release/boot-efi.efi
-TARGETS		= $(KERNEL_TARGET) $(BOOT_EFI_TARGET)
+TARGET_KERNEL	= target/$(RUST_ARCH)/release/kernel.efi
+TARGET_BOOT_EFI	= target/$(RUST_ARCH)/release/boot-efi.efi
+TARGET_ISO	= var/myos.iso
+TARGETS		= $(TARGET_KERNEL) $(TARGET_BOOT_EFI)
 BUILD		= rustup run nightly cargo build -Z build-std --release --target $(RUST_ARCH).json
 OVMF		= var/ovmfx64.fd
 URL_OVMF	= https://github.com/retrage/edk2-nightly/raw/master/bin/RELEASEX64_OVMF.fd
@@ -21,10 +22,10 @@ clean:
 # $(RUST_ARCH).json:
 # 	rustc +nightly -Z unstable-options --print target-spec-json --target $(RUST_ARCH) | sed -e 's/-sse,+/+sse,-/' > $@
 
-$(KERNEL_TARGET): src/* src/**/* src/**/**/* src/**/**/**/* src/**/**/**/**/*
+$(TARGET_KERNEL): src/* src/**/* src/**/**/* src/**/**/**/* src/**/**/**/**/*
 	$(BUILD)
 
-$(BOOT_EFI_TARGET): src/* src/**/* src/**/**/* src/**/**/**/* src/**/**/**/**/*
+$(TARGET_BOOT_EFI): src/* src/**/* src/**/**/* src/**/**/**/* src/**/**/**/**/*
 	$(BUILD)
 
 $(EFI_BOOT):
@@ -42,9 +43,11 @@ runs: install $(OVMF)
 
 install: $(KERNEL_BIN) $(BOOT_EFI)
 
-$(KERNEL_BIN): $(KERNEL_TARGET) $(EFI_BOOT)
+iso: install
+	mkisofs -r -J -o $(TARGET_ISO) $(MNT)
+
+$(KERNEL_BIN): $(TARGET_KERNEL) $(EFI_BOOT)
 	cp $< $@
 
-$(BOOT_EFI): $(BOOT_EFI_TARGET) $(EFI_BOOT)
+$(BOOT_EFI): $(TARGET_BOOT_EFI) $(EFI_BOOT)
 	cp $< $@
-

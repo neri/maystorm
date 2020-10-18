@@ -47,15 +47,15 @@ bitflags! {
 
 impl Modifier {
     #[inline]
-    pub fn is_shift(self) -> bool {
+    pub fn has_shift(self) -> bool {
         (self.bits & (Self::LSHIFT.bits | Self::RSHIFT.bits)) != 0
     }
     #[inline]
-    pub fn is_ctrl(self) -> bool {
+    pub fn has_ctrl(self) -> bool {
         (self.bits & (Self::LCTRL.bits | Self::RCTRL.bits)) != 0
     }
     #[inline]
-    pub fn is_alt(self) -> bool {
+    pub fn has_alt(self) -> bool {
         (self.bits & (Self::LALT.bits | Self::RALT.bits)) != 0
     }
 }
@@ -225,7 +225,7 @@ impl HidManager {
 
     pub fn send_key_event(v: KeyEvent) {
         let shared = HidManager::shared();
-        if v.usage() == Usage::DELETE && v.modifier().is_ctrl() && v.modifier().is_alt() {
+        if v.usage() == Usage::DELETE && v.modifier().has_ctrl() && v.modifier().has_alt() {
             unsafe {
                 System::reset();
             }
@@ -253,7 +253,7 @@ impl HidManager {
             uni = (usage.0 - Usage::ALPHABET_A.0 + 0x61) as char;
         } else if usage >= Usage::NUMBER_MIN && usage <= Usage::NON_ALPHABET_MAX {
             uni = USAGE_TO_CHAR_NON_ALPLABET_109[(usage.0 - Usage::NUMBER_MIN.0) as usize];
-            if uni > ' ' && uni < '\x40' && uni != '0' && modifier.is_shift() {
+            if uni > ' ' && uni < '\x40' && uni != '0' && modifier.has_shift() {
                 uni = (uni as u8 ^ 0x10) as char;
             }
         } else if usage == Usage::DELETE {
@@ -266,15 +266,15 @@ impl HidManager {
         }
 
         if uni >= '\x40' && uni < '\x7F' {
-            if modifier.is_ctrl() {
+            if modifier.has_ctrl() {
                 uni = (uni as u8 & 0x1F) as char;
-            } else if modifier.is_shift() {
+            } else if modifier.has_shift() {
                 uni = (uni as u8 ^ 0x20) as char;
             }
         }
 
         if usage == Usage::INTERNATIONAL_1 {
-            if modifier.is_shift() {
+            if modifier.has_shift() {
                 uni = '_';
             } else {
                 uni = '\\';

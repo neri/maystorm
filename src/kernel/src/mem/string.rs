@@ -29,6 +29,7 @@ impl Sb255 {
         self.0[0] as usize
     }
 
+    /// SAFETY: This method does not strictly conform to Rust's ownership and lifetime philosophy
     #[inline]
     pub fn as_str<'a>(&self) -> &'a str {
         unsafe { str::from_utf8_unchecked(slice::from_raw_parts(&self.0[1], self.len())) }
@@ -47,34 +48,52 @@ impl fmt::Write for Sb255 {
     }
 }
 
-pub struct StringBuffer(Vec<u8>);
+pub struct StringBuffer {
+    vec: Vec<u8>,
+    start_index: usize,
+}
 
 impl StringBuffer {
     #[inline]
     pub const fn new() -> Self {
-        Self(Vec::new())
+        Self {
+            vec: Vec::new(),
+            start_index: 0,
+        }
     }
 
     #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
-        Self(Vec::with_capacity(capacity))
+        Self {
+            vec: Vec::with_capacity(capacity),
+            start_index: 0,
+        }
     }
 
     #[inline]
     pub fn clear(&mut self) {
-        unsafe { self.0.set_len(0) }
+        self.start_index = 0;
+        self.vec.clear()
+    }
+
+    #[inline]
+    pub fn split(&mut self) {
+        self.start_index = self.vec.len();
     }
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.vec.len() - self.start_index
     }
 
+    /// SAFETY: This method does not strictly conform to Rust's ownership and lifetime philosophy
     #[inline]
     pub fn as_str<'a>(&self) -> &'a str {
         match self.len() {
             0 => "",
-            len => unsafe { str::from_utf8_unchecked(slice::from_raw_parts(&self.0[0], len)) },
+            len => unsafe {
+                str::from_utf8_unchecked(slice::from_raw_parts(&self.vec[self.start_index], len))
+            },
         }
     }
 }
@@ -82,7 +101,7 @@ impl StringBuffer {
 impl fmt::Write for StringBuffer {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         for c in s.bytes() {
-            self.0.push(c);
+            self.vec.push(c);
         }
         Ok(())
     }

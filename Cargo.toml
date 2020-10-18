@@ -2,7 +2,7 @@
 members = [
   "src/boot-efi",
   "src/bootprot",
-  "src/kernel",
+  "src/kernel", # "src/hello",
 ]
 
 [profile.release]

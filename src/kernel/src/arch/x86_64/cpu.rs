@@ -93,8 +93,9 @@ impl Cpu {
     }
 
     pub(crate) unsafe fn reset() -> ! {
+        let _ = MyScheduler::freeze(true);
         Self::out8(0x0CF9, 0x06);
-        // asm!("out 0x92, al", in("al") 0x01 as u8);
+        asm!("out 0x92, al", in("al") 0x01 as u8);
         Cpu::stop();
     }
 

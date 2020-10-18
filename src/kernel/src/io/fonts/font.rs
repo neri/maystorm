@@ -78,18 +78,22 @@ impl FontManager {
             .map(|v| v.as_ref())
     }
 
+    #[inline]
     pub const fn fixed_system_font() -> &'static FixedFontDriver<'static> {
         &SYSTEM_FONT
     }
 
+    #[inline]
     pub fn system_font() -> FontDescriptor {
         FontDescriptor::new(FontFamily::FixedSystem, 0).unwrap()
     }
 
+    #[inline]
     pub fn title_font() -> FontDescriptor {
         FontDescriptor::new(FontFamily::SansSerif, 16).unwrap_or(Self::system_font())
     }
 
+    #[inline]
     pub fn label_font() -> FontDescriptor {
         FontDescriptor::new(FontFamily::SystemUI, 16).unwrap_or(Self::system_font())
     }
@@ -158,6 +162,7 @@ impl FontDescriptor {
         self.driver.is_scalable()
     }
 
+    #[inline]
     pub fn draw_char(&self, character: char, bitmap: &Bitmap, origin: Point<isize>, color: Color) {
         self.driver
             .draw_char(character, bitmap, origin, self.point(), color)

@@ -4,7 +4,6 @@ use crate::blob::*;
 use crate::page::*;
 use crate::*;
 use bootprot::pe::*;
-use core::cmp;
 use core::mem::*;
 use core::ptr;
 
@@ -78,15 +77,15 @@ impl ImageLoader<'_> {
                 if section.size > 0 {
                     let p = vmem.add(section.rva as usize);
                     let q: *const u8 = self.blob.transmute(section.file_offset as usize);
-                    let z = cmp::min(section.vsize, section.size) as usize;
+                    let z = section.size as usize;
                     ptr::copy_nonoverlapping(q, p, z);
                 }
             }
 
             // Step 3 - relocate
             let reloc = header.optional.dir[ImageDirectoryEntry::BASERELOC];
-            for iter in BaseReloc::new(vmem.add(reloc.rva as usize), reloc.size as usize) {
-                for (ty, rva) in iter {
+            for block in BaseReloc::new(vmem.add(reloc.rva as usize), reloc.size as usize) {
+                for (ty, rva) in block.into_iter() {
                     match ty {
                         ImageRelBased::ABSOLUTE => (),
                         ImageRelBased::DIR64 => {

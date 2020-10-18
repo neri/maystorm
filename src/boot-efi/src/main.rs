@@ -54,19 +54,6 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
         info.flags.insert(BootFlags::DEBUG_MODE);
     }
 
-    // Load KERNEL
-    let mut kernel = ImageLoader::new(match get_file(handle, &bs, config.kernel_path()) {
-        Ok(blob) => (blob),
-        Err(status) => {
-            writeln!(st.stdout(), "Error: Load failed {}", config.kernel_path()).unwrap();
-            return status;
-        }
-    });
-    if kernel.recognize().is_err() {
-        writeln!(st.stdout(), "Error: BAD KERNEL SIGNATURE FOUND").unwrap();
-        return Status::UNSUPPORTED;
-    }
-
     // Find ACPI Table
     info.acpi_rsdptr = match st.find_config_table(::uefi::table::cfg::ACPI2_GUID) {
         Some(val) => val as u64,
@@ -103,18 +90,6 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
             info.flags.insert(BootFlags::PORTRAIT);
         }
 
-        // let width = 800;
-        // let height = 600;
-        // let stride = 600;
-        // info.flags.insert(BootFlags::PORTRAIT);
-
-        // write_boc2(0x0004, 0x0000);
-        // write_boc2(0x0001, 600);
-        // write_boc2(0x0002, 800);
-        // write_boc2(0x0003, 32);
-        // write_boc2(0x0005, 0x0000);
-        // write_boc2(0x0004, 0x0001);
-
         info.vram_stride = stride as u16;
         info.screen_width = width as u16;
         info.screen_height = height as u16;
@@ -123,10 +98,18 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
         return Status::UNSUPPORTED;
     }
 
-    // {
-    //     let time = st.runtime_services().get_time().unwrap().unwrap();
-    //     info.boot_time = unsafe { transmute(time) };
-    // }
+    // Load KERNEL
+    let mut kernel = ImageLoader::new(match get_file(handle, &bs, config.kernel_path()) {
+        Ok(blob) => (blob),
+        Err(status) => {
+            writeln!(st.stdout(), "Error: Load failed {}", config.kernel_path()).unwrap();
+            return status;
+        }
+    });
+    if kernel.recognize().is_err() {
+        writeln!(st.stdout(), "Error: BAD KERNEL SIGNATURE FOUND").unwrap();
+        return Status::UNSUPPORTED;
+    }
 
     // ----------------------------------------------------------------
     // Exit Boot Services
@@ -174,7 +157,7 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
 
 #[allow(dead_code)]
 #[cfg(any(target_arch = "x86_64"))]
-fn write_boc2(addr: u16, data: u16) {
+fn write_b0c2(addr: u16, data: u16) {
     unsafe {
         asm!("out dx, ax", in("dx") 0x1ce, in("ax") addr);
         asm!("out dx, ax", in("dx") 0x1cf, in("ax") data);

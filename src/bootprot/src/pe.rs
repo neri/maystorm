@@ -230,8 +230,7 @@ pub struct BaseReloc<'a> {
     base: *const u8,
     size: usize,
     index: usize,
-    #[allow(dead_code)]
-    phantom: &'a PhantomData<()>,
+    _phantom: &'a PhantomData<()>,
 }
 
 impl BaseReloc<'_> {
@@ -240,19 +239,19 @@ impl BaseReloc<'_> {
             base,
             size,
             index: 0,
-            phantom: &PhantomData,
+            _phantom: &PhantomData,
         }
     }
 }
 
 impl<'a> Iterator for BaseReloc<'a> {
-    type Item = impl Iterator<Item = (ImageRelBased, Rva)>;
+    type Item = &'a BaseRelocBlock;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.size {
             let result: &BaseRelocBlock = unsafe { transmute(self.base.add(self.index)) };
             self.index += result.size as usize;
-            Some(result.into_iter())
+            Some(result)
         } else {
             None
         }
@@ -261,8 +260,8 @@ impl<'a> Iterator for BaseReloc<'a> {
 
 #[repr(C, packed)]
 pub struct BaseRelocBlock {
-    pub rva_base: u32,
-    pub size: u32,
+    rva_base: Rva,
+    size: u32,
     entries: [BaseRelocEntry; 1],
 }
 

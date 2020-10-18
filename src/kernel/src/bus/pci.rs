@@ -101,9 +101,8 @@ impl PciDevice {
         let class_code = Cpu::read_pci(base.register(0x02)) >> 8;
         let class_string = Self::find_class_string(class_code);
         let header_type = ((Cpu::read_pci(base.register(3)) >> 16) & 0xFF) as u8;
-        let has_multiple_functions = (header_type & 0x80) != 0;
         let mut functions = Vec::new();
-        if has_multiple_functions {
+        if fun == 0 && (header_type & 0x80) != 0 {
             for fun in 1..8 {
                 if let Some(function) = PciDevice::new(bus, dev, fun) {
                     functions.push(function);
@@ -194,6 +193,7 @@ impl PciDevice {
             (0x0B_00_00, MASK_CC, "Processor"),
             (0x0C_03_30, MASK_IF, "XHCI Controller"),
             (0x0C_03_00, MASK_SUB, "USB Controller"),
+            (0x0C_05_00, MASK_SUB, "SMBus"),
             (0x0C_00_00, MASK_CC, "Serial Bus Controller"),
             (0x0D_00_00, MASK_CC, "Wireless Controller"),
             (0x0E_00_00, MASK_CC, "Intelligent Controller"),

@@ -135,6 +135,9 @@ impl GraphicalConsole<'_> {
             '\r' => {
                 self.update_cursor(|_, y| (0, y));
             }
+            '\t' => {
+                self.update_cursor(|x, y| ((x + 8) & !7, y));
+            }
             _ => {
                 let old_cursor_state = self.set_cursor_enabled(false);
                 let font = self.font;

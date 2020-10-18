@@ -74,7 +74,7 @@ impl MyScheduler {
             .new_pid()
             .spawn_f(Self::scheduler_thread, 0, "Scheduler");
 
-        Self::spawn_f(f, args, "Kernel", SpawnOption::new().new_pid());
+        Self::spawn_f(f, args, "Kernel Task", SpawnOption::new().new_pid());
 
         SCHEDULER_ENABLED.store(true, Ordering::SeqCst);
 

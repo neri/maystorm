@@ -15,7 +15,6 @@ use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, RawWaker, RawWakerVTable, Waker};
 use core::time::Duration;
-// use dev::rng::*;
 use io::fonts::*;
 use io::graphics::*;
 use kernel::*;
@@ -145,6 +144,55 @@ fn main() {
         }
     }
 
+    if false {
+        // It's a joke
+        let window = WindowBuilder::new("")
+            .style(WindowStyle::NAKED | WindowStyle::FLOATING)
+            .frame(Rect::new(-168, 32, 160, 48))
+            .bg_color(Color::TRANSPARENT)
+            .build();
+        window
+            .draw(|bitmap| {
+                let raduis = 10;
+                bitmap.fill_round_rect(bitmap.bounds(), raduis, Color::from_argb(0xE0607D8B));
+                bitmap.draw_round_rect(bitmap.bounds(), raduis, IndexedColor::White.into());
+                AttributedString::with(
+                    "Connected:\n PCI Card",
+                    FontManager::label_font(),
+                    IndexedColor::White.into(),
+                )
+                .draw(
+                    bitmap,
+                    bitmap.bounds().insets_by(EdgeInsets::padding_all(8)),
+                );
+            })
+            .unwrap();
+        window.show();
+
+        let window = WindowBuilder::new("")
+            .style(WindowStyle::NAKED | WindowStyle::FLOATING)
+            .frame(Rect::new(-168, 88, 160, 48))
+            .bg_color(Color::TRANSPARENT)
+            .build();
+        window
+            .draw(|bitmap| {
+                let raduis = 10;
+                bitmap.fill_round_rect(bitmap.bounds(), raduis, Color::from_argb(0xE0607D8B));
+                bitmap.draw_round_rect(bitmap.bounds(), raduis, IndexedColor::White.into());
+                AttributedString::with(
+                    "Connected:\n USB Device",
+                    FontManager::label_font(),
+                    IndexedColor::White.into(),
+                )
+                .draw(
+                    bitmap,
+                    bitmap.bounds().insets_by(EdgeInsets::padding_all(8)),
+                );
+            })
+            .unwrap();
+        window.show();
+    }
+
     let mut tasks: Vec<Pin<Box<dyn Future<Output = ()>>>> = Vec::new();
 
     if System::is_headless() {
@@ -166,34 +214,130 @@ fn main() {
 
 #[allow(dead_code)]
 async fn repl_main(_main_window: Option<WindowHandle>) {
-    println!("{} v{}", System::name(), System::version(),);
+    exec("ver");
 
-    cmd_lspci(&[]);
-
-    let mut sb = string::StringBuffer::with_capacity(0x1000);
     loop {
         print!("# ");
-        if let Some(cmdline) = stdout().read_line_async(126).await {
-            if cmdline.len() > 0 {
-                // TODO: A better way
-                if cmdline == "cls" {
-                    stdout().reset().unwrap();
-                } else if cmdline == "memory" {
-                    MemoryManager::statistics(&mut sb);
-                    print!("{}", sb.as_str());
-                } else if cmdline == "ver" {
-                    println!("{} v{}", System::name(), System::version(),);
-                } else if cmdline == "lspci" {
-                    cmd_lspci(&[]);
-                } else {
-                    println!("Command not found: {}", cmdline);
-                }
-            }
+        if let Some(cmdline) = stdout().read_line_async(120).await {
+            exec(&cmdline);
         }
     }
 }
 
-fn cmd_lspci(_args: &[&str]) -> isize {
+fn exec(cmdline: &str) {
+    if cmdline.len() == 0 {
+        return;
+    }
+    let mut sb = string::StringBuffer::with_capacity(cmdline.len());
+    let mut args = Vec::new();
+    let mut phase = CmdLinePhase::LeadingSpace;
+    sb.clear();
+    for c in cmdline.chars() {
+        match phase {
+            CmdLinePhase::LeadingSpace => match c {
+                ' ' => (),
+                _ => {
+                    sb.write_char(c).unwrap();
+                    phase = CmdLinePhase::Token;
+                }
+            },
+            CmdLinePhase::Token => match c {
+                ' ' => {
+                    args.push(sb.as_str());
+                    phase = CmdLinePhase::LeadingSpace;
+                    sb.split();
+                }
+                _ => {
+                    sb.write_char(c).unwrap();
+                }
+            },
+        }
+    }
+    if sb.len() > 0 {
+        args.push(sb.as_str());
+    }
+
+    if args.len() > 0 {
+        let cmd = args[0];
+        match command(cmd) {
+            Some(exec) => {
+                exec(args.as_slice());
+            }
+            None => println!("Command not found: {}", cmd),
+        }
+    }
+}
+
+enum CmdLinePhase {
+    LeadingSpace,
+    Token,
+}
+
+fn command(cmd: &str) -> Option<&'static fn(&[&str]) -> isize> {
+    for command in &COMMAND_TABLE {
+        if command.0 == cmd {
+            return Some(&command.1);
+        }
+    }
+    None
+}
+
+const COMMAND_TABLE: [(&str, fn(&[&str]) -> isize, &str); 8] = [
+    ("help", cmd_help, "Show Help"),
+    ("cls", cmd_cls, "Clear screen"),
+    ("ver", cmd_ver, "Display version"),
+    ("memory", cmd_memory, "Show memory information"),
+    ("lspci", cmd_lspci, "Show List of PCI Devices"),
+    ("reboot", cmd_reboot, "Restart computer"),
+    ("exit", cmd_reserved, ""),
+    ("echo", cmd_echo, ""),
+];
+
+fn cmd_reserved(_: &[&str]) -> isize {
+    println!("Feature not available");
+    1
+}
+
+fn cmd_reboot(_: &[&str]) -> isize {
+    unsafe {
+        System::reset();
+    }
+}
+
+fn cmd_help(_: &[&str]) -> isize {
+    for cmd in &COMMAND_TABLE {
+        if cmd.2.len() > 0 {
+            println!("{}\t{}", cmd.0, cmd.2);
+        }
+    }
+    0
+}
+
+fn cmd_cls(_: &[&str]) -> isize {
+    match stdout().reset() {
+        Ok(_) => 0,
+        Err(_) => 1,
+    }
+}
+
+fn cmd_ver(_: &[&str]) -> isize {
+    println!("{} v{}", System::name(), System::version(),);
+    0
+}
+
+fn cmd_echo(args: &[&str]) -> isize {
+    println!("{}", args[1..].join(" "));
+    0
+}
+
+fn cmd_memory(_: &[&str]) -> isize {
+    let mut sb = string::StringBuffer::with_capacity(256);
+    MemoryManager::statistics(&mut sb);
+    print!("{}", sb.as_str());
+    0
+}
+
+fn cmd_lspci(_: &[&str]) -> isize {
     for device in bus::pci::Pci::devices() {
         let addr = device.address();
         println!(
@@ -206,16 +350,18 @@ fn cmd_lspci(_args: &[&str]) -> isize {
             device.class_code(),
             device.class_string(),
         );
-        for function in device.functions() {
-            let addr = function.address();
-            println!(
-                "     .{} {:04x}:{:04x} {:06x} {}",
-                addr.2,
-                function.vendor_id().0,
-                function.device_id().0,
-                function.class_code(),
-                function.class_string(),
-            );
+        if false {
+            for function in device.functions() {
+                let addr = function.address();
+                println!(
+                    "     .{} {:04x}:{:04x} {:06x} {}",
+                    addr.2,
+                    function.vendor_id().0,
+                    function.device_id().0,
+                    function.class_code(),
+                    function.class_string(),
+                );
+            }
         }
     }
     0
