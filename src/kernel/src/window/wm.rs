@@ -248,9 +248,7 @@ impl WindowManager {
         //     window.show();
         // }
 
-        SpawnOption::with_priority(Priority::High)
-            .new_pid()
-            .spawn_f(Self::winmgr_thread, 0, "Window Manager");
+        SpawnOption::with_priority(Priority::High).spawn(Self::winmgr_thread, 0, "Window Manager");
     }
 
     /// Window Manager Thread

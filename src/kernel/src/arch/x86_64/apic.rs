@@ -39,6 +39,10 @@ pub unsafe extern "C" fn apic_start_ap() {
         let apicid = LocalApic::init_ap();
         let index = System::activate_cpu(new_cpu);
         CURRENT_PROCESSOR_INDEXES[apicid.0 as usize] = index.0 as u8;
+
+        if Cpu::has_feature_rdtscp() {
+            Msr::TscAux.write(index.0 as u64);
+        }
     });
 }
 
@@ -83,6 +87,10 @@ impl Apic {
             .into();
         CURRENT_PROCESSOR_INDEXES[APIC.master_apic_id.0 as usize] = 0;
         LocalApic::init(acpi_apic.local_apic_address as usize);
+
+        if Cpu::has_feature_rdtscp() {
+            Msr::TscAux.write(0);
+        }
 
         // Define Default GSI table for ISA devices
         for irq in &[1, 12] {
@@ -230,10 +238,13 @@ impl Apic {
         (vec.0 as u32 | trigger.as_redir(), apic_id.as_u32() << 24)
     }
 
+    #[inline]
     pub fn current_processor_id() -> ProcessorId {
         unsafe { LocalApic::current_processor_id() }
     }
 
+    #[inline]
+    #[allow(dead_code)]
     pub fn current_processor_index() -> Option<ProcessorIndex> {
         let index = unsafe { CURRENT_PROCESSOR_INDEXES[Self::current_processor_id().0 as usize] };
         if index != INVALID_PROCESSOR_INDEX {
@@ -470,6 +481,7 @@ impl LocalApic {
         Self::InterruptCommand.write(0x000C4600 | init_vec.0 as u32);
     }
 
+    #[inline]
     unsafe fn current_processor_id() -> ProcessorId {
         ProcessorId::from(LocalApic::Id.read() >> 24)
     }

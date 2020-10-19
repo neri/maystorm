@@ -20,13 +20,6 @@ impl SlabAllocator {
     pub unsafe fn new() -> Self {
         let sizes = [32, 64, 128, 256, 512, 1024];
 
-        // println!(
-        //     "SLAB_INFO: sizes {} cache {} header {}",
-        //     sizes.len(),
-        //     core::mem::size_of::<SlabCache>(),
-        //     core::mem::size_of::<SlabChunkHeader>()
-        // );
-
         let mut vec: Vec<SlabCache> = Vec::with_capacity(sizes.len());
         for item_size in &sizes {
             vec.push(SlabCache::new(*item_size));
@@ -100,15 +93,6 @@ impl SlabCache {
             chunk_size_shift += 1;
         }
         let chunk_size = 1 << chunk_size_shift;
-
-        // println!(
-        //     "SLAB: block {:4} chunk {:4x} count {:3} bitmap {:2} gap {:3}",
-        //     block_size,
-        //     chunk_size,
-        //     items_per_chunk,
-        //     bitmap_size,
-        //     chunk_size - (items_per_chunk as usize * block_size as usize)
-        // );
 
         Self {
             chunk_size_shift,

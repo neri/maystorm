@@ -69,12 +69,13 @@ impl MyScheduler {
             sch.locals.push(LocalScheduler::new(ProcessorIndex(index)));
         }
 
-        SpawnOption::new()
-            .priority(Priority::Realtime)
-            .new_pid()
-            .spawn_f(Self::scheduler_thread, 0, "Scheduler");
+        SpawnOption::new().priority(Priority::Realtime).spawn(
+            Self::scheduler_thread,
+            0,
+            "Scheduler",
+        );
 
-        Self::spawn_f(f, args, "Kernel Task", SpawnOption::new().new_pid());
+        SpawnOption::new().spawn(f, args, "Kernel Task");
 
         SCHEDULER_ENABLED.store(true, Ordering::SeqCst);
 
@@ -418,6 +419,11 @@ impl SpawnOption {
     }
 
     pub fn spawn_f(self, start: fn(usize), args: usize, name: &str) {
+        MyScheduler::spawn_f(start, args, name, self)
+    }
+
+    pub fn spawn(mut self, start: fn(usize), args: usize, name: &str) {
+        self.raise_pid = true;
         MyScheduler::spawn_f(start, args, name, self)
     }
 }

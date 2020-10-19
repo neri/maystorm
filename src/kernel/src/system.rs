@@ -139,11 +139,7 @@ impl System {
             shared.boot_flags = info.flags;
             // shared.boot_flags.insert(BootFlags::HEADLESS);
 
-            Self::debug_tick();
-
             MemoryManager::init_first(&info);
-
-            Self::debug_tick();
 
             if System::is_headless() {
                 let uart = arch::Arch::master_uart().unwrap();
@@ -156,18 +152,10 @@ impl System {
                 shared.emergency_console = Some(stdout);
             }
 
-            Self::debug_tick();
-
-            MemoryManager::init2();
-
-            Self::debug_tick();
-
             shared.acpi = Some(Box::new(
                 acpi::AcpiTables::from_rsdp(MyAcpiHandler::new(), info.acpi_rsdptr as usize)
                     .unwrap(),
             ));
-
-            Self::debug_tick();
 
             shared.num_of_cpus = Self::acpi_platform()
                 .processor_info
@@ -178,15 +166,9 @@ impl System {
             shared.cpus.reserve(shared.num_of_cpus);
             shared.cpus.push(Cpu::new());
 
-            Self::debug_tick();
-
             arch::Arch::init();
 
-            Self::debug_tick();
-
             bus::pci::Pci::init();
-
-            Self::debug_tick();
 
             MyScheduler::start(Self::init_late, f as *const c_void as usize);
         }

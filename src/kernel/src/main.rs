@@ -286,7 +286,7 @@ const COMMAND_TABLE: [(&str, fn(&[&str]) -> isize, &str); 8] = [
     ("help", cmd_help, "Show Help"),
     ("cls", cmd_cls, "Clear screen"),
     ("ver", cmd_ver, "Display version"),
-    ("memory", cmd_memory, "Show memory information"),
+    ("sysctl", cmd_sysctl, "System Control"),
     ("lspci", cmd_lspci, "Show List of PCI Devices"),
     ("reboot", cmd_reboot, "Restart computer"),
     ("exit", cmd_reserved, ""),
@@ -330,10 +330,49 @@ fn cmd_echo(args: &[&str]) -> isize {
     0
 }
 
-fn cmd_memory(_: &[&str]) -> isize {
-    let mut sb = string::StringBuffer::with_capacity(256);
-    MemoryManager::statistics(&mut sb);
-    print!("{}", sb.as_str());
+fn cmd_sysctl(argv: &[&str]) -> isize {
+    if argv.len() < 2 {
+        println!("usage: sysctl command [options]");
+        println!("memory:\tShow memory information");
+        return 1;
+    }
+    let subcmd = argv[1];
+    match subcmd {
+        "memory" => {
+            let mut sb = string::StringBuffer::with_capacity(256);
+            MemoryManager::statistics(&mut sb);
+            print!("{}", sb.as_str());
+        }
+        "random" => match arch::cpu::Cpu::secure_rand() {
+            Ok(rand) => println!("{:016x}", rand),
+            Err(_) => println!("# No SecureRandom"),
+        },
+        "cpuid" => {
+            let cpuid1 = arch::cpu::Cpu::cpuid(1, 0);
+            let cpuid7 = arch::cpu::Cpu::cpuid(7, 0);
+            let cpuid81 = arch::cpu::Cpu::cpuid(0x8000_0001, 0);
+            println!(
+                "CPUID Feature 0000_0001 EDX {:08x} ECX {:08x}",
+                cpuid1.edx(),
+                cpuid1.ecx(),
+            );
+            println!(
+                "CPUID Feature 0000_0007 EBX {:08x} ECX {:08x} EDX {:08x}",
+                cpuid7.ebx(),
+                cpuid7.ecx(),
+                cpuid7.edx(),
+            );
+            println!(
+                "CPUID Feature 8000_0001 EDX {:08x} ECX {:08x}",
+                cpuid81.edx(),
+                cpuid81.ecx(),
+            );
+        }
+        _ => {
+            println!("Unknown command: {}", subcmd);
+            return 1;
+        }
+    }
     0
 }
 

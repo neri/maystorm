@@ -53,18 +53,14 @@ impl MemoryManager {
         if cfg!(any(target_arch = "x86_64")) {
             shared.real_bitmap = info.real_bitmap;
         }
-    }
 
-    pub(crate) unsafe fn init2() {
-        let shared = Self::shared();
         shared.slab = Some(Box::new(SlabAllocator::new()));
     }
 
     pub(crate) unsafe fn init_late() {
         SpawnOption::new()
             .priority(Priority::Realtime)
-            .new_pid()
-            .spawn_f(Self::page_thread, 0, "Page");
+            .spawn(Self::page_thread, 0, "Page");
     }
 
     fn page_thread(_args: usize) {
