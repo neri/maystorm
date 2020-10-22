@@ -515,7 +515,7 @@ impl<'a> Button<'a> {
             title_insets: EdgeInsets::new(4, 16, 4, 16),
             button_type,
         });
-        button.set_corner_radius(12);
+        button.set_corner_radius(8);
         button.set_button_type(button_type);
         button.title_label.set_font(FontManager::label_font());
 

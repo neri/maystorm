@@ -293,8 +293,8 @@ impl Bitmap {
         }
     }
 
-    #[inline]
-    fn memcpy_colors(
+    #[allow(dead_code)]
+    fn memcpy_colors_simple(
         dest: &mut [Color],
         dest_cursor: usize,
         src: &[Color],
@@ -305,6 +305,57 @@ impl Bitmap {
         let src = &src[src_cursor..src_cursor + size];
         for i in 0..size {
             dest[i] = src[i];
+        }
+    }
+
+    #[allow(dead_code)]
+    fn memcpy_colors(
+        dest: &mut [Color],
+        dest_cursor: usize,
+        src: &[Color],
+        src_cursor: usize,
+        size: usize,
+    ) {
+        let dest = &mut dest[dest_cursor..dest_cursor + size];
+        let src = &src[src_cursor..src_cursor + size];
+        unsafe {
+            let mut ptr_d: *mut u32 = core::mem::transmute(&dest[0]);
+            let mut ptr_s: *const u32 = core::mem::transmute(&src[0]);
+            let mut remain = size;
+            if ((ptr_d as usize) & 0xF) == ((ptr_s as usize) & 0xF) {
+                while (ptr_d as usize & 0xF) != 0 && remain > 0 {
+                    ptr_d.write_volatile(ptr_s.read_volatile());
+                    ptr_d = ptr_d.add(1);
+                    ptr_s = ptr_s.add(1);
+                    remain -= 1;
+                }
+
+                if remain > 4 {
+                    let count = remain / 4;
+                    let mut ptr2d = ptr_d as *mut u128;
+                    let mut ptr2s = ptr_s as *mut u128;
+
+                    for _ in 0..count {
+                        ptr2d.write_volatile(ptr2s.read_volatile());
+                        ptr2d = ptr2d.add(1);
+                        ptr2s = ptr2s.add(1);
+                    }
+
+                    ptr_d = ptr2d as *mut u32;
+                    ptr_s = ptr2s as *mut u32;
+                    remain -= count * 4;
+                }
+
+                for _ in 0..remain {
+                    ptr_d.write_volatile(ptr_s.read_volatile());
+                    ptr_d = ptr_d.add(1);
+                    ptr_s = ptr_s.add(1);
+                }
+            } else {
+                for i in 0..size {
+                    dest[i] = src[i];
+                }
+            }
         }
     }
 
@@ -329,26 +380,24 @@ impl Bitmap {
         let mut dx = rect.origin.x;
         let mut dy = rect.origin.y;
 
-        {
-            if dx < 0 {
-                width += dx;
-                dx = 0;
-            }
-            if dy < 0 {
-                height += dy;
-                dy = 0;
-            }
-            let r = dx + width;
-            let b = dy + height;
-            if r >= self.size.width {
-                width = self.size.width - dx;
-            }
-            if b >= self.size.height {
-                height = self.size.height - dy;
-            }
-            if width <= 0 || height <= 0 {
-                return;
-            }
+        if dx < 0 {
+            width += dx;
+            dx = 0;
+        }
+        if dy < 0 {
+            height += dy;
+            dy = 0;
+        }
+        let r = dx + width;
+        let b = dy + height;
+        if r >= self.size.width {
+            width = self.size.width - dx;
+        }
+        if b >= self.size.height {
+            height = self.size.height - dy;
+        }
+        if width <= 0 || height <= 0 {
+            return;
         }
 
         if self.is_portrait() {
@@ -358,16 +407,18 @@ impl Bitmap {
             swap(&mut width, &mut height);
         }
 
+        let width = width as usize;
+        let height = height as usize;
+        let stride = self.stride;
         let fb = self.get_fb();
-        let mut cursor = dx as usize + dy as usize * self.stride;
-        if self.stride - width as usize > 0 {
-            let stride = self.stride;
+        let mut cursor = dx as usize + dy as usize * stride;
+        if stride == width {
+            Self::memset_colors(fb, cursor, width * height, color);
+        } else {
             for _ in 0..height {
-                Self::memset_colors(fb, cursor, width as usize, color);
+                Self::memset_colors(fb, cursor, width, color);
                 cursor += stride;
             }
-        } else {
-            Self::memset_colors(fb, cursor, width as usize * height as usize, color);
         }
     }
 
@@ -386,26 +437,24 @@ impl Bitmap {
         let mut dx = rect.origin.x;
         let mut dy = rect.origin.y;
 
-        {
-            if dx < 0 {
-                width += dx;
-                dx = 0;
-            }
-            if dy < 0 {
-                height += dy;
-                dy = 0;
-            }
-            let r = dx + width;
-            let b = dy + height;
-            if r >= self.size.width {
-                width = self.size.width - dx;
-            }
-            if b >= self.size.height {
-                height = self.size.height - dy;
-            }
-            if width <= 0 || height <= 0 {
-                return;
-            }
+        if dx < 0 {
+            width += dx;
+            dx = 0;
+        }
+        if dy < 0 {
+            height += dy;
+            dy = 0;
+        }
+        let r = dx + width;
+        let b = dy + height;
+        if r >= self.size.width {
+            width = self.size.width - dx;
+        }
+        if b >= self.size.height {
+            height = self.size.height - dy;
+        }
+        if width <= 0 || height <= 0 {
+            return;
         }
 
         if self.is_portrait() {
@@ -500,21 +549,19 @@ impl Bitmap {
         let dy = point.y;
         let mut w = width;
 
-        {
-            if dy < 0 || dy >= self.size.height {
-                return;
-            }
-            if dx < 0 {
-                w += dx;
-                dx = 0;
-            }
-            let r = dx + w;
-            if r >= self.size.width {
-                w = self.size.width - dx;
-            }
-            if w <= 0 {
-                return;
-            }
+        if dy < 0 || dy >= self.size.height {
+            return;
+        }
+        if dx < 0 {
+            w += dx;
+            dx = 0;
+        }
+        let r = dx + w;
+        if r >= self.size.width {
+            w = self.size.width - dx;
+        }
+        if w <= 0 {
+            return;
         }
 
         if self.is_portrait() {
@@ -531,21 +578,19 @@ impl Bitmap {
         let mut dy = point.y;
         let mut h = height;
 
-        {
-            if dx < 0 || dx >= self.size.width {
-                return;
-            }
-            if dy < 0 {
-                h += dy;
-                dy = 0;
-            }
-            let b = dy + h;
-            if b >= self.size.height {
-                h = self.size.height - dy;
-            }
-            if h <= 0 {
-                return;
-            }
+        if dx < 0 || dx >= self.size.width {
+            return;
+        }
+        if dy < 0 {
+            h += dy;
+            dy = 0;
+        }
+        let b = dy + h;
+        if b >= self.size.height {
+            h = self.size.height - dy;
+        }
+        if h <= 0 {
+            return;
         }
 
         if self.is_portrait() {
@@ -768,34 +813,32 @@ impl Bitmap {
         let mut width = rect.size.width;
         let mut height = rect.size.height;
 
-        {
-            if dx < 0 {
-                sx -= dx;
-                width += dx;
-                dx = 0;
-            }
-            if dy < 0 {
-                sy -= dy;
-                height += dy;
-                dy = 0;
-            }
-            if width > sx + src.size.width {
-                width = src.size.width - sx;
-            }
-            if height > sy + src.size.height {
-                height = src.size.height - sy;
-            }
-            let r = dx + width;
-            let b = dy + height;
-            if r >= self.size.width {
-                width = self.size.width - dx;
-            }
-            if b >= self.size.height {
-                height = self.size.height - dy;
-            }
-            if width <= 0 || height <= 0 {
-                return;
-            }
+        if dx < 0 {
+            sx -= dx;
+            width += dx;
+            dx = 0;
+        }
+        if dy < 0 {
+            sy -= dy;
+            height += dy;
+            dy = 0;
+        }
+        if width > sx + src.size.width {
+            width = src.size.width - sx;
+        }
+        if height > sy + src.size.height {
+            height = src.size.height - sy;
+        }
+        let r = dx + width;
+        let b = dy + height;
+        if r >= self.size.width {
+            width = self.size.width - dx;
+        }
+        if b >= self.size.height {
+            height = self.size.height - dy;
+        }
+        if width <= 0 || height <= 0 {
+            return;
         }
 
         let width = width as usize;
@@ -848,10 +891,14 @@ impl Bitmap {
             let mut src_cursor = sx as usize + sy as usize * src.stride;
 
             if option.contains(BltOption::COPY) || src.is_opaque() {
-                for _ in 0..height {
-                    Self::memcpy_colors(dest_fb, dest_cursor, src_fb, src_cursor, width);
-                    dest_cursor += self.stride;
-                    src_cursor += src.stride;
+                if self.stride == width && src.stride == width {
+                    Self::memcpy_colors(dest_fb, dest_cursor, src_fb, src_cursor, width * height);
+                } else {
+                    for _ in 0..height {
+                        Self::memcpy_colors(dest_fb, dest_cursor, src_fb, src_cursor, width);
+                        dest_cursor += self.stride;
+                        src_cursor += src.stride;
+                    }
                 }
             } else {
                 for _ in 0..height {
@@ -899,6 +946,21 @@ impl Bitmap {
                 c0.y += s.y;
             }
         }
+    }
+
+    #[allow(dead_code)]
+    fn get_pixel_unchecked(&self, point: Point<isize>) -> Color {
+        self.get_fb()[point.x as usize + point.y as usize * self.stride()]
+    }
+
+    #[allow(dead_code)]
+    fn set_pixel_unchecked(&self, point: Point<isize>, color: Color) {
+        self.get_fb()[point.x as usize + point.y as usize * self.stride()] = color;
+    }
+
+    pub fn blur(&self, radius: isize) {
+        let _ = radius;
+        unimplemented!();
     }
 
     pub fn translate(&self, buffer: &[u8], origin: Point<isize>, size: Size<isize>, color: Color) {

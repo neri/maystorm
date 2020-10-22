@@ -12,6 +12,7 @@ use acpi;
 use alloc::boxed::Box;
 use alloc::vec::*;
 use core::ffi::c_void;
+use core::sync::atomic::*;
 use core::time::Duration;
 
 const MAX_CPU: usize = 64;
@@ -30,20 +31,36 @@ extern "C" {
     );
 }
 
+static AP_STALLED: AtomicBool = AtomicBool::new(true);
 static mut GLOBALLOCK: Spinlock = Spinlock::new();
 
 #[no_mangle]
 pub unsafe extern "C" fn apic_start_ap() {
-    GLOBALLOCK.synchronized(|| {
-        let new_cpu = Cpu::new();
-        let apicid = LocalApic::init_ap();
-        let index = System::activate_cpu(new_cpu);
-        CURRENT_PROCESSOR_INDEXES[apicid.0 as usize] = index.0 as u8;
+    let apic_id = GLOBALLOCK.synchronized(|| {
+        let mut new_cpu = Cpu::new();
+        let apic_id = LocalApic::init_ap();
+        new_cpu.as_mut().update_type(apic_id);
+        System::activate_cpu(new_cpu);
 
-        if Cpu::has_feature_rdtscp() {
-            Msr::TscAux.write(index.0 as u64);
-        }
+        apic_id
     });
+
+    // Waiting for TSC synchonization
+    while AP_STALLED.load(Ordering::Relaxed) {
+        Cpu::spin_loop_hint();
+    }
+    let tsc = Cpu::rdtsc();
+
+    for index in 0..System::num_of_active_cpus() {
+        let cpu = System::cpu(index);
+        if cpu.cpu_id == apic_id {
+            System::cpu_mut(index).set_tsc_base(tsc);
+            if Cpu::has_feature_rdtscp() {
+                Msr::TscAux.write(index as u64);
+            }
+            break;
+        }
+    }
 }
 
 pub(super) struct Apic {
@@ -172,6 +189,16 @@ impl Apic {
         if System::num_of_active_cpus() != max_cpu {
             panic!("Some of application processors are not responding");
         }
+
+        System::sort_cpus(|a, b| a.cpu_id.0.cmp(&b.cpu_id.0));
+
+        for index in 0..System::num_of_active_cpus() {
+            let cpu = System::cpu(index);
+            CURRENT_PROCESSOR_INDEXES[cpu.cpu_id.0 as usize] = cpu.cpu_index.0 as u8;
+        }
+
+        AP_STALLED.store(false, Ordering::SeqCst);
+        System::cpu_mut(0).set_tsc_base(Cpu::rdtsc());
 
         asm!("
             mov eax, 0xCCCCCCCC

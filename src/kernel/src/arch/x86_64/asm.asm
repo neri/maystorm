@@ -41,8 +41,8 @@
     global _asm_int_03
     global _asm_int_06
     global _asm_int_08
-    global _asm_int_0D
-    global _asm_int_0E
+    global _asm_int_0d
+    global _asm_int_0e
 
 _asm_int_00: ; #DE Divide Error
     push BYTE 0
@@ -63,11 +63,11 @@ _asm_int_08: ; #DF Double Fault
     push BYTE 0x08
     jmp short _exception
 
-_asm_int_0D: ; #GP General Protection Fault
+_asm_int_0d: ; #GP General Protection Fault
     push BYTE 0x0D
     jmp short _exception
 
-_asm_int_0E: ; #PF Page Fault
+_asm_int_0e: ; #PF Page Fault
     push BYTE 0x0E
     ; jmp short _exception
 

@@ -28,7 +28,6 @@ const WINDOW_TITLE_HEIGHT: isize = 24;
 const DESKTOP_COLOR: Color = Color::from_argb(0xFF2196F3);
 const BARRIER_COLOR: Color = Color::from_argb(0x80000000);
 const WINDOW_ACTIVE_TITLE_BG_COLOR: Color = Color::from_argb(0xF0E0E0E0);
-// const WINDOW_ACTIVE_TITLE_SHADOW_COLOR: Color = Color::from_argb(0xFF9E9E9E);
 const WINDOW_ACTIVE_TITLE_FG_COLOR: Color = Color::from_argb(0xFF212121);
 const WINDOW_INACTIVE_TITLE_BG_COLOR: Color = Color::from_argb(0xFFEEEEEE);
 const WINDOW_INACTIVE_TITLE_FG_COLOR: Color = Color::from_argb(0xFF9E9E9E);
@@ -735,6 +734,13 @@ impl RawWindow {
                     );
 
                     if let Some(bitmap) = &window.bitmap {
+                        // if window.is_active() && window.style.contains(WindowStyle::TITLE) {
+                        //     let mut rect = window.title_frame();
+                        //     rect.origin += blt_origin;
+                        //     if let Some(bitmap) = target_screen.view(rect) {
+                        //         bitmap.blur(10);
+                        //     }
+                        // }
                         target_screen.blt(bitmap, blt_origin, blt_rect, BltOption::empty());
                     } else {
                         if window.style.contains(WindowStyle::TRANSPARENT) {
@@ -751,7 +757,7 @@ impl RawWindow {
             };
         }
         if is_offscreen {
-            main_screen.blt(off_screen, frame.origin, frame, BltOption::empty());
+            main_screen.blt(off_screen, frame.origin, frame, BltOption::COPY);
         }
     }
 

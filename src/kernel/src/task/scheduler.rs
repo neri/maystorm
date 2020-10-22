@@ -20,6 +20,9 @@ use core::time::Duration;
 use crossbeam_queue::ArrayQueue;
 // use bitflags::*;
 
+const THRESHOLD_SAVING: usize = 900;
+const THRESHOLD_FULL_THROTTLE_MODE: usize = 450;
+
 extern "C" {
     fn asm_sch_switch_context(current: *mut u8, next: *mut u8);
     fn asm_sch_make_new_thread(context: *mut u8, new_sp: *mut c_void, start: usize, args: usize);
@@ -36,8 +39,21 @@ pub struct MyScheduler {
     retired: ThreadQueue,
     locals: Vec<Box<LocalScheduler>>,
     pool: ThreadPool,
-    usage: AtomicU32,
+    usage: AtomicUsize,
+    usage_total: AtomicUsize,
     is_frozen: AtomicBool,
+    state: SchedulerState,
+}
+
+#[allow(non_camel_case_types)]
+#[non_exhaustive]
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+pub enum SchedulerState {
+    Disabled = 0,
+    Saving,
+    Running,
+    FullThrottle,
+    MAX,
 }
 
 impl MyScheduler {
@@ -59,8 +75,10 @@ impl MyScheduler {
                 retired,
                 locals,
                 pool,
-                usage: AtomicU32::new(0),
+                usage: AtomicUsize::new(0),
+                usage_total: AtomicUsize::new(0),
                 is_frozen: AtomicBool::new(false),
+                state: SchedulerState::Running,
             }));
         }
 
@@ -92,6 +110,7 @@ impl MyScheduler {
         unsafe { SCHEDULER.as_mut().unwrap() }
     }
 
+    /// Get the current process if possible
     pub fn current_pid() -> ProcessId {
         if Self::is_enabled() {
             Self::current_thread().as_ref().pid
@@ -100,10 +119,12 @@ impl MyScheduler {
         }
     }
 
+    /// Get the current thread running on the current processor
     pub fn current_thread() -> ThreadHandle {
         Self::local_scheduler().current_thread()
     }
 
+    /// Acquire the next thread id
     fn next_thread_id() -> ThreadId {
         static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
         ThreadId(NEXT_ID.fetch_add(1, Ordering::SeqCst))
@@ -114,7 +135,7 @@ impl MyScheduler {
         ProcessId(NEXT_PID.fetch_add(1, Ordering::SeqCst))
     }
 
-    // Perform a Preemption
+    /// Perform the preemption
     pub(crate) fn reschedule() {
         if Self::is_enabled() {
             unsafe {
@@ -153,6 +174,7 @@ impl MyScheduler {
         }
     }
 
+    /// Get the scheduler for the current processor
     #[inline]
     #[track_caller]
     fn local_scheduler() -> &'static mut LocalScheduler {
@@ -162,9 +184,14 @@ impl MyScheduler {
     }
 
     // Get Next Thread from queue
-    fn next() -> Option<ThreadHandle> {
+    fn next(index: ProcessorIndex) -> Option<ThreadHandle> {
         let sch = Self::shared();
         if sch.is_frozen.load(Ordering::SeqCst) {
+            return None;
+        }
+        if Self::shared().state < SchedulerState::FullThrottle
+            && System::cpu(index.0).processor_type() != ProcessorCoreType::Main
+        {
             return None;
         }
         for _ in 0..1 {
@@ -205,30 +232,58 @@ impl MyScheduler {
             Self::wait_for(None, Duration::from_micros(expect));
             let now = Timer::measure();
             let actual = now - measure;
+            let actual1000 = actual as usize * 1000;
 
             let sch = Self::shared();
             let mut usage = 0;
             for thread in sch.pool.dic.values() {
                 let load0 = thread.load0.swap(0, Ordering::SeqCst);
-                let load = u32::min(load0 / 1000, 1000) * expect as u32 / actual as u32;
-                thread.load.store(load, Ordering::SeqCst);
+                let load = usize::min(load0 as usize * expect as usize / actual1000, 1000);
+                thread.load.store(load as u32, Ordering::SeqCst);
                 if thread.priority != Priority::Idle {
                     usage += load;
                 }
             }
-            sch.usage.store(
-                u32::min(usage / System::num_of_active_cpus() as u32, 1000),
-                Ordering::SeqCst,
-            );
+
+            let num_cpu = System::num_of_active_cpus();
+            let usage_total = usize::min(usage, num_cpu * 1000);
+            let usage_per_cpu = usize::min(usage / num_cpu, 1000);
+            sch.usage_total.store(usage_total, Ordering::SeqCst);
+            sch.usage.store(usage_per_cpu, Ordering::SeqCst);
+
+            let new_state: SchedulerState;
+            if usage_per_cpu > THRESHOLD_FULL_THROTTLE_MODE {
+                new_state = SchedulerState::FullThrottle;
+            } else if usage_total > THRESHOLD_SAVING {
+                new_state = SchedulerState::Running;
+            } else {
+                new_state = SchedulerState::Saving;
+            }
+            if new_state != sch.state {
+                sch.state = new_state;
+            }
         }
     }
 
-    pub fn usage() -> u32 {
+    pub fn usage_per_cpu() -> usize {
         let sch = Self::shared();
         sch.usage.load(Ordering::Relaxed)
     }
 
-    pub fn is_enabled() -> bool {
+    pub fn usage_total() -> usize {
+        let sch = Self::shared();
+        sch.usage_total.load(Ordering::Relaxed)
+    }
+
+    pub fn current_state() -> SchedulerState {
+        if Self::is_enabled() {
+            Self::shared().state
+        } else {
+            SchedulerState::Disabled
+        }
+    }
+
+    fn is_enabled() -> bool {
         unsafe { &SCHEDULER }.is_some() && SCHEDULER_ENABLED.load(Ordering::SeqCst)
     }
 
@@ -337,7 +392,7 @@ impl LocalScheduler {
         Cpu::assert_without_interrupt();
 
         let current = lsch.current;
-        let next = MyScheduler::next().unwrap_or(lsch.idle);
+        let next = MyScheduler::next(lsch.index).unwrap_or(lsch.idle);
         current.update(|thread| {
             let now = Timer::measure();
             let diff = now - thread.measure.load(Ordering::SeqCst);

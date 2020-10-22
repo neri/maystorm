@@ -60,14 +60,15 @@ fn main() {
                 let mut rect = view.bounds();
                 rect.size.height = 56;
                 let mut shape = View::with_frame(rect);
-                shape.set_background_color(Color::from_rgb(0x64B5F6));
+                // shape.set_background_color(Color::from_rgb(0x64B5F6));
+                shape.set_background_color(Color::from_rgb(0x2196F3));
                 // shape.set_background_color(Color::from_rgb(0xFF9800));
                 view.add_subview(shape);
 
                 let mut rect = view.bounds().insets_by(EdgeInsets::new(16, 16, 0, 16));
                 rect.size.height = 44;
                 let mut text_view = TextView::with_text("Welcome to My OS !");
-                FontDescriptor::new(FontFamily::Cursive, 32).map(|font| text_view.set_font(font));
+                FontDescriptor::new(FontFamily::SansSerif, 32).map(|font| text_view.set_font(font));
                 text_view.set_tint_color(IndexedColor::White.into());
                 text_view.set_frame(rect);
                 text_view.set_max_lines(1);
@@ -330,6 +331,7 @@ fn cmd_echo(args: &[&str]) -> isize {
     0
 }
 
+use arch::cpu::*;
 fn cmd_sysctl(argv: &[&str]) -> isize {
     if argv.len() < 2 {
         println!("usage: sysctl command [options]");
@@ -343,30 +345,42 @@ fn cmd_sysctl(argv: &[&str]) -> isize {
             MemoryManager::statistics(&mut sb);
             print!("{}", sb.as_str());
         }
-        "random" => match arch::cpu::Cpu::secure_rand() {
+        "random" => match Cpu::secure_rand() {
             Ok(rand) => println!("{:016x}", rand),
             Err(_) => println!("# No SecureRandom"),
         },
         "cpuid" => {
-            let cpuid1 = arch::cpu::Cpu::cpuid(1, 0);
-            let cpuid7 = arch::cpu::Cpu::cpuid(7, 0);
-            let cpuid81 = arch::cpu::Cpu::cpuid(0x8000_0001, 0);
+            let cpuid0 = Cpu::cpuid(0, 0);
+            let cpuid1 = Cpu::cpuid(1, 0);
+            let cpuid7 = Cpu::cpuid(7, 0);
+            let cpuid81 = Cpu::cpuid(0x8000_0001, 0);
+            println!("CPUID {:08x}", cpuid0.eax());
             println!(
-                "CPUID Feature 0000_0001 EDX {:08x} ECX {:08x}",
+                "Feature 0000_0001 EDX {:08x} ECX {:08x}",
                 cpuid1.edx(),
                 cpuid1.ecx(),
             );
             println!(
-                "CPUID Feature 0000_0007 EBX {:08x} ECX {:08x} EDX {:08x}",
+                "Feature 0000_0007 EBX {:08x} ECX {:08x} EDX {:08x}",
                 cpuid7.ebx(),
                 cpuid7.ecx(),
                 cpuid7.edx(),
             );
             println!(
-                "CPUID Feature 8000_0001 EDX {:08x} ECX {:08x}",
+                "Feature 8000_0001 EDX {:08x} ECX {:08x}",
                 cpuid81.edx(),
                 cpuid81.ecx(),
             );
+            if cpuid0.eax() >= 0x0B {
+                let cpuid0b = Cpu::cpuid(0x0B, 0);
+                println!(
+                    "CPUID0B: {:08x} {:08x} {:08x} {:08x}",
+                    cpuid0b.eax(),
+                    cpuid0b.ebx(),
+                    cpuid0b.ecx(),
+                    cpuid0b.edx()
+                );
+            }
         }
         _ => {
             println!("Unknown command: {}", subcmd);
@@ -459,10 +473,10 @@ async fn status_bar_main() {
 
         sb.clear();
 
-        let usage = MyScheduler::usage();
-        let usage0 = usage / 10;
-        let usage1 = usage % 10;
-        write!(sb, "{:3}.{:1}%  ", usage0, usage1).unwrap();
+        // let usage = MyScheduler::usage_per_cpu();
+        // let usage0 = usage / 10;
+        // let usage1 = usage % 10;
+        // write!(sb, "{:3}.{:1}%  ", usage0, usage1).unwrap();
 
         let time = System::system_time();
         let tod = time.secs % 86400;
@@ -527,7 +541,16 @@ async fn activity_monitor_main() {
     };
 
     let mut sb = string::StringBuffer::with_capacity(0x1000);
+    let mut time0 = Timer::measure();
+    let mut tsc0 = unsafe { Cpu::read_tsc() };
     loop {
+        Timer::sleep_async(Duration::from_millis(1000)).await;
+        let time1 = Timer::measure();
+        let tsc1 = unsafe { Cpu::read_tsc() };
+        let hertz = (tsc1 - tsc0) / (time1 - time0);
+        let hertz0 = hertz % 1000;
+        let hertz1 = hertz / 1000;
+
         MyScheduler::get_idle_statistics(&mut usage_temp);
         for i in 0..num_of_cpus {
             usage_history[i * n_items + usage_cursor] =
@@ -535,7 +558,6 @@ async fn activity_monitor_main() {
         }
         usage_cursor = (usage_cursor + 1) % n_items;
 
-        MyScheduler::print_statistics(&mut sb, true);
         window
             .draw(|bitmap| {
                 bitmap.fill_rect(bitmap.bounds(), bg_color);
@@ -550,7 +572,7 @@ async fn activity_monitor_main() {
                             ),
                             n_items as isize,
                         ),
-                        40,
+                        32,
                     );
                     let rect = Rect::new(
                         padding + cpu_index as isize * (item_size.width + padding),
@@ -588,13 +610,29 @@ async fn activity_monitor_main() {
                     }
                     bitmap.draw_rect(rect, graph_border_color);
                 }
+
+                sb.clear();
+                let usage = MyScheduler::usage_per_cpu();
+                let usage0 = usage % 10;
+                let usage1 = usage / 10;
+                write!(
+                    sb,
+                    "CPU: {}.{:03} GHz {:3}.{}%",
+                    hertz1, hertz0, usage1, usage0,
+                )
+                .unwrap();
+                let rect = bitmap.bounds().insets_by(EdgeInsets::new(38, 4, 4, 4));
+                ats.set_text(sb.as_str());
+                ats.draw(&bitmap, rect);
+
+                MyScheduler::print_statistics(&mut sb, true);
                 let rect = bitmap.bounds().insets_by(EdgeInsets::new(48, 4, 4, 4));
-                bitmap.fill_rect(rect, bg_color);
                 ats.set_text(sb.as_str());
                 ats.draw(&bitmap, rect);
             })
             .unwrap();
 
-        Timer::sleep_async(Duration::from_millis(1000)).await;
+        tsc0 = tsc1;
+        time0 = time1;
     }
 }

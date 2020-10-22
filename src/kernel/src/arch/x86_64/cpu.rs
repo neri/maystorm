@@ -8,35 +8,71 @@ use bitflags::*;
 use bus::pci::*;
 use core::fmt;
 
-#[allow(dead_code)]
+static mut SHARED_CPU: SharedCpu = SharedCpu::new();
+
 pub struct Cpu {
     pub cpu_index: ProcessorIndex,
+    pub cpu_id: ProcessorId,
+    core_type: ProcessorCoreType,
+    tsc_base: u64,
+    #[allow(dead_code)]
     gdt: Box<GlobalDescriptorTable>,
 }
-
-static mut HAS_FEATURE_RDTSCP: bool = false;
 
 extern "C" {
     fn _asm_int_00() -> !;
     fn _asm_int_03() -> !;
     fn _asm_int_06() -> !;
     fn _asm_int_08() -> !;
-    fn _asm_int_0D() -> !;
-    fn _asm_int_0E() -> !;
+    fn _asm_int_0d() -> !;
+    fn _asm_int_0e() -> !;
+}
+
+#[allow(dead_code)]
+struct SharedCpu {
+    has_feature_rdtscp: bool,
+    smt_topology: u32,
+}
+
+impl SharedCpu {
+    const fn new() -> Self {
+        Self {
+            has_feature_rdtscp: false,
+            smt_topology: 0,
+        }
+    }
 }
 
 impl Cpu {
     pub(crate) unsafe fn init() {
-        HAS_FEATURE_RDTSCP = Self::has_feature(Feature::F81D(F81D::RDTSCP));
+        let cpuid0 = Cpu::cpuid(0, 0);
+
+        Self::shared().has_feature_rdtscp = Self::has_feature(Feature::F81D(F81D::RDTSCP));
+
+        if cpuid0.eax() >= 0x1F {
+            let cpuid1f = Cpu::cpuid(0x1F, 0);
+            if (cpuid1f.ecx() & 0xFF00) == 0x0100 {
+                Self::shared().smt_topology = (1 << cpuid1f.eax()) - 1;
+            }
+        } else if cpuid0.eax() >= 0x0B {
+            let cpuid0b = Cpu::cpuid(0x0B, 0);
+            if (cpuid0b.ecx() & 0xFF00) == 0x0100 {
+                Self::shared().smt_topology = (1 << cpuid0b.eax()) - 1;
+            }
+        }
 
         InterruptDescriptorTable::init();
     }
 
     pub(crate) unsafe fn new() -> Box<Self> {
         let gdt = GlobalDescriptorTable::new();
+
         let cpu = Box::new(Cpu {
             cpu_index: ProcessorIndex(0),
+            cpu_id: ProcessorId(0),
+            core_type: ProcessorCoreType::Main,
             gdt,
+            tsc_base: 0,
         });
 
         // Currently force disabling SSE
@@ -47,6 +83,24 @@ impl Cpu {
             ", out(reg) _);
 
         cpu
+    }
+
+    #[inline]
+    pub(super) unsafe fn update_type(&mut self, apicid: ProcessorId) {
+        self.cpu_id = apicid;
+        if (apicid.as_u32() & Self::shared().smt_topology) != 0 {
+            self.core_type = ProcessorCoreType::Sub;
+        }
+    }
+
+    #[inline]
+    pub(super) unsafe fn set_tsc_base(&mut self, value: u64) {
+        self.tsc_base = value;
+    }
+
+    #[inline]
+    fn shared() -> &'static mut SharedCpu {
+        unsafe { &mut SHARED_CPU }
     }
 
     #[inline]
@@ -64,7 +118,7 @@ impl Cpu {
 
     #[inline]
     pub fn has_feature_rdtscp() -> bool {
-        unsafe { HAS_FEATURE_RDTSCP }
+        Self::shared().has_feature_rdtscp
     }
 
     pub fn has_feature(feature: Feature) -> bool {
@@ -86,20 +140,23 @@ impl Cpu {
 
     #[inline]
     pub fn current_processor_index() -> Option<ProcessorIndex> {
-        if true {
+        if false {
             Apic::current_processor_index()
         } else {
-            let mut result: u32;
-            unsafe {
-                asm!(
-                    "rdtscp",
-                    lateout("edx") _,
-                    lateout("eax") _,
-                    lateout("ecx") result,
-                );
-            }
+            let result = unsafe { Self::rdtscp().1 };
             Some(ProcessorIndex(result as usize))
         }
+    }
+
+    #[inline]
+    pub const fn processor_type(&self) -> ProcessorCoreType {
+        self.core_type
+    }
+
+    #[inline]
+    pub fn current_processor_type() -> ProcessorCoreType {
+        let index = Self::current_processor_index().unwrap();
+        System::cpu(index.0).processor_type()
     }
 
     #[inline]
@@ -281,6 +338,38 @@ impl Cpu {
         } else {
             None
         }
+    }
+
+    #[inline]
+    pub fn rdtsc() -> u64 {
+        let eax: u32;
+        let edx: u32;
+        unsafe {
+            asm!("rdtsc", lateout("edx") edx, lateout("eax") eax);
+        }
+        eax as u64 + edx as u64 * 0x10000_0000
+    }
+
+    // SAFETY: Does not check the CPUID feature bit
+    #[inline]
+    pub unsafe fn rdtscp() -> (u64, u32) {
+        let eax: u32;
+        let edx: u32;
+        let ecx: u32;
+        asm!(
+            "rdtscp",
+            lateout("eax") eax,
+            lateout("ecx") ecx,
+            lateout("edx") edx,
+        );
+        (eax as u64 + edx as u64 * 0x10000_0000, ecx)
+    }
+
+    // SAFETY: Does not check the CPUID feature bit
+    #[inline]
+    pub unsafe fn read_tsc() -> u64 {
+        let (tsc_raw, index) = Self::rdtscp();
+        tsc_raw - System::cpu(index as usize).tsc_base
     }
 }
 
@@ -967,11 +1056,11 @@ impl InterruptDescriptorTable {
         );
         Self::register(
             Exception::GeneralProtection.into(),
-            VirtualAddress(_asm_int_0D as usize),
+            VirtualAddress(_asm_int_0d as usize),
         );
         Self::register(
             Exception::PageFault.into(),
-            VirtualAddress(_asm_int_0E as usize),
+            VirtualAddress(_asm_int_0e as usize),
         );
     }
 

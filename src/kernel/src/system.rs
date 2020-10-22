@@ -68,6 +68,12 @@ impl From<usize> for ProcessorId {
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct ProcessorIndex(pub usize);
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum ProcessorCoreType {
+    Main,
+    Sub,
+}
+
 #[repr(transparent)]
 #[derive(Copy, Clone, Default, PartialEq, PartialOrd)]
 pub struct VirtualAddress(pub usize);
@@ -230,6 +236,24 @@ impl System {
     }
 
     #[inline]
+    pub(crate) unsafe fn cpu_mut<'a>(index: usize) -> &'a mut Box<Cpu> {
+        &mut Self::shared().cpus[index]
+    }
+
+    #[inline]
+    pub(crate) unsafe fn sort_cpus<F>(compare: F)
+    where
+        F: FnMut(&Box<Cpu>, &Box<Cpu>) -> core::cmp::Ordering,
+    {
+        Self::shared().cpus.sort_by(compare);
+        let mut i = 0;
+        for cpu in &mut Self::shared().cpus {
+            cpu.cpu_index = ProcessorIndex(i);
+            i += 1;
+        }
+    }
+
+    #[inline]
     #[track_caller]
     pub fn acpi() -> &'static acpi::AcpiTables<MyAcpiHandler> {
         Self::shared().acpi.as_ref().unwrap()
@@ -242,12 +266,9 @@ impl System {
     }
 
     #[inline]
-    pub(crate) unsafe fn activate_cpu(mut new_cpu: Box<Cpu>) -> ProcessorIndex {
+    pub(crate) unsafe fn activate_cpu(new_cpu: Box<Cpu>) {
         let shared = Self::shared();
-        let new_index = ProcessorIndex(shared.cpus.len());
-        new_cpu.cpu_index = new_index;
         shared.cpus.push(new_cpu);
-        new_index
     }
 
     #[inline]
