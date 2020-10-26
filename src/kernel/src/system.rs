@@ -137,46 +137,58 @@ impl System {
         }
     }
 
-    pub fn init(info: &BootInfo, f: fn() -> ()) -> ! {
+    pub unsafe fn init(info: &BootInfo, f: fn() -> ()) -> ! {
+        let shared = &mut SYSTEM;
+        shared.boot_vram = info.vram_base as usize;
+        shared.boot_vram_stride = info.vram_stride as usize;
+        shared.boot_flags = info.flags;
+        // shared.boot_flags.insert(BootFlags::HEADLESS);
+
+        MemoryManager::init_first(&info);
+
+        if System::is_headless() {
+            let uart = arch::Arch::master_uart().unwrap();
+            let stdout = Box::new(Vt100::with_uart(&uart));
+            shared.emergency_console = Some(stdout);
+        } else {
+            let screen = Bitmap::from(info);
+            shared.boot_screen = Some(Box::new(screen));
+            let stdout = Box::new(GraphicalConsole::from(shared.boot_screen.as_ref().unwrap()));
+            shared.emergency_console = Some(stdout);
+        }
+
+        shared.acpi = Some(Box::new(
+            acpi::AcpiTables::from_rsdp(MyAcpiHandler::new(), info.acpi_rsdptr as usize).unwrap(),
+        ));
+
+        let pi = Self::acpi_platform().processor_info.unwrap();
+        shared.num_of_cpus = pi.application_processors.len() + 1;
+        shared.cpus.reserve(shared.num_of_cpus);
+        shared
+            .cpus
+            .push(Cpu::new(ProcessorId(pi.boot_processor.local_apic_id)));
+
+        arch::Arch::init();
+
+        bus::pci::Pci::init();
+
+        MyScheduler::start(Self::init_late, f as *const c_void as usize);
+    }
+
+    fn init_late(args: usize) {
+        let shared = Self::shared();
         unsafe {
-            let shared = &mut SYSTEM;
-            shared.boot_vram = info.vram_base as usize;
-            shared.boot_vram_stride = info.vram_stride as usize;
-            shared.boot_flags = info.flags;
-            // shared.boot_flags.insert(BootFlags::HEADLESS);
+            MemoryManager::init_late();
 
-            MemoryManager::init_first(&info);
-
-            if System::is_headless() {
-                let uart = arch::Arch::master_uart().unwrap();
-                let stdout = Box::new(Vt100::with_uart(&uart));
-                shared.emergency_console = Some(stdout);
-            } else {
-                let screen = Bitmap::from(info);
-                shared.boot_screen = Some(Box::new(screen));
-                let stdout = Box::new(GraphicalConsole::from(shared.boot_screen.as_ref().unwrap()));
-                shared.emergency_console = Some(stdout);
+            if let Some(main_screen) = shared.boot_screen.as_ref() {
+                io::fonts::FontManager::init();
+                window::WindowManager::init(main_screen);
             }
 
-            shared.acpi = Some(Box::new(
-                acpi::AcpiTables::from_rsdp(MyAcpiHandler::new(), info.acpi_rsdptr as usize)
-                    .unwrap(),
-            ));
+            io::hid::HidManager::init();
+            arch::Arch::init_late();
 
-            shared.num_of_cpus = Self::acpi_platform()
-                .processor_info
-                .unwrap()
-                .application_processors
-                .len()
-                + 1;
-            shared.cpus.reserve(shared.num_of_cpus);
-            shared.cpus.push(Cpu::new());
-
-            arch::Arch::init();
-
-            bus::pci::Pci::init();
-
-            MyScheduler::start(Self::init_late, f as *const c_void as usize);
+            user::userenv::UserEnv::start(core::mem::transmute(args));
         }
     }
 
@@ -193,25 +205,6 @@ impl System {
                 vram.add(DEBUG_PTR).write_volatile(0xCCCCCC);
                 DEBUG_PTR += 4;
             }
-        }
-    }
-
-    fn init_late(args: usize) {
-        let shared = Self::shared();
-        unsafe {
-            MemoryManager::init_late();
-
-            io::fonts::FontManager::init();
-
-            if let Some(main_screen) = shared.boot_screen.as_ref() {
-                window::WindowManager::init(main_screen);
-            }
-
-            io::hid::HidManager::init();
-            arch::Arch::init_late();
-
-            let f: fn() = core::mem::transmute(args);
-            f();
         }
     }
 

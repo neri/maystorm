@@ -202,6 +202,7 @@ impl MouseState {
 
 pub struct HidManager {
     key_buf: ArrayQueue<KeyEvent>,
+    _phantom: (),
 }
 
 static mut HID_MANAGER: Option<Box<HidManager>> = None;
@@ -216,6 +217,7 @@ impl HidManager {
     fn new() -> Self {
         HidManager {
             key_buf: ArrayQueue::new(63),
+            _phantom: (),
         }
     }
 

@@ -108,16 +108,51 @@ impl Bitmap {
         }
         let bpp = LE::read_u16(&dib[0x1C..0x1E]) as usize;
         match bpp {
-            24 | 32 => (),
+            4 | 8 | 24 | 32 => (),
             _ => return None,
         }
         let offset = LE::read_u32(&dib[0x0A..0x0E]) as usize;
+        let pal_offset = LE::read_u32(&dib[0x0E..0x12]) as usize + 0x0E;
         let width = LE::read_u32(&dib[0x12..0x16]) as usize;
         let height = LE::read_u32(&dib[0x16..0x1A]) as usize;
-        let bpp8 = bpp / 8;
+        let pal_len = LE::read_u32(&dib[0x2E..0x32]) as usize;
+        let bpp8 = (bpp + 7) / 8;
         let stride = (width * bpp8 + 3) & !3;
         let mut bits = Vec::with_capacity(width * height);
         match bpp {
+            4 => {
+                let palette = &dib[pal_offset..pal_offset + pal_len * 4];
+                let width2_f = width / 2;
+                let width2_c = (width + 1) / 2;
+                let stride = (width2_c + 3) & !3;
+                for y in 0..height {
+                    let mut src = offset + (height - y - 1) * stride;
+                    for _ in 0..width2_f {
+                        let c4 = dib[src] as usize;
+                        let cl = c4 >> 4;
+                        let cr = c4 & 0x0F;
+                        bits.push(Color::from_rgb(LE::read_u32(&palette[cl * 4..cl * 4 + 4])));
+                        bits.push(Color::from_rgb(LE::read_u32(&palette[cr * 4..cr * 4 + 4])));
+                        src += bpp8;
+                    }
+                    if width2_f < width2_c {
+                        let c4 = dib[src] as usize;
+                        let cl = c4 >> 4;
+                        bits.push(Color::from_rgb(LE::read_u32(&palette[cl * 4..cl * 4 + 4])));
+                    }
+                }
+            }
+            8 => {
+                let palette = &dib[pal_offset..pal_offset + pal_len * 4];
+                for y in 0..height {
+                    let mut src = offset + (height - y - 1) * stride;
+                    for _ in 0..width {
+                        let ic = dib[src] as usize;
+                        bits.push(Color::from_rgb(LE::read_u32(&palette[ic * 4..ic * 4 + 4])));
+                        src += bpp8;
+                    }
+                }
+            }
             24 => {
                 for y in 0..height {
                     let mut src = offset + (height - y - 1) * stride;
@@ -526,15 +561,18 @@ impl Bitmap {
                 }
                 let cursor = dx as usize + dy as usize * self.stride();
                 let lhs = fb[cursor].components();
-                let c = lhs
-                    .blend_color(
+                let c = if lhs.a == 0 {
+                    color.into()
+                } else {
+                    lhs.blend_color(
                         color,
                         |lhs, rhs| {
                             (((lhs as usize) * alpha_n + (rhs as usize) * alpha) / 255) as u8
                         },
                         |a, b| a.saturating_add(b),
                     )
-                    .into();
+                    .into()
+                };
                 fb[cursor] = c;
             }
         }
@@ -911,41 +949,7 @@ impl Bitmap {
     }
 
     pub fn draw_line(&self, c0: Point<isize>, c1: Point<isize>, color: Color) {
-        let d = Point::new(
-            if c1.x > c0.x {
-                c1.x - c0.x
-            } else {
-                c0.x - c1.x
-            },
-            if c1.y > c0.y {
-                c1.y - c0.y
-            } else {
-                c0.y - c1.y
-            },
-        );
-
-        let s = Point::new(
-            if c1.x > c0.x { 1 } else { -1 },
-            if c1.y > c0.y { 1 } else { -1 },
-        );
-
-        let mut c0 = c0;
-        let mut e = d.x - d.y;
-        loop {
-            self.draw_pixel(c0, color);
-            if c0.x == c1.x && c0.y == c1.y {
-                break;
-            }
-            let e2 = 2 * e;
-            if e2 > -d.y {
-                e -= d.y;
-                c0.x += s.x;
-            }
-            if e2 < d.x {
-                e += d.x;
-                c0.y += s.y;
-            }
-        }
+        c0.line_to(c1, |point| self.draw_pixel(point, color));
     }
 
     #[allow(dead_code)]
@@ -1003,7 +1007,7 @@ impl<'a> AttributedString<'a> {
         Self {
             text,
             font: FontManager::system_font(),
-            color: Color::BLACK,
+            color: IndexedColor::Black.into(),
         }
     }
 
@@ -1198,42 +1202,9 @@ impl<View: BitmapView> OperationalBitmap<View> {
     where
         F: FnMut(&mut OperationalBitmap<Restricted>, Point<isize>),
     {
-        let d = Point::new(
-            if c1.x > c0.x {
-                c1.x - c0.x
-            } else {
-                c0.x - c1.x
-            },
-            if c1.y > c0.y {
-                c1.y - c0.y
-            } else {
-                c0.y - c1.y
-            },
-        );
-
-        let s = Point::new(
-            if c1.x > c0.x { 1 } else { -1 },
-            if c1.y > c0.y { 1 } else { -1 },
-        );
-
-        let mut c0 = c0;
-        let mut e = d.x - d.y;
-        loop {
-            f(unsafe { core::mem::transmute(&mut *self) }, c0);
-
-            if c0.x == c1.x && c0.y == c1.y {
-                break;
-            }
-            let e2 = 2 * e;
-            if e2 > -d.y {
-                e -= d.y;
-                c0.x += s.x;
-            }
-            if e2 < d.x {
-                e += d.x;
-                c0.y += s.y;
-            }
-        }
+        c0.line_to(c1, |point| {
+            f(unsafe { core::mem::transmute(&mut *self) }, point)
+        });
     }
 }
 

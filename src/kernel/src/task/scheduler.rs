@@ -57,6 +57,7 @@ pub enum SchedulerState {
 }
 
 impl MyScheduler {
+    /// Start thread scheduler and sleep forver
     pub(crate) fn start(f: fn(usize) -> (), args: usize) -> ! {
         const SIZE_OF_URGENT_QUEUE: usize = 512;
         const SIZE_OF_MAIN_QUEUE: usize = 512;
@@ -87,13 +88,13 @@ impl MyScheduler {
             sch.locals.push(LocalScheduler::new(ProcessorIndex(index)));
         }
 
-        SpawnOption::new().priority(Priority::Realtime).spawn(
+        SpawnOption::with_priority(Priority::Realtime).spawn(
             Self::scheduler_thread,
             0,
             "Scheduler",
         );
 
-        SpawnOption::new().spawn(f, args, "Kernel Task");
+        SpawnOption::with_priority(Priority::High).spawn(f, args, "init");
 
         SCHEDULER_ENABLED.store(true, Ordering::SeqCst);
 
@@ -111,17 +112,17 @@ impl MyScheduler {
     }
 
     /// Get the current process if possible
-    pub fn current_pid() -> ProcessId {
+    pub fn current_pid() -> Option<ProcessId> {
         if Self::is_enabled() {
-            Self::current_thread().as_ref().pid
+            Self::current_thread().map(|thread| thread.as_ref().pid)
         } else {
-            ProcessId(0)
+            None
         }
     }
 
     /// Get the current thread running on the current processor
-    pub fn current_thread() -> ThreadHandle {
-        Self::local_scheduler().current_thread()
+    pub fn current_thread() -> Option<ThreadHandle> {
+        Self::local_scheduler().map(|sch| sch.current_thread())
     }
 
     /// Acquire the next thread id
@@ -136,18 +137,16 @@ impl MyScheduler {
     }
 
     /// Perform the preemption
-    pub(crate) fn reschedule() {
+    pub(crate) unsafe fn reschedule() {
         if Self::is_enabled() {
-            unsafe {
-                Cpu::without_interrupts(|| {
-                    let lsch = Self::local_scheduler();
-                    if lsch.current.as_ref().priority != Priority::Realtime {
-                        if lsch.current.update(|current| current.quantum.consume()) {
-                            LocalScheduler::switch_context(lsch);
-                        }
+            Cpu::without_interrupts(|| {
+                let lsch = Self::local_scheduler().unwrap();
+                if lsch.current.as_ref().priority != Priority::Realtime {
+                    if lsch.current.update(|current| current.quantum.consume()) {
+                        LocalScheduler::switch_context(lsch);
                     }
-                });
-            }
+                }
+            });
         }
     }
 
@@ -155,7 +154,7 @@ impl MyScheduler {
     pub fn wait_for(object: Option<&SignallingObject>, duration: Duration) {
         unsafe {
             Cpu::without_interrupts(|| {
-                let lsch = Self::local_scheduler();
+                let lsch = Self::local_scheduler().unwrap();
                 let current = lsch.current;
                 if let Some(object) = object {
                     let _ = object.set(current);
@@ -176,11 +175,13 @@ impl MyScheduler {
 
     /// Get the scheduler for the current processor
     #[inline]
-    #[track_caller]
-    fn local_scheduler() -> &'static mut LocalScheduler {
-        let sch = Self::shared();
-        let cpu_index = Cpu::current_processor_index().unwrap();
-        sch.locals.get_mut(cpu_index.0).unwrap()
+    fn local_scheduler() -> Option<&'static mut Box<LocalScheduler>> {
+        match unsafe { SCHEDULER.as_mut() } {
+            Some(sch) => {
+                Cpu::current_processor_index().and_then(move |index| sch.locals.get_mut(index.0))
+            }
+            None => None,
+        }
     }
 
     // Get Next Thread from queue
@@ -189,7 +190,7 @@ impl MyScheduler {
         if sch.is_frozen.load(Ordering::SeqCst) {
             return None;
         }
-        if Self::shared().state < SchedulerState::FullThrottle
+        if sch.state < SchedulerState::FullThrottle
             && System::cpu(index.0).processor_type() != ProcessorCoreType::Main
         {
             return None;
@@ -296,12 +297,12 @@ impl MyScheduler {
         Ok(())
     }
 
-    pub fn spawn_f(start: ThreadStart, args: usize, name: &str, options: SpawnOption) {
+    fn spawn_f(start: ThreadStart, args: usize, name: &str, options: SpawnOption) {
         assert!(options.priority.useful());
         let pid = if options.raise_pid {
             Self::next_pid()
         } else {
-            Self::current_pid()
+            Self::current_pid().unwrap_or(ProcessId(0))
         };
         let thread = RawThread::new(pid, options.priority, name, Some(start), args);
         Self::retire(thread);
@@ -411,7 +412,7 @@ impl LocalScheduler {
             );
             //-//-//-//-//
 
-            let lsch = MyScheduler::local_scheduler();
+            let lsch = MyScheduler::local_scheduler().unwrap();
             let current = lsch.current;
             current.update(|thread| {
                 thread.measure.store(Timer::measure(), Ordering::SeqCst);
@@ -431,7 +432,7 @@ impl LocalScheduler {
 
 #[no_mangle]
 pub unsafe extern "C" fn sch_setup_new_thread() {
-    let lsch = MyScheduler::local_scheduler();
+    let lsch = MyScheduler::local_scheduler().unwrap();
     let current = lsch.current;
     current.update(|thread| {
         thread.measure.store(Timer::measure(), Ordering::SeqCst);
@@ -729,6 +730,14 @@ impl ThreadHandle {
         let shared = ThreadPool::shared();
         shared.get(self).as_ref().unwrap()
     }
+
+    pub fn name(&self) -> Option<&str> {
+        self.as_ref().name()
+    }
+
+    pub fn id(&self) -> ThreadId {
+        self.as_ref().id
+    }
 }
 
 const SIZE_OF_CONTEXT: usize = 512;
@@ -803,7 +812,7 @@ impl RawThread {
             array[i] = c;
             i += 1;
         }
-        array[0] = i as u8;
+        array[0] = i as u8 - 1;
     }
 
     fn set_name(&mut self, name: &str) {
@@ -827,7 +836,9 @@ impl SignallingObject {
     const NONE: usize = 0;
 
     pub fn new() -> Self {
-        Self(AtomicUsize::new(MyScheduler::current_thread().as_usize()))
+        Self(AtomicUsize::new(
+            MyScheduler::current_thread().unwrap().as_usize(),
+        ))
     }
 
     pub fn set(&self, value: ThreadHandle) -> Result<(), ()> {

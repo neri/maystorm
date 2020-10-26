@@ -11,7 +11,6 @@ pub struct Color {
 
 impl Color {
     pub const TRANSPARENT: Self = Self::zero();
-    pub const BLACK: Self = Self::from_rgb(0x000000);
     pub const WHITE: Self = Self::from_rgb(0xFFFFFF);
 
     #[inline]
@@ -96,10 +95,10 @@ impl Color {
     #[inline]
     pub fn blend(self, other: Self) -> Self {
         let c = other.components();
-        let alpha_l = c.a;
+        let alpha_l = c.a as usize;
         let alpha_r = 255 - alpha_l;
         c.blend_each(self.components(), |a, b| {
-            ((a as usize * alpha_l as usize + b as usize * alpha_r as usize) / 255) as u8
+            ((a as usize * alpha_l + b as usize * alpha_r) / 255) as u8
         })
         .into()
     }

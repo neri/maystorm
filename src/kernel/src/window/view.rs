@@ -515,7 +515,7 @@ impl<'a> Button<'a> {
             title_insets: EdgeInsets::new(4, 16, 4, 16),
             button_type,
         });
-        button.set_corner_radius(8);
+        button.set_corner_radius(4);
         button.set_button_type(button_type);
         button.title_label.set_font(FontManager::label_font());
 
@@ -540,9 +540,9 @@ impl<'a> Button<'a> {
                 self.set_border_color(Color::TRANSPARENT);
             }
             ButtonType::Normal => {
-                self.set_background_color(Color::WHITE);
-                self.set_tint_color(IndexedColor::DarkGray.into());
-                self.set_border_color(IndexedColor::DarkGray.into());
+                self.set_background_color(IndexedColor::LightGray.into());
+                self.set_tint_color(Color::WHITE);
+                self.set_border_color(Color::TRANSPARENT);
             }
         }
     }

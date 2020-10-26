@@ -24,6 +24,8 @@ pub mod num;
 pub mod sync;
 pub mod system;
 pub mod task;
+pub mod user;
+pub mod uuid;
 pub mod window;
 
 use crate::arch::cpu::Cpu;
@@ -97,6 +99,13 @@ fn panic(info: &PanicInfo) -> ! {
     let stdout = stdout();
     stdout.set_cursor_enabled(false);
     // stdout.set_attribute(0x17);
+    if let Some(thread) = MyScheduler::current_thread() {
+        if let Some(name) = thread.name() {
+            print!("thread '{}' ", name);
+        } else {
+            print!("thread {} ", thread.id().0);
+        }
+    }
     println!("{}", info);
     unsafe {
         let _ = MyScheduler::freeze(true);

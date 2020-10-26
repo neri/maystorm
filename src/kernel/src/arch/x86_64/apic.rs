@@ -37,10 +37,8 @@ static mut GLOBALLOCK: Spinlock = Spinlock::new();
 #[no_mangle]
 pub unsafe extern "C" fn apic_start_ap() {
     let apic_id = GLOBALLOCK.synchronized(|| {
-        let mut new_cpu = Cpu::new();
         let apic_id = LocalApic::init_ap();
-        new_cpu.as_mut().update_type(apic_id);
-        System::activate_cpu(new_cpu);
+        System::activate_cpu(Cpu::new(apic_id));
 
         apic_id
     });
@@ -117,7 +115,7 @@ impl Apic {
             };
         }
 
-        // import gsi table from ACPI
+        // import GSI table from ACPI
         for source in &acpi_apic.interrupt_source_overrides {
             let props = GsiProps {
                 global_irq: Irq(source.global_system_interrupt as u8),
@@ -471,10 +469,12 @@ impl LocalApic {
         apicid
     }
 
+    #[track_caller]
     unsafe fn read(&self) -> u32 {
         LOCAL_APIC.as_ref().unwrap().read_u32(*self as usize)
     }
 
+    #[track_caller]
     unsafe fn write(&self, val: u32) {
         LOCAL_APIC.as_ref().unwrap().write_u32(*self as usize, val);
     }

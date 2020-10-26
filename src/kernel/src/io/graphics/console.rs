@@ -19,7 +19,7 @@ static DEFAULT_WINDOW_OPACITY: NonZeroU8 = unsafe { NonZeroU8::new_unchecked(0xE
 // static DEFAULT_WINDOW_ATTRIBUTE: NonZeroU8 = unsafe { NonZeroU8::new_unchecked(0xF8) };
 // static DEFAULT_WINDOW_OPACITY: NonZeroU8 = unsafe { NonZeroU8::new_unchecked(0xFF) };
 
-static DEFAULT_CONSOLE_INSETS: EdgeInsets<isize> = EdgeInsets::padding_all(4);
+static DEFAULT_CONSOLE_INSETS: EdgeInsets<isize> = EdgeInsets::padding_each(4);
 
 pub struct GraphicalConsole<'a> {
     handle: Option<WindowHandle>,
@@ -226,11 +226,7 @@ impl TtyWrite for GraphicalConsole<'_> {
         self.set_cursor_position(0, 0);
 
         if let Some(window) = self.window() {
-            window
-                .draw(|bitmap| {
-                    bitmap.fill_rect(bitmap.bounds(), self.bg_color());
-                })
-                .unwrap();
+            window.set_bg_color(self.bg_color());
         } else {
             self.bitmap.reset();
         }

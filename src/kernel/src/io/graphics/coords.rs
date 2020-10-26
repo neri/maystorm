@@ -16,6 +16,69 @@ impl<T: Number> Point<T> {
     pub const fn new(x: T, y: T) -> Self {
         Point { x, y }
     }
+
+    #[inline]
+    pub const fn x(&self) -> T {
+        self.x
+    }
+
+    #[inline]
+    pub const fn y(&self) -> T {
+        self.y
+    }
+
+    pub fn line_to<F>(&self, other: Point<T>, mut f: F)
+    where
+        T: Into<isize> + From<isize>,
+        F: FnMut(Self),
+    {
+        let c0 = *self;
+        let c1 = other;
+
+        let d = Point::new(
+            if c1.x > c0.x {
+                c1.x - c0.x
+            } else {
+                c0.x - c1.x
+            },
+            if c1.y > c0.y {
+                c1.y - c0.y
+            } else {
+                c0.y - c1.y
+            },
+        );
+
+        let s = Self::new(
+            if c1.x > c0.x {
+                T::one()
+            } else {
+                T::zero() - T::one()
+            },
+            if c1.y > c0.y {
+                T::one()
+            } else {
+                T::zero() - T::one()
+            },
+        );
+
+        let mut c0 = c0;
+        let mut e = d.x - d.y;
+        loop {
+            f(c0);
+            if c0.x == c1.x && c0.y == c1.y {
+                break;
+            }
+            let e2 = e * T::from(2);
+            if e2 > T::zero() - d.y {
+                e -= d.y;
+                c0.x += s.x;
+            }
+            if e2 < d.x {
+                e += d.x;
+                c0.y += s.y;
+            }
+        }
+    }
 }
 
 impl<T: Number + fmt::Display> fmt::Display for Point<T> {
@@ -122,6 +185,16 @@ impl<T: Number> Size<T> {
     #[inline]
     pub const fn new(width: T, height: T) -> Self {
         Size { width, height }
+    }
+
+    #[inline]
+    pub const fn width(&self) -> T {
+        self.width
+    }
+
+    #[inline]
+    pub const fn height(&self) -> T {
+        self.height
     }
 }
 
@@ -467,7 +540,7 @@ impl<T: Number> EdgeInsets<T> {
     }
 
     #[inline]
-    pub const fn padding_all(value: T) -> Self {
+    pub const fn padding_each(value: T) -> Self {
         Self {
             top: value,
             left: value,

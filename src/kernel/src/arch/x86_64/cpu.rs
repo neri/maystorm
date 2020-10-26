@@ -64,13 +64,20 @@ impl Cpu {
         InterruptDescriptorTable::init();
     }
 
-    pub(crate) unsafe fn new() -> Box<Self> {
+    pub(crate) unsafe fn new(apic_id: ProcessorId) -> Box<Self> {
         let gdt = GlobalDescriptorTable::new();
+
+        let core_type;
+        if (apic_id.as_u32() & Self::shared().smt_topology) != 0 {
+            core_type = ProcessorCoreType::Sub;
+        } else {
+            core_type = ProcessorCoreType::Main;
+        }
 
         let cpu = Box::new(Cpu {
             cpu_index: ProcessorIndex(0),
-            cpu_id: ProcessorId(0),
-            core_type: ProcessorCoreType::Main,
+            cpu_id: apic_id,
+            core_type,
             gdt,
             tsc_base: 0,
         });
@@ -83,14 +90,6 @@ impl Cpu {
             ", out(reg) _);
 
         cpu
-    }
-
-    #[inline]
-    pub(super) unsafe fn update_type(&mut self, apicid: ProcessorId) {
-        self.cpu_id = apicid;
-        if (apicid.as_u32() & Self::shared().smt_topology) != 0 {
-            self.core_type = ProcessorCoreType::Sub;
-        }
     }
 
     #[inline]
@@ -143,8 +142,7 @@ impl Cpu {
         if false {
             Apic::current_processor_index()
         } else {
-            let result = unsafe { Self::rdtscp().1 };
-            Some(ProcessorIndex(result as usize))
+            Some(ProcessorIndex(unsafe { Self::rdtscp().1 } as usize))
         }
     }
 

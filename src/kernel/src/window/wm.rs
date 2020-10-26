@@ -25,7 +25,6 @@ const WINDOW_BORDER_PADDING: isize = 0;
 const WINDOW_BORDER_SHADOW_PADDING: isize = 8;
 const WINDOW_TITLE_HEIGHT: isize = 24;
 
-const DESKTOP_COLOR: Color = Color::from_argb(0xFF2196F3);
 const BARRIER_COLOR: Color = Color::from_argb(0x80000000);
 const WINDOW_ACTIVE_TITLE_BG_COLOR: Color = Color::from_argb(0xF0E0E0E0);
 const WINDOW_ACTIVE_TITLE_FG_COLOR: Color = Color::from_argb(0xFF212121);
@@ -109,6 +108,7 @@ struct Resources {
 
 impl WindowManager {
     pub(crate) fn init(main_screen: &'static Box<Bitmap>) {
+        main_screen.reset();
         let off_screen = Box::new(Bitmap::with_same_size(main_screen));
 
         let close_button = {
@@ -176,7 +176,7 @@ impl WindowManager {
                     .style(WindowStyle::NAKED)
                     .level(WindowLevel::ROOT)
                     .frame(Rect::from(main_screen.size()))
-                    .bg_color(DESKTOP_COLOR)
+                    .bg_color(Color::from_rgb(0x000000))
                     .no_bitmap()
                     .build(),
             );
@@ -207,7 +207,6 @@ impl WindowManager {
                 })
                 .unwrap();
 
-            pointer.show();
             shared.pointer = Some(pointer);
         }
 
@@ -224,39 +223,23 @@ impl WindowManager {
             );
         }
 
-        // If uncomment, you can use the wallpaper (experimental)
-        // {
-        //     let data = include_bytes!("wall.bmp");
-        //     let wallpaper = Bitmap::from_msdib(data).unwrap();
-        //     let window = WindowBuilder::new("wall")
-        //         .style(WindowStyle::NAKED)
-        //         .level(WindowLevel::DESKTOP_ITEMS)
-        //         .size(wallpaper.size())
-        //         .center()
-        //         .build();
-        //     window
-        //         .draw(|bitmap| {
-        //             bitmap.blt(
-        //                 &wallpaper,
-        //                 Point::zero(),
-        //                 wallpaper.size().into(),
-        //                 BltOption::empty(),
-        //             );
-        //         })
-        //         .unwrap();
-        //     window.show();
-        // }
-
         SpawnOption::with_priority(Priority::High).spawn(Self::winmgr_thread, 0, "Window Manager");
     }
 
     /// Window Manager Thread
     fn winmgr_thread(_: usize) {
         let shared = WindowManager::shared();
-        shared.root.unwrap().invalidate();
+
         loop {
             let _ = shared.sem_redraw.wait(Duration::from_millis(1000));
 
+            if shared
+                .attributes
+                .test_and_clear(WindowManagerAttributes::NEEDS_REDRAW)
+            {
+                let desktop = shared.root.unwrap();
+                desktop.as_ref().draw_to_screen(desktop.frame(), true);
+            }
             if shared
                 .attributes
                 .test_and_clear(WindowManagerAttributes::MOUSE_MOVE)
@@ -265,7 +248,7 @@ impl WindowManager {
                 let current_button =
                     MouseButton::from_bits_truncate(shared.buttons.load(Ordering::Acquire) as u8);
                 let button_pressed = MouseButton::from_bits_truncate(
-                    shared.button_pressed.swap(0, Ordering::AcqRel) as u8,
+                    shared.button_pressed.swap(0, Ordering::SeqCst) as u8,
                 );
 
                 if let Some(captured) = shared.captured {
@@ -444,13 +427,11 @@ impl WindowManager {
             old_active.as_ref().draw_frame();
             old_active.invalidate();
             if let Some(active) = window {
-                // active.as_ref().draw_frame();
                 active.show();
             }
         } else {
             shared.active = window;
             if let Some(active) = window {
-                // active.as_ref().draw_frame();
                 active.show();
             }
         }
@@ -538,6 +519,18 @@ impl WindowManager {
             .insert(WindowManagerAttributes::MOUSE_MOVE);
         shared.sem_redraw.signal();
     }
+
+    pub fn set_desktop_color(color: Color) {
+        Self::shared().root.unwrap().set_bg_color(color);
+    }
+
+    pub fn set_pointer_visible(visible: bool) {
+        if visible {
+            Self::shared().pointer.unwrap().show();
+        } else {
+            Self::shared().pointer.unwrap().hide();
+        }
+    }
 }
 
 #[derive(Default)]
@@ -547,6 +540,7 @@ struct WindowManagerAttributes(AtomicUsize);
 impl WindowManagerAttributes {
     pub const EMPTY: Self = Self::new(0);
     pub const MOUSE_MOVE: usize = 0b0000_0001;
+    pub const NEEDS_REDRAW: usize = 0b0000_0010;
 
     #[inline]
     pub const fn new(value: usize) -> Self {
@@ -581,20 +575,28 @@ impl WindowManagerAttributes {
     }
 }
 
+/// Raw implementation of the window
 #[allow(dead_code)]
 struct RawWindow {
+    /// Refer to the self owned handle
     handle: WindowHandle,
-    next: Option<WindowHandle>,
+
     frame: Rect<isize>,
     shadow_insets: EdgeInsets<isize>,
     content_insets: EdgeInsets<isize>,
+
     attributes: WindowAttributes,
     style: WindowStyle,
     level: WindowLevel,
+
     bg_color: Color,
     bitmap: Option<Box<Bitmap>>,
     view: Option<Box<dyn ViewTrait>>,
+
     title: [u8; WINDOW_TITLE_LENGTH],
+
+    // TODO:
+    next: Option<WindowHandle>,
 }
 
 bitflags! {
@@ -613,7 +615,7 @@ bitflags! {
 impl WindowStyle {
     fn as_content_insets(self) -> EdgeInsets<isize> {
         let mut insets = if self.contains(Self::BORDER) {
-            EdgeInsets::padding_all(WINDOW_BORDER_PADDING)
+            EdgeInsets::padding_each(WINDOW_BORDER_PADDING)
         } else {
             EdgeInsets::zero()
         };
@@ -786,7 +788,7 @@ impl RawWindow {
                 let q = WINDOW_BORDER_SHADOW_PADDING;
                 let rect = Rect::from(bitmap.size());
                 for n in 0..q {
-                    let rect = rect.insets_by(EdgeInsets::padding_all(n));
+                    let rect = rect.insets_by(EdgeInsets::padding_each(n));
                     let light = 1 + n as u8;
                     let color = Color::TRANSPARENT.set_opacity(light * light);
                     bitmap.draw_rect(rect, color);
@@ -897,7 +899,7 @@ impl RawWindow {
             array[i] = c;
             i += 1;
         }
-        array[0] = i as u8;
+        array[0] = i as u8 - 1;
     }
 
     fn set_title(&mut self, title: &str) {
@@ -959,7 +961,7 @@ impl WindowBuilder {
         let screen_bounds =
             WindowManager::main_screen_bounds().insets_by(WindowManager::shared().screen_insets);
         let shadow_insets = if self.style.contains(WindowStyle::BORDER) {
-            EdgeInsets::padding_all(WINDOW_BORDER_SHADOW_PADDING)
+            EdgeInsets::padding_each(WINDOW_BORDER_SHADOW_PADDING)
         } else {
             EdgeInsets::zero()
         };
@@ -1126,6 +1128,7 @@ impl WindowHandle {
         });
         if let Some(bitmap) = self.bitmap() {
             bitmap.fill_rect(bitmap.bounds(), color);
+            self.as_ref().draw_frame();
         }
         self.invalidate();
     }
@@ -1177,7 +1180,8 @@ impl WindowHandle {
             WindowManager::add_hierarchy(self);
         });
         self.as_ref().draw_frame();
-        self.invalidate();
+        self.update(|window| window.invalidate(false));
+        // self.invalidate();
     }
 
     pub fn hide(self) {
@@ -1207,7 +1211,12 @@ impl WindowHandle {
 
     #[inline]
     pub fn invalidate(self) {
-        self.update(|window| window.invalidate(false));
+        let shared = WindowManager::shared();
+        shared
+            .attributes
+            .insert(WindowManagerAttributes::NEEDS_REDRAW);
+        shared.sem_redraw.signal();
+        // self.update(|window| window.invalidate(false));
     }
 
     pub fn draw<F>(self, f: F) -> Result<(), WindowDrawingError>
