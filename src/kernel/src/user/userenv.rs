@@ -47,7 +47,7 @@ impl UserEnv {
                 );
 
                 let window = WindowBuilder::new("")
-                    .style(WindowStyle::NAKED | WindowStyle::TRANSPARENT)
+                    .style(WindowStyle::NAKED)
                     .size(size)
                     .bg_color(Color::TRANSPARENT)
                     .build();
@@ -94,7 +94,8 @@ impl UserEnv {
                 // Main Terminal
                 let (console, window) = GraphicalConsole::new(
                     "Terminal",
-                    (80, 24),
+                    // (80, 24),
+                    (40, 10),
                     FontManager::fixed_system_font(),
                     0,
                     0,
@@ -219,8 +220,6 @@ async fn activity_monitor_main() {
     let graph_main_color = IndexedColor::Yellow.into();
     let graph_border_color = IndexedColor::LightGray.into();
 
-    // Timer::sleep_async(Duration::from_millis(2000)).await;
-
     let window = WindowBuilder::new("Activity Monitor")
         .style_add(WindowStyle::NAKED | WindowStyle::FLOATING | WindowStyle::PINCHABLE)
         .frame(Rect::new(-330, -180, 320, 150))
@@ -315,13 +314,23 @@ async fn activity_monitor_main() {
                 }
 
                 sb.clear();
-                let hz = (tsc1 - tsc0) / (time1 - time0) / 10;
+                let hz = ((tsc1 - tsc0) / (time1 - time0) + 5) / 10;
                 let hz0 = hz % 100;
                 let hz1 = hz / 100;
                 let usage = MyScheduler::usage_per_cpu();
                 let usage0 = usage % 10;
                 let usage1 = usage / 10;
-                write!(sb, "CPU: {}.{:02} GHz {:3}.{}%", hz1, hz0, usage1, usage0,).unwrap();
+                write!(
+                    sb,
+                    "CPU: {}.{:02} GHz {:3}.{}% {} Cores {} Threads",
+                    hz1,
+                    hz0,
+                    usage1,
+                    usage0,
+                    System::num_of_physical_cpus(),
+                    System::num_of_cpus(),
+                )
+                .unwrap();
                 let rect = bitmap.bounds().insets_by(EdgeInsets::new(38, 4, 4, 4));
                 ats.set_text(sb.as_str());
                 ats.draw(&bitmap, rect);

@@ -70,8 +70,8 @@ pub struct ProcessorIndex(pub usize);
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ProcessorCoreType {
-    Main,
-    Sub,
+    Physical,
+    Logical,
 }
 
 #[repr(transparent)]
@@ -108,6 +108,7 @@ pub struct PhysicalAddress(pub usize);
 
 pub struct System {
     num_of_cpus: usize,
+    num_of_physical_cpus: usize,
     cpus: Vec<Box<Cpu>>,
     acpi: Option<Box<acpi::AcpiTables<MyAcpiHandler>>>,
     boot_flags: BootFlags,
@@ -125,6 +126,7 @@ impl System {
     const fn new() -> Self {
         System {
             num_of_cpus: 0,
+            num_of_physical_cpus: 1,
             cpus: Vec::new(),
             acpi: None,
             boot_flags: BootFlags::empty(),
@@ -208,19 +210,66 @@ impl System {
         }
     }
 
+    /// Returns an internal shared instance
     #[inline]
     fn shared() -> &'static mut System {
         unsafe { &mut SYSTEM }
     }
 
+    /// Returns the name of current system.
+    #[inline]
+    pub const fn name() -> &'static str {
+        &Version::SYSTEM_NAME
+    }
+
+    /// Returns the version of current system.
+    #[inline]
+    pub const fn version() -> &'static Version {
+        &Version::VERSION
+    }
+
+    /// Returns the current system time.
+    #[inline]
+    pub fn system_time() -> SystemTime {
+        arch::Arch::system_time()
+    }
+
+    /// Returns whether the current system is in headless mode.
+    #[inline]
+    pub fn is_headless() -> bool {
+        Self::shared().boot_flags.contains(BootFlags::HEADLESS)
+    }
+
+    /// Returns the number of logical CPU cores.
     #[inline]
     pub fn num_of_cpus() -> usize {
         Self::shared().num_of_cpus
     }
 
+    /// Returns the number of physical CPU cores.
+    /// Returns less than `num_of_cpus` on SMT enabled processors.
+    #[inline]
+    pub fn num_of_physical_cpus() -> usize {
+        Self::shared().num_of_physical_cpus
+    }
+
+    /// Returns the number of active logical CPU cores.
+    /// Returns the same value as `num_of_cpus` except during SMP initialization.
     #[inline]
     pub fn num_of_active_cpus() -> usize {
         Self::shared().cpus.len()
+    }
+
+    /// Add SMP-initialized CPU cores to the list of enabled cores.
+    ///
+    /// SAFETY: THREAD UNSAFE. DO NOT CALL IT EXCEPT FOR SMP INITIALIZATION.
+    #[inline]
+    pub(crate) unsafe fn activate_cpu(new_cpu: Box<Cpu>) {
+        let shared = Self::shared();
+        if new_cpu.processor_type() == ProcessorCoreType::Physical {
+            shared.num_of_physical_cpus += 1;
+        }
+        shared.cpus.push(new_cpu);
     }
 
     #[inline]
@@ -233,6 +282,7 @@ impl System {
         &mut Self::shared().cpus[index]
     }
 
+    /// SAFETY: THREAD UNSAFE. DO NOT CALL IT EXCEPT FOR SMP INITIALIZATION.
     #[inline]
     pub(crate) unsafe fn sort_cpus<F>(compare: F)
     where
@@ -258,37 +308,14 @@ impl System {
         Self::acpi().platform_info().unwrap()
     }
 
-    #[inline]
-    pub(crate) unsafe fn activate_cpu(new_cpu: Box<Cpu>) {
-        let shared = Self::shared();
-        shared.cpus.push(new_cpu);
-    }
-
-    #[inline]
-    pub fn version<'a>() -> &'a Version {
-        &Version::VERSION
-    }
-
-    #[inline]
-    pub fn name<'a>() -> &'a str {
-        &Version::SYSTEM_NAME
-    }
-
+    /// SAFETY: IT DESTROYS EVERYTHING.
     pub unsafe fn reset() -> ! {
         Cpu::reset();
     }
 
+    /// SAFETY: IT DESTROYS EVERYTHING.
     pub unsafe fn shutdown() -> ! {
         todo!();
-    }
-
-    pub fn system_time() -> SystemTime {
-        arch::Arch::system_time()
-    }
-
-    #[inline]
-    pub fn is_headless() -> bool {
-        Self::shared().boot_flags.contains(BootFlags::HEADLESS)
     }
 
     #[inline]
@@ -317,6 +344,7 @@ impl System {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct SystemTime {
     pub secs: u64,
     pub nanos: u32,

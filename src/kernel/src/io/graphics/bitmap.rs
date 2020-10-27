@@ -1041,7 +1041,7 @@ impl<'a> AttributedString<'a> {
     }
 
     #[inline]
-    pub fn font(&self) -> &FontDescriptor {
+    pub const fn font(&self) -> &FontDescriptor {
         &self.font
     }
 

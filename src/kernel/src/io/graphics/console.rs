@@ -2,11 +2,9 @@
 
 use super::*;
 use crate::io::fonts::*;
-use crate::io::hid::*;
 use crate::io::tty::*;
 use crate::window::*;
 use alloc::boxed::Box;
-use alloc::sync::Arc;
 use core::fmt::Write;
 use core::future::Future;
 use core::num::*;
@@ -68,6 +66,7 @@ impl<'a> GraphicalConsole<'a> {
         let window = WindowBuilder::new(title)
             .style_add(WindowStyle::NAKED)
             .size(size + DEFAULT_CONSOLE_INSETS)
+            .default_message_queue()
             .build();
 
         let bitmap = window.bitmap().unwrap();
@@ -299,29 +298,36 @@ impl TtyWrite for GraphicalConsole<'_> {
 }
 
 impl TtyRead for GraphicalConsole<'_> {
-    fn read_async(&self) -> Pin<Box<dyn Future<Output = TtyReadResult> + '_>> {
+    fn read_async(&self) -> Pin<Box<dyn Future<Output = TtyReadResult>>> {
         Box::pin(VtReader {
-            _vt: Arc::new(self),
+            window: self.handle.unwrap(),
         })
     }
 }
 
 impl Tty for GraphicalConsole<'_> {}
 
-struct VtReader<'a> {
-    _vt: Arc<&'a GraphicalConsole<'a>>,
+struct VtReader {
+    window: WindowHandle,
 }
 
-impl Future for VtReader<'_> {
+impl Future for VtReader {
     type Output = TtyReadResult;
 
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match HidManager::get_key() {
+        match self.window.consume_message() {
+            Some(WindowMessage::Key(e)) => {
+                if let Some(c) = e.key_data().map(|v| v.into()) {
+                    Poll::Ready(Ok(c))
+                } else {
+                    Poll::Ready(Err(TtyError::SkipData))
+                }
+            }
+            Some(message) => {
+                self.window.handle_default_message(message);
+                Poll::Pending
+            }
             None => Poll::Pending,
-            Some(e) => match e.key_data() {
-                Some(key) => Poll::Ready(Ok(key.into())),
-                None => Poll::Ready(Err(TtyError::SkipData)),
-            },
         }
     }
 }

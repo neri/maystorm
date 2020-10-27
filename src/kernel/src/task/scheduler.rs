@@ -191,7 +191,7 @@ impl MyScheduler {
             return None;
         }
         if sch.state < SchedulerState::FullThrottle
-            && System::cpu(index.0).processor_type() != ProcessorCoreType::Main
+            && System::cpu(index.0).processor_type() != ProcessorCoreType::Physical
         {
             return None;
         }
@@ -462,16 +462,6 @@ impl SpawnOption {
             priority,
             raise_pid: false,
         }
-    }
-
-    pub const fn priority(mut self, priority: Priority) -> Self {
-        self.priority = priority;
-        self
-    }
-
-    pub const fn new_pid(mut self) -> Self {
-        self.raise_pid = true;
-        self
     }
 
     pub fn spawn_f(self, start: fn(usize), args: usize, name: &str) {

@@ -1,12 +1,11 @@
 // Human Interface Device Manager
 
-use crate::system::*;
+// use crate::system::*;
 use crate::window::*;
 use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;
 use core::num::*;
-use crossbeam_queue::ArrayQueue;
 
 const INVALID_UNICHAR: char = '\u{FEFF}';
 
@@ -201,7 +200,6 @@ impl MouseState {
 }
 
 pub struct HidManager {
-    key_buf: ArrayQueue<KeyEvent>,
     _phantom: (),
 }
 
@@ -215,29 +213,16 @@ impl HidManager {
     }
 
     fn new() -> Self {
-        HidManager {
-            key_buf: ArrayQueue::new(63),
-            _phantom: (),
-        }
+        HidManager { _phantom: () }
     }
 
+    #[allow(dead_code)]
     fn shared() -> &'static HidManager {
         unsafe { HID_MANAGER.as_ref().unwrap() }
     }
 
-    pub fn send_key_event(v: KeyEvent) {
-        let shared = HidManager::shared();
-        if v.usage() == Usage::DELETE && v.modifier().has_ctrl() && v.modifier().has_alt() {
-            unsafe {
-                System::reset();
-            }
-        }
-        let _ = shared.key_buf.push(v);
-    }
-
-    pub fn get_key() -> Option<KeyEvent> {
-        let shared = HidManager::shared();
-        shared.key_buf.pop().ok().map(|v| v)
+    pub fn send_key_event(event: KeyEvent) {
+        WindowManager::send_key_event(event);
     }
 
     fn key_event_to_char(event: KeyEvent) -> char {

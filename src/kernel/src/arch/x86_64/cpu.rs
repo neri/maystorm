@@ -69,9 +69,9 @@ impl Cpu {
 
         let core_type;
         if (apic_id.as_u32() & Self::shared().smt_topology) != 0 {
-            core_type = ProcessorCoreType::Sub;
+            core_type = ProcessorCoreType::Logical;
         } else {
-            core_type = ProcessorCoreType::Main;
+            core_type = ProcessorCoreType::Physical;
         }
 
         let cpu = Box::new(Cpu {
@@ -196,8 +196,10 @@ impl Cpu {
 
     pub(crate) unsafe fn reset() -> ! {
         let _ = MyScheduler::freeze(true);
+
         Self::out8(0x0CF9, 0x06);
         asm!("out 0x92, al", in("al") 0x01 as u8);
+
         Cpu::stop();
     }
 

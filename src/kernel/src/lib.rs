@@ -68,7 +68,7 @@ macro_rules! println {
 }
 
 #[macro_export]
-macro_rules! myos_entry {
+macro_rules! entry {
     ($path:path) => {
         #[no_mangle]
         pub fn efi_main(info: &BootInfo, mbz: usize) -> usize {

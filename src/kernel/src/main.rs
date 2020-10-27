@@ -21,126 +21,23 @@ use io::graphics::*;
 use kernel::*;
 use mem::memory::*;
 use mem::string;
+use mem::string::*;
 use system::*;
 use task::scheduler::*;
 use uuid::*;
-use window::view::*;
 use window::*;
 
 extern crate alloc;
 extern crate rlibc;
 
-// use expr::simple_executor::*;
-// use expr::*;
-// use futures_util::stream::StreamExt;
-
-myos_entry!(main);
+entry!(main);
 
 fn main() {
-    if System::is_headless() {
-    } else {
-        if false {
-            // Test Window 1
-            let window = WindowBuilder::new("Welcome")
-                .size(Size::new(512, 384))
-                .center()
-                .build();
-
-            if let Some(view) = window.view() {
-                let mut rect = view.bounds();
-                rect.size.height = 56;
-                let mut shape = View::with_frame(rect);
-                // shape.set_background_color(Color::from_rgb(0x64B5F6));
-                shape.set_background_color(Color::from_rgb(0x2196F3));
-                // shape.set_background_color(Color::from_rgb(0xFF9800));
-                view.add_subview(shape);
-
-                let mut rect = view.bounds().insets_by(EdgeInsets::new(16, 16, 0, 16));
-                rect.size.height = 44;
-                let mut text_view = TextView::with_text("Welcome to My OS !");
-                FontDescriptor::new(FontFamily::SansSerif, 32).map(|font| text_view.set_font(font));
-                text_view.set_tint_color(IndexedColor::White.into());
-                text_view.set_frame(rect);
-                text_view.set_max_lines(1);
-                view.add_subview(text_view);
-
-                // rect.origin.y += rect.size.height + 10;
-                // rect.size.height = 24;
-                // let mut text_view = TextView::with_text("~ A toy that displays a picture ~");
-                // FontDescriptor::new(FontFamily::Cursive, 20).map(|font| text_view.set_font(font));
-                // text_view.set_tint_color(IndexedColor::Green.into());
-                // text_view.set_frame(rect);
-                // text_view.set_max_lines(2);
-                // view.add_subview(text_view);
-
-                rect.origin.y += rect.size.height + 10;
-                let mut text_view = TextView::with_text("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
-                // let mut text_view = TextView::with_text("The quick brown fox jumps over the lazy dog.");
-                text_view.set_frame(rect);
-                FontDescriptor::new(FontFamily::Serif, 24).map(|font| text_view.set_font(font));
-                text_view.set_tint_color(IndexedColor::DarkGray.into());
-                text_view.set_max_lines(2);
-                text_view.set_bounds(
-                    text_view
-                        .size_that_fits(Size::new(rect.width(), isize::MAX))
-                        .into(),
-                );
-                view.add_subview(text_view);
-
-                rect.origin.y += rect.size.height + 10;
-                let mut text_view = TextView::with_text("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
-                text_view.set_frame(rect);
-                FontDescriptor::new(FontFamily::SansSerif, 20).map(|font| text_view.set_font(font));
-                text_view.set_tint_color(IndexedColor::DarkGray.into());
-                text_view.set_max_lines(2);
-                text_view.set_bounds(
-                    text_view
-                        .size_that_fits(Size::new(rect.width(), isize::MAX))
-                        .into(),
-                );
-                view.add_subview(text_view);
-
-                rect.origin.y += rect.size.height + 10;
-                let mut text_view = TextView::with_text("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
-                text_view.set_frame(rect);
-                FontDescriptor::new(FontFamily::Cursive, 16).map(|font| text_view.set_font(font));
-                text_view.set_tint_color(IndexedColor::DarkGray.into());
-                text_view.set_max_lines(2);
-                text_view.set_bounds(
-                    text_view
-                        .size_that_fits(Size::new(rect.width(), isize::MAX))
-                        .into(),
-                );
-                view.add_subview(text_view);
-
-                let vertical_base = Coordinates::from_rect(rect).unwrap().bottom + 20;
-
-                let mut button = Button::new(ButtonType::Default);
-                button.set_title("OK");
-                button.set_frame(Rect::new(10, vertical_base, 120, 30));
-                view.add_subview(button);
-
-                let mut button = Button::new(ButtonType::Normal);
-                button.set_title("Cancel");
-                button.set_frame(Rect::new(140, vertical_base, 120, 30));
-                view.add_subview(button);
-
-                let mut button = Button::new(ButtonType::Destructive);
-                button.set_title("Destructive");
-                button.set_frame(Rect::new(270, vertical_base, 120, 30));
-                view.add_subview(button);
-            }
-
-            window.set_active();
-        }
-    }
-
     let mut tasks: Vec<Pin<Box<dyn Future<Output = ()>>>> = Vec::new();
 
-    // if System::is_headless() {
-    // } else {
-    // }
     tasks.push(Box::pin(repl_main()));
+    tasks.push(Box::pin(test_task()));
+    tasks.push(Box::pin(test_task()));
 
     let waker = dummy_waker();
     let mut cx = Context::from_waker(&waker);
@@ -152,7 +49,6 @@ fn main() {
     }
 }
 
-#[allow(dead_code)]
 async fn repl_main() {
     Timer::sleep_async(Duration::from_millis(500)).await;
 
@@ -162,6 +58,55 @@ async fn repl_main() {
         print!("# ");
         if let Some(cmdline) = stdout().read_line_async(120).await {
             exec(&cmdline);
+        }
+    }
+}
+
+async fn test_task() {
+    let window = WindowBuilder::new("Test")
+        .size(Size::new(160, 72))
+        .default_message_queue()
+        .build();
+
+    let mut sb = Sb255::new();
+    // sb.write_str("Hello, Rust!").unwrap();
+
+    window.show();
+    // window.set_active();
+
+    while let Some(message) = window.get_message_async().await {
+        match message {
+            WindowMessage::Key(e) => {
+                if let Some(c) = e.key_data().map(|v| v.into_char()) {
+                    match c {
+                        '\x08' => {
+                            sb.backspace();
+                            window.invalidate();
+                        }
+                        _ => {
+                            sb.write_char(c).unwrap();
+                            window.invalidate();
+                        }
+                    }
+                }
+            }
+            WindowMessage::Draw => {
+                window
+                    .draw(|bitmap| {
+                        bitmap.fill_rect(bitmap.bounds(), Color::WHITE);
+                        AttributedString::with(
+                            sb.as_str(),
+                            FontDescriptor::new(FontFamily::SansSerif, 24).unwrap(),
+                            IndexedColor::Black.into(),
+                        )
+                        .draw(
+                            bitmap,
+                            bitmap.bounds().insets_by(EdgeInsets::padding_each(4)),
+                        );
+                    })
+                    .unwrap();
+            }
+            _ => window.handle_default_message(message),
         }
     }
 }
@@ -304,37 +249,27 @@ fn cmd_sysctl(argv: &[&str]) -> isize {
             Err(_) => println!("# No SecureRandom"),
         },
         "cpuid" => {
-            let cpuid0 = Cpu::cpuid(0, 0);
-            let cpuid1 = Cpu::cpuid(1, 0);
-            let cpuid7 = Cpu::cpuid(7, 0);
+            let cpuid0 = Cpu::cpuid(0x000_0000, 0);
+            let cpuid1 = Cpu::cpuid(0x000_0001, 0);
+            let cpuid7 = Cpu::cpuid(0x000_0007, 0);
             let cpuid81 = Cpu::cpuid(0x8000_0001, 0);
             println!("CPUID {:08x}", cpuid0.eax());
             println!(
-                "Feature 0000_0001 EDX {:08x} ECX {:08x}",
+                "Feature 0~1 EDX {:08x} ECX {:08x}",
                 cpuid1.edx(),
                 cpuid1.ecx(),
             );
             println!(
-                "Feature 0000_0007 EBX {:08x} ECX {:08x} EDX {:08x}",
+                "Feature 0~7 EBX {:08x} ECX {:08x} EDX {:08x}",
                 cpuid7.ebx(),
                 cpuid7.ecx(),
                 cpuid7.edx(),
             );
             println!(
-                "Feature 8000_0001 EDX {:08x} ECX {:08x}",
+                "Feature 8~1 EDX {:08x} ECX {:08x}",
                 cpuid81.edx(),
                 cpuid81.ecx(),
             );
-            if cpuid0.eax() >= 0x0B {
-                let cpuid0b = Cpu::cpuid(0x0B, 0);
-                println!(
-                    "CPUID0B: {:08x} {:08x} {:08x} {:08x}",
-                    cpuid0b.eax(),
-                    cpuid0b.ebx(),
-                    cpuid0b.ecx(),
-                    cpuid0b.edx()
-                );
-            }
         }
         _ => {
             println!("Unknown command: {}", subcmd);

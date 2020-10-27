@@ -11,6 +11,7 @@ macro_rules! sformat {
     };
 }
 
+/// Small String Buffer
 pub struct Sb255([u8; 256]);
 
 impl Sb255 {
@@ -22,6 +23,14 @@ impl Sb255 {
     #[inline]
     pub fn clear(&mut self) {
         self.0[0] = 0;
+    }
+
+    #[inline]
+    pub fn backspace(&mut self) {
+        let len = self.len();
+        if len > 0 {
+            self.0[0] = len as u8 - 1;
+        }
     }
 
     #[inline]

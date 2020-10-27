@@ -1,3 +1,4 @@
+// A Window System
 pub mod view;
-mod wm;
-pub use wm::*;
+mod winsys;
+pub use winsys::*;

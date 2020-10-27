@@ -1,6 +1,6 @@
 # My first OS
 
-My first OS written in Rust
+My first OS written in Rust.
 
 ## Requirements
 

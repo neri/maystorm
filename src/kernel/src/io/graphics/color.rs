@@ -249,17 +249,17 @@ impl From<u8> for IndexedColor {
     }
 }
 
-static mut SYSTEM_COLOR_PALETTE: [u32; 16] = [
+const SYSTEM_COLOR_PALETTE: [u32; 16] = [
     0x212121, 0x0D47A1, 0x1B5E20, 0x006064, 0xb71c1c, 0x4A148C, 0x795548, 0x9E9E9E, 0x616161,
     0x2196F3, 0x4CAF50, 0x00BCD4, 0xf44336, 0x9C27B0, 0xFFEB3B, 0xFFFFFF,
 ];
 
 impl IndexedColor {
-    pub fn as_rgb(self) -> u32 {
-        unsafe { SYSTEM_COLOR_PALETTE[self as usize] }
+    pub const fn as_rgb(self) -> u32 {
+        SYSTEM_COLOR_PALETTE[self as usize]
     }
 
-    pub fn as_color(self) -> Color {
+    pub const fn as_color(self) -> Color {
         Color::from_rgb(self.as_rgb())
     }
 }
