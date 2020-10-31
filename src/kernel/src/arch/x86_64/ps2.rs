@@ -171,14 +171,10 @@ impl Ps2 {
             if usage >= Usage::MOD_MIN && usage < Usage::MOD_MAX {
                 let bit_position =
                     unsafe { Modifier::from_bits_unchecked(1 << (usage.0 - Usage::MOD_MIN.0)) };
-                if data.is_break() {
-                    self.key_modifier.remove(bit_position);
-                } else {
-                    self.key_modifier.insert(bit_position);
-                }
-                HidManager::send_key_event(KeyEvent::new(Usage::NONE, self.key_modifier, flags));
+                self.key_modifier.set(bit_position, !data.is_break());
+                KeyEvent::new(Usage::NONE, self.key_modifier, flags).post();
             } else {
-                HidManager::send_key_event(KeyEvent::new(usage, self.key_modifier, flags));
+                KeyEvent::new(usage, self.key_modifier, flags).post();
             }
         }
     }
@@ -213,11 +209,11 @@ impl Ps2 {
                 }
                 let lead = MouseLeadByte::from(self.mouse_buf[0]);
                 let x = movement(self.mouse_buf[1], lead.contains(MouseLeadByte::X_SIGN));
-                let y = movement(self.mouse_buf[2], lead.contains(MouseLeadByte::Y_SIGN));
+                let y = 0 - movement(self.mouse_buf[2], lead.contains(MouseLeadByte::Y_SIGN));
                 let report = MouseReport {
                     buttons: lead.into(),
-                    x: x,
-                    y: 0 - y,
+                    x,
+                    y,
                 };
                 self.mouse_state.process_mouse_report(report);
             }

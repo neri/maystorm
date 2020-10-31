@@ -94,7 +94,7 @@ impl MyScheduler {
             "Scheduler",
         );
 
-        SpawnOption::with_priority(Priority::High).spawn(f, args, "init");
+        SpawnOption::with_priority(Priority::Normal).spawn(f, args, "kernel task");
 
         SCHEDULER_ENABLED.store(true, Ordering::SeqCst);
 
@@ -330,7 +330,7 @@ impl MyScheduler {
     pub fn print_statistics(sb: &mut StringBuffer, exclude_idle: bool) {
         let sch = Self::shared();
         sb.clear();
-        writeln!(sb, "PID priority usage   cpu time name").unwrap();
+        writeln!(sb, "PID PRI %CPU TIME     NAME").unwrap();
         for thread in sch.pool.dic.values() {
             if exclude_idle && thread.priority == Priority::Idle {
                 continue;
@@ -346,23 +346,20 @@ impl MyScheduler {
             let min = time / 60_00 % 60;
             let hour = time / 3600_00;
 
-            writeln!(
+            write!(
                 sb,
-                "{:3} {:1} {:2}/{:2} {:2}.{:1} {:3}:{:02}:{:02}.{:02} {} {}",
-                thread.pid.0,
-                thread.priority as usize,
-                thread.quantum.current,
-                thread.quantum.default,
-                load1,
-                load0,
-                hour,
-                min,
-                sec,
-                dsec,
-                thread.id.0,
-                thread.name().unwrap_or("")
+                "{:3} {:3} {:2}.{:1}",
+                thread.pid.0, thread.priority as usize, load1, load0,
             )
             .unwrap();
+
+            if hour > 0 {
+                write!(sb, " {:02}:{:02}:{:02}", hour, min, sec,).unwrap();
+            } else {
+                write!(sb, " {:02}:{:02}.{:02}", min, sec, dsec,).unwrap();
+            }
+
+            writeln!(sb, " {} {}", thread.id.0, thread.name().unwrap_or("")).unwrap();
         }
     }
 }

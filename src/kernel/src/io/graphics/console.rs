@@ -316,16 +316,10 @@ impl Future for VtReader {
 
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.window.consume_message() {
-            Some(WindowMessage::Key(e)) => {
-                if let Some(c) = e.key_data().map(|v| v.into()) {
-                    Poll::Ready(Ok(c))
-                } else {
-                    Poll::Ready(Err(TtyError::SkipData))
-                }
-            }
+            Some(WindowMessage::Char(c)) => Poll::Ready(Ok(c)),
             Some(message) => {
                 self.window.handle_default_message(message);
-                Poll::Pending
+                Poll::Ready(Err(TtyError::SkipData))
             }
             None => Poll::Pending,
         }

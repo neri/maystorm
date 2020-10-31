@@ -94,7 +94,6 @@ impl UserEnv {
                 // Main Terminal
                 let (console, window) = GraphicalConsole::new(
                     "Terminal",
-                    // (80, 24),
                     (40, 10),
                     FontManager::fixed_system_font(),
                     0,
@@ -114,7 +113,7 @@ impl UserEnv {
             tasks.push(Box::pin(activity_monitor_main()));
         }
 
-        SpawnOption::new().spawn(unsafe { core::mem::transmute(f) }, 0, "mysh");
+        SpawnOption::new().spawn(unsafe { core::mem::transmute(f) }, 0, "shell");
 
         let waker = dummy_waker();
         let mut cx = Context::from_waker(&waker);

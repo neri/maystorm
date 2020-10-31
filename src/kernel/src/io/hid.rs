@@ -109,6 +109,10 @@ impl KeyEvent {
             None
         }
     }
+
+    pub fn post(self) {
+        WindowManager::post_key_event(self);
+    }
 }
 
 impl Into<char> for KeyEvent {
@@ -195,7 +199,39 @@ impl MouseState {
         self.current_buttons = report.buttons;
         self.x += report.x.into();
         self.y += report.y.into();
-        WindowManager::make_mouse_event(self);
+        WindowManager::post_mouse_event(self);
+    }
+}
+
+#[derive(Debug, Copy, Clone, Default)]
+pub struct MouseEvent {
+    pub point: Point<i16>,
+    pub buttons: MouseButton,
+    pub event_buttons: MouseButton,
+}
+
+impl MouseEvent {
+    pub const fn new(point: Point<i16>, buttons: MouseButton, event_buttons: MouseButton) -> Self {
+        Self {
+            point,
+            buttons,
+            event_buttons,
+        }
+    }
+
+    pub const fn point(&self) -> Point<isize> {
+        Point {
+            x: self.point.x as isize,
+            y: self.point.y as isize,
+        }
+    }
+
+    pub const fn buttons(&self) -> MouseButton {
+        self.buttons
+    }
+
+    pub const fn event_buttons(&self) -> MouseButton {
+        self.event_buttons
     }
 }
 
@@ -219,10 +255,6 @@ impl HidManager {
     #[allow(dead_code)]
     fn shared() -> &'static HidManager {
         unsafe { HID_MANAGER.as_ref().unwrap() }
-    }
-
-    pub fn send_key_event(event: KeyEvent) {
-        WindowManager::send_key_event(event);
     }
 
     fn key_event_to_char(event: KeyEvent) -> char {

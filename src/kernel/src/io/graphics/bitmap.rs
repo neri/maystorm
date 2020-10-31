@@ -1002,6 +1002,16 @@ pub struct AttributedString<'a> {
     color: Color,
 }
 
+// TODO:
+#[derive(Debug, Copy, Clone)]
+pub enum HorizontalAlignment {
+    Left,
+    Center,
+    Right,
+    Leading,
+    Trailing,
+}
+
 impl<'a> AttributedString<'a> {
     pub fn new(text: &'a str) -> Self {
         Self {
@@ -1078,6 +1088,10 @@ impl<'a> AttributedString<'a> {
             }
         }
         Size::new(max_width, max_height)
+    }
+
+    pub fn line_statuses(&self, max_lines: usize) {
+        let _ = max_lines;
     }
 
     pub fn draw(&self, bitmap: &Bitmap, rect: Rect<isize>) {

@@ -14,6 +14,7 @@ use bootprot::*;
 use core::fmt::Write;
 use core::future::Future;
 use core::pin::Pin;
+use core::sync::atomic::*;
 use core::task::{Context, RawWaker, RawWakerVTable, Waker};
 use core::time::Duration;
 use io::fonts::*;
@@ -36,7 +37,7 @@ fn main() {
     let mut tasks: Vec<Pin<Box<dyn Future<Output = ()>>>> = Vec::new();
 
     tasks.push(Box::pin(repl_main()));
-    tasks.push(Box::pin(test_task()));
+    // tasks.push(Box::pin(test_task()));
     tasks.push(Box::pin(test_task()));
 
     let waker = dummy_waker();
@@ -63,33 +64,36 @@ async fn repl_main() {
 }
 
 async fn test_task() {
+    static NEXT_INSTANCE: AtomicIsize = AtomicIsize::new(0);
+    let current_isntance = NEXT_INSTANCE.fetch_add(1, Ordering::SeqCst);
+
     let window = WindowBuilder::new("Test")
-        .size(Size::new(160, 72))
+        .size(Size::new(240, 120))
+        .origin(Point::new(-248, 32 + 128 * current_isntance))
         .default_message_queue()
         .build();
 
+    window.show();
+
+    let mut mouse_move = Point::new(-1, -1);
+    let mut mouse_down = Point::new(-1, -1);
+    let mut mouse_up = Point::new(-1, -1);
+
     let mut sb = Sb255::new();
     // sb.write_str("Hello, Rust!").unwrap();
-
-    window.show();
-    // window.set_active();
-
-    while let Some(message) = window.get_message_async().await {
+    // window.invalidate();
+    while let Some(message) = window.get_message().await {
         match message {
-            WindowMessage::Key(e) => {
-                if let Some(c) = e.key_data().map(|v| v.into_char()) {
-                    match c {
-                        '\x08' => {
-                            sb.backspace();
-                            window.invalidate();
-                        }
-                        _ => {
-                            sb.write_char(c).unwrap();
-                            window.invalidate();
-                        }
-                    }
+            WindowMessage::Char(c) => match c {
+                '\x08' => {
+                    sb.backspace();
+                    window.invalidate();
                 }
-            }
+                _ => {
+                    sb.write_char(c).unwrap();
+                    window.invalidate();
+                }
+            },
             WindowMessage::Draw => {
                 window
                     .draw(|bitmap| {
@@ -103,12 +107,40 @@ async fn test_task() {
                             bitmap,
                             bitmap.bounds().insets_by(EdgeInsets::padding_each(4)),
                         );
+                        if mouse_move.x >= 0 && mouse_move.y >= 0 {
+                            draw_cursor(bitmap, mouse_move, IndexedColor::LightGray.into())
+                        }
+                        if mouse_down.x >= 0 && mouse_down.y >= 0 {
+                            draw_cursor(bitmap, mouse_down, IndexedColor::Blue.into())
+                        }
+                        if mouse_up.x >= 0 && mouse_up.y >= 0 {
+                            draw_cursor(bitmap, mouse_up, IndexedColor::Red.into())
+                        }
                     })
                     .unwrap();
+            }
+            WindowMessage::MouseMove(e) => {
+                mouse_move = e.point();
+                window.invalidate();
+            }
+            WindowMessage::MouseDown(e) => {
+                mouse_down = e.point();
+                window.invalidate();
+            }
+            WindowMessage::MouseUp(e) => {
+                mouse_up = e.point();
+                window.invalidate();
             }
             _ => window.handle_default_message(message),
         }
     }
+}
+
+fn draw_cursor(bitmap: &Bitmap, point: Point<isize>, color: Color) {
+    let size = 7;
+    let size2 = size / 2;
+    bitmap.draw_vline(Point::new(point.x, point.y - size2), size, color);
+    bitmap.draw_hline(Point::new(point.x - size2, point.y), size, color);
 }
 
 fn exec(cmdline: &str) {
