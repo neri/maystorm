@@ -10,7 +10,7 @@ use core::num::*;
 const INVALID_UNICHAR: char = '\u{FEFF}';
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, PartialOrd, Eq, Ord)]
 pub struct Usage(pub u8);
 
 #[allow(dead_code)]
@@ -65,13 +65,53 @@ bitflags! {
     }
 }
 
+impl Default for Modifier {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
 /// USB HID BIOS Keyboard Raw Report
 #[repr(C, packed)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Default)]
 pub struct KeyReportRaw {
     pub modifier: Modifier,
     _reserved_1: u8,
     pub keydata: [Usage; 6],
+}
+
+#[derive(Debug)]
+pub struct KeyboardState {
+    pub current: KeyReportRaw,
+    pub prev: KeyReportRaw,
+}
+
+impl KeyboardState {
+    pub fn process_key_report(&mut self, report: KeyReportRaw) {
+        let modifier = report.modifier;
+        self.prev = self.current;
+        self.current = report;
+        for usage in &self.prev.keydata {
+            let usage = *usage;
+            if usage != Usage::NONE
+                && usage < Usage::MOD_MIN
+                && usage > Usage::MOD_MAX
+                && !self.current.keydata.contains(&usage)
+            {
+                KeyEvent::new(usage, modifier, KeyEventFlags::BREAK).post();
+            }
+        }
+        for usage in &self.current.keydata {
+            let usage = *usage;
+            if usage != Usage::NONE
+                && usage < Usage::MOD_MIN
+                && usage > Usage::MOD_MAX
+                && !self.prev.keydata.contains(&usage)
+            {
+                KeyEvent::new(usage, modifier, KeyEventFlags::empty()).post();
+            }
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -119,12 +159,6 @@ impl Into<char> for KeyEvent {
     fn into(self) -> char {
         self.into_char()
     }
-}
-
-#[derive(Debug)]
-pub struct KeyboardState {
-    pub current: KeyReportRaw,
-    pub prev: KeyReportRaw,
 }
 
 #[repr(C)]

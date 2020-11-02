@@ -53,6 +53,12 @@ impl Color {
     }
 
     #[inline]
+    pub fn brightness(self) -> u8 {
+        let cc = self.components();
+        ((cc.r as usize * 19589 + cc.g as usize * 38444 + cc.b as usize * 7502 + 32767) >> 16) as u8
+    }
+
+    #[inline]
     pub const fn opacity(self) -> u8 {
         (self.argb >> 24) as u8
     }

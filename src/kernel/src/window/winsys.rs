@@ -100,6 +100,7 @@ pub struct WindowManager {
     active: Option<WindowHandle>,
     captured: Option<WindowHandle>,
     captured_origin: Point<isize>,
+    entered: Option<WindowHandle>,
 }
 
 #[allow(dead_code)]
@@ -168,6 +169,7 @@ impl WindowManager {
             active: None,
             captured: None,
             captured_origin: Point::zero(),
+            entered: None,
         }));
         unsafe {
             WM = wm;
@@ -185,6 +187,7 @@ impl WindowManager {
                     .no_bitmap()
                     .build(),
             );
+            shared.entered = shared.root;
         }
 
         {
@@ -243,7 +246,7 @@ impl WindowManager {
                 .test_and_clear(WindowManagerAttributes::NEEDS_REDRAW)
             {
                 let desktop = shared.root.unwrap();
-                desktop.as_ref().draw_to_screen(desktop.frame(), true);
+                desktop.as_ref().draw_to_screen(desktop.frame());
             }
             if shared
                 .attributes
@@ -289,45 +292,71 @@ impl WindowManager {
                         );
                         shared.captured = None;
                         shared.attributes.remove(WindowManagerAttributes::MOVING);
-                    }
-                } else if buttons_down.contains(MouseButton::LEFT) {
-                    let target = Self::window_at_point(position);
-                    if let Some(active) = shared.active {
-                        if active != target {
-                            WindowManager::set_active(Some(target));
-                        }
-                    } else {
-                        WindowManager::set_active(Some(target));
-                    }
-                    let target_window = target.as_ref();
-                    if target_window.style.contains(WindowStyle::PINCHABLE) {
-                        shared.attributes.insert(WindowManagerAttributes::MOVING);
-                    } else {
-                        let mut title_frame = target_window.title_frame();
-                        title_frame.origin += target_window.frame.origin;
-                        if title_frame.hit_test_point(position) {
-                            shared.attributes.insert(WindowManagerAttributes::MOVING);
-                        } else {
-                            let _ = Self::make_mouse_events(
-                                target,
-                                position,
-                                current_buttons,
-                                buttons_down,
-                                buttons_up,
-                            );
+
+                        let target = Self::window_at_point(position);
+                        if let Some(entered) = shared.entered {
+                            if entered != target {
+                                let _ = Self::make_mouse_events(
+                                    captured,
+                                    position,
+                                    current_buttons,
+                                    MouseButton::empty(),
+                                    MouseButton::empty(),
+                                );
+                                let _ = entered.post(WindowMessage::MouseLeave);
+                                shared.entered = Some(target);
+                                let _ = target.post(WindowMessage::MouseEnter);
+                            }
                         }
                     }
-                    shared.captured = Some(target);
-                    shared.captured_origin = position - target_window.visible_frame().origin;
                 } else {
                     let target = Self::window_at_point(position);
-                    let _ = Self::make_mouse_events(
-                        target,
-                        position,
-                        current_buttons,
-                        buttons_down,
-                        buttons_up,
-                    );
+
+                    if buttons_down.contains(MouseButton::LEFT) {
+                        if let Some(active) = shared.active {
+                            if active != target {
+                                WindowManager::set_active(Some(target));
+                            }
+                        } else {
+                            WindowManager::set_active(Some(target));
+                        }
+                        let target_window = target.as_ref();
+                        if target_window.style.contains(WindowStyle::PINCHABLE) {
+                            shared.attributes.insert(WindowManagerAttributes::MOVING);
+                        } else {
+                            let mut title_frame = target_window.title_frame();
+                            title_frame.origin += target_window.frame.origin;
+                            if title_frame.hit_test_point(position) {
+                                shared.attributes.insert(WindowManagerAttributes::MOVING);
+                            } else {
+                                let _ = Self::make_mouse_events(
+                                    target,
+                                    position,
+                                    current_buttons,
+                                    buttons_down,
+                                    buttons_up,
+                                );
+                            }
+                        }
+                        shared.captured = Some(target);
+                        shared.captured_origin = position - target_window.visible_frame().origin;
+                    } else {
+                        let _ = Self::make_mouse_events(
+                            target,
+                            position,
+                            current_buttons,
+                            buttons_down,
+                            buttons_up,
+                        );
+                    }
+
+                    if let Some(entered) = shared.entered {
+                        if entered != target {
+                            let _ = entered.post(WindowMessage::MouseLeave);
+                            shared.entered = Some(target);
+                            let _ = target.post(WindowMessage::MouseEnter);
+                        }
+                    }
                 }
 
                 shared.pointer.unwrap().move_to(position);
@@ -515,7 +544,7 @@ impl WindowManager {
         if let Some(old_active) = shared.active {
             shared.active = window;
             old_active.as_ref().draw_frame();
-            old_active.invalidate();
+            old_active.set_needs_display();
             if let Some(active) = window {
                 active.show();
             }
@@ -644,15 +673,46 @@ impl WindowManager {
     }
 
     pub fn set_desktop_color(color: Color) {
-        Self::shared().root.unwrap().set_bg_color(color);
+        let desktop = Self::shared().root.unwrap();
+        desktop.update(|window| window.bitmap = None);
+        desktop.set_bg_color(color);
     }
 
-    pub fn set_pointer_visible(visible: bool) {
+    pub fn set_desktop_bitmap(bitmap: Option<Box<Bitmap>>) {
+        let desktop = Self::shared().root.unwrap();
+        desktop.update(|window| window.bitmap = bitmap);
+        desktop.set_needs_display();
+    }
+
+    #[inline]
+    pub fn is_pointer_visible() -> bool {
+        Self::shared().pointer.unwrap().is_visible()
+    }
+
+    pub fn set_pointer_visible(visible: bool) -> bool {
+        let result = Self::is_pointer_visible();
         if visible {
             Self::shared().pointer.unwrap().show();
-        } else {
+        } else if result {
             Self::shared().pointer.unwrap().hide();
         }
+        result
+    }
+
+    #[inline]
+    pub fn while_hiding_pointer<F, R>(f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        let pointer_visible = Self::set_pointer_visible(false);
+        let result = f();
+        Self::set_pointer_visible(pointer_visible);
+        result
+    }
+
+    pub fn save_screen_to(bitmap: &Bitmap, rect: Rect<isize>) {
+        let shared = Self::shared();
+        Self::while_hiding_pointer(|| shared.root.unwrap().draw_into(bitmap, rect));
     }
 }
 
@@ -827,23 +887,27 @@ impl RawWindow {
         }
     }
 
-    fn draw_to_screen(&self, rect: Rect<isize>, is_offscreen: bool) {
+    fn draw_to_screen(&self, rect: Rect<isize>) {
         let mut frame = rect;
         frame.origin += self.frame.origin;
-        let coords1 = match Coordinates::from_rect(frame) {
-            Some(coords) => coords,
-            None => return,
-        };
-
         let main_screen = WindowManager::shared().main_screen;
         let off_screen = WindowManager::shared().off_screen.as_ref();
-        let target_screen = if is_offscreen {
-            off_screen
-        } else {
-            main_screen
+        if self.draw_into(off_screen, frame) {
+            main_screen.blt(off_screen, frame.origin, frame, BltOption::COPY);
+        }
+    }
+
+    fn draw_into(&self, target_bitmap: &Bitmap, frame: Rect<isize>) -> bool {
+        let coords1 = match Coordinates::from_rect(frame) {
+            Some(coords) => coords,
+            None => return false,
         };
 
-        let mut cursor = WindowManager::shared().root.unwrap();
+        let mut cursor = if self.style.contains(WindowStyle::OPAQUE) {
+            self.handle
+        } else {
+            WindowManager::shared().root.unwrap()
+        };
 
         loop {
             let window = cursor.as_ref();
@@ -881,15 +945,15 @@ impl RawWindow {
                         //     }
                         // }
                         if window.style.contains(WindowStyle::OPAQUE) {
-                            target_screen.blt(bitmap, blt_origin, blt_rect, BltOption::COPY);
+                            target_bitmap.blt(bitmap, blt_origin, blt_rect, BltOption::COPY);
                         } else {
-                            target_screen.blt(bitmap, blt_origin, blt_rect, BltOption::empty());
+                            target_bitmap.blt(bitmap, blt_origin, blt_rect, BltOption::empty());
                         }
                     } else {
                         if window.style.contains(WindowStyle::OPAQUE) {
-                            target_screen.fill_rect(blt_rect, window.bg_color);
+                            target_bitmap.fill_rect(blt_rect, window.bg_color);
                         } else {
-                            target_screen.blend_rect(blt_rect, window.bg_color);
+                            target_bitmap.blend_rect(blt_rect, window.bg_color);
                         }
                     }
                 }
@@ -899,9 +963,8 @@ impl RawWindow {
                 None => break,
             };
         }
-        if is_offscreen {
-            main_screen.blt(off_screen, frame.origin, frame, BltOption::COPY);
-        }
+
+        true
     }
 
     fn title_frame(&self) -> Rect<isize> {
@@ -964,7 +1027,7 @@ impl RawWindow {
             }
             if self.style.contains(WindowStyle::TITLE) {
                 let shared = WindowManager::shared();
-                let pad_x = 8;
+                let pad_x = 4;
                 let pad_left = pad_x;
 
                 let rect = self.title_frame();
@@ -1019,7 +1082,7 @@ impl RawWindow {
                 if let Some(ctx) =
                     bitmap.view(Rect::from(self.frame.size).insets_by(self.content_insets))
                 {
-                    view.draw_if_needed(ctx);
+                    view.draw_if_needed(&ctx);
                 }
             }
         }
@@ -1028,7 +1091,7 @@ impl RawWindow {
 
     fn invalidate_rect(&self, rect: Rect<isize>) {
         if self.attributes.contains(WindowAttributes::VISIBLE) {
-            self.draw_to_screen(rect, true);
+            self.draw_to_screen(rect);
         }
     }
 
@@ -1295,7 +1358,7 @@ impl WindowHandle {
             bitmap.fill_rect(bitmap.bounds(), color);
             self.as_ref().draw_frame();
         }
-        self.invalidate();
+        self.set_needs_display();
     }
 
     #[inline]
@@ -1351,7 +1414,7 @@ impl WindowHandle {
         });
         self.as_ref().draw_frame();
         // self.update(|window| window.invalidate(false));
-        self.invalidate();
+        self.set_needs_display();
     }
 
     pub fn hide(&self) {
@@ -1370,6 +1433,23 @@ impl WindowHandle {
     }
 
     #[inline]
+    pub fn is_visible(&self) -> bool {
+        self.as_ref().attributes.contains(WindowAttributes::VISIBLE)
+    }
+
+    pub fn show_if(&self, show_if_invisible: bool, hide_if_visible: bool) {
+        if self.is_visible() {
+            if hide_if_visible {
+                self.hide();
+            }
+        } else {
+            if show_if_invisible {
+                self.show();
+            }
+        }
+    }
+
+    #[inline]
     pub fn set_active(&self) {
         WindowManager::set_active(Some(*self));
     }
@@ -1380,7 +1460,7 @@ impl WindowHandle {
     }
 
     #[inline]
-    pub fn invalidate(&self) {
+    pub fn set_needs_display(&self) {
         match self.post(WindowMessage::Draw) {
             Ok(()) => (),
             Err(_) => {
@@ -1424,6 +1504,14 @@ impl WindowHandle {
             return Err(WindowDrawingError::InconsistentCoordinates);
         }
         Ok(())
+    }
+
+    pub fn draw_into(&self, target_bitmap: &Bitmap, rect: Rect<isize>) {
+        let window = self.as_ref();
+        let mut frame = rect;
+        frame.origin.x += window.frame.x() + window.shadow_insets.left;
+        frame.origin.y += window.frame.y() + window.shadow_insets.top;
+        window.draw_into(target_bitmap, frame);
     }
 
     #[inline]
@@ -1552,4 +1640,8 @@ pub enum WindowMessage {
     MouseMove(MouseEvent),
     MouseDown(MouseEvent),
     MouseUp(MouseEvent),
+    MouseEnter,
+    MouseLeave,
+    /// User Defined
+    User(usize),
 }

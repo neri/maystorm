@@ -18,7 +18,7 @@ use core::pin::Pin;
 use core::task::{Context, RawWaker, RawWakerVTable, Waker};
 use core::time::Duration;
 
-const DESKTOP_COLOR: Color = Color::from_argb(0xFF2196F3);
+const DESKTOP_COLOR: Color = Color::from_argb(0x802196F3);
 
 pub struct UserEnv {
     _phantom: (),
@@ -28,6 +28,7 @@ impl UserEnv {
     pub(crate) fn start(f: fn()) {
         if System::is_headless() {
             stdout().reset().unwrap();
+            f();
         } else {
             {
                 let logo_bmp = include_bytes!("logo.bmp");
@@ -75,14 +76,40 @@ impl UserEnv {
                 window.set_active();
 
                 Timer::sleep(Duration::from_millis(1000));
-                let max = 10;
-                for i in 0..max {
-                    let color = DESKTOP_COLOR
-                        .blend_each(Color::TRANSPARENT, |a, _b| (a as usize * i / max) as u8);
-                    WindowManager::set_desktop_color(color);
-                    Timer::sleep(Duration::from_millis(50));
+                // let max = 10;
+                // for i in 0..max {
+                //     let color = DESKTOP_COLOR
+                //         .blend_each(Color::TRANSPARENT, |a, _b| (a as usize * i / max) as u8);
+                //     WindowManager::set_desktop_color(color);
+                //     Timer::sleep(Duration::from_millis(50));
+                // }
+
+                {
+                    let screen_bounds = WindowManager::main_screen_bounds();
+                    let bitmap = Bitmap::new(
+                        screen_bounds.width() as usize,
+                        screen_bounds.height() as usize,
+                        false,
+                    );
+
+                    bitmap
+                        .update_bitmap(|slice| {
+                            let rng = XorShift64::default();
+                            for color in slice.iter_mut() {
+                                *color = if (rng.next() & 1) > 0 {
+                                    Color::WHITE
+                                } else {
+                                    Color::TRANSPARENT
+                                }
+                            }
+                        })
+                        .unwrap();
+                    bitmap.blur(&bitmap, 4);
+                    bitmap.blend_rect(bitmap.bounds(), DESKTOP_COLOR);
+
+                    WindowManager::set_desktop_bitmap(Some(Box::new(bitmap)));
                 }
-                WindowManager::set_desktop_color(DESKTOP_COLOR);
+
                 WindowManager::set_pointer_visible(true);
                 Timer::sleep(Duration::from_millis(500));
 
@@ -94,7 +121,7 @@ impl UserEnv {
                 // Main Terminal
                 let (console, window) = GraphicalConsole::new(
                     "Terminal",
-                    (40, 10),
+                    (80, 24),
                     FontManager::fixed_system_font(),
                     0,
                     0,
@@ -103,25 +130,23 @@ impl UserEnv {
                 window.set_active();
                 System::set_stdout(console);
             }
-        }
 
-        let mut tasks: Vec<Pin<Box<dyn Future<Output = ()>>>> = Vec::new();
+            let mut tasks: Vec<Pin<Box<dyn Future<Output = ()>>>> = Vec::new();
 
-        if System::is_headless() {
-        } else {
             tasks.push(Box::pin(status_bar_main()));
             tasks.push(Box::pin(activity_monitor_main()));
-        }
+            tasks.push(Box::pin(menu_main()));
 
-        SpawnOption::new().spawn(unsafe { core::mem::transmute(f) }, 0, "shell");
+            SpawnOption::new().spawn(unsafe { core::mem::transmute(f) }, 0, "shell");
 
-        let waker = dummy_waker();
-        let mut cx = Context::from_waker(&waker);
-        loop {
-            for task in &mut tasks {
-                let _ = task.as_mut().poll(&mut cx);
+            let waker = dummy_waker();
+            let mut cx = Context::from_waker(&waker);
+            loop {
+                for task in &mut tasks {
+                    let _ = task.as_mut().poll(&mut cx);
+                }
+                Timer::usleep(100_000);
             }
-            Timer::usleep(100_000);
         }
     }
 }
@@ -144,7 +169,7 @@ fn dummy_raw_waker() -> RawWaker {
 async fn status_bar_main() {
     const STATUS_BAR_HEIGHT: isize = 24;
     let bg_color = Color::from_argb(0xC0EEEEEE);
-    let fg_color = IndexedColor::DarkGray.into();
+    let fg_color = IndexedColor::Black.into();
 
     let screen_bounds = WindowManager::main_screen_bounds();
     let window = WindowBuilder::new("Status Bar")
@@ -152,12 +177,12 @@ async fn status_bar_main() {
         .style_add(WindowStyle::BORDER)
         .frame(Rect::new(0, 0, screen_bounds.width(), STATUS_BAR_HEIGHT))
         .bg_color(bg_color)
+        .default_message_queue()
         .build();
-
-    let mut ats = AttributedString::with("My OS", FontManager::title_font(), fg_color);
 
     window
         .draw(|bitmap| {
+            let ats = AttributedString::with("My OS", FontManager::title_font(), fg_color);
             let bounds = bitmap.bounds();
             let size = ats.bounding_size(Size::new(isize::MAX, isize::MAX));
             let rect = Rect::new(
@@ -172,42 +197,155 @@ async fn status_bar_main() {
     window.show();
     WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT, 0, 0, 0));
 
-    ats.set_font(FontManager::system_font());
+    let font = FontManager::system_font();
     let mut sb = string::Sb255::new();
     loop {
+        window.set_needs_display();
+        while let Some(message) = window.consume_message() {
+            match message {
+                WindowMessage::Draw => {
+                    sb.clear();
+
+                    // let usage = MyScheduler::usage_per_cpu();
+                    // let usage0 = usage / 10;
+                    // let usage1 = usage % 10;
+                    // write!(sb, "{:3}.{:1}%  ", usage0, usage1).unwrap();
+
+                    let time = System::system_time();
+                    let tod = time.secs % 86400;
+                    // let sec = tod % 60;
+                    let min = tod / 60 % 60;
+                    let hour = tod / 3600;
+                    // if sec % 2 == 0 {
+                    //     write!(sb, "{:2} {:02} {:02}", hour, min, sec).unwrap();
+                    // } else {
+                    //     write!(sb, "{:2}:{:02}:{:02}", hour, min, sec).unwrap();
+                    // };
+                    write!(sb, "{:2}:{:02}", hour, min).unwrap();
+                    let ats = AttributedString::with(sb.as_str(), font, fg_color);
+
+                    let bounds = window.frame();
+                    let width = ats.bounding_size(Size::new(isize::MAX, isize::MAX)).width;
+                    let rect = Rect::new(
+                        bounds.width() - width - 16,
+                        (bounds.height() - font.line_height()) / 2,
+                        width,
+                        font.line_height(),
+                    );
+                    let _ = window.draw(|bitmap| {
+                        bitmap.fill_rect(rect, bg_color);
+                        ats.draw(&bitmap, rect);
+                    });
+                }
+                WindowMessage::MouseDown(_) => {
+                    if let Some(menu) = unsafe { MENU_WINDOW } {
+                        let _ =
+                            menu.post(WindowMessage::User(if menu.is_visible() { 0 } else { 1 }));
+                    }
+                }
+                _ => window.handle_default_message(message),
+            }
+        }
+
         Timer::sleep_async(Duration::from_millis(500)).await;
+    }
+}
 
-        sb.clear();
+static mut MENU_WINDOW: Option<WindowHandle> = None;
 
-        // let usage = MyScheduler::usage_per_cpu();
-        // let usage0 = usage / 10;
-        // let usage1 = usage % 10;
-        // write!(sb, "{:3}.{:1}%  ", usage0, usage1).unwrap();
+use crate::dev::rng::*;
+async fn menu_main() {
+    let bg_color = Color::from(IndexedColor::Blue).set_opacity(0x80);
+    //Color::from_argb(0x40000000);
+    let fg_color = IndexedColor::White.into();
 
-        let time = System::system_time();
-        let tod = time.secs % 86400;
-        let sec = tod % 60;
-        let min = tod / 60 % 60;
-        let hour = tod / 3600;
-        if sec % 2 == 0 {
-            write!(sb, "{:2} {:02} {:02}", hour, min, sec).unwrap();
-        } else {
-            write!(sb, "{:2}:{:02}:{:02}", hour, min, sec).unwrap();
-        };
-        ats.set_text(sb.as_str());
+    let screen_bounds = WindowManager::main_screen_bounds();
+    let window = WindowBuilder::new("Status Bar")
+        .style(WindowStyle::NAKED | WindowStyle::FLOATING)
+        .style_add(WindowStyle::OPAQUE)
+        // .style_add(WindowStyle::BORDER)
+        .frame(screen_bounds.into())
+        .bg_color(Color::TRANSPARENT)
+        .default_message_queue()
+        .build();
 
-        let bounds = window.frame();
-        let width = ats.bounding_size(Size::new(isize::MAX, isize::MAX)).width;
-        let rect = Rect::new(
-            bounds.width() - width - 16,
-            (bounds.height() - ats.font().line_height()) / 2,
-            width,
-            ats.font().line_height(),
-        );
-        let _ = window.draw(|bitmap| {
-            bitmap.fill_rect(rect, bg_color);
-            ats.draw(&bitmap, rect);
-        });
+    let buffer = Bitmap::new(
+        screen_bounds.width() as usize,
+        screen_bounds.height() as usize,
+        false,
+    );
+    buffer.reset();
+    buffer
+        .update_bitmap(|slice| {
+            let rng = XorShift64::default();
+            for color in slice.iter_mut() {
+                // if (rng.next() & 1) > 0 {
+                //     *color = Color::WHITE;
+                // }
+                *color = Color::from_rgb(rng.next() as u32);
+            }
+        })
+        .unwrap();
+    buffer.blur(&buffer, 4);
+    buffer.blend_rect(buffer.bounds(), bg_color);
+
+    unsafe {
+        MENU_WINDOW = Some(window);
+    }
+    loop {
+        while let Some(message) = window.get_message().await {
+            match message {
+                WindowMessage::Draw => {
+                    window
+                        .draw(|bitmap| {
+                            bitmap.copy_from(&buffer);
+
+                            AttributedString::with(
+                                "MyOS Launcher",
+                                FontDescriptor::new(FontFamily::SansSerif, 24).unwrap(),
+                                fg_color,
+                            )
+                            .draw(
+                                bitmap,
+                                bitmap.bounds().insets_by(EdgeInsets::padding_each(32)),
+                            );
+                            AttributedString::with(
+                                "Command not found\n\nPress any key to restart",
+                                FontDescriptor::new(FontFamily::SansSerif, 20).unwrap(),
+                                fg_color,
+                            )
+                            .draw(
+                                bitmap,
+                                bitmap.bounds().insets_by(EdgeInsets::new(120, 64, 64, 32)),
+                            );
+
+                            // for i in 0..5 {
+                            //     let point = Point::new(48, 72 + 48 * i);
+                            //     bitmap.fill_circle(point, 16, IndexedColor::LightBlue.into());
+                            //     bitmap.draw_circle(point, 16, Color::WHITE);
+                            // }
+                        })
+                        .unwrap();
+                }
+                WindowMessage::Char(_) => {
+                    let _ = window.post(WindowMessage::User(0));
+                }
+                WindowMessage::MouseUp(_) => {
+                    let _ = window.post(WindowMessage::User(0));
+                }
+                WindowMessage::User(flag) => {
+                    let become_active = flag != 0;
+                    if become_active {
+                        // WindowManager::save_screen_to(&buffer, buffer.bounds());
+                        // buffer.blur(&buffer, 32);
+                        window.set_active();
+                    } else {
+                        window.hide();
+                    }
+                }
+                _ => window.handle_default_message(message),
+            }
+        }
     }
 }
 
@@ -227,9 +365,7 @@ async fn activity_monitor_main() {
 
     window.show();
 
-    let mut ats = AttributedString::new("");
-    FontDescriptor::new(FontFamily::SmallFixed, 8).map(|font| ats.set_font(font));
-    ats.set_color(fg_color);
+    let font = FontDescriptor::new(FontFamily::SmallFixed, 8).unwrap_or(FontManager::system_font());
 
     let num_of_cpus = System::num_of_cpus();
     let n_items = 64;
@@ -331,13 +467,11 @@ async fn activity_monitor_main() {
                 )
                 .unwrap();
                 let rect = bitmap.bounds().insets_by(EdgeInsets::new(38, 4, 4, 4));
-                ats.set_text(sb.as_str());
-                ats.draw(&bitmap, rect);
+                AttributedString::with(sb.as_str(), font, fg_color).draw(&bitmap, rect);
 
                 MyScheduler::print_statistics(&mut sb, true);
                 let rect = bitmap.bounds().insets_by(EdgeInsets::new(48, 4, 4, 4));
-                ats.set_text(sb.as_str());
-                ats.draw(&bitmap, rect);
+                AttributedString::with(sb.as_str(), font, fg_color).draw(&bitmap, rect);
             })
             .unwrap();
 

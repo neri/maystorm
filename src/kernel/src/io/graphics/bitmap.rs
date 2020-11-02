@@ -843,6 +843,10 @@ impl Bitmap {
         }
     }
 
+    pub fn copy_from(&self, src: &Bitmap) {
+        self.blt(src, Point::new(0, 0), self.bounds(), BltOption::COPY);
+    }
+
     pub fn blt(&self, src: &Self, origin: Point<isize>, rect: Rect<isize>, option: BltOption) {
         let mut dx = origin.x;
         let mut dy = origin.y;
@@ -952,19 +956,84 @@ impl Bitmap {
         c0.line_to(c1, |point| self.draw_pixel(point, color));
     }
 
+    #[inline]
     #[allow(dead_code)]
     fn get_pixel_unchecked(&self, point: Point<isize>) -> Color {
         self.get_fb()[point.x as usize + point.y as usize * self.stride()]
     }
 
+    #[inline]
     #[allow(dead_code)]
     fn set_pixel_unchecked(&self, point: Point<isize>, color: Color) {
         self.get_fb()[point.x as usize + point.y as usize * self.stride()] = color;
     }
 
-    pub fn blur(&self, radius: isize) {
+    /// Pseudo blur (experimantal)
+    pub fn blur(&self, _buffer: &Bitmap, radius: isize) {
         let _ = radius;
-        unimplemented!();
+        let div = radius as usize;
+        let mul = div - 1;
+        let width = self.width();
+        let height = self.height();
+        for y in 0..height {
+            for x in 1..width {
+                let point = Point::new(x, y);
+                let c0 = self
+                    .get_pixel_unchecked(point + Point::new(-1, 0))
+                    .components();
+                let c1 = self.get_pixel_unchecked(point).components();
+                let color = c0.blend_color(
+                    c1,
+                    |a, b| ((mul * a as usize + b as usize) / div) as u8,
+                    |a, _| a,
+                );
+                self.set_pixel_unchecked(point, color.into());
+            }
+            for x in 1..width {
+                let x = width - x - 1;
+                let point = Point::new(x, y);
+                let c0 = self
+                    .get_pixel_unchecked(point + Point::new(1, 0))
+                    .components();
+                let c1 = self.get_pixel_unchecked(point).components();
+                let color = c0.blend_color(
+                    c1,
+                    |a, b| ((mul * a as usize + b as usize) / div) as u8,
+                    |a, _| a,
+                );
+                self.set_pixel_unchecked(point, color.into());
+            }
+        }
+        for x in 0..width {
+            for y in 1..height {
+                let point = Point::new(x, y);
+                let c0 = self
+                    .get_pixel_unchecked(point + Point::new(0, -1))
+                    .components();
+                let c1 = self.get_pixel_unchecked(point).components();
+                let color = c0.blend_color(
+                    c1,
+                    |a, b| ((mul * a as usize + b as usize) / div) as u8,
+                    |a, _| a,
+                );
+                self.set_pixel_unchecked(point, color.into());
+            }
+
+            for y in 1..height {
+                let y = height - y - 1;
+                let point = Point::new(x, y);
+                let c0 = self
+                    .get_pixel_unchecked(point + Point::new(0, 1))
+                    .components();
+                let c1 = self.get_pixel_unchecked(point).components();
+                let color = c0.blend_color(
+                    c1,
+                    |a, b| ((mul * a as usize + b as usize) / div) as u8,
+                    |a, _| a,
+                );
+                self.set_pixel_unchecked(point, color.into());
+            }
+        }
     }
 
     pub fn translate(&self, buffer: &[u8], origin: Point<isize>, size: Size<isize>, color: Color) {
@@ -1026,33 +1095,21 @@ impl<'a> AttributedString<'a> {
     }
 
     #[inline]
-    pub const fn text(&self) -> &str {
-        self.text
-    }
-
-    #[inline]
-    pub fn set_text(&mut self, text: &'a str) {
+    pub fn text(&mut self, text: &'a str) -> &Self {
         self.text = text;
+        self
     }
 
     #[inline]
-    pub const fn color(&self) -> Color {
-        self.color
-    }
-
-    #[inline]
-    pub fn set_color(&mut self, color: Color) {
+    pub fn color(&mut self, color: Color) -> &Self {
         self.color = color;
+        self
     }
 
     #[inline]
-    pub fn set_font(&mut self, font: FontDescriptor) {
+    pub fn font(&mut self, font: FontDescriptor) -> &Self {
         self.font = font;
-    }
-
-    #[inline]
-    pub const fn font(&self) -> &FontDescriptor {
-        &self.font
+        self
     }
 
     pub fn bounding_size(&self, size: Size<isize>) -> Size<isize> {

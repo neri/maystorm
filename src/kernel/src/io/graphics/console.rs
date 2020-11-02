@@ -186,7 +186,7 @@ impl GraphicalConsole<'_> {
                 rect.size.height = font.line_height();
                 self.bitmap.fill_rect(rect, self.bg_color());
 
-                handle.invalidate();
+                handle.set_needs_display();
             }
         }
         (x, y)

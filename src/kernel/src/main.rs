@@ -14,19 +14,19 @@ use bootprot::*;
 use core::fmt::Write;
 use core::future::Future;
 use core::pin::Pin;
-use core::sync::atomic::*;
 use core::task::{Context, RawWaker, RawWakerVTable, Waker};
 use core::time::Duration;
-use io::fonts::*;
 use io::graphics::*;
 use kernel::*;
 use mem::memory::*;
 use mem::string;
-use mem::string::*;
 use system::*;
 use task::scheduler::*;
 use uuid::*;
 use window::*;
+// use mem::string::*;
+// use io::fonts::*;
+// use core::sync::atomic::*;
 
 extern crate alloc;
 extern crate rlibc;
@@ -37,8 +37,10 @@ fn main() {
     let mut tasks: Vec<Pin<Box<dyn Future<Output = ()>>>> = Vec::new();
 
     tasks.push(Box::pin(repl_main()));
-    // tasks.push(Box::pin(test_task()));
-    tasks.push(Box::pin(test_task()));
+    if System::is_headless() {
+    } else {
+        tasks.push(Box::pin(test_task()));
+    }
 
     let waker = dummy_waker();
     let mut cx = Context::from_waker(&waker);
@@ -64,78 +66,73 @@ async fn repl_main() {
 }
 
 async fn test_task() {
-    static NEXT_INSTANCE: AtomicIsize = AtomicIsize::new(0);
-    let current_isntance = NEXT_INSTANCE.fetch_add(1, Ordering::SeqCst);
-
-    let window = WindowBuilder::new("Test")
-        .size(Size::new(240, 120))
-        .origin(Point::new(-248, 32 + 128 * current_isntance))
+    let window_size = Size::new(640, 480);
+    let window = WindowBuilder::new("MyOS Paint")
+        .size(window_size)
+        .origin(Point::new(50, 50))
         .default_message_queue()
         .build();
 
     window.show();
 
-    let mut mouse_move = Point::new(-1, -1);
-    let mut mouse_down = Point::new(-1, -1);
-    let mut mouse_up = Point::new(-1, -1);
+    let canvas = Bitmap::new(
+        window_size.width as usize,
+        window_size.height as usize,
+        false,
+    );
+    canvas.fill_rect(canvas.size().into(), Color::from_rgb(0xFFFFFF));
+    // canvas.draw_rect(canvas.size().into(), Color::from_rgb(0xFF0000));
 
-    let mut sb = Sb255::new();
-    // sb.write_str("Hello, Rust!").unwrap();
-    // window.invalidate();
+    let current_pen_radius = 1;
+    let current_pen = Color::from(IndexedColor::Black);
+    let mut is_drawing = false;
+    let mut last_pen = Point::new(0, 0);
+
     while let Some(message) = window.get_message().await {
         match message {
-            WindowMessage::Char(c) => match c {
-                '\x08' => {
-                    sb.backspace();
-                    window.invalidate();
-                }
-                _ => {
-                    sb.write_char(c).unwrap();
-                    window.invalidate();
-                }
-            },
             WindowMessage::Draw => {
                 window
                     .draw(|bitmap| {
-                        bitmap.fill_rect(bitmap.bounds(), Color::WHITE);
-                        AttributedString::with(
-                            sb.as_str(),
-                            FontDescriptor::new(FontFamily::SansSerif, 24).unwrap(),
-                            IndexedColor::Black.into(),
-                        )
-                        .draw(
-                            bitmap,
-                            bitmap.bounds().insets_by(EdgeInsets::padding_each(4)),
-                        );
-                        if mouse_move.x >= 0 && mouse_move.y >= 0 {
-                            draw_cursor(bitmap, mouse_move, IndexedColor::LightGray.into())
-                        }
-                        if mouse_down.x >= 0 && mouse_down.y >= 0 {
-                            draw_cursor(bitmap, mouse_down, IndexedColor::Blue.into())
-                        }
-                        if mouse_up.x >= 0 && mouse_up.y >= 0 {
-                            draw_cursor(bitmap, mouse_up, IndexedColor::Red.into())
-                        }
+                        bitmap.blt(&canvas, Point::new(0, 0), bitmap.bounds(), BltOption::COPY);
                     })
                     .unwrap();
             }
+            WindowMessage::Char(c) => match c {
+                'c' => {
+                    canvas.fill_rect(canvas.bounds(), Color::WHITE);
+                    window.set_needs_display();
+                }
+                _ => (),
+            },
             WindowMessage::MouseMove(e) => {
-                mouse_move = e.point();
-                window.invalidate();
+                if is_drawing {
+                    let e_point = e.point();
+                    last_pen.line_to(e_point, |point| {
+                        canvas.fill_circle(point, current_pen_radius, current_pen);
+                    });
+                    last_pen = e_point;
+                    window.set_needs_display();
+                }
             }
             WindowMessage::MouseDown(e) => {
-                mouse_down = e.point();
-                window.invalidate();
+                let e_point = e.point();
+                canvas.fill_circle(e_point, current_pen_radius, current_pen);
+                last_pen = e_point;
+                is_drawing = true;
+                window.set_needs_display();
             }
-            WindowMessage::MouseUp(e) => {
-                mouse_up = e.point();
-                window.invalidate();
+            WindowMessage::MouseUp(_e) => {
+                is_drawing = false;
+            }
+            WindowMessage::MouseLeave => {
+                is_drawing = false;
             }
             _ => window.handle_default_message(message),
         }
     }
 }
 
+#[allow(dead_code)]
 fn draw_cursor(bitmap: &Bitmap, point: Point<isize>, color: Color) {
     let size = 7;
     let size2 = size / 2;
