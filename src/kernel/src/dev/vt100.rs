@@ -90,7 +90,9 @@ struct Vt100Reader<'a> {
 impl Future for Vt100Reader<'_> {
     type Output = TtyReadResult;
 
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // TODO: waker support
+        let _ = cx;
         match self.vt.uart.read() {
             Ok(c) => Poll::Ready(Ok(c as char)),
             Err(TtyError::NotReady) => Poll::Pending,

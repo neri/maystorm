@@ -178,11 +178,20 @@ impl Apic {
         asm_apic_setup_sipi(sipi_vec, max_cpu, stack_chunk_size, stack_base);
 
         LocalApic::broadcast_init();
-        Timer::usleep(10_000);
+        let timer = Timer::new(Duration::from_millis(10));
+        while timer.until() {
+            Cpu::halt();
+        }
         LocalApic::broadcast_startup(sipi_vec);
-        Timer::usleep(10_000);
+        let timer = Timer::new(Duration::from_millis(10));
+        while timer.until() {
+            Cpu::halt();
+        }
         LocalApic::broadcast_startup(sipi_vec);
-        Timer::usleep(10_000);
+        let timer = Timer::new(Duration::from_millis(10));
+        while timer.until() {
+            Cpu::halt();
+        }
 
         if System::num_of_active_cpus() != max_cpu {
             panic!("Some of application processors are not responding");

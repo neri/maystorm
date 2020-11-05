@@ -12,6 +12,7 @@
 #![feature(new_uninit)]
 #![feature(option_result_contains)]
 #![feature(panic_info_message)]
+#![feature(wake_trait)]
 #![no_std]
 
 pub mod arch;
@@ -103,7 +104,7 @@ fn panic(info: &PanicInfo) -> ! {
         if let Some(name) = thread.name() {
             print!("thread '{}' ", name);
         } else {
-            print!("thread {} ", thread.id().0);
+            print!("thread {} ", thread.as_usize());
         }
     }
     println!("{}", info);

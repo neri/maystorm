@@ -1,11 +1,11 @@
-# My first OS
+# My OS
 
-My first OS written in Rust.
+My first toy OS written in Rust.
 
 ## Requirements
 
 * 64bit UEFI 2.X / ACPI 2.X
-* x64 processor with up to 64 cores
+* x64 processor with up to 64 cores, Required features: NX RDTSCP RDRAND
 * XX MB of system memory
 * 800x600 pixels screen
 * PS/2 keyboard and mouse

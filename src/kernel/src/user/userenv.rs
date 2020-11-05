@@ -1,21 +1,18 @@
 // User Environment Manager
 
 use crate::arch::cpu::*;
+use crate::dev::rng::*;
 use crate::io::fonts::*;
 use crate::io::graphics::*;
-use crate::*;
-// use crate::kernel::*;
-// use crate::mem::memory::*;
 use crate::mem::string;
 use crate::system::*;
 use crate::task::scheduler::*;
+use crate::task::*;
 use crate::window::*;
+use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::*;
 use core::fmt::Write;
-use core::future::Future;
-use core::pin::Pin;
-use core::task::{Context, RawWaker, RawWakerVTable, Waker};
 use core::time::Duration;
 
 const DESKTOP_COLOR: Color = Color::from_argb(0x802196F3);
@@ -73,16 +70,9 @@ impl UserEnv {
                     })
                     .unwrap();
 
-                window.set_active();
+                window.make_active();
 
                 Timer::sleep(Duration::from_millis(1000));
-                // let max = 10;
-                // for i in 0..max {
-                //     let color = DESKTOP_COLOR
-                //         .blend_each(Color::TRANSPARENT, |a, _b| (a as usize * i / max) as u8);
-                //     WindowManager::set_desktop_color(color);
-                //     Timer::sleep(Duration::from_millis(50));
-                // }
 
                 {
                     let screen_bounds = WindowManager::main_screen_bounds();
@@ -127,42 +117,18 @@ impl UserEnv {
                     0,
                 );
                 window.move_to(Point::new(16, 40));
-                window.set_active();
+                window.make_active();
                 System::set_stdout(console);
             }
 
-            let mut tasks: Vec<Pin<Box<dyn Future<Output = ()>>>> = Vec::new();
-
-            tasks.push(Box::pin(status_bar_main()));
-            tasks.push(Box::pin(activity_monitor_main()));
-            tasks.push(Box::pin(menu_main()));
-
             SpawnOption::new().spawn(unsafe { core::mem::transmute(f) }, 0, "shell");
 
-            let waker = dummy_waker();
-            let mut cx = Context::from_waker(&waker);
-            loop {
-                for task in &mut tasks {
-                    let _ = task.as_mut().poll(&mut cx);
-                }
-                Timer::usleep(100_000);
-            }
+            MyScheduler::spawn_async(Task::new(status_bar_main()));
+            MyScheduler::spawn_async(Task::new(activity_monitor_main()));
+            MyScheduler::spawn_async(Task::new(menu_main()));
+            MyScheduler::perform_tasks();
         }
     }
-}
-
-fn dummy_waker() -> Waker {
-    unsafe { Waker::from_raw(dummy_raw_waker()) }
-}
-
-fn dummy_raw_waker() -> RawWaker {
-    fn no_op(_: *const ()) {}
-    fn clone(_: *const ()) -> RawWaker {
-        dummy_raw_waker()
-    }
-
-    let vtable = &RawWakerVTable::new(clone, no_op, no_op, no_op);
-    RawWaker::new(0 as *const (), vtable)
 }
 
 #[allow(dead_code)]
@@ -199,95 +165,96 @@ async fn status_bar_main() {
 
     let font = FontManager::system_font();
     let mut sb = string::Sb255::new();
-    loop {
-        window.set_needs_display();
-        while let Some(message) = window.consume_message() {
-            match message {
-                WindowMessage::Draw => {
-                    sb.clear();
 
-                    // let usage = MyScheduler::usage_per_cpu();
-                    // let usage0 = usage / 10;
-                    // let usage1 = usage % 10;
-                    // write!(sb, "{:3}.{:1}%  ", usage0, usage1).unwrap();
-
-                    let time = System::system_time();
-                    let tod = time.secs % 86400;
-                    // let sec = tod % 60;
-                    let min = tod / 60 % 60;
-                    let hour = tod / 3600;
-                    // if sec % 2 == 0 {
-                    //     write!(sb, "{:2} {:02} {:02}", hour, min, sec).unwrap();
-                    // } else {
-                    //     write!(sb, "{:2}:{:02}:{:02}", hour, min, sec).unwrap();
-                    // };
-                    write!(sb, "{:2}:{:02}", hour, min).unwrap();
-                    let ats = AttributedString::with(sb.as_str(), font, fg_color);
-
-                    let bounds = window.frame();
-                    let width = ats.bounding_size(Size::new(isize::MAX, isize::MAX)).width;
-                    let rect = Rect::new(
-                        bounds.width() - width - 16,
-                        (bounds.height() - font.line_height()) / 2,
-                        width,
-                        font.line_height(),
-                    );
-                    let _ = window.draw(|bitmap| {
-                        bitmap.fill_rect(rect, bg_color);
-                        ats.draw(&bitmap, rect);
-                    });
-                }
-                WindowMessage::MouseDown(_) => {
-                    if let Some(menu) = unsafe { MENU_WINDOW } {
-                        let _ =
-                            menu.post(WindowMessage::User(if menu.is_visible() { 0 } else { 1 }));
-                    }
-                }
-                _ => window.handle_default_message(message),
+    let interval = Duration::from_millis(500);
+    window.create_timer(interval);
+    while let Some(message) = window.get_message().await {
+        match message {
+            WindowMessage::Timer(_) => {
+                window.set_needs_display();
+                window.create_timer(interval);
             }
-        }
+            WindowMessage::Draw => {
+                sb.clear();
 
-        Timer::sleep_async(Duration::from_millis(500)).await;
+                // let usage = MyScheduler::usage_per_cpu();
+                // let usage0 = usage / 10;
+                // let usage1 = usage % 10;
+                // write!(sb, "{:3}.{:1}%  ", usage0, usage1).unwrap();
+
+                let time = System::system_time();
+                let tod = time.secs % 86400;
+                let min = tod / 60 % 60;
+                let hour = tod / 3600;
+                if false {
+                    let sec = tod % 60;
+                    if sec % 2 == 0 {
+                        write!(sb, "{:2} {:02} {:02}", hour, min, sec).unwrap();
+                    } else {
+                        write!(sb, "{:2}:{:02}:{:02}", hour, min, sec).unwrap();
+                    };
+                } else {
+                    write!(sb, "{:2}:{:02}", hour, min).unwrap();
+                }
+                let ats = AttributedString::with(sb.as_str(), font, fg_color);
+
+                let bounds = window.frame();
+                let width = ats.bounding_size(Size::new(isize::MAX, isize::MAX)).width;
+                let rect = Rect::new(
+                    bounds.width() - width - 16,
+                    (bounds.height() - font.line_height()) / 2,
+                    width,
+                    font.line_height(),
+                );
+                let _ = window.draw(|bitmap| {
+                    bitmap.fill_rect(rect, bg_color);
+                    ats.draw(&bitmap, rect);
+                });
+            }
+            WindowMessage::MouseDown(_) => {
+                if let Some(menu) = unsafe { MENU_WINDOW } {
+                    let _ = menu.post(WindowMessage::User(if menu.is_visible() { 0 } else { 1 }));
+                }
+            }
+            _ => window.handle_default_message(message),
+        }
     }
 }
 
 static mut MENU_WINDOW: Option<WindowHandle> = None;
 
-use crate::dev::rng::*;
 async fn menu_main() {
-    let bg_color = Color::from(IndexedColor::Blue).set_opacity(0x80);
+    // let bg_color = Color::from(IndexedColor::Blue).set_opacity(0x80);
     //Color::from_argb(0x40000000);
     let fg_color = IndexedColor::White.into();
 
-    let screen_bounds = WindowManager::main_screen_bounds();
+    // let screen_bounds = WindowManager::main_screen_bounds();
     let window = WindowBuilder::new("Status Bar")
         .style(WindowStyle::NAKED | WindowStyle::FLOATING)
-        .style_add(WindowStyle::OPAQUE)
-        // .style_add(WindowStyle::BORDER)
-        .frame(screen_bounds.into())
+        .size(Size::new(320, 240))
+        .origin(Point::new(isize::MIN, 24))
         .bg_color(Color::TRANSPARENT)
         .default_message_queue()
         .build();
 
     let buffer = Bitmap::new(
-        screen_bounds.width() as usize,
-        screen_bounds.height() as usize,
+        window.frame().width() as usize,
+        window.frame().height() as usize,
         false,
     );
     buffer.reset();
+    buffer.fill_round_rect(buffer.bounds(), 32, Color::WHITE);
     buffer
         .update_bitmap(|slice| {
             let rng = XorShift64::default();
             for color in slice.iter_mut() {
-                // if (rng.next() & 1) > 0 {
-                //     *color = Color::WHITE;
-                // }
-                *color = Color::from_rgb(rng.next() as u32);
+                let opacity = color.opacity();
+                *color = Color::from_rgb(rng.next() as u32).set_opacity(opacity);
             }
         })
         .unwrap();
-    buffer.blur(&buffer, 4);
-    buffer.blend_rect(buffer.bounds(), bg_color);
+    buffer.blur(&buffer, 8);
+    // buffer.blend_rect(buffer.bounds(), bg_color);
 
     unsafe {
         MENU_WINDOW = Some(window);
@@ -338,7 +305,7 @@ async fn menu_main() {
                     if become_active {
                         // WindowManager::save_screen_to(&buffer, buffer.bounds());
                         // buffer.blur(&buffer, 32);
-                        window.set_active();
+                        window.make_active();
                     } else {
                         window.hide();
                     }
@@ -361,6 +328,7 @@ async fn activity_monitor_main() {
         .style_add(WindowStyle::NAKED | WindowStyle::FLOATING | WindowStyle::PINCHABLE)
         .frame(Rect::new(-330, -180, 320, 150))
         .bg_color(bg_color)
+        .default_message_queue()
         .build();
 
     window.show();
@@ -383,99 +351,113 @@ async fn activity_monitor_main() {
     let mut sb = string::StringBuffer::with_capacity(0x1000);
     let mut time0 = Timer::measure();
     let mut tsc0 = unsafe { Cpu::read_tsc() };
-    loop {
-        Timer::sleep_async(Duration::from_millis(1000)).await;
-        let time1 = Timer::measure();
-        let tsc1 = unsafe { Cpu::read_tsc() };
 
-        MyScheduler::get_idle_statistics(&mut usage_temp);
-        for i in 0..num_of_cpus {
-            usage_history[i * n_items + usage_cursor] =
-                (u32::min(usage_temp[i], 999) * 254 / 999) as u8;
-        }
-        usage_cursor = (usage_cursor + 1) % n_items;
+    let interval = Duration::from_secs(1);
+    window.create_timer(interval);
+    while let Some(message) = window.get_message().await {
+        match message {
+            WindowMessage::Timer(_) => {
+                window.set_needs_display();
+                window.create_timer(interval);
+            }
+            WindowMessage::Draw => {
+                let time1 = Timer::measure();
+                let tsc1 = unsafe { Cpu::read_tsc() };
 
-        window
-            .draw(|bitmap| {
-                bitmap.fill_rect(bitmap.bounds(), bg_color);
-                for cpu_index in 0..num_of_cpus {
-                    let padding = 4;
-                    let item_size = Size::new(
-                        isize::min(
-                            isize::max(
-                                (bitmap.bounds().width() - padding) / num_of_cpus as isize
-                                    - padding,
-                                16,
-                            ),
-                            n_items as isize,
-                        ),
-                        32,
-                    );
-                    let rect = Rect::new(
-                        padding + cpu_index as isize * (item_size.width + padding),
-                        padding,
-                        item_size.width,
-                        item_size.height,
-                    );
-                    let h_lines = 4;
-                    let v_lines = 4;
-                    for i in 1..h_lines {
-                        let point = Point::new(rect.x(), rect.y() + i * item_size.height / h_lines);
-                        bitmap.draw_hline(point, item_size.width, graph_sub_color);
-                    }
-                    for i in 1..v_lines {
-                        let point = Point::new(rect.x() + i * item_size.width / v_lines, rect.y());
-                        bitmap.draw_vline(point, item_size.height, graph_sub_color);
-                    }
-
-                    let limit = item_size.width as usize - 2;
-                    for i in 0..limit {
-                        let scale = item_size.height - 2;
-                        let value1 = usage_history
-                            [cpu_index * n_items + ((usage_cursor + i - limit) % n_items)]
-                            as isize
-                            * scale
-                            / 255;
-                        let value2 = usage_history
-                            [cpu_index * n_items + ((usage_cursor + i - 1 - limit) % n_items)]
-                            as isize
-                            * scale
-                            / 255;
-                        let c0 = Point::new(rect.x() + i as isize + 1, rect.y() + 1 + value1);
-                        let c1 = Point::new(rect.x() + i as isize, rect.y() + 1 + value2);
-                        bitmap.draw_line(c0, c1, graph_main_color);
-                    }
-                    bitmap.draw_rect(rect, graph_border_color);
+                MyScheduler::get_idle_statistics(&mut usage_temp);
+                for i in 0..num_of_cpus {
+                    usage_history[i * n_items + usage_cursor] =
+                        (u32::min(usage_temp[i], 999) * 254 / 999) as u8;
                 }
+                usage_cursor = (usage_cursor + 1) % n_items;
 
-                sb.clear();
-                let hz = ((tsc1 - tsc0) / (time1 - time0) + 5) / 10;
-                let hz0 = hz % 100;
-                let hz1 = hz / 100;
-                let usage = MyScheduler::usage_per_cpu();
-                let usage0 = usage % 10;
-                let usage1 = usage / 10;
-                write!(
-                    sb,
-                    "CPU: {}.{:02} GHz {:3}.{}% {} Cores {} Threads",
-                    hz1,
-                    hz0,
-                    usage1,
-                    usage0,
-                    System::num_of_physical_cpus(),
-                    System::num_of_cpus(),
-                )
-                .unwrap();
-                let rect = bitmap.bounds().insets_by(EdgeInsets::new(38, 4, 4, 4));
-                AttributedString::with(sb.as_str(), font, fg_color).draw(&bitmap, rect);
+                window
+                    .draw(|bitmap| {
+                        bitmap.fill_rect(bitmap.bounds(), bg_color);
+                        for cpu_index in 0..num_of_cpus {
+                            let padding = 4;
+                            let item_size = Size::new(
+                                isize::min(
+                                    isize::max(
+                                        (bitmap.bounds().width() - padding) / num_of_cpus as isize
+                                            - padding,
+                                        16,
+                                    ),
+                                    n_items as isize,
+                                ),
+                                32,
+                            );
+                            let rect = Rect::new(
+                                padding + cpu_index as isize * (item_size.width + padding),
+                                padding,
+                                item_size.width,
+                                item_size.height,
+                            );
+                            let h_lines = 4;
+                            let v_lines = 4;
+                            for i in 1..h_lines {
+                                let point =
+                                    Point::new(rect.x(), rect.y() + i * item_size.height / h_lines);
+                                bitmap.draw_hline(point, item_size.width, graph_sub_color);
+                            }
+                            for i in 1..v_lines {
+                                let point =
+                                    Point::new(rect.x() + i * item_size.width / v_lines, rect.y());
+                                bitmap.draw_vline(point, item_size.height, graph_sub_color);
+                            }
 
-                MyScheduler::print_statistics(&mut sb, true);
-                let rect = bitmap.bounds().insets_by(EdgeInsets::new(48, 4, 4, 4));
-                AttributedString::with(sb.as_str(), font, fg_color).draw(&bitmap, rect);
-            })
-            .unwrap();
+                            let limit = item_size.width as usize - 2;
+                            for i in 0..limit {
+                                let scale = item_size.height - 2;
+                                let value1 = usage_history
+                                    [cpu_index * n_items + ((usage_cursor + i - limit) % n_items)]
+                                    as isize
+                                    * scale
+                                    / 255;
+                                let value2 = usage_history[cpu_index * n_items
+                                    + ((usage_cursor + i - 1 - limit) % n_items)]
+                                    as isize
+                                    * scale
+                                    / 255;
+                                let c0 =
+                                    Point::new(rect.x() + i as isize + 1, rect.y() + 1 + value1);
+                                let c1 = Point::new(rect.x() + i as isize, rect.y() + 1 + value2);
+                                bitmap.draw_line(c0, c1, graph_main_color);
+                            }
+                            bitmap.draw_rect(rect, graph_border_color);
+                        }
 
-        tsc0 = tsc1;
-        time0 = time1;
+                        sb.clear();
+                        let hz = ((tsc1 - tsc0) / (time1 - time0) + 5) / 10;
+                        let hz0 = hz % 100;
+                        let hz1 = hz / 100;
+                        let usage = MyScheduler::usage_per_cpu();
+                        let usage0 = usage % 10;
+                        let usage1 = usage / 10;
+                        write!(
+                            sb,
+                            "CPU: {}.{:02} GHz {:3}.{}% {} Cores {} Threads",
+                            hz1,
+                            hz0,
+                            usage1,
+                            usage0,
+                            System::num_of_physical_cpus(),
+                            System::num_of_cpus(),
+                        )
+                        .unwrap();
+                        let rect = bitmap.bounds().insets_by(EdgeInsets::new(38, 4, 4, 4));
+                        AttributedString::with(sb.as_str(), font, fg_color).draw(&bitmap, rect);
+
+                        MyScheduler::print_statistics(&mut sb, true);
+                        let rect = bitmap.bounds().insets_by(EdgeInsets::new(48, 4, 4, 4));
+                        AttributedString::with(sb.as_str(), font, fg_color).draw(&bitmap, rect);
+                    })
+                    .unwrap();
+
+                tsc0 = tsc1;
+                time0 = time1;
+            }
+            _ => window.handle_default_message(message),
+        }
     }
 }

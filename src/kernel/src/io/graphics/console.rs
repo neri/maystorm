@@ -299,7 +299,7 @@ impl TtyWrite for GraphicalConsole<'_> {
 
 impl TtyRead for GraphicalConsole<'_> {
     fn read_async(&self) -> Pin<Box<dyn Future<Output = TtyReadResult>>> {
-        Box::pin(VtReader {
+        Box::pin(ConsoleReader {
             window: self.handle.unwrap(),
         })
     }
@@ -307,21 +307,20 @@ impl TtyRead for GraphicalConsole<'_> {
 
 impl Tty for GraphicalConsole<'_> {}
 
-struct VtReader {
+struct ConsoleReader {
     window: WindowHandle,
 }
 
-impl Future for VtReader {
+impl Future for ConsoleReader {
     type Output = TtyReadResult;
 
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.window.consume_message() {
-            Some(WindowMessage::Char(c)) => Poll::Ready(Ok(c)),
-            Some(message) => {
-                self.window.handle_default_message(message);
-                Poll::Ready(Err(TtyError::SkipData))
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        while let Some(message) = self.window.poll_message(cx) {
+            match message {
+                WindowMessage::Char(c) => return Poll::Ready(Ok(c)),
+                _ => self.window.handle_default_message(message),
             }
-            None => Poll::Pending,
         }
+        Poll::Pending
     }
 }

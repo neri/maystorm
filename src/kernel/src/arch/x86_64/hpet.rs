@@ -55,7 +55,7 @@ impl Hpet {
 
 impl TimerSource for Hpet {
     fn create(&self, duration: Duration) -> TimeSpec {
-        self.measure() + duration.as_micros() as TimeSpec + 1
+        self.measure() + duration.as_micros() as TimeSpec
     }
 
     fn until(&self, deadline: TimeSpec) -> bool {

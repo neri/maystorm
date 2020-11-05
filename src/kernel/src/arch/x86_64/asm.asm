@@ -167,7 +167,7 @@ asm_sch_switch_context:
     ret
 
 
-;    fn asm_sch_make_new_thread(context: *mut u8, new_sp: *mut u8, start: *mut c_void, args: *mut c_void,);
+;    fn asm_sch_make_new_thread(context: *mut u8, new_sp: *mut u8, start: () -> (), args: usize,);
     global asm_sch_make_new_thread
 asm_sch_make_new_thread:
     lea rax, [rel _new_thread]

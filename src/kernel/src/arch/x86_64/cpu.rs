@@ -139,6 +139,7 @@ impl Cpu {
 
     #[inline]
     pub fn current_processor_index() -> Option<ProcessorIndex> {
+        // TODO: RDTSCP
         if false {
             Apic::current_processor_index()
         } else {

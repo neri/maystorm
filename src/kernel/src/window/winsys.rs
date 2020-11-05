@@ -21,6 +21,7 @@ use core::sync::atomic::*;
 use core::task::{Context, Poll};
 use core::time::Duration;
 use crossbeam_queue::ArrayQueue;
+use futures_util::task::AtomicWaker;
 
 const WINDOW_TITLE_LENGTH: usize = 32;
 
@@ -239,7 +240,7 @@ impl WindowManager {
         let shared = WindowManager::shared();
 
         loop {
-            let _ = shared.sem_redraw.wait(Duration::from_millis(1000));
+            let _ = shared.sem_redraw.wait(Duration::from_millis(5000));
 
             if shared
                 .attributes
@@ -749,15 +750,7 @@ impl WindowManagerAttributes {
     }
 
     fn test_and_clear(&self, bits: usize) -> bool {
-        self.0
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
-                if (x & bits) == bits {
-                    Some(x & !bits)
-                } else {
-                    None
-                }
-            })
-            .is_ok()
+        (self.0.fetch_and(!bits, Ordering::SeqCst) & bits) == bits
     }
 }
 
@@ -767,24 +760,29 @@ struct RawWindow {
     /// Refer to the self owned handle
     handle: WindowHandle,
 
-    frame: Rect<isize>,
-    shadow_insets: EdgeInsets<isize>,
-    content_insets: EdgeInsets<isize>,
-
+    // Properties
     attributes: WindowAttributes,
     style: WindowStyle,
     level: WindowLevel,
 
+    // Placement and Size
+    frame: Rect<isize>,
+    shadow_insets: EdgeInsets<isize>,
+    content_insets: EdgeInsets<isize>,
+
+    // Appearances
     bg_color: Color,
     bitmap: Option<Box<Bitmap>>,
     view: Option<Box<dyn ViewTrait>>,
 
+    /// Window Title
     title: [u8; WINDOW_TITLE_LENGTH],
 
-    sem_message: Semaphore,
+    // Messages and Events
+    waker: AtomicWaker,
     queue: Option<ArrayQueue<WindowMessage>>,
 
-    // TODO:
+    // TODO: Window Hierachies
     next: Option<WindowHandle>,
 }
 
@@ -845,15 +843,7 @@ impl WindowAttributes {
     }
 
     fn test_and_clear(&self, bits: u8) -> bool {
-        self.0
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
-                if (x & bits) == bits {
-                    Some(x & !bits)
-                } else {
-                    None
-                }
-            })
-            .is_ok()
+        (self.0.fetch_and(!bits, Ordering::SeqCst) & bits) == bits
     }
 }
 
@@ -1225,14 +1215,14 @@ impl WindowBuilder {
             title: self.title,
             attributes,
             view: None,
-            sem_message: Semaphore::new(0),
+            waker: AtomicWaker::new(),
             queue,
             next: None,
         };
         // window.draw_frame();
         WindowManager::add(Box::new(window));
         if !self.style.contains(WindowStyle::NAKED) {
-            handle.load_view_if_needed();
+            // handle.load_view_if_needed();
         }
         handle
     }
@@ -1339,6 +1329,7 @@ impl WindowHandle {
 
     // :-:-:-:-:
 
+    #[inline]
     pub fn set_title(&self, title: &str) {
         self.update(|window| {
             window.set_title(title);
@@ -1450,7 +1441,7 @@ impl WindowHandle {
     }
 
     #[inline]
-    pub fn set_active(&self) {
+    pub fn make_active(&self) {
         WindowManager::set_active(Some(*self));
     }
 
@@ -1506,6 +1497,7 @@ impl WindowHandle {
         Ok(())
     }
 
+    /// Draws the contents of the window on the screen as a bitmap.
     pub fn draw_into(&self, target_bitmap: &Bitmap, rect: Rect<isize>) {
         let window = self.as_ref();
         let mut frame = rect;
@@ -1521,33 +1513,21 @@ impl WindowHandle {
         window.view.as_mut()
     }
 
-    pub fn load_view_if_needed(&self) {
-        if self.as_ref().view.is_none() {
-            let mut view = View::with_frame(self.frame().size().into());
-            self.update(|window| {
-                view.set_background_color(window.bg_color);
-                window.view = Some(view);
-                if let Some(view) = window.view.as_mut() {
-                    view.move_to(Some(*self));
-                }
-            });
-        }
-    }
-
+    /// Post a window message.
     pub fn post(&self, message: WindowMessage) -> Result<(), WindowPostError> {
         let window = self.as_ref();
         if let Some(queue) = window.queue.as_ref() {
             match message {
                 WindowMessage::Draw => {
                     window.attributes.insert(WindowAttributes::NEEDS_REDRAW);
-                    window.sem_message.signal();
+                    window.waker.wake();
                     Ok(())
                 }
                 _ => queue
                     .push(message)
                     .map_err(|_| WindowPostError::Full)
                     .map(|_| {
-                        window.sem_message.signal();
+                        window.waker.wake();
                     }),
             }
         } else {
@@ -1555,10 +1535,10 @@ impl WindowHandle {
         }
     }
 
-    pub fn consume_message(&self) -> Option<WindowMessage> {
+    /// Read a window message from the message queue.
+    pub fn read_message(&self) -> Option<WindowMessage> {
         let window = self.as_ref();
         if let Some(queue) = window.queue.as_ref() {
-            let _ = window.sem_message.try_to();
             match queue.pop() {
                 Ok(v) => Some(v),
                 _ => {
@@ -1577,6 +1557,16 @@ impl WindowHandle {
         }
     }
 
+    /// Supports asynchronous reading of window messages.
+    pub fn poll_message(&self, cx: &mut Context<'_>) -> Option<WindowMessage> {
+        self.as_ref().waker.register(cx.waker());
+        self.read_message().map(|message| {
+            self.as_ref().waker.take();
+            message
+        })
+    }
+
+    /// Process window messages that are not handled.
     pub fn handle_default_message(&self, message: WindowMessage) {
         match message {
             WindowMessage::Draw => {
@@ -1591,8 +1581,22 @@ impl WindowHandle {
         }
     }
 
+    /// Get the window message asynchronously.
     pub fn get_message(&self) -> Pin<Box<dyn Future<Output = Option<WindowMessage>>>> {
         Box::pin(WindowMessageConsumer { handle: *self })
+    }
+
+    pub fn create_timer(&self, duration: Duration) -> TimerId {
+        let timer = Timer::new(duration);
+        let mut event = TimerEvent::window(*self, timer);
+        let timer_id = event.id();
+        loop {
+            match MyScheduler::schedule_timer(event) {
+                Ok(()) => break,
+                Err(e) => event = e,
+            }
+        }
+        timer_id
     }
 }
 
@@ -1603,8 +1607,8 @@ struct WindowMessageConsumer {
 impl Future for WindowMessageConsumer {
     type Output = Option<WindowMessage>;
 
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.handle.consume_message() {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match self.handle.poll_message(cx) {
             Some(v) => Poll::Ready(Some(v)),
             None => Poll::Pending,
         }
@@ -1642,6 +1646,8 @@ pub enum WindowMessage {
     MouseUp(MouseEvent),
     MouseEnter,
     MouseLeave,
+    /// Timer event
+    Timer(TimerId),
     /// User Defined
     User(usize),
 }

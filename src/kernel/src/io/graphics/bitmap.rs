@@ -985,7 +985,7 @@ impl Bitmap {
                 let color = c0.blend_color(
                     c1,
                     |a, b| ((mul * a as usize + b as usize) / div) as u8,
-                    |a, _| a,
+                    |_, b| b,
                 );
                 self.set_pixel_unchecked(point, color.into());
             }
@@ -999,7 +999,7 @@ impl Bitmap {
                 let color = c0.blend_color(
                     c1,
                     |a, b| ((mul * a as usize + b as usize) / div) as u8,
-                    |a, _| a,
+                    |_, b| b,
                 );
                 self.set_pixel_unchecked(point, color.into());
             }
@@ -1014,7 +1014,7 @@ impl Bitmap {
                 let color = c0.blend_color(
                     c1,
                     |a, b| ((mul * a as usize + b as usize) / div) as u8,
-                    |a, _| a,
+                    |_, b| b,
                 );
                 self.set_pixel_unchecked(point, color.into());
             }
@@ -1029,7 +1029,7 @@ impl Bitmap {
                 let color = c0.blend_color(
                     c1,
                     |a, b| ((mul * a as usize + b as usize) / div) as u8,
-                    |a, _| a,
+                    |_, b| b,
                 );
                 self.set_pixel_unchecked(point, color.into());
             }

@@ -7,23 +7,22 @@
 #![feature(asm)]
 
 // use acpi;
-use alloc::boxed::Box;
 use alloc::vec::*;
 use arch::cpu::*;
 use bootprot::*;
 use core::fmt::Write;
-use core::future::Future;
-use core::pin::Pin;
-use core::task::{Context, RawWaker, RawWakerVTable, Waker};
-use core::time::Duration;
+// use core::time::Duration;
 use io::graphics::*;
 use kernel::*;
 use mem::memory::*;
 use mem::string;
 use system::*;
+// use task::executor::Executor;
 use task::scheduler::*;
+use task::Task;
 use uuid::*;
 use window::*;
+// use alloc::boxed::Box;
 // use mem::string::*;
 // use io::fonts::*;
 // use core::sync::atomic::*;
@@ -34,27 +33,12 @@ extern crate rlibc;
 entry!(main);
 
 fn main() {
-    let mut tasks: Vec<Pin<Box<dyn Future<Output = ()>>>> = Vec::new();
-
-    tasks.push(Box::pin(repl_main()));
-    if System::is_headless() {
-    } else {
-        tasks.push(Box::pin(test_task()));
-    }
-
-    let waker = dummy_waker();
-    let mut cx = Context::from_waker(&waker);
-    loop {
-        for task in &mut tasks {
-            let _ = task.as_mut().poll(&mut cx);
-        }
-        Timer::usleep(100_000);
-    }
+    MyScheduler::spawn_async(Task::new(repl_main()));
+    // MyScheduler::spawn_async(Task::new(test_task()));
+    MyScheduler::perform_tasks();
 }
 
 async fn repl_main() {
-    Timer::sleep_async(Duration::from_millis(500)).await;
-
     exec("ver");
 
     loop {
@@ -65,6 +49,7 @@ async fn repl_main() {
     }
 }
 
+#[allow(dead_code)]
 async fn test_task() {
     let window_size = Size::new(640, 480);
     let window = WindowBuilder::new("MyOS Paint")
@@ -337,18 +322,4 @@ fn cmd_lspci(argv: &[&str]) -> isize {
         }
     }
     0
-}
-
-fn dummy_waker() -> Waker {
-    unsafe { Waker::from_raw(dummy_raw_waker()) }
-}
-
-fn dummy_raw_waker() -> RawWaker {
-    fn no_op(_: *const ()) {}
-    fn clone(_: *const ()) -> RawWaker {
-        dummy_raw_waker()
-    }
-
-    let vtable = &RawWakerVTable::new(clone, no_op, no_op, no_op);
-    RawWaker::new(0 as *const (), vtable)
 }
