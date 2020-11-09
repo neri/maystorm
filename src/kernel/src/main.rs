@@ -11,17 +11,17 @@ use alloc::vec::*;
 use arch::cpu::*;
 use bootprot::*;
 use core::fmt::Write;
-// use core::time::Duration;
+use fs::filesys::*;
 use io::graphics::*;
 use kernel::*;
 use mem::memory::*;
 use mem::string;
 use system::*;
-// use task::executor::Executor;
 use task::scheduler::*;
 use task::Task;
 use uuid::*;
 use window::*;
+// use core::time::Duration;
 // use alloc::boxed::Box;
 // use mem::string::*;
 // use io::fonts::*;
@@ -183,7 +183,7 @@ fn command(cmd: &str) -> Option<&'static fn(&[&str]) -> isize> {
     None
 }
 
-const COMMAND_TABLE: [(&str, fn(&[&str]) -> isize, &str); 9] = [
+const COMMAND_TABLE: [(&str, fn(&[&str]) -> isize, &str); 12] = [
     ("help", cmd_help, "Show Help"),
     ("cls", cmd_cls, "Clear screen"),
     ("ver", cmd_ver, "Display version"),
@@ -193,6 +193,9 @@ const COMMAND_TABLE: [(&str, fn(&[&str]) -> isize, &str); 9] = [
     ("reboot", cmd_reboot, "Restart computer"),
     ("exit", cmd_reserved, ""),
     ("echo", cmd_echo, ""),
+    ("dir", cmd_dir, ""),
+    ("stat", cmd_stat, ""),
+    ("type", cmd_type, ""),
 ];
 
 fn cmd_reserved(_: &[&str]) -> isize {
@@ -293,33 +296,173 @@ fn cmd_sysctl(argv: &[&str]) -> isize {
     0
 }
 
+fn cmd_dir(_argv: &[&str]) -> isize {
+    let fs = match Fs::list_of_volumes().first() {
+        Some(fs) => fs,
+        None => return 1,
+    };
+    let inode = fs.root_dir();
+    for file in Fs::read_dir_iter(fs, inode) {
+        print!(" {:<14} ", file.name(),);
+    }
+    let info = fs.info();
+    println!(
+        "\n {} kb / {} kb",
+        (info.free_records as usize * info.bytes_per_record) >> 10,
+        (info.total_records as usize * info.bytes_per_record) >> 10,
+    );
+    0
+}
+
+fn cmd_stat(argv: &[&str]) -> isize {
+    if argv.len() < 2 {
+        println!("usage: stat FILENAME");
+        return 1;
+    }
+    let name = argv[1];
+
+    let fs = match Fs::list_of_volumes().first() {
+        Some(fs) => fs,
+        None => return 1,
+    };
+    let inode = Fs::find_file(fs, name);
+    if inode == 0 {
+        println!("No such file: {}", name);
+    } else {
+        let stat = fs.stat(inode).unwrap();
+        println!(
+            "{} inode {} size {} blk {} {}",
+            name, stat.inode, stat.file_size, stat.block_size, stat.blocks
+        );
+    }
+
+    0
+}
+
+fn cmd_type(argv: &[&str]) -> isize {
+    if argv.len() < 2 {
+        println!("usage: type FILENAME");
+        return 1;
+    }
+    let name = argv[1];
+
+    let fs = match Fs::list_of_volumes().first() {
+        Some(fs) => fs,
+        None => return 1,
+    };
+    let inode = Fs::find_file(fs, name);
+    if inode == 0 {
+        println!("No such file: {}", name);
+    } else {
+        let stat = fs.stat(inode).unwrap();
+        if stat.file_size > 0 {
+            let mut buffer = Vec::new();
+            buffer.resize(stat.block_size, 0);
+            let last_bytes = stat.file_size % stat.block_size;
+            for i in 0..(stat.blocks - 1) {
+                fs.x_read(inode, i, 1, &mut buffer);
+                for c in buffer.iter() {
+                    stdout().write_char(*c as char).unwrap();
+                }
+            }
+            fs.x_read(inode, stat.blocks - 1, 1, &mut buffer);
+            let buffer = &buffer[..last_bytes];
+            for c in buffer.iter() {
+                stdout().write_char(*c as char).unwrap();
+            }
+        }
+    }
+
+    0
+}
+
 fn cmd_lspci(argv: &[&str]) -> isize {
     let opt_all = argv.len() > 1;
     for device in bus::pci::Pci::devices() {
         let addr = device.address();
+        let class_string = find_class_string(device.class_code());
         println!(
-            "{:02x}.{:02x}.{} {:04x}:{:04x} {:06x} {}",
-            addr.0,
-            addr.1,
-            addr.2,
+            "{:02x}.{:02x}.{} {:04x}:{:04x} {}",
+            addr.bus,
+            addr.dev,
+            addr.fun,
             device.vendor_id().0,
             device.device_id().0,
-            device.class_code(),
-            device.class_string(),
+            class_string,
         );
         if opt_all {
             for function in device.functions() {
                 let addr = function.address();
+                let class_string = find_class_string(function.class_code());
                 println!(
-                    "     .{} {:04x}:{:04x} {:06x} {}",
-                    addr.2,
+                    "     .{} {:04x}:{:04x} {}",
+                    addr.fun,
                     function.vendor_id().0,
                     function.device_id().0,
-                    function.class_code(),
-                    function.class_string(),
+                    class_string,
                 );
             }
         }
     }
     0
+}
+
+fn find_class_string(class_code: u32) -> &'static str {
+    const MASK_CC: u32 = 0xFF_00_00;
+    const MASK_SUB: u32 = 0xFF_FF_00;
+    const MASK_IF: u32 = u32::MAX;
+    let entries = [
+        (0x00_00_00, MASK_SUB, "Non-VGA-Compatible devices"),
+        (0x00_01_00, MASK_SUB, "VGA-Compatible Device"),
+        (0x01_00_00, MASK_SUB, "SCSI Bus Controller"),
+        (0x01_01_00, MASK_SUB, "IDE Controller"),
+        (0x01_05_00, MASK_SUB, "ATA Controller"),
+        (0x01_06_01, MASK_IF, "AHCI 1.0"),
+        (0x01_06_00, MASK_SUB, "Serial ATA"),
+        (0x01_07_00, MASK_IF, "SAS"),
+        (0x01_07_00, MASK_SUB, "Serial Attached SCSI"),
+        (0x01_08_01, MASK_IF, "NVMHCI"),
+        (0x01_08_02, MASK_IF, "NVM Express"),
+        (0x01_08_00, MASK_SUB, "Non-Volatile Memory Controller"),
+        (0x01_00_00, MASK_CC, "Mass Storage Controller"),
+        (0x02_00_00, MASK_SUB, "Ethernet Controller"),
+        (0x02_00_00, MASK_CC, "Network Controller"),
+        (0x03_00_00, MASK_CC, "Display Controller"),
+        (0x04_00_00, MASK_SUB, "Multimedia Video Controller"),
+        (0x04_01_00, MASK_SUB, "Multimedia Audio Controller"),
+        (0x04_03_00, MASK_SUB, "Audio Device"),
+        (0x04_00_00, MASK_CC, "Multimedia Controller"),
+        (0x05_00_00, MASK_CC, "Memory Controller"),
+        (0x06_00_00, MASK_SUB, "Host Bridge"),
+        (0x06_01_00, MASK_SUB, "ISA Bridge"),
+        (0x06_04_00, MASK_SUB, "PCI-to-PCI Bridge"),
+        (0x06_09_00, MASK_SUB, "PCI-to-PCI Bridge"),
+        (0x06_00_00, MASK_CC, "Bridge Device"),
+        (0x07_00_00, MASK_SUB, "Serial Controller"),
+        (0x07_01_00, MASK_SUB, "Parallel Controller"),
+        (0x07_00_00, MASK_CC, "Simple Communication Controller"),
+        (0x08_00_00, MASK_CC, "Base System Peripheral"),
+        (0x09_00_00, MASK_CC, "Input Device Controller"),
+        (0x0A_00_00, MASK_CC, "Docking Station"),
+        (0x0B_00_00, MASK_CC, "Processor"),
+        (0x0C_03_30, MASK_IF, "XHCI Controller"),
+        (0x0C_03_00, MASK_SUB, "USB Controller"),
+        (0x0C_05_00, MASK_SUB, "SMBus"),
+        (0x0C_00_00, MASK_CC, "Serial Bus Controller"),
+        (0x0D_00_00, MASK_CC, "Wireless Controller"),
+        (0x0E_00_00, MASK_CC, "Intelligent Controller"),
+        (0x0F_00_00, MASK_CC, "Satellite Communication Controller"),
+        (0x10_00_00, MASK_CC, "Encryption Controller"),
+        (0x11_00_00, MASK_CC, "Signal Processing Controller"),
+        (0x12_00_00, MASK_CC, "Processing Accelerator"),
+        (0x13_00_00, MASK_CC, "Non-Essential Instrumentation"),
+        (0x40_00_00, MASK_CC, "Co-Processor"),
+        (0xFF_00_00, MASK_CC, "(Vendor specific)"),
+    ];
+    for entry in &entries {
+        if (class_code & entry.1) == entry.0 {
+            return entry.2;
+        }
+    }
+    "(Unknown Device)"
 }

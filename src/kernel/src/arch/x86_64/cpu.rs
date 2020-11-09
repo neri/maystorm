@@ -276,21 +276,19 @@ impl Cpu {
         result
     }
 
-    const PCI_CONFIG_ENABLED: u32 = 0x8000_0000;
-
     #[inline]
-    pub(crate) unsafe fn read_pci(addr: PciConfigAddress) -> u32 {
+    pub(crate) unsafe fn read_pci(addr: PciConfigAddressSpace) -> u32 {
         Cpu::without_interrupts(|| {
-            Cpu::out32(0xCF8, addr.as_u32() | Self::PCI_CONFIG_ENABLED);
+            Cpu::out32(0xCF8, addr.into());
             Cpu::in32(0xCFC)
         })
     }
 
     #[inline]
     #[allow(dead_code)]
-    pub(crate) unsafe fn write_pci(addr: PciConfigAddress, value: u32) {
+    pub(crate) unsafe fn write_pci(addr: PciConfigAddressSpace, value: u32) {
         Cpu::without_interrupts(|| {
-            Cpu::out32(0xCF8, addr.as_u32() | Self::PCI_CONFIG_ENABLED);
+            Cpu::out32(0xCF8, addr.into());
             Cpu::out32(0xCFC, value);
         })
     }
@@ -371,6 +369,16 @@ impl Cpu {
     pub unsafe fn read_tsc() -> u64 {
         let (tsc_raw, index) = Self::rdtscp();
         tsc_raw - System::cpu(index as usize).tsc_base
+    }
+}
+
+impl Into<u32> for PciConfigAddressSpace {
+    fn into(self) -> u32 {
+        0x8000_0000
+            | ((self.bus as u32) << 16)
+            | ((self.dev as u32) << 11)
+            | ((self.fun as u32) << 8)
+            | ((self.register as u32) << 2)
     }
 }
 

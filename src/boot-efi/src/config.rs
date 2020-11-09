@@ -10,6 +10,9 @@ pub struct BootSettings {
     #[serde(default = "default_kernel")]
     kernel: &'static str,
 
+    #[serde(default = "default_initrd")]
+    initrd: &'static str,
+
     #[serde(default = "default_cmdline")]
     cmdline: &'static str,
 
@@ -28,6 +31,10 @@ pub struct BootSettings {
 
 fn default_kernel() -> &'static str {
     "/EFI/BOOT/kernel.bin"
+}
+
+fn default_initrd() -> &'static str {
+    "/EFI/BOOT/initrd.img"
 }
 
 fn default_cmdline() -> &'static str {
@@ -55,6 +62,10 @@ impl BootSettings {
 
     pub const fn kernel_path<'a>(&self) -> &'a str {
         self.kernel
+    }
+
+    pub const fn initrd_path<'a>(&self) -> &'a str {
+        self.initrd
     }
 
     pub const fn cmdline<'a>(&self) -> &'a str {

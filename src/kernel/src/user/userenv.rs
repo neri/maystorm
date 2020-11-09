@@ -71,6 +71,7 @@ impl UserEnv {
                     .unwrap();
 
                 window.make_active();
+                WindowManager::set_desktop_color(IndexedColor::Black.into());
 
                 Timer::sleep(Duration::from_millis(1000));
 

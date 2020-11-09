@@ -37,7 +37,9 @@ pub struct MyScheduler {
     ready: ThreadQueue,
 
     locals: Vec<Box<LocalScheduler>>,
+
     pool: ThreadPool,
+
     usage: AtomicUsize,
     usage_total: AtomicUsize,
     is_frozen: AtomicBool,
@@ -176,13 +178,6 @@ impl MyScheduler {
         }
     }
 
-    pub fn signal(object: &SignallingObject) {
-        if let Some(thread) = object.unbox() {
-            thread.as_ref().attribute.remove(ThreadAttributes::ASLEEP);
-            Self::add(thread);
-        }
-    }
-
     /// Get the scheduler for the current processor
     #[inline]
     fn local_scheduler() -> Option<&'static mut Box<LocalScheduler>> {
@@ -294,8 +289,8 @@ impl MyScheduler {
     fn statistics_thread(_: usize) {
         let shared = Self::shared();
 
-        let interval = Duration::from_millis(1000);
         let expect = 1_000_000;
+        let interval = Duration::from_micros(expect as u64);
         let mut measure = Timer::measure();
         loop {
             Timer::sleep(interval);
@@ -371,7 +366,7 @@ impl MyScheduler {
     }
 
     fn spawn_f(start: ThreadStart, args: usize, name: &str, options: SpawnOption) {
-        assert!(options.priority.useful());
+        assert!(options.priority.is_useful());
         let pid = if options.raise_pid {
             Self::next_pid()
         } else {
@@ -446,13 +441,10 @@ impl MyScheduler {
                 write!(sb, " {:02}:{:02}.{:02}", min, sec, dsec,).unwrap();
             }
 
-            writeln!(
-                sb,
-                " {} {}",
-                thread.handle.as_usize(),
-                thread.name().unwrap_or("")
-            )
-            .unwrap();
+            match thread.name() {
+                Some(name) => writeln!(sb, " {}", name,).unwrap(),
+                None => writeln!(sb, " ({})", thread.handle.as_usize(),).unwrap(),
+            }
         }
     }
 }
@@ -564,7 +556,7 @@ impl SpawnOption {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone, PartialEq)]
+#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct ProcessId(pub usize);
 
 static mut TIMER_SOURCE: Option<Box<dyn TimerSource>> = None;
@@ -573,10 +565,10 @@ pub type TimeSpec = u64;
 
 pub trait TimerSource {
     /// Create timer object from duration
-    fn create(&self, h: Duration) -> TimeSpec;
+    fn create(&self, duration: Duration) -> TimeSpec;
 
-    /// The timer is still before the deadline.
-    fn until(&self, h: TimeSpec) -> bool;
+    /// Is that a timer before the deadline?
+    fn until(&self, deadline: TimeSpec) -> bool;
 
     /// Get the value of the monotonic timer in microseconds
     fn monotonic(&self) -> Duration;
@@ -622,7 +614,7 @@ impl Timer {
     pub fn sleep(duration: Duration) {
         if MyScheduler::is_enabled() {
             let timer = Timer::new(duration);
-            let mut event = TimerEvent::interval(timer);
+            let mut event = TimerEvent::one_shot(timer);
             while timer.until() {
                 match MyScheduler::schedule_timer(event) {
                     Ok(()) => {
@@ -668,27 +660,25 @@ impl TimerId {
     }
 }
 
-#[allow(dead_code)]
 pub struct TimerEvent {
     timer_id: TimerId,
     timer: Timer,
     timer_type: TimerType,
-    signal: SignallingObject,
 }
 
+#[derive(Debug, Copy, Clone)]
 pub enum TimerType {
-    Interval,
+    OneShot(ThreadHandle),
     Window(WindowHandle),
 }
 
 #[allow(dead_code)]
 impl TimerEvent {
-    pub fn interval(timer: Timer) -> Self {
+    pub fn one_shot(timer: Timer) -> Self {
         Self {
             timer_id: TimerId::new(),
             timer,
-            timer_type: TimerType::Interval,
-            signal: SignallingObject::new(),
+            timer_type: TimerType::OneShot(MyScheduler::current_thread().unwrap()),
         }
     }
 
@@ -697,7 +687,6 @@ impl TimerEvent {
             timer_id: TimerId::new(),
             timer,
             timer_type: TimerType::Window(window),
-            signal: SignallingObject::new(),
         }
     }
 
@@ -711,7 +700,7 @@ impl TimerEvent {
 
     pub fn fire(self) {
         match self.timer_type {
-            TimerType::Interval => self.signal.signal(),
+            TimerType::OneShot(thread) => thread.wake(),
             TimerType::Window(window) => window.post(WindowMessage::Timer(self.timer_id)).unwrap(),
         }
     }
@@ -719,7 +708,7 @@ impl TimerEvent {
 
 #[repr(u8)]
 #[non_exhaustive]
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq)]
 pub enum Priority {
     Idle = 0,
     Low,
@@ -729,7 +718,7 @@ pub enum Priority {
 }
 
 impl Priority {
-    pub fn useful(self) -> bool {
+    pub fn is_useful(self) -> bool {
         match self {
             Priority::Idle => false,
             _ => true,
@@ -871,6 +860,12 @@ impl ThreadHandle {
     pub fn name(&self) -> Option<&str> {
         self.get().and_then(|v| v.name())
     }
+
+    #[inline]
+    fn wake(&self) {
+        self.as_ref().attribute.remove(ThreadAttributes::ASLEEP);
+        MyScheduler::add(*self);
+    }
 }
 
 const SIZE_OF_CONTEXT: usize = 512;
@@ -890,8 +885,6 @@ struct RawThread {
 
     // Properties
     attribute: ThreadAttributes,
-
-    /// Priority
     priority: Priority,
     quantum: Quantum,
 
@@ -1062,7 +1055,9 @@ impl SignallingObject {
     }
 
     pub fn signal(&self) {
-        MyScheduler::signal(self)
+        if let Some(thread) = self.unbox() {
+            thread.wake()
+        }
     }
 }
 

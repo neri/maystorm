@@ -107,17 +107,28 @@ impl Into<Option<NonZeroUsize>> for VirtualAddress {
 pub struct PhysicalAddress(pub usize);
 
 pub struct System {
+    /// Number of cpu cores
     num_of_cpus: usize,
+    /// Number of physical cpu cores
     num_of_physical_cpus: usize,
+    /// Vector of cpu cores
     cpus: Vec<Box<Cpu>>,
+
+    /// An instance of ACPI tables
     acpi: Option<Box<acpi::AcpiTables<MyAcpiHandler>>>,
-    boot_flags: BootFlags,
+
+    // screens
     boot_screen: Option<Box<Bitmap>>,
     stdout: Option<Box<dyn Tty>>,
     emergency_console: Option<Box<dyn Tty>>,
     use_emergency_console: AtomicBool,
+
+    // copy of boot info
+    boot_flags: BootFlags,
     boot_vram: usize,
     boot_vram_stride: usize,
+    initrd_base: usize,
+    initrd_size: usize,
 }
 
 static mut SYSTEM: System = System::new();
@@ -136,6 +147,8 @@ impl System {
             use_emergency_console: AtomicBool::new(true),
             boot_vram: 0,
             boot_vram_stride: 0,
+            initrd_base: 0,
+            initrd_size: 0,
         }
     }
 
@@ -144,6 +157,10 @@ impl System {
         shared.boot_vram = info.vram_base as usize;
         shared.boot_vram_stride = info.vram_stride as usize;
         shared.boot_flags = info.flags;
+        if shared.boot_flags.contains(BootFlags::INITRD_EXISTS) {
+            shared.initrd_base = info.initrd_base as usize;
+            shared.initrd_size = info.initrd_size as usize;
+        }
         // shared.boot_flags.insert(BootFlags::HEADLESS);
 
         MemoryManager::init_first(&info);
@@ -181,6 +198,8 @@ impl System {
         let shared = Self::shared();
         unsafe {
             MemoryManager::init_late();
+
+            fs::filesys::Fs::init(shared.initrd_base, shared.initrd_size);
 
             if let Some(main_screen) = shared.boot_screen.as_ref() {
                 io::fonts::FontManager::init();

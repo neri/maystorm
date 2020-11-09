@@ -1,10 +1,11 @@
 // My OS
 
-#![feature(abi_efiapi)]
+#![no_std]
 #![feature(abi_x86_interrupt)]
 #![feature(alloc_error_handler)]
 #![feature(asm)]
 #![feature(const_fn)]
+#![feature(const_mut_refs)]
 #![feature(core_intrinsics)]
 #![feature(duration_zero)]
 #![feature(global_asm)]
@@ -13,12 +14,12 @@
 #![feature(option_result_contains)]
 #![feature(panic_info_message)]
 #![feature(wake_trait)]
-#![no_std]
 
 pub mod arch;
 pub mod bus;
 // pub mod expr;
 pub mod dev;
+pub mod fs;
 pub mod io;
 pub mod mem;
 pub mod num;

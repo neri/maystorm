@@ -111,6 +111,19 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
         return Status::UNSUPPORTED;
     }
 
+    // Load initrd
+    match get_file(handle, &bs, config.initrd_path()) {
+        Ok(blob) => {
+            info.flags.insert(BootFlags::INITRD_EXISTS);
+            info.initrd_base = &blob[0] as *const u8 as u32;
+            info.initrd_size = blob.len() as u32;
+        }
+        Err(status) => {
+            writeln!(st.stdout(), "Error: Load failed {}", config.initrd_path()).unwrap();
+            return status;
+        }
+    };
+
     // ----------------------------------------------------------------
     // Exit Boot Services
 

@@ -17,14 +17,16 @@ pub struct BootInfo {
     pub screen_height: u16,
     pub vram_stride: u16,
     pub flags: BootFlags,
-    _reserved1: [u64; 4],
+    _historical1: [u64; 4],
     pub kernel_base: u64,
     pub total_memory_size: u64,
     pub free_memory: u32,
     pub static_start: u32,
-    _reserved2: [u32; 4],
+    _historical2: [u32; 4],
     pub real_bitmap: [u32; 8],
     pub cmdline: u64,
+    pub initrd_base: u32,
+    pub initrd_size: u32,
 }
 
 bitflags! {
@@ -32,6 +34,7 @@ bitflags! {
         const PORTRAIT      = 0b0000_0000_0000_0001;
         const HEADLESS      = 0b0000_0000_0000_0010;
         const DEBUG_MODE    = 0b0000_0000_0000_0100;
+        const INITRD_EXISTS = 0b0000_0000_0000_1000;
     }
 }
 

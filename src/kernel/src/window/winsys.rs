@@ -114,7 +114,7 @@ struct Resources {
 
 impl WindowManager {
     pub(crate) fn init(main_screen: &'static Box<Bitmap>) {
-        main_screen.reset();
+        // main_screen.reset();
         let off_screen = Box::new(Bitmap::with_same_size(main_screen));
 
         let close_button = {
@@ -1586,14 +1586,18 @@ impl WindowHandle {
         Box::pin(WindowMessageConsumer { handle: *self })
     }
 
+    /// Create a timer associated with a window
     pub fn create_timer(&self, duration: Duration) -> TimerId {
-        let timer = Timer::new(duration);
-        let mut event = TimerEvent::window(*self, timer);
+        let mut event = TimerEvent::window(*self, Timer::new(duration));
         let timer_id = event.id();
         loop {
-            match MyScheduler::schedule_timer(event) {
-                Ok(()) => break,
-                Err(e) => event = e,
+            if event.until() {
+                match MyScheduler::schedule_timer(event) {
+                    Ok(()) => break,
+                    Err(e) => event = e,
+                }
+            } else {
+                break event.fire();
             }
         }
         timer_id
