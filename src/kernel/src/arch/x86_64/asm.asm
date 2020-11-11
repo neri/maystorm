@@ -12,6 +12,8 @@
 %define EFER_LME            8
 %define EFER_LMA            10
 
+%define TSS64_RSP0          0x04
+
 %define SMPINFO             0x0800
 %define SMPINFO_MAX_CPU     0x04
 %define SMPINFO_EFER        0x08
@@ -36,6 +38,8 @@
     extern cpu_default_exception
     ; pub unsafe extern "C" fn sch_setup_new_thread()
     extern sch_setup_new_thread
+    ; pub unsafe extern "C" fn cpu_int40_handler(ctx: *mut X64StackContext)
+    extern cpu_int40_handler
 
     global _asm_int_00
     global _asm_int_03
@@ -43,6 +47,7 @@
     global _asm_int_08
     global _asm_int_0d
     global _asm_int_0e
+    global _asm_int_40
 
 _asm_int_00: ; #DE Divide Error
     push BYTE 0
@@ -87,14 +92,28 @@ _exception:
     push r13
     push r14
     push r15
+    mov eax, ds
+    push rax
+    mov ecx, es
+    push rcx
+    push fs
+    push gs
     mov rax, cr2
     push rax
+    mov rbp, rsp
+    and rsp, byte 0xF0
     cld
 
-    mov rcx, rsp
+    mov rcx, rbp
     call cpu_default_exception
 
-    pop rax ; CR2
+    lea rsp, [rbp + 8 * 5]
+    ; mov rsp, rbp
+    ; pop rax ; CR2
+    ; pop gs
+    ; pop fs
+    ; pop es
+    ; pop ds
     pop r15
     pop r14
     pop r13
@@ -110,23 +129,59 @@ _exception:
     pop rdx
     pop rcx
     pop rax
-    add rsp, BYTE 16 ; err/intnum
+    add rsp, byte 16 ; err/intnum
 _iretq:
     iretq
 
 
+_asm_int_40: ; INT40 Haribote OS SVC
+    push r14
+    push r15
+    push rbp
+    push rsi
+    push rdx
+    push rax
+    mov rbp, rsp
+    mov [rbp + 4], ecx
+    mov [rbp + 12], ebx
+    mov [rbp + 20], edi
+    and rsp, byte 0xF0
+    cld
+
+    mov rcx, rbp
+    call cpu_int40_handler
+
+    mov eax, [rbp]
+    mov ecx, [rbp + 4]
+    mov edx, [rbp + 8]
+    mov ebx, [rbp + 12]
+    mov esi, [rbp + 16]
+    mov edi, [rbp + 20]
+    mov r8, [rbp + 24]
+    lea rsp, [rbp + 8 * 6]
+    mov rbp, r8
+    iretq
+
+
 ;   fn asm_sch_switch_context(current: *mut u8, next: *mut u8);
-%define CTX_SP          0x08
-%define CTX_BP          0x10
-%define CTX_BX          0x18
-%define CTX_SI          0x20
-%define CTX_DI          0x28
-%define CTX_R12         0x30
-%define CTX_R13         0x38
-%define CTX_R14         0x40
-%define CTX_R15         0x48
-%define CTX_TSS_RSP0    0x50
-%define CTX_FPU_BASE    0x80
+%define CTX_USER_CS     0x10
+%define CTX_USER_DS     0x18
+%define CTX_SP          0x20
+%define CTX_BP          0x28
+%define CTX_BX          0x30
+%define CTX_SI          0x38
+%define CTX_DI          0x40
+%define CTX_R12         0x48
+%define CTX_R13         0x50
+%define CTX_R14         0x58
+%define CTX_R15         0x60
+%define CTX_TSS_RSP0    0x68
+%define CTX_DS          0x70
+%define CTX_ES          0x74
+%define CTX_FS          0x78
+%define CTX_GS          0x7C
+%define CTX_GDT_TEMP    0xF0
+%define CTX_FPU_BASE    0x100
     global asm_sch_switch_context
 asm_sch_switch_context:
 
@@ -139,13 +194,31 @@ asm_sch_switch_context:
     mov [rcx + CTX_R13], r13
     mov [rcx + CTX_R14], r14
     mov [rcx + CTX_R15], r15
+    mov [rcx + CTX_DS], ds
+    mov [rcx + CTX_ES], es
+    mov [rcx + CTX_FS], fs
+    mov [rcx + CTX_GS], gs
 
-    ; call cpu_get_tss_base
-    ; mov r11, [rax + TSS64_RSP0]
-    ; mov r10, [rdx + CTX_TSS_RSP0]
-    ; mov [rcx + CTX_TSS_RSP0], r11
-    ; mov [rax + TSS64_RSP0], r10
+    sgdt [rcx + CTX_GDT_TEMP + 6]
+    mov rbx, [rcx + CTX_GDT_TEMP + 8]
 
+    mov rax, [rdx + CTX_USER_CS]
+    xchg rax, [rbx + 8 * 4]
+    mov [rcx + CTX_USER_CS], rax
+
+    mov rax, [rdx + CTX_USER_DS]
+    xchg rax, [rbx + 8 * 5]
+    mov [rcx + CTX_USER_DS], rax
+
+    add rbx, 64
+    mov rax, [rdx + CTX_TSS_RSP0]
+    xchg rax, [rbx + TSS64_RSP0]
+    mov [rcx + CTX_TSS_RSP0], rax
+
+    mov ds, [rdx + CTX_DS]
+    mov es, [rdx + CTX_ES]
+    mov fs, [rdx + CTX_FS]
+    mov gs, [rdx + CTX_GS]
     mov rsp, [rdx + CTX_SP]
     mov rbp, [rdx + CTX_BP]
     mov rbx, [rdx + CTX_BX]
@@ -176,6 +249,9 @@ asm_sch_make_new_thread:
     mov [rdx + 0x08], r8
     mov [rdx + 0x10], r9
     mov [rcx + CTX_SP], rdx
+    xor eax, eax
+    mov [rcx + CTX_USER_CS], rax
+    mov [rcx + CTX_USER_DS], rax
     ret
 
 

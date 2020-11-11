@@ -16,6 +16,7 @@ use io::graphics::*;
 use kernel::*;
 use mem::memory::*;
 use mem::string;
+use rt::*;
 use system::*;
 use task::scheduler::*;
 use task::Task;
@@ -39,12 +40,12 @@ fn main() {
 }
 
 async fn repl_main() {
-    exec("ver");
+    exec_cmd("ver");
 
     loop {
         print!("# ");
         if let Some(cmdline) = stdout().read_line_async(120).await {
-            exec(&cmdline);
+            exec_cmd(&cmdline);
         }
     }
 }
@@ -125,7 +126,7 @@ fn draw_cursor(bitmap: &Bitmap, point: Point<isize>, color: Color) {
     bitmap.draw_hline(Point::new(point.x - size2, point.y), size, color);
 }
 
-fn exec(cmdline: &str) {
+fn exec_cmd(cmdline: &str) {
     if cmdline.len() == 0 {
         return;
     }
@@ -164,7 +165,9 @@ fn exec(cmdline: &str) {
             Some(exec) => {
                 exec(args.as_slice());
             }
-            None => println!("Command not found: {}", cmd),
+            None => {
+                exec(cmd, args.as_slice(), true);
+            }
         }
     }
 }
@@ -172,6 +175,41 @@ fn exec(cmdline: &str) {
 enum CmdLinePhase {
     LeadingSpace,
     Token,
+}
+
+fn exec(name: &str, argv: &[&str], wait_until: bool) -> usize {
+    let _ = argv;
+    let fs = match Fs::list_of_volumes().first() {
+        Some(fs) => fs,
+        None => return 1,
+    };
+    let inode = Fs::find_file(fs, name);
+    if inode == 0 {
+        println!("Command not found: {}", name);
+        return 1;
+    } else {
+        let stat = fs.stat(inode).unwrap();
+        if stat.file_size > 0 {
+            let mut blob = Vec::new();
+            blob.resize(stat.block_size, 0);
+            fs.x_read(inode, 0, 1, &mut blob);
+            if let Some(mut loader) = RuntimeEnvironment::recognize(blob.as_slice()) {
+                if stat.blocks > 1 {
+                    blob.resize(stat.blocks * stat.block_size, 0);
+                    fs.x_read(inode, 0, stat.blocks, &mut blob);
+                }
+                loader.load(blob.as_slice());
+                let child = loader.invoke_start(name);
+                if wait_until {
+                    child.map(|thread| thread.join());
+                }
+            } else {
+                println!("bad executable");
+                return 1;
+            }
+        }
+    }
+    0
 }
 
 fn command(cmd: &str) -> Option<&'static fn(&[&str]) -> isize> {
@@ -183,7 +221,7 @@ fn command(cmd: &str) -> Option<&'static fn(&[&str]) -> isize> {
     None
 }
 
-const COMMAND_TABLE: [(&str, fn(&[&str]) -> isize, &str); 12] = [
+const COMMAND_TABLE: [(&str, fn(&[&str]) -> isize, &str); 13] = [
     ("help", cmd_help, "Show Help"),
     ("cls", cmd_cls, "Clear screen"),
     ("ver", cmd_ver, "Display version"),
@@ -193,9 +231,10 @@ const COMMAND_TABLE: [(&str, fn(&[&str]) -> isize, &str); 12] = [
     ("reboot", cmd_reboot, "Restart computer"),
     ("exit", cmd_reserved, ""),
     ("echo", cmd_echo, ""),
-    ("dir", cmd_dir, ""),
-    ("stat", cmd_stat, ""),
-    ("type", cmd_type, ""),
+    ("dir", cmd_dir, "Show directory"),
+    ("stat", cmd_stat, "Show stat"),
+    ("type", cmd_type, "Show file"),
+    ("open", cmd_open, "Open program separated"),
 ];
 
 fn cmd_reserved(_: &[&str]) -> isize {
@@ -372,6 +411,19 @@ fn cmd_type(argv: &[&str]) -> isize {
             }
         }
     }
+
+    0
+}
+
+fn cmd_open(argv: &[&str]) -> isize {
+    if argv.len() < 2 {
+        println!("usage: open PROGRAM [ARGUMENTS ...]");
+        return 1;
+    }
+
+    let argv = &argv[1..];
+    let name = argv[0];
+    exec(name, argv, false);
 
     0
 }

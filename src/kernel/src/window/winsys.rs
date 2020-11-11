@@ -1301,11 +1301,11 @@ impl WindowBuilder {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct WindowHandle(NonZeroUsize);
+pub struct WindowHandle(pub NonZeroUsize);
 
 impl WindowHandle {
     #[inline]
-    fn new(val: usize) -> Option<Self> {
+    pub fn new(val: usize) -> Option<Self> {
         NonZeroUsize::new(val).map(|x| Self(x))
     }
 
@@ -1421,6 +1421,12 @@ impl WindowHandle {
             WindowManager::remove_hierarchy(*self);
         });
         WindowManager::invalidate_screen(frame);
+    }
+
+    #[inline]
+    pub fn close(&self) {
+        self.hide();
+        // TODO: everything
     }
 
     #[inline]

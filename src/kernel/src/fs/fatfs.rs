@@ -161,6 +161,7 @@ struct FatFs<'a> {
 #[allow(dead_code)]
 impl FatFs<'_> {
     const EXTENDED_BOOT_SIGNATURE: u8 = 0x29;
+    const DELETED_ENTRY_MAGIC: u8 = 0xE5;
     const SIZE_OF_DIRENT: usize = 32;
     const INODE_ROOTDIR: INodeType = 1;
     const INODE_FIRST: INodeType = 2;
@@ -211,7 +212,9 @@ impl FatFs<'_> {
                     if ent.name[0] == 0 {
                         break;
                     }
-                    if ent.name[0] == 0xE5 || ent.attr.contains(FatAttr::VOLUME_LABEL) {
+                    if ent.name[0] == Self::DELETED_ENTRY_MAGIC
+                        || ent.attr.contains(FatAttr::VOLUME_LABEL)
+                    {
                         continue;
                     }
                     let inode = self.next_file_id();

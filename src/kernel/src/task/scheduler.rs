@@ -5,6 +5,8 @@ use super::*;
 use crate::arch::cpu::Cpu;
 use crate::mem::memory::*;
 use crate::mem::string::*;
+use crate::rt::*;
+use crate::sync::semaphore::*;
 use crate::sync::spinlock::*;
 use crate::system::*;
 use crate::window::*;
@@ -118,6 +120,7 @@ impl MyScheduler {
     }
 
     /// Get the current process if possible
+    #[inline]
     pub fn current_pid() -> Option<ProcessId> {
         if Self::is_enabled() {
             Self::current_thread().map(|thread| thread.as_ref().pid)
@@ -127,13 +130,15 @@ impl MyScheduler {
     }
 
     /// Get the current thread running on the current processor
+    #[inline]
     pub fn current_thread() -> Option<ThreadHandle> {
         Self::local_scheduler().map(|sch| sch.current_thread())
     }
 
-    fn next_pid() -> ProcessId {
-        static NEXT_PID: AtomicUsize = AtomicUsize::new(1);
-        ProcessId(NEXT_PID.fetch_add(1, Ordering::SeqCst))
+    /// Get the personality instance associated with the current thread
+    #[inline]
+    pub fn current_personality<'a>() -> Option<&'a Box<dyn Personality>> {
+        Self::current_thread().and_then(|thread| thread.personality())
     }
 
     /// Perform the preemption
@@ -219,12 +224,11 @@ impl MyScheduler {
         let handle = thread;
         let sch = Self::shared();
         let thread = handle.as_ref();
-        if thread.priority != Priority::Idle {
+        if thread.attribute.contains(ThreadAttributes::ZOMBIE) {
+            ThreadPool::drop_thread(handle);
+        } else if thread.priority != Priority::Idle {
             if thread.attribute.contains(ThreadAttributes::ASLEEP) {
                 thread.attribute.remove(ThreadAttributes::QUEUED);
-                if thread.attribute.contains(ThreadAttributes::ZOMBIE) {
-                    // TODO: kill zombie
-                }
             } else {
                 sch.ready.enqueue(handle).unwrap();
             }
@@ -365,15 +369,28 @@ impl MyScheduler {
         Ok(())
     }
 
-    fn spawn_f(start: ThreadStart, args: usize, name: &str, options: SpawnOption) {
+    fn spawn_f(
+        start: ThreadStart,
+        args: usize,
+        name: &str,
+        options: SpawnOption,
+    ) -> Option<ThreadHandle> {
         assert!(options.priority.is_useful());
         let pid = if options.raise_pid {
-            Self::next_pid()
+            RuntimeEnvironment::raise_pid()
         } else {
             Self::current_pid().unwrap_or(ProcessId(0))
         };
-        let thread = RawThread::new(pid, options.priority, name, Some(start), args);
+        let thread = RawThread::new(
+            pid,
+            options.priority,
+            name,
+            Some(start),
+            args,
+            options.personality,
+        );
         Self::add(thread);
+        Some(thread)
     }
 
     /// Spawning asynchronous tasks
@@ -391,11 +408,11 @@ impl MyScheduler {
         Self::current_thread().unwrap().update(|thread| {
             thread.executor.as_mut().map(|v| v.run());
         });
-        Self::exit(1);
+        Self::exit();
     }
 
-    pub fn exit(exit_code: usize) -> ! {
-        Self::current_thread().unwrap().as_ref().exit(exit_code);
+    pub fn exit() -> ! {
+        Self::current_thread().unwrap().as_ref().exit();
     }
 
     pub fn get_idle_statistics(vec: &mut Vec<u32>) {
@@ -462,7 +479,7 @@ impl LocalScheduler {
     fn new(index: ProcessorIndex) -> Box<Self> {
         let mut sb = Sb255::new();
         sformat!(sb, "(Idle Core #{})", index.0);
-        let idle = RawThread::new(ProcessId(0), Priority::Idle, sb.as_str(), None, 0);
+        let idle = RawThread::new(ProcessId(0), Priority::Idle, sb.as_str(), None, 0, None);
         Box::new(Self {
             index,
             idle,
@@ -525,39 +542,48 @@ pub unsafe extern "C" fn sch_setup_new_thread() {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
 pub struct SpawnOption {
     pub priority: Priority,
     pub raise_pid: bool,
+    pub personality: Option<Box<dyn Personality>>,
 }
 
 impl SpawnOption {
+    #[inline]
     pub const fn new() -> Self {
         Self {
             priority: Priority::Normal,
             raise_pid: false,
+            personality: None,
         }
     }
 
+    #[inline]
     pub const fn with_priority(priority: Priority) -> Self {
         Self {
             priority,
             raise_pid: false,
+            personality: None,
         }
     }
 
-    pub fn spawn_f(self, start: fn(usize), args: usize, name: &str) {
+    #[inline]
+    pub fn personality(mut self, personality: Box<dyn Personality>) -> Self {
+        self.personality = Some(personality);
+        self
+    }
+
+    #[inline]
+    pub fn spawn_f(self, start: fn(usize), args: usize, name: &str) -> Option<ThreadHandle> {
         MyScheduler::spawn_f(start, args, name, self)
     }
 
-    pub fn spawn(mut self, start: fn(usize), args: usize, name: &str) {
+    #[inline]
+    pub fn spawn(mut self, start: fn(usize), args: usize, name: &str) -> Option<ThreadHandle> {
         self.raise_pid = true;
         MyScheduler::spawn_f(start, args, name, self)
     }
 }
-
-#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
-pub struct ProcessId(pub usize);
 
 static mut TIMER_SOURCE: Option<Box<dyn TimerSource>> = None;
 
@@ -803,6 +829,20 @@ impl ThreadPool {
         });
     }
 
+    fn drop_thread(handle: ThreadHandle) {
+        handle.update(|thread| {
+            thread.sem.signal();
+            thread
+                .personality
+                .as_mut()
+                .map(|personality| personality.on_exit())
+        });
+        Self::synchronized(|| {
+            let shared = Self::shared();
+            shared.data.remove(&handle);
+        });
+    }
+
     fn get(&self, key: &ThreadHandle) -> Option<&Box<RawThread>> {
         Self::synchronized(|| self.data.get(key))
     }
@@ -866,6 +906,20 @@ impl ThreadHandle {
         self.as_ref().attribute.remove(ThreadAttributes::ASLEEP);
         MyScheduler::add(*self);
     }
+
+    #[inline]
+    pub fn join(&self) -> usize {
+        // TODO: semaphore
+        while self.get().map(|t| t.sem.try_to().ok()).is_some() {
+            Timer::sleep(Duration::from_millis(1));
+        }
+        0
+    }
+
+    #[inline]
+    pub fn personality<'a>(&self) -> Option<&'a Box<dyn Personality>> {
+        self.as_ref().personality.as_ref()
+    }
 }
 
 const SIZE_OF_CONTEXT: usize = 512;
@@ -884,11 +938,13 @@ struct RawThread {
     handle: ThreadHandle,
 
     // Properties
+    sem: Semaphore,
+    personality: Option<Box<dyn Personality>>,
     attribute: ThreadAttributes,
     priority: Priority,
     quantum: Quantum,
 
-    // Timer supports
+    // Timer supports (deprecated)
     deadline: Timer,
 
     // Statistics
@@ -953,12 +1009,14 @@ impl RawThread {
         name: &str,
         start: Option<ThreadStart>,
         args: usize,
+        personality: Option<Box<dyn Personality>>,
     ) -> ThreadHandle {
         let handle = ThreadHandle::next();
         let mut thread = Self {
             context: [0; SIZE_OF_CONTEXT],
             pid,
             handle,
+            sem: Semaphore::new(0),
             attribute: ThreadAttributes::EMPTY,
             priority,
             quantum: Quantum::from(priority),
@@ -968,6 +1026,7 @@ impl RawThread {
             load0: AtomicU32::new(0),
             load: AtomicU32::new(0),
             executor: None,
+            personality,
             name: [0; THREAD_NAME_LENGTH],
         };
         if let Some(start) = start {
@@ -986,8 +1045,7 @@ impl RawThread {
         handle
     }
 
-    fn exit(&self, exit_code: usize) -> ! {
-        let _ = exit_code;
+    fn exit(&self) -> ! {
         self.attribute.insert(ThreadAttributes::ZOMBIE);
         MyScheduler::sleep();
         unreachable!();

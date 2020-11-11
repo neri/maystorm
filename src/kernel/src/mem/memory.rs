@@ -58,9 +58,10 @@ impl MemoryManager {
     }
 
     pub(crate) unsafe fn init_late() {
-        SpawnOption::with_priority(Priority::Realtime).spawn(Self::page_thread, 0, "Page");
+        // SpawnOption::with_priority(Priority::Realtime).spawn(Self::page_thread, 0, "Page");
     }
 
+    #[allow(dead_code)]
     fn page_thread(_args: usize) {
         // TODO:
         loop {

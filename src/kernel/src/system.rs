@@ -201,6 +201,8 @@ impl System {
 
             fs::filesys::Fs::init(shared.initrd_base, shared.initrd_size);
 
+            rt::RuntimeEnvironment::init();
+
             if let Some(main_screen) = shared.boot_screen.as_ref() {
                 io::fonts::FontManager::init();
                 window::WindowManager::init(main_screen);

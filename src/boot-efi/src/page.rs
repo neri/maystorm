@@ -328,7 +328,7 @@ impl From<MProtect> for PageAttributes {
     fn from(prot: MProtect) -> Self {
         let mut value = PageAttributes::empty();
         if prot.contains(MProtect::READ) {
-            value |= PageAttributes::PRESENT;
+            value |= PageAttributes::PRESENT | PageAttributes::USER;
             if prot.contains(MProtect::WRITE) {
                 value |= PageAttributes::WRITE;
             }

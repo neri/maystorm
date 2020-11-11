@@ -1,6 +1,7 @@
 // Central Processing Unit
 
 use crate::arch::apic::Apic;
+use crate::rt::*;
 use crate::system::*;
 use crate::*;
 use alloc::boxed::Box;
@@ -26,6 +27,7 @@ extern "C" {
     fn _asm_int_08() -> !;
     fn _asm_int_0d() -> !;
     fn _asm_int_0e() -> !;
+    fn _asm_int_40() -> !;
 }
 
 #[allow(dead_code)]
@@ -370,6 +372,48 @@ impl Cpu {
         let (tsc_raw, index) = Self::rdtscp();
         tsc_raw - System::cpu(index as usize).tsc_base
     }
+
+    pub unsafe fn invoke_legacy(ctx: &LegacyAppContext) -> ! {
+        Cpu::disable_interrupt();
+
+        let ds_limit = ctx.size_of_data - 1;
+
+        let cpu = System::cpu_mut(Cpu::current_processor_index().unwrap().0);
+        cpu.gdt.table[Selector::LEGACY_CODE.index()] = DescriptorEntry::code_legacy(
+            ctx.base_of_code,
+            ctx.size_of_code - 1,
+            PrivilegeLevel::User,
+            DefaultSize::Use32,
+        );
+        cpu.gdt.table[Selector::LEGACY_DATA.index()] =
+            DescriptorEntry::data_legacy(ctx.base_of_data, ds_limit, PrivilegeLevel::User);
+        cpu.gdt.reload();
+
+        let rsp: u64;
+        asm!("mov {0}, rsp", lateout(reg) rsp);
+        cpu.gdt.tss.stack_pointer[0] = rsp;
+
+        asm!("
+            mov ds, {0:e}
+            mov es, {0:e}
+            mov fs, {0:e}
+            mov gs, {0:e}
+            push {0}
+            push {2}
+            push {4}
+            push {1}
+            push {3}
+            iretq
+            ",
+            in (reg) Selector::LEGACY_DATA.0 as usize,
+            in (reg) Selector::LEGACY_CODE.0 as usize,
+            in (reg) ctx.stack_pointer as usize,
+            in (reg) ctx.start as usize,
+            in (reg) Rflags::IF.bits(),
+            in ("r15") ctx.base_of_data as usize,
+            in ("r14") ds_limit as usize,
+            options(noreturn));
+    }
 }
 
 impl Into<u32> for PciConfigAddressSpace {
@@ -393,8 +437,8 @@ impl GlobalDescriptorTable {
 
     pub fn new() -> Box<Self> {
         let mut gdt = Box::new(GlobalDescriptorTable {
-            table: [DescriptorEntry::null(); Self::NUM_ITEMS],
             tss: TaskStateSegment::new(),
+            table: [DescriptorEntry::null(); Self::NUM_ITEMS],
         });
 
         let tss_pair = DescriptorEntry::tss_descriptor(
@@ -412,11 +456,24 @@ impl GlobalDescriptorTable {
 
         unsafe {
             gdt.reload();
+            asm!("
+                mov {0}, rsp
+                push {1:r}
+                push {0}
+                pushfq
+                push {2:r}
+                .byte 0xE8, 2, 0, 0, 0, 0xEB, 0x02, 0x48, 0xCF
+                mov ds, {1:e}
+                mov es, {1:e}
+                mov fs, {1:e}
+                mov gs, {1:e}
+                ", out(reg) _, in(reg) Selector::KERNEL_DATA.0, in(reg) Selector::KERNEL_CODE.0);
+            asm!("ltr {0:x}", in(reg) Selector::SYSTEM_TSS.0);
         }
         gdt
     }
 
-    // Reload GDT and Segment Selectors
+    /// Reload GDT
     unsafe fn reload(&self) {
         asm!("
             push {0}
@@ -424,19 +481,6 @@ impl GlobalDescriptorTable {
             lgdt [rsp + 6]
             add rsp, 16
             ", in(reg) &self.table, in(reg) ((self.table.len() * 8 - 1) << 48));
-        asm!("
-            mov {0}, rsp
-            push {1:r}
-            push {0}
-            pushfq
-            push {2:r}
-            .byte 0xE8, 2, 0, 0, 0, 0xEB, 0x02, 0x48, 0xCF
-            mov ds, {1:e}
-            mov es, {1:e}
-            mov fs, {1:e}
-            mov gs, {1:e}
-            ", out(reg) _, in(reg) Selector::KERNEL_DATA.0, in(reg) Selector::KERNEL_CODE.0);
-        asm!("ltr {0:x}", in(reg) Selector::SYSTEM_TSS.0);
     }
 }
 
@@ -761,6 +805,9 @@ impl Selector {
     pub const NULL: Selector = Selector(0);
     pub const KERNEL_CODE: Selector = Selector::new(1, PrivilegeLevel::Kernel);
     pub const KERNEL_DATA: Selector = Selector::new(2, PrivilegeLevel::Kernel);
+    // pub const USER_CODE: Selector = Selector::new(3, PrivilegeLevel::User);
+    pub const LEGACY_CODE: Selector = Selector::new(4, PrivilegeLevel::User);
+    pub const LEGACY_DATA: Selector = Selector::new(5, PrivilegeLevel::User);
     pub const SYSTEM_TSS: Selector = Selector::new(6, PrivilegeLevel::Kernel);
 
     #[inline]
@@ -790,8 +837,7 @@ pub enum PrivilegeLevel {
 
 impl PrivilegeLevel {
     pub const fn as_descriptor_entry(self) -> u64 {
-        let dpl = self as u64;
-        dpl << 13
+        (self as u64) << 45
     }
 
     pub const fn from_usize(value: usize) -> Self {
@@ -886,22 +932,22 @@ impl From<Exception> for InterruptVector {
 #[repr(C, packed)]
 #[derive(Default)]
 pub struct TaskStateSegment {
-    reserved_1: u32,
+    _reserved_1: u32,
     pub stack_pointer: [u64; 3],
-    reserved_2: u32,
+    _reserved_2: [u32; 2],
     pub ist: [u64; 7],
-    reserved_3: u64,
+    _reserved_3: [u32; 2],
     pub iomap_base: u16,
 }
 
 impl TaskStateSegment {
     pub const fn new() -> Self {
         Self {
-            reserved_1: 0,
+            _reserved_1: 0,
             stack_pointer: [0; 3],
-            reserved_2: 0,
+            _reserved_2: [0, 0],
             ist: [0; 7],
-            reserved_3: 0,
+            _reserved_3: [0, 0],
             iomap_base: 0,
         }
     }
@@ -980,14 +1026,59 @@ impl DescriptorEntry {
     }
 
     #[inline]
+    pub const fn code_legacy(
+        base: u32,
+        limit: u32,
+        dpl: PrivilegeLevel,
+        size: DefaultSize,
+    ) -> DescriptorEntry {
+        let limit = if limit > 0xFFFF {
+            Self::granularity()
+                | ((limit as u64) >> 10) & 0xFFFF
+                | ((limit as u64 & 0xF000_0000) << 16)
+        } else {
+            limit as u64
+        };
+        DescriptorEntry(
+            0x0000_1A00_0000_0000u64
+                | limit
+                | Self::present()
+                | dpl.as_descriptor_entry()
+                | size.as_descriptor_entry()
+                | ((base as u64 & 0x00FF_FFFF) << 16)
+                | ((base as u64 & 0xFF00_0000) << 32),
+        )
+    }
+
+    #[inline]
+    pub const fn data_legacy(base: u32, limit: u32, dpl: PrivilegeLevel) -> DescriptorEntry {
+        let limit = if limit > 0xFFFF {
+            Self::granularity()
+                | ((limit as u64) >> 10) & 0xFFFF
+                | (limit as u64 & 0xF000_0000) << 16
+        } else {
+            limit as u64
+        };
+        DescriptorEntry(
+            0x0000_1200_0000_0000u64
+                | limit
+                | Self::present()
+                | Self::big_data()
+                | dpl.as_descriptor_entry()
+                | ((base as u64 & 0x00FF_FFFF) << 16)
+                | ((base as u64 & 0xFF00_0000) << 32),
+        )
+    }
+
+    #[inline]
     pub const fn tss_descriptor(offset: VirtualAddress, limit: Limit) -> DescriptorPair {
         let offset = offset.0 as u64;
         let low = DescriptorEntry(
             limit.0 as u64
                 | Self::present()
                 | DescriptorType::Tss.as_descriptor_entry()
-                | (offset & 0x00FF_FFFF) << 16
-                | (offset & 0xFF00_0000) << 32,
+                | ((offset & 0x00FF_FFFF) << 16)
+                | ((offset & 0xFF00_0000) << 32),
         );
         let high = DescriptorEntry(offset >> 32);
         DescriptorPair::new(low, high)
@@ -1050,26 +1141,38 @@ impl InterruptDescriptorTable {
         Self::register(
             Exception::DivideError.into(),
             VirtualAddress(_asm_int_00 as usize),
+            PrivilegeLevel::Kernel,
         );
         Self::register(
             Exception::Breakpoint.into(),
             VirtualAddress(_asm_int_03 as usize),
+            PrivilegeLevel::Kernel,
         );
         Self::register(
             Exception::InvalidOpcode.into(),
             VirtualAddress(_asm_int_06 as usize),
+            PrivilegeLevel::Kernel,
         );
         Self::register(
             Exception::DoubleFault.into(),
             VirtualAddress(_asm_int_08 as usize),
+            PrivilegeLevel::Kernel,
         );
         Self::register(
             Exception::GeneralProtection.into(),
             VirtualAddress(_asm_int_0d as usize),
+            PrivilegeLevel::Kernel,
         );
         Self::register(
             Exception::PageFault.into(),
             VirtualAddress(_asm_int_0e as usize),
+            PrivilegeLevel::Kernel,
+        );
+        // Haribote OS Supports
+        Self::register(
+            InterruptVector(0x40),
+            VirtualAddress(_asm_int_40 as usize),
+            PrivilegeLevel::User,
         );
     }
 
@@ -1082,11 +1185,11 @@ impl InterruptDescriptorTable {
             ", in(reg) &IDT.table, in(reg) ((IDT.table.len() * 8 - 1) << 48));
     }
 
-    pub unsafe fn register(vec: InterruptVector, offset: VirtualAddress) {
+    pub unsafe fn register(vec: InterruptVector, offset: VirtualAddress, dpl: PrivilegeLevel) {
         let pair = DescriptorEntry::gate_descriptor(
             offset,
             Selector::KERNEL_CODE,
-            PrivilegeLevel::Kernel,
+            dpl,
             DescriptorType::InterruptGate,
         );
         let table_offset = vec.0 as usize * 2;
@@ -1148,41 +1251,50 @@ impl Msr {
     }
 }
 
+#[allow(dead_code)]
 #[repr(C, packed)]
-pub struct X64StackContext {
-    pub cr2: u64,
-    pub r15: u64,
-    pub r14: u64,
-    pub r13: u64,
-    pub r12: u64,
-    pub r11: u64,
-    pub r10: u64,
-    pub r9: u64,
-    pub r8: u64,
-    pub rdi: u64,
-    pub rsi: u64,
-    pub rbp: u64,
-    pub rbx: u64,
-    pub rdx: u64,
-    pub rcx: u64,
-    pub rax: u64,
-    pub vector: InterruptVector,
-    _padding_1: [u8; 7],
-    pub error_code: u16,
-    _padding_2: [u16; 3],
-    pub rip: u64,
-    pub cs: u16,
-    _padding_3: [u16; 3],
-    pub rflags: Rflags,
-    pub rsp: u64,
-    pub ss: u16,
-    _padding_4: [u16; 3],
+pub(super) struct X64StackContext {
+    cr2: u64,
+    gs: u16,
+    _padding_gs: [u16; 3],
+    fs: u16,
+    _padding_fs: [u16; 3],
+    es: u16,
+    _padding_es: [u16; 3],
+    ds: u16,
+    _padding_ds: [u16; 3],
+    r15: u64,
+    r14: u64,
+    r13: u64,
+    r12: u64,
+    r11: u64,
+    r10: u64,
+    r9: u64,
+    r8: u64,
+    rdi: u64,
+    rsi: u64,
+    rbp: u64,
+    rbx: u64,
+    rdx: u64,
+    rcx: u64,
+    rax: u64,
+    vector: InterruptVector,
+    _padding_vec: [u8; 7],
+    error_code: u16,
+    _padding_err: [u16; 3],
+    rip: u64,
+    cs: u16,
+    _padding_cs: [u16; 3],
+    rflags: Rflags,
+    rsp: u64,
+    ss: u16,
+    _padding_ss: [u16; 3],
 }
 
 static mut GLOBAL_EXCEPTION_LOCK: Spinlock = Spinlock::new();
 
 #[no_mangle]
-pub unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext) {
+pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext) {
     GLOBAL_EXCEPTION_LOCK.lock();
     let ctx = ctx.as_ref().unwrap();
     stdout().set_cursor_enabled(false);
@@ -1211,11 +1323,11 @@ pub unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext) {
     }
 
     println!(
-        "rax {:016x} rsi {:016x} r11 {:016x} rfl {:08x}
-rbx {:016x} rdi {:016x} r12 {:016x}
-rcx {:016x} r8  {:016x} r13 {:016x}
-rdx {:016x} r9  {:016x} r14 {:016x}
-rbp {:016x} r10 {:016x} r15 {:016x}",
+        "rax {:016x} rsi {:016x} r11 {:016x} fl {:08x}
+rbx {:016x} rdi {:016x} r12 {:016x} ds {:04x}
+rcx {:016x} r8  {:016x} r13 {:016x} es {:04x}
+rdx {:016x} r9  {:016x} r14 {:016x} fs {:04x}
+rbp {:016x} r10 {:016x} r15 {:016x} gs {:04x}",
         ctx.rax,
         ctx.rsi,
         ctx.r11,
@@ -1223,19 +1335,34 @@ rbp {:016x} r10 {:016x} r15 {:016x}",
         ctx.rbx,
         ctx.rdi,
         ctx.r12,
+        ctx.ds,
         ctx.rcx,
         ctx.r8,
         ctx.r13,
+        ctx.es,
         ctx.rdx,
         ctx.r9,
         ctx.r14,
+        ctx.fs,
         ctx.rbp,
         ctx.r10,
         ctx.r15,
+        ctx.gs,
     );
 
     GLOBAL_EXCEPTION_LOCK.unlock();
-    loop {
-        asm!("hlt");
+    if MyScheduler::current_personality().is_some() {
+        RuntimeEnvironment::exit(1);
+    } else {
+        loop {
+            asm!("hlt");
+        }
     }
+}
+
+#[inline]
+#[allow(dead_code)]
+#[no_mangle]
+pub(super) unsafe extern "C" fn cpu_int40_handler(ctx: *mut hoe::HoeSyscallContext) {
+    hoe::Hoe::syscall(ctx.as_mut().unwrap());
 }

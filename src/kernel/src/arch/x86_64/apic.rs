@@ -134,13 +134,29 @@ impl Apic {
             APIC.ioapics.push(Box::new(IoApic::new(acpi_ioapic)));
         }
 
-        InterruptDescriptorTable::register(Irq(1).into(), VirtualAddress(irq_01_handler as usize));
-        InterruptDescriptorTable::register(Irq(2).into(), VirtualAddress(irq_02_handler as usize));
-        InterruptDescriptorTable::register(Irq(12).into(), VirtualAddress(irq_0c_handler as usize));
+        InterruptDescriptorTable::register(
+            Irq(1).into(),
+            VirtualAddress(irq_01_handler as usize),
+            PrivilegeLevel::Kernel,
+        );
+        InterruptDescriptorTable::register(
+            Irq(2).into(),
+            VirtualAddress(irq_02_handler as usize),
+            PrivilegeLevel::Kernel,
+        );
+        InterruptDescriptorTable::register(
+            Irq(12).into(),
+            VirtualAddress(irq_0c_handler as usize),
+            PrivilegeLevel::Kernel,
+        );
 
         // Local APIC Timer
         let vec_latimer = Irq(0).as_vec();
-        InterruptDescriptorTable::register(vec_latimer, VirtualAddress(timer_handler as usize));
+        InterruptDescriptorTable::register(
+            vec_latimer,
+            VirtualAddress(timer_handler as usize),
+            PrivilegeLevel::Kernel,
+        );
         LocalApic::clear_timer();
         LocalApic::set_timer_div(LocalApicTimerDivide::By1);
         if let Ok(hpet_info) = acpi::HpetInfo::new(System::acpi()) {
