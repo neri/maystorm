@@ -66,14 +66,14 @@ impl RuntimeEnvironment {
 }
 
 pub trait Personality {
-    fn context(&self) -> PersonalityContext;
+    fn context(&mut self) -> PersonalityContext;
 
     fn on_exit(&mut self);
 }
 
-pub enum PersonalityContext {
+pub enum PersonalityContext<'a> {
     Native,
-    LegacyApp(LegacyAppContext),
+    Hoe(&'a mut hoe::Hoe),
 }
 
 pub trait BinaryRecognizer {

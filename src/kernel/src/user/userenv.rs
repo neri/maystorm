@@ -168,12 +168,12 @@ async fn status_bar_main() {
     let mut sb = string::Sb255::new();
 
     let interval = Duration::from_millis(500);
-    window.create_timer(interval);
+    window.create_timer(0, interval);
     while let Some(message) = window.get_message().await {
         match message {
             WindowMessage::Timer(_) => {
                 window.set_needs_display();
-                window.create_timer(interval);
+                window.create_timer(0, interval);
             }
             WindowMessage::Draw => {
                 sb.clear();
@@ -354,12 +354,12 @@ async fn activity_monitor_main() {
     let mut tsc0 = unsafe { Cpu::read_tsc() };
 
     let interval = Duration::from_secs(1);
-    window.create_timer(interval);
+    window.create_timer(0, interval);
     while let Some(message) = window.get_message().await {
         match message {
             WindowMessage::Timer(_) => {
                 window.set_needs_display();
-                window.create_timer(interval);
+                window.create_timer(0, interval);
             }
             WindowMessage::Draw => {
                 let time1 = Timer::measure();

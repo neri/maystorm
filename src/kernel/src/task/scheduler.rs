@@ -87,7 +87,7 @@ impl MyScheduler {
                 state: SchedulerState::Running,
                 next_timer: Timer::JUST,
                 scheduler_handle: None,
-                timer_queue: ArrayQueue::new(10),
+                timer_queue: ArrayQueue::new(100),
             }));
         }
 
@@ -137,8 +137,12 @@ impl MyScheduler {
 
     /// Get the personality instance associated with the current thread
     #[inline]
-    pub fn current_personality<'a>() -> Option<&'a Box<dyn Personality>> {
-        Self::current_thread().and_then(|thread| thread.personality())
+    pub fn current_personality<F, R>(f: F) -> Option<R>
+    where
+        F: FnOnce(&mut Box<dyn Personality>) -> R,
+    {
+        Self::current_thread()
+            .and_then(|thread| thread.update(|thread| thread.personality.as_mut().map(|v| f(v))))
     }
 
     /// Perform the preemption
@@ -676,18 +680,7 @@ impl Timer {
     }
 }
 
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
-pub struct TimerId(u64);
-
-impl TimerId {
-    pub fn new() -> Self {
-        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
-        TimerId(NEXT_ID.fetch_add(1, Ordering::Relaxed))
-    }
-}
-
 pub struct TimerEvent {
-    timer_id: TimerId,
     timer: Timer,
     timer_type: TimerType,
 }
@@ -695,29 +688,23 @@ pub struct TimerEvent {
 #[derive(Debug, Copy, Clone)]
 pub enum TimerType {
     OneShot(ThreadHandle),
-    Window(WindowHandle),
+    Window(WindowHandle, usize),
 }
 
 #[allow(dead_code)]
 impl TimerEvent {
     pub fn one_shot(timer: Timer) -> Self {
         Self {
-            timer_id: TimerId::new(),
             timer,
             timer_type: TimerType::OneShot(MyScheduler::current_thread().unwrap()),
         }
     }
 
-    pub fn window(window: WindowHandle, timer: Timer) -> Self {
+    pub fn window(window: WindowHandle, timer_id: usize, timer: Timer) -> Self {
         Self {
-            timer_id: TimerId::new(),
             timer,
-            timer_type: TimerType::Window(window),
+            timer_type: TimerType::Window(window, timer_id),
         }
-    }
-
-    pub const fn id(&self) -> TimerId {
-        self.timer_id
     }
 
     pub fn until(&self) -> bool {
@@ -727,7 +714,9 @@ impl TimerEvent {
     pub fn fire(self) {
         match self.timer_type {
             TimerType::OneShot(thread) => thread.wake(),
-            TimerType::Window(window) => window.post(WindowMessage::Timer(self.timer_id)).unwrap(),
+            TimerType::Window(window, timer_id) => {
+                window.post(WindowMessage::Timer(timer_id)).unwrap()
+            }
         }
     }
 }
@@ -835,7 +824,7 @@ impl ThreadPool {
             thread
                 .personality
                 .as_mut()
-                .map(|personality| personality.on_exit())
+                .map(|personality| personality.on_exit());
         });
         Self::synchronized(|| {
             let shared = Self::shared();
@@ -914,11 +903,6 @@ impl ThreadHandle {
             Timer::sleep(Duration::from_millis(1));
         }
         0
-    }
-
-    #[inline]
-    pub fn personality<'a>(&self) -> Option<&'a Box<dyn Personality>> {
-        self.as_ref().personality.as_ref()
     }
 }
 

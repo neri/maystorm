@@ -410,8 +410,6 @@ impl Cpu {
             in (reg) ctx.stack_pointer as usize,
             in (reg) ctx.start as usize,
             in (reg) Rflags::IF.bits(),
-            in ("r15") ctx.base_of_data as usize,
-            in ("r14") ds_limit as usize,
             options(noreturn));
     }
 }
@@ -1351,7 +1349,7 @@ rbp {:016x} r10 {:016x} r15 {:016x} gs {:04x}",
     );
 
     GLOBAL_EXCEPTION_LOCK.unlock();
-    if MyScheduler::current_personality().is_some() {
+    if MyScheduler::current_personality(|_| ()).is_some() {
         RuntimeEnvironment::exit(1);
     } else {
         loop {
@@ -1363,6 +1361,6 @@ rbp {:016x} r10 {:016x} r15 {:016x} gs {:04x}",
 #[inline]
 #[allow(dead_code)]
 #[no_mangle]
-pub(super) unsafe extern "C" fn cpu_int40_handler(ctx: *mut hoe::HoeSyscallContext) {
-    hoe::Hoe::syscall(ctx.as_mut().unwrap());
+pub(super) unsafe extern "C" fn cpu_int40_handler(ctx: *mut hoe::HoeSyscallRegs) {
+    hoe::Hoe::handle_syscall(ctx.as_mut().unwrap());
 }

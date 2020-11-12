@@ -135,8 +135,6 @@ _iretq:
 
 
 _asm_int_40: ; INT40 Haribote OS SVC
-    push r14
-    push r15
     push rbp
     push rsi
     push rdx
@@ -158,7 +156,7 @@ _asm_int_40: ; INT40 Haribote OS SVC
     mov esi, [rbp + 16]
     mov edi, [rbp + 20]
     mov r8, [rbp + 24]
-    lea rsp, [rbp + 8 * 6]
+    lea rsp, [rbp + 8 * 4]
     mov rbp, r8
     iretq
 

@@ -544,8 +544,8 @@ impl WindowManager {
         let shared = Self::shared();
         if let Some(old_active) = shared.active {
             shared.active = window;
-            old_active.as_ref().draw_frame();
-            old_active.set_needs_display();
+            old_active.as_ref().refresh_title();
+            // old_active.set_needs_display();
             if let Some(active) = window {
                 active.show();
             }
@@ -975,6 +975,14 @@ impl RawWindow {
         WindowManager::shared().active.contains(&self.handle)
     }
 
+    #[inline]
+    fn refresh_title(&self) {
+        self.draw_frame();
+        if self.style.contains(WindowStyle::TITLE) {
+            self.invalidate_rect(self.title_frame());
+        }
+    }
+
     fn draw_frame(&self) {
         if let Some(bitmap) = &self.bitmap {
             let is_active = self.is_active();
@@ -1111,6 +1119,10 @@ impl RawWindow {
                 .ok(),
         }
     }
+
+    // fn next(&self) -> Option<WindowHandle> {
+    //     self.next
+    // }
 }
 
 #[repr(transparent)]
@@ -1403,17 +1415,18 @@ impl WindowHandle {
         WindowManager::synchronized(|| unsafe {
             WindowManager::add_hierarchy(*self);
         });
-        self.as_ref().draw_frame();
-        // self.update(|window| window.invalidate(false));
+        self.as_ref().refresh_title();
         self.set_needs_display();
     }
 
     pub fn hide(&self) {
         let shared = WindowManager::shared();
         let frame = self.as_ref().frame;
-        if shared.active.contains(self) {
-            shared.active = None;
-        }
+        let new_active = if shared.active.contains(self) {
+            self.prev()
+        } else {
+            None
+        };
         if shared.captured.contains(self) {
             shared.captured = None;
         }
@@ -1421,6 +1434,9 @@ impl WindowHandle {
             WindowManager::remove_hierarchy(*self);
         });
         WindowManager::invalidate_screen(frame);
+        if new_active.is_some() {
+            WindowManager::set_active(new_active);
+        }
     }
 
     #[inline]
@@ -1593,9 +1609,8 @@ impl WindowHandle {
     }
 
     /// Create a timer associated with a window
-    pub fn create_timer(&self, duration: Duration) -> TimerId {
-        let mut event = TimerEvent::window(*self, Timer::new(duration));
-        let timer_id = event.id();
+    pub fn create_timer(&self, timer_id: usize, duration: Duration) {
+        let mut event = TimerEvent::window(*self, timer_id, Timer::new(duration));
         loop {
             if event.until() {
                 match MyScheduler::schedule_timer(event) {
@@ -1606,7 +1621,20 @@ impl WindowHandle {
                 break event.fire();
             }
         }
-        timer_id
+    }
+
+    fn prev(&self) -> Option<WindowHandle> {
+        WindowManager::synchronized(|| {
+            let mut cursor = WindowManager::shared().root;
+            while let Some(current) = cursor {
+                let current = current.as_ref();
+                if current.next.contains(self) {
+                    return Some(current.handle);
+                }
+                cursor = current.next;
+            }
+            None
+        })
     }
 }
 
@@ -1657,7 +1685,7 @@ pub enum WindowMessage {
     MouseEnter,
     MouseLeave,
     /// Timer event
-    Timer(TimerId),
+    Timer(usize),
     /// User Defined
     User(usize),
 }
