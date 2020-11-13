@@ -957,14 +957,16 @@ impl Bitmap {
     }
 
     #[inline]
+    #[track_caller]
     #[allow(dead_code)]
     fn get_pixel_unchecked(&self, point: Point<isize>) -> Color {
         self.get_fb()[point.x as usize + point.y as usize * self.stride()]
     }
 
     #[inline]
+    #[track_caller]
     #[allow(dead_code)]
-    fn set_pixel_unchecked(&self, point: Point<isize>, color: Color) {
+    pub fn set_pixel_unchecked(&self, point: Point<isize>, color: Color) {
         self.get_fb()[point.x as usize + point.y as usize * self.stride()] = color;
     }
 

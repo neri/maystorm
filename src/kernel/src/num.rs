@@ -7,6 +7,7 @@ pub trait Number:
     + Clone
     + Zero
     + One
+    + Two
     + Add<Output = Self>
     + AddAssign
     + Sub<Output = Self>
@@ -248,5 +249,80 @@ pub trait Div2 {
 impl Div2 for isize {
     fn div2(self) -> Self {
         self / 2
+    }
+}
+
+pub trait Two {
+    fn two() -> Self;
+}
+
+impl Two for isize {
+    fn two() -> Self {
+        2
+    }
+}
+
+impl Two for usize {
+    fn two() -> Self {
+        2
+    }
+}
+
+impl Two for i64 {
+    fn two() -> Self {
+        2
+    }
+}
+
+impl Two for u64 {
+    fn two() -> Self {
+        2
+    }
+}
+
+impl Two for i32 {
+    fn two() -> Self {
+        2
+    }
+}
+
+impl Two for u32 {
+    fn two() -> Self {
+        2
+    }
+}
+
+impl Two for i16 {
+    fn two() -> Self {
+        2
+    }
+}
+
+impl Two for u16 {
+    fn two() -> Self {
+        2
+    }
+}
+
+impl Two for i8 {
+    fn two() -> Self {
+        2
+    }
+}
+
+impl Two for u8 {
+    fn two() -> Self {
+        2
+    }
+}
+
+impl Two for f64 {
+    fn two() -> Self {
+        2.0
+    }
+}
+impl Two for f32 {
+    fn two() -> Self {
+        2.0
     }
 }

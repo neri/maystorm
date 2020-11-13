@@ -29,7 +29,7 @@ impl<T: Number> Point<T> {
 
     pub fn line_to<F>(&self, other: Point<T>, mut f: F)
     where
-        T: Into<isize> + From<isize>,
+        T: SignedInteger,
         F: FnMut(Self),
     {
         let c0 = *self;
@@ -68,7 +68,7 @@ impl<T: Number> Point<T> {
             if c0.x == c1.x && c0.y == c1.y {
                 break;
             }
-            let e2 = e * T::from(2);
+            let e2 = e * T::two();
             if e2 > T::zero() - d.y {
                 e -= d.y;
                 c0.x += s.x;

@@ -1188,7 +1188,11 @@ impl InterruptDescriptorTable {
             offset,
             Selector::KERNEL_CODE,
             dpl,
-            DescriptorType::InterruptGate,
+            if dpl == PrivilegeLevel::Kernel {
+                DescriptorType::InterruptGate
+            } else {
+                DescriptorType::TrapGate
+            },
         );
         let table_offset = vec.0 as usize * 2;
         IDT.table[table_offset + 1] = pair.high;

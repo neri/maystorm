@@ -1485,11 +1485,22 @@ impl WindowHandle {
         }
     }
 
+    ///
     pub fn draw<F>(&self, f: F) -> Result<(), WindowDrawingError>
     where
         F: FnOnce(&Bitmap) -> (),
     {
-        let rect = Rect::from(self.frame().size());
+        let window = self.as_ref();
+        self.draw_in_rect(window.actual_bounds(), f).and_then(|_| {
+            window.invalidate_rect(window.actual_bounds());
+            Ok(())
+        })
+    }
+
+    pub fn draw_in_rect<F>(&self, rect: Rect<isize>, f: F) -> Result<(), WindowDrawingError>
+    where
+        F: FnOnce(&Bitmap) -> (),
+    {
         let window = self.as_ref();
         let bitmap = match window.bitmap.as_ref() {
             Some(bitmap) => bitmap,
@@ -1512,7 +1523,6 @@ impl WindowHandle {
         let rect = coords.into();
         if let Some(bitmap) = bitmap.view(rect) {
             f(&bitmap);
-            window.invalidate_rect(window.actual_bounds());
         } else {
             return Err(WindowDrawingError::InconsistentCoordinates);
         }
