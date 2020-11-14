@@ -1366,5 +1366,12 @@ rbp {:016x} r10 {:016x} r15 {:016x} gs {:04x}",
 #[allow(dead_code)]
 #[no_mangle]
 pub(super) unsafe extern "C" fn cpu_int40_handler(ctx: *mut hoe::HoeSyscallRegs) {
-    hoe::Hoe::handle_syscall(ctx.as_mut().unwrap());
+    let regs = ctx.as_mut().unwrap();
+    MyScheduler::current_personality(|personality| {
+        let hoe = match personality.context() {
+            PersonalityContext::Hoe(hoe) => hoe,
+            _ => unreachable!(),
+        };
+        hoe.syscall(regs);
+    });
 }

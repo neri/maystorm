@@ -7,6 +7,7 @@
 #![feature(asm)]
 
 // use acpi;
+use crate::alloc::string::ToString;
 use alloc::vec::*;
 use arch::cpu::*;
 use bootprot::*;
@@ -166,7 +167,7 @@ fn exec_cmd(cmdline: &str) {
                 exec(args.as_slice());
             }
             None => {
-                exec(cmd, args.as_slice(), true);
+                spawn(cmd, args.as_slice(), true);
             }
         }
     }
@@ -177,39 +178,39 @@ enum CmdLinePhase {
     Token,
 }
 
-fn exec(name: &str, argv: &[&str], wait_until: bool) -> usize {
+fn spawn(name: &str, argv: &[&str], wait_until: bool) -> usize {
     let _ = argv;
-    let fs = match Fs::list_of_volumes().first() {
-        Some(fs) => fs,
-        None => return 1,
-    };
-    let inode = Fs::find_file(fs, name);
-    if inode == 0 {
-        println!("Command not found: {}", name);
-        return 1;
-    } else {
-        let stat = fs.stat(inode).unwrap();
-        if stat.file_size > 0 {
-            let mut blob = Vec::new();
-            blob.resize(stat.block_size, 0);
-            fs.x_read(inode, 0, 1, &mut blob);
-            if let Some(mut loader) = RuntimeEnvironment::recognize(blob.as_slice()) {
-                if stat.blocks > 1 {
-                    blob.resize(stat.blocks * stat.block_size, 0);
-                    fs.x_read(inode, 0, stat.blocks, &mut blob);
+
+    match Fs::find_file(name) {
+        Some((fs, inode)) => {
+            let stat = fs.stat(inode).unwrap();
+            if stat.file_size > 0 {
+                let mut blob = Vec::new();
+                blob.resize(stat.block_size, 0);
+                fs.x_read(inode, 0, 1, &mut blob);
+                if let Some(mut loader) = RuntimeEnvironment::recognize(blob.as_slice()) {
+                    if stat.blocks > 1 {
+                        blob.resize(stat.blocks * stat.block_size, 0);
+                        fs.x_read(inode, 0, stat.blocks, &mut blob);
+                    }
+                    loader.option().argv = argv.iter().map(|v| v.to_string()).collect();
+                    loader.load(blob.as_slice());
+                    let child = loader.invoke_start(name);
+                    if wait_until {
+                        child.map(|thread| thread.join());
+                    }
+                } else {
+                    println!("Bad executable");
+                    return 1;
                 }
-                loader.load(blob.as_slice());
-                let child = loader.invoke_start(name);
-                if wait_until {
-                    child.map(|thread| thread.join());
-                }
-            } else {
-                println!("bad executable");
-                return 1;
             }
+            0
+        }
+        _ => {
+            println!("Command not found: {}", name);
+            1
         }
     }
-    0
 }
 
 fn command(cmd: &str) -> Option<&'static fn(&[&str]) -> isize> {
@@ -341,7 +342,7 @@ fn cmd_dir(_argv: &[&str]) -> isize {
         None => return 1,
     };
     let inode = fs.root_dir();
-    for file in Fs::read_dir_iter(fs, inode) {
+    for file in fs.read_dir_iter(inode) {
         print!(" {:<14} ", file.name(),);
     }
     let info = fs.info();
@@ -360,22 +361,20 @@ fn cmd_stat(argv: &[&str]) -> isize {
     }
     let name = argv[1];
 
-    let fs = match Fs::list_of_volumes().first() {
-        Some(fs) => fs,
-        None => return 1,
-    };
-    let inode = Fs::find_file(fs, name);
-    if inode == 0 {
-        println!("No such file: {}", name);
-    } else {
-        let stat = fs.stat(inode).unwrap();
-        println!(
-            "{} inode {} size {} blk {} {}",
-            name, stat.inode, stat.file_size, stat.block_size, stat.blocks
-        );
+    match Fs::find_file(name) {
+        Some((fs, inode)) => {
+            let stat = fs.stat(inode).unwrap();
+            println!(
+                "{} inode {} size {} blk {} {}",
+                name, stat.inode, stat.file_size, stat.block_size, stat.blocks
+            );
+            0
+        }
+        _ => {
+            println!("No such file: {}", name);
+            1
+        }
     }
-
-    0
 }
 
 fn cmd_type(argv: &[&str]) -> isize {
@@ -385,34 +384,32 @@ fn cmd_type(argv: &[&str]) -> isize {
     }
     let name = argv[1];
 
-    let fs = match Fs::list_of_volumes().first() {
-        Some(fs) => fs,
-        None => return 1,
-    };
-    let inode = Fs::find_file(fs, name);
-    if inode == 0 {
-        println!("No such file: {}", name);
-    } else {
-        let stat = fs.stat(inode).unwrap();
-        if stat.file_size > 0 {
-            let mut buffer = Vec::new();
-            buffer.resize(stat.block_size, 0);
-            let last_bytes = stat.file_size % stat.block_size;
-            for i in 0..(stat.blocks - 1) {
-                fs.x_read(inode, i, 1, &mut buffer);
+    match Fs::find_file(name) {
+        Some((fs, inode)) => {
+            let stat = fs.stat(inode).unwrap();
+            if stat.file_size > 0 {
+                let mut buffer = Vec::new();
+                buffer.resize(stat.block_size, 0);
+                let last_bytes = stat.file_size % stat.block_size;
+                for i in 0..(stat.blocks - 1) {
+                    fs.x_read(inode, i, 1, &mut buffer);
+                    for c in buffer.iter() {
+                        stdout().write_char(*c as char).unwrap();
+                    }
+                }
+                fs.x_read(inode, stat.blocks - 1, 1, &mut buffer);
+                let buffer = &buffer[..last_bytes];
                 for c in buffer.iter() {
                     stdout().write_char(*c as char).unwrap();
                 }
             }
-            fs.x_read(inode, stat.blocks - 1, 1, &mut buffer);
-            let buffer = &buffer[..last_bytes];
-            for c in buffer.iter() {
-                stdout().write_char(*c as char).unwrap();
-            }
+            0
+        }
+        _ => {
+            println!("No such file: {}", name);
+            1
         }
     }
-
-    0
 }
 
 fn cmd_open(argv: &[&str]) -> isize {
@@ -423,7 +420,7 @@ fn cmd_open(argv: &[&str]) -> isize {
 
     let argv = &argv[1..];
     let name = argv[0];
-    exec(name, argv, false);
+    spawn(name, argv, false);
 
     0
 }
@@ -460,56 +457,56 @@ fn cmd_lspci(argv: &[&str]) -> isize {
 }
 
 fn find_class_string(class_code: u32) -> &'static str {
-    const MASK_CC: u32 = 0xFF_00_00;
-    const MASK_SUB: u32 = 0xFF_FF_00;
-    const MASK_IF: u32 = u32::MAX;
+    const CLASS: u32 = 0xFF_00_00;
+    const SUB_CLASS: u32 = 0xFF_FF_00;
+    const INTERFACE: u32 = u32::MAX;
     let entries = [
-        (0x00_00_00, MASK_SUB, "Non-VGA-Compatible devices"),
-        (0x00_01_00, MASK_SUB, "VGA-Compatible Device"),
-        (0x01_00_00, MASK_SUB, "SCSI Bus Controller"),
-        (0x01_01_00, MASK_SUB, "IDE Controller"),
-        (0x01_05_00, MASK_SUB, "ATA Controller"),
-        (0x01_06_01, MASK_IF, "AHCI 1.0"),
-        (0x01_06_00, MASK_SUB, "Serial ATA"),
-        (0x01_07_00, MASK_IF, "SAS"),
-        (0x01_07_00, MASK_SUB, "Serial Attached SCSI"),
-        (0x01_08_01, MASK_IF, "NVMHCI"),
-        (0x01_08_02, MASK_IF, "NVM Express"),
-        (0x01_08_00, MASK_SUB, "Non-Volatile Memory Controller"),
-        (0x01_00_00, MASK_CC, "Mass Storage Controller"),
-        (0x02_00_00, MASK_SUB, "Ethernet Controller"),
-        (0x02_00_00, MASK_CC, "Network Controller"),
-        (0x03_00_00, MASK_CC, "Display Controller"),
-        (0x04_00_00, MASK_SUB, "Multimedia Video Controller"),
-        (0x04_01_00, MASK_SUB, "Multimedia Audio Controller"),
-        (0x04_03_00, MASK_SUB, "Audio Device"),
-        (0x04_00_00, MASK_CC, "Multimedia Controller"),
-        (0x05_00_00, MASK_CC, "Memory Controller"),
-        (0x06_00_00, MASK_SUB, "Host Bridge"),
-        (0x06_01_00, MASK_SUB, "ISA Bridge"),
-        (0x06_04_00, MASK_SUB, "PCI-to-PCI Bridge"),
-        (0x06_09_00, MASK_SUB, "PCI-to-PCI Bridge"),
-        (0x06_00_00, MASK_CC, "Bridge Device"),
-        (0x07_00_00, MASK_SUB, "Serial Controller"),
-        (0x07_01_00, MASK_SUB, "Parallel Controller"),
-        (0x07_00_00, MASK_CC, "Simple Communication Controller"),
-        (0x08_00_00, MASK_CC, "Base System Peripheral"),
-        (0x09_00_00, MASK_CC, "Input Device Controller"),
-        (0x0A_00_00, MASK_CC, "Docking Station"),
-        (0x0B_00_00, MASK_CC, "Processor"),
-        (0x0C_03_30, MASK_IF, "XHCI Controller"),
-        (0x0C_03_00, MASK_SUB, "USB Controller"),
-        (0x0C_05_00, MASK_SUB, "SMBus"),
-        (0x0C_00_00, MASK_CC, "Serial Bus Controller"),
-        (0x0D_00_00, MASK_CC, "Wireless Controller"),
-        (0x0E_00_00, MASK_CC, "Intelligent Controller"),
-        (0x0F_00_00, MASK_CC, "Satellite Communication Controller"),
-        (0x10_00_00, MASK_CC, "Encryption Controller"),
-        (0x11_00_00, MASK_CC, "Signal Processing Controller"),
-        (0x12_00_00, MASK_CC, "Processing Accelerator"),
-        (0x13_00_00, MASK_CC, "Non-Essential Instrumentation"),
-        (0x40_00_00, MASK_CC, "Co-Processor"),
-        (0xFF_00_00, MASK_CC, "(Vendor specific)"),
+        (0x00_00_00, SUB_CLASS, "Non-VGA-Compatible devices"),
+        (0x00_01_00, SUB_CLASS, "VGA-Compatible Device"),
+        (0x01_00_00, SUB_CLASS, "SCSI Bus Controller"),
+        (0x01_01_00, SUB_CLASS, "IDE Controller"),
+        (0x01_05_00, SUB_CLASS, "ATA Controller"),
+        (0x01_06_01, INTERFACE, "AHCI 1.0"),
+        (0x01_06_00, SUB_CLASS, "Serial ATA"),
+        (0x01_07_00, INTERFACE, "SAS"),
+        (0x01_07_00, SUB_CLASS, "Serial Attached SCSI"),
+        (0x01_08_01, INTERFACE, "NVMHCI"),
+        (0x01_08_02, INTERFACE, "NVM Express"),
+        (0x01_08_00, SUB_CLASS, "Non-Volatile Memory Controller"),
+        (0x01_00_00, CLASS, "Mass Storage Controller"),
+        (0x02_00_00, SUB_CLASS, "Ethernet Controller"),
+        (0x02_00_00, CLASS, "Network Controller"),
+        (0x03_00_00, CLASS, "Display Controller"),
+        (0x04_00_00, SUB_CLASS, "Multimedia Video Controller"),
+        (0x04_01_00, SUB_CLASS, "Multimedia Audio Controller"),
+        (0x04_03_00, SUB_CLASS, "Audio Device"),
+        (0x04_00_00, CLASS, "Multimedia Controller"),
+        (0x05_00_00, CLASS, "Memory Controller"),
+        (0x06_00_00, SUB_CLASS, "Host Bridge"),
+        (0x06_01_00, SUB_CLASS, "ISA Bridge"),
+        (0x06_04_00, SUB_CLASS, "PCI-to-PCI Bridge"),
+        (0x06_09_00, SUB_CLASS, "PCI-to-PCI Bridge"),
+        (0x06_00_00, CLASS, "Bridge Device"),
+        (0x07_00_00, SUB_CLASS, "Serial Controller"),
+        (0x07_01_00, SUB_CLASS, "Parallel Controller"),
+        (0x07_00_00, CLASS, "Simple Communication Controller"),
+        (0x08_00_00, CLASS, "Base System Peripheral"),
+        (0x09_00_00, CLASS, "Input Device Controller"),
+        (0x0A_00_00, CLASS, "Docking Station"),
+        (0x0B_00_00, CLASS, "Processor"),
+        (0x0C_03_30, INTERFACE, "XHCI Controller"),
+        (0x0C_03_00, SUB_CLASS, "USB Controller"),
+        (0x0C_05_00, SUB_CLASS, "SMBus"),
+        (0x0C_00_00, CLASS, "Serial Bus Controller"),
+        (0x0D_00_00, CLASS, "Wireless Controller"),
+        (0x0E_00_00, CLASS, "Intelligent Controller"),
+        (0x0F_00_00, CLASS, "Satellite Communication Controller"),
+        (0x10_00_00, CLASS, "Encryption Controller"),
+        (0x11_00_00, CLASS, "Signal Processing Controller"),
+        (0x12_00_00, CLASS, "Processing Accelerator"),
+        (0x13_00_00, CLASS, "Non-Essential Instrumentation"),
+        (0x40_00_00, CLASS, "Co-Processor"),
+        (0xFF_00_00, CLASS, "(Vendor specific)"),
     ];
     for entry in &entries {
         if (class_code & entry.1) == entry.0 {

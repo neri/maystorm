@@ -105,7 +105,7 @@ impl UserEnv {
                 Timer::sleep(Duration::from_millis(500));
 
                 // panic!();
-                window.hide();
+                window.close();
             }
 
             {

@@ -1,29 +1,28 @@
-// H-OS Emulator
+// Haribote-OS Emulator
 
 use super::*;
+use crate::fs::filesys::*;
 use crate::mem::memory::*;
 use crate::window::*;
 use crate::*;
 use alloc::boxed::Box;
+use core::ptr::*;
 use core::time::Duration;
 use core::{slice, str};
 
 include!("hankaku.rs");
 
-#[allow(dead_code)]
 pub struct Hoe {
     context: LegacyAppContext,
+    cmdline: String,
     windows: Vec<HoeWindow>,
     timers: Vec<HoeTimer>,
+    files: Vec<HoeFile>,
     malloc_start: u32,
     malloc_free: u32,
 }
 
 impl Hoe {
-    const WINDOW_ADJUST_X: isize = 2;
-    const WINDOW_TITLE_PADDING: isize = 22;
-    const WINDOW_ADJUST_Y: isize = 2;
-
     const PALETTE: [u32; 256] = [
         0xFF000000, 0xFFFF0000, 0xFF00FF00, 0xFFFFFF00, 0xFF0000FF, 0xFFFF00FF, 0xFF00FFFF,
         0xFFFFFFFF, 0xFFC6C6C6, 0xFF840000, 0xFF008400, 0xFF848400, 0xFF000084, 0xFF840084,
@@ -61,25 +60,32 @@ impl Hoe {
         0xFFFFFFFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
 
-    fn new(context: LegacyAppContext) -> Box<Self> {
+    fn new(context: LegacyAppContext, cmdline: String) -> Box<Self> {
         Box::new(Self {
             context,
+            cmdline,
             windows: Vec::new(),
             timers: Vec::new(),
+            files: Vec::new(),
             malloc_start: 0,
             malloc_free: 0,
         })
     }
 
-    fn abort(&self) {
+    fn abort(&self) -> ! {
         RuntimeEnvironment::exit(1);
     }
 
-    fn exit(&self) {
+    fn exit(&self) -> ! {
         RuntimeEnvironment::exit(0);
     }
 
-    /// Hoe System Call
+    fn raise_segv(&self) -> ! {
+        println!("Segmentation Violation");
+        self.abort();
+    }
+
+    /// Haribote-OS System Call
     pub fn syscall(&mut self, regs: &mut HoeSyscallRegs) {
         match regs.edx {
             1 => {
@@ -100,14 +106,17 @@ impl Hoe {
                 self.exit();
             }
             5 => {
-                // Window Open
-                let title = self.load_cstring(regs.ecx).unwrap_or_default();
-                regs.eax = self.alloc_window(title, regs.esi, regs.edi, regs.ebx);
+                // open window
+                regs.eax = self.alloc_window(
+                    self.load_cstring(regs.ecx).unwrap_or_default(),
+                    regs.esi,
+                    regs.edi,
+                    regs.ebx,
+                );
             }
             6 => {
-                // Draw String on Window
-                let (window, refreshing) = self.get_window(regs.ebx);
-                window.map(|window| {
+                // draw text
+                self.get_window(regs.ebx).map(|(window, refreshing)| {
                     let text = self.load_string(regs.ebp, regs.ecx).unwrap_or_default();
                     let color = regs.eax as u8;
                     let mut origin = Point::new(regs.esi, regs.edi);
@@ -117,9 +126,8 @@ impl Hoe {
                 });
             }
             7 => {
-                // Fill Rect
-                let (window, refreshing) = self.get_window(regs.ebx);
-                window.map(|window| {
+                // fill rect
+                self.get_window(regs.ebx).map(|(window, refreshing)| {
                     window.fill_rect(
                         self,
                         regs.eax,
@@ -145,26 +153,23 @@ impl Hoe {
                 self.free(regs.eax, regs.ecx);
             }
             11 => {
-                // Draw pixel
-                let (window, refreshing) = self.get_window(regs.ebx);
-                window.map(|window| {
+                // set pixel
+                self.get_window(regs.ebx).map(|(window, refreshing)| {
                     window.set_pixel(self, regs.esi, regs.edi, regs.eax as u8, refreshing);
                 });
             }
             12 => {
                 // Refresh Window
-                let (window, _refreshing) = self.get_window(regs.ebx);
-                window.map(|window| {
+                self.get_window(regs.ebx).map(|(window, _refreshing)| {
                     window.redraw_rect(self, regs.eax, regs.ecx, regs.esi, regs.edi);
                 });
             }
             13 => {
-                // Draw Line
-                let (window, refreshing) = self.get_window(regs.ebx);
-                window.map(|window| {
+                // draw line
+                self.get_window(regs.ebx).map(|(window, refreshing)| {
                     let c0 = Point::new(regs.eax as i32, regs.ecx as i32);
                     let c1 = Point::new(regs.esi as i32, regs.edi as i32);
-                    window.line(self, c0, c1, regs.ebp as u8, refreshing);
+                    window.draw_line(self, c0, c1, regs.ebp as u8, refreshing);
                 });
             }
             14 => {
@@ -178,20 +183,7 @@ impl Hoe {
                 regs.eax = self
                     .windows
                     .first()
-                    .and_then(|window| loop {
-                        while let Some(message) = window.handle.read_message() {
-                            match message {
-                                WindowMessage::Char(c) => return Some(c as u8 as u32),
-                                WindowMessage::Timer(timer_id) => return Some(timer_id as u32),
-                                _ => window.handle.handle_default_message(message),
-                            }
-                        }
-                        if sleep {
-                            Timer::msleep(100);
-                        } else {
-                            return None;
-                        }
-                    })
+                    .and_then(|window| window.get_message(sleep))
                     .map(|k| match k {
                         0x0D => 0x0A,
                         _ => k,
@@ -223,13 +215,47 @@ impl Hoe {
             }
             20 => {
                 // TODO: Sound
+                // Because myos doesn't have a sound driver.
             }
-            // 21 | 22 | 23 | 24 | 25 => {
-            //     // TODO: file
-            // }
+            21 => {
+                // file open
+                let name = self.load_cstring(regs.ebx);
+                regs.eax = name.and_then(|name| self.alloc_file(name)).unwrap_or(0);
+            }
+            22 => {
+                // TODO: file close
+            }
+            23 => {
+                // seek
+                self.get_file(regs.eax).map(|file| {
+                    file.seek(regs.ebx as i32 as isize, regs.ecx.into());
+                });
+            }
+            24 => {
+                // get size
+                // SAFETY: Undefined return value when a handle is invalid
+                self.get_file(regs.eax).map(|file| {
+                    regs.eax = file.get_file_size(regs.ecx.into()) as u32;
+                });
+            }
+            25 => {
+                // read file
+                let size = regs.ecx;
+                match self.safe_ptr(regs.ebx, size) {
+                    Some(ptr) => {
+                        self.get_file(regs.eax).map(|file| {
+                            regs.eax = file.read(ptr, size);
+                        });
+                    }
+                    None => self.raise_segv(),
+                }
+            }
             26 => {
                 // TODO: command line
-                regs.eax = 0;
+                match self.store_string(regs.ebx, regs.ecx, self.cmdline.as_ref()) {
+                    Ok(v) => regs.eax = v,
+                    Err(_) => self.raise_segv(),
+                }
             }
             27 => {
                 // langmode
@@ -243,36 +269,50 @@ impl Hoe {
     }
 
     fn load_cstring<'a>(&self, offset: u32) -> Option<&'a str> {
-        unsafe {
-            let base = self.context.base_of_data as usize as *const u8;
-            let limit = base.add(self.context.size_of_data as usize);
-            let ptr = base.add(offset as usize);
-
-            let mut len = 0;
-            loop {
-                if ptr >= limit {
-                    return None;
-                }
-                if ptr.add(len).read_volatile() == 0 {
-                    break;
-                }
-                len += 1;
-            }
-
-            str::from_utf8(slice::from_raw_parts(ptr, len)).ok()
-        }
-    }
-
-    fn load_string<'a>(&self, offset: u32, len: u32) -> Option<&'a str> {
-        if offset + len < self.context.size_of_data {
+        if offset > 0 {
             unsafe {
                 let base = self.context.base_of_data as usize as *const u8;
+                let limit = base.add(self.context.size_of_data as usize);
                 let ptr = base.add(offset as usize);
-                str::from_utf8(slice::from_raw_parts(ptr, len as usize)).ok()
+
+                let mut len = 0;
+                loop {
+                    if ptr >= limit {
+                        return None;
+                    }
+                    if ptr.add(len).read_volatile() == 0 {
+                        break;
+                    }
+                    len += 1;
+                }
+
+                Some(str::from_utf8_unchecked(slice::from_raw_parts(ptr, len)))
             }
         } else {
             None
         }
+    }
+
+    fn load_string<'a>(&self, offset: u32, len: u32) -> Option<&'a str> {
+        self.safe_ptr(offset, len).map(|ptr| unsafe {
+            str::from_utf8_unchecked(slice::from_raw_parts(ptr as *const u8, len as usize))
+        })
+    }
+
+    fn store_string(&self, offset: u32, size: u32, s: &str) -> Result<u32, ()> {
+        self.safe_ptr(offset, size)
+            .map(|ptr| {
+                let mut ptr = ptr as *mut u8;
+                let len = u32::min(s.len() as u32, size);
+                unsafe {
+                    for c in s[..len as usize].bytes() {
+                        ptr.write_volatile(c);
+                        ptr = ptr.add(1);
+                    }
+                }
+                len
+            })
+            .ok_or(())
     }
 
     fn get_color(index: u8) -> Color {
@@ -280,31 +320,16 @@ impl Hoe {
     }
 
     fn alloc_window(&mut self, title: &str, width: u32, height: u32, buffer: u32) -> u32 {
-        let handle = WindowBuilder::new(title)
-            .style_add(WindowStyle::NAKED)
-            .size(Size::new(
-                width as isize - Self::WINDOW_ADJUST_X * 2,
-                height as isize - (Self::WINDOW_TITLE_PADDING + Self::WINDOW_ADJUST_Y),
-            ))
-            .default_message_queue()
-            .build();
-        handle.make_active();
-        let window = HoeWindow {
-            handle,
-            width,
-            height,
-            buffer,
-        };
-        window.fill_rect(self, 0, 0, width, height, 7, false);
+        let window = HoeWindow::new(self, title, width, height, buffer);
         self.windows.push(window);
         self.windows.len() as u32 * 2
     }
 
-    fn get_window(&self, handle: u32) -> (Option<&HoeWindow>, bool) {
+    fn get_window(&self, handle: u32) -> Option<(&HoeWindow, bool)> {
         let refreshing = (handle & 1) == 0;
         let index = handle as usize / 2 - 1;
         let window = self.windows.get(index);
-        (window, refreshing)
+        window.map(|window| (window, refreshing))
     }
 
     fn alloc_timer(&mut self) -> u32 {
@@ -314,6 +339,17 @@ impl Hoe {
 
     fn get_timer(&mut self, handle: u32) -> Option<&mut HoeTimer> {
         self.timers.get_mut(handle as usize - 1)
+    }
+
+    fn alloc_file(&mut self, name: &str) -> Option<u32> {
+        HoeFile::open(name).map(|file| {
+            self.files.push(file);
+            self.files.len() as u32
+        })
+    }
+
+    fn get_file(&mut self, handle: u32) -> Option<&mut HoeFile> {
+        self.files.get_mut(handle as usize - 1)
     }
 
     fn malloc(&mut self, size: u32) -> u32 {
@@ -331,14 +367,12 @@ impl Hoe {
         // TODO:
     }
 
-    pub fn handle_syscall(regs: &mut HoeSyscallRegs) {
-        MyScheduler::current_personality(|personality| {
-            let hoe = match personality.context() {
-                PersonalityContext::Hoe(hoe) => hoe,
-                _ => unreachable!(),
-            };
-            hoe.syscall(regs);
-        });
+    fn safe_ptr(&self, offset: u32, size: u32) -> Option<usize> {
+        if offset > 0 && offset as u64 + (size as u64) < self.context.size_of_data as u64 {
+            Some((self.context.base_of_data + offset) as usize)
+        } else {
+            None
+        }
     }
 }
 
@@ -466,8 +500,9 @@ impl BinaryLoader for HrbBinaryLoader {
     }
 
     fn invoke_start(&mut self, name: &str) -> Option<ThreadHandle> {
+        let cmdline = self.lio.argv.join(" ");
         SpawnOption::new()
-            .personality(Hoe::new(self.ctx))
+            .personality(Hoe::new(self.ctx, cmdline))
             .spawn(Self::start, 0, name)
     }
 }
@@ -485,7 +520,6 @@ pub struct HoeSyscallRegs {
     _padding7: u32,
 }
 
-#[allow(dead_code)]
 struct HoeWindow {
     handle: WindowHandle,
     buffer: u32,
@@ -494,14 +528,53 @@ struct HoeWindow {
 }
 
 impl HoeWindow {
+    const WINDOW_BGCOLOR: u8 = 7;
     const WINDOW_ADJUST_X: u32 = 2;
     const WINDOW_ADJUST_TOP: u32 = 22;
     const WINDOW_ADJUST_BOTTOM: u32 = 2;
 
+    fn new(hoe: &Hoe, title: &str, width: u32, height: u32, buffer: u32) -> Self {
+        let handle = WindowBuilder::new(title)
+            .style_add(WindowStyle::NAKED)
+            .size(Size::new(
+                (width - Self::WINDOW_ADJUST_X * 2) as isize,
+                (height - (Self::WINDOW_ADJUST_TOP + Self::WINDOW_ADJUST_BOTTOM)) as isize,
+            ))
+            .bg_color(Hoe::get_color(Self::WINDOW_BGCOLOR))
+            .default_message_queue()
+            .build();
+        handle.make_active();
+        let window = HoeWindow {
+            handle,
+            width,
+            height,
+            buffer,
+        };
+        window.fill_rect(hoe, 0, 0, width, height, Self::WINDOW_BGCOLOR, false);
+        window
+    }
+
+    fn get_message(&self, sleep: bool) -> Option<u32> {
+        loop {
+            while let Some(message) = self.handle.read_message() {
+                match message {
+                    WindowMessage::Char(c) => return Some(c as u8 as u32),
+                    WindowMessage::Timer(timer_id) => return Some(timer_id as u32),
+                    _ => self.handle.handle_default_message(message),
+                }
+            }
+            if sleep {
+                Timer::msleep(100);
+            } else {
+                return None;
+            }
+        }
+    }
+
     fn buffer<'a>(&self, hoe: &Hoe) -> &'a mut [u8] {
         let len = self.width as usize * self.height as usize;
         unsafe {
-            core::ptr::slice_from_raw_parts_mut(
+            slice_from_raw_parts_mut(
                 (hoe.context.base_of_data as *mut u8).add(self.buffer as usize),
                 len,
             )
@@ -574,14 +647,14 @@ impl HoeWindow {
         }
     }
 
-    fn line(&self, hoe: &Hoe, c0: Point<i32>, c1: Point<i32>, c: u8, refreshing: bool) {
+    fn draw_line(&self, hoe: &Hoe, c0: Point<i32>, c1: Point<i32>, c: u8, refreshing: bool) {
         let buffer = self.buffer(hoe);
         let width = self.width as i32;
         let height = self.height as i32;
         let stride = self.width as usize;
-        c0.line_to(c1, |f| {
-            if f.x >= 0 && f.x < width && f.y >= 0 && f.y < height {
-                buffer[f.x as usize + f.y as usize * stride] = c;
+        c0.line_to(c1, |p| {
+            if p.x >= 0 && p.x < width && p.y >= 0 && p.y < height {
+                buffer[p.x as usize + p.y as usize * stride] = c;
             }
         });
         if refreshing {
@@ -592,9 +665,9 @@ impl HoeWindow {
     const BIT_MASKS: [u8; 8] = [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
 
     fn put_font(&self, hoe: &Hoe, origin: Point<u32>, ch: u8, color: u8, refreshing: bool) -> u32 {
-        let buffer = self.buffer(hoe);
-        let stride = self.width;
-        if ch > 0x20 && origin.x < self.width - 8 && origin.y < self.height - 16 {
+        if ch > 0x20 && ch < 0x80 && origin.x < self.width - 8 && origin.y < self.height - 16 {
+            let buffer = self.buffer(hoe);
+            let stride = self.width;
             let font_stride = 16;
             let font_offset = (ch as usize - 0x20) * font_stride;
             let glyph = &FONT_HANKAKU_DATA[font_offset..font_offset + font_stride];
@@ -623,5 +696,109 @@ struct HoeTimer {
 impl HoeTimer {
     fn new() -> Self {
         Self { data: u32::MAX }
+    }
+}
+
+struct HoeFile {
+    fs: &'static Box<dyn FileSystem>,
+    buffer: Vec<u8>,
+    inode: INodeType,
+    block_size: usize,
+    file_pos: usize,
+    file_size: usize,
+}
+
+impl HoeFile {
+    fn open(name: &str) -> Option<Self> {
+        Fs::find_file(name).map(|(fs, inode)| {
+            let stat = fs.stat(inode).unwrap();
+            let mut buffer = Vec::with_capacity(stat.block_size);
+            buffer.resize(stat.block_size, 0);
+            Self {
+                fs,
+                buffer,
+                inode,
+                block_size: stat.block_size,
+                file_pos: 0,
+                file_size: stat.file_size,
+            }
+        })
+    }
+
+    fn seek(&mut self, offset: isize, whence: Whence) {
+        match whence {
+            Whence::SeekSet => self.file_pos = offset as usize,
+            Whence::SeekCur => self.file_pos = (self.file_pos as isize + offset) as usize,
+            Whence::SeekEnd => self.file_pos = (self.file_size as isize + offset) as usize,
+        }
+    }
+
+    fn get_file_size(&self, whence: Whence) -> usize {
+        match whence {
+            Whence::SeekSet => self.file_size as usize,
+            Whence::SeekCur => self.file_pos as usize,
+            Whence::SeekEnd => (self.file_pos - self.file_size) as usize,
+        }
+    }
+
+    fn read(&mut self, ptr: usize, size: u32) -> u32 {
+        if self.file_pos >= self.file_size {
+            return 0;
+        }
+
+        let mut result = 0;
+        let mut index = self.file_pos / self.block_size;
+        let mut rest = usize::min(size as usize, self.file_size - self.file_pos);
+        let dest = unsafe { slice::from_raw_parts_mut(ptr as *mut u8, rest) };
+
+        let offset = self.file_pos % self.block_size;
+        if offset > 0 || rest < self.block_size {
+            self.fs.x_read(self.inode, index, 1, &mut self.buffer);
+            let size = usize::min(rest, self.block_size - offset);
+            for (i, d) in self.buffer[offset..offset + size].iter().enumerate() {
+                dest[i] = *d;
+            }
+            index += 1;
+            rest -= size;
+            result += size;
+        }
+        if rest > 0 {
+            let count = rest / self.block_size;
+            if count > 0 {
+                let len = count * self.block_size;
+                self.fs
+                    .x_read(self.inode, index, count, &mut dest[result..]);
+                index += count;
+                rest -= len;
+                result += len;
+            }
+            if rest > 0 {
+                self.fs.x_read(self.inode, index, 1, &mut self.buffer);
+                for d in self.buffer[..rest].iter() {
+                    dest[result] = *d;
+                    result += 1;
+                }
+            }
+        }
+
+        self.file_pos += result;
+        result as u32
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum Whence {
+    SeekSet = 0,
+    SeekCur,
+    SeekEnd,
+}
+
+impl From<u32> for Whence {
+    fn from(v: u32) -> Self {
+        match v {
+            1 => Self::SeekCur,
+            2 => Self::SeekEnd,
+            _ => Self::SeekSet,
+        }
     }
 }

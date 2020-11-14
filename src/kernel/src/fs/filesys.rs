@@ -61,7 +61,7 @@ impl Fs {
         shared.volumes.as_slice()
     }
 
-    pub fn read_dir_iter<'a>(
+    fn read_dir_iter<'a>(
         fs: &'a Box<dyn FileSystem>,
         inode: INodeType,
     ) -> impl Iterator<Item = DirectoryEntry> + 'a {
@@ -72,14 +72,17 @@ impl Fs {
         }
     }
 
-    pub fn find_file(fs: &Box<dyn FileSystem>, name: &str) -> INodeType {
-        let inode = fs.root_dir();
-        for file in Self::read_dir_iter(fs, inode) {
-            if file.name() == name {
-                return file.inode();
+    pub fn find_file(name: &str) -> Option<(&'static Box<dyn FileSystem>, INodeType)> {
+        let shared = Self::shared();
+        for fs in &shared.volumes {
+            let inode = fs.root_dir();
+            for file in fs.read_dir_iter(inode) {
+                if file.name() == name {
+                    return Some((fs, file.inode()));
+                }
             }
         }
-        0
+        None
     }
 }
 
@@ -114,6 +117,16 @@ pub trait FileSystem {
 
     /// read file contents
     fn x_read(&self, inode: INodeType, offset: usize, count: usize, buffer: &mut [u8]) -> usize;
+}
+
+impl dyn FileSystem {
+    #[inline]
+    pub fn read_dir_iter<'a>(
+        self: &'a Box<dyn FileSystem>,
+        inode: INodeType,
+    ) -> impl Iterator<Item = DirectoryEntry> + 'a {
+        Fs::read_dir_iter(self, inode)
+    }
 }
 
 struct FsReadDirIter<'a> {

@@ -185,7 +185,7 @@ impl WindowManager {
                     .level(WindowLevel::ROOT)
                     .frame(Rect::from(main_screen.size()))
                     .bg_color(Color::from_rgb(0x000000))
-                    .no_bitmap()
+                    .without_bitmap()
                     .build(),
             );
             shared.entered = shared.root;
@@ -227,7 +227,7 @@ impl WindowManager {
                     .level(WindowLevel::POPUP_BARRIER)
                     .frame(Rect::from(main_screen.size()))
                     .bg_color(BARRIER_COLOR)
-                    .no_bitmap()
+                    .without_bitmap()
                     .build(),
             );
         }
@@ -1306,7 +1306,7 @@ impl WindowBuilder {
     }
 
     #[inline]
-    pub const fn no_bitmap(mut self) -> Self {
+    pub const fn without_bitmap(mut self) -> Self {
         self.no_bitmap = true;
         self
     }

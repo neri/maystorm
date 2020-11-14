@@ -60,7 +60,7 @@ impl RuntimeEnvironment {
         MyScheduler::exit();
     }
 
-    pub unsafe fn invoke_legacy(context: &LegacyAppContext) {
+    pub unsafe fn invoke_legacy(context: &LegacyAppContext) -> ! {
         Cpu::invoke_legacy(context);
     }
 }

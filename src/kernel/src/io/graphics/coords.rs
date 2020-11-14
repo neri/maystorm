@@ -68,7 +68,7 @@ impl<T: Number> Point<T> {
             if c0.x == c1.x && c0.y == c1.y {
                 break;
             }
-            let e2 = e * T::two();
+            let e2 = e + e;
             if e2 > T::zero() - d.y {
                 e -= d.y;
                 c0.x += s.x;

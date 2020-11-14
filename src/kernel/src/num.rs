@@ -12,7 +12,6 @@ pub trait Number:
     + AddAssign
     + Sub<Output = Self>
     + SubAssign
-    + Div<Output = Self>
     + Mul<Output = Self>
     + MulAssign
     + Div<Output = Self>
@@ -252,77 +251,24 @@ impl Div2 for isize {
     }
 }
 
-pub trait Two {
-    fn two() -> Self;
-}
-
-impl Two for isize {
+pub trait Two
+where
+    Self: Sized + One + Add<Output = Self>,
+{
     fn two() -> Self {
-        2
+        Self::one() + Self::one()
     }
 }
 
-impl Two for usize {
-    fn two() -> Self {
-        2
-    }
-}
-
-impl Two for i64 {
-    fn two() -> Self {
-        2
-    }
-}
-
-impl Two for u64 {
-    fn two() -> Self {
-        2
-    }
-}
-
-impl Two for i32 {
-    fn two() -> Self {
-        2
-    }
-}
-
-impl Two for u32 {
-    fn two() -> Self {
-        2
-    }
-}
-
-impl Two for i16 {
-    fn two() -> Self {
-        2
-    }
-}
-
-impl Two for u16 {
-    fn two() -> Self {
-        2
-    }
-}
-
-impl Two for i8 {
-    fn two() -> Self {
-        2
-    }
-}
-
-impl Two for u8 {
-    fn two() -> Self {
-        2
-    }
-}
-
-impl Two for f64 {
-    fn two() -> Self {
-        2.0
-    }
-}
-impl Two for f32 {
-    fn two() -> Self {
-        2.0
-    }
-}
+impl Two for u8 {}
+impl Two for i8 {}
+impl Two for u16 {}
+impl Two for i16 {}
+impl Two for u32 {}
+impl Two for i32 {}
+impl Two for u64 {}
+impl Two for i64 {}
+impl Two for usize {}
+impl Two for isize {}
+impl Two for f32 {}
+impl Two for f64 {}
