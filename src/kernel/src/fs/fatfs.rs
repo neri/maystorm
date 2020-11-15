@@ -88,6 +88,7 @@ impl FatFsDriver {
             driver_name: DRIVER_NAME,
             fs_name: fs_type.to_str(),
             volume_serial_number,
+            characteristics: FileSystemCharacteristics::CASE_INSENSITIVE,
             bytes_per_block: bytes_per_sector,
             bytes_per_record: bytes_per_sector << record_shift,
             total_blocks: total_sectors as u64,

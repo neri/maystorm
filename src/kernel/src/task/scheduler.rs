@@ -159,19 +159,20 @@ impl MyScheduler {
         }
     }
 
-    // TODO: deprecated
     pub fn wait_for(object: Option<&SignallingObject>, duration: Duration) {
         unsafe {
             Cpu::without_interrupts(|| {
+                let _ = duration;
                 let lsch = Self::local_scheduler().unwrap();
                 let current = lsch.current;
                 if let Some(object) = object {
                     let _ = object.set(current);
                 }
-                current.update(|current| {
-                    current.deadline = Timer::new(duration);
-                });
-                LocalScheduler::switch_context(lsch);
+                if duration.as_nanos() > 0 {
+                    Timer::sleep(duration);
+                } else {
+                    MyScheduler::sleep();
+                }
             });
         }
     }
@@ -182,6 +183,15 @@ impl MyScheduler {
                 let lsch = Self::local_scheduler().unwrap();
                 let current = lsch.current;
                 current.as_ref().attribute.insert(ThreadAttributes::ASLEEP);
+                LocalScheduler::switch_context(lsch);
+            });
+        }
+    }
+
+    pub fn yield_thread() {
+        unsafe {
+            Cpu::without_interrupts(|| {
+                let lsch = Self::local_scheduler().unwrap();
                 LocalScheduler::switch_context(lsch);
             });
         }
@@ -228,14 +238,17 @@ impl MyScheduler {
         let handle = thread;
         let sch = Self::shared();
         let thread = handle.as_ref();
-        if thread.attribute.contains(ThreadAttributes::ZOMBIE) {
+        if thread.priority == Priority::Idle {
+            return;
+        } else if thread.attribute.contains(ThreadAttributes::ZOMBIE) {
             ThreadPool::drop_thread(handle);
-        } else if thread.priority != Priority::Idle {
-            if thread.attribute.contains(ThreadAttributes::ASLEEP) {
-                thread.attribute.remove(ThreadAttributes::QUEUED);
-            } else {
-                sch.ready.enqueue(handle).unwrap();
-            }
+        } else if thread.attribute.test_and_clear(ThreadAttributes::AWAKE) {
+            thread.attribute.remove(ThreadAttributes::ASLEEP);
+            sch.ready.enqueue(handle).unwrap();
+        } else if thread.attribute.contains(ThreadAttributes::ASLEEP) {
+            thread.attribute.remove(ThreadAttributes::QUEUED);
+        } else {
+            sch.ready.enqueue(handle).unwrap();
         }
     }
 
@@ -248,6 +261,9 @@ impl MyScheduler {
             && !thread.attribute.test_and_set(ThreadAttributes::QUEUED)
         {
             sch.ready.enqueue(handle).unwrap();
+            if thread.attribute.test_and_clear(ThreadAttributes::AWAKE) {
+                thread.attribute.remove(ThreadAttributes::ASLEEP);
+            }
         }
     }
 
@@ -416,7 +432,8 @@ impl MyScheduler {
     }
 
     pub fn exit() -> ! {
-        Self::current_thread().unwrap().as_ref().exit();
+        Self::current_thread().unwrap().update(|t| t.exit());
+        unreachable!()
     }
 
     pub fn get_idle_statistics(vec: &mut Vec<u32>) {
@@ -461,6 +478,8 @@ impl MyScheduler {
             } else {
                 write!(sb, " {:02}:{:02}.{:02}", min, sec, dsec,).unwrap();
             }
+
+            write!(sb, " {:0x}", thread.attribute.0.load(Ordering::Relaxed)).unwrap();
 
             match thread.name() {
                 Some(name) => writeln!(sb, " {}", name,).unwrap(),
@@ -651,7 +670,10 @@ impl Timer {
                         MyScheduler::sleep();
                         return;
                     }
-                    Err(e) => event = e,
+                    Err(e) => {
+                        event = e;
+                        MyScheduler::yield_thread();
+                    }
                 }
             }
         } else {
@@ -819,13 +841,6 @@ impl ThreadPool {
     }
 
     fn drop_thread(handle: ThreadHandle) {
-        handle.update(|thread| {
-            thread.sem.signal();
-            thread
-                .personality
-                .as_mut()
-                .map(|personality| personality.on_exit());
-        });
         Self::synchronized(|| {
             let shared = Self::shared();
             shared.data.remove(&handle);
@@ -892,16 +907,13 @@ impl ThreadHandle {
 
     #[inline]
     fn wake(&self) {
-        self.as_ref().attribute.remove(ThreadAttributes::ASLEEP);
+        self.as_ref().attribute.insert(ThreadAttributes::AWAKE);
         MyScheduler::add(*self);
     }
 
     #[inline]
     pub fn join(&self) -> usize {
-        // TODO: semaphore
-        while self.get().map(|t| t.sem.try_to().ok()).is_some() {
-            Timer::sleep(Duration::from_millis(1));
-        }
+        self.get().map(|t| t.sem.wait());
         0
     }
 }
@@ -952,7 +964,8 @@ impl ThreadAttributes {
     pub const EMPTY: Self = Self::new(0);
     pub const QUEUED: usize = 0b0000_0000_0000_0001;
     pub const ASLEEP: usize = 0b0000_0000_0000_0010;
-    pub const ZOMBIE: usize = 0b0000_0000_0000_0100;
+    pub const AWAKE: usize = 0b0000_0000_0000_0100;
+    pub const ZOMBIE: usize = 0b0000_0000_0000_1000;
 
     #[inline]
     pub const fn new(value: usize) -> Self {
@@ -960,18 +973,18 @@ impl ThreadAttributes {
     }
 
     #[inline]
-    pub fn contains(&self, value: usize) -> bool {
-        (self.0.load(Ordering::Relaxed) & value) == value
+    pub fn contains(&self, bits: usize) -> bool {
+        (self.0.load(Ordering::Relaxed) & bits) == bits
     }
 
     #[inline]
-    pub fn insert(&self, value: usize) {
-        self.0.fetch_or(value, Ordering::SeqCst);
+    pub fn insert(&self, bits: usize) {
+        self.0.fetch_or(bits, Ordering::SeqCst);
     }
 
     #[inline]
-    pub fn remove(&self, value: usize) {
-        self.0.fetch_and(!value, Ordering::SeqCst);
+    pub fn remove(&self, bits: usize) {
+        self.0.fetch_and(!bits, Ordering::SeqCst);
     }
 
     #[inline]
@@ -1029,7 +1042,12 @@ impl RawThread {
         handle
     }
 
-    fn exit(&self) -> ! {
+    fn exit(&mut self) -> ! {
+        self.sem.signal();
+        self.personality
+            .as_mut()
+            .map(|personality| personality.on_exit());
+
         self.attribute.insert(ThreadAttributes::ZOMBIE);
         MyScheduler::sleep();
         unreachable!();

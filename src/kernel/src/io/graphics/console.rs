@@ -66,7 +66,6 @@ impl<'a> GraphicalConsole<'a> {
         let window = WindowBuilder::new(title)
             .style_add(WindowStyle::NAKED)
             .size(size + DEFAULT_CONSOLE_INSETS)
-            .default_message_queue()
             .build();
 
         let bitmap = window.bitmap().unwrap();

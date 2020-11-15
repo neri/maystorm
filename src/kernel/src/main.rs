@@ -57,7 +57,6 @@ async fn test_task() {
     let window = WindowBuilder::new("MyOS Paint")
         .size(window_size)
         .origin(Point::new(50, 50))
-        .default_message_queue()
         .build();
 
     window.show();

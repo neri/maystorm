@@ -185,6 +185,7 @@ impl WindowManager {
                     .level(WindowLevel::ROOT)
                     .frame(Rect::from(main_screen.size()))
                     .bg_color(Color::from_rgb(0x000000))
+                    .without_message_queue()
                     .without_bitmap()
                     .build(),
             );
@@ -201,6 +202,7 @@ impl WindowManager {
                 .origin(shared.pointer())
                 .size(Size::new(w as isize, h as isize))
                 .bg_color(Color::from_argb(0x80FF00FF))
+                .without_message_queue()
                 .build();
 
             pointer
@@ -228,6 +230,7 @@ impl WindowManager {
                     .frame(Rect::from(main_screen.size()))
                     .bg_color(BARRIER_COLOR)
                     .without_bitmap()
+                    .without_message_queue()
                     .build(),
             );
         }
@@ -240,7 +243,7 @@ impl WindowManager {
         let shared = WindowManager::shared();
 
         loop {
-            let _ = shared.sem_redraw.wait(Duration::from_millis(5000));
+            shared.sem_redraw.wait();
 
             if shared
                 .attributes
@@ -780,6 +783,7 @@ struct RawWindow {
 
     // Messages and Events
     waker: AtomicWaker,
+    sem: Semaphore,
     queue: Option<ArrayQueue<WindowMessage>>,
 
     // TODO: Window Hierachies
@@ -1159,7 +1163,7 @@ impl WindowBuilder {
             bg_color: Color::WHITE,
             bitmap: None,
             title: [0; WINDOW_TITLE_LENGTH],
-            queue_size: 0,
+            queue_size: 100,
             no_bitmap: false,
         };
         window.title(title).style(WindowStyle::DEFAULT)
@@ -1186,7 +1190,10 @@ impl WindowBuilder {
             frame.origin.x += screen_bounds.x() + screen_bounds.width();
         }
         if frame.y() == isize::MIN {
-            frame.origin.y = (screen_bounds.height() - frame.height()) / 2;
+            frame.origin.y = isize::max(
+                screen_bounds.y(),
+                (screen_bounds.height() - frame.height()) / 2,
+            );
         } else if frame.y() < 0 {
             frame.origin.y += screen_bounds.y() + screen_bounds.height();
         }
@@ -1228,14 +1235,14 @@ impl WindowBuilder {
             attributes,
             view: None,
             waker: AtomicWaker::new(),
+            sem: Semaphore::new(0),
             queue,
             next: None,
         };
-        // window.draw_frame();
         WindowManager::add(Box::new(window));
-        if !self.style.contains(WindowStyle::NAKED) {
-            // handle.load_view_if_needed();
-        }
+        // if !self.style.contains(WindowStyle::NAKED) {
+        //     handle.load_view_if_needed();
+        // }
         handle
     }
 
@@ -1300,8 +1307,8 @@ impl WindowBuilder {
     }
 
     #[inline]
-    pub const fn default_message_queue(mut self) -> Self {
-        self.queue_size = 100;
+    pub const fn without_message_queue(mut self) -> Self {
+        self.queue_size = 0;
         self
     }
 
@@ -1333,10 +1340,15 @@ impl WindowHandle {
     }
 
     #[inline]
+    fn get<'a>(&self) -> Option<&'a Box<RawWindow>> {
+        let shared = WindowManager::shared();
+        shared.get(self)
+    }
+
+    #[inline]
     #[track_caller]
     fn as_ref<'a>(&self) -> &'a RawWindow {
-        let shared = WindowManager::shared();
-        shared.get(self).as_ref().unwrap()
+        self.get().unwrap()
     }
 
     // :-:-:-:-:
@@ -1547,12 +1559,16 @@ impl WindowHandle {
 
     /// Post a window message.
     pub fn post(&self, message: WindowMessage) -> Result<(), WindowPostError> {
-        let window = self.as_ref();
+        let window = match self.get() {
+            Some(window) => window,
+            None => return Err(WindowPostError::NotFound),
+        };
         if let Some(queue) = window.queue.as_ref() {
             match message {
                 WindowMessage::Draw => {
                     window.attributes.insert(WindowAttributes::NEEDS_REDRAW);
                     window.waker.wake();
+                    window.sem.signal();
                     Ok(())
                 }
                 _ => queue
@@ -1560,6 +1576,7 @@ impl WindowHandle {
                     .map_err(|_| WindowPostError::Full)
                     .map(|_| {
                         window.waker.wake();
+                        window.sem.signal();
                     }),
             }
         } else {
@@ -1569,7 +1586,10 @@ impl WindowHandle {
 
     /// Read a window message from the message queue.
     pub fn read_message(&self) -> Option<WindowMessage> {
-        let window = self.as_ref();
+        let window = match self.get() {
+            Some(window) => window,
+            None => return None,
+        };
         if let Some(queue) = window.queue.as_ref() {
             match queue.pop() {
                 Ok(v) => Some(v),
@@ -1589,6 +1609,20 @@ impl WindowHandle {
         }
     }
 
+    /// Wait for window messages to be read.
+    pub fn wait_message(&self) -> Option<WindowMessage> {
+        loop {
+            let window = match self.get() {
+                Some(window) => window,
+                None => return None,
+            };
+            match self.read_message() {
+                Some(message) => return Some(message),
+                None => window.sem.wait(),
+            }
+        }
+    }
+
     /// Supports asynchronous reading of window messages.
     pub fn poll_message(&self, cx: &mut Context<'_>) -> Option<WindowMessage> {
         self.as_ref().waker.register(cx.waker());
@@ -1596,6 +1630,11 @@ impl WindowHandle {
             self.as_ref().waker.take();
             message
         })
+    }
+
+    /// Get the window message asynchronously.
+    pub fn get_message(&self) -> Pin<Box<dyn Future<Output = Option<WindowMessage>>>> {
+        Box::pin(WindowMessageConsumer { handle: *self })
     }
 
     /// Process window messages that are not handled.
@@ -1611,11 +1650,6 @@ impl WindowHandle {
             }
             _ => (),
         }
-    }
-
-    /// Get the window message asynchronously.
-    pub fn get_message(&self) -> Pin<Box<dyn Future<Output = Option<WindowMessage>>>> {
-        Box::pin(WindowMessageConsumer { handle: *self })
     }
 
     /// Create a timer associated with a window

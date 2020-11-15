@@ -23,6 +23,8 @@ pub struct Hoe {
 }
 
 impl Hoe {
+    const OS_ID: u32 = 0x534F594D;
+    const OS_VER: u32 = 0;
     const PALETTE: [u32; 256] = [
         0xFF000000, 0xFFFF0000, 0xFF00FF00, 0xFFFFFF00, 0xFF0000FF, 0xFFFF00FF, 0xFF00FFFF,
         0xFFFFFFFF, 0xFFC6C6C6, 0xFF840000, 0xFF008400, 0xFF848400, 0xFF000084, 0xFF840084,
@@ -116,8 +118,10 @@ impl Hoe {
             }
             6 => {
                 // draw text
+                // BUG: The official documentation says to use ECX for the length of the string,
+                // but the actual implementation uses the ASCIZ string
                 self.get_window(regs.ebx).map(|(window, refreshing)| {
-                    let text = self.load_string(regs.ebp, regs.ecx).unwrap_or_default();
+                    let text = self.load_cstring(regs.ebp).unwrap_or_default();
                     let color = regs.eax as u8;
                     let mut origin = Point::new(regs.esi, regs.edi);
                     for ch in text.bytes() {
@@ -184,10 +188,6 @@ impl Hoe {
                     .windows
                     .first()
                     .and_then(|window| window.get_message(sleep))
-                    .map(|k| match k {
-                        0x0D => 0x0A,
-                        _ => k,
-                    })
                     .unwrap_or(0xFFFFFFFF);
             }
             16 => {
@@ -251,7 +251,7 @@ impl Hoe {
                 }
             }
             26 => {
-                // TODO: command line
+                // command line
                 match self.store_string(regs.ebx, regs.ecx, self.cmdline.as_ref()) {
                     Ok(v) => regs.eax = v,
                     Err(_) => self.raise_segv(),
@@ -260,6 +260,45 @@ impl Hoe {
             27 => {
                 // langmode
                 regs.eax = 0;
+                regs.ecx = Self::OS_ID;
+                regs.edx = Self::OS_VER;
+            }
+            28 => {
+                // TODO: open file for write
+                regs.eax = 0;
+                // let name = self.load_cstring(regs.ebx);
+                // regs.eax = name.and_then(|name| self.alloc_file(name)).unwrap_or(0);
+            }
+            29 => {
+                // TODO: write file
+                regs.eax = 0;
+            }
+            // 30 => {
+            //     // void api_osselect(int i);
+            // }
+            // 31 => {
+            //     // int api_sendkey(char *);
+            // }
+            // 32 => {
+            //     // void api_semiFlat(void);
+            //     // Because this API violates our security policy.
+            // }
+            33 => {
+                // extended API 33
+                match regs.ecx {
+                    // int api_getTimeCount(void);
+                    1 => regs.eax = (Timer::monotonic().as_millis() / 10) as u32,
+                    // int api_getkeyEx(int mode);
+                    // 2 => {
+                    //     let sleep = regs.eax != 0;
+                    //     regs.eax = self
+                    //         .windows
+                    //         .first()
+                    //         .and_then(|window| window.get_message(sleep))
+                    //         .unwrap_or(0xFFFFFFFF);
+                    // }
+                    _ => regs.eax = 0,
+                }
             }
             _ => {
                 println!("Unimplemented syscall {}", regs.edx);
@@ -268,6 +307,7 @@ impl Hoe {
         }
     }
 
+    /// Load an ASCIZ string from the application's data segment
     fn load_cstring<'a>(&self, offset: u32) -> Option<&'a str> {
         if offset > 0 {
             unsafe {
@@ -293,16 +333,21 @@ impl Hoe {
         }
     }
 
+    /// Load a string from the application's data segment
     fn load_string<'a>(&self, offset: u32, len: u32) -> Option<&'a str> {
         self.safe_ptr(offset, len).map(|ptr| unsafe {
             str::from_utf8_unchecked(slice::from_raw_parts(ptr as *const u8, len as usize))
         })
     }
 
+    /// Store a string in the application's data segment
     fn store_string(&self, offset: u32, size: u32, s: &str) -> Result<u32, ()> {
         self.safe_ptr(offset, size)
             .map(|ptr| {
                 let mut ptr = ptr as *mut u8;
+                unsafe {
+                    ptr.write_bytes(0, size as usize);
+                }
                 let len = u32::min(s.len() as u32, size);
                 unsafe {
                     for c in s[..len as usize].bytes() {
@@ -368,7 +413,7 @@ impl Hoe {
     }
 
     fn safe_ptr(&self, offset: u32, size: u32) -> Option<usize> {
-        if offset > 0 && offset as u64 + (size as u64) < self.context.size_of_data as u64 {
+        if offset > 0 && (offset as u64 + size as u64) < self.context.size_of_data as u64 {
             Some((self.context.base_of_data + offset) as usize)
         } else {
             None
@@ -480,6 +525,7 @@ impl BinaryLoader for HrbBinaryLoader {
             let stack_pointer = header.esp as usize;
 
             let base = MemoryManager::zalloc(size_of_image).unwrap().get() as *mut u8;
+            base.write_bytes(0, size_of_image);
 
             let base_code = base;
             base_code.copy_from_nonoverlapping(blob_ptr, size_of_code);
@@ -541,7 +587,6 @@ impl HoeWindow {
                 (height - (Self::WINDOW_ADJUST_TOP + Self::WINDOW_ADJUST_BOTTOM)) as isize,
             ))
             .bg_color(Hoe::get_color(Self::WINDOW_BGCOLOR))
-            .default_message_queue()
             .build();
         handle.make_active();
         let window = HoeWindow {
@@ -555,19 +600,33 @@ impl HoeWindow {
     }
 
     fn get_message(&self, sleep: bool) -> Option<u32> {
-        loop {
-            while let Some(message) = self.handle.read_message() {
-                match message {
-                    WindowMessage::Char(c) => return Some(c as u8 as u32),
-                    WindowMessage::Timer(timer_id) => return Some(timer_id as u32),
-                    _ => self.handle.handle_default_message(message),
+        let message_handler = |message| match message {
+            WindowMessage::Char(c) => match c {
+                '\x0D' => Some(0x0A),
+                _ => Some(c as u8 as u32),
+            },
+            WindowMessage::Timer(timer_id) => Some(timer_id as u32),
+            _ => {
+                self.handle.handle_default_message(message);
+                None
+            }
+        };
+        if sleep {
+            while let Some(message) = self.handle.wait_message() {
+                match message_handler(message) {
+                    Some(v) => return Some(v),
+                    None => (),
                 }
             }
-            if sleep {
-                Timer::msleep(100);
-            } else {
-                return None;
+            None
+        } else {
+            while let Some(message) = self.handle.read_message() {
+                match message_handler(message) {
+                    Some(v) => return Some(v),
+                    None => (),
+                }
             }
+            None
         }
     }
 

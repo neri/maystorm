@@ -74,10 +74,18 @@ impl Fs {
 
     pub fn find_file(name: &str) -> Option<(&'static Box<dyn FileSystem>, INodeType)> {
         let shared = Self::shared();
+        let name_lo = name.to_lowercase();
         for fs in &shared.volumes {
+            let ignore_case = fs
+                .info()
+                .characteristics
+                .contains(FileSystemCharacteristics::CASE_INSENSITIVE);
             let inode = fs.root_dir();
             for file in fs.read_dir_iter(inode) {
                 if file.name() == name {
+                    return Some((fs, file.inode()));
+                }
+                if ignore_case && file.name() == name_lo {
                     return Some((fs, file.inode()));
                 }
             }
@@ -236,10 +244,18 @@ pub struct FileSystemInfo<'a> {
     pub driver_name: &'a str,
     pub fs_name: &'a str,
     pub volume_serial_number: u32,
+    pub characteristics: FileSystemCharacteristics,
 
     pub bytes_per_block: usize,
     pub bytes_per_record: usize,
     pub total_blocks: u64,
     pub total_records: u64,
     pub free_records: u64,
+}
+
+bitflags! {
+    pub struct FileSystemCharacteristics: usize {
+        const READ_ONLY         = 0b0000_0000_0000_0001;
+        const CASE_INSENSITIVE  = 0b0000_0000_0000_0010;
+    }
 }

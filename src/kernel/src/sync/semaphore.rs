@@ -19,7 +19,7 @@ impl Semaphore {
     }
 
     pub fn try_to(&self) -> Result<(), ()> {
-        let value = self.value.load(Ordering::Acquire);
+        let value = self.value.load(Ordering::Relaxed);
         if value >= 1
             && self
                 .value
@@ -32,25 +32,23 @@ impl Semaphore {
         }
     }
 
-    pub fn wait(&self, duration: Duration) -> Result<(), ()> {
+    pub fn wait(&self) {
         const MAX_DELTA: u64 = 7;
-        let deadline = Timer::new(duration);
         loop {
             if self.try_to().is_ok() {
-                return Ok(());
+                return;
             } else {
                 let mut delta: u64 = 0;
                 loop {
                     let signal = SignallingObject::new();
                     if self.signal_object.cas(None, Some(signal)).is_ok() {
-                        self.signal_object
-                            .map(|signal| signal.wait(Duration::from_millis(1 << delta)));
+                        self.signal_object.map(|signal| {
+                            signal.wait(Duration::from_millis(0));
+                            let _ = self.signal_object.cas(Some(signal), None);
+                        });
                         break;
                     } else {
-                        MyScheduler::wait_for(None, Duration::from_millis(1 << delta));
-                    }
-                    if !deadline.until() {
-                        return Err(());
+                        Timer::sleep(Duration::from_millis(1 << delta));
                     }
                     if delta < MAX_DELTA {
                         delta += 1;
@@ -67,5 +65,16 @@ impl Semaphore {
                 signal.signal();
             }
         }
+    }
+
+    #[inline]
+    pub fn synchronized<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        self.wait();
+        let result = f();
+        self.signal();
+        result
     }
 }

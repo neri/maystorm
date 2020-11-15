@@ -48,6 +48,7 @@ impl UserEnv {
                     .style(WindowStyle::NAKED)
                     .size(size)
                     .bg_color(Color::TRANSPARENT)
+                    .without_message_queue()
                     .build();
 
                 window
@@ -144,7 +145,6 @@ async fn status_bar_main() {
         .style_add(WindowStyle::BORDER)
         .frame(Rect::new(0, 0, screen_bounds.width(), STATUS_BAR_HEIGHT))
         .bg_color(bg_color)
-        .default_message_queue()
         .build();
 
     window
@@ -235,7 +235,6 @@ async fn menu_main() {
         .size(Size::new(320, 240))
         .origin(Point::new(isize::MIN, 24))
         .bg_color(Color::TRANSPARENT)
-        .default_message_queue()
         .build();
 
     let buffer = Bitmap::new(
@@ -329,7 +328,6 @@ async fn activity_monitor_main() {
         .style_add(WindowStyle::NAKED | WindowStyle::FLOATING | WindowStyle::PINCHABLE)
         .frame(Rect::new(-330, -180, 320, 150))
         .bg_color(bg_color)
-        .default_message_queue()
         .build();
 
     window.show();
