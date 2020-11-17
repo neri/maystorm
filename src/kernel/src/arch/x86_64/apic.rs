@@ -199,14 +199,15 @@ impl Apic {
             Cpu::halt();
         }
         LocalApic::broadcast_startup(sipi_vec);
-        let timer = Timer::new(Duration::from_millis(10));
+        let timer = Timer::new(Duration::from_millis(200));
         while timer.until() {
-            Cpu::halt();
-        }
-        LocalApic::broadcast_startup(sipi_vec);
-        let timer = Timer::new(Duration::from_millis(10));
-        while timer.until() {
-            Cpu::halt();
+            let timer = Timer::new(Duration::from_millis(5));
+            while timer.until() {
+                Cpu::halt();
+            }
+            if System::num_of_active_cpus() == max_cpu {
+                break;
+            }
         }
 
         if System::num_of_active_cpus() != max_cpu {

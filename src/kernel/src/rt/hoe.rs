@@ -178,8 +178,6 @@ impl Hoe {
             }
             14 => {
                 // TODO: Close Window
-                // let (window, _refreshing) = self.get_window(regs.ebx);
-                // window.map(|window| window.close());
             }
             15 => {
                 // Get Key
@@ -307,26 +305,35 @@ impl Hoe {
         }
     }
 
+    fn safe_ptr(&self, offset: u32, size: u32) -> Option<usize> {
+        if offset > 0 && (offset as u64 + size as u64) < self.context.size_of_data as u64 {
+            Some((self.context.base_of_data + offset) as usize)
+        } else {
+            None
+        }
+    }
+
     /// Load an ASCIZ string from the application's data segment
     fn load_cstring<'a>(&self, offset: u32) -> Option<&'a str> {
         if offset > 0 {
             unsafe {
                 let base = self.context.base_of_data as usize as *const u8;
                 let limit = base.add(self.context.size_of_data as usize);
-                let ptr = base.add(offset as usize);
+                let base = base.add(offset as usize);
 
                 let mut len = 0;
                 loop {
+                    let ptr = base.add(len);
+                    if ptr.read_volatile() == 0 {
+                        break;
+                    }
                     if ptr >= limit {
                         return None;
-                    }
-                    if ptr.add(len).read_volatile() == 0 {
-                        break;
                     }
                     len += 1;
                 }
 
-                Some(str::from_utf8_unchecked(slice::from_raw_parts(ptr, len)))
+                Some(str::from_utf8_unchecked(slice::from_raw_parts(base, len)))
             }
         } else {
             None
@@ -410,14 +417,6 @@ impl Hoe {
         let _ = ptr;
         let _ = size;
         // TODO:
-    }
-
-    fn safe_ptr(&self, offset: u32, size: u32) -> Option<usize> {
-        if offset > 0 && (offset as u64 + size as u64) < self.context.size_of_data as u64 {
-            Some((self.context.base_of_data + offset) as usize)
-        } else {
-            None
-        }
     }
 }
 

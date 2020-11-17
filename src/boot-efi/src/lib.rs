@@ -2,6 +2,7 @@
 #![feature(core_intrinsics)]
 #![feature(asm)]
 
+// use crate::debug::console::DebugConsole;
 use core::fmt::Write;
 use core::panic::PanicInfo;
 use uefi::prelude::*;
@@ -11,6 +12,7 @@ use uefi::table::boot::MemoryType;
 
 pub mod blob;
 pub mod config;
+pub mod debug;
 pub mod invocation;
 pub mod loader;
 pub mod page;
@@ -21,33 +23,10 @@ fn panic(info: &PanicInfo) -> ! {
     loop {}
 }
 
-pub struct Uart {}
-
-impl Uart {
-    pub const fn new() -> Self {
-        Self {}
-    }
-    #[cfg(any(target_arch = "x86_64"))]
-    pub fn cout(c: char) {
-        unsafe {
-            asm!("out dx, al", in("edx") 0x3F8, in("al") c as u8);
-        }
-    }
-}
-
-impl Write for Uart {
-    fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        for c in s.chars() {
-            Self::cout(c);
-        }
-        Ok(())
-    }
-}
-
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => {
-        write!(Uart::new(), $($arg)*).unwrap()
+        write!(debug::console::DebugConsole::shared(), $($arg)*).unwrap()
     };
 }
 

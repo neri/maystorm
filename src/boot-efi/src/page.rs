@@ -1,5 +1,6 @@
 // Minimal Page Manager
 
+// use crate::*;
 use bitflags::*;
 use bootprot::*;
 use core::intrinsics::*;
@@ -86,20 +87,22 @@ impl PageManager {
         let shared = Self::shared();
 
         let mut last_pa_4g = 0;
-        let mut static_size = 0;
         let mut total_memory_size: u64 = 0;
         for mem_desc in mm {
-            let last_pa = mem_desc.phys_start + mem_desc.page_count * PageConfig::UEFI_PAGE_SIZE;
+            let page_base = mem_desc.phys_start;
+            let page_size = mem_desc.page_count * PageConfig::UEFI_PAGE_SIZE;
+            let last_pa = page_base + page_size;
             if mem_desc.ty.is_countable() {
-                total_memory_size += mem_desc.page_count << 12;
+                total_memory_size += page_size;
                 if last_pa < u32::MAX.into() && last_pa > last_pa_4g {
                     last_pa_4g = last_pa;
                 }
             }
             if mem_desc.ty.is_conventional_at_runtime() {
+                #[cfg(any(target_arch = "x86_64"))]
                 if last_pa <= PageConfig::MAX_REAL_MEMORY {
-                    let base = mem_desc.phys_start / 0x1000;
-                    let count = mem_desc.page_count;
+                    let base = page_base / 0x1000;
+                    let count = page_size / 0x1000;
                     let limit = core::cmp::min(base + count, 256);
                     for i in base..limit {
                         let index = i as usize / 32;
@@ -107,10 +110,9 @@ impl PageManager {
                         info.real_bitmap[index] |= bit;
                     }
                 }
-                if mem_desc.page_count > static_size && last_pa < u32::MAX.into() {
-                    static_size = mem_desc.page_count;
-                    shared.static_start = mem_desc.phys_start;
-                    shared.static_free = static_size * PageConfig::UEFI_PAGE_SIZE;
+                if page_size > shared.static_free && last_pa < u32::MAX.into() {
+                    shared.static_start = page_base;
+                    shared.static_free = page_size;
                 }
             }
         }
@@ -206,7 +208,7 @@ impl PageManager {
         let size = pages as u64 * PageTableEntry::NATIVE_PAGE_SIZE;
         unsafe {
             let result = atomic_xadd(&mut shared.static_start, size) as PhysicalAddress;
-            atomic_xadd(&mut shared.static_free, 0 - size);
+            atomic_xsub(&mut shared.static_free, size);
             let ptr = result as *const u8 as *mut u8;
             ptr::write_bytes(ptr, 0, size as usize);
             result

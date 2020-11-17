@@ -23,13 +23,15 @@
       "/NOLOGO",
       "/NXCOMPAT",
       "/entry:efi_main",
-      "/subsystem:efi_application"
+      "/subsystem:efi_application",
+      "/base:0xC0000000"
     ],
     "msvc": [
       "/NOLOGO",
       "/NXCOMPAT",
       "/entry:efi_main",
-      "/subsystem:efi_application"
+      "/subsystem:efi_application",
+      "/base:0xC0000000"
     ]
   },
   "singlethread": true,
