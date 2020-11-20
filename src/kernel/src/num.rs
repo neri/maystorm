@@ -7,7 +7,6 @@ pub trait Number:
     + Clone
     + Zero
     + One
-    + Two
     + Add<Output = Self>
     + AddAssign
     + Sub<Output = Self>
@@ -48,6 +47,7 @@ pub trait Integer:
     Number
     + Eq
     + Ord
+    + Succ
     + BitAnd
     + BitAndAssign
     + BitOr
@@ -251,24 +251,66 @@ impl Div2 for isize {
     }
 }
 
-pub trait Two
-where
-    Self: Sized + One + Add<Output = Self>,
-{
-    fn two() -> Self {
-        Self::one() + Self::one()
+pub trait Succ {
+    fn succ(self) -> Self;
+}
+
+impl Succ for u8 {
+    fn succ(self) -> Self {
+        self + 1
     }
 }
 
-impl Two for u8 {}
-impl Two for i8 {}
-impl Two for u16 {}
-impl Two for i16 {}
-impl Two for u32 {}
-impl Two for i32 {}
-impl Two for u64 {}
-impl Two for i64 {}
-impl Two for usize {}
-impl Two for isize {}
-impl Two for f32 {}
-impl Two for f64 {}
+impl Succ for i8 {
+    fn succ(self) -> Self {
+        self + 1
+    }
+}
+
+impl Succ for u16 {
+    fn succ(self) -> Self {
+        self + 1
+    }
+}
+
+impl Succ for i16 {
+    fn succ(self) -> Self {
+        self + 1
+    }
+}
+
+impl Succ for i32 {
+    fn succ(self) -> Self {
+        self + 1
+    }
+}
+
+impl Succ for u32 {
+    fn succ(self) -> Self {
+        self + 1
+    }
+}
+
+impl Succ for i64 {
+    fn succ(self) -> Self {
+        self + 1
+    }
+}
+
+impl Succ for u64 {
+    fn succ(self) -> Self {
+        self + 1
+    }
+}
+
+impl Succ for isize {
+    fn succ(self) -> Self {
+        self + 1
+    }
+}
+
+impl Succ for usize {
+    fn succ(self) -> Self {
+        self + 1
+    }
+}

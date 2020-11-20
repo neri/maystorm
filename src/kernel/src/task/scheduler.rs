@@ -48,7 +48,7 @@ pub struct MyScheduler {
     state: SchedulerState,
 
     next_timer: Timer,
-    scheduler_handle: Option<ThreadHandle>,
+    sem_timer: Semaphore,
     timer_queue: ArrayQueue<TimerEvent>,
 }
 
@@ -86,7 +86,7 @@ impl MyScheduler {
                 is_frozen: AtomicBool::new(false),
                 state: SchedulerState::Running,
                 next_timer: Timer::JUST,
-                scheduler_handle: None,
+                sem_timer: Semaphore::new(0),
                 timer_queue: ArrayQueue::new(100),
             }));
         }
@@ -162,7 +162,6 @@ impl MyScheduler {
     pub fn wait_for(object: Option<&SignallingObject>, duration: Duration) {
         unsafe {
             Cpu::without_interrupts(|| {
-                let _ = duration;
                 let lsch = Self::local_scheduler().unwrap();
                 let current = lsch.current;
                 if let Some(object) = object {
@@ -220,9 +219,7 @@ impl MyScheduler {
             return None;
         }
         if !sch.next_timer.until() {
-            if let Some(scheduler) = sch.scheduler_handle {
-                Self::add(scheduler);
-            }
+            sch.sem_timer.signal();
         }
         if let Some(next) = sch.urgent.dequeue() {
             return Some(next);
@@ -257,13 +254,15 @@ impl MyScheduler {
         let handle = thread;
         let sch = Self::shared();
         let thread = handle.as_ref();
-        if thread.priority != Priority::Idle
-            && !thread.attribute.test_and_set(ThreadAttributes::QUEUED)
+        if thread.priority == Priority::Idle || thread.attribute.contains(ThreadAttributes::ZOMBIE)
         {
-            sch.ready.enqueue(handle).unwrap();
+            return;
+        }
+        if !thread.attribute.test_and_set(ThreadAttributes::QUEUED) {
             if thread.attribute.test_and_clear(ThreadAttributes::AWAKE) {
                 thread.attribute.remove(ThreadAttributes::ASLEEP);
             }
+            sch.ready.enqueue(handle).unwrap();
         }
     }
 
@@ -273,14 +272,13 @@ impl MyScheduler {
         shared
             .timer_queue
             .push(event)
-            .map(|_| shared.next_timer = Timer::JUST)
+            .map(|_| shared.sem_timer.signal())
             .map_err(|e| e.0)
     }
 
     /// Scheduler
     fn scheduler_thread(_args: usize) {
         let shared = Self::shared();
-        shared.scheduler_handle = MyScheduler::current_thread();
 
         SpawnOption::new().spawn_f(Self::statistics_thread, 0, "stat");
 
@@ -302,10 +300,10 @@ impl MyScheduler {
                 }
             }
 
-            if let Some(event) = events.first_mut() {
+            if let Some(event) = events.first() {
                 shared.next_timer = event.timer;
             }
-            Self::sleep();
+            shared.sem_timer.wait();
         }
     }
 
@@ -479,7 +477,7 @@ impl MyScheduler {
                 write!(sb, " {:02}:{:02}.{:02}", min, sec, dsec,).unwrap();
             }
 
-            write!(sb, " {:0x}", thread.attribute.0.load(Ordering::Relaxed)).unwrap();
+            write!(sb, " {}", thread.attribute).unwrap();
 
             match thread.name() {
                 Some(name) => writeln!(sb, " {}", name,).unwrap(),
@@ -537,6 +535,8 @@ impl LocalScheduler {
             let lsch = MyScheduler::local_scheduler().unwrap();
             let current = lsch.current;
             current.update(|thread| {
+                thread.attribute.remove(ThreadAttributes::AWAKE);
+                thread.attribute.remove(ThreadAttributes::ASLEEP);
                 thread.measure.store(Timer::measure(), Ordering::SeqCst);
                 thread.deadline = Timer::JUST;
                 // thread.quantum.reset();
@@ -995,6 +995,27 @@ impl ThreadAttributes {
     #[inline]
     fn test_and_clear(&self, bits: usize) -> bool {
         (self.0.fetch_and(!bits, Ordering::SeqCst) & bits) == bits
+    }
+
+    fn to_char(&self) -> char {
+        if self.contains(Self::ZOMBIE) {
+            'Z'
+        } else if self.contains(Self::AWAKE) {
+            'W'
+        } else if self.contains(Self::ASLEEP) {
+            'S'
+        } else if self.contains(Self::QUEUED) {
+            'R'
+        } else {
+            '-'
+        }
+    }
+}
+
+use core::fmt;
+impl fmt::Display for ThreadAttributes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_char())
     }
 }
 

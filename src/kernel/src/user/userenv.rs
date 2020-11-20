@@ -123,6 +123,8 @@ impl UserEnv {
                 System::set_stdout(console);
             }
 
+            // SpawnOption::new().spawn_f(activity_monitor_main, 0, "activity monitor");
+
             SpawnOption::new().spawn(unsafe { core::mem::transmute(f) }, 0, "shell");
 
             MyScheduler::spawn_async(Task::new(status_bar_main()));
@@ -187,7 +189,7 @@ async fn status_bar_main() {
                 let tod = time.secs % 86400;
                 let min = tod / 60 % 60;
                 let hour = tod / 3600;
-                if false {
+                if true {
                     let sec = tod % 60;
                     if sec % 2 == 0 {
                         write!(sb, "{:2} {:02} {:02}", hour, min, sec).unwrap();
@@ -207,10 +209,12 @@ async fn status_bar_main() {
                     width,
                     font.line_height(),
                 );
-                let _ = window.draw(|bitmap| {
-                    bitmap.fill_rect(rect, bg_color);
-                    ats.draw(&bitmap, rect);
-                });
+                window
+                    .draw(|bitmap| {
+                        bitmap.fill_rect(rect, bg_color);
+                        ats.draw(&bitmap, rect);
+                    })
+                    .unwrap();
             }
             WindowMessage::MouseDown(_) => {
                 if let Some(menu) = unsafe { MENU_WINDOW } {
@@ -316,7 +320,6 @@ async fn menu_main() {
     }
 }
 
-#[allow(dead_code)]
 async fn activity_monitor_main() {
     let bg_color = Color::from(IndexedColor::Black).set_opacity(0xC0);
     let fg_color = IndexedColor::Yellow.into();
@@ -326,7 +329,7 @@ async fn activity_monitor_main() {
 
     let window = WindowBuilder::new("Activity Monitor")
         .style_add(WindowStyle::NAKED | WindowStyle::FLOATING | WindowStyle::PINCHABLE)
-        .frame(Rect::new(-330, -180, 320, 150))
+        .frame(Rect::new(-328, -180 - 32, 320, 180))
         .bg_color(bg_color)
         .build();
 
@@ -339,11 +342,8 @@ async fn activity_monitor_main() {
     let mut usage_temp = Vec::with_capacity(num_of_cpus);
     let mut usage_cursor = 0;
     let mut usage_history = {
-        let count = num_of_cpus * n_items;
-        let mut vec = Vec::with_capacity(count);
-        for _ in 0..count {
-            vec.push(u8::MAX);
-        }
+        let mut vec = Vec::with_capacity(n_items);
+        vec.resize(n_items, u8::MAX);
         vec
     };
 
@@ -364,34 +364,25 @@ async fn activity_monitor_main() {
                 let tsc1 = unsafe { Cpu::read_tsc() };
 
                 MyScheduler::get_idle_statistics(&mut usage_temp);
-                for i in 0..num_of_cpus {
-                    usage_history[i * n_items + usage_cursor] =
-                        (u32::min(usage_temp[i], 999) * 254 / 999) as u8;
-                }
+                let max_value = num_of_cpus as u32 * 1000;
+                usage_history[usage_cursor] = (254
+                    * u32::min(max_value, usage_temp.iter().fold(0, |acc, v| acc + *v))
+                    / max_value) as u8;
                 usage_cursor = (usage_cursor + 1) % n_items;
 
                 window
                     .draw(|bitmap| {
                         bitmap.fill_rect(bitmap.bounds(), bg_color);
-                        for cpu_index in 0..num_of_cpus {
+
+                        let mut cursor;
+
+                        {
                             let padding = 4;
-                            let item_size = Size::new(
-                                isize::min(
-                                    isize::max(
-                                        (bitmap.bounds().width() - padding) / num_of_cpus as isize
-                                            - padding,
-                                        16,
-                                    ),
-                                    n_items as isize,
-                                ),
-                                32,
-                            );
-                            let rect = Rect::new(
-                                padding + cpu_index as isize * (item_size.width + padding),
-                                padding,
-                                item_size.width,
-                                item_size.height,
-                            );
+                            let item_size = Size::new(n_items as isize, 32);
+                            let rect =
+                                Rect::new(padding, padding, item_size.width, item_size.height);
+                            cursor = rect.x() + rect.width() + padding;
+
                             let h_lines = 4;
                             let v_lines = 4;
                             for i in 1..h_lines {
@@ -408,13 +399,12 @@ async fn activity_monitor_main() {
                             let limit = item_size.width as usize - 2;
                             for i in 0..limit {
                                 let scale = item_size.height - 2;
-                                let value1 = usage_history
-                                    [cpu_index * n_items + ((usage_cursor + i - limit) % n_items)]
+                                let value1 = usage_history[((usage_cursor + i - limit) % n_items)]
                                     as isize
                                     * scale
                                     / 255;
-                                let value2 = usage_history[cpu_index * n_items
-                                    + ((usage_cursor + i - 1 - limit) % n_items)]
+                                let value2 = usage_history
+                                    [((usage_cursor + i - 1 - limit) % n_items)]
                                     as isize
                                     * scale
                                     / 255;
@@ -423,6 +413,19 @@ async fn activity_monitor_main() {
                                 let c1 = Point::new(rect.x() + i as isize, rect.y() + 1 + value2);
                                 bitmap.draw_line(c0, c1, graph_main_color);
                             }
+                            bitmap.draw_rect(rect, graph_border_color);
+                        }
+
+                        for cpu_index in 0..num_of_cpus {
+                            let padding = 4;
+                            let rect = Rect::new(cursor, padding, 8, 32);
+                            cursor += rect.width() + padding;
+
+                            let mut coords = Coordinates::from_rect(rect).unwrap();
+                            coords.top +=
+                                (rect.height() - 1) * usage_temp[cpu_index] as isize / 1000;
+
+                            bitmap.fill_rect(coords.into(), graph_main_color);
                             bitmap.draw_rect(rect, graph_border_color);
                         }
 

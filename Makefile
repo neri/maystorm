@@ -10,7 +10,7 @@ TARGET_KERNEL	= target/$(RUST_ARCH)/release/kernel.efi
 TARGET_BOOT_EFI	= target/$(RUST_ARCH)/release/boot-efi.efi
 TARGET_ISO	= var/myos.iso
 TARGETS		= $(TARGET_KERNEL) $(TARGET_BOOT_EFI)
-BUILD		= rustup run nightly cargo build -Z build-std --release --target $(RUST_ARCH).json
+BUILD		= cargo build -Z build-std --release --target $(RUST_ARCH).json
 OVMF		= var/ovmfx64.fd
 URL_OVMF	= https://github.com/retrage/edk2-nightly/raw/master/bin/RELEASEX64_OVMF.fd
 

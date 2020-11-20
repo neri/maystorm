@@ -18,18 +18,16 @@ impl Semaphore {
         }
     }
 
-    pub fn try_to(&self) -> Result<(), ()> {
-        let value = self.value.load(Ordering::Relaxed);
-        if value >= 1
-            && self
-                .value
-                .compare_exchange(value, value - 1, Ordering::SeqCst, Ordering::Relaxed)
-                .is_ok()
-        {
-            Ok(())
-        } else {
-            Err(())
-        }
+    #[inline]
+    pub fn try_to(&self) -> Result<isize, isize> {
+        self.value
+            .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |v| {
+                if v >= 1 {
+                    Some(v - 1)
+                } else {
+                    None
+                }
+            })
     }
 
     pub fn wait(&self) {
@@ -60,7 +58,7 @@ impl Semaphore {
 
     pub fn signal(&self) {
         let old_value = self.value.fetch_add(1, Ordering::SeqCst);
-        if old_value == 0 {
+        if old_value >= 0 {
             if let Some(signal) = self.signal_object.swap(None) {
                 signal.signal();
             }

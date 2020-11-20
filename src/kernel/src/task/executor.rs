@@ -1,18 +1,17 @@
 // Task Executor
 
-use super::scheduler::*;
 use super::{Task, TaskId};
+use crate::sync::semaphore::*;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::task::Wake;
 use core::task::Waker;
 use core::task::{Context, Poll};
-use core::time::Duration;
-use crossbeam_queue::ArrayQueue;
+use crossbeam_queue::{ArrayQueue, PopError, PushError};
 
 pub struct Executor {
     tasks: BTreeMap<TaskId, Task>,
-    task_queue: Arc<ArrayQueue<TaskId>>,
+    task_queue: Arc<TaskQueue>,
     waker_cache: BTreeMap<TaskId, Waker>,
 }
 
@@ -20,7 +19,7 @@ impl Executor {
     pub fn new() -> Self {
         Executor {
             tasks: BTreeMap::new(),
-            task_queue: Arc::new(ArrayQueue::new(100)),
+            task_queue: TaskQueue::new(),
             waker_cache: BTreeMap::new(),
         }
     }
@@ -62,18 +61,18 @@ impl Executor {
     pub fn run(&mut self) -> ! {
         loop {
             self.run_ready_task();
-            Timer::sleep(Duration::from_millis(10));
+            self.task_queue.wait();
         }
     }
 }
 
 struct TaskWaker {
     task_id: TaskId,
-    task_queue: Arc<ArrayQueue<TaskId>>,
+    task_queue: Arc<TaskQueue>,
 }
 
 impl TaskWaker {
-    fn new(task_id: TaskId, task_queue: Arc<ArrayQueue<TaskId>>) -> Waker {
+    fn new(task_id: TaskId, task_queue: Arc<TaskQueue>) -> Waker {
         Waker::from(Arc::new(TaskWaker {
             task_id,
             task_queue,
@@ -92,5 +91,31 @@ impl Wake for TaskWaker {
 
     fn wake_by_ref(self: &Arc<Self>) {
         self.wake_task();
+    }
+}
+
+struct TaskQueue {
+    queue: ArrayQueue<TaskId>,
+    sem: Semaphore,
+}
+
+impl TaskQueue {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            queue: ArrayQueue::new(100),
+            sem: Semaphore::new(0),
+        })
+    }
+
+    fn push(&self, task_id: TaskId) -> Result<(), PushError<TaskId>> {
+        self.queue.push(task_id).map(|_| self.sem.signal())
+    }
+
+    fn pop(&self) -> Result<TaskId, PopError> {
+        self.queue.pop()
+    }
+
+    fn wait(&self) {
+        self.sem.wait();
     }
 }

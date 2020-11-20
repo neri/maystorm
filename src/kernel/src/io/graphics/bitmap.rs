@@ -972,7 +972,6 @@ impl Bitmap {
 
     /// Pseudo blur (experimantal)
     pub fn blur(&self, _buffer: &Bitmap, radius: isize) {
-        let _ = radius;
         let div = radius as usize;
         let mul = div - 1;
         let width = self.width();
@@ -1149,9 +1148,9 @@ impl<'a> AttributedString<'a> {
         Size::new(max_width, max_height)
     }
 
-    pub fn line_statuses(&self, max_lines: usize) {
-        let _ = max_lines;
-    }
+    // pub fn line_statuses(&self, max_lines: usize) {
+    //     let _ = max_lines;
+    // }
 
     pub fn draw(&self, bitmap: &Bitmap, rect: Rect<isize>) {
         let mut cursor = Point::<isize>::zero();
