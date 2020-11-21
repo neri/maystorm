@@ -1,5 +1,5 @@
 pub mod atomic;
-// pub mod queue;
+pub mod atomicflags;
 pub mod semaphore;
 pub mod spinlock;
 

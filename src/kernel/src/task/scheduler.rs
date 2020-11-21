@@ -6,6 +6,7 @@ use crate::arch::cpu::Cpu;
 use crate::mem::memory::*;
 use crate::mem::string::*;
 use crate::rt::*;
+use crate::sync::atomicflags::*;
 use crate::sync::semaphore::*;
 use crate::sync::spinlock::*;
 use crate::system::*;
@@ -14,6 +15,7 @@ use crate::*;
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::*;
+use bitflags::*;
 use core::fmt::Write;
 use core::num::*;
 use core::ops::*;
@@ -466,8 +468,8 @@ impl MyScheduler {
 
             write!(
                 sb,
-                "{:3} {:3} {:2}.{:1}",
-                thread.pid.0, thread.priority as usize, load1, load0,
+                "{:3} {} {} {:2}.{:1}",
+                thread.pid.0, thread.priority as usize, thread.attribute, load1, load0,
             )
             .unwrap();
 
@@ -476,8 +478,6 @@ impl MyScheduler {
             } else {
                 write!(sb, " {:02}:{:02}.{:02}", min, sec, dsec,).unwrap();
             }
-
-            write!(sb, " {}", thread.attribute).unwrap();
 
             match thread.name() {
                 Some(name) => writeln!(sb, " {}", name,).unwrap(),
@@ -538,7 +538,6 @@ impl LocalScheduler {
                 thread.attribute.remove(ThreadAttributes::AWAKE);
                 thread.attribute.remove(ThreadAttributes::ASLEEP);
                 thread.measure.store(Timer::measure(), Ordering::SeqCst);
-                thread.deadline = Timer::JUST;
                 // thread.quantum.reset();
             });
             let retired = lsch.retired.unwrap();
@@ -936,12 +935,9 @@ struct RawThread {
     // Properties
     sem: Semaphore,
     personality: Option<Box<dyn Personality>>,
-    attribute: ThreadAttributes,
+    attribute: AtomicBitflags<ThreadAttributes>,
     priority: Priority,
     quantum: Quantum,
-
-    // Timer supports (deprecated)
-    deadline: Timer,
 
     // Statistics
     measure: AtomicU64,
@@ -956,55 +952,30 @@ struct RawThread {
     name: [u8; THREAD_NAME_LENGTH],
 }
 
-#[derive(Default)]
-struct ThreadAttributes(AtomicUsize);
-
-#[allow(dead_code)]
-impl ThreadAttributes {
-    pub const EMPTY: Self = Self::new(0);
-    pub const QUEUED: usize = 0b0000_0000_0000_0001;
-    pub const ASLEEP: usize = 0b0000_0000_0000_0010;
-    pub const AWAKE: usize = 0b0000_0000_0000_0100;
-    pub const ZOMBIE: usize = 0b0000_0000_0000_1000;
-
-    #[inline]
-    pub const fn new(value: usize) -> Self {
-        Self(AtomicUsize::new(value))
+bitflags! {
+    struct ThreadAttributes: usize {
+        const QUEUED    = 0b0000_0000_0000_0001;
+        const ASLEEP    = 0b0000_0000_0000_0010;
+        const AWAKE     = 0b0000_0000_0000_0100;
+        const ZOMBIE    = 0b0000_0000_0000_1000;
     }
+}
 
-    #[inline]
-    pub fn contains(&self, bits: usize) -> bool {
-        (self.0.load(Ordering::Relaxed) & bits) == bits
+impl Into<usize> for ThreadAttributes {
+    fn into(self) -> usize {
+        self.bits()
     }
+}
 
-    #[inline]
-    pub fn insert(&self, bits: usize) {
-        self.0.fetch_or(bits, Ordering::SeqCst);
-    }
-
-    #[inline]
-    pub fn remove(&self, bits: usize) {
-        self.0.fetch_and(!bits, Ordering::SeqCst);
-    }
-
-    #[inline]
-    fn test_and_set(&self, bits: usize) -> bool {
-        (self.0.fetch_or(bits, Ordering::SeqCst) & bits) == bits
-    }
-
-    #[inline]
-    fn test_and_clear(&self, bits: usize) -> bool {
-        (self.0.fetch_and(!bits, Ordering::SeqCst) & bits) == bits
-    }
-
+impl AtomicBitflags<ThreadAttributes> {
     fn to_char(&self) -> char {
-        if self.contains(Self::ZOMBIE) {
+        if self.contains(ThreadAttributes::ZOMBIE) {
             'Z'
-        } else if self.contains(Self::AWAKE) {
+        } else if self.contains(ThreadAttributes::AWAKE) {
             'W'
-        } else if self.contains(Self::ASLEEP) {
+        } else if self.contains(ThreadAttributes::ASLEEP) {
             'S'
-        } else if self.contains(Self::QUEUED) {
+        } else if self.contains(ThreadAttributes::QUEUED) {
             'R'
         } else {
             '-'
@@ -1013,7 +984,7 @@ impl ThreadAttributes {
 }
 
 use core::fmt;
-impl fmt::Display for ThreadAttributes {
+impl fmt::Display for AtomicBitflags<ThreadAttributes> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_char())
     }
@@ -1035,10 +1006,9 @@ impl RawThread {
             pid,
             handle,
             sem: Semaphore::new(0),
-            attribute: ThreadAttributes::EMPTY,
+            attribute: AtomicBitflags::empty(),
             priority,
             quantum: Quantum::from(priority),
-            deadline: Timer::JUST,
             measure: AtomicU64::new(0),
             cpu_time: AtomicU64::new(0),
             load0: AtomicU32::new(0),

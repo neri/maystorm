@@ -843,20 +843,3 @@ impl HoeFile {
         result as u32
     }
 }
-
-#[derive(Debug, Copy, Clone)]
-pub enum Whence {
-    SeekSet = 0,
-    SeekCur,
-    SeekEnd,
-}
-
-impl From<u32> for Whence {
-    fn from(v: u32) -> Self {
-        match v {
-            1 => Self::SeekCur,
-            2 => Self::SeekEnd,
-            _ => Self::SeekSet,
-        }
-    }
-}

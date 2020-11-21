@@ -259,3 +259,40 @@ bitflags! {
         const CASE_INSENSITIVE  = 0b0000_0000_0000_0010;
     }
 }
+
+#[derive(Debug, Copy, Clone)]
+pub enum Whence {
+    SeekSet = 0,
+    SeekCur,
+    SeekEnd,
+}
+
+impl From<u32> for Whence {
+    fn from(v: u32) -> Self {
+        match v {
+            1 => Self::SeekCur,
+            2 => Self::SeekEnd,
+            _ => Self::SeekSet,
+        }
+    }
+}
+
+impl From<u64> for Whence {
+    fn from(v: u64) -> Self {
+        match v {
+            1 => Self::SeekCur,
+            2 => Self::SeekEnd,
+            _ => Self::SeekSet,
+        }
+    }
+}
+
+impl From<usize> for Whence {
+    fn from(v: usize) -> Self {
+        match v {
+            1 => Self::SeekCur,
+            2 => Self::SeekEnd,
+            _ => Self::SeekSet,
+        }
+    }
+}

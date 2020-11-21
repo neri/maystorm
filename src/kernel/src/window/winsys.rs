@@ -5,6 +5,7 @@ use crate::io::fonts::*;
 use crate::io::graphics::*;
 use crate::io::hid::*;
 use crate::num::*;
+use crate::sync::atomicflags::*;
 use crate::sync::semaphore::*;
 use crate::task::scheduler::*;
 use crate::*;
@@ -83,7 +84,7 @@ static mut WM: Option<Box<WindowManager>> = None;
 pub struct WindowManager {
     lock: Spinlock,
     sem_redraw: Semaphore,
-    attributes: WindowManagerAttributes,
+    attributes: AtomicBitflags<WindowManagerAttributes>,
     pointer_x: AtomicIsize,
     pointer_y: AtomicIsize,
     buttons: AtomicUsize,
@@ -147,7 +148,7 @@ impl WindowManager {
         let wm = Some(Box::new(WindowManager {
             lock: Spinlock::default(),
             sem_redraw: Semaphore::new(0),
-            attributes: WindowManagerAttributes::EMPTY,
+            attributes: AtomicBitflags::EMPTY,
             pointer_x: AtomicIsize::new(main_screen.width() / 2),
             pointer_y: AtomicIsize::new(main_screen.height() / 2),
             buttons: AtomicUsize::new(0),
@@ -655,6 +656,7 @@ impl WindowManager {
             shared
                 .attributes
                 .insert(WindowManagerAttributes::MOUSE_MOVE);
+            shared.sem_redraw.signal();
         }
     }
 
@@ -720,40 +722,17 @@ impl WindowManager {
     }
 }
 
-#[derive(Default)]
-struct WindowManagerAttributes(AtomicUsize);
-
-#[allow(dead_code)]
-impl WindowManagerAttributes {
-    pub const EMPTY: Self = Self::new(0);
-    pub const MOUSE_MOVE: usize = 0b0000_0001;
-    pub const NEEDS_REDRAW: usize = 0b0000_0010;
-    pub const MOVING: usize = 0b0000_0100;
-
-    #[inline]
-    pub const fn new(value: usize) -> Self {
-        Self(AtomicUsize::new(value))
+bitflags! {
+    struct WindowManagerAttributes: usize {
+        const MOUSE_MOVE    = 0b0000_0001;
+        const NEEDS_REDRAW  = 0b0000_0010;
+        const MOVING        = 0b0000_0100;
     }
+}
 
-    #[inline]
-    pub fn contains(&self, value: usize) -> bool {
-        (self.0.load(Ordering::Acquire) & value) == value
-    }
-
-    #[inline]
-    pub fn insert(&self, value: usize) {
-        self.0.fetch_or(value, Ordering::AcqRel);
-        let shared = WindowManager::shared();
-        shared.sem_redraw.signal();
-    }
-
-    #[inline]
-    pub fn remove(&self, value: usize) {
-        self.0.fetch_and(!value, Ordering::AcqRel);
-    }
-
-    fn test_and_clear(&self, bits: usize) -> bool {
-        (self.0.fetch_and(!bits, Ordering::SeqCst) & bits) == bits
+impl Into<usize> for WindowManagerAttributes {
+    fn into(self) -> usize {
+        self.bits()
     }
 }
 
@@ -764,7 +743,7 @@ struct RawWindow {
     handle: WindowHandle,
 
     // Properties
-    attributes: WindowAttributes,
+    attributes: AtomicBitflags<WindowAttributes>,
     style: WindowStyle,
     level: WindowLevel,
 
@@ -817,37 +796,16 @@ impl WindowStyle {
     }
 }
 
-#[derive(Default)]
-struct WindowAttributes(AtomicU8);
-
-#[allow(dead_code)]
-impl WindowAttributes {
-    pub const EMPTY: Self = Self::new(0);
-    pub const NEEDS_REDRAW: u8 = 0b0000_0001;
-    pub const VISIBLE: u8 = 0b0000_0010;
-
-    #[inline]
-    pub const fn new(value: u8) -> Self {
-        Self(AtomicU8::new(value))
+bitflags! {
+    struct WindowAttributes: usize {
+        const NEEDS_REDRAW  = 0b0000_0001;
+        const VISIBLE       = 0b0000_0010;
     }
+}
 
-    #[inline]
-    pub fn contains(&self, value: u8) -> bool {
-        (self.0.load(Ordering::Acquire) & value) == value
-    }
-
-    #[inline]
-    pub fn insert(&self, value: u8) {
-        self.0.fetch_or(value, Ordering::AcqRel);
-    }
-
-    #[inline]
-    pub fn remove(&self, value: u8) {
-        self.0.fetch_and(!value, Ordering::AcqRel);
-    }
-
-    fn test_and_clear(&self, bits: u8) -> bool {
-        (self.0.fetch_and(!bits, Ordering::SeqCst) & bits) == bits
+impl Into<usize> for WindowAttributes {
+    fn into(self) -> usize {
+        self.bits()
     }
 }
 
@@ -1211,9 +1169,9 @@ impl WindowBuilder {
         }
 
         let attributes = if self.level == WindowLevel::ROOT {
-            WindowAttributes::new(WindowAttributes::VISIBLE)
+            AtomicBitflags::new(WindowAttributes::VISIBLE)
         } else {
-            WindowAttributes::EMPTY
+            AtomicBitflags::empty()
         };
 
         let queue = match self.queue_size {
@@ -1493,6 +1451,7 @@ impl WindowHandle {
                 shared
                     .attributes
                     .insert(WindowManagerAttributes::NEEDS_REDRAW);
+                shared.sem_redraw.signal();
             }
         }
     }
