@@ -14,6 +14,7 @@
 #![feature(option_result_contains)]
 #![feature(panic_info_message)]
 #![feature(wake_trait)]
+#![feature(unsafe_cell_get_mut)]
 
 pub mod arch;
 pub mod bus;

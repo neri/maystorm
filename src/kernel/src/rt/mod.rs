@@ -1,9 +1,9 @@
 // Runtime Environment
 
-pub mod hoe;
+pub mod haribote;
+pub mod wasm;
 
 use crate::arch::cpu::*;
-use crate::system::*;
 use crate::task::scheduler::*;
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -29,7 +29,8 @@ impl RuntimeEnvironment {
     pub(crate) unsafe fn init() {
         let shared = Self::shared();
 
-        shared.image_loaders.push(hoe::HrbRecognizer::new());
+        shared.image_loaders.push(wasm::WasmRecognizer::new());
+        shared.image_loaders.push(haribote::HrbRecognizer::new());
     }
 
     fn shared() -> &'static mut Self {
@@ -73,7 +74,7 @@ pub trait Personality {
 
 pub enum PersonalityContext<'a> {
     Native,
-    Hoe(&'a mut hoe::Hoe),
+    Hoe(&'a mut haribote::hoe::Hoe),
 }
 
 pub trait BinaryRecognizer {
@@ -85,20 +86,19 @@ pub trait BinaryLoader {
 
     fn load(&mut self, blob: &[u8]);
 
-    fn invoke_start(&mut self, name: &str) -> Option<ThreadHandle>;
+    fn invoke_start(&mut self) -> Option<ThreadHandle>;
 }
 
 #[derive(Debug, Default)]
 pub struct LoadedImageOption {
+    pub name: String,
     pub argv: Vec<String>,
-    pub image_base: VirtualAddress,
-    pub image_size: usize,
 }
 
 #[derive(Debug, Default, Copy, Clone)]
 pub struct LegacyAppContext {
-    pub base_of_image: u32,
-    pub size_of_image: u32,
+    pub image_base: u32,
+    pub image_size: u32,
     pub base_of_code: u32,
     pub size_of_code: u32,
     pub base_of_data: u32,

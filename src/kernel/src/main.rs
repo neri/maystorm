@@ -7,7 +7,7 @@
 #![feature(asm)]
 
 // use acpi;
-use crate::alloc::string::ToString;
+use alloc::string::*;
 use alloc::vec::*;
 use arch::cpu::*;
 use bootprot::*;
@@ -16,6 +16,7 @@ use fs::filesys::*;
 use kernel::*;
 use mem::memory::*;
 use mem::string;
+use mem::string::*;
 use rt::*;
 use system::*;
 use task::scheduler::*;
@@ -25,7 +26,6 @@ use uuid::*;
 // use window::*;
 // use core::time::Duration;
 // use alloc::boxed::Box;
-// use mem::string::*;
 // use io::fonts::*;
 // use core::sync::atomic::*;
 
@@ -34,18 +34,28 @@ extern crate rlibc;
 
 entry!(Application::main);
 
-// static mut MAIN: Application = Application::new();
+static mut MAIN: Application = Application::new();
 
 pub struct Application {
-    _phantom: (),
+    path_ext: Vec<String>,
 }
 
 impl Application {
-    // const fn new() -> Self {
-    //     Self { _phantom: () }
-    // }
+    const fn new() -> Self {
+        Self {
+            path_ext: Vec::new(),
+        }
+    }
+
+    fn shared<'a>() -> &'a mut Self {
+        unsafe { &mut MAIN }
+    }
 
     fn main() {
+        let shared = Self::shared();
+        shared.path_ext.push("hrb".to_string());
+        // shared.path_ext.push("bin".to_string());
+
         MyScheduler::spawn_async(Task::new(Self::repl_main()));
         // MyScheduler::spawn_async(Task::new(test_task()));
         MyScheduler::perform_tasks();
@@ -114,38 +124,46 @@ impl Application {
     }
 
     fn spawn(name: &str, argv: &[&str], wait_until: bool) -> usize {
-        let _ = argv;
-
-        match Fs::find_file(name) {
-            Some((fs, inode)) => {
-                let stat = fs.stat(inode).unwrap();
-                if stat.file_size > 0 {
-                    let mut blob = Vec::new();
-                    blob.resize(stat.block_size, 0);
-                    fs.x_read(inode, 0, 1, &mut blob);
-                    if let Some(mut loader) = RuntimeEnvironment::recognize(blob.as_slice()) {
-                        if stat.blocks > 1 {
-                            blob.resize(stat.blocks * stat.block_size, 0);
-                            fs.x_read(inode, 0, stat.blocks, &mut blob);
-                        }
-                        loader.option().argv = argv.iter().map(|v| v.to_string()).collect();
-                        loader.load(blob.as_slice());
-                        let child = loader.invoke_start(name);
-                        if wait_until {
-                            child.map(|thread| thread.join());
-                        }
-                    } else {
-                        println!("Bad executable");
-                        return 1;
-                    }
+        Self::spawn_main(name, argv, wait_until).unwrap_or_else(|| {
+            let mut sb = StringBuffer::new();
+            let shared = Self::shared();
+            for ext in &shared.path_ext {
+                sb.clear();
+                write!(sb, "{}.{}", name, ext).unwrap();
+                match Self::spawn_main(sb.as_str(), argv, wait_until) {
+                    Some(v) => return v,
+                    None => (),
                 }
-                0
             }
-            _ => {
-                println!("Command not found: {}", name);
-                1
+            println!("Command not found: {}", name);
+            1
+        })
+    }
+
+    fn spawn_main(name: &str, argv: &[&str], wait_until: bool) -> Option<usize> {
+        Fs::find_file(name).map(|(fs, inode)| {
+            let stat = fs.stat(inode).unwrap();
+            if stat.file_size > 0 {
+                let bsize = stat.blocks * stat.block_size;
+                let mut blob = Vec::with_capacity(bsize);
+                blob.resize(bsize, 0);
+                fs.x_read(inode, 0, stat.blocks, &mut blob);
+                let blob = &blob[0..stat.file_size];
+                if let Some(mut loader) = RuntimeEnvironment::recognize(blob) {
+                    loader.option().name = name.to_string();
+                    loader.option().argv = argv.iter().map(|v| v.to_string()).collect();
+                    loader.load(blob);
+                    let child = loader.invoke_start();
+                    if wait_until {
+                        child.map(|thread| thread.join());
+                    }
+                } else {
+                    println!("Bad executable");
+                    return 1;
+                }
             }
-        }
+            0
+        })
     }
 
     fn command(cmd: &str) -> Option<&'static fn(&[&str]) -> isize> {

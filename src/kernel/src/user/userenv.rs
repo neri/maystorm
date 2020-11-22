@@ -329,7 +329,7 @@ async fn activity_monitor_main() {
 
     let window = WindowBuilder::new("Activity Monitor")
         .style_add(WindowStyle::NAKED | WindowStyle::FLOATING | WindowStyle::PINCHABLE)
-        .frame(Rect::new(-328, -180 - 32, 320, 180))
+        .frame(Rect::new(-280 - 8, -180 - 32, 280, 180))
         .bg_color(bg_color)
         .build();
 

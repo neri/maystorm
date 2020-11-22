@@ -1365,7 +1365,7 @@ rbp {:016x} r10 {:016x} r15 {:016x} gs {:04x}",
 #[inline]
 #[allow(dead_code)]
 #[no_mangle]
-pub(super) unsafe extern "C" fn cpu_int40_handler(ctx: *mut hoe::HoeSyscallRegs) {
+pub(super) unsafe extern "C" fn cpu_int40_handler(ctx: *mut haribote::HoeSyscallRegs) {
     let regs = ctx.as_mut().unwrap();
     MyScheduler::current_personality(|personality| {
         let hoe = match personality.context() {

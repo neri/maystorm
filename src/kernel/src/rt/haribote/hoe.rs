@@ -456,31 +456,12 @@ struct HrbExecutable {
 impl HrbExecutable {
     const SIGNATURE: &'static [u8; 4] = b"Hari";
     const START: u32 = 0x1B;
+    const OFFSET_SIGN_1: usize = 4;
+    const OFFSET_SIGN_2: usize = 8;
     const MINIMAL_BIN_SIZE: usize = 0x24;
 }
 
-pub(super) struct HrbRecognizer {
-    _phantom: (),
-}
-
-impl HrbRecognizer {
-    pub fn new() -> Box<Self> {
-        Box::new(Self { _phantom: () })
-    }
-}
-
-impl BinaryRecognizer for HrbRecognizer {
-    fn recognize(&self, blob: &[u8]) -> Option<Box<dyn BinaryLoader>> {
-        if blob.len() > HrbExecutable::MINIMAL_BIN_SIZE && &blob[4..8] == HrbExecutable::SIGNATURE {
-            let hrb = HrbBinaryLoader::new();
-            Some(Box::new(hrb))
-        } else {
-            None
-        }
-    }
-}
-
-struct HrbBinaryLoader {
+pub(crate) struct HrbBinaryLoader {
     lio: LoadedImageOption,
     ctx: LegacyAppContext,
 }
@@ -490,6 +471,17 @@ impl HrbBinaryLoader {
         Self {
             lio: LoadedImageOption::default(),
             ctx: LegacyAppContext::default(),
+        }
+    }
+
+    pub fn identity(blob: &[u8]) -> Option<Self> {
+        if blob.len() > HrbExecutable::MINIMAL_BIN_SIZE
+            && &blob[HrbExecutable::OFFSET_SIGN_1..HrbExecutable::OFFSET_SIGN_2]
+                == HrbExecutable::SIGNATURE
+        {
+            Some(HrbBinaryLoader::new())
+        } else {
+            None
         }
     }
 
@@ -520,21 +512,21 @@ impl BinaryLoader for HrbBinaryLoader {
             let rva_data = (size_of_code + 0xFFF) & !0xFFF;
             let size_of_ds = header.size_of_ds as usize;
             let size_of_data = header.size_of_data as usize;
-            let size_of_image = rva_data + size_of_ds;
+            let image_size = rva_data + size_of_ds;
             let stack_pointer = header.esp as usize;
 
-            let base = MemoryManager::zalloc(size_of_image).unwrap().get() as *mut u8;
-            base.write_bytes(0, size_of_image);
+            let image_base = MemoryManager::zalloc(image_size).unwrap().get() as *mut u8;
+            image_base.write_bytes(0, image_size);
 
-            let base_code = base;
+            let base_code = image_base;
             base_code.copy_from_nonoverlapping(blob_ptr, size_of_code);
-            let base_data = base.add(rva_data);
+            let base_data = image_base.add(rva_data);
             base_data
                 .add(stack_pointer)
                 .copy_from_nonoverlapping(blob_ptr.add(size_of_code), size_of_data);
 
-            self.ctx.base_of_image = base as u32;
-            self.ctx.size_of_image = size_of_image as u32;
+            self.ctx.image_base = image_base as u32;
+            self.ctx.image_size = image_size as u32;
             self.ctx.base_of_code = base_code as u32;
             self.ctx.size_of_code = size_of_code as u32;
             self.ctx.base_of_data = base_data as u32;
@@ -544,25 +536,12 @@ impl BinaryLoader for HrbBinaryLoader {
         }
     }
 
-    fn invoke_start(&mut self, name: &str) -> Option<ThreadHandle> {
+    fn invoke_start(&mut self) -> Option<ThreadHandle> {
         let cmdline = self.lio.argv.join(" ");
         SpawnOption::new()
             .personality(Hoe::new(self.ctx, cmdline))
-            .spawn(Self::start, 0, name)
+            .spawn(Self::start, 0, self.lio.name.as_ref())
     }
-}
-
-#[repr(C)]
-#[derive(Debug, Default)]
-pub struct HoeSyscallRegs {
-    pub eax: u32,
-    pub ecx: u32,
-    pub edx: u32,
-    pub ebx: u32,
-    pub esi: u32,
-    pub edi: u32,
-    pub ebp: u32,
-    _padding7: u32,
 }
 
 struct HoeWindow {

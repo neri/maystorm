@@ -549,7 +549,6 @@ impl WindowManager {
         if let Some(old_active) = shared.active {
             shared.active = window;
             old_active.as_ref().refresh_title();
-            // old_active.set_needs_display();
             if let Some(active) = window {
                 active.show();
             }
@@ -1385,8 +1384,11 @@ impl WindowHandle {
         WindowManager::synchronized(|| unsafe {
             WindowManager::add_hierarchy(*self);
         });
-        self.as_ref().refresh_title();
-        self.set_needs_display();
+        // self.as_ref().refresh_title();
+        // self.set_needs_display();
+        let window = self.as_ref();
+        window.draw_frame();
+        WindowManager::invalidate_screen(window.frame);
     }
 
     pub fn hide(&self) {
@@ -1462,9 +1464,9 @@ impl WindowHandle {
         F: FnOnce(&Bitmap) -> (),
     {
         let window = self.as_ref();
-        self.draw_in_rect(window.actual_bounds(), f).and_then(|_| {
-            window.invalidate_rect(window.actual_bounds());
-            Ok(())
+        let rect = window.actual_bounds().insets_by(window.content_insets);
+        self.draw_in_rect(rect.size().into(), f).map(|_| {
+            window.invalidate_rect(rect);
         })
     }
 
@@ -1478,11 +1480,12 @@ impl WindowHandle {
             None => return Err(WindowDrawingError::NoBitmap),
         };
         let bounds = Rect::from(window.frame.size).insets_by(window.content_insets);
+        let origin = Point::new(isize::max(0, rect.x()), isize::max(0, rect.y()));
         let coords = match Coordinates::from_rect(Rect::new(
-            rect.x() + bounds.x(),
-            rect.y() + bounds.y(),
-            isize::min(rect.width(), bounds.width()),
-            isize::min(rect.height(), bounds.height()),
+            origin.x + bounds.x(),
+            origin.y + bounds.y(),
+            isize::min(rect.width(), bounds.width() - origin.x),
+            isize::min(rect.height(), bounds.height() - origin.y),
         )) {
             Some(coords) => coords,
             None => return Err(WindowDrawingError::InconsistentCoordinates),
@@ -1675,6 +1678,8 @@ pub enum WindowPostError {
 pub enum WindowMessage {
     /// Dummy message
     Nop,
+    /// Requested to close the window
+    Close,
     /// Needs to be redrawn
     Draw,
     /// Raw keyboard event

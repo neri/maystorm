@@ -22,10 +22,10 @@ clean:
 # $(RUST_ARCH).json:
 # 	rustc +nightly -Z unstable-options --print target-spec-json --target $(RUST_ARCH) | sed -e 's/-sse,+/+sse,-/' > $@
 
-$(TARGET_KERNEL): src/* src/**/* src/**/**/* src/**/**/**/* src/**/**/**/**/*
+$(TARGET_KERNEL): src/kernel/* src/kernel/**/* src/kernel/**/**/* src/kernel/**/**/**/* src/kernel/**/**/**/**/*
 	$(BUILD)
 
-$(TARGET_BOOT_EFI): src/* src/**/* src/**/**/* src/**/**/**/* src/**/**/**/**/*
+$(TARGET_BOOT_EFI): src/boot-efi/* src/boot-efi/**/* src/boot-efi/**/**/* src/boot-efi/**/**/**/* src/boot-efi/**/**/**/**/*
 	$(BUILD)
 
 $(EFI_BOOT):
