@@ -84,7 +84,7 @@ pub trait BinaryRecognizer {
 pub trait BinaryLoader {
     fn option(&mut self) -> &mut LoadedImageOption;
 
-    fn load(&mut self, blob: &[u8]);
+    fn load(&mut self, blob: &[u8]) -> Result<(), ()>;
 
     fn invoke_start(&mut self) -> Option<ThreadHandle>;
 }

@@ -1,5 +1,6 @@
 // Blob
 
+use byteorder::*;
 use core::mem::*;
 use core::slice;
 
@@ -22,20 +23,20 @@ impl Blob<'_> {
 
     #[inline]
     #[track_caller]
-    pub const fn read_u16(&self, offset: usize) -> u16 {
-        self.blob[offset] as u16 + self.blob[offset + 1] as u16 * 0x100
+    pub fn read_u16(&self, offset: usize) -> u16 {
+        LE::read_u16(&self.blob[offset..offset + 2])
     }
 
     #[inline]
     #[track_caller]
-    pub const fn read_u32(&self, offset: usize) -> u32 {
-        self.read_u16(offset) as u32 + self.read_u16(offset + 2) as u32 * 0x10000
+    pub fn read_u32(&self, offset: usize) -> u32 {
+        LE::read_u32(&self.blob[offset..offset + 4])
     }
 
     #[inline]
     #[track_caller]
-    pub const fn read_u64(&self, offset: usize) -> u64 {
-        self.read_u32(offset) as u64 + self.read_u32(offset + 4) as u64 * 0x10000_0000
+    pub fn read_u64(&self, offset: usize) -> u64 {
+        LE::read_u64(&self.blob[offset..offset + 8])
     }
 
     #[inline]

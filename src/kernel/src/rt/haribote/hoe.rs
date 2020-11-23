@@ -504,7 +504,7 @@ impl BinaryLoader for HrbBinaryLoader {
         &mut self.lio
     }
 
-    fn load(&mut self, blob: &[u8]) {
+    fn load(&mut self, blob: &[u8]) -> Result<(), ()> {
         unsafe {
             let blob_ptr = &blob[0] as *const u8;
             let header = (blob_ptr as *const HrbExecutable).as_ref().unwrap();
@@ -534,6 +534,7 @@ impl BinaryLoader for HrbBinaryLoader {
             self.ctx.start = HrbExecutable::START;
             self.ctx.stack_pointer = stack_pointer as u32;
         }
+        Ok(())
     }
 
     fn invoke_start(&mut self) -> Option<ThreadHandle> {

@@ -1,5 +1,6 @@
 // WebAssembly Subsystem
-mod wasm;
+pub mod opcode;
+pub mod wasm;
 
 use super::*;
 use alloc::boxed::Box;
@@ -17,6 +18,34 @@ impl WasmRecognizer {
 
 impl BinaryRecognizer for WasmRecognizer {
     fn recognize(&self, blob: &[u8]) -> Option<Box<dyn BinaryLoader>> {
-        WasmBinaryLoader::identity(blob).map(|v| Box::new(v) as Box<dyn BinaryLoader>)
+        if WasmLoader::identity(blob) {
+            Some(Box::new(WasmBinaryLoader {
+                loader: WasmLoader::new(),
+                lio: LoadedImageOption::default(),
+            }) as Box<dyn BinaryLoader>)
+        } else {
+            None
+        }
+    }
+}
+
+struct WasmBinaryLoader {
+    loader: WasmLoader,
+    lio: LoadedImageOption,
+}
+
+impl BinaryLoader for WasmBinaryLoader {
+    fn option(&mut self) -> &mut LoadedImageOption {
+        &mut self.lio
+    }
+
+    fn load(&mut self, blob: &[u8]) -> Result<(), ()> {
+        self.loader.load(blob).map_err(|_| ())
+    }
+
+    fn invoke_start(&mut self) -> Option<ThreadHandle> {
+        self.loader.print_stat();
+        // SpawnOption::new().spawn(Self::start, 0, self.lio.name.as_ref())
+        None
     }
 }

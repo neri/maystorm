@@ -152,10 +152,17 @@ impl Application {
                 if let Some(mut loader) = RuntimeEnvironment::recognize(blob) {
                     loader.option().name = name.to_string();
                     loader.option().argv = argv.iter().map(|v| v.to_string()).collect();
-                    loader.load(blob);
-                    let child = loader.invoke_start();
-                    if wait_until {
-                        child.map(|thread| thread.join());
+                    match loader.load(blob) {
+                        Ok(_) => {
+                            let child = loader.invoke_start();
+                            if wait_until {
+                                child.map(|thread| thread.join());
+                            }
+                        }
+                        Err(_) => {
+                            println!("Load error");
+                            return 1;
+                        }
                     }
                 } else {
                     println!("Bad executable");
