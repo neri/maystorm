@@ -1,6 +1,7 @@
 // WebAssembly Binary Loader
 
 use super::opcode::*;
+use super::wasmrt::*;
 use crate::*;
 use alloc::string::*;
 use alloc::sync::Arc;
@@ -8,6 +9,7 @@ use alloc::vec::Vec;
 use byteorder::*;
 use core::cell::{RefCell, UnsafeCell};
 use core::fmt;
+use core::ops::*;
 use core::slice;
 use core::str;
 
@@ -77,7 +79,6 @@ impl WasmLoader {
     }
 
     /// Parse "type" section
-    #[track_caller]
     fn parse_sec_type(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
         let n_items = section.stream.read_uint()? as usize;
         for _ in 0..n_items {
@@ -88,7 +89,6 @@ impl WasmLoader {
     }
 
     /// Parse "import" section
-    #[track_caller]
     fn parse_sec_import(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
         let n_items = section.stream.read_uint()? as usize;
         for _ in 0..n_items {
@@ -105,7 +105,6 @@ impl WasmLoader {
     }
 
     /// Parse "func" section
-    #[track_caller]
     fn parse_sec_func(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
         let n_items = section.stream.read_uint()?;
         for _ in 0..n_items {
@@ -116,7 +115,6 @@ impl WasmLoader {
     }
 
     /// Parse "export" section
-    #[track_caller]
     fn parse_sec_export(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
         let n_items = section.stream.read_uint()? as usize;
         for i in 0..n_items {
@@ -133,7 +131,6 @@ impl WasmLoader {
     }
 
     /// Parse "memory" section
-    #[track_caller]
     fn parse_sec_memory(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
         let n_items = section.stream.read_uint()?;
         for _ in 0..n_items {
@@ -144,7 +141,6 @@ impl WasmLoader {
     }
 
     /// Parse "table" section
-    #[track_caller]
     fn parse_sec_table(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
         let n_items = section.stream.read_uint()?;
         for _ in 0..n_items {
@@ -155,7 +151,6 @@ impl WasmLoader {
     }
 
     /// Parse "elem" section
-    #[track_caller]
     fn parse_sec_elem(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
         let n_items = section.stream.read_uint()?;
         for _ in 0..n_items {
@@ -176,22 +171,26 @@ impl WasmLoader {
     }
 
     /// Parse "code" section
-    #[track_caller]
     fn parse_sec_code(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
         let n_items = section.stream.read_uint()? as usize;
         for i in 0..n_items {
             let index = i + self.module.n_ext_func;
-            let body = WasmFunctionBody::from_stream(&mut section.stream)?;
-            self.module
+            let func_def = self
+                .module
                 .functions
-                .get_mut(index)
-                .map(|v| v.body = Some(body));
+                .get(index)
+                .ok_or(WasmDecodeError::InvalidParameter)?;
+            let type_def = self
+                .module
+                .type_by_ref(func_def.type_ref)
+                .ok_or(WasmDecodeError::InvalidParameter)?;
+            let body = WasmFunctionBody::from_stream(&mut section.stream, type_def)?;
+            self.module.functions[index].body = Some(body);
         }
         Ok(())
     }
 
     /// Parse "data" section
-    #[track_caller]
     fn parse_sec_data(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
         let n_items = section.stream.read_uint()?;
         for _ in 0..n_items {
@@ -209,7 +208,6 @@ impl WasmLoader {
     }
 
     /// Parse "start" section
-    #[track_caller]
     fn parse_sec_start(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
         let index = section.stream.read_uint()? as usize;
         self.module.start = Some(index);
@@ -280,28 +278,26 @@ impl WasmModule {
         self.tables.as_mut_slice()
     }
 
-    pub fn functions(&self) -> &[WasmFunction] {
-        self.functions.as_slice()
+    pub fn func_by_ref(&self, index: usize) -> Result<&WasmFunction, WasmRuntimeError> {
+        self.functions.get(index).ok_or(WasmRuntimeError::NoMethod)
     }
 
-    pub fn func_by_ref(&self, index: usize) -> Option<&WasmFunction> {
-        self.functions.get(index)
-    }
-
-    pub fn start(&self) -> Option<usize> {
+    pub fn start(&self) -> Result<&WasmFunction, WasmRuntimeError> {
         self.start
+            .ok_or(WasmRuntimeError::NoMethod)
+            .and_then(|v| self.func_by_ref(v))
     }
 
     /// Get a reference to the exported function with the specified name
-    pub fn function(&self, name: &str) -> Option<usize> {
+    pub fn function(&self, name: &str) -> Result<&WasmFunction, WasmRuntimeError> {
         for export in &self.exports {
             if let WasmExportType::Function(v) = export.index {
                 if export.name == name {
-                    return Some(v);
+                    return self.func_by_ref(v);
                 }
             }
         }
-        None
+        Err(WasmRuntimeError::NoMethod)
     }
 
     pub fn print_stat(&mut self) {
@@ -318,8 +314,6 @@ impl WasmModule {
             }
         }
         for (func_idx, function) in self.functions.iter().enumerate() {
-            // let body = function.body.as_ref();
-            // let locals = body.map(|v| v.locals.as_slice()).unwrap_or(&[]);
             let type_ref = self.types.get(function.type_ref).unwrap();
 
             match function.origin {
@@ -347,7 +341,7 @@ impl WasmModule {
         let func = self.functions.get(func_idx).unwrap();
         let type_ref = self.types.get(func.type_ref).unwrap();
         let body = func.body.as_ref().unwrap();
-        let locals = body.locals.as_slice();
+        let locals = body.local_types.as_slice();
         if locals.len() > 0 {
             let mut local_index = type_ref.params.len();
             for local in locals {
@@ -588,6 +582,38 @@ impl fmt::Display for WasmValType {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum WasmBlockType {
+    Empty = 0x40,
+    I32 = 0x7F,
+    I64 = 0x7E,
+    F32 = 0x7D,
+    F64 = 0x7C,
+}
+
+impl WasmBlockType {
+    pub const fn from_i64(v: i64) -> Result<Self, WasmRuntimeError> {
+        match v {
+            0x40 => Ok(Self::Empty),
+            0x7F => Ok(Self::I32),
+            0x7E => Ok(Self::I64),
+            0x7D => Ok(Self::F32),
+            0x7C => Ok(Self::F64),
+            _ => Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+
+    pub const fn into_type<'a>(self) -> &'a [WasmValType] {
+        match self {
+            WasmBlockType::Empty => &[],
+            WasmBlockType::I32 => &[WasmValType::I32],
+            WasmBlockType::I64 => &[WasmValType::I64],
+            WasmBlockType::F32 => &[WasmValType::F32],
+            WasmBlockType::F64 => &[WasmValType::F64],
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub struct WasmLimit {
     min: u32,
@@ -746,8 +772,22 @@ impl WasmFunction {
         self.origin
     }
 
-    pub fn body(&self) -> Option<&WasmFunctionBody> {
-        self.body.as_ref()
+    pub fn invoke(&self, params: &[WasmValue]) -> Result<WasmValue, WasmRuntimeError> {
+        let body = self.body.as_ref().ok_or(WasmRuntimeError::NoMethod)?;
+
+        let mut locals = Vec::new();
+        for param in params {
+            locals.push(*param);
+        }
+        for local in &body.local_types {
+            locals.push(WasmValue::default_for(*local));
+        }
+
+        let result_types = body.result_types.as_slice();
+
+        let code_ref = body.code_block.borrow();
+        let mut code_block = WasmCodeBlock::from_slice(&code_ref);
+        code_block.invoke(locals.as_slice(), result_types)
     }
 }
 
@@ -926,14 +966,19 @@ impl WasmExportType {
     }
 }
 
-#[allow(dead_code)]
 pub struct WasmFunctionBody {
-    locals: Vec<WasmValType>,
+    #[allow(dead_code)]
+    param_types: Vec<WasmValType>,
+    local_types: Vec<WasmValType>,
+    result_types: Vec<WasmValType>,
     code_block: Arc<RefCell<Vec<u8>>>,
 }
 
 impl WasmFunctionBody {
-    fn from_stream(stream: &mut Leb128Stream) -> Result<Self, WasmDecodeError> {
+    fn from_stream(
+        stream: &mut Leb128Stream,
+        func_type: &WasmType,
+    ) -> Result<Self, WasmDecodeError> {
         let blob = stream.read_bytes()?;
         let mut stream = Leb128Stream::from_slice(blob);
         let n_locals = stream.read_uint()? as usize;
@@ -945,18 +990,756 @@ impl WasmFunctionBody {
                 locals.push(val);
             }
         }
-        let contents = Arc::new(RefCell::new(blob[stream.position..].to_vec()));
+        let code_block = Arc::new(RefCell::new(blob[stream.position..].to_vec()));
         Ok(Self {
-            locals,
-            code_block: contents,
+            param_types: func_type.params.clone(),
+            local_types: locals,
+            result_types: func_type.result.clone(),
+            code_block,
         })
     }
+}
 
-    pub fn locals(&self) -> &[WasmValType] {
-        self.locals.as_slice()
+#[allow(dead_code)]
+#[derive(Debug, Copy, Clone)]
+pub enum WasmRuntimeError {
+    OutOfBounds,
+    OutOfMemory,
+    OutOfStack,
+    InvalidLocal,
+    UnexpectedEof,
+    UnexpectedToken,
+    InvalidParameter,
+    InvalidBytecode,
+    NoMethod,
+    TypeMismatch,
+    DivideByZero,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum WasmValue {
+    Empty,
+    I32(i32),
+    I64(i64),
+    F32(f32),
+    F64(f64),
+}
+
+impl WasmValue {
+    pub fn default_for(val_type: WasmValType) -> Self {
+        match val_type {
+            WasmValType::I32 => Self::I32(0),
+            WasmValType::I64 => Self::I64(0),
+            WasmValType::F32 => Self::F32(0.0),
+            WasmValType::F64 => Self::F64(0.0),
+        }
     }
 
-    pub fn code_block(&self) -> Arc<RefCell<Vec<u8>>> {
-        self.code_block.clone()
+    pub fn get_i32(self) -> Result<i32, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => Ok(a),
+            _ => return Err(WasmRuntimeError::TypeMismatch),
+        }
+    }
+
+    pub fn map_i32<F>(self, f: F) -> Result<WasmValue, WasmRuntimeError>
+    where
+        F: FnOnce(i32) -> i32,
+    {
+        match self {
+            Self::I32(a) => Ok(f(a).into()),
+            _ => return Err(WasmRuntimeError::TypeMismatch),
+        }
+    }
+
+    pub fn map_i64<F>(self, f: F) -> Result<WasmValue, WasmRuntimeError>
+    where
+        F: FnOnce(i64) -> i64,
+    {
+        match self {
+            Self::I64(a) => Ok(f(a).into()),
+            _ => return Err(WasmRuntimeError::TypeMismatch),
+        }
+    }
+
+    pub fn clz(self) -> Result<WasmValue, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => Ok(WasmValue::I32(a.leading_zeros() as i32)),
+            Self::I64(a) => Ok(WasmValue::I64(a.leading_zeros() as i64)),
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+
+    pub fn ctz(self) -> Result<WasmValue, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => Ok(WasmValue::I32(a.trailing_zeros() as i32)),
+            Self::I64(a) => Ok(WasmValue::I64(a.trailing_zeros() as i64)),
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+
+    pub fn popcnt(self) -> Result<WasmValue, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => Ok(WasmValue::I32(a.count_ones() as i32)),
+            Self::I64(a) => Ok(WasmValue::I64(a.count_ones() as i64)),
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+
+    pub fn div_u(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                if b == 0 {
+                    return Err(WasmRuntimeError::DivideByZero);
+                }
+                Ok(WasmValue::I32((a as u32 / b as u32) as i32))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                if b == 0 {
+                    return Err(WasmRuntimeError::DivideByZero);
+                }
+                Ok(WasmValue::I64((a as u64 / b as u64) as i64))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+
+    pub fn rem_u(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                if b == 0 {
+                    return Err(WasmRuntimeError::DivideByZero);
+                }
+                Ok(WasmValue::I32((a as u32 % b as u32) as i32))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                if b == 0 {
+                    return Err(WasmRuntimeError::DivideByZero);
+                }
+                Ok(WasmValue::I64((a as u64 % b as u64) as i64))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+
+    pub fn shr_u(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32((a as u32 >> b as u32) as i32))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I64((a as u64 >> b as u64) as i64))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+
+    pub fn rotl(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(a.rotate_left(b as u32)))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I64(a.rotate_left(b as u32)))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+
+    pub fn rotr(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(a.rotate_right(b as u32)))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I64(a.rotate_right(b as u32)))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+
+    pub fn eqz(self) -> Result<WasmValue, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => Ok(WasmValue::I32(if a == 0 { 1 } else { 0 })),
+            Self::I64(a) => Ok(WasmValue::I32(if a == 0 { 1 } else { 0 })),
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+
+    pub fn eq(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(if a == b { 1 } else { 0 }))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(if a == b { 1 } else { 0 }))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+
+    pub fn ne(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(if a != b { 1 } else { 0 }))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(if a != b { 1 } else { 0 }))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+
+    pub fn lt_s(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(if a < b { 1 } else { 0 }))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(if a < b { 1 } else { 0 }))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+
+    pub fn lt_u(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(if (a as u32) < (b as u32) { 1 } else { 0 }))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(if (a as u64) < (b as u64) { 1 } else { 0 }))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+
+    pub fn le_s(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(if a <= b { 1 } else { 0 }))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(if a <= b { 1 } else { 0 }))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+
+    pub fn le_u(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(if (a as u32) <= (b as u32) { 1 } else { 0 }))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(if (a as u64) <= (b as u64) { 1 } else { 0 }))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+
+    pub fn gt_s(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(if a > b { 1 } else { 0 }))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(if a > b { 1 } else { 0 }))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+
+    pub fn gt_u(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(if (a as u32) > (b as u32) { 1 } else { 0 }))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(if (a as u64) > (b as u64) { 1 } else { 0 }))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+
+    pub fn ge_s(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(if a >= b { 1 } else { 0 }))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(if a >= b { 1 } else { 0 }))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+
+    pub fn ge_u(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(if (a as u32) >= (b as u32) { 1 } else { 0 }))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(if (a as u64) >= (b as u64) { 1 } else { 0 }))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+}
+
+impl Add for WasmValue {
+    type Output = Result<WasmValue, WasmRuntimeError>;
+    fn add(self, rhs: Self) -> Self::Output {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(a + b))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I64(a + b))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+}
+
+impl Sub for WasmValue {
+    type Output = Result<WasmValue, WasmRuntimeError>;
+    fn sub(self, rhs: Self) -> Self::Output {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(a - b))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I64(a - b))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+}
+
+impl Mul for WasmValue {
+    type Output = Result<WasmValue, WasmRuntimeError>;
+    fn mul(self, rhs: Self) -> Self::Output {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(a * b))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I64(a * b))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+}
+
+impl Div for WasmValue {
+    type Output = Result<WasmValue, WasmRuntimeError>;
+    fn div(self, rhs: Self) -> Self::Output {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                if b == 0 {
+                    return Err(WasmRuntimeError::DivideByZero);
+                }
+                Ok(WasmValue::I32(a / b))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                if b == 0 {
+                    return Err(WasmRuntimeError::DivideByZero);
+                }
+                Ok(WasmValue::I64(a / b))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+}
+
+impl Rem for WasmValue {
+    type Output = Result<WasmValue, WasmRuntimeError>;
+    fn rem(self, rhs: Self) -> Self::Output {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                if b == 0 {
+                    return Err(WasmRuntimeError::DivideByZero);
+                }
+                Ok(WasmValue::I32(a % b))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                if b == 0 {
+                    return Err(WasmRuntimeError::DivideByZero);
+                }
+                Ok(WasmValue::I64(a % b))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+}
+
+impl BitAnd for WasmValue {
+    type Output = Result<WasmValue, WasmRuntimeError>;
+    fn bitand(self, rhs: Self) -> Self::Output {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(a & b))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I64(a & b))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+}
+
+impl BitOr for WasmValue {
+    type Output = Result<WasmValue, WasmRuntimeError>;
+    fn bitor(self, rhs: Self) -> Self::Output {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(a | b))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I64(a | b))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+}
+
+impl BitXor for WasmValue {
+    type Output = Result<WasmValue, WasmRuntimeError>;
+    fn bitxor(self, rhs: Self) -> Self::Output {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(a ^ b))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I64(a ^ b))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+}
+
+impl Shl for WasmValue {
+    type Output = Result<WasmValue, WasmRuntimeError>;
+    fn shl(self, rhs: Self) -> Self::Output {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(a << b))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I64(a << b))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+}
+
+impl Shr for WasmValue {
+    type Output = Result<WasmValue, WasmRuntimeError>;
+    fn shr(self, rhs: Self) -> Self::Output {
+        match self {
+            Self::I32(a) => {
+                let b = match rhs {
+                    Self::I32(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I32(a >> b))
+            }
+            Self::I64(a) => {
+                let b = match rhs {
+                    Self::I64(v) => v,
+                    _ => return Err(WasmRuntimeError::TypeMismatch),
+                };
+                Ok(WasmValue::I64(a >> b))
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
+    }
+}
+
+impl From<i32> for WasmValue {
+    fn from(v: i32) -> Self {
+        Self::I32(v)
+    }
+}
+
+impl From<u32> for WasmValue {
+    fn from(v: u32) -> Self {
+        Self::I32(v as i32)
+    }
+}
+
+impl From<i64> for WasmValue {
+    fn from(v: i64) -> Self {
+        Self::I64(v)
+    }
+}
+
+impl From<u64> for WasmValue {
+    fn from(v: u64) -> Self {
+        Self::I64(v as i64)
+    }
+}
+
+impl From<f32> for WasmValue {
+    fn from(v: f32) -> Self {
+        Self::F32(v)
+    }
+}
+
+impl From<f64> for WasmValue {
+    fn from(v: f64) -> Self {
+        Self::F64(v)
+    }
+}
+
+impl fmt::Display for WasmValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            WasmValue::Empty => write!(f, "()"),
+            Self::I32(v) => write!(f, "{}", v),
+            Self::I64(v) => write!(f, "{}", v),
+            Self::F32(_) => write!(f, "(#!F32)"),
+            Self::F64(_) => write!(f, "(#!F64)"),
+        }
+    }
+}
+
+pub struct WasmCodeBlock<'a> {
+    code: Leb128Stream<'a>,
+}
+
+impl<'a> WasmCodeBlock<'a> {
+    pub fn from_slice(slice: &'a [u8]) -> Self {
+        Self {
+            code: Leb128Stream::from_slice(slice),
+        }
+    }
+
+    pub const fn position(&self) -> usize {
+        self.code.position()
+    }
+
+    pub fn get_opcode(&mut self) -> Result<WasmOpcode, WasmRuntimeError> {
+        self.code
+            .read_byte()
+            .map(|v| WasmOpcode::from_u8(v))
+            .map_err(|err| Self::map_err(err))
+    }
+
+    pub fn get_sint(&mut self) -> Result<i64, WasmRuntimeError> {
+        self.code.read_sint().map_err(|err| Self::map_err(err))
+    }
+
+    pub fn get_uint(&mut self) -> Result<u64, WasmRuntimeError> {
+        self.code.read_uint().map_err(|err| Self::map_err(err))
+    }
+
+    fn map_err(err: WasmDecodeError) -> WasmRuntimeError {
+        match err {
+            WasmDecodeError::UnexpectedEof => WasmRuntimeError::UnexpectedEof,
+            _ => WasmRuntimeError::UnexpectedToken,
+        }
+    }
+
+    pub fn invoke(
+        &mut self,
+        locals: &[WasmValue],
+        result_types: &[WasmValType],
+    ) -> Result<WasmValue, WasmRuntimeError> {
+        let mut ctx = WasmRuntimeContext::new();
+        ctx.run(self, locals, result_types)
     }
 }
