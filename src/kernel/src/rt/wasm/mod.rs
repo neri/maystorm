@@ -1,9 +1,12 @@
 // WebAssembly Subsystem
 pub mod opcode;
+pub mod wart;
 pub mod wasm;
 
 use super::*;
+use crate::*;
 use alloc::boxed::Box;
+use wart::*;
 use wasm::*;
 
 pub(super) struct WasmRecognizer {
@@ -44,7 +47,28 @@ impl BinaryLoader for WasmBinaryLoader {
     }
 
     fn invoke_start(&mut self) -> Option<ThreadHandle> {
-        self.loader.print_stat();
+        // self.loader.print_stat();
+
+        let mut rt = WasmRuntimeContext::from_module(self.loader.module());
+        match rt.start() {
+            Ok(result) => {
+                println!("result: {}", result);
+            }
+            Err(err) => {
+                println!("error: {:?}", err);
+            }
+        }
+
+        // let params = [WasmValue::I32(123), WasmValue::I32(456)];
+        // match rt.invoke_function("add", &params) {
+        //     Ok(result) => {
+        //         println!("result: {}", result);
+        //     }
+        //     Err(err) => {
+        //         println!("error: {:?}", err);
+        //     }
+        // }
+
         // SpawnOption::new().spawn(Self::start, 0, self.lio.name.as_ref())
         None
     }

@@ -25,189 +25,368 @@ pub enum WasmMnemonicType {
 
 #[derive(Debug, Copy, Clone)]
 pub enum WasmOpcode {
-    Unreachable = 0x00, // unreachable
-    Nop = 0x01, // nop
-    Block = 0x02, // block
-    Loop = 0x03, // loop
-    If = 0x04, // if
-    Else = 0x05, // else
-    End = 0x0B, // end
-    Br = 0x0C, // br
-    BrIf = 0x0D, // br_if
-    BrTable = 0x0E, // br_table
-    Return = 0x0F, // return
-    Call = 0x10, // call
-    CallIndirect = 0x11, // call_indirect
-    ReturnCall = 0x12, // return_call
-    ReturnCallIndirect = 0x13, // return_call_indirect
-    Drop = 0x1A, // drop
-    Select = 0x1B, // select
-    LocalGet = 0x20, // local.get
-    LocalSet = 0x21, // local.set
-    LocalTee = 0x22, // local.tee
-    GlobalGet = 0x23, // global.get
-    GlobalSet = 0x24, // global.set
-    I32Load = 0x28, // i32.load
-    I64Load = 0x29, // i64.load
-    F32Load = 0x2A, // f32.load
-    F64Load = 0x2B, // f64.load
-    I32Load8S = 0x2C, // i32.load8_s
-    I32Load8U = 0x2D, // i32.load8_u
-    I32Load16S = 0x2E, // i32.load16_s
-    I32Load16U = 0x2F, // i32.load16_u
-    I64Load8S = 0x30, // i64.load8_s
-    I64Load8U = 0x31, // i64.load8_u
-    I64Load16S = 0x32, // i64.load16_s
-    I64Load16U = 0x33, // i64.load16_u
-    I64Load32S = 0x34, // i64.load32_s
-    I64Load32U = 0x35, // i64.load32_u
-    I32Store = 0x36, // i32.store
-    I64Store = 0x37, // i64.store
-    F32Store = 0x38, // f32.store
-    F64Store = 0x39, // f64.store
-    I32Store8 = 0x3A, // i32.store8
-    I32Store16 = 0x3B, // i32.store16
-    I64Store8 = 0x3C, // i64.store8
-    I64Store16 = 0x3D, // i64.store16
-    I64Store32 = 0x3E, // i64.store32
-    MemorySize = 0x3F, // memory.size
-    MemoryGrow = 0x40, // memory.grow
-    I32Const = 0x41, // i32.const
-    I64Const = 0x42, // i64.const
-    F32Const = 0x43, // f32.const
-    F64Const = 0x44, // f64.const
-    I32Eqz = 0x45, // i32.eqz
-    I32Eq = 0x46, // i32.eq
-    I32Ne = 0x47, // i32.ne
-    I32LtS = 0x48, // i32.lt_s
-    I32LtU = 0x49, // i32.lt_u
-    I32GtS = 0x4A, // i32.gt_s
-    I32GtU = 0x4B, // i32.gt_u
-    I32LeS = 0x4C, // i32.le_s
-    I32LeU = 0x4D, // i32.le_u
-    I32GeS = 0x4E, // i32.ge_s
-    I32GeU = 0x4F, // i32.ge_u
-    I64Eqz = 0x50, // i64.eqz
-    I64Eq = 0x51, // i64.eq
-    I64Ne = 0x52, // i64.ne
-    I64LtS = 0x53, // i64.lt_s
-    I64LtU = 0x54, // i64.lt_u
-    I64GtS = 0x55, // i64.gt_s
-    I64GtU = 0x56, // i64.gt_u
-    I64LeS = 0x57, // i64.le_s
-    I64LeU = 0x58, // i64.le_u
-    I64GeS = 0x59, // i64.ge_s
-    I64GeU = 0x5A, // i64.ge_u
-    F32Eq = 0x5B, // f32.eq
-    F32Ne = 0x5C, // f32.ne
-    F32Lt = 0x5D, // f32.lt
-    F32Gt = 0x5E, // f32.gt
-    F32Le = 0x5F, // f32.le
-    F32Ge = 0x60, // f32.ge
-    F64Eq = 0x61, // f64.eq
-    F64Ne = 0x62, // f64.ne
-    F64Lt = 0x63, // f64.lt
-    F64Gt = 0x64, // f64.gt
-    F64Le = 0x65, // f64.le
-    F64Ge = 0x66, // f64.ge
-    I32Clz = 0x67, // i32.clz
-    I32Ctz = 0x68, // i32.ctz
-    I32Popcnt = 0x69, // i32.popcnt
-    I32Add = 0x6A, // i32.add
-    I32Sub = 0x6B, // i32.sub
-    I32Mul = 0x6C, // i32.mul
-    I32DivS = 0x6D, // i32.div_s
-    I32DivU = 0x6E, // i32.div_u
-    I32RemS = 0x6F, // i32.rem_s
-    I32RemU = 0x70, // i32.rem_u
-    I32And = 0x71, // i32.and
-    I32Or = 0x72, // i32.or
-    I32Xor = 0x73, // i32.xor
-    I32Shl = 0x74, // i32.shl
-    I32ShrS = 0x75, // i32.shr_s
-    I32ShrU = 0x76, // i32.shr_u
-    I32Rotl = 0x77, // i32.rotl
-    I32Rotr = 0x78, // i32.rotr
-    I64Clz = 0x79, // i64.clz
-    I64Ctz = 0x7A, // i64.ctz
-    I64Popcnt = 0x7B, // i64.popcnt
-    I64Add = 0x7C, // i64.add
-    I64Sub = 0x7D, // i64.sub
-    I64Mul = 0x7E, // i64.mul
-    I64DivS = 0x7F, // i64.div_s
-    I64DivU = 0x80, // i64.div_u
-    I64RemS = 0x81, // i64.rem_s
-    I64RemU = 0x82, // i64.rem_u
-    I64And = 0x83, // i64.and
-    I64Or = 0x84, // i64.or
-    I64Xor = 0x85, // i64.xor
-    I64Shl = 0x86, // i64.shl
-    I64ShrS = 0x87, // i64.shr_s
-    I64ShrU = 0x88, // i64.shr_u
-    I64Rotl = 0x89, // i64.rotl
-    I64Rotr = 0x8A, // i64.rotr
-    F32Abs = 0x8B, // f32.abs
-    F32Neg = 0x8C, // f32.neg
-    F32Ceil = 0x8D, // f32.ceil
-    F32Floor = 0x8E, // f32.floor
-    F32Trunc = 0x8F, // f32.trunc
-    F32Nearest = 0x90, // f32.nearest
-    F32Sqrt = 0x91, // f32.sqrt
-    F32Add = 0x92, // f32.add
-    F32Sub = 0x93, // f32.sub
-    F32Mul = 0x94, // f32.mul
-    F32Div = 0x95, // f32.div
-    F32Min = 0x96, // f32.min
-    F32Max = 0x97, // f32.max
-    F32Copysign = 0x98, // f32.copysign
-    F64Abs = 0x99, // f64.abs
-    F64Neg = 0x9A, // f64.neg
-    F64Ceil = 0x9B, // f64.ceil
-    F64Floor = 0x9C, // f64.floor
-    F64Trunc = 0x9D, // f64.trunc
-    F64Nearest = 0x9E, // f64.nearest
-    F64Sqrt = 0x9F, // f64.sqrt
-    F64Add = 0xA0, // f64.add
-    F64Sub = 0xA1, // f64.sub
-    F64Mul = 0xA2, // f64.mul
-    F64Div = 0xA3, // f64.div
-    F64Min = 0xA4, // f64.min
-    F64Max = 0xA5, // f64.max
-    F64Copysign = 0xA6, // f64.copysign
-    I32WrapI64 = 0xA7, // i32.wrap_i64
-    I32TruncF32S = 0xA8, // i32.trunc_f32_s
-    I32TruncF32U = 0xA9, // i32.trunc_f32_u
-    I32TruncF64S = 0xAA, // i32.trunc_f64_s
-    I32TruncF64U = 0xAB, // i32.trunc_f64_u
-    I64ExtendI32S = 0xAC, // i64.extend_i32_s
-    I64ExtendI32U = 0xAD, // i64.extend_i32_u
-    I64TruncF32S = 0xAE, // i64.trunc_f32_s
-    I64TruncF32U = 0xAF, // i64.trunc_f32_u
-    I64TruncF64S = 0xB0, // i64.trunc_f64_s
-    I64TruncF64U = 0xB1, // i64.trunc_f64_u
-    F32ConvertI32S = 0xB2, // f32.convert_i32_s
-    F32ConvertI32U = 0xB3, // f32.convert_i32_u
-    F32ConvertI64S = 0xB4, // f32.convert_i64_s
-    F32ConvertI64U = 0xB5, // f32.convert_i64_u
-    F32DemoteF64 = 0xB6, // f32.demote_f64
-    F64ConvertI32S = 0xB7, // f64.convert_i32_s
-    F64ConvertI32U = 0xB8, // f64.convert_i32_u
-    F64ConvertI64S = 0xB9, // f64.convert_i64_s
-    F64ConvertI64U = 0xBA, // f64.convert_i64_u
-    F64PromoteF32 = 0xBB, // f64.promote_f32
-    I32ReinterpretF32 = 0xBC, // i32.reinterpret_f32
-    I64ReinterpretF64 = 0xBD, // i64.reinterpret_f64
-    F32ReinterpretI32 = 0xBE, // f32.reinterpret_i32
-    F64ReinterpretI64 = 0xBF, // f64.reinterpret_i64
-    I32Extend8S = 0xC0, // i32.extend8_s
-    I32Extend16S = 0xC1, // i32.extend16_s
-    I64Extend8S = 0xC2, // i64.extend8_s
-    I64Extend16S = 0xC3, // i64.extend16_s
-    I64Extend32S = 0xC4, // i64.extend32_s
+    /// 00 unreachable 
+    Unreachable = 0x00,
+    /// 01 nop 
+    Nop = 0x01,
+    /// 02 block block_type; expr; end
+    Block = 0x02,
+    /// 03 loop block_type; expr; end
+    Loop = 0x03,
+    /// 04 if block_type; expr; else; expr; end
+    If = 0x04,
+    /// 05 else expr; end
+    Else = 0x05,
+    /// 0B end 
+    End = 0x0B,
+    /// 0C br labelidx
+    Br = 0x0C,
+    /// 0D br_if labelidx
+    BrIf = 0x0D,
+    /// 0E br_table vec(labelidx) labelidx
+    BrTable = 0x0E,
+    /// 0F return 
+    Return = 0x0F,
+    /// 10 call funcidx
+    Call = 0x10,
+    /// 11 call_indirect typeidx 0x00
+    CallIndirect = 0x11,
+    /// 12 return_call funcidx
+    ReturnCall = 0x12,
+    /// 13 return_call_indirect typeidx 0x00
+    ReturnCallIndirect = 0x13,
+    /// 1A drop 
+    Drop = 0x1A,
+    /// 1B select 
+    Select = 0x1B,
+    /// 20 local.get localidx
+    LocalGet = 0x20,
+    /// 21 local.set localidx
+    LocalSet = 0x21,
+    /// 22 local.tee localidx
+    LocalTee = 0x22,
+    /// 23 global.get globalidx
+    GlobalGet = 0x23,
+    /// 24 global.set globalidx
+    GlobalSet = 0x24,
+    /// 28 i32.load align offset
+    I32Load = 0x28,
+    /// 29 i64.load align offset
+    I64Load = 0x29,
+    /// 2A f32.load align offset
+    F32Load = 0x2A,
+    /// 2B f64.load align offset
+    F64Load = 0x2B,
+    /// 2C i32.load8_s align offset
+    I32Load8S = 0x2C,
+    /// 2D i32.load8_u align offset
+    I32Load8U = 0x2D,
+    /// 2E i32.load16_s align offset
+    I32Load16S = 0x2E,
+    /// 2F i32.load16_u align offset
+    I32Load16U = 0x2F,
+    /// 30 i64.load8_s align offset
+    I64Load8S = 0x30,
+    /// 31 i64.load8_u align offset
+    I64Load8U = 0x31,
+    /// 32 i64.load16_s align offset
+    I64Load16S = 0x32,
+    /// 33 i64.load16_u align offset
+    I64Load16U = 0x33,
+    /// 34 i64.load32_s align offset
+    I64Load32S = 0x34,
+    /// 35 i64.load32_u align offset
+    I64Load32U = 0x35,
+    /// 36 i32.store align offset
+    I32Store = 0x36,
+    /// 37 i64.store align offset
+    I64Store = 0x37,
+    /// 38 f32.store align offset
+    F32Store = 0x38,
+    /// 39 f64.store align offset
+    F64Store = 0x39,
+    /// 3A i32.store8 align offset
+    I32Store8 = 0x3A,
+    /// 3B i32.store16 align offset
+    I32Store16 = 0x3B,
+    /// 3C i64.store8 align offset
+    I64Store8 = 0x3C,
+    /// 3D i64.store16 align offset
+    I64Store16 = 0x3D,
+    /// 3E i64.store32 align offset
+    I64Store32 = 0x3E,
+    /// 3F memory.size 0x00
+    MemorySize = 0x3F,
+    /// 40 memory.grow 0x00
+    MemoryGrow = 0x40,
+    /// 41 i32.const n
+    I32Const = 0x41,
+    /// 42 i64.const n
+    I64Const = 0x42,
+    /// 43 f32.const z
+    F32Const = 0x43,
+    /// 44 f64.const z
+    F64Const = 0x44,
+    /// 45 i32.eqz 
+    I32Eqz = 0x45,
+    /// 46 i32.eq 
+    I32Eq = 0x46,
+    /// 47 i32.ne 
+    I32Ne = 0x47,
+    /// 48 i32.lt_s 
+    I32LtS = 0x48,
+    /// 49 i32.lt_u 
+    I32LtU = 0x49,
+    /// 4A i32.gt_s 
+    I32GtS = 0x4A,
+    /// 4B i32.gt_u 
+    I32GtU = 0x4B,
+    /// 4C i32.le_s 
+    I32LeS = 0x4C,
+    /// 4D i32.le_u 
+    I32LeU = 0x4D,
+    /// 4E i32.ge_s 
+    I32GeS = 0x4E,
+    /// 4F i32.ge_u 
+    I32GeU = 0x4F,
+    /// 50 i64.eqz 
+    I64Eqz = 0x50,
+    /// 51 i64.eq 
+    I64Eq = 0x51,
+    /// 52 i64.ne 
+    I64Ne = 0x52,
+    /// 53 i64.lt_s 
+    I64LtS = 0x53,
+    /// 54 i64.lt_u 
+    I64LtU = 0x54,
+    /// 55 i64.gt_s 
+    I64GtS = 0x55,
+    /// 56 i64.gt_u 
+    I64GtU = 0x56,
+    /// 57 i64.le_s 
+    I64LeS = 0x57,
+    /// 58 i64.le_u 
+    I64LeU = 0x58,
+    /// 59 i64.ge_s 
+    I64GeS = 0x59,
+    /// 5A i64.ge_u 
+    I64GeU = 0x5A,
+    /// 5B f32.eq 
+    F32Eq = 0x5B,
+    /// 5C f32.ne 
+    F32Ne = 0x5C,
+    /// 5D f32.lt 
+    F32Lt = 0x5D,
+    /// 5E f32.gt 
+    F32Gt = 0x5E,
+    /// 5F f32.le 
+    F32Le = 0x5F,
+    /// 60 f32.ge 
+    F32Ge = 0x60,
+    /// 61 f64.eq 
+    F64Eq = 0x61,
+    /// 62 f64.ne 
+    F64Ne = 0x62,
+    /// 63 f64.lt 
+    F64Lt = 0x63,
+    /// 64 f64.gt 
+    F64Gt = 0x64,
+    /// 65 f64.le 
+    F64Le = 0x65,
+    /// 66 f64.ge 
+    F64Ge = 0x66,
+    /// 67 i32.clz 
+    I32Clz = 0x67,
+    /// 68 i32.ctz 
+    I32Ctz = 0x68,
+    /// 69 i32.popcnt 
+    I32Popcnt = 0x69,
+    /// 6A i32.add 
+    I32Add = 0x6A,
+    /// 6B i32.sub 
+    I32Sub = 0x6B,
+    /// 6C i32.mul 
+    I32Mul = 0x6C,
+    /// 6D i32.div_s 
+    I32DivS = 0x6D,
+    /// 6E i32.div_u 
+    I32DivU = 0x6E,
+    /// 6F i32.rem_s 
+    I32RemS = 0x6F,
+    /// 70 i32.rem_u 
+    I32RemU = 0x70,
+    /// 71 i32.and 
+    I32And = 0x71,
+    /// 72 i32.or 
+    I32Or = 0x72,
+    /// 73 i32.xor 
+    I32Xor = 0x73,
+    /// 74 i32.shl 
+    I32Shl = 0x74,
+    /// 75 i32.shr_s 
+    I32ShrS = 0x75,
+    /// 76 i32.shr_u 
+    I32ShrU = 0x76,
+    /// 77 i32.rotl 
+    I32Rotl = 0x77,
+    /// 78 i32.rotr 
+    I32Rotr = 0x78,
+    /// 79 i64.clz 
+    I64Clz = 0x79,
+    /// 7A i64.ctz 
+    I64Ctz = 0x7A,
+    /// 7B i64.popcnt 
+    I64Popcnt = 0x7B,
+    /// 7C i64.add 
+    I64Add = 0x7C,
+    /// 7D i64.sub 
+    I64Sub = 0x7D,
+    /// 7E i64.mul 
+    I64Mul = 0x7E,
+    /// 7F i64.div_s 
+    I64DivS = 0x7F,
+    /// 80 i64.div_u 
+    I64DivU = 0x80,
+    /// 81 i64.rem_s 
+    I64RemS = 0x81,
+    /// 82 i64.rem_u 
+    I64RemU = 0x82,
+    /// 83 i64.and 
+    I64And = 0x83,
+    /// 84 i64.or 
+    I64Or = 0x84,
+    /// 85 i64.xor 
+    I64Xor = 0x85,
+    /// 86 i64.shl 
+    I64Shl = 0x86,
+    /// 87 i64.shr_s 
+    I64ShrS = 0x87,
+    /// 88 i64.shr_u 
+    I64ShrU = 0x88,
+    /// 89 i64.rotl 
+    I64Rotl = 0x89,
+    /// 8A i64.rotr 
+    I64Rotr = 0x8A,
+    /// 8B f32.abs 
+    F32Abs = 0x8B,
+    /// 8C f32.neg 
+    F32Neg = 0x8C,
+    /// 8D f32.ceil 
+    F32Ceil = 0x8D,
+    /// 8E f32.floor 
+    F32Floor = 0x8E,
+    /// 8F f32.trunc 
+    F32Trunc = 0x8F,
+    /// 90 f32.nearest 
+    F32Nearest = 0x90,
+    /// 91 f32.sqrt 
+    F32Sqrt = 0x91,
+    /// 92 f32.add 
+    F32Add = 0x92,
+    /// 93 f32.sub 
+    F32Sub = 0x93,
+    /// 94 f32.mul 
+    F32Mul = 0x94,
+    /// 95 f32.div 
+    F32Div = 0x95,
+    /// 96 f32.min 
+    F32Min = 0x96,
+    /// 97 f32.max 
+    F32Max = 0x97,
+    /// 98 f32.copysign 
+    F32Copysign = 0x98,
+    /// 99 f64.abs 
+    F64Abs = 0x99,
+    /// 9A f64.neg 
+    F64Neg = 0x9A,
+    /// 9B f64.ceil 
+    F64Ceil = 0x9B,
+    /// 9C f64.floor 
+    F64Floor = 0x9C,
+    /// 9D f64.trunc 
+    F64Trunc = 0x9D,
+    /// 9E f64.nearest 
+    F64Nearest = 0x9E,
+    /// 9F f64.sqrt 
+    F64Sqrt = 0x9F,
+    /// A0 f64.add 
+    F64Add = 0xA0,
+    /// A1 f64.sub 
+    F64Sub = 0xA1,
+    /// A2 f64.mul 
+    F64Mul = 0xA2,
+    /// A3 f64.div 
+    F64Div = 0xA3,
+    /// A4 f64.min 
+    F64Min = 0xA4,
+    /// A5 f64.max 
+    F64Max = 0xA5,
+    /// A6 f64.copysign 
+    F64Copysign = 0xA6,
+    /// A7 i32.wrap_i64 
+    I32WrapI64 = 0xA7,
+    /// A8 i32.trunc_f32_s 
+    I32TruncF32S = 0xA8,
+    /// A9 i32.trunc_f32_u 
+    I32TruncF32U = 0xA9,
+    /// AA i32.trunc_f64_s 
+    I32TruncF64S = 0xAA,
+    /// AB i32.trunc_f64_u 
+    I32TruncF64U = 0xAB,
+    /// AC i64.extend_i32_s 
+    I64ExtendI32S = 0xAC,
+    /// AD i64.extend_i32_u 
+    I64ExtendI32U = 0xAD,
+    /// AE i64.trunc_f32_s 
+    I64TruncF32S = 0xAE,
+    /// AF i64.trunc_f32_u 
+    I64TruncF32U = 0xAF,
+    /// B0 i64.trunc_f64_s 
+    I64TruncF64S = 0xB0,
+    /// B1 i64.trunc_f64_u 
+    I64TruncF64U = 0xB1,
+    /// B2 f32.convert_i32_s 
+    F32ConvertI32S = 0xB2,
+    /// B3 f32.convert_i32_u 
+    F32ConvertI32U = 0xB3,
+    /// B4 f32.convert_i64_s 
+    F32ConvertI64S = 0xB4,
+    /// B5 f32.convert_i64_u 
+    F32ConvertI64U = 0xB5,
+    /// B6 f32.demote_f64 
+    F32DemoteF64 = 0xB6,
+    /// B7 f64.convert_i32_s 
+    F64ConvertI32S = 0xB7,
+    /// B8 f64.convert_i32_u 
+    F64ConvertI32U = 0xB8,
+    /// B9 f64.convert_i64_s 
+    F64ConvertI64S = 0xB9,
+    /// BA f64.convert_i64_u 
+    F64ConvertI64U = 0xBA,
+    /// BB f64.promote_f32 
+    F64PromoteF32 = 0xBB,
+    /// BC i32.reinterpret_f32 
+    I32ReinterpretF32 = 0xBC,
+    /// BD i64.reinterpret_f64 
+    I64ReinterpretF64 = 0xBD,
+    /// BE f32.reinterpret_i32 
+    F32ReinterpretI32 = 0xBE,
+    /// BF f64.reinterpret_i64 
+    F64ReinterpretI64 = 0xBF,
+    /// C0 i32.extend8_s 
+    I32Extend8S = 0xC0,
+    /// C1 i32.extend16_s 
+    I32Extend16S = 0xC1,
+    /// C2 i64.extend8_s 
+    I64Extend8S = 0xC2,
+    /// C3 i64.extend16_s 
+    I64Extend16S = 0xC3,
+    /// C4 i64.extend32_s 
+    I64Extend32S = 0xC4,
 }
 
 impl WasmOpcode {
-    pub fn from_usize(value: usize) -> Self {
+    pub fn from_u8(value: u8) -> Self {
         Self::try_from(value).unwrap_or(Self::Unreachable)
     }
 
@@ -448,10 +627,10 @@ impl WasmOpcode {
     }
 }
 
-impl TryFrom<usize> for WasmOpcode {
+impl TryFrom<u8> for WasmOpcode {
     type Error = ();
 
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0x00 => Ok(Self::Unreachable),
             0x01 => Ok(Self::Nop),

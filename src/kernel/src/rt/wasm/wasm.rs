@@ -3,8 +3,10 @@
 use super::opcode::*;
 use crate::*;
 use alloc::string::*;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use byteorder::*;
+use core::cell::{RefCell, UnsafeCell};
 use core::fmt;
 use core::slice;
 use core::str;
@@ -14,8 +16,11 @@ pub struct WasmLoader {
 }
 
 impl WasmLoader {
+    /// Minimal valid module size, Magic(4) + Version(4) + Empty sections(0) = 8
     const MINIMAL_MOD_SIZE: usize = 8;
+    /// Magic number of WebAssembly Binary Format
     const MAGIC: u32 = 0x6D736100;
+    /// Current Version
     const VER_CURRENT: u32 = 0x0000_0001;
 
     pub(super) fn new() -> Self {
@@ -24,12 +29,14 @@ impl WasmLoader {
         }
     }
 
+    /// Identify the file format
     pub fn identity(blob: &[u8]) -> bool {
         blob.len() >= Self::MINIMAL_MOD_SIZE
             && LE::read_u32(&blob[0..4]) == Self::MAGIC
             && LE::read_u32(&blob[4..8]) == Self::VER_CURRENT
     }
 
+    /// Instantiate wasm modules from slice
     pub fn instantiate(blob: &[u8]) -> Result<WasmModule, WasmDecodeError> {
         if Self::identity(blob) {
             let mut loader = Self::new();
@@ -63,6 +70,10 @@ impl WasmLoader {
 
     pub fn print_stat(&mut self) {
         self.module.print_stat();
+    }
+
+    pub fn module(&mut self) -> &WasmModule {
+        &self.module
     }
 
     /// Parse "type" section
@@ -207,13 +218,10 @@ impl WasmLoader {
 
     fn eval_offset(&mut self, stream: &mut Leb128Stream) -> Result<u64, WasmDecodeError> {
         stream
-            .read_uint()
-            .and_then(|opc| match WasmOpcode::from_usize(opc as usize) {
+            .read_byte()
+            .and_then(|opc| match WasmOpcode::from_u8(opc) {
                 WasmOpcode::I32Const => stream.read_uint().and_then(|r| {
-                    match stream
-                        .read_uint()
-                        .map(|v| WasmOpcode::from_usize(v as usize))
-                    {
+                    match stream.read_byte().map(|v| WasmOpcode::from_u8(v)) {
                         Ok(WasmOpcode::End) => Ok(r),
                         _ => Err(WasmDecodeError::UnexpectedToken),
                     }
@@ -252,6 +260,10 @@ impl WasmModule {
         self.types.as_slice()
     }
 
+    pub fn type_by_ref(&self, index: usize) -> Option<&WasmType> {
+        self.types.get(index)
+    }
+
     pub fn imports(&self) -> &[WasmImport] {
         self.imports.as_slice()
     }
@@ -270,6 +282,10 @@ impl WasmModule {
 
     pub fn functions(&self) -> &[WasmFunction] {
         self.functions.as_slice()
+    }
+
+    pub fn func_by_ref(&self, index: usize) -> Option<&WasmFunction> {
+        self.functions.get(index)
     }
 
     pub fn start(&self) -> Option<usize> {
@@ -339,9 +355,10 @@ impl WasmModule {
                 local_index += 1;
             }
         }
-        let mut stream = Leb128Stream::from_slice(body.code_block.as_slice());
-        while let Ok(opcode) = stream.read_uint() {
-            let op = WasmOpcode::from_usize(opcode as usize);
+        let code_block = body.code_block.borrow();
+        let mut stream = Leb128Stream::from_slice(&code_block);
+        while let Ok(opcode) = stream.read_byte() {
+            let op = WasmOpcode::from_u8(opcode);
             match op.mnemonic_type() {
                 WasmMnemonicType::Local => {
                     let opr = stream.read_uint()?;
@@ -352,8 +369,12 @@ impl WasmModule {
                     println!(" {} ${}", op.to_str(), opr);
                 }
                 WasmMnemonicType::I32 => {
-                    let opr = stream.read_uint()?;
-                    println!(" {} {}", op.to_str(), opr);
+                    let opr = stream.read_sint()? as i32;
+                    println!(" {} {} ;; 0x{:x}", op.to_str(), opr, opr);
+                }
+                WasmMnemonicType::I64 => {
+                    let opr = stream.read_sint()?;
+                    println!(" {} {} ;; 0x{:x}", op.to_str(), opr, opr);
                 }
                 _ => println!(" {}", op.to_str()),
             }
@@ -364,38 +385,42 @@ impl WasmModule {
 
 pub struct Leb128Stream<'a> {
     blob: &'a [u8],
-    cursor: usize,
+    position: usize,
 }
 
 impl<'a> Leb128Stream<'a> {
     pub const fn from_slice(slice: &'a [u8]) -> Self {
         Self {
             blob: slice,
-            cursor: 0,
+            position: 0,
         }
     }
 }
 
 #[allow(dead_code)]
 impl Leb128Stream<'_> {
+    pub const fn position(&self) -> usize {
+        self.position
+    }
+
     pub const fn is_eof(&self) -> bool {
-        self.cursor >= self.blob.len()
+        self.position >= self.blob.len()
     }
 
     pub fn read_byte(&mut self) -> Result<u8, WasmDecodeError> {
         if self.is_eof() {
             return Err(WasmDecodeError::UnexpectedEof);
         }
-        let d = self.blob[self.cursor];
-        self.cursor += 1;
+        let d = self.blob[self.position];
+        self.position += 1;
         Ok(d)
     }
 
     pub fn get_bytes(&mut self, size: usize) -> Result<&[u8], WasmDecodeError> {
         let limit = self.blob.len();
-        if self.cursor <= limit && size <= limit && self.cursor + size <= limit {
-            let offset = self.cursor;
-            self.cursor += size;
+        if self.position <= limit && size <= limit && self.position + size <= limit {
+            let offset = self.position;
+            self.position += size;
             Ok(&self.blob[offset..offset + size])
         } else {
             Err(WasmDecodeError::UnexpectedEof)
@@ -410,7 +435,7 @@ impl Leb128Stream<'_> {
     pub fn read_uint(&mut self) -> Result<u64, WasmDecodeError> {
         let mut value: u64 = 0;
         let mut scale = 0;
-        let mut cursor = self.cursor;
+        let mut cursor = self.position;
         loop {
             if self.is_eof() {
                 return Err(WasmDecodeError::UnexpectedEof);
@@ -423,8 +448,33 @@ impl Leb128Stream<'_> {
                 break;
             }
         }
-        self.cursor = cursor;
+        self.position = cursor;
         Ok(value)
+    }
+
+    pub fn read_sint(&mut self) -> Result<i64, WasmDecodeError> {
+        let mut value: u64 = 0;
+        let mut scale = 0;
+        let mut cursor = self.position;
+        let signed = loop {
+            if self.is_eof() {
+                return Err(WasmDecodeError::UnexpectedEof);
+            }
+            let d = self.blob[cursor];
+            cursor += 1;
+            value |= (d as u64 & 0x7F) << scale;
+            let signed = (d & 0x40) != 0;
+            if (d & 0x80) == 0 {
+                break signed;
+            }
+            scale += 7;
+        };
+        self.position = cursor;
+        if signed {
+            Ok((value | 0xFFFF_FFFF_FFFF_FFC0 << scale) as i64)
+        } else {
+            Ok(value as i64)
+        }
     }
 
     pub fn get_string(&mut self) -> Result<&str, WasmDecodeError> {
@@ -441,11 +491,11 @@ impl Leb128Stream<'_> {
             Some(v) => v as usize,
             None => return None,
         };
-        let offset = self.cursor;
-        self.cursor += size;
+        let offset = self.position;
+        self.position += size;
         let stream = Leb128Stream {
             blob: &self.blob[offset..offset + size],
-            cursor: 0,
+            position: 0,
         };
         Some(WasmSection {
             section_type: section_type.into(),
@@ -565,7 +615,7 @@ impl WasmLimit {
 #[allow(dead_code)]
 pub struct WasmMemory {
     limit: WasmLimit,
-    memory: Vec<u8>,
+    memory: Arc<UnsafeCell<Vec<u8>>>,
 }
 
 impl WasmMemory {
@@ -575,27 +625,34 @@ impl WasmMemory {
         let size = limit.min as usize * Self::PAGE_SIZE;
         let mut memory = Vec::with_capacity(size);
         memory.resize(size, 0);
-        Self { limit, memory }
+        Self {
+            limit,
+            memory: Arc::new(UnsafeCell::new(memory)),
+        }
     }
 
     pub fn limit(&self) -> WasmLimit {
         self.limit
     }
 
-    pub fn memory(&mut self) -> &mut [u8] {
-        self.memory.as_mut_slice()
+    pub fn memory_arc(&mut self) -> Arc<UnsafeCell<Vec<u8>>> {
+        self.memory.clone()
+    }
+
+    pub fn memory(&self) -> &[u8] {
+        unsafe { self.memory.get().as_ref().unwrap() }
+    }
+
+    pub fn memory_mut(&mut self) -> &mut [u8] {
+        unsafe { self.memory.get().as_mut().unwrap() }
     }
 
     /// Read the specified range of memory
     pub fn read_bytes(&self, offset: usize, size: usize) -> Result<&[u8], WasmMemoryError> {
-        let limit = self.memory.len();
+        let memory = self.memory();
+        let limit = memory.len();
         if offset < limit && size < limit && offset + size < limit {
-            unsafe {
-                Ok(slice::from_raw_parts(
-                    &self.memory[offset] as *const _,
-                    size,
-                ))
-            }
+            unsafe { Ok(slice::from_raw_parts(&memory[offset] as *const _, size)) }
         } else {
             Err(WasmMemoryError::OutOfBounds)
         }
@@ -603,10 +660,11 @@ impl WasmMemory {
 
     /// Write slice to memory
     pub fn write_bytes(&mut self, offset: usize, src: &[u8]) -> Result<(), WasmMemoryError> {
+        let memory = self.memory_mut();
         let size = src.len();
-        let limit = self.memory.len();
+        let limit = memory.len();
         if offset < limit && size < limit && offset + size < limit {
-            let dest = &mut self.memory[offset] as *mut u8;
+            let dest = &mut memory[offset] as *mut u8;
             let src = &src[0] as *const u8;
             unsafe {
                 dest.copy_from_nonoverlapping(src, size);
@@ -623,6 +681,7 @@ impl WasmMemory {
 #[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
 pub enum WasmMemoryError {
+    NullPointerException,
     OutOfBounds,
     OutOfMemory,
 }
@@ -729,6 +788,14 @@ impl WasmType {
                 .map(|v| result.push(v))?;
         }
         Ok(Self { params, result })
+    }
+
+    pub fn param_types(&self) -> &[WasmValType] {
+        self.params.as_slice()
+    }
+
+    pub fn result_types(&self) -> &[WasmValType] {
+        self.result.as_slice()
     }
 }
 
@@ -862,7 +929,7 @@ impl WasmExportType {
 #[allow(dead_code)]
 pub struct WasmFunctionBody {
     locals: Vec<WasmValType>,
-    code_block: Vec<u8>,
+    code_block: Arc<RefCell<Vec<u8>>>,
 }
 
 impl WasmFunctionBody {
@@ -878,7 +945,7 @@ impl WasmFunctionBody {
                 locals.push(val);
             }
         }
-        let contents = blob[stream.cursor..].to_vec();
+        let contents = Arc::new(RefCell::new(blob[stream.position..].to_vec()));
         Ok(Self {
             locals,
             code_block: contents,
@@ -889,7 +956,7 @@ impl WasmFunctionBody {
         self.locals.as_slice()
     }
 
-    pub fn code_block(&self) -> &[u8] {
-        self.code_block.as_slice()
+    pub fn code_block(&self) -> Arc<RefCell<Vec<u8>>> {
+        self.code_block.clone()
     }
 }
