@@ -195,7 +195,7 @@ impl WasmLoader {
         let n_items = section.stream.read_uint()?;
         for _ in 0..n_items {
             let memidx = section.stream.read_uint()? as usize;
-            let offset = self.eval_offset(&mut section.stream)? as usize;
+            let offset = self.eval_offset(&mut section.stream)?;
             let src = section.stream.read_bytes()?;
             let memory = self
                 .module
@@ -214,13 +214,13 @@ impl WasmLoader {
         Ok(())
     }
 
-    fn eval_offset(&mut self, stream: &mut Leb128Stream) -> Result<u64, WasmDecodeError> {
+    fn eval_offset(&mut self, stream: &mut Leb128Stream) -> Result<usize, WasmDecodeError> {
         stream
             .read_byte()
             .and_then(|opc| match WasmOpcode::from_u8(opc) {
-                WasmOpcode::I32Const => stream.read_uint().and_then(|r| {
+                WasmOpcode::I32Const => stream.read_sint().and_then(|r| {
                     match stream.read_byte().map(|v| WasmOpcode::from_u8(v)) {
-                        Ok(WasmOpcode::End) => Ok(r),
+                        Ok(WasmOpcode::End) => Ok((r as u32) as usize),
                         _ => Err(WasmDecodeError::UnexpectedToken),
                     }
                 }),
@@ -477,7 +477,7 @@ impl Leb128Stream<'_> {
     }
 
     fn next_section(&mut self) -> Option<WasmSection> {
-        let section_type = match self.read_uint().ok() {
+        let section_type = match self.read_byte().ok() {
             Some(v) => v,
             None => return None,
         };
@@ -527,8 +527,8 @@ enum WasmSectionType {
     Data,
 }
 
-impl From<u64> for WasmSectionType {
-    fn from(v: u64) -> Self {
+impl From<u8> for WasmSectionType {
+    fn from(v: u8) -> Self {
         match v {
             1 => WasmSectionType::Type,
             2 => WasmSectionType::Import,
@@ -1038,6 +1038,13 @@ impl WasmValue {
     pub fn get_i32(self) -> Result<i32, WasmRuntimeError> {
         match self {
             Self::I32(a) => Ok(a),
+            _ => return Err(WasmRuntimeError::TypeMismatch),
+        }
+    }
+
+    pub fn get_i64(self) -> Result<i64, WasmRuntimeError> {
+        match self {
+            Self::I64(a) => Ok(a),
             _ => return Err(WasmRuntimeError::TypeMismatch),
         }
     }
