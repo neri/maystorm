@@ -7,12 +7,13 @@ My first toy OS written in Rust.
 * A toy OS written in Rust
 * 64bit OS booting with UEFI
 * Multi-core support for up to 64 cores
+* Support for WebAssembly
 * Built-in Haribote-OS emulator
 
 ## Requirements
 
 * 64bit UEFI 2.X / ACPI 2.X
-* x64 processor with up to 64 cores, Required features: NX RDTSCP RDRAND
+* x64 processor with up to 64 cores, required features: NX RDTSCP RDRAND
 * ??? MB of system memory
 * 800x600 pixels screen
 * PS/2 keyboard and mouse
