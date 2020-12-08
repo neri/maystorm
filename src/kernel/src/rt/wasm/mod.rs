@@ -6,6 +6,7 @@ pub mod wasmintr;
 use super::*;
 use crate::*;
 use alloc::boxed::Box;
+use alloc::string::String;
 use wasm::*;
 
 pub(super) struct WasmRecognizer {
@@ -48,7 +49,11 @@ impl BinaryLoader for WasmBinaryLoader {
     fn load(&mut self, blob: &[u8]) -> Result<(), ()> {
         self.loader
             .load(blob, &|_mod_name, name, _type_ref| match name {
-                "fd_write" => Ok(Box::new(FdWrite::new()) as Box<dyn WasmInvocation>),
+                "syscall0" => Ok(WasmRuntime::wasm_syscall),
+                "syscall1" => Ok(WasmRuntime::wasm_syscall),
+                "syscall2" => Ok(WasmRuntime::wasm_syscall),
+                "syscall3" => Ok(WasmRuntime::wasm_syscall),
+                "syscall4" => Ok(WasmRuntime::wasm_syscall),
                 _ => Err(WasmDecodeError::DynamicLinkError),
             })
             .map_err(|_| ())
@@ -74,40 +79,82 @@ impl BinaryLoader for WasmBinaryLoader {
     }
 }
 
-struct FdWrite {}
+struct WasmRuntime {}
 
-impl FdWrite {
-    const fn new() -> Self {
-        Self {}
-    }
-}
-
-impl WasmInvocation for FdWrite {
-    fn invoke(
-        &self,
+impl WasmRuntime {
+    /// Syscall (temp)
+    fn wasm_syscall(
         module: &WasmModule,
         params: &[WasmValue],
     ) -> Result<WasmValue, WasmRuntimeError> {
-        // fd_write (i32 i32 i32 i32) -> i32
+        let memory = module.memory(0).ok_or(WasmRuntimeError::OutOfMemory)?;
+        let func_no = Self::get_u32(&params, 0)?;
+        match func_no {
+            0 => {
+                // exit
+                let v = Self::get_u32(&params, 1)? as usize;
+                RuntimeEnvironment::exit(v);
+            }
+            1 => {
+                // puts_utf8
+                let m = Self::get_memarg(&params, 1)?;
+                Self::get_string(memory, m).map(|s| print!("{}", s));
+            }
+            2 => {
+                // puts_utf16
+                let m = Self::get_memarg(&params, 1)?;
+                Self::get_string16(memory, m).map(|s| print!("{}", s));
+            }
+            _ => return Err(WasmRuntimeError::InvalidParameter),
+        }
 
-        let memory = module.memory(0).unwrap();
+        Ok(WasmValue::I32(0))
+    }
 
-        let iovs = params
-            .get(1)
+    fn get_u32(params: &[WasmValue], index: usize) -> Result<u32, WasmRuntimeError> {
+        params
+            .get(index)
             .ok_or(WasmRuntimeError::InvalidParameter)
-            .and_then(|v| v.get_u32())? as usize;
-        // let iovs_len = params
-        //     .get(2)
-        //     .ok_or(WasmRuntimeError::InvalidParameter)
-        //     .and_then(|v| v.get_i32())?;
+            .and_then(|v| v.get_u32())
+    }
 
-        let iov_base = memory.read_u32(iovs)? as usize;
-        let iov_len = memory.read_u32(iovs + 4)? as usize;
+    fn get_memarg(params: &[WasmValue], index: usize) -> Result<MemArg, WasmRuntimeError> {
+        let base = Self::get_u32(&params, index)? as usize;
+        let len = Self::get_u32(&params, index + 1)? as usize;
+        Ok(MemArg::new(base, len))
+    }
 
-        let slice = memory.read_bytes(iov_base, iov_len)?;
-        let s = core::str::from_utf8(slice).map_err(|_| WasmRuntimeError::InvalidParameter)?;
-        print!("{}", s);
+    fn get_string(memory: &WasmMemory, memarg: MemArg) -> Option<&str> {
+        memory
+            .read_bytes(memarg.base(), memarg.len())
+            .ok()
+            .and_then(|v| core::str::from_utf8(v).ok())
+    }
 
-        Ok(WasmValue::I32(s.len() as i32))
+    fn get_string16(memory: &WasmMemory, memarg: MemArg) -> Option<String> {
+        memory
+            .read_bytes(memarg.base(), memarg.len() * 2)
+            .ok()
+            .and_then(|v| unsafe { core::mem::transmute(v) })
+            .and_then(|p| String::from_utf16(p).ok())
+    }
+}
+
+struct MemArg {
+    base: usize,
+    len: usize,
+}
+
+impl MemArg {
+    const fn new(base: usize, len: usize) -> Self {
+        Self { base, len }
+    }
+
+    const fn base(&self) -> usize {
+        self.base
+    }
+
+    const fn len(&self) -> usize {
+        self.len
     }
 }

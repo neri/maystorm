@@ -1,8 +1,11 @@
 [workspace]
+exclude = [
+  "apps/",
+]
 members = [
   "src/boot-efi",
   "src/bootprot",
-  "src/kernel", # "src/hello",
+  "src/kernel",
 ]
 
 [profile.release]
