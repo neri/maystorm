@@ -6,8 +6,8 @@ use core::sync::atomic::*;
 use core::time::Duration;
 
 pub struct Semaphore {
-    value: AtomicIsize,
-    signal_object: AtomicObject<SignallingObject>,
+    pub value: AtomicIsize,
+    pub signal_object: AtomicObject<SignallingObject>,
 }
 
 impl Semaphore {

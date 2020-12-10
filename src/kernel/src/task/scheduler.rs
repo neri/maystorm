@@ -395,7 +395,6 @@ impl MyScheduler {
         name: &str,
         options: SpawnOption,
     ) -> Option<ThreadHandle> {
-        assert!(options.priority.is_useful());
         let pid = if options.raise_pid {
             RuntimeEnvironment::raise_pid()
         } else {
@@ -840,10 +839,10 @@ impl ThreadPool {
     }
 
     fn drop_thread(handle: ThreadHandle) {
-        Self::synchronized(|| {
-            let shared = Self::shared();
-            shared.data.remove(&handle);
-        });
+        // Self::synchronized(|| {
+        //     let shared = Self::shared();
+        //     shared.data.remove(&handle);
+        // });
     }
 
     fn get(&self, key: &ThreadHandle) -> Option<&Box<RawThread>> {

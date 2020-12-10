@@ -1286,6 +1286,11 @@ impl WindowHandle {
     }
 
     #[inline]
+    pub const fn as_usize(&self) -> usize {
+        self.0.get()
+    }
+
+    #[inline]
     #[track_caller]
     fn update<F, R>(&self, f: F) -> R
     where

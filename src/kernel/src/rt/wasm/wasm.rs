@@ -93,6 +93,11 @@ impl WasmLoader {
         &self.module
     }
 
+    #[inline]
+    pub fn consume(self) -> WasmModule {
+        self.module
+    }
+
     /// Parse "type" section
     fn parse_sec_type(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
         let n_items = section.stream.read_unsigned()? as usize;

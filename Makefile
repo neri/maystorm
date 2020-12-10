@@ -6,6 +6,7 @@ MNT			= ./mnt
 EFI_BOOT	= $(MNT)/efi/boot
 KERNEL_BIN	= $(EFI_BOOT)/kernel.bin
 BOOT_EFI	= $(EFI_BOOT)/boot$(EFI_ARCH).efi
+INITRD_IMG	= $(EFI_BOOT)/initrd.img
 TARGET_KERNEL	= target/$(RUST_ARCH)/release/kernel.efi
 TARGET_BOOT_EFI	= target/$(RUST_ARCH)/release/boot-efi.efi
 TARGET_ISO	= var/myos.iso
@@ -42,6 +43,7 @@ runs: install $(OVMF)
 	qemu-system-x86_64 -cpu max -smp 4 -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -nographic
 
 install: $(KERNEL_BIN) $(BOOT_EFI)
+	mcopy -D o -i $(INITRD_IMG) apps/target/wasm32-unknown-unknown/release/*.wasm ::
 
 iso: install
 	mkisofs -r -J -o $(TARGET_ISO) $(MNT)

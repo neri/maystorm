@@ -74,6 +74,7 @@ pub trait Personality {
 
 pub enum PersonalityContext<'a> {
     Native,
+    Arlequin(&'a mut wasm::ArleRuntime),
     Hoe(&'a mut haribote::hoe::Hoe),
 }
 
@@ -86,7 +87,7 @@ pub trait BinaryLoader {
 
     fn load(&mut self, blob: &[u8]) -> Result<(), ()>;
 
-    fn invoke_start(&mut self) -> Option<ThreadHandle>;
+    fn invoke_start(self: Box<Self>) -> Option<ThreadHandle>;
 }
 
 #[derive(Debug, Default)]

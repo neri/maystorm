@@ -1,0 +1,11 @@
+[workspace]
+members = [
+  "myoslib",
+  "hello",
+  "hello2",
+  "winhelo",
+]
+
+[profile.release]
+lto = true
+opt-level = "z"
