@@ -8,6 +8,7 @@ use crate::task::scheduler::*;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::mem::size_of;
 use core::sync::atomic::*;
 
 static mut RE: RuntimeEnvironment = RuntimeEnvironment::new();
@@ -67,6 +68,10 @@ impl RuntimeEnvironment {
 }
 
 pub trait Personality {
+    fn info(&self) -> PersonalityInfo {
+        PersonalityInfo::default()
+    }
+
     fn context(&mut self) -> PersonalityContext;
 
     fn on_exit(&mut self);
@@ -74,8 +79,28 @@ pub trait Personality {
 
 pub enum PersonalityContext<'a> {
     Native,
-    Arlequin(&'a mut wasm::ArleRuntime),
+    Arlequin(&'a mut wasm::arle::ArleRuntime),
     Hoe(&'a mut haribote::hoe::Hoe),
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct PersonalityInfo {
+    /// Whether the CPU native binary is running or not.
+    pub is_native: bool,
+    /// Address space for applications. The default value is `size_of::<usize>()`
+    pub address_size: usize,
+    /// Address space of the processor. The default value is `size_of::<usize>()`
+    pub cpu_mode: usize,
+}
+
+impl Default for PersonalityInfo {
+    fn default() -> Self {
+        Self {
+            is_native: true,
+            address_size: size_of::<usize>(),
+            cpu_mode: size_of::<usize>(),
+        }
+    }
 }
 
 pub trait BinaryRecognizer {

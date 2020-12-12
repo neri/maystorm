@@ -839,10 +839,10 @@ impl ThreadPool {
     }
 
     fn drop_thread(handle: ThreadHandle) {
-        // Self::synchronized(|| {
-        //     let shared = Self::shared();
-        //     shared.data.remove(&handle);
-        // });
+        Self::synchronized(|| {
+            let shared = Self::shared();
+            shared.data.remove(&handle);
+        });
     }
 
     fn get(&self, key: &ThreadHandle) -> Option<&Box<RawThread>> {
@@ -1038,6 +1038,8 @@ impl RawThread {
             .as_mut()
             .map(|personality| personality.on_exit());
 
+        // TODO:
+        Timer::sleep(Duration::from_secs(2));
         self.attribute.insert(ThreadAttributes::ZOMBIE);
         MyScheduler::sleep();
         unreachable!();

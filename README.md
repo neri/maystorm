@@ -1,6 +1,6 @@
 # My OS
 
-My first toy OS written in Rust.
+A toy OS written in Rust, one version of which is about 20,000 lines of code and supports multitasking, windows, WebAssembly runtime, and simple applications.
 
 ## Feature
 
@@ -8,7 +8,6 @@ My first toy OS written in Rust.
 * 64bit OS booting with UEFI
 * Multi-core support for up to 64 cores
 * Support for WebAssembly
-* Built-in Haribote-OS emulator
 
 ## Requirements
 

@@ -1,11 +1,13 @@
 // myos system calls
 
+#[link(wasm_import_module = "arl")]
 extern "C" {
     pub fn syscall0(_: usize) -> usize;
     pub fn syscall1(_: usize, _: usize) -> usize;
     pub fn syscall2(_: usize, _: usize, _: usize) -> usize;
     pub fn syscall3(_: usize, _: usize, _: usize, _: usize) -> usize;
     pub fn syscall4(_: usize, _: usize, _: usize, _: usize, _: usize) -> usize;
+    pub fn syscall5(_: usize, _: usize, _: usize, _: usize, _: usize, _: usize) -> usize;
 }
 
 #[inline]
