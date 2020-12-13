@@ -3,7 +3,7 @@ members = [
   "myoslib",
   "hello",
   "hello2",
-  "winhelo",
+  "winhello",
 ]
 
 [profile.release]

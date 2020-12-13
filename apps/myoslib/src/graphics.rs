@@ -9,13 +9,23 @@ pub struct Color {
 }
 
 impl Color {
-    pub const TRANSPARENT: Self = Self::zero();
+    pub const TRANSPARENT: Self = Self::from_argb(0);
+    pub const BLACK: Self = Self::from_rgb(0x212121);
+    pub const BLUE: Self = Self::from_rgb(0x0D47A1);
+    pub const GREEN: Self = Self::from_rgb(0x1B5E20);
+    pub const CYAN: Self = Self::from_rgb(0x006064);
+    pub const RED: Self = Self::from_rgb(0xb71c1c);
+    pub const MAGENTA: Self = Self::from_rgb(0x4A148C);
+    pub const BROWN: Self = Self::from_rgb(0x795548);
+    pub const LIGHT_GRAY: Self = Self::from_rgb(0x9E9E9E);
+    pub const DARK_GRAY: Self = Self::from_rgb(0x616161);
+    pub const LIGHT_BLUE: Self = Self::from_rgb(0x2196F3);
+    pub const LIGHT_GREEN: Self = Self::from_rgb(0x4CAF50);
+    pub const LIGHT_CYAN: Self = Self::from_rgb(0x00BCD4);
+    pub const LIGHT_RED: Self = Self::from_rgb(0xf44336);
+    pub const LIGHT_MAGENTA: Self = Self::from_rgb(0x9C27B0);
+    pub const YELLOW: Self = Self::from_rgb(0xFFEB3B);
     pub const WHITE: Self = Self::from_rgb(0xFFFFFF);
-
-    #[inline]
-    pub const fn zero() -> Self {
-        Color { argb: 0 }
-    }
 
     #[inline]
     pub const fn from_rgb(rgb: u32) -> Self {
@@ -202,6 +212,50 @@ impl Point {
     #[inline]
     pub const fn y(&self) -> isize {
         self.y
+    }
+
+    pub fn line_to<F>(&self, other: Point, mut f: F)
+    where
+        F: FnMut(Self),
+    {
+        let c0 = *self;
+        let c1 = other;
+
+        let d = Point::new(
+            if c1.x > c0.x {
+                c1.x - c0.x
+            } else {
+                c0.x - c1.x
+            },
+            if c1.y > c0.y {
+                c1.y - c0.y
+            } else {
+                c0.y - c1.y
+            },
+        );
+
+        let s = Self::new(
+            if c1.x > c0.x { 1 } else { -1 },
+            if c1.y > c0.y { 1 } else { -1 },
+        );
+
+        let mut c0 = c0;
+        let mut e = d.x - d.y;
+        loop {
+            f(c0);
+            if c0.x == c1.x && c0.y == c1.y {
+                break;
+            }
+            let e2 = e + e;
+            if e2 > -d.y {
+                e -= d.y;
+                c0.x += s.x;
+            }
+            if e2 < d.x {
+                e += d.x;
+                c0.y += s.y;
+            }
+        }
     }
 }
 

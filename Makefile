@@ -1,4 +1,4 @@
-.PHONY: love all clean install iso run runs test
+.PHONY: love all clean install iso run runs test apps
 
 RUST_ARCH	= x86_64-unknown-uefi
 EFI_ARCH	= x64
@@ -53,3 +53,6 @@ $(KERNEL_BIN): $(TARGET_KERNEL) $(EFI_BOOT)
 
 $(BOOT_EFI): $(TARGET_BOOT_EFI) $(EFI_BOOT)
 	cp $< $@
+
+apps:
+	cd apps; cargo build --target wasm32-unknown-unknown --release

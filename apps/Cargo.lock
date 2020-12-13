@@ -19,7 +19,7 @@ name = "myoslib"
 version = "0.1.0"
 
 [[package]]
-name = "winhelo"
+name = "winhello"
 version = "0.1.0"
 dependencies = [
  "myoslib",

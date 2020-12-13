@@ -1,7 +1,10 @@
 // Arlequin Subsystem
 
 use super::*;
+use crate::io::fonts::*;
+use alloc::collections::BTreeMap;
 use core::mem::size_of;
+use core::sync::atomic::*;
 
 pub(super) struct ArleBinaryLoader {
     loader: WasmLoader,
@@ -39,6 +42,7 @@ impl BinaryLoader for ArleBinaryLoader {
                     "syscall3" => Ok(ArleRuntime::syscall),
                     "syscall4" => Ok(ArleRuntime::syscall),
                     "syscall5" => Ok(ArleRuntime::syscall),
+                    "syscall6" => Ok(ArleRuntime::syscall),
                     _ => Err(WasmDecodeError::DynamicLinkError),
                 },
                 _ => Err(WasmDecodeError::DynamicLinkError),
@@ -65,6 +69,8 @@ impl BinaryLoader for ArleBinaryLoader {
 /// Arlequin subsystem
 pub struct ArleRuntime {
     module: WasmModule,
+    next_handle: AtomicUsize,
+    windows: BTreeMap<usize, WindowHandle>,
 }
 
 impl ArleRuntime {
@@ -72,7 +78,15 @@ impl ArleRuntime {
     const ENTRY_FUNC_NAME: &'static str = "_start";
 
     fn new(module: WasmModule) -> Box<Self> {
-        Box::new(Self { module })
+        Box::new(Self {
+            module,
+            next_handle: AtomicUsize::new(1),
+            windows: BTreeMap::new(),
+        })
+    }
+
+    fn next_handle(&self) -> usize {
+        self.next_handle.fetch_add(1, Ordering::SeqCst)
     }
 
     fn start(&self) -> ! {
@@ -97,7 +111,7 @@ impl ArleRuntime {
         .unwrap()
     }
 
-    fn dispatch_syscall(&self, params: &[WasmValue]) -> Result<WasmValue, WasmRuntimeError> {
+    fn dispatch_syscall(&mut self, params: &[WasmValue]) -> Result<WasmValue, WasmRuntimeError> {
         let module = &self.module;
         let memory = module.memory(0).ok_or(WasmRuntimeError::OutOfMemory)?;
         let func_no = Self::get_u32(&params, 0)?;
@@ -127,7 +141,52 @@ impl ArleRuntime {
                     .size(size)
                     .build();
                 window.make_active();
-                return Ok(WasmValue::I32(window.as_usize() as i32));
+
+                if window.as_usize() != 0 {
+                    let handle = self.next_handle();
+                    self.windows.insert(handle, window);
+                    return Ok(WasmValue::I32(handle as i32));
+                }
+            }
+            4 => {
+                // draw text
+                if let Some(window) = self.get_window(&params, 1)? {
+                    let origin = Self::get_point(&params, 2)?;
+                    let m = Self::get_memarg(&params, 4)?;
+                    let color = Self::get_color(&params, 6)?;
+                    let text = Self::get_string(memory, m).unwrap_or("");
+                    let mut rect = window.frame();
+                    rect.origin = origin;
+                    rect.size.width -= origin.x * 2;
+                    rect.size.height -= origin.y;
+                    let mut ats = AttributedString::new(text);
+                    ats.font(FontDescriptor::new(FontFamily::Serif, 16).unwrap());
+                    ats.color(color);
+                    let _ = window.draw_in_rect(rect, |bitmap| {
+                        ats.draw(bitmap, rect.size.into());
+                    });
+                    window.set_needs_display();
+                }
+            }
+            5 => {
+                // fill rect
+                if let Some(window) = self.get_window(&params, 1)? {
+                    let origin = Self::get_point(&params, 2)?;
+                    let size = Self::get_size(&params, 4)?;
+                    let color = Self::get_color(&params, 6)?;
+                    let rect = Rect { origin, size };
+                    let _ = window.draw_in_rect(rect, |bitmap| {
+                        bitmap.fill_rect(rect.size.into(), color);
+                    });
+                    window.set_needs_display();
+                }
+            }
+            6 => {
+                // wait key
+                if let Some(window) = self.get_window(&params, 1)? {
+                    let c = Self::wait_key(window);
+                    return Ok(WasmValue::I32(c.unwrap_or('\0') as i32));
+                }
             }
             _ => return Err(WasmRuntimeError::InvalidParameter),
         }
@@ -155,10 +214,36 @@ impl ArleRuntime {
         Ok(MemArg::new(base, len))
     }
 
+    fn get_point(params: &[WasmValue], index: usize) -> Result<Point<isize>, WasmRuntimeError> {
+        let x = Self::get_i32(&params, index)? as isize;
+        let y = Self::get_i32(&params, index + 1)? as isize;
+        Ok(Point::new(x, y))
+    }
+
     fn get_size(params: &[WasmValue], index: usize) -> Result<Size<isize>, WasmRuntimeError> {
         let width = Self::get_i32(&params, index)? as isize;
         let height = Self::get_i32(&params, index + 1)? as isize;
         Ok(Size::new(width, height))
+    }
+
+    fn get_color(params: &[WasmValue], index: usize) -> Result<Color, WasmRuntimeError> {
+        params
+            .get(index)
+            .ok_or(WasmRuntimeError::InvalidParameter)
+            .and_then(|v| v.get_u32())
+            .map(|v| Color::from_argb(v))
+    }
+
+    fn get_window(
+        &self,
+        params: &[WasmValue],
+        index: usize,
+    ) -> Result<Option<WindowHandle>, WasmRuntimeError> {
+        params
+            .get(index)
+            .ok_or(WasmRuntimeError::InvalidParameter)
+            .and_then(|v| v.get_u32())
+            .map(|v| self.windows.get(&(v as usize)).map(|v| *v))
     }
 
     fn get_string(memory: &WasmMemory, memarg: MemArg) -> Option<&str> {
@@ -174,6 +259,16 @@ impl ArleRuntime {
             .ok()
             .and_then(|v| unsafe { core::mem::transmute(v) })
             .and_then(|p| String::from_utf16(p).ok())
+    }
+
+    fn wait_key(window: WindowHandle) -> Option<char> {
+        while let Some(message) = window.wait_message() {
+            match message {
+                WindowMessage::Char(c) => return Some(c),
+                _ => window.handle_default_message(message),
+            }
+        }
+        None
     }
 }
 
@@ -191,7 +286,9 @@ impl Personality for ArleRuntime {
     }
 
     fn on_exit(&mut self) {
-        //
+        for window in self.windows.values() {
+            window.close();
+        }
     }
 }
 

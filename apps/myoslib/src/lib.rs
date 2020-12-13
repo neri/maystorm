@@ -14,13 +14,11 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
-pub struct OsPrint {
-    _phantom: (),
-}
+pub struct OsPrint {}
 
 impl OsPrint {
     pub const fn new() -> Self {
-        Self { _phantom: () }
+        Self {}
     }
 }
 
