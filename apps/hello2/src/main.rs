@@ -7,5 +7,5 @@ use myoslib::*;
 
 #[no_mangle]
 fn _start() {
-    println!("{}", "Hello, world!");
+    println!("Hello, world!");
 }

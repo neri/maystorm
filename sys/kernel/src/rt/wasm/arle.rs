@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::io::fonts::*;
+use crate::uuid::Uuid;
 use alloc::collections::BTreeMap;
 use core::mem::size_of;
 use core::sync::atomic::*;
@@ -67,7 +68,9 @@ impl BinaryLoader for ArleBinaryLoader {
 }
 
 /// Arlequin subsystem
+#[allow(dead_code)]
 pub struct ArleRuntime {
+    uuid: Uuid,
     module: WasmModule,
     next_handle: AtomicUsize,
     windows: BTreeMap<usize, WindowHandle>,
@@ -79,6 +82,7 @@ impl ArleRuntime {
 
     fn new(module: WasmModule) -> Box<Self> {
         Box::new(Self {
+            uuid: Uuid::generate().unwrap(),
             module,
             next_handle: AtomicUsize::new(1),
             windows: BTreeMap::new(),

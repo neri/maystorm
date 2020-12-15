@@ -68,10 +68,9 @@ impl RuntimeEnvironment {
 }
 
 pub trait Personality {
-    fn info(&self) -> PersonalityInfo {
-        PersonalityInfo::default()
-    }
-
+    /// Gets the current personality information
+    fn info(&self) -> PersonalityInfo;
+    /// Gets the current personality context
     fn context(&mut self) -> PersonalityContext;
 
     fn on_exit(&mut self);

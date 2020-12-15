@@ -8,6 +8,7 @@ A toy OS written in Rust, one version of which is about 20,000 lines of code and
 * 64bit OS booting with UEFI
 * Multi-core support for up to 64 cores
 * Support for WebAssembly
+* Not a POSIX clone system
 
 ## Requirements
 
@@ -18,12 +19,6 @@ A toy OS written in Rust, one version of which is about 20,000 lines of code and
 * PS/2 keyboard and mouse
 * HPET
 * XHCI (in the future)
-
-## Haribote-OS emulator
-
-* We have confirmed that about half of the apps work at this point. Some APIs are not yet implemented.
-* Window and timer handles are task-specific. They are set to the same initial value each time a task is launched. They are not visible to other tasks.
-* The drawing mechanism is different, so I converted it when it was displayed. Frequent re-drawing may slow it down.
 
 ## Build Environment
 
@@ -42,6 +37,12 @@ $ make
 ```
 $ make run
 ```
+
+## Haribote-OS emulator
+
+* We have confirmed that about half of the apps work at this point. Some APIs are not yet implemented.
+* Window and timer handles are task-specific. They are set to the same initial value each time a task is launched. They are not visible to other tasks.
+* The drawing mechanism is different, so I converted it when it was displayed. Frequent re-drawing may slow it down.
 
 ## History
 

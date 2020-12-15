@@ -1,0 +1,10 @@
+[workspace]
+members = [
+  "boot-efi",
+  "bootprot",
+  "kernel",
+]
+
+[profile.release]
+lto = true
+opt-level = "z"
