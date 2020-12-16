@@ -7,7 +7,7 @@ use alloc::sync::Arc;
 use alloc::task::Wake;
 use core::task::Waker;
 use core::task::{Context, Poll};
-use crossbeam_queue::{ArrayQueue, PopError, PushError};
+use crossbeam_queue::ArrayQueue;
 
 pub struct Executor {
     tasks: BTreeMap<TaskId, Task>,
@@ -39,7 +39,7 @@ impl Executor {
             waker_cache,
         } = self;
 
-        while let Ok(task_id) = task_queue.pop() {
+        while let Some(task_id) = task_queue.pop() {
             let task = match tasks.get_mut(&task_id) {
                 Some(task) => task,
                 None => continue,
@@ -107,11 +107,11 @@ impl TaskQueue {
         })
     }
 
-    fn push(&self, task_id: TaskId) -> Result<(), PushError<TaskId>> {
+    fn push(&self, task_id: TaskId) -> Result<(), TaskId> {
         self.queue.push(task_id).map(|_| self.sem.signal())
     }
 
-    fn pop(&self) -> Result<TaskId, PopError> {
+    fn pop(&self) -> Option<TaskId> {
         self.queue.pop()
     }
 

@@ -73,7 +73,6 @@ impl UserEnv {
 
                 window.make_active();
                 // WindowManager::set_desktop_color(IndexedColor::Black.into());
-
                 Timer::sleep(Duration::from_millis(1000));
 
                 {
@@ -103,7 +102,7 @@ impl UserEnv {
                 }
 
                 WindowManager::set_pointer_visible(true);
-                Timer::sleep(Duration::from_millis(500));
+                // Timer::sleep(Duration::from_millis(500));
 
                 // panic!();
                 window.close();
@@ -234,7 +233,7 @@ async fn menu_main() {
     let fg_color = IndexedColor::White.into();
 
     // let screen_bounds = WindowManager::main_screen_bounds();
-    let window = WindowBuilder::new("Status Bar")
+    let window = WindowBuilder::new("Menu")
         .style(WindowStyle::NAKED | WindowStyle::FLOATING)
         .size(Size::new(320, 240))
         .origin(Point::new(isize::MIN, 24))
@@ -259,6 +258,8 @@ async fn menu_main() {
         .unwrap();
     buffer.blur(&buffer, 8);
     // buffer.blend_rect(buffer.bounds(), bg_color);
+
+    window.set_needs_display();
 
     unsafe {
         MENU_WINDOW = Some(window);

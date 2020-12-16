@@ -22,12 +22,6 @@ use system::*;
 use task::scheduler::*;
 use task::Task;
 use uuid::*;
-// use io::graphics::*;
-// use window::*;
-// use core::time::Duration;
-// use alloc::boxed::Box;
-// use io::fonts::*;
-// use core::sync::atomic::*;
 
 extern crate alloc;
 extern crate rlibc;

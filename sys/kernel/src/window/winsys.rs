@@ -1559,7 +1559,7 @@ impl WindowHandle {
         };
         if let Some(queue) = window.queue.as_ref() {
             match queue.pop() {
-                Ok(v) => Some(v),
+                Some(v) => Some(v),
                 _ => {
                     if window
                         .attributes

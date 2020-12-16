@@ -1,7 +1,7 @@
 // Arlequin Subsystem
 
 use super::*;
-use crate::io::fonts::*;
+// use crate::io::fonts::*;
 use crate::uuid::Uuid;
 use alloc::collections::BTreeMap;
 use core::mem::size_of;
@@ -164,7 +164,7 @@ impl ArleRuntime {
                     rect.size.width -= origin.x * 2;
                     rect.size.height -= origin.y;
                     let mut ats = AttributedString::new(text);
-                    ats.font(FontDescriptor::new(FontFamily::Serif, 16).unwrap());
+                    // ats.font(FontDescriptor::new(FontFamily::Serif, 16).unwrap());
                     ats.color(color);
                     let _ = window.draw_in_rect(rect, |bitmap| {
                         ats.draw(bitmap, rect.size.into());

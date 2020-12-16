@@ -47,7 +47,7 @@ fn default_base_address() -> u64 {
 
 impl Default for BootSettings {
     fn default() -> Self {
-        serde_json_core::from_str(Self::DEFAULT_JSON).unwrap()
+        serde_json_core::from_str(Self::DEFAULT_JSON).unwrap().0
     }
 }
 
@@ -56,8 +56,8 @@ impl BootSettings {
 
     const DEFAULT_JSON: &'static str = r#"{}"#;
 
-    pub fn load(json: &'static str) -> Result<Self, de::Error> {
-        serde_json_core::from_str(json)
+    pub fn load(json: &'static str) -> de::Result<Self> {
+        serde_json_core::from_str(json).map(|v| v.0)
     }
 
     pub const fn kernel_path<'a>(&self) -> &'a str {

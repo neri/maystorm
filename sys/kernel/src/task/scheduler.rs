@@ -275,7 +275,6 @@ impl MyScheduler {
             .timer_queue
             .push(event)
             .map(|_| shared.sem_timer.signal())
-            .map_err(|e| e.0)
     }
 
     /// Scheduler
@@ -286,9 +285,9 @@ impl MyScheduler {
 
         let mut events: Vec<TimerEvent> = Vec::with_capacity(100);
         loop {
-            if let Some(event) = shared.timer_queue.pop().ok() {
+            if let Some(event) = shared.timer_queue.pop() {
                 events.push(event);
-                while let Some(event) = shared.timer_queue.pop().ok() {
+                while let Some(event) = shared.timer_queue.pop() {
                     events.push(event);
                 }
                 events.sort_by(|a, b| a.timer.deadline.cmp(&b.timer.deadline));
@@ -1132,7 +1131,7 @@ impl ThreadQueue {
         Self(ArrayQueue::new(capacity))
     }
     fn dequeue(&self) -> Option<ThreadHandle> {
-        self.0.pop().ok().map(|v| ThreadHandle(v))
+        self.0.pop().map(|v| ThreadHandle(v))
     }
     fn enqueue(&self, data: ThreadHandle) -> Result<(), ()> {
         self.0.push(data.0).map_err(|_| ())
