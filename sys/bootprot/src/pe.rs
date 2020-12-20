@@ -1,4 +1,4 @@
-// Portable Executable
+// Portable Executable & Common Object File Format
 use bitflags::*;
 use core::marker::PhantomData;
 use core::mem::*;

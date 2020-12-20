@@ -1,6 +1,6 @@
 // Ram Disk
 
-use super::filesys::*;
+use super::fs::*;
 use alloc::vec::Vec;
 use core::ptr::*;
 

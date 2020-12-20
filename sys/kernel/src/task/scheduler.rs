@@ -14,8 +14,10 @@ use crate::window::*;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
+use alloc::sync::Arc;
 use alloc::vec::*;
 use bitflags::*;
+use core::cell::UnsafeCell;
 use core::fmt::Write;
 use core::num::*;
 use core::ops::*;
@@ -104,7 +106,7 @@ impl MyScheduler {
             "Scheduler",
         );
 
-        SpawnOption::with_priority(Priority::Normal).spawn(f, args, "kernel task");
+        SpawnOption::with_priority(Priority::Normal).spawn(f, args, "user env");
 
         SCHEDULER_ENABLED.store(true, Ordering::SeqCst);
 
@@ -324,6 +326,8 @@ impl MyScheduler {
 
             let mut usage = 0;
             for thread in shared.pool.data.values() {
+                let thread = thread.clone();
+                let thread = unsafe { &mut (*thread.get()) };
                 let load0 = thread.load0.swap(0, Ordering::SeqCst);
                 let load = usize::min(load0 as usize * expect as usize / actual1000, 1000);
                 thread.load.store(load as u32, Ordering::SeqCst);
@@ -438,6 +442,8 @@ impl MyScheduler {
         let sch = Self::shared();
         vec.clear();
         for thread in sch.pool.data.values() {
+            let thread = thread.clone();
+            let thread = unsafe { &(*thread.get()) };
             if thread.priority != Priority::Idle {
                 break;
             }
@@ -450,6 +456,8 @@ impl MyScheduler {
         sb.clear();
         writeln!(sb, "PID PRI %CPU TIME     NAME").unwrap();
         for thread in sch.pool.data.values() {
+            let thread = thread.clone();
+            let thread = unsafe { &(*thread.get()) };
             if exclude_idle && thread.priority == Priority::Idle {
                 continue;
             }
@@ -804,7 +812,7 @@ impl From<Priority> for Quantum {
 
 #[derive(Default)]
 struct ThreadPool {
-    data: BTreeMap<ThreadHandle, Box<RawThread>>,
+    data: BTreeMap<ThreadHandle, Arc<UnsafeCell<Box<RawThread>>>>,
     lock: Spinlock,
 }
 
@@ -833,7 +841,9 @@ impl ThreadPool {
         Self::synchronized(|| {
             let shared = Self::shared();
             let handle = thread.handle;
-            shared.data.insert(handle, thread);
+            shared
+                .data
+                .insert(handle, Arc::new(UnsafeCell::new(thread)));
         });
     }
 
@@ -844,12 +854,20 @@ impl ThreadPool {
         });
     }
 
-    fn get(&self, key: &ThreadHandle) -> Option<&Box<RawThread>> {
-        Self::synchronized(|| self.data.get(key))
+    fn get<'a>(&self, key: &ThreadHandle) -> Option<&'a Box<RawThread>> {
+        Self::synchronized(|| self.data.get(key).map(|v| v.clone().get()))
+            .map(|thread| unsafe { &(*thread) })
     }
 
-    fn get_mut(&mut self, key: &ThreadHandle) -> Option<&mut Box<RawThread>> {
-        Self::synchronized(move || self.data.get_mut(key))
+    fn get_mut<F, R>(&mut self, key: &ThreadHandle, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut RawThread) -> R,
+    {
+        let thread = Self::synchronized(move || self.data.get_mut(key).map(|v| v.clone()));
+        thread.map(|thread| unsafe {
+            let thread = thread.get();
+            f(&mut *thread)
+        })
     }
 }
 
@@ -881,8 +899,7 @@ impl ThreadHandle {
         F: FnOnce(&mut RawThread) -> R,
     {
         let shared = ThreadPool::shared();
-        let thread = shared.get_mut(self).unwrap();
-        f(thread)
+        shared.get_mut(self, f).unwrap()
     }
 
     #[inline]

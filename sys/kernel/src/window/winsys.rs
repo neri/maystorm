@@ -527,6 +527,12 @@ impl WindowManager {
     }
 
     #[inline]
+    pub fn user_screen_bounds() -> Rect<isize> {
+        let shared = Self::shared();
+        shared.main_screen.bounds().insets_by(shared.screen_insets)
+    }
+
+    #[inline]
     pub fn screen_insets() -> EdgeInsets<isize> {
         let shared = Self::shared();
         shared.screen_insets
@@ -1128,8 +1134,7 @@ impl WindowBuilder {
 
     #[inline]
     pub fn build(mut self) -> WindowHandle {
-        let screen_bounds =
-            WindowManager::main_screen_bounds().insets_by(WindowManager::shared().screen_insets);
+        let screen_bounds = WindowManager::user_screen_bounds();
         let shadow_insets = if self.style.contains(WindowStyle::BORDER) {
             EdgeInsets::padding_each(WINDOW_BORDER_SHADOW_PADDING)
         } else {
@@ -1222,7 +1227,7 @@ impl WindowBuilder {
     }
 
     #[inline]
-    const fn level(mut self, level: WindowLevel) -> Self {
+    pub const fn level(mut self, level: WindowLevel) -> Self {
         self.level = level;
         self
     }

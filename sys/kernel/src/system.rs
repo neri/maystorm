@@ -199,7 +199,7 @@ impl System {
         unsafe {
             MemoryManager::init_late();
 
-            fs::filesys::Fs::init(shared.initrd_base, shared.initrd_size);
+            fs::Fs::init(shared.initrd_base, shared.initrd_size);
 
             rt::RuntimeEnvironment::init();
 

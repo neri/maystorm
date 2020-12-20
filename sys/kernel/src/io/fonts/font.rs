@@ -85,6 +85,11 @@ impl FontManager {
     }
 
     #[inline]
+    pub const fn fixed_small_font() -> &'static FixedFontDriver<'static> {
+        &SMALL_FONT
+    }
+
+    #[inline]
     pub fn system_font() -> FontDescriptor {
         FontDescriptor::new(FontFamily::FixedSystem, 0).unwrap()
     }

@@ -7,6 +7,7 @@ Rustで書かれた初めてのおもちゃのOS。
 * 主要なコードが Rust で書かれた自作 OS
 * UEFI で起動する 64bit OS
 * 64 コアまでのマルチコアに対応
+* WebAssemblyのサポート
 * ビルトイン Haribote-OS エミュレーター
 
 ## Haribote-OS との互換性

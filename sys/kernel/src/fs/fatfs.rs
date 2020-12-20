@@ -1,6 +1,6 @@
 // File Allocation Table Filesystem
 
-use super::filesys::*;
+use super::fs::*;
 use crate::io::error::*;
 use crate::*;
 use alloc::collections::btree_map::BTreeMap;

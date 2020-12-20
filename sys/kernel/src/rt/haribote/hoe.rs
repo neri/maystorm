@@ -1,7 +1,7 @@
 // Haribote-OS Emulator
 
 use super::*;
-use crate::fs::filesys::*;
+use crate::fs::*;
 use crate::mem::memory::*;
 use crate::window::*;
 use crate::*;

@@ -13,7 +13,6 @@ TARGET_ISO	= var/myos.iso
 TARGETS		= $(TARGET_KERNEL) $(TARGET_BOOT_EFI)
 BUILD		= (cd sys; cargo build -Zbuild-std --release --target $(RUST_ARCH).json)
 OVMF		= var/ovmfx64.fd
-URL_OVMF	= https://github.com/retrage/edk2-nightly/raw/master/bin/RELEASEX64_OVMF.fd
 
 all: $(TARGETS)
 
@@ -31,10 +30,6 @@ $(TARGET_BOOT_EFI): sys/boot-efi/* sys/boot-efi/**/* sys/boot-efi/**/**/* sys/bo
 
 $(EFI_BOOT):
 	mkdir -p $(EFI_BOOT)
-
-$(OVMF):
-	-mkdir -p var
-	curl -# -L -o $@ $(URL_OVMF)
 
 run: install $(OVMF)
 	qemu-system-x86_64 -cpu max -smp 4 -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -rtc base=localtime,clock=host -monitor stdio -device nec-usb-xhci,id=xhci

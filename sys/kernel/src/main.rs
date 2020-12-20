@@ -6,13 +6,12 @@
 #![no_main]
 #![feature(asm)]
 
-// use acpi;
 use alloc::string::*;
 use alloc::vec::*;
 use arch::cpu::*;
 use bootprot::*;
 use core::fmt::Write;
-use fs::filesys::*;
+use kernel::fs::*;
 use kernel::*;
 use mem::memory::*;
 use mem::string;

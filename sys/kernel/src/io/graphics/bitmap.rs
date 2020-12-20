@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use bitflags::*;
 use bootprot::BootInfo;
 use byteorder::*;
-use core::cell::RefCell;
+use core::cell::UnsafeCell;
 use core::marker::PhantomData;
 use core::mem::swap;
 use core::slice;
@@ -21,7 +21,7 @@ pub struct Bitmap {
     size: Size<isize>,
     stride: usize,
     flags: BitmapFlags,
-    managed: Option<Arc<RefCell<Vec<Color>>>>,
+    retained: Option<Arc<UnsafeCell<Vec<Color>>>>,
 }
 
 bitflags! {
@@ -61,34 +61,22 @@ impl From<&BootInfo> for Bitmap {
             size: Size::new(width, height),
             stride,
             flags,
-            managed: None,
+            retained: None,
         }
     }
 }
 
 impl Bitmap {
     pub fn new(width: usize, height: usize, is_translucent: bool) -> Self {
-        let mut vec = Vec::with_capacity(width * height);
-        unsafe {
-            vec.set_len(vec.capacity());
-        }
-        let base = &vec[0] as *const _ as *mut _;
-        let mut flags = BitmapFlags::empty();
-        if is_translucent {
-            flags.insert(BitmapFlags::TRANSLUCENT);
-        }
-        Self {
-            base,
-            size: Size::new(width as isize, height as isize),
-            stride: width.into(),
-            flags,
-            managed: Some(Arc::new(RefCell::new(vec))),
-        }
+        let size = width * height;
+        let mut vec = Vec::with_capacity(size);
+        vec.resize(size, Color::TRANSPARENT);
+        Self::from_vec(vec, width, height, is_translucent)
     }
 
     pub fn from_vec(vec: Vec<Color>, width: usize, height: usize, is_translucent: bool) -> Self {
-        let vec = Arc::new(RefCell::new(vec));
-        let base = vec.borrow().as_ptr() as *mut _;
+        let vec = Arc::new(UnsafeCell::new(vec));
+        let base = unsafe { &(*vec.get())[0] as *const _ as *mut u32 };
         let mut flags = BitmapFlags::empty();
         if is_translucent {
             flags.insert(BitmapFlags::TRANSLUCENT);
@@ -98,7 +86,7 @@ impl Bitmap {
             size: Size::new(width as isize, height as isize),
             stride: width.into(),
             flags,
-            managed: Some(vec),
+            retained: Some(vec),
         }
     }
 
@@ -204,7 +192,7 @@ impl Bitmap {
             size: Rect::from(coords).size,
             stride: self.stride,
             flags: self.flags | BitmapFlags::VIEW,
-            managed: self.managed.clone(),
+            retained: self.retained.clone(),
         })
     }
 

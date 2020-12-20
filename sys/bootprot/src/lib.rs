@@ -1,4 +1,4 @@
-// Boot Info
+// MEG-OS Boot Info
 #![no_std]
 #![feature(type_alias_impl_trait)]
 
@@ -17,11 +17,13 @@ pub struct BootInfo {
     pub screen_height: u16,
     pub vram_stride: u16,
     pub flags: BootFlags,
+    /// Obsolete. For historical compatibility
     _historical1: [u64; 4],
     pub kernel_base: u64,
     pub total_memory_size: u64,
     pub free_memory: u32,
     pub static_start: u32,
+    /// Obsolete. For historical compatibility
     _historical2: [u32; 4],
     pub real_bitmap: [u32; 8],
     pub cmdline: u64,

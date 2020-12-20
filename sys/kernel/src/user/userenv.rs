@@ -128,7 +128,6 @@ impl UserEnv {
 
             MyScheduler::spawn_async(Task::new(status_bar_main()));
             MyScheduler::spawn_async(Task::new(activity_monitor_main()));
-            MyScheduler::spawn_async(Task::new(menu_main()));
             MyScheduler::perform_tasks();
         }
     }
@@ -216,8 +215,12 @@ async fn status_bar_main() {
                     .unwrap();
             }
             WindowMessage::MouseDown(_) => {
-                if let Some(menu) = unsafe { MENU_WINDOW } {
-                    let _ = menu.post(WindowMessage::User(if menu.is_visible() { 0 } else { 1 }));
+                if let Some(activity) = unsafe { ACTIVITY_WINDOW } {
+                    let _ = activity.post(WindowMessage::User(if activity.is_visible() {
+                        0
+                    } else {
+                        1
+                    }));
                 }
             }
             _ => window.handle_default_message(message),
@@ -225,101 +228,7 @@ async fn status_bar_main() {
     }
 }
 
-static mut MENU_WINDOW: Option<WindowHandle> = None;
-
-async fn menu_main() {
-    // let bg_color = Color::from(IndexedColor::Blue).set_opacity(0x80);
-    //Color::from_argb(0x40000000);
-    let fg_color = IndexedColor::White.into();
-
-    // let screen_bounds = WindowManager::main_screen_bounds();
-    let window = WindowBuilder::new("Menu")
-        .style(WindowStyle::NAKED | WindowStyle::FLOATING)
-        .size(Size::new(320, 240))
-        .origin(Point::new(isize::MIN, 24))
-        .bg_color(Color::TRANSPARENT)
-        .build();
-
-    let buffer = Bitmap::new(
-        window.frame().width() as usize,
-        window.frame().height() as usize,
-        false,
-    );
-    buffer.reset();
-    buffer.fill_round_rect(buffer.bounds(), 32, Color::WHITE);
-    buffer
-        .update_bitmap(|slice| {
-            let rng = XorShift64::default();
-            for color in slice.iter_mut() {
-                let opacity = color.opacity();
-                *color = Color::from_rgb(rng.next() as u32).set_opacity(opacity);
-            }
-        })
-        .unwrap();
-    buffer.blur(&buffer, 8);
-    // buffer.blend_rect(buffer.bounds(), bg_color);
-
-    window.set_needs_display();
-
-    unsafe {
-        MENU_WINDOW = Some(window);
-    }
-    loop {
-        while let Some(message) = window.get_message().await {
-            match message {
-                WindowMessage::Draw => {
-                    window
-                        .draw(|bitmap| {
-                            bitmap.copy_from(&buffer);
-
-                            AttributedString::with(
-                                "MyOS Launcher",
-                                FontDescriptor::new(FontFamily::SansSerif, 24).unwrap(),
-                                fg_color,
-                            )
-                            .draw(
-                                bitmap,
-                                bitmap.bounds().insets_by(EdgeInsets::padding_each(32)),
-                            );
-                            AttributedString::with(
-                                "Command not found\n\nPress any key to restart",
-                                FontDescriptor::new(FontFamily::SansSerif, 20).unwrap(),
-                                fg_color,
-                            )
-                            .draw(
-                                bitmap,
-                                bitmap.bounds().insets_by(EdgeInsets::new(120, 64, 64, 32)),
-                            );
-
-                            // for i in 0..5 {
-                            //     let point = Point::new(48, 72 + 48 * i);
-                            //     bitmap.fill_circle(point, 16, IndexedColor::LightBlue.into());
-                            //     bitmap.draw_circle(point, 16, Color::WHITE);
-                            // }
-                        })
-                        .unwrap();
-                }
-                WindowMessage::Char(_) => {
-                    let _ = window.post(WindowMessage::User(0));
-                }
-                WindowMessage::MouseUp(_) => {
-                    let _ = window.post(WindowMessage::User(0));
-                }
-                WindowMessage::User(flag) => {
-                    let become_active = flag != 0;
-                    if become_active {
-                        // WindowManager::save_screen_to(&buffer, buffer.bounds());
-                        // buffer.blur(&buffer, 32);
-                        window.make_active();
-                    } else {
-                        window.hide();
-                    }
-                }
-                _ => window.handle_default_message(message),
-            }
-        }
-    }
-}
+static mut ACTIVITY_WINDOW: Option<WindowHandle> = None;
 
 async fn activity_monitor_main() {
     let bg_color = Color::from(IndexedColor::Black).set_opacity(0xC0);
@@ -328,11 +237,23 @@ async fn activity_monitor_main() {
     let graph_main_color = IndexedColor::Yellow.into();
     let graph_border_color = IndexedColor::LightGray.into();
 
+    let screen_bounds = WindowManager::user_screen_bounds();
+    let width = 280;
     let window = WindowBuilder::new("Activity Monitor")
-        .style_add(WindowStyle::NAKED | WindowStyle::FLOATING | WindowStyle::PINCHABLE)
-        .frame(Rect::new(-280 - 8, -180 - 32, 280, 180))
+        .style(WindowStyle::NAKED)
+        .level(WindowLevel::DESKTOP_ITEMS)
+        .frame(Rect::new(
+            screen_bounds.x() - width,
+            screen_bounds.y(),
+            width,
+            screen_bounds.height(),
+        ))
         .bg_color(bg_color)
         .build();
+
+    unsafe {
+        ACTIVITY_WINDOW = Some(window);
+    }
 
     window.show();
 
@@ -459,6 +380,14 @@ async fn activity_monitor_main() {
 
                 tsc0 = tsc1;
                 time0 = time1;
+            }
+            WindowMessage::User(flag) => {
+                let become_active = flag != 0;
+                if become_active {
+                    window.show();
+                } else {
+                    window.hide();
+                }
             }
             _ => window.handle_default_message(message),
         }
