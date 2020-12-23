@@ -4,6 +4,7 @@ members = [
   "hello",
   "hello2",
   "winhello",
+  "blt",
 ]
 
 [profile.release]

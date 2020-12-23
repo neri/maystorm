@@ -94,7 +94,7 @@ impl WasmLoader {
     }
 
     #[inline]
-    pub fn consume(self) -> WasmModule {
+    pub fn into_module(self) -> WasmModule {
         self.module
     }
 

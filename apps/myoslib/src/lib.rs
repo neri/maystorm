@@ -1,12 +1,17 @@
 // MyOS Library
 #![no_std]
+#![feature(alloc_error_handler)]
 
+pub mod bitmap;
 pub mod graphics;
+pub mod os_alloc;
 pub mod syscall;
 pub mod window;
 
 use core::fmt::*;
 pub use syscall::*;
+
+extern crate alloc;
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
