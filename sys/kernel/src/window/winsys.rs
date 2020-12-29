@@ -1624,6 +1624,20 @@ impl WindowHandle {
         }
     }
 
+    ///
+    pub fn refresh_if_needed(&self) {
+        let window = match self.get() {
+            Some(v) => v,
+            None => return,
+        };
+        if window
+            .attributes
+            .test_and_clear(WindowAttributes::NEEDS_REDRAW)
+        {
+            self.draw(|_bitmap| {}).unwrap();
+        }
+    }
+
     /// Create a timer associated with a window
     pub fn create_timer(&self, timer_id: usize, duration: Duration) {
         let mut event = TimerEvent::window(*self, timer_id, Timer::new(duration));

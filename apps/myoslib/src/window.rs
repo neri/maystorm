@@ -49,4 +49,9 @@ impl Window {
     pub fn wait_key(&self) -> char {
         core::char::from_u32(os_wait_key(self.handle.0)).unwrap_or('\0')
     }
+
+    #[inline]
+    pub fn flip(&self) {
+        os_flip(self.handle.0)
+    }
 }

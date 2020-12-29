@@ -192,6 +192,7 @@ impl Into<u32> for ColorComponents {
     }
 }
 
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct Point {
     pub x: isize,
@@ -257,8 +258,21 @@ impl Point {
             }
         }
     }
+
+    #[inline]
+    pub fn is_within(self, rect: Rect) -> bool {
+        if let Some(coords) = Coordinates::from_rect(rect) {
+            coords.left <= self.x
+                && coords.right > self.x
+                && coords.top <= self.y
+                && coords.bottom > self.y
+        } else {
+            false
+        }
+    }
 }
 
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct Size {
     pub width: isize,
@@ -282,6 +296,7 @@ impl Size {
     }
 }
 
+#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct Rect {
     pub origin: Point,
@@ -325,5 +340,143 @@ impl Rect {
     #[inline]
     pub const fn height(&self) -> isize {
         self.size.height
+    }
+
+    #[inline]
+    pub fn insets_by(self, insets: EdgeInsets) -> Self {
+        Rect {
+            origin: Point {
+                x: self.origin.x + insets.left,
+                y: self.origin.y + insets.top,
+            },
+            size: Size {
+                width: self.size.width - (insets.left + insets.right),
+                height: self.size.height - (insets.top + insets.bottom),
+            },
+        }
+    }
+}
+
+impl From<Size> for Rect {
+    fn from(size: Size) -> Self {
+        Rect {
+            origin: Point::new(0, 0),
+            size,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Default, PartialEq)]
+pub struct Coordinates {
+    pub left: isize,
+    pub top: isize,
+    pub right: isize,
+    pub bottom: isize,
+}
+
+impl Coordinates {
+    pub const fn new(left: isize, top: isize, right: isize, bottom: isize) -> Self {
+        Self {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+
+    #[inline]
+    pub fn left_top(self) -> Point {
+        Point::new(self.left, self.top)
+    }
+
+    #[inline]
+    pub fn right_bottom(self) -> Point {
+        Point::new(self.right, self.bottom)
+    }
+
+    #[inline]
+    pub fn left_bottom(self) -> Point {
+        Point::new(self.left, self.bottom)
+    }
+
+    #[inline]
+    pub fn right_top(self) -> Point {
+        Point::new(self.right, self.top)
+    }
+
+    #[inline]
+    pub fn size(self) -> Size {
+        Size::new(self.right - self.left, self.bottom - self.top)
+    }
+
+    #[inline]
+    pub fn from_rect(rect: Rect) -> Option<Coordinates> {
+        if rect.size.width == 0 || rect.size.height == 0 {
+            None
+        } else {
+            Some(unsafe { Self::from_rect_unchecked(rect) })
+        }
+    }
+
+    #[inline]
+    pub unsafe fn from_rect_unchecked(rect: Rect) -> Coordinates {
+        let left: isize;
+        let right: isize;
+        if rect.size.width > 0 {
+            left = rect.origin.x;
+            right = left + rect.size.width;
+        } else {
+            right = rect.origin.x;
+            left = right + rect.size.width;
+        }
+
+        let top: isize;
+        let bottom: isize;
+        if rect.size.height > 0isize {
+            top = rect.origin.y;
+            bottom = top + rect.size.height;
+        } else {
+            bottom = rect.origin.y;
+            top = bottom + rect.size.height;
+        }
+
+        Self {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Default, PartialEq)]
+pub struct EdgeInsets {
+    pub top: isize,
+    pub left: isize,
+    pub bottom: isize,
+    pub right: isize,
+}
+
+impl EdgeInsets {
+    #[inline]
+    pub const fn new(top: isize, left: isize, bottom: isize, right: isize) -> Self {
+        Self {
+            top,
+            left,
+            bottom,
+            right,
+        }
+    }
+
+    #[inline]
+    pub const fn padding_each(value: isize) -> Self {
+        Self {
+            top: value,
+            left: value,
+            bottom: value,
+            right: value,
+        }
     }
 }

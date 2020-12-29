@@ -197,17 +197,41 @@ impl ArleRuntime {
                 }
             }
             7 => {
-                // Blt test 1
+                // Blt bitmap8
                 if let Some(window) = self.get_window(&params, 1)? {
                     let origin = Self::get_point(&params, 2)?;
-                    let os_bitmap = Self::get_bitmap(&memory, &params, 4)?;
+                    let os_bitmap = Self::get_bitmap8(&memory, &params, 4)?;
                     let _ = window.draw_in_rect(os_bitmap.rect(origin), |bitmap| {
                         os_bitmap.blt(bitmap, Point::zero());
                     });
                     window.set_needs_display();
                 }
             }
+            8 => {
+                // Blt bitmap1
+                if let Some(window) = self.get_window(&params, 1)? {
+                    let origin = Self::get_point(&params, 2)?;
+                    let os_bitmap = Self::get_bitmap1(&memory, &params, 4)?;
+                    let color = Self::get_color(&params, 5)?;
+                    let scale = Self::get_i32(&params, 6)? as isize;
+                    let _ = window.draw_in_rect(os_bitmap.rect(origin, scale), |bitmap| {
+                        os_bitmap.blt(bitmap, Point::zero(), color, scale);
+                    });
+                    window.set_needs_display();
+                }
+            }
+            // 9=> {}
+            10 => {
+                // Flip
+                if let Some(window) = self.get_window(&params, 1)? {
+                    window.refresh_if_needed();
+                }
+            }
             50 => {
+                // monotonic
+                return Ok(WasmValue::I32(Timer::monotonic().as_micros() as i32));
+            }
+            51 => {
                 // rand
                 return Ok(WasmValue::from(self.rng32.next()));
             }
@@ -284,13 +308,22 @@ impl ArleRuntime {
             .and_then(|p| String::from_utf16(p).ok())
     }
 
-    fn get_bitmap<'a>(
+    fn get_bitmap8<'a>(
         memory: &'a WasmMemory,
         params: &[WasmValue],
         index: usize,
     ) -> Result<OsBitmap8<'a>, WasmRuntimeError> {
         let base = Self::get_u32(&params, index)?;
         OsBitmap8::from_memory(memory, base)
+    }
+
+    fn get_bitmap1<'a>(
+        memory: &'a WasmMemory,
+        params: &[WasmValue],
+        index: usize,
+    ) -> Result<OsBitmap1<'a>, WasmRuntimeError> {
+        let base = Self::get_u32(&params, index)?;
+        OsBitmap1::from_memory(memory, base)
     }
 
     fn wait_key(window: WindowHandle) -> Option<char> {
@@ -418,6 +451,75 @@ impl OsBitmap8<'_> {
                 });
                 if !color.is_transparent() {
                     to.set_pixel_unchecked(point, color);
+                }
+            }
+            cursor += stride;
+        }
+    }
+}
+
+struct OsBitmap1<'a> {
+    slice: &'a [u8],
+    dim: Size<isize>,
+    stride: usize,
+}
+
+impl<'a> OsBitmap1<'a> {
+    fn from_memory(memory: &'a WasmMemory, base: u32) -> Result<Self, WasmRuntimeError> {
+        const SIZE_OF_BITMAP: usize = 16;
+        let array = memory.read_bytes(base as usize, SIZE_OF_BITMAP)?;
+
+        let width = LE::read_u32(&array[0..4]) as usize;
+        let height = LE::read_u32(&array[4..8]) as usize;
+        let stride = LE::read_u32(&array[8..12]) as usize;
+        let base = LE::read_u32(&array[12..16]) as usize;
+
+        let dim = Size::new(width as isize, height as isize);
+        let size = stride * height;
+        let slice = memory.read_bytes(base, size)?;
+
+        Ok(Self { slice, dim, stride })
+    }
+}
+
+impl OsBitmap1<'_> {
+    const fn rect(&self, origin: Point<isize>, scale: isize) -> Rect<isize> {
+        Rect {
+            origin,
+            size: Size::new(self.dim.width * scale, self.dim.height * scale),
+        }
+    }
+
+    fn blt(&self, to: &Bitmap, origin: Point<isize>, color: Color, scale: isize) {
+        // TODO: clipping
+        let stride = self.stride;
+        let mut cursor = 0;
+        let w8 = self.dim.width as usize / 8;
+        let w7 = self.dim.width as usize & 7;
+        for y in 0..self.dim.height {
+            for i in 0..w8 {
+                let data = unsafe { self.slice.get_unchecked(cursor + i) };
+                for j in 0..8 {
+                    let position = 0x80u8 >> j;
+                    if (data & position) != 0 {
+                        let x = scale * (i * 8 + j) as isize;
+                        let y = y * scale;
+                        let point = Point::new(origin.x + x, origin.y + y);
+                        to.set_pixel_unchecked(point, color);
+                    }
+                }
+            }
+            if w7 > 0 {
+                let data = unsafe { self.slice.get_unchecked(cursor + w8) };
+                let base_x = w8 * 8;
+                for i in 0..w7 {
+                    let position = 0x80u8 >> i;
+                    if (data & position) != 0 {
+                        let x = scale * (i + base_x) as isize;
+                        let y = y * scale;
+                        let point = Point::new(origin.x + x, origin.y + y);
+                        to.set_pixel_unchecked(point, color);
+                    }
                 }
             }
             cursor += stride;

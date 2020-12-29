@@ -737,6 +737,7 @@ impl WasmMemArg {
         Self { offset, align }
     }
 
+    #[inline]
     pub const fn offset_by(&self, base: u32) -> usize {
         (self.offset as u64 + base as u64) as usize
     }
@@ -964,23 +965,18 @@ impl WasmMemory {
 
     pub fn read_u8(&self, offset: usize) -> Result<u8, WasmRuntimeError> {
         let slice = self.memory();
-        let limit = slice.len();
-        if offset < limit {
-            Ok(slice[offset])
-        } else {
-            Err(WasmRuntimeError::OutOfBounds)
-        }
+        slice
+            .get(offset)
+            .map(|v| *v)
+            .ok_or(WasmRuntimeError::OutOfBounds)
     }
 
     pub fn write_u8(&self, offset: usize, val: u8) -> Result<(), WasmRuntimeError> {
         let slice = self.memory_mut();
-        let limit = slice.len();
-        if offset < limit {
-            slice[offset] = val;
-            Ok(())
-        } else {
-            Err(WasmRuntimeError::OutOfBounds)
-        }
+        slice
+            .get_mut(offset)
+            .map(|v| *v = val)
+            .ok_or(WasmRuntimeError::OutOfBounds)
     }
 
     pub fn read_u16(&self, offset: usize) -> Result<u16, WasmRuntimeError> {

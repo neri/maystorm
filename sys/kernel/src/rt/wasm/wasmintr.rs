@@ -159,16 +159,12 @@ impl WasmInterpreter {
 
                 WasmOpcode::LocalGet => {
                     let local_ref = code_block.read_unsigned()? as usize;
-                    let val = *locals
-                        .get(local_ref)
-                        .ok_or(WasmRuntimeError::InternalInconsistency)?;
+                    let val = *unsafe { locals.get_unchecked(local_ref) };
                     value_stack.push(val.into());
                 }
                 WasmOpcode::LocalSet => {
                     let local_ref = code_block.read_unsigned()? as usize;
-                    let var = locals
-                        .get_mut(local_ref)
-                        .ok_or(WasmRuntimeError::InternalInconsistency)?;
+                    let var = unsafe { locals.get_unchecked_mut(local_ref) };
                     let val = value_stack
                         .pop()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
@@ -176,9 +172,7 @@ impl WasmInterpreter {
                 }
                 WasmOpcode::LocalTee => {
                     let local_ref = code_block.read_unsigned()? as usize;
-                    let var = locals
-                        .get_mut(local_ref)
-                        .ok_or(WasmRuntimeError::InternalInconsistency)?;
+                    let var = unsafe { locals.get_unchecked_mut(local_ref) };
                     let val = *value_stack
                         .last()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
@@ -477,7 +471,7 @@ impl WasmInterpreter {
                     let a = value_stack
                         .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    *a = WasmStackValue::from(a.get_i32() == b);
+                    *a = WasmStackValue::from(a.get_i32() != b);
                 }
                 WasmOpcode::I32LtS => {
                     let b = value_stack
@@ -584,7 +578,7 @@ impl WasmInterpreter {
                     let a = value_stack
                         .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    *a = WasmStackValue::from(a.get_i64() == b);
+                    *a = WasmStackValue::from(a.get_i64() != b);
                 }
                 WasmOpcode::I64LtS => {
                     let b = value_stack

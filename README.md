@@ -18,7 +18,6 @@ My first toy OS written in Rust, one version of which is about 20,000 lines of c
 * 800x600 pixels screen
 * PS/2 keyboard and mouse
 * HPET
-* XHCI (in the future)
 
 ## Build Environment
 
