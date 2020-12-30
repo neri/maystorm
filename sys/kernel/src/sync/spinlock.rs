@@ -29,7 +29,7 @@ impl Spinlock {
         while self
             .value
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_ok()
+            .is_err()
         {
             let mut spin_loop = SpinLoopWait::new();
             while self.value.load(Ordering::Relaxed) {
