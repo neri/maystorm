@@ -23,13 +23,13 @@ fn _start() {
         OsMutBitmap1::from_slice(&mut curr_data, Size::new(BITMAP_WIDTH, BITMAP_HEIGHT));
     let mut next = OsMutBitmap1::from_slice(&mut next_data, Size::new(BITMAP_WIDTH, BITMAP_HEIGHT));
 
-    for _ in 0..100 {
+    for _ in 0..10 {
         window.fill_rect(
             Rect::new(0, 0, BITMAP_WIDTH * DRAW_SCALE, BITMAP_HEIGHT * DRAW_SCALE),
             Color::WHITE,
         );
         current.blt(&window, Point::new(0, 0), Color::BLACK, DRAW_SCALE);
-        window.flip();
+        window.flash();
 
         let w = BITMAP_WIDTH - 1;
         let h = BITMAP_HEIGHT - 1;

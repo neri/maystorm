@@ -1,0 +1,17 @@
+# MEG-OS Function Number Definitions
+exit|0
+print_string
+monotonic
+usleep
+get_version
+new_window
+draw_text
+fill_rect
+wait_key
+blt8
+blt1
+flash_window
+rand
+srand
+alloc
+free

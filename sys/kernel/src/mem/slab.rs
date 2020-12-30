@@ -12,7 +12,7 @@ type UsizeSmall = u16;
 type AtomicUsizeSmall = AtomicU16;
 const MAX_BITMAP_SIZE: usize = 16;
 
-pub struct SlabAllocator {
+pub(crate) struct SlabAllocator {
     vec: Vec<SlabCache>,
 }
 
@@ -21,8 +21,9 @@ impl SlabAllocator {
         let sizes = [32, 64, 128, 256, 512, 1024];
 
         let mut vec: Vec<SlabCache> = Vec::with_capacity(sizes.len());
-        for item_size in &sizes {
-            vec.push(SlabCache::new(*item_size));
+        for block_size in &sizes {
+            let block_size = *block_size;
+            vec.push(SlabCache::new(block_size));
         }
 
         Self { vec }

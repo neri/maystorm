@@ -1,4 +1,5 @@
-// MyOS Boot loader for UEFI
+// MEG-OS Boot loader
+
 #![feature(abi_efiapi)]
 #![no_std]
 #![no_main]
@@ -164,7 +165,7 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
     let new_sp = VirtualAddress(info.kernel_base + 0x3FFFF000);
     PageManager::valloc(new_sp - stack_size, stack_size);
 
-    println!("Now starting kernel...");
+    // println!("Now starting MEG-OS...");
     unsafe {
         PageManager::finalize(&mut info);
         Invocation::invoke_kernel(info, entry, new_sp);

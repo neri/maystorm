@@ -1053,6 +1053,7 @@ impl RawThread {
         self.personality
             .as_mut()
             .map(|personality| personality.on_exit());
+        self.personality = None;
 
         // TODO:
         Timer::sleep(Duration::from_secs(2));

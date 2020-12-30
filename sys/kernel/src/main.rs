@@ -1,4 +1,4 @@
-// My OS Entry
+// MEG-OS Kernel
 // (c) 2020 Nerry
 // License: MIT
 
@@ -20,7 +20,6 @@ use rt::*;
 use system::*;
 use task::scheduler::*;
 use task::Task;
-use uuid::*;
 
 extern crate alloc;
 extern crate rlibc;
@@ -46,6 +45,7 @@ impl Application {
 
     fn main() {
         let shared = Self::shared();
+        shared.path_ext.push("wasm".to_string());
         shared.path_ext.push("hrb".to_string());
         // shared.path_ext.push("bin".to_string());
 
@@ -175,20 +175,23 @@ impl Application {
         None
     }
 
-    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> isize, &'static str); 13] = [
-        ("help", Self::cmd_help, "Show Help"),
+    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> isize, &'static str); 14] = [
         ("cls", Self::cmd_cls, "Clear screen"),
-        ("ver", Self::cmd_ver, "Display version"),
-        ("sysctl", Self::cmd_sysctl, "System Control"),
-        ("lspci", Self::cmd_lspci, "Show List of PCI Devices"),
-        ("uuidgen", Self::cmd_uuidgen, ""),
-        ("reboot", Self::cmd_reboot, "Restart computer"),
-        ("exit", Self::cmd_reserved, ""),
-        ("echo", Self::cmd_echo, ""),
         ("dir", Self::cmd_dir, "Show directory"),
-        ("stat", Self::cmd_stat, "Show stat"),
-        ("type", Self::cmd_type, "Show file"),
+        ("echo", Self::cmd_echo, ""),
+        ("help", Self::cmd_help, "Show Help"),
         ("open", Self::cmd_open, "Open program separated"),
+        ("reboot", Self::cmd_reboot, "Restart computer"),
+        ("type", Self::cmd_type, "Show file"),
+        ("ver", Self::cmd_ver, "Display version"),
+        //
+        ("lspci", Self::cmd_lspci, "Show List of PCI Devices"),
+        ("stat", Self::cmd_stat, "Show stat"),
+        ("sysctl", Self::cmd_sysctl, "System Control"),
+        //
+        ("cd", Self::cmd_reserved, ""),
+        ("exit", Self::cmd_reserved, ""),
+        ("rm", Self::cmd_reserved, ""),
     ];
 
     fn cmd_reserved(_: &[&str]) -> isize {
@@ -228,19 +231,6 @@ impl Application {
         0
     }
 
-    fn cmd_uuidgen(_: &[&str]) -> isize {
-        match Uuid::generate() {
-            Some(v) => {
-                println!("{}", v);
-                return 0;
-            }
-            None => {
-                println!("Feature not available");
-                return 1;
-            }
-        }
-    }
-
     fn cmd_sysctl(argv: &[&str]) -> isize {
         if argv.len() < 2 {
             println!("usage: sysctl command [options]");
@@ -252,6 +242,11 @@ impl Application {
             "memory" => {
                 let mut sb = string::StringBuffer::with_capacity(256);
                 MemoryManager::statistics(&mut sb);
+                print!("{}", sb.as_str());
+            }
+            "slab" => {
+                let mut sb = string::StringBuffer::with_capacity(256);
+                MemoryManager::statistics_slab(&mut sb);
                 print!("{}", sb.as_str());
             }
             "random" => match Cpu::secure_rand() {

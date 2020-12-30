@@ -6,8 +6,10 @@ use crate::num::*;
 use crate::uuid::Uuid;
 use alloc::collections::BTreeMap;
 use byteorder::*;
-use core::mem::size_of;
+use core::convert::TryFrom;
 use core::sync::atomic::*;
+use core::{mem::size_of, time::Duration};
+use myosabi::*;
 
 pub(super) struct ArleBinaryLoader {
     loader: WasmLoader,
@@ -122,25 +124,37 @@ impl ArleRuntime {
     fn dispatch_syscall(&mut self, params: &[WasmValue]) -> Result<WasmValue, WasmRuntimeError> {
         let module = &self.module;
         let memory = module.memory(0).ok_or(WasmRuntimeError::OutOfMemory)?;
-        let func_no = Self::get_u32(&params, 0)?;
+        let func_no = Self::get_u32(&params, 0).and_then(|v| {
+            svc::Function::try_from(v).map_err(|_| WasmRuntimeError::InvalidParameter)
+        })?;
+
         match func_no {
-            0 => {
-                // exit
+            svc::Function::Exit => {
                 let v = Self::get_u32(&params, 1)? as usize;
                 RuntimeEnvironment::exit(v);
             }
-            1 => {
-                // puts_utf8
+
+            svc::Function::Monotonic => {
+                return Ok(WasmValue::I32(Timer::monotonic().as_micros() as i32));
+            }
+            svc::Function::Usleep => {
+                let us = Self::get_u32(&params, 1)? as u64;
+                Timer::sleep(Duration::from_micros(us));
+            }
+
+            svc::Function::GetVersion => {
+                let sub_func_no = Self::get_u32(&params, 1)?;
+                match sub_func_no {
+                    0 => return Ok(WasmValue::from(System::version().as_u32())),
+                    _ => (),
+                }
+            }
+
+            svc::Function::PrintString => {
                 let m = Self::get_memarg(&params, 1)?;
                 Self::get_string(memory, m).map(|s| print!("{}", s));
             }
-            2 => {
-                // puts_utf16
-                let m = Self::get_memarg(&params, 1)?;
-                Self::get_string16(memory, m).map(|s| print!("{}", s));
-            }
-            3 => {
-                // new window
+            svc::Function::NewWindow => {
                 let m = Self::get_memarg(&params, 1)?;
                 let size = Self::get_size(&params, 3)?;
                 let title = Self::get_string(memory, m).unwrap_or("");
@@ -156,8 +170,7 @@ impl ArleRuntime {
                     return Ok(WasmValue::I32(handle as i32));
                 }
             }
-            4 => {
-                // draw text
+            svc::Function::DrawText => {
                 if let Some(window) = self.get_window(&params, 1)? {
                     let origin = Self::get_point(&params, 2)?;
                     let m = Self::get_memarg(&params, 4)?;
@@ -176,8 +189,7 @@ impl ArleRuntime {
                     window.set_needs_display();
                 }
             }
-            5 => {
-                // fill rect
+            svc::Function::FillRect => {
                 if let Some(window) = self.get_window(&params, 1)? {
                     let origin = Self::get_point(&params, 2)?;
                     let size = Self::get_size(&params, 4)?;
@@ -189,15 +201,13 @@ impl ArleRuntime {
                     window.set_needs_display();
                 }
             }
-            6 => {
-                // wait key
+            svc::Function::WaitKey => {
                 if let Some(window) = self.get_window(&params, 1)? {
                     let c = Self::wait_key(window);
                     return Ok(WasmValue::I32(c.unwrap_or('\0') as i32));
                 }
             }
-            7 => {
-                // Blt bitmap8
+            svc::Function::Blt8 => {
                 if let Some(window) = self.get_window(&params, 1)? {
                     let origin = Self::get_point(&params, 2)?;
                     let os_bitmap = Self::get_bitmap8(&memory, &params, 4)?;
@@ -207,8 +217,7 @@ impl ArleRuntime {
                     window.set_needs_display();
                 }
             }
-            8 => {
-                // Blt bitmap1
+            svc::Function::Blt1 => {
                 if let Some(window) = self.get_window(&params, 1)? {
                     let origin = Self::get_point(&params, 2)?;
                     let os_bitmap = Self::get_bitmap1(&memory, &params, 4)?;
@@ -220,22 +229,23 @@ impl ArleRuntime {
                     window.set_needs_display();
                 }
             }
-            // 9=> {}
-            10 => {
-                // Flip
+            svc::Function::FlashWindow => {
                 if let Some(window) = self.get_window(&params, 1)? {
                     window.refresh_if_needed();
                 }
             }
-            50 => {
-                // monotonic
-                return Ok(WasmValue::I32(Timer::monotonic().as_micros() as i32));
-            }
-            51 => {
-                // rand
+
+            svc::Function::Rand => {
                 return Ok(WasmValue::from(self.rng32.next()));
             }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
+            svc::Function::Srand => {
+                let seed = Self::get_u32(&params, 1)?;
+                self.rng32 = XorShift32::new(seed);
+            }
+
+            svc::Function::Alloc | svc::Function::Free => {
+                // TODO:
+            }
         }
 
         Ok(WasmValue::I32(0))
@@ -300,6 +310,7 @@ impl ArleRuntime {
             .and_then(|v| core::str::from_utf8(v).ok())
     }
 
+    #[allow(dead_code)]
     fn get_string16(memory: &WasmMemory, memarg: MemArg) -> Option<String> {
         memory
             .read_bytes(memarg.base(), memarg.len() * 2)

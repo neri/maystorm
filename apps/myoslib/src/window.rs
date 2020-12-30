@@ -51,7 +51,7 @@ impl Window {
     }
 
     #[inline]
-    pub fn flip(&self) {
-        os_flip(self.handle.0)
+    pub fn flash(&self) {
+        os_flash_window(self.handle.0)
     }
 }

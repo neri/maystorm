@@ -3,7 +3,6 @@
 use super::opcode::*;
 use super::wasmintr::*;
 use crate::*;
-use _core::convert::TryFrom;
 use alloc::collections::BTreeMap;
 use alloc::string::*;
 use alloc::sync::Arc;
@@ -11,6 +10,7 @@ use alloc::vec::Vec;
 use bitflags::*;
 use byteorder::*;
 use core::cell::{RefCell, UnsafeCell};
+use core::convert::TryFrom;
 use core::fmt;
 use core::ops::*;
 use core::slice;

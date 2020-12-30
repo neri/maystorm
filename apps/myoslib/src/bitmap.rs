@@ -267,7 +267,9 @@ impl OsMutBitmap1<'_> {
         )
     }
 
+    /// Copy bitmap
     pub fn copy_from(&mut self, other: &Self) {
+        // TODO:
         unsafe {
             let p = self.slice_mut();
             let q = other.slice();

@@ -187,14 +187,15 @@ impl MemoryManager {
             shared.static_total / 1024,
         )
         .unwrap();
-        // for slab in shared.slab.as_ref().unwrap().statistics() {
-        //     writeln!(sb, "Slab {:4}: {:3} / {:3}", slab.0, slab.1, slab.2).unwrap();
-        // }
     }
 
-    // pub unsafe fn exhaust() {
-    //     Self::shared().static_free.store(0, Ordering::SeqCst);
-    // }
+    pub fn statistics_slab(sb: &mut StringBuffer) {
+        let shared = Self::shared();
+        sb.clear();
+        for slab in shared.slab.as_ref().unwrap().statistics() {
+            writeln!(sb, "Slab {:4}: {:3} / {:3}", slab.0, slab.1, slab.2).unwrap();
+        }
+    }
 }
 
 bitflags! {

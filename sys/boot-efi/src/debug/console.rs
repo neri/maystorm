@@ -56,6 +56,8 @@ impl DebugConsole {
         shared.stride = stride;
         shared.cols = (width - Self::PADDING_X * 2) / FONT_MEGH0608_WIDTH;
         shared.rows = (height - Self::PADDING_Y * 2) / FONT_MEGH0608_HEIGHT;
+
+        shared.fill_rect(0, 0, width, height, 0x000000);
     }
 
     pub fn put_char(&mut self, c: char) {

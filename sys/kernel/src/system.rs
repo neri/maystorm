@@ -16,23 +16,51 @@ use core::sync::atomic::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Version {
-    pub maj: usize,
-    pub min: usize,
-    pub rel: usize,
+    versions: u32,
+    rel: &'static str,
 }
 
 impl Version {
     const SYSTEM_NAME: &'static str = "my OS";
-    const VERSION: Version = Version::new(0, 0, 1);
+    const RELEASE: &'static str = "";
+    const VERSION: Version = Version::new(0, 0, 1, Self::RELEASE);
 
-    const fn new(maj: usize, min: usize, rel: usize) -> Self {
-        Version { maj, min, rel }
+    const fn new(maj: u8, min: u8, patch: u16, rel: &'static str) -> Self {
+        let versions = ((maj as u32) << 24) | ((min as u32) << 16) | (patch as u32);
+        Version { versions, rel }
+    }
+
+    pub const fn as_u32(&self) -> u32 {
+        self.versions
+    }
+
+    pub const fn maj(&self) -> usize {
+        ((self.versions >> 24) & 0xFF) as usize
+    }
+
+    pub const fn min(&self) -> usize {
+        ((self.versions >> 16) & 0xFF) as usize
+    }
+
+    pub const fn patch(&self) -> usize {
+        (self.versions & 0xFFFF) as usize
     }
 }
 
 impl fmt::Display for Version {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}.{}.{}", self.maj, self.min, self.rel)
+        if self.rel.len() > 0 {
+            write!(
+                f,
+                "{}.{}.{}-{}",
+                self.maj(),
+                self.min(),
+                self.patch(),
+                self.rel
+            )
+        } else {
+            write!(f, "{}.{}.{}", self.maj(), self.min(), self.patch())
+        }
     }
 }
 

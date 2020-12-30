@@ -1,6 +1,5 @@
 // A Window System
 
-use super::view::*;
 use crate::io::fonts::*;
 use crate::io::graphics::*;
 use crate::io::hid::*;
@@ -457,6 +456,15 @@ impl WindowManager {
         })
     }
 
+    #[allow(dead_code)]
+    fn remove(_window: &WindowHandle) {
+        // TODO:
+        // WindowManager::synchronized_pool(|| {
+        //     let shared = Self::shared();
+        //     shared.pool.remove(window);
+        // })
+    }
+
     #[inline]
     fn get(&self, key: &WindowHandle) -> Option<&Box<RawWindow>> {
         WindowManager::synchronized_pool(|| self.pool.get(key))
@@ -760,7 +768,6 @@ struct RawWindow {
     // Appearances
     bg_color: Color,
     bitmap: Option<Box<Bitmap>>,
-    view: Option<Box<dyn ViewTrait>>,
 
     /// Window Title
     title: [u8; WINDOW_TITLE_LENGTH],
@@ -894,13 +901,6 @@ impl RawWindow {
                     );
 
                     if let Some(bitmap) = &window.bitmap {
-                        // if window.is_active() && window.style.contains(WindowStyle::TITLE) {
-                        //     let mut rect = window.title_frame();
-                        //     rect.origin += blt_origin;
-                        //     if let Some(bitmap) = target_screen.view(rect) {
-                        //         bitmap.blur(10);
-                        //     }
-                        // }
                         if window.style.contains(WindowStyle::OPAQUE) {
                             target_bitmap.blt(bitmap, blt_origin, blt_rect, BltOption::COPY);
                         } else {
@@ -1037,19 +1037,9 @@ impl RawWindow {
         }
     }
 
-    fn invalidate(&mut self, is_resized: bool) {
-        if let Some(bitmap) = self.bitmap.as_ref() {
-            if let Some(view) = self.view.as_mut() {
-                if is_resized {
-                    view.set_needs_layout();
-                }
-                view.layout_if_needed();
-                if let Some(ctx) =
-                    bitmap.view(Rect::from(self.frame.size).insets_by(self.content_insets))
-                {
-                    view.draw_if_needed(&ctx);
-                }
-            }
+    fn invalidate(&mut self, _is_resized: bool) {
+        if let Some(_bitmap) = self.bitmap.as_ref() {
+            // TODO:
         }
         self.invalidate_rect(self.actual_bounds());
     }
@@ -1195,7 +1185,6 @@ impl WindowBuilder {
             bitmap: self.bitmap,
             title: self.title,
             attributes,
-            view: None,
             waker: AtomicWaker::new(),
             sem: Semaphore::new(0),
             queue,
@@ -1424,24 +1413,13 @@ impl WindowHandle {
     #[inline]
     pub fn close(&self) {
         self.hide();
-        // TODO: everything
+        // TODO: remove window
+        // WindowManager::remove(self);
     }
 
     #[inline]
     pub fn is_visible(&self) -> bool {
         self.as_ref().attributes.contains(WindowAttributes::VISIBLE)
-    }
-
-    pub fn show_if(&self, show_if_invisible: bool, hide_if_visible: bool) {
-        if self.is_visible() {
-            if hide_if_visible {
-                self.hide();
-            }
-        } else {
-            if show_if_invisible {
-                self.show();
-            }
-        }
     }
 
     #[inline]
@@ -1520,13 +1498,6 @@ impl WindowHandle {
         frame.origin.x += window.frame.x() + window.shadow_insets.left;
         frame.origin.y += window.frame.y() + window.shadow_insets.top;
         window.draw_into(target_bitmap, frame);
-    }
-
-    #[inline]
-    pub fn view<'a>(&self) -> Option<&'a mut Box<dyn ViewTrait>> {
-        let shared = WindowManager::shared();
-        let window = shared.get_mut(&self).unwrap();
-        window.view.as_mut()
     }
 
     /// Post a window message.

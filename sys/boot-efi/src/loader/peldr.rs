@@ -2,7 +2,7 @@
 
 use crate::blob::*;
 use crate::page::*;
-use crate::*;
+// use crate::*;
 use bootprot::pe::*;
 use core::mem::*;
 use core::ptr;
@@ -54,10 +54,10 @@ impl ImageLoader<'_> {
             let vmem = PageManager::valloc(base, size) as *const u8 as *mut u8;
             vmem.write_bytes(0, size);
 
-            println!(
-                "Kernel Base: {:08x} => {:08x} Size: {:08x}",
-                base.0, vmem as usize, header.optional.size_of_image
-            );
+            // println!(
+            //     "Kernel Base: {:08x} => {:08x} Size: {:08x}",
+            //     base.0, vmem as usize, header.optional.size_of_image
+            // );
 
             // Step 2 - locate sections
             let sec_tbl: &[SectionTable] = self
@@ -65,15 +65,15 @@ impl ImageLoader<'_> {
                 .transmute_slice(self.sec_tbl, header.coff.n_sections as usize);
 
             for section in sec_tbl {
-                println!(
-                    "Section: {} {:08x} {:08x} {:08x} {:08x} {:08x}",
-                    core::str::from_utf8(&section.name).unwrap(),
-                    section.vsize,
-                    section.rva,
-                    section.size,
-                    section.file_offset,
-                    section.flags.bits()
-                );
+                // println!(
+                //     "Section: {} {:08x} {:08x} {:08x} {:08x} {:08x}",
+                //     core::str::from_utf8(&section.name).unwrap(),
+                //     section.vsize,
+                //     section.rva,
+                //     section.size,
+                //     section.file_offset,
+                //     section.flags.bits()
+                // );
                 if section.size > 0 {
                     let p = vmem.add(section.rva as usize);
                     let q: *const u8 = self.blob.transmute(section.file_offset as usize);
