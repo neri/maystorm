@@ -14,7 +14,6 @@
 #![feature(option_result_contains)]
 #![feature(panic_info_message)]
 #![feature(try_reserve)]
-#![feature(unsafe_cell_get_mut)]
 #![feature(wake_trait)]
 
 pub mod arch;

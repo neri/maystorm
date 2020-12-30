@@ -3,7 +3,7 @@
 [[package]]
 name = "acpi"
 version = "2.1.0"
-source = "git+https://github.com/rust-osdev/acpi#4c18da865eb0ee40afb14a64408c1510f564877d"
+source = "git+https://github.com/rust-osdev/acpi#045b20d9634050da7761fdb8926e48516fa512c0"
 dependencies = [
  "bit_field",
  "log",
@@ -235,9 +235,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.7"
+version = "1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa563d17ecb180e500da1cfd2b028310ac758de548efdd203e18f283af693f37"
+checksum = "991431c3519a3f36861882da93630ce66b52918dcf1b8e2fd66b397fc96f28df"
 dependencies = [
  "proc-macro2",
 ]
@@ -295,9 +295,9 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 
 [[package]]
 name = "syn"
-version = "1.0.54"
+version = "1.0.56"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a2af957a63d6bd42255c359c93d9bfdb97076bd3b820897ce55ffbfbf107f44"
+checksum = "a9802ddde94170d186eeee5005b798d9c159fa970403f1be19976d0cfb939b72"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -321,8 +321,8 @@ dependencies = [
 
 [[package]]
 name = "uefi"
-version = "0.6.0"
-source = "git+https://github.com/rust-osdev/uefi-rs.git#e9b453f05f86b76bc3cbe94bfaebca783edda44b"
+version = "0.7.0"
+source = "git+https://github.com/rust-osdev/uefi-rs.git#1d89f9f7d14e817e4919e750b5b7f642e0201a35"
 dependencies = [
  "bitflags",
  "log",

@@ -16,15 +16,21 @@ impl Spinlock {
     }
 
     pub fn try_to_lock(&self) -> Result<(), ()> {
-        if self.value.compare_and_swap(false, true, Ordering::Acquire) {
-            Err(())
-        } else {
-            Ok(())
+        match self
+            .value
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+        {
+            Ok(_) => Ok(()),
+            Err(_) => Err(()),
         }
     }
 
     pub fn lock(&self) {
-        while self.value.compare_and_swap(false, true, Ordering::Acquire) {
+        while self
+            .value
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok()
+        {
             let mut spin_loop = SpinLoopWait::new();
             while self.value.load(Ordering::Relaxed) {
                 spin_loop.wait();
