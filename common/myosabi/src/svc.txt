@@ -1,17 +1,21 @@
-# MEG-OS Function Number Definitions
+# MEG-OS System Call Function Number
 exit|0
-print_string
-monotonic
-usleep
-get_version
-new_window
-draw_text
-fill_rect
-wait_key
-blt8
-blt1
-flash_window
-rand
-srand
-alloc
-free
+print_string||Display a string
+monotonic||Get the value of the monotonic timer in microseconds
+time||Perform the time service
+usleep||Blocks a thread for the specified microseconds
+get_system_info||Get the system information
+new_window||Create a new window
+close_window||Close a window
+draw_text||Draw a string in a window
+fill_rect||Fill a rectangle in a window
+draw_rect||Draw a rectangle in a window
+wait_key||Wait for key event
+blt8||Draw a bitmap in a window
+blt1||Draw a bitmap in a window
+blt24||Draw a bitmap in a window
+flash_window||Reflect the window's bitmap to the screen now
+rand|100|Return a random number
+srand||Set the seed of the random number
+alloc|10000|RESERVED
+free||RESERVED

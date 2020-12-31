@@ -5,15 +5,23 @@ use super::wasm::*;
 use crate::*;
 use alloc::vec::Vec;
 
-pub struct WasmInterpreter {}
+pub struct WasmInterpreter<'a> {
+    module: &'a WasmModule,
+}
 
-impl WasmInterpreter {
+impl<'a> WasmInterpreter<'a> {
+    pub fn new(module: &'a WasmModule) -> Self {
+        Self { module }
+    }
+}
+
+impl WasmInterpreter<'_> {
     /// Interpret WebAssembly code blocks
-    pub fn run(
+    pub fn invoke(
+        &mut self,
         mut code_block: &mut WasmCodeBlock,
         locals: &[WasmValue],
         result_types: &[WasmValType],
-        module: &WasmModule,
     ) -> Result<WasmValue, WasmRuntimeError> {
         let mut locals = {
             let mut output = Vec::with_capacity(locals.len());
@@ -22,6 +30,17 @@ impl WasmInterpreter {
             }
             output
         };
+        self.run(&mut code_block, locals.as_mut_slice(), result_types)
+    }
+
+    pub fn run(
+        &mut self,
+        mut code_block: &mut WasmCodeBlock,
+        locals: &mut [WasmStackValue],
+        result_types: &[WasmValType],
+    ) -> Result<WasmValue, WasmRuntimeError> {
+        let module = self.module;
+
         let mut value_stack: Vec<WasmStackValue> =
             Vec::with_capacity(code_block.info().max_stack());
         let mut block_stack = Vec::with_capacity(code_block.info().max_block_level());
@@ -121,7 +140,7 @@ impl WasmInterpreter {
                         .functions()
                         .get(index)
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    Self::call(func, &mut value_stack, module)?;
+                    self.call(func, &mut value_stack)?;
                 }
                 WasmOpcode::CallIndirect => {
                     let type_index = code_block.read_unsigned()? as usize;
@@ -136,7 +155,7 @@ impl WasmInterpreter {
                     if func.type_index() != type_index {
                         return Err(WasmRuntimeError::TypeMismatch);
                     }
-                    Self::call(func, &mut value_stack, module)?;
+                    self.call(func, &mut value_stack)?;
                 }
 
                 WasmOpcode::Drop => {
@@ -1097,38 +1116,49 @@ impl WasmInterpreter {
     }
 
     fn call(
+        &mut self,
         func: &WasmFunction,
         value_stack: &mut Vec<WasmStackValue>,
-        module: &WasmModule,
     ) -> Result<(), WasmRuntimeError> {
+        let module = self.module;
         let result_types = func.result_types();
 
-        let mut locals = Vec::new();
         let param_len = func.param_types().len();
         if value_stack.len() < param_len {
             return Err(WasmRuntimeError::InternalInconsistency);
         }
-        let new_stack_len = value_stack.len() - param_len;
-        let params = &value_stack[new_stack_len..];
-        for (index, val_type) in func.param_types().iter().enumerate() {
-            locals.push(params[index].get_by_type(*val_type));
-        }
-        value_stack.resize(new_stack_len, WasmStackValue::from_usize(0));
 
         if let Some(body) = func.body() {
-            for local in body.local_types() {
-                locals.push(WasmValue::default_for(*local));
+            let mut locals = Vec::with_capacity(param_len + body.local_types().len());
+            let value_stack_len = value_stack.len();
+            let new_stack_len = value_stack_len - param_len;
+            let params = &value_stack[new_stack_len..];
+            for param in params {
+                locals.push(*param);
             }
+            for _ in body.local_types() {
+                locals.push(WasmStackValue::zero());
+            }
+            value_stack.resize(new_stack_len, WasmStackValue::from_usize(0));
+
             let cb = body.code_block();
             let cb_ref = cb.borrow();
             let slice = cb_ref.as_slice();
             let mut code_block = WasmCodeBlock::from_slice(slice, body.block_info());
-            let result = Self::run(&mut code_block, &locals, result_types, module)?;
+            let result = self.run(&mut code_block, &mut locals, result_types)?;
             if !result.is_empty() {
                 value_stack.push(WasmStackValue::from(result));
             }
             Ok(())
         } else if let Some(dlink) = func.dlink() {
+            let mut locals = Vec::with_capacity(param_len);
+            let new_stack_len = value_stack.len() - param_len;
+            let params = &value_stack[new_stack_len..];
+            for (index, val_type) in func.param_types().iter().enumerate() {
+                locals.push(params[index].get_by_type(*val_type));
+            }
+            value_stack.resize(new_stack_len, WasmStackValue::from_usize(0));
+
             let result = dlink(module, &locals)?;
             if let Some(t) = result_types.first() {
                 if result.is_valid_type(*t) {
@@ -1188,6 +1218,10 @@ pub union WasmStackValue {
 }
 
 impl WasmStackValue {
+    pub const fn zero() -> Self {
+        Self { u64: 0 }
+    }
+
     #[inline]
     pub const fn from_bool(v: bool) -> Self {
         if v {
@@ -1393,16 +1427,19 @@ mod tests {
         let block_info =
             WasmBlockInfo::analyze(0, &mut stream, &local_types, &result_types, &module).unwrap();
         let mut code_block = super::WasmCodeBlock::from_slice(&slice, &block_info);
+        let mut interp = WasmInterpreter::new(&module);
 
         let params = [1234.into(), 5678.into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, 6912);
 
         let params = [0xDEADBEEFu32.into(), 0x55555555.into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1419,16 +1456,19 @@ mod tests {
         let block_info =
             WasmBlockInfo::analyze(0, &mut stream, &local_types, &result_types, &module).unwrap();
         let mut code_block = super::WasmCodeBlock::from_slice(&slice, &block_info);
+        let mut interp = WasmInterpreter::new(&module);
 
         let params = [1234.into(), 5678.into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, -4444);
 
         let params = [0x55555555.into(), 0xDEADBEEFu32.into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1445,16 +1485,19 @@ mod tests {
         let block_info =
             WasmBlockInfo::analyze(0, &mut stream, &local_types, &result_types, &module).unwrap();
         let mut code_block = super::WasmCodeBlock::from_slice(&slice, &block_info);
+        let mut interp = WasmInterpreter::new(&module);
 
         let params = [1234.into(), 5678.into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, 7006652);
 
         let params = [0x55555555.into(), 0xDEADBEEFu32.into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1471,30 +1514,35 @@ mod tests {
         let block_info =
             WasmBlockInfo::analyze(0, &mut stream, &local_types, &result_types, &module).unwrap();
         let mut code_block = super::WasmCodeBlock::from_slice(&slice, &block_info);
+        let mut interp = WasmInterpreter::new(&module);
 
         let params = [7006652.into(), 5678.into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, 1234);
 
         let params = [42.into(), (-6).into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, -7);
 
         let params = [(-42).into(), (6).into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, -7);
 
         let params = [(-42).into(), (-6).into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1511,23 +1559,27 @@ mod tests {
         let block_info =
             WasmBlockInfo::analyze(0, &mut stream, &local_types, &result_types, &module).unwrap();
         let mut code_block = super::WasmCodeBlock::from_slice(&slice, &block_info);
+        let mut interp = WasmInterpreter::new(&module);
 
         let params = [7006652.into(), 5678.into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, 1234);
 
         let params = [42.into(), (-6).into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, 0);
 
         let params = [(-42).into(), (6).into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1547,51 +1599,59 @@ mod tests {
         let block_info =
             WasmBlockInfo::analyze(0, &mut stream, &local_types, &result_types, &module).unwrap();
         let mut code_block = super::WasmCodeBlock::from_slice(&slice, &block_info);
+        let mut interp = WasmInterpreter::new(&module);
 
         let params = [0.into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, 123);
 
         let params = [1.into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, 456);
 
         let params = [2.into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, 789);
 
         let params = [3.into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, 789);
 
         let params = [4.into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, 789);
 
         let params = [5.into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, 789);
 
         let params = [(-1).into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1612,16 +1672,19 @@ mod tests {
         let block_info =
             WasmBlockInfo::analyze(0, &mut stream, &local_types, &result_types, &module).unwrap();
         let mut code_block = super::WasmCodeBlock::from_slice(&slice, &block_info);
+        let mut interp = WasmInterpreter::new(&module);
 
         let params = [7.into(), 0.into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, 5040);
 
         let params = [10.into(), 0.into()];
-        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
+        let result = interp
+            .invoke(&mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();

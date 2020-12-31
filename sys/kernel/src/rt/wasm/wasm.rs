@@ -1315,7 +1315,7 @@ impl WasmFunctionBody {
         let blob = stream.read_bytes()?;
         let mut stream = Leb128Stream::from_slice(blob);
         let n_locals = stream.read_unsigned()? as usize;
-        let mut locals = Vec::new();
+        let mut locals = Vec::with_capacity(n_locals);
         for _ in 0..n_locals {
             let repeat = stream.read_unsigned()?;
             let val = stream
@@ -1328,7 +1328,7 @@ impl WasmFunctionBody {
         let code_block = Arc::new(RefCell::new(blob[stream.position..].to_vec()));
 
         let block_info = {
-            let mut local_types = Vec::new();
+            let mut local_types = Vec::with_capacity(param_types.len() + locals.len());
             for param_type in param_types {
                 local_types.push(param_type.clone());
             }
@@ -2451,7 +2451,8 @@ impl WasmRunnable<'_> {
             .as_ref()
             .ok_or(WasmRuntimeError::NoMethod)?;
 
-        let mut locals = Vec::new();
+        let mut locals =
+            Vec::with_capacity(self.function.param_types().len() + body.local_types.len());
         for (index, param_type) in self.function.param_types().iter().enumerate() {
             let param = params
                 .get(index)
@@ -2469,16 +2470,13 @@ impl WasmRunnable<'_> {
 
         let code_ref = body.code_block.borrow();
         let mut code_block = WasmCodeBlock::from_slice(&code_ref, body.block_info());
-        WasmInterpreter::run(
-            &mut code_block,
-            locals.as_slice(),
-            result_types,
-            self.module,
-        )
-        .map_err(|err| {
-            println!("err {:?} at {}", err, code_block.fetch_position());
-            err
-        })
+        let mut interp = WasmInterpreter::new(self.module);
+        interp
+            .invoke(&mut code_block, locals.as_slice(), result_types)
+            .map_err(|err| {
+                println!("err {:?} at {}", err, code_block.fetch_position());
+                err
+            })
     }
 }
 

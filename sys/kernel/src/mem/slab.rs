@@ -6,7 +6,6 @@ use alloc::vec::*;
 use core::alloc::Layout;
 use core::num::*;
 use core::sync::atomic::*;
-// use core::ops::Drop;
 
 type UsizeSmall = u16;
 type AtomicUsizeSmall = AtomicU16;
@@ -80,13 +79,14 @@ struct SlabCache {
 
 impl SlabCache {
     fn new(block_size: UsizeSmall) -> Self {
-        let min_bitmap_size = 16;
+        let min_bitmap_size = 8;
         let mut chunk_size_shift = 12;
         let mut items_per_chunk: UsizeSmall;
         let mut bitmap_size: UsizeSmall;
         loop {
             let chunk_size = 1 << chunk_size_shift;
-            items_per_chunk = (chunk_size / block_size as usize) as UsizeSmall;
+            items_per_chunk =
+                usize::min(8 * MAX_BITMAP_SIZE, chunk_size / block_size as usize) as UsizeSmall;
             bitmap_size = (items_per_chunk + 7) / 8;
             if bitmap_size >= min_bitmap_size {
                 break;

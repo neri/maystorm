@@ -4,38 +4,46 @@ use core::convert::TryFrom;
 #[repr(u32)]
 #[derive(Debug, Copy, Clone)]
 pub enum Function {
-    /// 0 : exit
+    /// [0]
     Exit = 0,
-    /// 1 : print_string
+    /// [1] Display a string
     PrintString = 1,
-    /// 2 : monotonic
+    /// [2] Get the value of the monotonic timer in microseconds
     Monotonic = 2,
-    /// 3 : usleep
-    Usleep = 3,
-    /// 4 : get_version
-    GetVersion = 4,
-    /// 5 : new_window
-    NewWindow = 5,
-    /// 6 : draw_text
-    DrawText = 6,
-    /// 7 : fill_rect
-    FillRect = 7,
-    /// 8 : wait_key
-    WaitKey = 8,
-    /// 9 : blt8
-    Blt8 = 9,
-    /// 10 : blt1
-    Blt1 = 10,
-    /// 11 : flash_window
-    FlashWindow = 11,
-    /// 12 : rand
-    Rand = 12,
-    /// 13 : srand
-    Srand = 13,
-    /// 14 : alloc
-    Alloc = 14,
-    /// 15 : free
-    Free = 15,
+    /// [3] Perform the time service
+    Time = 3,
+    /// [4] Blocks a thread for the specified microseconds
+    Usleep = 4,
+    /// [5] Get the system information
+    GetSystemInfo = 5,
+    /// [6] Create a new window
+    NewWindow = 6,
+    /// [7] Close a window
+    CloseWindow = 7,
+    /// [8] Draw a string in a window
+    DrawText = 8,
+    /// [9] Fill a rectangle in a window
+    FillRect = 9,
+    /// [10] Draw a rectangle in a window
+    DrawRect = 10,
+    /// [11] Wait for key event
+    WaitKey = 11,
+    /// [12] Draw a bitmap in a window
+    Blt8 = 12,
+    /// [13] Draw a bitmap in a window
+    Blt1 = 13,
+    /// [14] Draw a bitmap in a window
+    Blt24 = 14,
+    /// [15] Reflect the window's bitmap to the screen now
+    FlashWindow = 15,
+    /// [100] Return a random number
+    Rand = 100,
+    /// [101] Set the seed of the random number
+    Srand = 101,
+    /// [10000] RESERVED
+    Alloc = 10000,
+    /// [10001] RESERVED
+    Free = 10001,
 }
 
 impl TryFrom<u32> for Function {
@@ -46,19 +54,23 @@ impl TryFrom<u32> for Function {
             0 => Ok(Self::Exit),
             1 => Ok(Self::PrintString),
             2 => Ok(Self::Monotonic),
-            3 => Ok(Self::Usleep),
-            4 => Ok(Self::GetVersion),
-            5 => Ok(Self::NewWindow),
-            6 => Ok(Self::DrawText),
-            7 => Ok(Self::FillRect),
-            8 => Ok(Self::WaitKey),
-            9 => Ok(Self::Blt8),
-            10 => Ok(Self::Blt1),
-            11 => Ok(Self::FlashWindow),
-            12 => Ok(Self::Rand),
-            13 => Ok(Self::Srand),
-            14 => Ok(Self::Alloc),
-            15 => Ok(Self::Free),
+            3 => Ok(Self::Time),
+            4 => Ok(Self::Usleep),
+            5 => Ok(Self::GetSystemInfo),
+            6 => Ok(Self::NewWindow),
+            7 => Ok(Self::CloseWindow),
+            8 => Ok(Self::DrawText),
+            9 => Ok(Self::FillRect),
+            10 => Ok(Self::DrawRect),
+            11 => Ok(Self::WaitKey),
+            12 => Ok(Self::Blt8),
+            13 => Ok(Self::Blt1),
+            14 => Ok(Self::Blt24),
+            15 => Ok(Self::FlashWindow),
+            100 => Ok(Self::Rand),
+            101 => Ok(Self::Srand),
+            10000 => Ok(Self::Alloc),
+            10001 => Ok(Self::Free),
             _ => Err(()),
         }
     }

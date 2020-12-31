@@ -13,7 +13,7 @@ extern "C" {
     pub fn svc6(_: Function, _: usize, _: usize, _: usize, _: usize, _: usize, _: usize) -> usize;
 }
 
-/// Display a string
+/// Display a string.
 #[inline]
 pub fn os_print(s: &str) {
     unsafe {
@@ -21,7 +21,32 @@ pub fn os_print(s: &str) {
     }
 }
 
-/// Create a new window
+/// Get the value of the monotonic timer in microseconds.
+#[inline]
+pub fn os_monotonic() -> u32 {
+    unsafe { svc0(Function::Monotonic) as u32 }
+}
+
+#[inline]
+pub fn os_time_of_day() -> u32 {
+    unsafe { svc1(Function::Time, 0) as u32 }
+}
+
+/// Blocks a thread for the specified microseconds.
+#[inline]
+pub fn os_usleep(us: u32) {
+    unsafe {
+        svc1(Function::Usleep, us as usize);
+    }
+}
+
+/// Get the system version information.
+#[inline]
+pub fn os_version() -> u32 {
+    unsafe { svc1(Function::GetSystemInfo, 0) as u32 }
+}
+
+/// Create a new window.
 #[inline]
 pub fn os_new_window(s: &str, width: usize, height: usize) -> usize {
     unsafe {
@@ -35,7 +60,15 @@ pub fn os_new_window(s: &str, width: usize, height: usize) -> usize {
     }
 }
 
-/// Draw a string in a window
+/// Close a window.
+#[inline]
+pub fn os_close_window(window: usize) {
+    unsafe {
+        svc1(Function::CloseWindow, window);
+    }
+}
+
+/// Draw a string in a window.
 #[inline]
 pub fn os_draw_text(window: usize, x: usize, y: usize, s: &str, color: u32) {
     unsafe {
@@ -51,7 +84,7 @@ pub fn os_draw_text(window: usize, x: usize, y: usize, s: &str, color: u32) {
     }
 }
 
-/// Fill a rectangle in a window
+/// Fill a rectangle in a window.
 #[inline]
 pub fn os_fill_rect(window: usize, x: usize, y: usize, width: usize, height: usize, color: u32) {
     unsafe {
@@ -67,7 +100,7 @@ pub fn os_fill_rect(window: usize, x: usize, y: usize, width: usize, height: usi
     }
 }
 
-/// Wait for key input
+/// Wait for key event
 #[inline]
 pub fn os_wait_key(window: usize) -> u32 {
     unsafe { svc1(Function::WaitKey, window) as u32 }
@@ -105,34 +138,16 @@ pub fn os_flash_window(window: usize) {
     }
 }
 
-/// Get the value of the monotonic timer in microseconds
-#[inline]
-pub fn os_monotonic() -> u32 {
-    unsafe { svc0(Function::Monotonic) as u32 }
-}
-
-/// Blocks a thread for the specified microseconds.
-#[inline]
-pub fn os_usleep(us: u32) {
-    unsafe {
-        svc1(Function::Usleep, us as usize);
-    }
-}
-
 /// Return a random number
 #[inline]
 pub fn os_rand() -> u32 {
     unsafe { svc0(Function::Rand) as u32 }
 }
 
+/// Set the seed of the random number.
 #[inline]
 pub fn os_srand(srand: u32) -> u32 {
     unsafe { svc1(Function::Srand, srand as usize) as u32 }
-}
-
-#[inline]
-pub fn os_version() -> u32 {
-    unsafe { svc1(Function::GetVersion, 0) as u32 }
 }
 
 #[inline]

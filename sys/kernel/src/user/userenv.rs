@@ -28,11 +28,37 @@ impl UserEnv {
             f();
         } else {
             {
+                let screen_bounds = WindowManager::main_screen_bounds();
+                let bitmap = Bitmap::new(
+                    screen_bounds.width() as usize,
+                    screen_bounds.height() as usize,
+                    false,
+                );
+
+                bitmap
+                    .update_bitmap(|slice| {
+                        let rng = XorShift64::default();
+                        for color in slice.iter_mut() {
+                            *color = if (rng.next() & 1) > 0 {
+                                Color::WHITE
+                            } else {
+                                Color::TRANSPARENT
+                            }
+                        }
+                    })
+                    .unwrap();
+                bitmap.blur(&bitmap, 4);
+                bitmap.blend_rect(bitmap.bounds(), DESKTOP_COLOR);
+
+                WindowManager::set_desktop_bitmap(Some(Box::new(bitmap)));
+            }
+
+            {
                 let logo_bmp = include_bytes!("logo.bmp");
                 let logo = Bitmap::from_msdib(logo_bmp).unwrap();
 
                 let main_text = AttributedString::with(
-                    "Starting my OS",
+                    "Starting up...",
                     FontDescriptor::new(FontFamily::SansSerif, 24).unwrap(),
                     IndexedColor::White.into(),
                 );
@@ -73,32 +99,6 @@ impl UserEnv {
 
                 window.make_active();
                 Timer::sleep(Duration::from_millis(1000));
-
-                {
-                    let screen_bounds = WindowManager::main_screen_bounds();
-                    let bitmap = Bitmap::new(
-                        screen_bounds.width() as usize,
-                        screen_bounds.height() as usize,
-                        false,
-                    );
-
-                    bitmap
-                        .update_bitmap(|slice| {
-                            let rng = XorShift64::default();
-                            for color in slice.iter_mut() {
-                                *color = if (rng.next() & 1) > 0 {
-                                    Color::WHITE
-                                } else {
-                                    Color::TRANSPARENT
-                                }
-                            }
-                        })
-                        .unwrap();
-                    bitmap.blur(&bitmap, 4);
-                    bitmap.blend_rect(bitmap.bounds(), DESKTOP_COLOR);
-
-                    WindowManager::set_desktop_bitmap(Some(Box::new(bitmap)));
-                }
 
                 WindowManager::set_pointer_visible(true);
                 window.close();

@@ -137,12 +137,22 @@ impl ArleRuntime {
             svc::Function::Monotonic => {
                 return Ok(WasmValue::I32(Timer::monotonic().as_micros() as i32));
             }
+            svc::Function::Time => {
+                let sub_func_no = Self::get_u32(&params, 1)?;
+                match sub_func_no {
+                    0 => {
+                        let time = System::system_time();
+                        return Ok(WasmValue::from((time.secs % 86400) as u32));
+                    }
+                    _ => (),
+                }
+            }
             svc::Function::Usleep => {
                 let us = Self::get_u32(&params, 1)? as u64;
                 Timer::sleep(Duration::from_micros(us));
             }
 
-            svc::Function::GetVersion => {
+            svc::Function::GetSystemInfo => {
                 let sub_func_no = Self::get_u32(&params, 1)?;
                 match sub_func_no {
                     0 => return Ok(WasmValue::from(System::version().as_u32())),
@@ -154,6 +164,7 @@ impl ArleRuntime {
                 let m = Self::get_memarg(&params, 1)?;
                 Self::get_string(memory, m).map(|s| print!("{}", s));
             }
+
             svc::Function::NewWindow => {
                 let m = Self::get_memarg(&params, 1)?;
                 let size = Self::get_size(&params, 3)?;
@@ -168,6 +179,13 @@ impl ArleRuntime {
                     let handle = self.next_handle();
                     self.windows.insert(handle, window);
                     return Ok(WasmValue::I32(handle as i32));
+                }
+            }
+            svc::Function::CloseWindow => {
+                let handle = Self::get_u32(&params, 1)? as usize;
+                if let Some(window) = self.windows.get(&handle) {
+                    window.close();
+                    self.windows.remove(&handle);
                 }
             }
             svc::Function::DrawText => {
@@ -201,6 +219,18 @@ impl ArleRuntime {
                     window.set_needs_display();
                 }
             }
+            svc::Function::DrawRect => {
+                if let Some(window) = self.get_window(&params, 1)? {
+                    let origin = Self::get_point(&params, 2)?;
+                    let size = Self::get_size(&params, 4)?;
+                    let color = Self::get_color(&params, 6)?;
+                    let rect = Rect { origin, size };
+                    let _ = window.draw_in_rect(rect, |bitmap| {
+                        bitmap.draw_rect(rect.size.into(), color);
+                    });
+                    window.set_needs_display();
+                }
+            }
             svc::Function::WaitKey => {
                 if let Some(window) = self.get_window(&params, 1)? {
                     let c = Self::wait_key(window);
@@ -225,6 +255,16 @@ impl ArleRuntime {
                     let scale = Self::get_i32(&params, 6)? as isize;
                     let _ = window.draw_in_rect(os_bitmap.rect(origin, scale), |bitmap| {
                         os_bitmap.blt(bitmap, Point::zero(), color, scale);
+                    });
+                    window.set_needs_display();
+                }
+            }
+            svc::Function::Blt24 => {
+                if let Some(window) = self.get_window(&params, 1)? {
+                    let origin = Self::get_point(&params, 2)?;
+                    let os_bitmap = Self::get_bitmap24(&memory, &params, 4)?;
+                    let _ = window.draw_in_rect(os_bitmap.rect(origin), |bitmap| {
+                        os_bitmap.blt(bitmap, Point::zero());
                     });
                     window.set_needs_display();
                 }
@@ -335,6 +375,15 @@ impl ArleRuntime {
     ) -> Result<OsBitmap1<'a>, WasmRuntimeError> {
         let base = Self::get_u32(&params, index)?;
         OsBitmap1::from_memory(memory, base)
+    }
+
+    fn get_bitmap24<'a>(
+        memory: &'a WasmMemory,
+        params: &[WasmValue],
+        index: usize,
+    ) -> Result<OsBitmap24<'a>, WasmRuntimeError> {
+        let base = Self::get_u32(&params, index)?;
+        OsBitmap24::from_memory(memory, base)
     }
 
     fn wait_key(window: WindowHandle) -> Option<char> {
@@ -535,5 +584,43 @@ impl OsBitmap1<'_> {
             }
             cursor += stride;
         }
+    }
+}
+
+struct OsBitmap24<'a> {
+    slice: &'a [u8],
+    dim: Size<isize>,
+}
+
+impl<'a> OsBitmap24<'a> {
+    fn from_memory(memory: &'a WasmMemory, base: u32) -> Result<Self, WasmRuntimeError> {
+        const SIZE_OF_BITMAP: usize = 16;
+        let array = memory.read_bytes(base as usize, SIZE_OF_BITMAP)?;
+
+        let width = LE::read_u32(&array[0..4]) as usize;
+        let height = LE::read_u32(&array[4..8]) as usize;
+        let base = LE::read_u32(&array[8..12]) as usize;
+
+        let dim = Size::new(width as isize, height as isize);
+        let size = width * height;
+        let slice = memory.read_bytes(base, size)?;
+
+        Ok(Self { slice, dim })
+    }
+}
+
+impl OsBitmap24<'_> {
+    const fn rect(&self, origin: Point<isize>) -> Rect<isize> {
+        Rect {
+            origin,
+            size: self.dim,
+        }
+    }
+
+    fn blt(&self, to: &Bitmap, origin: Point<isize>) {
+        // TODO:
+        let _ = to;
+        let _ = origin;
+        let _ = self.slice;
     }
 }

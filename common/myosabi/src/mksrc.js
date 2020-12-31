@@ -9,6 +9,7 @@ const OUTPUT_PATH = __dirname + "/svc.rs"
 const numbers = [];
 const func_snakes = [];
 const func_camels = [];
+const comments = [];
 
 const snakeToCamel = (p) => {
     return p
@@ -35,6 +36,7 @@ for (const ln in x) {
     const func_name = components[0];
     const funcName = snakeToCamel(func_name);
     const num = components[1] | 0;
+    const comment = components[2];
     if (num) {
         cursor = num;
     }
@@ -42,6 +44,7 @@ for (const ln in x) {
     numbers.push(cursor);
     func_snakes[cursor] = func_name;
     func_camels[cursor] = funcName;
+    comments[cursor] = comment;
 
     console.log('intr', cursor, func_name, funcName);
 
@@ -57,11 +60,13 @@ let lines = [
 lines.push('#[repr(u32)]');
 lines.push('#[derive(Debug, Copy, Clone)]');
 lines.push(`pub enum ${class_name} {`);
-for (const index in numbers) {
+for (const i in numbers) {
+    const index = numbers[i];
     const funcName = func_camels[index];
-    const func_name = func_snakes[index];
-    const comments = [`${index}`, ':', func_name].filter(v => v && (v.length > 0));
-    lines.push(`    /// ${comments.join(' ')}`);
+    // const func_name = func_snakes[index];
+    const comment = comments[index];
+    const remarks = [`[${index}]`, comment].filter(v => v && (v.length > 0));
+    lines.push(`    /// ${remarks.join(' ')}`);
     lines.push(`    ${funcName} = ${index},`);
 }
 lines.push('}');
@@ -71,7 +76,8 @@ lines.push(`    type Error = ();`);
 lines.push('');
 lines.push('    fn try_from(value: u32) -> Result<Self, Self::Error> {');
 lines.push('        match value {');
-for (const index in numbers) {
+for (const i in numbers) {
+    const index = numbers[i];
     const funcName = func_camels[index];
     lines.push(`            ${index} => Ok(Self::${funcName}),`);
 }

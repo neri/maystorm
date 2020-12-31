@@ -17,7 +17,7 @@ OVMF		= var/ovmfx64.fd
 all: $(TARGETS)
 
 clean:
-	-rm -rf target
+	-rm -rf sys/target apps/target
 
 # $(RUST_ARCH).json:
 # 	rustc +nightly -Z unstable-options --print target-spec-json --target $(RUST_ARCH) | sed -e 's/-sse,+/+sse,-/' > $@

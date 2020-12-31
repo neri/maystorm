@@ -18,6 +18,11 @@ impl Window {
     }
 
     #[inline]
+    pub fn close(self) {
+        os_close_window(self.handle.0);
+    }
+
+    #[inline]
     pub const fn handle(&self) -> WindowHandle {
         self.handle
     }
