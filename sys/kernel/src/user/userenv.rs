@@ -252,7 +252,7 @@ async fn activity_monitor_main() {
         ACTIVITY_WINDOW = Some(window);
     }
 
-    window.show();
+    // window.show();
 
     let font = FontDescriptor::new(FontFamily::SmallFixed, 8).unwrap_or(FontManager::system_font());
 

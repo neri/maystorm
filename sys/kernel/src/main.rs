@@ -175,7 +175,7 @@ impl Application {
         None
     }
 
-    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> isize, &'static str); 14] = [
+    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> isize, &'static str); 15] = [
         ("cls", Self::cmd_cls, "Clear screen"),
         ("dir", Self::cmd_dir, "Show directory"),
         ("echo", Self::cmd_echo, ""),
@@ -185,6 +185,7 @@ impl Application {
         ("type", Self::cmd_type, "Show file"),
         ("ver", Self::cmd_ver, "Display version"),
         //
+        ("ps", Self::cmd_ps, ""),
         ("lspci", Self::cmd_lspci, "Show List of PCI Devices"),
         ("stat", Self::cmd_stat, "Show stat"),
         ("sysctl", Self::cmd_sysctl, "System Control"),
@@ -370,6 +371,13 @@ impl Application {
         let name = argv[0];
         Self::spawn(name, argv, false);
 
+        0
+    }
+
+    fn cmd_ps(_argv: &[&str]) -> isize {
+        let mut sb = string::StringBuffer::with_capacity(1024);
+        MyScheduler::print_statistics(&mut sb, false);
+        print!("{}", sb.as_str());
         0
     }
 
