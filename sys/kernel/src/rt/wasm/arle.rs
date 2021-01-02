@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::dev::rng::*;
+use crate::io::hid::*;
 use crate::num::*;
 use crate::uuid::Uuid;
 use alloc::collections::BTreeMap;
@@ -79,11 +80,14 @@ pub struct ArleRuntime {
     next_handle: AtomicUsize,
     windows: BTreeMap<usize, WindowHandle>,
     rng32: XorShift32,
+    key_buffer: Vec<KeyEvent>,
 }
 
 impl ArleRuntime {
     const MOD_NAME: &'static str = "arl";
     const ENTRY_FUNC_NAME: &'static str = "_start";
+
+    const SIZE_KEYBUFFER: usize = 32;
 
     fn new(module: WasmModule) -> Box<Self> {
         Box::new(Self {
@@ -92,6 +96,7 @@ impl ArleRuntime {
             next_handle: AtomicUsize::new(1),
             windows: BTreeMap::new(),
             rng32: XorShift32::default(),
+            key_buffer: Vec::with_capacity(Self::SIZE_KEYBUFFER),
         })
     }
 
@@ -231,10 +236,18 @@ impl ArleRuntime {
                     window.set_needs_display();
                 }
             }
-            svc::Function::WaitKey => {
+            svc::Function::WaitChar => {
                 if let Some(window) = self.get_window(&params, 1)? {
-                    let c = Self::wait_key(window);
+                    let c = self.wait_key(window);
                     return Ok(WasmValue::I32(c.unwrap_or('\0') as i32));
+                }
+            }
+            svc::Function::ReadChar => {
+                if let Some(window) = self.get_window(&params, 1)? {
+                    let c = self.read_key(window);
+                    return Ok(WasmValue::from(
+                        c.map(|v| v as u32).unwrap_or(MyOsAbi::OPTION_CHAR_NONE),
+                    ));
                 }
             }
             svc::Function::Blt8 => {
@@ -386,14 +399,42 @@ impl ArleRuntime {
         OsBitmap24::from_memory(memory, base)
     }
 
-    fn wait_key(window: WindowHandle) -> Option<char> {
+    fn wait_key(&mut self, window: WindowHandle) -> Option<char> {
         while let Some(message) = window.wait_message() {
-            match message {
-                WindowMessage::Char(c) => return Some(c),
-                _ => window.handle_default_message(message),
+            self.process_message(window, message);
+
+            if let Some(c) = self
+                .read_key_buffer()
+                .and_then(|v| v.key_data().map(|v| v.into_char()))
+            {
+                return Some(c);
             }
         }
         None
+    }
+
+    fn read_key(&mut self, window: WindowHandle) -> Option<char> {
+        while let Some(message) = window.read_message() {
+            self.process_message(window, message);
+        }
+        self.read_key_buffer()
+            .and_then(|v| v.key_data().map(|v| v.into_char()))
+    }
+
+    fn read_key_buffer(&mut self) -> Option<KeyEvent> {
+        if self.key_buffer.len() > 0 {
+            return Some(self.key_buffer.remove(0));
+        }
+        None
+    }
+
+    fn process_message(&mut self, window: WindowHandle, message: WindowMessage) {
+        match message {
+            WindowMessage::Key(event) => {
+                self.key_buffer.push(event);
+            }
+            _ => window.handle_default_message(message),
+        }
     }
 }
 
@@ -564,8 +605,11 @@ impl OsBitmap1<'_> {
                     if (data & position) != 0 {
                         let x = scale * (i * 8 + j) as isize;
                         let y = y * scale;
-                        let point = Point::new(origin.x + x, origin.y + y);
-                        to.set_pixel_unchecked(point, color);
+                        for offset in &[(0, 0), (0, 1), (1, 0), (1, 1)] {
+                            let point =
+                                Point::new(origin.x + x + offset.0, origin.y + y + offset.1);
+                            to.set_pixel_unchecked(point, color);
+                        }
                     }
                 }
             }
@@ -577,8 +621,11 @@ impl OsBitmap1<'_> {
                     if (data & position) != 0 {
                         let x = scale * (i + base_x) as isize;
                         let y = y * scale;
-                        let point = Point::new(origin.x + x, origin.y + y);
-                        to.set_pixel_unchecked(point, color);
+                        for offset in &[(0, 0), (0, 1), (1, 0), (1, 1)] {
+                            let point =
+                                Point::new(origin.x + x + offset.0, origin.y + y + offset.1);
+                            to.set_pixel_unchecked(point, color);
+                        }
                     }
                 }
             }

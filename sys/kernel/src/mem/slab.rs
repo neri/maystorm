@@ -17,7 +17,7 @@ pub(crate) struct SlabAllocator {
 
 impl SlabAllocator {
     pub unsafe fn new() -> Self {
-        let sizes = [32, 64, 128, 256, 512, 1024];
+        let sizes = [16, 32, 64, 128, 256, 512, 1024];
 
         let mut vec: Vec<SlabCache> = Vec::with_capacity(sizes.len());
         for block_size in &sizes {

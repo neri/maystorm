@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::graphics::*;
+use myosabi::MyOsAbi;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct WindowHandle(pub usize);
@@ -51,8 +52,16 @@ impl Window {
     }
 
     #[inline]
-    pub fn wait_key(&self) -> char {
-        core::char::from_u32(os_wait_key(self.handle.0)).unwrap_or('\0')
+    pub fn wait_char(&self) -> char {
+        core::char::from_u32(os_wait_char(self.handle.0)).unwrap_or('\0')
+    }
+
+    #[inline]
+    pub fn read_char(&self) -> Option<char> {
+        match os_read_char(self.handle.0) {
+            MyOsAbi::OPTION_CHAR_NONE => None,
+            c => Some(unsafe { core::char::from_u32_unchecked(c as u32) }),
+        }
     }
 
     #[inline]

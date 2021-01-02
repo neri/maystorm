@@ -1083,7 +1083,7 @@ impl RawWindow {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct WindowLevel(pub u8);
 
 impl WindowLevel {

@@ -13,7 +13,7 @@ fn _start() {
         let y = (os_rand() % 200) as isize;
         bitmap.blt(&window, Point::new(x, y));
     }
-    let _ = window.wait_key();
+    let _ = window.wait_char();
 }
 
 const BITMAP_WIDTH: isize = 16;

@@ -28,6 +28,17 @@ pub fn os_monotonic() -> u32 {
 }
 
 #[inline]
+pub fn os_bench<F>(f: F) -> usize
+where
+    F: FnOnce() -> (),
+{
+    let time0 = unsafe { svc0(Function::Monotonic) };
+    f();
+    let time1 = unsafe { svc0(Function::Monotonic) };
+    time1 - time0
+}
+
+#[inline]
 pub fn os_time_of_day() -> u32 {
     unsafe { svc1(Function::Time, 0) as u32 }
 }
@@ -102,8 +113,14 @@ pub fn os_fill_rect(window: usize, x: usize, y: usize, width: usize, height: usi
 
 /// Wait for key event
 #[inline]
-pub fn os_wait_key(window: usize) -> u32 {
-    unsafe { svc1(Function::WaitKey, window) as u32 }
+pub fn os_wait_char(window: usize) -> u32 {
+    unsafe { svc1(Function::WaitChar, window) as u32 }
+}
+
+/// Read a key event
+#[inline]
+pub fn os_read_char(window: usize) -> u32 {
+    unsafe { svc1(Function::ReadChar, window) as u32 }
 }
 
 /// Draw a bitmap in a window

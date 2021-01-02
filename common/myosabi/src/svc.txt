@@ -10,11 +10,12 @@ close_window||Close a window
 draw_text||Draw a string in a window
 fill_rect||Fill a rectangle in a window
 draw_rect||Draw a rectangle in a window
-wait_key||Wait for key event
 blt8||Draw a bitmap in a window
 blt1||Draw a bitmap in a window
 blt24||Draw a bitmap in a window
 flash_window||Reflect the window's bitmap to the screen now
+wait_char||Wait for char event
+read_char||Read a char event
 rand|100|Return a random number
 srand||Set the seed of the random number
 alloc|10000|RESERVED

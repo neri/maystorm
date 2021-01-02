@@ -138,6 +138,17 @@ impl OsMutBitmap8<'_> {
             self as *const _ as usize,
         )
     }
+
+    /// Copy bitmap
+    pub fn copy_from(&mut self, other: &Self) {
+        // TODO:
+        unsafe {
+            let p = self.slice_mut();
+            let q = other.slice();
+            let count = p.len();
+            copy_nonoverlapping(q.as_ptr(), p.as_mut_ptr(), count);
+        }
+    }
 }
 
 impl BitmapTrait for OsMutBitmap8<'_> {

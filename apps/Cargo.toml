@@ -1,11 +1,11 @@
 [workspace]
 members = [
-  "myoslib",
+  "bench",
+  "blt",
   "hello",
   "hello2",
-  "winhello",
-  "blt",
   "life",
+  "winhello",
 ]
 
 [profile.release]

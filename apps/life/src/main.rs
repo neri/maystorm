@@ -2,7 +2,8 @@
 #![no_main]
 #![no_std]
 
-use myoslib::{bitmap::*, graphics::*, os_rand, window::Window};
+use myoslib::*;
+use myoslib::{bitmap::*, graphics::*, window::Window};
 
 const DRAW_SCALE: isize = 2;
 const BITMAP_WIDTH: isize = 128;
@@ -11,6 +12,8 @@ const SIZE_BITMAP: usize = (BITMAP_HEIGHT * BITMAP_WIDTH / 8) as usize;
 
 #[no_mangle]
 fn _start() {
+    os_srand(os_monotonic());
+
     let window = Window::new("Game of Life", Size::new(256, 256));
 
     let mut curr_data = [0u8; SIZE_BITMAP];
@@ -23,12 +26,12 @@ fn _start() {
         OsMutBitmap1::from_slice(&mut curr_data, Size::new(BITMAP_WIDTH, BITMAP_HEIGHT));
     let mut next = OsMutBitmap1::from_slice(&mut next_data, Size::new(BITMAP_WIDTH, BITMAP_HEIGHT));
 
-    for _ in 0..10 {
+    loop {
         window.fill_rect(
             Rect::new(0, 0, BITMAP_WIDTH * DRAW_SCALE, BITMAP_HEIGHT * DRAW_SCALE),
             Color::WHITE,
         );
-        current.blt(&window, Point::new(0, 0), Color::BLACK, DRAW_SCALE);
+        current.blt(&window, Point::new(0, 0), Color::DARK_GRAY, DRAW_SCALE);
         window.flash();
 
         let w = BITMAP_WIDTH - 1;
@@ -73,7 +76,9 @@ fn _start() {
         }
 
         current.copy_from(&next);
-    }
 
-    let _ = window.wait_key();
+        if window.read_char().is_some() {
+            break;
+        }
+    }
 }
