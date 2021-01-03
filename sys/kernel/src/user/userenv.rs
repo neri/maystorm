@@ -53,7 +53,7 @@ impl UserEnv {
                 WindowManager::set_desktop_bitmap(Some(Box::new(bitmap)));
             }
 
-            {
+            if false {
                 let logo_bmp = include_bytes!("logo.bmp");
                 let logo = Bitmap::from_msdib(logo_bmp).unwrap();
 
@@ -103,6 +103,9 @@ impl UserEnv {
                 WindowManager::set_pointer_visible(true);
                 window.close();
                 Timer::sleep(Duration::from_millis(500));
+            } else {
+                WindowManager::set_pointer_visible(true);
+                Timer::sleep(Duration::from_millis(1000));
             }
 
             {
@@ -146,7 +149,7 @@ async fn status_bar_main() {
 
     window
         .draw(|bitmap| {
-            let ats = AttributedString::with("My OS", FontManager::title_font(), fg_color);
+            let ats = AttributedString::with("myos", FontManager::title_font(), fg_color);
             let bounds = bitmap.bounds();
             let size = ats.bounding_size(Size::new(isize::MAX, isize::MAX));
             let rect = Rect::new(

@@ -2,7 +2,7 @@
 
 use myosabi::svc::Function;
 
-#[link(wasm_import_module = "arl")]
+#[link(wasm_import_module = "megos-canary")]
 extern "C" {
     pub fn svc0(_: Function) -> usize;
     pub fn svc1(_: Function, _: usize) -> usize;

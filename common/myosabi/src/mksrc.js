@@ -1,4 +1,4 @@
-// Make bytecode table script
+// Make enum table script
 'use strict';
 
 const fs = require("fs");

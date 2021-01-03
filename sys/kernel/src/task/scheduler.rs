@@ -211,7 +211,7 @@ impl MyScheduler {
         }
     }
 
-    // Get Next Thread from queue
+    /// Get Next Thread from queue
     fn next(index: ProcessorIndex) -> Option<ThreadHandle> {
         let sch = Self::shared();
         if sch.is_frozen.load(Ordering::SeqCst) {
@@ -234,7 +234,7 @@ impl MyScheduler {
         None
     }
 
-    // Retire Thread
+    /// Retire Thread
     fn retire(thread: ThreadHandle) {
         let handle = thread;
         let sch = Self::shared();
@@ -253,7 +253,7 @@ impl MyScheduler {
         }
     }
 
-    // Add thread to the queue
+    /// Add thread to the queue
     fn add(thread: ThreadHandle) {
         let handle = thread;
         let sch = Self::shared();
