@@ -8,12 +8,16 @@ use myoslib::{bitmap::OsBitmap8, graphics::*, os_rand, window::Window};
 fn _start() {
     let window = Window::new("Blt Test", Size::new(256, 224));
     let bitmap = OsBitmap8::from_slice(&BITMAP_DATA, Size::new(BITMAP_WIDTH, BITMAP_HEIGHT));
-    for _ in 0..100 {
-        let x = (os_rand() % 240) as isize;
-        let y = (os_rand() % 200) as isize;
-        bitmap.blt(&window, Point::new(x, y));
+    loop {
+        for _ in 0..100 {
+            let x = (os_rand() % 240) as isize;
+            let y = (os_rand() % 200) as isize;
+            bitmap.blt(&window, Point::new(x, y));
+        }
+        if window.read_char().is_some() {
+            break;
+        }
     }
-    let _ = window.wait_char();
 }
 
 const BITMAP_WIDTH: isize = 16;

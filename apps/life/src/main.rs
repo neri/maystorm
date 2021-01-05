@@ -31,7 +31,12 @@ fn _start() {
             Rect::new(0, 0, BITMAP_WIDTH * DRAW_SCALE, BITMAP_HEIGHT * DRAW_SCALE),
             Color::WHITE,
         );
-        current.blt(&window, Point::new(0, 0), Color::DARK_GRAY, DRAW_SCALE);
+        current.blt(
+            &window,
+            Point::new(0, 0),
+            Color::DARK_GRAY,
+            DRAW_SCALE as usize,
+        );
         window.flash();
 
         let w = BITMAP_WIDTH - 1;

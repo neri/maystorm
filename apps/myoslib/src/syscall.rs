@@ -16,9 +16,7 @@ extern "C" {
 /// Display a string.
 #[inline]
 pub fn os_print(s: &str) {
-    unsafe {
-        svc2(Function::PrintString, s.as_ptr() as usize, s.len());
-    }
+    unsafe { svc2(Function::PrintString, s.as_ptr() as usize, s.len()) };
 }
 
 /// Get the value of the monotonic timer in microseconds.
@@ -46,9 +44,7 @@ pub fn os_time_of_day() -> u32 {
 /// Blocks a thread for the specified microseconds.
 #[inline]
 pub fn os_usleep(us: u32) {
-    unsafe {
-        svc1(Function::Usleep, us as usize);
-    }
+    unsafe { svc1(Function::Usleep, us as usize) };
 }
 
 /// Get the system version information.
@@ -74,41 +70,22 @@ pub fn os_new_window(s: &str, width: usize, height: usize) -> usize {
 /// Close a window.
 #[inline]
 pub fn os_close_window(window: usize) {
-    unsafe {
-        svc1(Function::CloseWindow, window);
-    }
+    unsafe { svc1(Function::CloseWindow, window) };
 }
 
 /// Draw a string in a window.
 #[inline]
 pub fn os_draw_text(window: usize, x: usize, y: usize, s: &str, color: u32) {
-    unsafe {
-        svc6(
-            Function::DrawText,
-            window,
-            x,
-            y,
-            s.as_ptr() as usize,
-            s.len(),
-            color as usize,
-        );
-    }
+    let ptr = s.as_ptr() as usize;
+    let color = color as usize;
+    unsafe { svc6(Function::DrawText, window, x, y, ptr, s.len(), color) };
 }
 
 /// Fill a rectangle in a window.
 #[inline]
 pub fn os_fill_rect(window: usize, x: usize, y: usize, width: usize, height: usize, color: u32) {
-    unsafe {
-        svc6(
-            Function::FillRect,
-            window,
-            x,
-            y,
-            width,
-            height,
-            color as usize,
-        );
-    }
+    let color = color as usize;
+    unsafe { svc6(Function::FillRect, window, x, y, width, height, color) };
 }
 
 /// Wait for key event
@@ -126,33 +103,19 @@ pub fn os_read_char(window: usize) -> u32 {
 /// Draw a bitmap in a window
 #[inline]
 pub fn os_blt8(window: usize, x: usize, y: usize, bitmap: usize) {
-    unsafe {
-        svc4(Function::Blt8, window, x, y, bitmap);
-    }
+    unsafe { svc4(Function::Blt8, window, x, y, bitmap) };
 }
 
 /// Draw a bitmap in a window
 #[inline]
-pub fn os_blt1(window: usize, x: usize, y: usize, bitmap: usize, color: u32, scale: isize) {
-    unsafe {
-        svc6(
-            Function::Blt1,
-            window,
-            x,
-            y,
-            bitmap,
-            color as usize,
-            scale as usize,
-        );
-    }
+pub fn os_blt1(window: usize, x: usize, y: usize, bitmap: usize, color: u32, mode: usize) {
+    unsafe { svc6(Function::Blt1, window, x, y, bitmap, color as usize, mode) };
 }
 
 /// Reflect the window's bitmap to the screen now.
 #[inline]
 pub fn os_flash_window(window: usize) {
-    unsafe {
-        svc1(Function::FlashWindow, window);
-    }
+    unsafe { svc1(Function::FlashWindow, window) };
 }
 
 /// Return a random number
@@ -174,7 +137,5 @@ pub fn os_alloc(size: usize, align: usize) -> usize {
 
 #[inline]
 pub fn os_free(ptr: usize) {
-    unsafe {
-        svc1(Function::Free, ptr);
-    }
+    unsafe { svc1(Function::Free, ptr) };
 }

@@ -206,14 +206,14 @@ impl<'a> OsBitmap1<'a> {
 
 impl OsBitmap1<'_> {
     #[inline]
-    pub fn blt(&self, window: &Window, origin: Point, color: Color, scale: isize) {
+    pub fn blt(&self, window: &Window, origin: Point, color: Color, mode: usize) {
         os_blt1(
             window.handle().0,
             origin.x as usize,
             origin.y as usize,
             self as *const _ as usize,
             color.argb(),
-            scale,
+            mode,
         )
     }
 }
@@ -267,14 +267,14 @@ impl<'a> OsMutBitmap1<'a> {
 
 impl OsMutBitmap1<'_> {
     #[inline]
-    pub fn blt(&self, window: &Window, origin: Point, color: Color, scale: isize) {
+    pub fn blt(&self, window: &Window, origin: Point, color: Color, mode: usize) {
         os_blt1(
             window.handle().0,
             origin.x as usize,
             origin.y as usize,
             self as *const _ as usize,
             color.argb(),
-            scale,
+            mode,
         )
     }
 

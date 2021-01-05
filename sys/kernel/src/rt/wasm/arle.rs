@@ -263,9 +263,9 @@ impl ArleRuntime {
                     let origin = params.get_point()?;
                     let os_bitmap = params.get_bitmap1(memory)?;
                     let color = params.get_color()?;
-                    let scale = params.get_usize()?;
-                    let _ = window.draw_in_rect(os_bitmap.rect(origin, scale), |bitmap| {
-                        os_bitmap.blt(bitmap, Point::zero(), color, scale);
+                    let mode = params.get_usize()?;
+                    let _ = window.draw_in_rect(os_bitmap.rect(origin, mode), |bitmap| {
+                        os_bitmap.blt(bitmap, Point::zero(), color, mode);
                     });
                     window.set_needs_display();
                 }
@@ -595,17 +595,17 @@ impl<'a> OsBitmap1<'a> {
 }
 
 impl OsBitmap1<'_> {
-    const fn rect(&self, origin: Point<isize>, scale: usize) -> Rect<isize> {
-        let scale = scale as isize;
+    const fn rect(&self, origin: Point<isize>, mode: usize) -> Rect<isize> {
+        let scale = mode as isize;
         Rect {
             origin,
             size: Size::new(self.dim.width * scale, self.dim.height * scale),
         }
     }
 
-    fn blt(&self, to: &Bitmap, origin: Point<isize>, color: Color, scale: usize) {
+    fn blt(&self, to: &Bitmap, origin: Point<isize>, color: Color, mode: usize) {
         // TODO: clipping
-        let scale = scale as isize;
+        let scale = mode as isize;
         let stride = self.stride;
         let mut cursor = 0;
         let w8 = self.dim.width as usize / 8;

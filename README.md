@@ -1,10 +1,10 @@
 # My OS
 
-My first toy OS written in Rust, one version of which is about 20,000 lines of code and supports multitasking, windows, WebAssembly runtime, and simple applications.
+My first hobby OS written in Rust, one version of which is about 20,000 lines of code and supports multitasking, windows, WebAssembly runtime, and simple applications.
 
 ## Feature
 
-* A toy OS written in Rust
+* A hobby OS written in Rust
 * Not a POSIX clone system
 * 64bit OS booting with UEFI
 * Multi-core support for up to 64 cores

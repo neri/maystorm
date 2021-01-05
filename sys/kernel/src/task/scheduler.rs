@@ -136,7 +136,9 @@ impl MyScheduler {
     /// Get the current thread running on the current processor
     #[inline]
     pub fn current_thread() -> Option<ThreadHandle> {
-        Self::local_scheduler().map(|sch| sch.current_thread())
+        unsafe {
+            Cpu::without_interrupts(|| Self::local_scheduler().map(|sch| sch.current_thread()))
+        }
     }
 
     /// Get the personality instance associated with the current thread
