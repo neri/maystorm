@@ -2,8 +2,8 @@
 # It is not intended for manual editing.
 [[package]]
 name = "acpi"
-version = "2.1.0"
-source = "git+https://github.com/rust-osdev/acpi#045b20d9634050da7761fdb8926e48516fa512c0"
+version = "2.2.0"
+source = "git+https://github.com/rust-osdev/acpi#4b6534bfd8de2459579e5e8ff82a640e9d83d1d6"
 dependencies = [
  "bit_field",
  "log",
@@ -200,18 +200,18 @@ version = "0.1.0"
 
 [[package]]
 name = "pin-project"
-version = "1.0.2"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ccc2237c2c489783abd8c4c80e5450fc0e98644555b1364da68cc29aa151ca7"
+checksum = "5a83804639aad6ba65345661744708855f9fbcb71176ea8d28d05aeb11d975e7"
 dependencies = [
  "pin-project-internal",
 ]
 
 [[package]]
 name = "pin-project-internal"
-version = "1.0.2"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8e8d2bf0b23038a4424865103a4df472855692821aab4e4f5c3312d461d9e5f"
+checksum = "b7bcc46b8f73443d15bc1c5fecbb315718491fa9187fa483f0e359323cde8b3a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -250,9 +250,9 @@ checksum = "fc874b127765f014d792f16763a81245ab80500e2ad921ed4ee9e82481ee08fe"
 
 [[package]]
 name = "rsdp"
-version = "1.0.0"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49b26cb0132c85db7152fc291c9680a9240d4ef482287667819dbaec1d665dbd"
+checksum = "3f4f3deb5b80701c91a04117876f7d44996b2da123a822054166180e970f5226"
 dependencies = [
  "log",
 ]
@@ -295,9 +295,9 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 
 [[package]]
 name = "syn"
-version = "1.0.56"
+version = "1.0.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9802ddde94170d186eeee5005b798d9c159fa970403f1be19976d0cfb939b72"
+checksum = "cc60a3d73ea6594cd712d830cc1f0390fd71542d8c8cd24e70cc54cdfd5e05d5"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -322,7 +322,7 @@ dependencies = [
 [[package]]
 name = "uefi"
 version = "0.7.0"
-source = "git+https://github.com/rust-osdev/uefi-rs.git#1d89f9f7d14e817e4919e750b5b7f642e0201a35"
+source = "git+https://github.com/rust-osdev/uefi-rs.git#7530cd4a860e89ff05dccf63f7bf048595dd43f9"
 dependencies = [
  "bitflags",
  "log",

@@ -51,59 +51,6 @@ impl UserEnv {
                 bitmap.blend_rect(bitmap.bounds(), DESKTOP_COLOR);
 
                 WindowManager::set_desktop_bitmap(Some(Box::new(bitmap)));
-            }
-
-            if false {
-                let logo_bmp = include_bytes!("logo.bmp");
-                let logo = Bitmap::from_msdib(logo_bmp).unwrap();
-
-                let main_text = AttributedString::with(
-                    "Starting up...",
-                    FontDescriptor::new(FontFamily::SansSerif, 24).unwrap(),
-                    IndexedColor::White.into(),
-                );
-                let text_size = main_text.bounding_size(Size::new(isize::MAX, isize::MAX));
-
-                let padding = 8;
-                let size = Size::new(
-                    isize::max(logo.width(), text_size.width) + padding * 2,
-                    logo.height() + text_size.height + padding * 3,
-                );
-
-                let window = WindowBuilder::new("")
-                    .style(WindowStyle::NAKED)
-                    .size(size)
-                    .bg_color(Color::TRANSPARENT)
-                    .without_message_queue()
-                    .build();
-
-                window
-                    .draw(|bitmap| {
-                        // bitmap.draw_rect(bitmap.bounds(), Color::WHITE);
-
-                        let origin = Point::new(
-                            bitmap.bounds().center().x - logo.bounds().center().x,
-                            padding,
-                        );
-                        bitmap.blt(&logo, origin, logo.bounds(), BltOption::COPY);
-
-                        let rect = Rect::new(
-                            (bitmap.width() - text_size.width) / 2,
-                            logo.height() + padding * 2,
-                            text_size.width,
-                            text_size.height,
-                        );
-                        main_text.draw(bitmap, rect);
-                    })
-                    .unwrap();
-
-                window.make_active();
-                Timer::sleep(Duration::from_millis(1000));
-
-                WindowManager::set_pointer_visible(true);
-                window.close();
-                Timer::sleep(Duration::from_millis(500));
-            } else {
                 WindowManager::set_pointer_visible(true);
                 Timer::sleep(Duration::from_millis(1000));
             }

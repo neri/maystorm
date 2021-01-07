@@ -6,15 +6,18 @@ use myoslib::*;
 use myoslib::{bitmap::*, graphics::*, window::Window};
 
 const DRAW_SCALE: isize = 2;
-const BITMAP_WIDTH: isize = 128;
-const BITMAP_HEIGHT: isize = 128;
+const BITMAP_WIDTH: isize = 64;
+const BITMAP_HEIGHT: isize = 64;
 const SIZE_BITMAP: usize = (BITMAP_HEIGHT * BITMAP_WIDTH / 8) as usize;
 
 #[no_mangle]
 fn _start() {
     os_srand(os_monotonic());
 
-    let window = Window::new("Game of Life", Size::new(256, 256));
+    let window = Window::new(
+        "Game of Life",
+        Size::new(BITMAP_WIDTH * DRAW_SCALE, BITMAP_HEIGHT * DRAW_SCALE),
+    );
 
     let mut curr_data = [0u8; SIZE_BITMAP];
     let mut next_data = [0u8; SIZE_BITMAP];

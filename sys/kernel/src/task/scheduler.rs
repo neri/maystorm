@@ -68,10 +68,10 @@ pub enum SchedulerState {
 }
 
 impl MyScheduler {
-    /// Start thread scheduler and sleep forver
+    /// Start scheduler and sleep forever
     pub(crate) fn start(f: fn(usize) -> (), args: usize) -> ! {
-        const SIZE_OF_URGENT_QUEUE: usize = 512;
-        const SIZE_OF_MAIN_QUEUE: usize = 512;
+        const SIZE_OF_URGENT_QUEUE: usize = 100;
+        const SIZE_OF_MAIN_QUEUE: usize = 250;
 
         let urgent = ThreadQueue::with_capacity(SIZE_OF_URGENT_QUEUE);
         let ready = ThreadQueue::with_capacity(SIZE_OF_MAIN_QUEUE);
@@ -213,7 +213,7 @@ impl MyScheduler {
         }
     }
 
-    /// Get Next Thread from queue
+    /// Get the next executable thread from the thread queue
     fn next(index: ProcessorIndex) -> Option<ThreadHandle> {
         let sch = Self::shared();
         if sch.is_frozen.load(Ordering::SeqCst) {
@@ -1052,9 +1052,7 @@ impl RawThread {
 
     fn exit(&mut self) -> ! {
         self.sem.signal();
-        self.personality
-            .as_mut()
-            .map(|personality| personality.on_exit());
+        self.personality.as_mut().map(|v| v.on_exit());
         self.personality = None;
 
         // TODO:
