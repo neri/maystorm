@@ -875,20 +875,6 @@ impl DescriptorType {
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct InterruptVector(pub u8);
 
-// impl core::ops::Add<u8> for InterruptVector {
-//     type Output = Self;
-//     fn add(self, rhs: u8) -> Self {
-//         Self(self.0 + rhs)
-//     }
-// }
-
-// impl core::ops::Sub<u8> for InterruptVector {
-//     type Output = Self;
-//     fn sub(self, rhs: u8) -> Self {
-//         Self(self.0 - rhs)
-//     }
-// }
-
 #[repr(u8)]
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq)]

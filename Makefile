@@ -1,32 +1,32 @@
 .PHONY: love all clean install iso run runs test apps
 
-RUST_ARCH	= x86_64-unknown-uefi
-EFI_ARCH	= x64
+KRNL_ARCH	= x86_64-unknown-uefi
+EFI_ARCH	= x86_64-unknown-uefi
+EFI_SUFFIX	= x64
 MNT			= ./mnt
 EFI_BOOT	= $(MNT)/efi/boot
 KERNEL_BIN	= $(EFI_BOOT)/kernel.bin
-BOOT_EFI	= $(EFI_BOOT)/boot$(EFI_ARCH).efi
+BOOT_EFI	= $(EFI_BOOT)/boot$(EFI_SUFFIX).efi
 INITRD_IMG	= $(EFI_BOOT)/initrd.img
-TARGET_KERNEL	= sys/target/$(RUST_ARCH)/release/kernel.efi
-TARGET_BOOT_EFI	= sys/target/$(RUST_ARCH)/release/boot-efi.efi
+TARGET_KERNEL	= sys/target/$(KRNL_ARCH)/release/kernel.efi
+TARGET_BOOT_EFI	= boot/target/$(EFI_ARCH)/release/boot-efi.efi
 TARGET_ISO	= var/myos.iso
 TARGETS		= $(TARGET_KERNEL) $(TARGET_BOOT_EFI)
-BUILD		= (cd sys; cargo build -Zbuild-std --release --target $(RUST_ARCH).json)
 OVMF		= var/ovmfx64.fd
 
 all: $(TARGETS)
 
 clean:
-	-rm -rf sys/target apps/target
+	-rm -rf sys/target apps/target boot/target
 
 # $(RUST_ARCH).json:
 # 	rustc +nightly -Z unstable-options --print target-spec-json --target $(RUST_ARCH) | sed -e 's/-sse,+/+sse,-/' > $@
 
 $(TARGET_KERNEL): sys/kernel/* sys/kernel/**/* sys/kernel/**/**/* sys/kernel/**/**/**/* sys/kernel/**/**/**/**/*
-	$(BUILD)
+	(cd sys; cargo build -Zbuild-std --release --target $(KRNL_ARCH).json)
 
-$(TARGET_BOOT_EFI): sys/boot-efi/* sys/boot-efi/**/* sys/boot-efi/**/**/* sys/boot-efi/**/**/**/* sys/boot-efi/**/**/**/**/*
-	$(BUILD)
+$(TARGET_BOOT_EFI): boot/boot-efi/* boot/boot-efi/src/* boot/boot-efi/src/**/*
+	(cd boot; cargo build -Zbuild-std --release --target $(EFI_ARCH).json)
 
 $(EFI_BOOT):
 	mkdir -p $(EFI_BOOT)

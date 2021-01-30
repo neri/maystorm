@@ -645,18 +645,19 @@ impl Leb128Stream<'_> {
     /// Reads an unsigned integer from a stream
     pub fn read_unsigned(&mut self) -> Result<u64, WasmDecodeError> {
         let mut value: u64 = 0;
-        let mut scale = 0;
+        let mut shift: u8 = 0;
         let mut cursor = self.position;
         loop {
-            if self.is_eof() {
-                return Err(WasmDecodeError::UnexpectedEof);
-            }
-            let d = self.blob[cursor];
-            cursor += 1;
-            value |= (d as u64 & 0x7F) << scale;
-            scale += 7;
-            if (d & 0x80) == 0 {
-                break;
+            match self.blob.get(cursor) {
+                Some(d) => {
+                    cursor += 1;
+                    value |= (*d as u64 & 0x7F) << (shift as i32);
+                    shift += 7;
+                    if (d & 0x80) == 0 {
+                        break;
+                    }
+                }
+                None => return Err(WasmDecodeError::UnexpectedEof),
             }
         }
         self.position = cursor;
@@ -666,24 +667,25 @@ impl Leb128Stream<'_> {
     /// Reads a signed integer from a stream
     pub fn read_signed(&mut self) -> Result<i64, WasmDecodeError> {
         let mut value: u64 = 0;
-        let mut scale = 0;
+        let mut shift: u8 = 0;
         let mut cursor = self.position;
         let signed = loop {
-            if self.is_eof() {
-                return Err(WasmDecodeError::UnexpectedEof);
+            match self.blob.get(cursor) {
+                Some(d) => {
+                    cursor += 1;
+                    value |= (*d as u64 & 0x7F) << (shift as i32);
+                    if (d & 0x80) == 0 {
+                        let signed = (d & 0x40) != 0;
+                        break signed;
+                    }
+                    shift += 7;
+                }
+                None => return Err(WasmDecodeError::UnexpectedEof),
             }
-            let d = self.blob[cursor];
-            cursor += 1;
-            value |= (d as u64 & 0x7F) << scale;
-            let signed = (d & 0x40) != 0;
-            if (d & 0x80) == 0 {
-                break signed;
-            }
-            scale += 7;
         };
         self.position = cursor;
         if signed {
-            Ok((value | 0xFFFF_FFFF_FFFF_FFC0 << scale) as i64)
+            Ok((value | 0xFFFF_FFFF_FFFF_FFC0 << shift) as i64)
         } else {
             Ok(value as i64)
         }

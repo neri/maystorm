@@ -1,12 +1,8 @@
 [workspace]
 members = [
-  "kernel",
+  "boot-efi",
 ]
 
 [profile.release]
 lto = true
 opt-level = "z"
-panic = "abort"
-
-[profile.dev]
-panic = "abort"
