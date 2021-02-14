@@ -308,12 +308,13 @@ impl Cpu {
     pub unsafe fn secure_srand_unsafe() -> Option<u64> {
         let mut status: usize;
         let mut result: u64;
+
         asm!("
             rdseed {0}
             sbb {1}, {1}
             ", 
-            lateout(reg) result,
-            lateout(reg) status,
+            out(reg) result,
+            out(reg) status,
         );
         if status != 0 {
             Some(result)
@@ -327,12 +328,13 @@ impl Cpu {
     pub unsafe fn secure_rand_unsafe() -> Option<u64> {
         let mut status: usize;
         let mut result: u64;
+
         asm!("
             rdrand {0}
             sbb {1}, {1}
             ", 
-            lateout(reg) result,
-            lateout(reg) status,
+            out(reg) result,
+            out(reg) status,
         );
         if status != 0 {
             Some(result)
@@ -342,7 +344,7 @@ impl Cpu {
     }
 
     #[inline]
-    pub fn rdtsc() -> u64 {
+    pub(super) fn rdtsc() -> u64 {
         let eax: u32;
         let edx: u32;
         unsafe {

@@ -85,7 +85,7 @@ impl Cmos {
         asm!("
             out 0x70, al
             in al, 0x71
-            ", in("al") *self as u8, lateout("al") result);
+            ", inlateout("al") *self as u8 => result);
         result
     }
 

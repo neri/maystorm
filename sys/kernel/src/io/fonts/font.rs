@@ -364,7 +364,7 @@ impl<'a> HersheyFont<'a> {
                             shared.buffer.draw_line(c0, c1, |bitmap, point| {
                                 bitmap.restrict_mut(point, EdgeInsets::padding_each(1), |bitmap| {
                                     if bitmap.get_pixel(point) != u8::MAX {
-                                        let level1 = 120;
+                                        let level1 = 51;
 
                                         bitmap.process_pixel(point + Point::new(0, -1), |v| {
                                             v.saturating_add(level1)

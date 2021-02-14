@@ -22,7 +22,6 @@ use task::scheduler::*;
 use task::Task;
 
 extern crate alloc;
-extern crate rlibc;
 
 entry!(Application::main);
 

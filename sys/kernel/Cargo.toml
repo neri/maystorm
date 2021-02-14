@@ -17,4 +17,3 @@ byteorder = {version = "1", default-features = false}
 crossbeam-queue = {version = "0.3", default-features = false, features = ["alloc"]}
 futures-util = {default-features = false, features = ["alloc"], version = "0.3"}
 myosabi = {path = "../../common/myosabi"}
-rlibc = "1.0.0"
