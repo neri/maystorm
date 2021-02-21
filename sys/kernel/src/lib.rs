@@ -14,6 +14,7 @@
 #![feature(option_result_contains)]
 #![feature(panic_info_message)]
 #![feature(try_reserve)]
+#![feature(cfg_target_has_atomic)]
 
 pub mod arch;
 pub mod bus;

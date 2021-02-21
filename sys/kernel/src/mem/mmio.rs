@@ -73,6 +73,7 @@ impl Mmio {
 
     #[inline]
     #[track_caller]
+    #[cfg(target_has_atomic_load_store = "64")]
     pub unsafe fn read_u64(&self, offset: usize) -> u64 {
         let mut result = 0;
         self.check_limit(offset, &result);
@@ -99,6 +100,7 @@ impl Mmio {
 
     #[inline]
     #[track_caller]
+    #[cfg(target_has_atomic_load_store = "64")]
     pub unsafe fn write_u64(&self, offset: usize, value: u64) {
         self.check_limit(offset, &value);
         let ptr: &AtomicU64 = transmute(self.base + offset);
