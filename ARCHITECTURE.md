@@ -47,39 +47,6 @@ partition System::init() {
     :init ACPI;
     :reserve the processor structure for the number of processors;
     :Arch::init();
-    partition Arch::init() {
-        :Cpu::init();
-        :Some initialization processes;
-        partition Apic::init() {
-            :asm_apic_setup_sipi();
-            :LocalApic::broadcast_init();
-            :LocalApic::broadcast_startup();
-            fork
-                repeat
-                    if (timed out?) then (yes)
-                        :panic;
-                        end
-                    endif
-                repeatwhile (are all APs active?)
-                :System::sort_cpus();
-                :AP_STALLED = false;
-            fork again
-                :_smp_rm_payload (RealMode);
-                :_ap_startup (LongMode);
-                partition apic_start_ap() {
-                    :LocalApic::init_ap();
-                    :Cpu::new();
-                    :System::activate_cpu();
-                    while (AP_STALLED == true)
-                    endwhile
-                    :Cpu::set_tsc_base();
-                }
-                :idle;
-                detach
-            end fork
-        }
-        :Some initialization processes;
-    }
     :Pci::init();
     :Scheduler::start();
 }
@@ -99,6 +66,46 @@ split again
     stop
 end split
 
+@enduml
+```
+
+``` plantuml
+@startuml
+title Arch::init (x64)
+start
+:Cpu::init();
+partition Apic::init() {
+    :Some initialization processes;
+    :asm_apic_setup_sipi();
+    :LocalApic::broadcast_init();
+    :LocalApic::broadcast_startup();
+    fork
+        while (are all APs active?)
+            if (timed out?) then (yes)
+                :panic;
+                end
+            endif
+        endwhile
+        :System::sort_cpus();
+        :AP_STALLED ← false;
+        :Cpu::set_tsc_base();
+    fork again
+        :_smp_rm_payload (RealMode);
+        :_ap_startup (LongMode);
+        partition apic_start_ap() {
+            :LocalApic::init_ap();
+            :Cpu::new();
+            :System::activate_cpu();
+            while (AP_STALLED)
+            endwhile
+            :Cpu::set_tsc_base();
+        }
+        :idle;
+        detach
+    end fork
+}
+:Some initialization processes;
+stop
 @enduml
 ```
 
