@@ -85,12 +85,20 @@ partition Apic::init() {
     :Some initialization processes;
     :asm_apic_setup_sipi(ASM);
     note right
-Since the startup IPI requires 
+Since the Startup IPI requires 
 a special vector, we will 
 prepare it here.
     end note
     :LocalApic::broadcast_init();
+    note right
+Wake up all application processors 
+and initialize them.
+    end note
     :LocalApic::broadcast_startup();
+    note right
+Call the Startup IPI vector on 
+all application processors.
+    end note
     fork
         while (are all APs active?)
             if (timed out?) then (yes)
