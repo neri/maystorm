@@ -83,9 +83,11 @@ start
 :Cpu::init();
 partition Apic::init() {
     :Some initialization processes;
-    :asm_apic_setup_sipi();
+    :asm_apic_setup_sipi(ASM);
     note right
-        Prepare for Startup IPI
+Since the startup IPI requires 
+a special vector, we will 
+prepare it here.
     end note
     :LocalApic::broadcast_init();
     :LocalApic::broadcast_startup();
@@ -110,23 +112,29 @@ sorting is necessary here.
         :Cpu::set_tsc_base();
     fork again
         -[#green,dotted]->
-        :received INIT & Startup IPI;
-        :_smp_rm_payload;
+        partition SMP-BIOS {
+            :received INIT & Startup IPI;
+        }
+        :_smp_rm_payload(ASM);
         note right
-Since the initial state is 
-Real mode, it will enter 
-Long mode with minimal 
-initialization.
+The initial state is Real mode 
+and no stack is available. So 
+it goes to Long mode with 
+minimal initialization.
         end note
-        :_ap_startup;
+        :_ap_startup(ASM);
         note right
-Minimal initialization 
-for calling Rust code
+Allocate a stack and prepare 
+to call Rust code
         end note
         partition apic_start_ap() {
             :LocalApic::init_ap();
             :Cpu::new();
             :System::activate_cpu();
+            note right
+The application processor is 
+now active.
+            end note
             while (AP_STALLED)
             endwhile
             :Cpu::set_tsc_base();
