@@ -18,14 +18,21 @@ partition UEFI {
 }
 
 partition /EFI/BOOT/BOOTX64.EFI {
-    :load config from /EFI/BOOT/CONFIG.JSON;
-    :find ACPI RSDPTR;
+    :load configuration from /EFI/BOOT/CONFIG.JSON;
+    :find ACPI RSDPTR from EFI_CONFIGURATION_TABLE;
     :init GOP;
-    :load Kernel from /EFI/BOOT/kernel.bin;
-    :load initrd from /EFI/BOOT/initrd.img;
+    :load kernel;
+    note right
+        default /EFI/BOOT/KERNEL.BIN
+    end note
+    :load initrd;
+    note right
+        default /EFI/BOOT/INITRD.IMG
+    end note
     :invoke BootServices->ExitBootServices();
     :Initialize the page table for startup;
     :relocate Kernel;
+    :start Paging;
     :invoke Kernel;
 }
 :Kernel entry point;
@@ -77,6 +84,9 @@ start
 partition Apic::init() {
     :Some initialization processes;
     :asm_apic_setup_sipi();
+    note right
+        Prepare for Startup IPI
+    end note
     :LocalApic::broadcast_init();
     :LocalApic::broadcast_startup();
     fork
@@ -87,11 +97,32 @@ partition Apic::init() {
             endif
         endwhile
         :System::sort_cpus();
+        note left
+Since each processor that 
+receives the IPI starts 
+initialization asynchronously, 
+the physical processor ID and 
+the logical ID assigned by the 
+OS are not aligned. Therefore, 
+sorting is necessary here.
+        end note
         :AP_STALLED ← false;
         :Cpu::set_tsc_base();
     fork again
-        :_smp_rm_payload (RealMode);
-        :_ap_startup (LongMode);
+        -[#green,dotted]->
+        :received INIT & Startup IPI;
+        :_smp_rm_payload;
+        note right
+Since the initial state is 
+Real mode, it will enter 
+Long mode with minimal 
+initialization.
+        end note
+        :_ap_startup;
+        note right
+Minimal initialization 
+for calling Rust code
+        end note
         partition apic_start_ap() {
             :LocalApic::init_ap();
             :Cpu::new();
@@ -99,8 +130,15 @@ partition Apic::init() {
             while (AP_STALLED)
             endwhile
             :Cpu::set_tsc_base();
+            note right
+Synchronizes the TSC between 
+each processor core.
+            end note
         }
         :idle;
+        note right
+Now ready to schedule
+        end note
         detach
     end fork
 }
