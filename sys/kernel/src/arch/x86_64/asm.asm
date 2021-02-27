@@ -353,15 +353,15 @@ _smp_rm_payload:
     mov ds, ax
     mov ebx, SMPINFO
 
-    ; acquire core-id
-    mov al, [bx]
-    mov cl, [bx + SMPINFO_MAX_CPU]
+    ; acquire a temporary core-id
+    mov ax, [bx]
+    mov cx, [bx + SMPINFO_MAX_CPU]
 .loop:
-    cmp al, cl
+    cmp ax, cx
     jae .fail
-    mov dl, al
+    mov dx, ax
     inc dx
-    lock cmpxchg [bx], dl
+    lock cmpxchg [bx], dx
     jz .core_ok
     pause
     jmp short .loop
@@ -371,7 +371,7 @@ _smp_rm_payload:
     jmp short .forever
 
 .core_ok:
-    movzx ebp, al
+    movzx ebp, ax
 
     lgdt [bx + SMPINFO_GDTR]
 
@@ -411,7 +411,8 @@ _smp_rm_payload:
     jmp far dword [bx + SMPINFO_START64]
 
 [BITS 64]
-
+    ;; This is a buffer zone for jumping from a 16-bit segment to a 4GB
+    ;; or larger address in a 64-bit segment.
 _startup64:
     jmp [rbx + SMPINFO_AP_STARTUP]
 

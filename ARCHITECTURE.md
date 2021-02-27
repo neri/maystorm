@@ -130,6 +130,13 @@ and no stack is available. So
 it goes to Long mode with 
 minimal initialization.
         end note
+        :_startup64(ASM);
+        note right
+This is a buffer zone for jumping 
+from a 16-bit segment to a 4GB 
+or larger address in a 64-bit 
+segment.
+        end note
         :_ap_startup(ASM);
         note right
 Allocate a stack and prepare 
