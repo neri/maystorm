@@ -7,7 +7,6 @@ use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;
 use bus::pci::*;
-use core::fmt;
 
 static mut SHARED_CPU: SharedCpu = SharedCpu::new();
 
@@ -71,9 +70,9 @@ impl Cpu {
 
         let core_type;
         if (apic_id.as_u32() & Self::shared().smt_topology) != 0 {
-            core_type = ProcessorCoreType::Logical;
+            core_type = ProcessorCoreType::Sub;
         } else {
-            core_type = ProcessorCoreType::Physical;
+            core_type = ProcessorCoreType::Main;
         }
 
         let cpu = Box::new(Cpu {
@@ -441,10 +440,8 @@ impl GlobalDescriptorTable {
             table: [DescriptorEntry::null(); Self::NUM_ITEMS],
         });
 
-        let tss_pair = DescriptorEntry::tss_descriptor(
-            VirtualAddress(&gdt.tss as *const _ as usize),
-            gdt.tss.limit(),
-        );
+        let tss_pair =
+            DescriptorEntry::tss_descriptor(&gdt.tss as *const _ as usize, gdt.tss.limit());
 
         gdt.table[Selector::KERNEL_CODE.index()] =
             DescriptorEntry::code_segment(PrivilegeLevel::Kernel, DefaultSize::Use64);
@@ -781,18 +778,6 @@ bitflags! {
     }
 }
 
-impl fmt::Display for VirtualAddress {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:016x}", self.0)
-    }
-}
-
-impl fmt::Debug for VirtualAddress {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "VirtAddr({:#016x})", self.0)
-    }
-}
-
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct Limit(pub u16);
@@ -1057,8 +1042,8 @@ impl DescriptorEntry {
     }
 
     #[inline]
-    pub const fn tss_descriptor(offset: VirtualAddress, limit: Limit) -> DescriptorPair {
-        let offset = offset.0 as u64;
+    pub const fn tss_descriptor(offset: usize, limit: Limit) -> DescriptorPair {
+        let offset = offset as u64;
         let low = DescriptorEntry(
             limit.0 as u64
                 | Self::present()
@@ -1072,12 +1057,12 @@ impl DescriptorEntry {
 
     #[inline]
     pub const fn gate_descriptor(
-        offset: VirtualAddress,
+        offset: usize,
         sel: Selector,
         dpl: PrivilegeLevel,
         ty: DescriptorType,
     ) -> DescriptorPair {
-        let offset = offset.0 as u64;
+        let offset = offset as u64;
         let low = DescriptorEntry(
             (offset & 0xFFFF)
                 | (sel.0 as u64) << 16
@@ -1126,38 +1111,38 @@ impl InterruptDescriptorTable {
         Self::load();
         Self::register(
             Exception::DivideError.into(),
-            VirtualAddress(_asm_int_00 as usize),
+            _asm_int_00 as usize,
             PrivilegeLevel::Kernel,
         );
         Self::register(
             Exception::Breakpoint.into(),
-            VirtualAddress(_asm_int_03 as usize),
+            _asm_int_03 as usize,
             PrivilegeLevel::Kernel,
         );
         Self::register(
             Exception::InvalidOpcode.into(),
-            VirtualAddress(_asm_int_06 as usize),
+            _asm_int_06 as usize,
             PrivilegeLevel::Kernel,
         );
         Self::register(
             Exception::DoubleFault.into(),
-            VirtualAddress(_asm_int_08 as usize),
+            _asm_int_08 as usize,
             PrivilegeLevel::Kernel,
         );
         Self::register(
             Exception::GeneralProtection.into(),
-            VirtualAddress(_asm_int_0d as usize),
+            _asm_int_0d as usize,
             PrivilegeLevel::Kernel,
         );
         Self::register(
             Exception::PageFault.into(),
-            VirtualAddress(_asm_int_0e as usize),
+            _asm_int_0e as usize,
             PrivilegeLevel::Kernel,
         );
         // Haribote OS Supports
         Self::register(
             InterruptVector(0x40),
-            VirtualAddress(_asm_int_40 as usize),
+            _asm_int_40 as usize,
             PrivilegeLevel::User,
         );
     }
@@ -1171,7 +1156,7 @@ impl InterruptDescriptorTable {
             ", in(reg) &IDT.table, in(reg) ((IDT.table.len() * 8 - 1) << 48));
     }
 
-    pub unsafe fn register(vec: InterruptVector, offset: VirtualAddress, dpl: PrivilegeLevel) {
+    pub unsafe fn register(vec: InterruptVector, offset: usize, dpl: PrivilegeLevel) {
         let pair = DescriptorEntry::gate_descriptor(
             offset,
             Selector::KERNEL_CODE,
@@ -1287,10 +1272,10 @@ static mut GLOBAL_EXCEPTION_LOCK: Spinlock = Spinlock::new();
 pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext) {
     GLOBAL_EXCEPTION_LOCK.lock();
     let ctx = ctx.as_ref().unwrap();
-    stdout().set_cursor_enabled(false);
     let va_mask = 0xFFFF_FFFF_FFFF;
     if Exception::PageFault.as_vec() == ctx.vector {
-        println!(
+        writeln!(
+            System::em_console(),
             "\n#### EXCEPTION {:02x} err {:04x} {:012x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
             ctx.vector.0,
             ctx.error_code,
@@ -1299,9 +1284,11 @@ pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext)
             ctx.rip & va_mask,
             ctx.ss,
             ctx.rsp & va_mask,
-        );
+        )
+        .unwrap();
     } else {
-        println!(
+        writeln!(
+            System::em_console(),
             "\n#### EXCEPTION {:02x} err {:04x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
             ctx.vector.0,
             ctx.error_code,
@@ -1309,10 +1296,12 @@ pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext)
             ctx.rip & va_mask,
             ctx.ss,
             ctx.rsp & va_mask,
-        );
+        )
+        .unwrap();
     }
 
-    println!(
+    writeln!(
+        System::em_console(),
         "rax {:016x} rsi {:016x} r11 {:016x} fl {:08x}
 rbx {:016x} rdi {:016x} r12 {:016x} ds {:04x}
 rcx {:016x} r8  {:016x} r13 {:016x} es {:04x}
@@ -1338,7 +1327,8 @@ rbp {:016x} r10 {:016x} r15 {:016x} gs {:04x}",
         ctx.r10,
         ctx.r15,
         ctx.gs,
-    );
+    )
+    .unwrap();
 
     GLOBAL_EXCEPTION_LOCK.unlock();
     if MyScheduler::current_personality(|_| ()).is_some() {

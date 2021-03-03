@@ -1,6 +1,6 @@
 // Human Interface Device Manager
 
-// use crate::system::*;
+use crate::graphics::coords::*;
 use crate::window::*;
 use crate::*;
 use alloc::boxed::Box;
@@ -59,15 +59,15 @@ impl Modifier {
     }
 }
 
-bitflags! {
-    pub struct KeyEventFlags: u8 {
-        const BREAK = 0b1000_0000;
-    }
-}
-
 impl Default for Modifier {
     fn default() -> Self {
         Self::empty()
+    }
+}
+
+bitflags! {
+    pub struct KeyEventFlags: u8 {
+        const BREAK = 0b1000_0000;
     }
 }
 
@@ -239,24 +239,26 @@ impl MouseState {
 
 #[derive(Debug, Copy, Clone, Default)]
 pub struct MouseEvent {
-    pub point: Point<i16>,
+    pub x: i16,
+    pub y: i16,
     pub buttons: MouseButton,
     pub event_buttons: MouseButton,
 }
 
 impl MouseEvent {
-    pub const fn new(point: Point<i16>, buttons: MouseButton, event_buttons: MouseButton) -> Self {
+    pub const fn new(point: Point, buttons: MouseButton, event_buttons: MouseButton) -> Self {
         Self {
-            point,
+            x: point.x as i16,
+            y: point.y as i16,
             buttons,
             event_buttons,
         }
     }
 
-    pub const fn point(&self) -> Point<isize> {
+    pub const fn point(&self) -> Point {
         Point {
-            x: self.point.x as isize,
-            y: self.point.y as isize,
+            x: self.x as isize,
+            y: self.y as isize,
         }
     }
 

@@ -21,9 +21,9 @@ pub mod bus;
 // pub mod expr;
 pub mod dev;
 pub mod fs;
+pub mod graphics;
 pub mod io;
 pub mod mem;
-pub mod num;
 pub mod rt;
 pub mod sync;
 pub mod system;
@@ -33,12 +33,10 @@ pub mod uuid;
 pub mod window;
 
 use crate::arch::cpu::Cpu;
-use crate::io::graphics::GraphicalConsole;
-use crate::io::graphics::*;
-use crate::io::tty::*;
-use crate::mem::memory::*;
+use crate::graphics::GraphicalConsole;
+// use crate::mem::memory::*;
 use crate::sync::spinlock::Spinlock;
-use crate::system::*;
+use crate::system::System;
 use crate::task::scheduler::*;
 use alloc::boxed::Box;
 use bootprot::*;
@@ -50,14 +48,10 @@ extern crate alloc;
 #[macro_use()]
 extern crate bitflags;
 
-pub fn stdout<'a>() -> &'a mut Box<dyn Tty> {
-    system::System::stdout()
-}
-
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => {
-        write!(stdout(), $($arg)*).unwrap()
+        write!(system::System::stdout(), $($arg)*).unwrap()
     };
 }
 
@@ -99,18 +93,15 @@ fn panic(info: &PanicInfo) -> ! {
     unsafe {
         PANIC_GLOBAL_LOCK.lock();
     }
-    System::set_em_console(true);
-    let stdout = stdout();
-    stdout.set_cursor_enabled(false);
     // stdout.set_attribute(0x17);
     if let Some(thread) = MyScheduler::current_thread() {
         if let Some(name) = thread.name() {
-            print!("thread '{}' ", name);
+            let _ = write!(System::em_console(), "thread '{}' ", name);
         } else {
-            print!("thread {} ", thread.as_usize());
+            let _ = write!(System::em_console(), "thread {} ", thread.as_usize());
         }
     }
-    println!("{}", info);
+    let _ = writeln!(System::em_console(), "{}", info);
     unsafe {
         let _ = MyScheduler::freeze(true);
         PANIC_GLOBAL_LOCK.unlock();

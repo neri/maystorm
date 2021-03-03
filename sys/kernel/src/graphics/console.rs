@@ -11,13 +11,13 @@ use core::num::*;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-static DEFAULT_CONSOLE_ATTRIBUTE: NonZeroU8 = unsafe { NonZeroU8::new_unchecked(0x07) };
+static DEFAULT_CONSOLE_ATTRIBUTE: NonZeroU8 = unsafe { NonZeroU8::new_unchecked(0x1F) };
 static DEFAULT_WINDOW_ATTRIBUTE: NonZeroU8 = unsafe { NonZeroU8::new_unchecked(0x0F) };
 static DEFAULT_WINDOW_OPACITY: NonZeroU8 = unsafe { NonZeroU8::new_unchecked(0xE0) };
 // static DEFAULT_WINDOW_ATTRIBUTE: NonZeroU8 = unsafe { NonZeroU8::new_unchecked(0xF8) };
 // static DEFAULT_WINDOW_OPACITY: NonZeroU8 = unsafe { NonZeroU8::new_unchecked(0xFF) };
 
-static DEFAULT_CONSOLE_INSETS: EdgeInsets<isize> = EdgeInsets::padding_each(4);
+static DEFAULT_CONSOLE_INSETS: EdgeInsets = EdgeInsets::padding_each(4);
 
 pub struct GraphicalConsole<'a> {
     handle: Option<WindowHandle>,
@@ -25,7 +25,7 @@ pub struct GraphicalConsole<'a> {
     bitmap: &'a Box<Bitmap>,
     cursor: (isize, isize),
     dims: (isize, isize),
-    insets: EdgeInsets<isize>,
+    insets: EdgeInsets,
     is_cursor_enabled: bool,
     attribute: NonZeroU8,
     default_attribute: NonZeroU8,
@@ -100,12 +100,12 @@ impl GraphicalConsole<'_> {
     }
 
     #[inline]
-    fn fg_color(&self) -> Color {
+    fn fg_color(&self) -> TrueColor {
         IndexedColor::from(self.attribute.get() & 0x0F).as_color()
     }
 
     #[inline]
-    fn bg_color(&self) -> Color {
+    fn bg_color(&self) -> TrueColor {
         IndexedColor::from(self.attribute.get() >> 4)
             .as_color()
             .set_opacity(self.alpha)

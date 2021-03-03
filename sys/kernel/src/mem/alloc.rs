@@ -1,5 +1,5 @@
 // My Poop Allocator
-use super::memory::*;
+use super::*;
 use core::alloc::{GlobalAlloc, Layout};
 use core::num::NonZeroUsize;
 

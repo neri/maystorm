@@ -2,7 +2,8 @@
 
 use super::*;
 use crate::fs::*;
-use crate::mem::memory::*;
+use crate::graphics::*;
+use crate::mem::MemoryManager;
 use crate::window::*;
 use crate::*;
 use alloc::boxed::Box;
@@ -92,7 +93,7 @@ impl Hoe {
         match regs.edx {
             1 => {
                 // putchar(eax)
-                stdout().write_char(regs.eax as u8 as char).unwrap();
+                System::stdout().write_char(regs.eax as u8 as char).unwrap();
             }
             2 => {
                 // putstring(ebx)
@@ -123,7 +124,7 @@ impl Hoe {
                 self.get_window(regs.ebx).map(|(window, refreshing)| {
                     let text = self.load_cstring(regs.ebp).unwrap_or_default();
                     let color = regs.eax as u8;
-                    let mut origin = Point::new(regs.esi, regs.edi);
+                    let mut origin = Point::new(regs.esi as isize, regs.edi as isize);
                     for ch in text.bytes() {
                         origin.x += window.put_font(self, origin, ch, color, refreshing);
                     }
@@ -171,8 +172,8 @@ impl Hoe {
             13 => {
                 // draw line
                 self.get_window(regs.ebx).map(|(window, refreshing)| {
-                    let c0 = Point::new(regs.eax as i32, regs.ecx as i32);
-                    let c1 = Point::new(regs.esi as i32, regs.edi as i32);
+                    let c0 = Point::new(regs.eax as isize, regs.ecx as isize);
+                    let c1 = Point::new(regs.esi as isize, regs.edi as isize);
                     window.draw_line(self, c0, c1, regs.ebp as u8, refreshing);
                 });
             }
@@ -367,8 +368,8 @@ impl Hoe {
             .ok_or(())
     }
 
-    fn get_color(index: u8) -> Color {
-        Color::from_argb(Self::PALETTE[index as usize])
+    fn get_color(index: u8) -> TrueColor {
+        TrueColor::from_argb(Self::PALETTE[index as usize])
     }
 
     fn alloc_window(&mut self, title: &str, width: u32, height: u32, buffer: u32) -> u32 {
@@ -693,10 +694,10 @@ impl HoeWindow {
         }
     }
 
-    fn draw_line(&self, hoe: &Hoe, c0: Point<i32>, c1: Point<i32>, c: u8, refreshing: bool) {
+    fn draw_line(&self, hoe: &Hoe, c0: Point, c1: Point, c: u8, refreshing: bool) {
         let buffer = self.buffer(hoe);
-        let width = self.width as i32;
-        let height = self.height as i32;
+        let width = self.width as isize;
+        let height = self.height as isize;
         let stride = self.width as usize;
         c0.line_to(c1, |p| {
             if p.x >= 0 && p.x < width && p.y >= 0 && p.y < height {
@@ -710,16 +711,20 @@ impl HoeWindow {
 
     const BIT_MASKS: [u8; 8] = [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
 
-    fn put_font(&self, hoe: &Hoe, origin: Point<u32>, ch: u8, color: u8, refreshing: bool) -> u32 {
-        if ch > 0x20 && ch < 0x80 && origin.x < self.width - 8 && origin.y < self.height - 16 {
+    fn put_font(&self, hoe: &Hoe, origin: Point, ch: u8, color: u8, refreshing: bool) -> isize {
+        if ch > 0x20
+            && ch < 0x80
+            && origin.x < self.width as isize - 8
+            && origin.y < self.height as isize - 16
+        {
             let buffer = self.buffer(hoe);
-            let stride = self.width;
+            let stride = self.width as usize;
             let font_stride = 16;
             let font_offset = (ch as usize - 0x20) * font_stride;
             let glyph = &FONT_HANKAKU_DATA[font_offset..font_offset + font_stride];
             for y in 0..16 {
                 let data = glyph[y as usize];
-                let cursor = (origin.x + (origin.y + y) * stride) as usize;
+                let cursor = origin.x as usize + (origin.y as usize + y) * stride;
                 let line = &mut buffer[cursor..cursor + 8];
                 for (index, bit) in Self::BIT_MASKS.iter().enumerate() {
                     if (data & bit) != 0 {
@@ -728,7 +733,13 @@ impl HoeWindow {
                 }
             }
             if refreshing {
-                self.redraw_rect(hoe, origin.x, origin.y, origin.x + 7, origin.y + 15);
+                self.redraw_rect(
+                    hoe,
+                    origin.x as u32,
+                    origin.y as u32,
+                    origin.x as u32 + 7,
+                    origin.y as u32 + 15,
+                );
             }
         }
         8

@@ -2,8 +2,8 @@
 
 use crate::arch::cpu::*;
 use crate::dev::rng::*;
+use crate::graphics::*;
 use crate::io::fonts::*;
-use crate::io::graphics::*;
 use crate::mem::string;
 use crate::system::*;
 use crate::task::scheduler::*;
@@ -15,7 +15,7 @@ use alloc::vec::*;
 use core::fmt::Write;
 use core::time::Duration;
 
-const DESKTOP_COLOR: Color = Color::from_argb(0x802196F3);
+const DESKTOP_COLOR: TrueColor = TrueColor::from_argb(0x802196F3);
 
 pub struct UserEnv {
     _phantom: (),
@@ -23,68 +23,56 @@ pub struct UserEnv {
 
 impl UserEnv {
     pub(crate) fn start(f: fn()) {
-        if System::is_headless() {
-            stdout().reset().unwrap();
-            f();
-        } else {
-            {
-                let screen_bounds = WindowManager::main_screen_bounds();
-                let bitmap = Bitmap::new(
-                    screen_bounds.width() as usize,
-                    screen_bounds.height() as usize,
-                    false,
-                );
+        {
+            let screen_bounds = WindowManager::main_screen_bounds();
+            let bitmap = Bitmap::new(
+                screen_bounds.width() as usize,
+                screen_bounds.height() as usize,
+                false,
+            );
 
-                bitmap
-                    .update_bitmap(|slice| {
-                        let rng = XorShift64::default();
-                        for color in slice.iter_mut() {
-                            *color = if (rng.next() & 1) > 0 {
-                                Color::WHITE
-                            } else {
-                                Color::TRANSPARENT
-                            }
+            bitmap
+                .update_bitmap(|slice| {
+                    let rng = XorShift64::default();
+                    for color in slice.iter_mut() {
+                        *color = if (rng.next() & 1) > 0 {
+                            TrueColor::WHITE
+                        } else {
+                            TrueColor::TRANSPARENT
                         }
-                    })
-                    .unwrap();
-                bitmap.blur(&bitmap, 4);
-                bitmap.blend_rect(bitmap.bounds(), DESKTOP_COLOR);
+                    }
+                })
+                .unwrap();
+            bitmap.blur(&bitmap, 4);
+            bitmap.blend_rect(bitmap.bounds(), DESKTOP_COLOR);
 
-                WindowManager::set_desktop_bitmap(Some(Box::new(bitmap)));
-                WindowManager::set_pointer_visible(true);
-                Timer::sleep(Duration::from_millis(1000));
-            }
-
-            {
-                // Main Terminal
-                let (console, window) = GraphicalConsole::new(
-                    "Terminal",
-                    (80, 24),
-                    FontManager::fixed_system_font(),
-                    0,
-                    0,
-                );
-                window.move_to(Point::new(16, 40));
-                window.make_active();
-                System::set_stdout(console);
-            }
-
-            // SpawnOption::new().spawn_f(activity_monitor_main, 0, "activity monitor");
-
-            SpawnOption::new().spawn(unsafe { core::mem::transmute(f) }, 0, "shell");
-
-            MyScheduler::spawn_async(Task::new(status_bar_main()));
-            MyScheduler::spawn_async(Task::new(activity_monitor_main()));
-            MyScheduler::perform_tasks();
+            WindowManager::set_desktop_bitmap(Some(Box::new(bitmap)));
+            WindowManager::set_pointer_visible(true);
+            Timer::sleep(Duration::from_millis(1000));
         }
+
+        {
+            // Main Terminal
+            let (console, window) =
+                GraphicalConsole::new("Terminal", (80, 24), FontManager::fixed_system_font(), 0, 0);
+            window.move_to(Point::new(16, 40));
+            window.make_active();
+            System::set_stdout(console);
+        }
+
+        SpawnOption::new().spawn(unsafe { core::mem::transmute(f) }, 0, "shell");
+
+        MyScheduler::spawn_async(Task::new(status_bar_main()));
+        MyScheduler::spawn_async(Task::new(activity_monitor_main()));
+        MyScheduler::perform_tasks();
     }
 }
 
 #[allow(dead_code)]
 async fn status_bar_main() {
     const STATUS_BAR_HEIGHT: isize = 24;
-    let bg_color = Color::from_argb(0xC0EEEEEE);
-    let fg_color = IndexedColor::Black.into();
+    let bg_color = TrueColor::from_argb(0xC0EEEEEE);
+    let fg_color = IndexedColor::BLACK.into();
 
     let screen_bounds = WindowManager::main_screen_bounds();
     let window = WindowBuilder::new("Status Bar")
@@ -178,11 +166,11 @@ async fn status_bar_main() {
 static mut ACTIVITY_WINDOW: Option<WindowHandle> = None;
 
 async fn activity_monitor_main() {
-    let bg_color = Color::from(IndexedColor::Black).set_opacity(0xC0);
-    let fg_color = IndexedColor::Yellow.into();
-    let graph_sub_color = IndexedColor::LightGreen.into();
-    let graph_main_color = IndexedColor::Yellow.into();
-    let graph_border_color = IndexedColor::LightGray.into();
+    let bg_color = TrueColor::from(IndexedColor::BLACK).set_opacity(0xC0);
+    let fg_color = IndexedColor::YELLOW.into();
+    let graph_sub_color = IndexedColor::LIGHT_GREEN.into();
+    let graph_main_color = IndexedColor::YELLOW.into();
+    let graph_border_color = IndexedColor::LIGHT_GRAY.into();
 
     let screen_bounds = WindowManager::user_screen_bounds();
     let width = 280;
@@ -299,7 +287,7 @@ async fn activity_monitor_main() {
                         }
 
                         sb.clear();
-                        let hz = ((tsc1 - tsc0) / (time1 - time0) + 5) / 10;
+                        let hz = ((tsc1 - tsc0) as usize / (time1.0 - time0.0) + 5) / 10;
                         let hz0 = hz % 100;
                         let hz1 = hz / 100;
                         let usage = MyScheduler::usage_per_cpu();
@@ -312,7 +300,7 @@ async fn activity_monitor_main() {
                             hz0,
                             usage1,
                             usage0,
-                            System::num_of_physical_cpus(),
+                            System::num_of_performance_cpus(),
                             System::num_of_cpus(),
                         )
                         .unwrap();

@@ -1,3 +1,3 @@
 // A Window System
-mod winsys;
-pub use winsys::*;
+mod wm;
+pub use wm::*;

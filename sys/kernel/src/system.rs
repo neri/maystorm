@@ -1,8 +1,7 @@
 // A Computer System
 
 use crate::arch::cpu::*;
-use crate::dev::uart::*;
-use crate::dev::vt100::*;
+use crate::graphics::Bitmap;
 use crate::io::tty::*;
 use crate::task::scheduler::*;
 use crate::*;
@@ -10,9 +9,8 @@ use alloc::boxed::Box;
 use alloc::vec::*;
 use bootprot::BootInfo;
 use core::fmt;
-use core::num::*;
 use core::ptr::*;
-use core::sync::atomic::*;
+// use core::sync::atomic::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Version {
@@ -98,36 +96,8 @@ pub struct ProcessorIndex(pub usize);
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ProcessorCoreType {
-    Physical,
-    Logical,
-}
-
-#[repr(transparent)]
-#[derive(Copy, Clone, Default, PartialEq, PartialOrd)]
-pub struct VirtualAddress(pub usize);
-
-impl VirtualAddress {
-    pub const NULL: VirtualAddress = VirtualAddress(0);
-
-    pub fn into_nonnull<T>(self) -> Option<NonNull<T>> {
-        NonNull::new(self.0 as *const T as *mut T)
-    }
-
-    pub const fn into_nonzero(self) -> Option<NonZeroUsize> {
-        NonZeroUsize::new(self.0)
-    }
-}
-
-impl<T> Into<Option<NonNull<T>>> for VirtualAddress {
-    fn into(self) -> Option<NonNull<T>> {
-        self.into_nonnull()
-    }
-}
-
-impl Into<Option<NonZeroUsize>> for VirtualAddress {
-    fn into(self) -> Option<NonZeroUsize> {
-        self.into_nonzero()
-    }
+    Main,
+    Sub,
 }
 
 #[repr(transparent)]
@@ -138,7 +108,7 @@ pub struct System {
     /// Number of cpu cores
     num_of_cpus: usize,
     /// Number of physical cpu cores
-    num_of_physical_cpus: usize,
+    num_of_performance_cpus: usize,
     /// Vector of cpu cores
     cpus: Vec<Box<Cpu>>,
 
@@ -148,8 +118,7 @@ pub struct System {
     // screens
     boot_screen: Option<Box<Bitmap>>,
     stdout: Option<Box<dyn Tty>>,
-    emergency_console: Option<Box<dyn Tty>>,
-    use_emergency_console: AtomicBool,
+    em_console: Option<Box<dyn Tty>>,
 
     // copy of boot info
     boot_flags: BootFlags,
@@ -165,14 +134,13 @@ impl System {
     const fn new() -> Self {
         System {
             num_of_cpus: 0,
-            num_of_physical_cpus: 1,
+            num_of_performance_cpus: 1,
             cpus: Vec::new(),
             acpi: None,
             boot_flags: BootFlags::empty(),
             boot_screen: None,
             stdout: None,
-            emergency_console: None,
-            use_emergency_console: AtomicBool::new(true),
+            em_console: None,
             boot_vram: 0,
             boot_vram_stride: 0,
             initrd_base: 0,
@@ -191,18 +159,12 @@ impl System {
         }
         // shared.boot_flags.insert(BootFlags::HEADLESS);
 
-        MemoryManager::init_first(&info);
+        mem::MemoryManager::init_first(&info);
 
-        if System::is_headless() {
-            let uart = arch::Arch::master_uart().unwrap();
-            let stdout = Box::new(Vt100::with_uart(&uart));
-            shared.emergency_console = Some(stdout);
-        } else {
-            let screen = Bitmap::from(info);
-            shared.boot_screen = Some(Box::new(screen));
-            let stdout = Box::new(GraphicalConsole::from(shared.boot_screen.as_ref().unwrap()));
-            shared.emergency_console = Some(stdout);
-        }
+        let screen = Bitmap::from(info);
+        shared.boot_screen = Some(Box::new(screen));
+        let stdout = Box::new(GraphicalConsole::from(shared.boot_screen.as_ref().unwrap()));
+        shared.em_console = Some(stdout);
 
         shared.acpi = Some(Box::new(
             acpi::AcpiTables::from_rsdp(MyAcpiHandler::new(), info.acpi_rsdptr as usize).unwrap(),
@@ -225,7 +187,7 @@ impl System {
     fn init_late(args: usize) {
         let shared = Self::shared();
         unsafe {
-            MemoryManager::init_late();
+            mem::MemoryManager::init_late();
 
             fs::Fs::init(shared.initrd_base, shared.initrd_size);
 
@@ -295,11 +257,11 @@ impl System {
         Self::shared().num_of_cpus
     }
 
-    /// Returns the number of physical CPU cores.
-    /// Returns less than `num_of_cpus` on SMT enabled processors.
+    /// Returns the number of performance CPU cores.
+    /// Returns less than `num_of_cpus` for SMT-enabled processors or heterogeneous computing.
     #[inline]
-    pub fn num_of_physical_cpus() -> usize {
-        Self::shared().num_of_physical_cpus
+    pub fn num_of_performance_cpus() -> usize {
+        Self::shared().num_of_performance_cpus
     }
 
     /// Returns the number of active logical CPU cores.
@@ -315,8 +277,8 @@ impl System {
     #[inline]
     pub(crate) unsafe fn activate_cpu(new_cpu: Box<Cpu>) {
         let shared = Self::shared();
-        if new_cpu.processor_type() == ProcessorCoreType::Physical {
-            shared.num_of_physical_cpus += 1;
+        if new_cpu.processor_type() == ProcessorCoreType::Main {
+            shared.num_of_performance_cpus += 1;
         }
         shared.cpus.push(new_cpu);
     }
@@ -367,29 +329,19 @@ impl System {
         todo!();
     }
 
-    #[inline]
-    pub fn uarts<'a>() -> &'a [Box<dyn Uart>] {
-        arch::Arch::uarts()
-    }
-
-    pub fn set_em_console(value: bool) {
+    pub fn em_console<'a>() -> &'a mut Box<dyn Tty> {
         let shared = Self::shared();
-        shared.use_emergency_console.store(value, Ordering::SeqCst);
+        shared.em_console.as_mut().unwrap()
     }
 
     pub fn stdout<'a>() -> &'a mut Box<dyn Tty> {
         let shared = Self::shared();
-        if shared.use_emergency_console.load(Ordering::SeqCst) {
-            shared.emergency_console.as_mut().unwrap()
-        } else {
-            shared.stdout.as_mut().unwrap()
-        }
+        shared.stdout.as_mut().unwrap_or(Self::em_console())
     }
 
     pub fn set_stdout(console: Box<dyn Tty>) {
         let shared = Self::shared();
         shared.stdout = Some(console);
-        Self::set_em_console(false);
     }
 }
 

@@ -33,11 +33,13 @@ impl Arch {
     }
 
     #[inline]
+    #[allow(dead_code)]
     pub unsafe fn master_uart() -> Option<&'static Box<dyn Uart>> {
         ComPort::init_first()
     }
 
     #[inline]
+    #[allow(dead_code)]
     pub fn uarts<'a>() -> &'a [Box<dyn Uart>] {
         ComPort::ports()
     }

@@ -1,8 +1,8 @@
 // Slab Allocator
 
-use super::memory::*;
-use crate::*;
-use alloc::vec::*;
+use super::*;
+// use crate::*;
+use ::alloc::vec::*;
 use core::alloc::Layout;
 use core::num::*;
 use core::sync::atomic::*;

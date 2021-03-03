@@ -44,25 +44,29 @@ impl Hpet {
         self.mmio.write_u64(index, value);
     }
 
-    fn measure(&self) -> TimeSpec {
-        (unsafe { self.read(0xF0) } / self.measure_div) as TimeSpec
-    }
-
     fn irq_handler(_irq: Irq) {
         // TODO:
     }
 }
 
 impl TimerSource for Hpet {
-    fn create(&self, duration: Duration) -> TimeSpec {
-        self.measure() + duration.as_micros() as TimeSpec
+    fn create(&self, duration: TimeSpec) -> TimeSpec {
+        self.measure() + duration
     }
 
     fn until(&self, deadline: TimeSpec) -> bool {
         deadline > self.measure()
     }
 
-    fn monotonic(&self) -> Duration {
-        Duration::from_micros(self.measure())
+    fn measure(&self) -> TimeSpec {
+        TimeSpec((unsafe { self.read(0xF0) } / self.measure_div) as usize)
+    }
+
+    fn from_duration(&self, val: Duration) -> TimeSpec {
+        TimeSpec(val.as_micros() as usize)
+    }
+
+    fn to_duration(&self, val: TimeSpec) -> Duration {
+        Duration::from_micros(val.0 as u64)
     }
 }

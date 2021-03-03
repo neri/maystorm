@@ -2,15 +2,14 @@
 
 use super::cpu::*;
 use super::hpet::*;
-use crate::mem::memory::*;
 use crate::mem::mmio::*;
+use crate::mem::*;
 use crate::sync::spinlock::Spinlock;
 use crate::system::*;
 use crate::task::scheduler::*;
-use crate::*;
-use acpi;
-use alloc::boxed::Box;
-use alloc::vec::*;
+// use crate::*;
+use ::alloc::boxed::Box;
+use ::alloc::vec::*;
 use core::ffi::c_void;
 use core::sync::atomic::*;
 use core::time::Duration;
@@ -65,7 +64,7 @@ pub(super) struct Apic {
     master_apic_id: ProcessorId,
     ioapics: Vec<Box<IoApic>>,
     gsi_table: [GsiProps; 256],
-    idt: [VirtualAddress; Irq::MAX.0 as usize],
+    idt: [usize; Irq::MAX.0 as usize],
     lapic_timer_value: u32,
 }
 
@@ -79,7 +78,7 @@ impl Apic {
             master_apic_id: ProcessorId(0),
             ioapics: Vec::new(),
             gsi_table: [GsiProps::default(); 256],
-            idt: [VirtualAddress::NULL; Irq::MAX.0 as usize],
+            idt: [0; Irq::MAX.0 as usize],
             lapic_timer_value: 0,
         }
     }
@@ -136,17 +135,17 @@ impl Apic {
 
         InterruptDescriptorTable::register(
             Irq(1).into(),
-            VirtualAddress(irq_01_handler as usize),
+            irq_01_handler as usize,
             PrivilegeLevel::Kernel,
         );
         InterruptDescriptorTable::register(
             Irq(2).into(),
-            VirtualAddress(irq_02_handler as usize),
+            irq_02_handler as usize,
             PrivilegeLevel::Kernel,
         );
         InterruptDescriptorTable::register(
             Irq(12).into(),
-            VirtualAddress(irq_0c_handler as usize),
+            irq_0c_handler as usize,
             PrivilegeLevel::Kernel,
         );
 
@@ -154,7 +153,7 @@ impl Apic {
         let vec_latimer = Irq(0).as_vec();
         InterruptDescriptorTable::register(
             vec_latimer,
-            VirtualAddress(timer_handler as usize),
+            timer_handler as usize,
             PrivilegeLevel::Kernel,
         );
         LocalApic::clear_timer();
@@ -163,11 +162,12 @@ impl Apic {
             // Use HPET
             let hpet = Hpet::new(&hpet_info);
             let magic_number = 100;
-            let deadline0 = hpet.create(Duration::from_micros(1));
+            let deadline0 = hpet.create(TimeSpec(1));
             while hpet.until(deadline0) {
                 Cpu::spin_loop_hint();
             }
-            let deadline1 = hpet.create(Duration::from_micros(100_0000 / magic_number));
+            let deadline1 =
+                hpet.create(hpet.from_duration(Duration::from_micros(100_0000 / magic_number)));
             LocalApic::TimerInitialCount.write(u32::MAX);
             while hpet.until(deadline1) {
                 Cpu::spin_loop_hint();
@@ -244,10 +244,10 @@ impl Apic {
         for ioapic in APIC.ioapics.iter_mut() {
             let local_irq = global_irq.0 - ioapic.global_int.0;
             if ioapic.global_int <= global_irq && local_irq < ioapic.entries {
-                if APIC.idt[global_irq.0 as usize] != VirtualAddress::NULL {
+                if APIC.idt[global_irq.0 as usize] != 0 {
                     return Err(());
                 }
-                APIC.idt[global_irq.0 as usize] = VirtualAddress(f as usize);
+                APIC.idt[global_irq.0 as usize] = f as usize;
                 let pair = Self::make_redirect_table_entry_pair(
                     global_irq.as_vec(),
                     trigger,
@@ -310,15 +310,15 @@ pub type IrqHandler = fn(Irq) -> ();
 
 #[no_mangle]
 pub unsafe extern "C" fn apic_handle_irq(irq: Irq) {
-    match APIC.idt[irq.0 as usize].into_nonzero() {
-        Some(entry) => {
+    match APIC.idt[irq.0 as usize] {
+        0 => {
+            let _ = irq.disable();
+            panic!("IRQ {} is Enabled, But not Installed", irq.0);
+        }
+        entry => {
             let f: IrqHandler = core::mem::transmute(entry);
             f(irq);
             LocalApic::eoi();
-        }
-        None => {
-            let _ = irq.disable();
-            panic!("IRQ {} is Enabled, But not Installed", irq.0);
         }
     }
 }

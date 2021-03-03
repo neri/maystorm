@@ -1,6 +1,6 @@
 // Small String Buffer & Formatter
 
-use alloc::vec::Vec;
+use ::alloc::vec::Vec;
 use core::{fmt, slice, str};
 
 #[macro_export]

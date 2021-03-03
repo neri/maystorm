@@ -1,7 +1,7 @@
 // x64 Paging
 
 // use crate::mem::alloc;
-use crate::mem::memory::*;
+use crate::mem::*;
 use bitflags::*;
 // use bootprot::*;
 

@@ -3,7 +3,6 @@
 use super::color::*;
 use super::coords::*;
 use crate::io::fonts::*;
-use crate::num::*;
 use crate::*;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -18,10 +17,10 @@ use core::slice;
 #[repr(C)]
 pub struct Bitmap {
     base: *mut u32,
-    size: Size<isize>,
+    size: Size,
     stride: usize,
     flags: BitmapFlags,
-    retained: Option<Arc<UnsafeCell<Vec<Color>>>>,
+    retained: Option<Arc<UnsafeCell<Vec<TrueColor>>>>,
 }
 
 bitflags! {
@@ -70,11 +69,16 @@ impl Bitmap {
     pub fn new(width: usize, height: usize, is_translucent: bool) -> Self {
         let size = width * height;
         let mut vec = Vec::with_capacity(size);
-        vec.resize(size, Color::TRANSPARENT);
+        vec.resize(size, TrueColor::TRANSPARENT);
         Self::from_vec(vec, width, height, is_translucent)
     }
 
-    pub fn from_vec(vec: Vec<Color>, width: usize, height: usize, is_translucent: bool) -> Self {
+    pub fn from_vec(
+        vec: Vec<TrueColor>,
+        width: usize,
+        height: usize,
+        is_translucent: bool,
+    ) -> Self {
         let vec = Arc::new(UnsafeCell::new(vec));
         let base = unsafe { &(*vec.get())[0] as *const _ as *mut u32 };
         let mut flags = BitmapFlags::empty();
@@ -119,14 +123,20 @@ impl Bitmap {
                         let c4 = dib[src] as usize;
                         let cl = c4 >> 4;
                         let cr = c4 & 0x0F;
-                        bits.push(Color::from_rgb(LE::read_u32(&palette[cl * 4..cl * 4 + 4])));
-                        bits.push(Color::from_rgb(LE::read_u32(&palette[cr * 4..cr * 4 + 4])));
+                        bits.push(TrueColor::from_rgb(LE::read_u32(
+                            &palette[cl * 4..cl * 4 + 4],
+                        )));
+                        bits.push(TrueColor::from_rgb(LE::read_u32(
+                            &palette[cr * 4..cr * 4 + 4],
+                        )));
                         src += bpp8;
                     }
                     if width2_f < width2_c {
                         let c4 = dib[src] as usize;
                         let cl = c4 >> 4;
-                        bits.push(Color::from_rgb(LE::read_u32(&palette[cl * 4..cl * 4 + 4])));
+                        bits.push(TrueColor::from_rgb(LE::read_u32(
+                            &palette[cl * 4..cl * 4 + 4],
+                        )));
                     }
                 }
             }
@@ -136,7 +146,9 @@ impl Bitmap {
                     let mut src = offset + (height - y - 1) * stride;
                     for _ in 0..width {
                         let ic = dib[src] as usize;
-                        bits.push(Color::from_rgb(LE::read_u32(&palette[ic * 4..ic * 4 + 4])));
+                        bits.push(TrueColor::from_rgb(LE::read_u32(
+                            &palette[ic * 4..ic * 4 + 4],
+                        )));
                         src += bpp8;
                     }
                 }
@@ -148,7 +160,7 @@ impl Bitmap {
                         let b = dib[src] as u32;
                         let g = dib[src + 1] as u32;
                         let r = dib[src + 2] as u32;
-                        bits.push(Color::from_rgb(b + g * 0x100 + r * 0x10000));
+                        bits.push(TrueColor::from_rgb(b + g * 0x100 + r * 0x10000));
                         src += bpp8;
                     }
                 }
@@ -157,7 +169,7 @@ impl Bitmap {
                 for y in 0..height {
                     let mut src = offset + (height - y - 1) * stride;
                     for _ in 0..width {
-                        bits.push(Color::from_rgb(LE::read_u32(&dib[src..src + bpp8])));
+                        bits.push(TrueColor::from_rgb(LE::read_u32(&dib[src..src + bpp8])));
                         src += bpp8;
                     }
                 }
@@ -167,10 +179,10 @@ impl Bitmap {
         Some(Self::from_vec(bits, width, height, false))
     }
 
-    pub fn view(&self, rect: Rect<isize>) -> Option<Self> {
+    pub fn view(&self, rect: Rect) -> Option<Self> {
         let mut coords = match Coordinates::from_rect(rect) {
-            None => return None,
-            Some(coords) => coords,
+            Err(_) => return None,
+            Ok(coords) => coords,
         };
         if coords.left < 0 || coords.top < 0 {
             return None;
@@ -205,7 +217,7 @@ impl Bitmap {
     }
 
     #[inline]
-    pub const fn size(&self) -> Size<isize> {
+    pub const fn size(&self) -> Size {
         self.size
     }
 
@@ -225,7 +237,7 @@ impl Bitmap {
     }
 
     #[inline]
-    pub fn bounds(&self) -> Rect<isize> {
+    pub fn bounds(&self) -> Rect {
         Rect::from(self.size)
     }
 
@@ -250,10 +262,10 @@ impl Bitmap {
     }
 
     #[inline]
-    fn get_fb<'a>(&self) -> &'a mut [Color] {
+    fn get_fb<'a>(&self) -> &'a mut [TrueColor] {
         unsafe {
             slice::from_raw_parts_mut(
-                self.base as *mut Color,
+                self.base as *mut TrueColor,
                 if self.is_portrait() {
                     self.width() as usize * self.stride
                 } else {
@@ -266,7 +278,7 @@ impl Bitmap {
     #[inline]
     pub fn update_bitmap<F>(&self, f: F) -> Result<(), ()>
     where
-        F: FnOnce(&mut [Color]),
+        F: FnOnce(&mut [TrueColor]),
     {
         if self.stride != self.size.width as usize {
             return Err(());
@@ -276,10 +288,10 @@ impl Bitmap {
     }
 
     pub fn reset(&self) {
-        self.fill_rect(Rect::from(self.size), Color::zero());
+        self.fill_rect(Rect::from(self.size), TrueColor::zero());
     }
 
-    fn memset_colors(fb: &mut [Color], cursor: usize, size: usize, color: Color) {
+    fn memset_colors(fb: &mut [TrueColor], cursor: usize, size: usize, color: TrueColor) {
         let slice = &mut fb[cursor..cursor + size];
         unsafe {
             let color32 = color.argb();
@@ -318,9 +330,9 @@ impl Bitmap {
 
     #[allow(dead_code)]
     fn memcpy_colors_simple(
-        dest: &mut [Color],
+        dest: &mut [TrueColor],
         dest_cursor: usize,
-        src: &[Color],
+        src: &[TrueColor],
         src_cursor: usize,
         size: usize,
     ) {
@@ -333,9 +345,9 @@ impl Bitmap {
 
     #[allow(dead_code)]
     fn memcpy_colors(
-        dest: &mut [Color],
+        dest: &mut [TrueColor],
         dest_cursor: usize,
-        src: &[Color],
+        src: &[TrueColor],
         src_cursor: usize,
         size: usize,
     ) {
@@ -384,9 +396,9 @@ impl Bitmap {
 
     #[inline]
     fn blend_line(
-        dest: &mut [Color],
+        dest: &mut [TrueColor],
         dest_cursor: usize,
-        src: &[Color],
+        src: &[TrueColor],
         src_cursor: usize,
         size: usize,
     ) {
@@ -397,7 +409,7 @@ impl Bitmap {
         }
     }
 
-    pub fn fill_rect(&self, rect: Rect<isize>, color: Color) {
+    pub fn fill_rect(&self, rect: Rect, color: TrueColor) {
         let mut width = rect.size.width;
         let mut height = rect.size.height;
         let mut dx = rect.origin.x;
@@ -445,7 +457,7 @@ impl Bitmap {
         }
     }
 
-    pub fn blend_rect(&self, rect: Rect<isize>, color: Color) {
+    pub fn blend_rect(&self, rect: Rect, color: TrueColor) {
         let rhs = color.components();
         if rhs.is_opaque() {
             return self.fill_rect(rect, color);
@@ -509,7 +521,7 @@ impl Bitmap {
         }
     }
 
-    pub fn draw_multiple_pixels(&self, points: &[Point<isize>], color: Color) {
+    pub fn draw_multiple_pixels(&self, points: &[Point], color: TrueColor) {
         let fb = self.get_fb();
         let width = self.width();
         let height = self.height();
@@ -527,11 +539,11 @@ impl Bitmap {
         }
     }
 
-    pub fn draw_pixel(&self, point: Point<isize>, color: Color) {
+    pub fn draw_pixel(&self, point: Point, color: TrueColor) {
         self.draw_multiple_pixels(&[point], color);
     }
 
-    pub fn blend_multiple_pixels(&self, points: &[Point<isize>], color: Color) {
+    pub fn blend_multiple_pixels(&self, points: &[Point], color: TrueColor) {
         let fb = self.get_fb();
         let width = self.width();
         let height = self.height();
@@ -566,11 +578,11 @@ impl Bitmap {
         }
     }
 
-    pub fn blend_pixel(&self, point: Point<isize>, color: Color) {
+    pub fn blend_pixel(&self, point: Point, color: TrueColor) {
         self.blend_multiple_pixels(&[point], color);
     }
 
-    pub fn draw_hline(&self, point: Point<isize>, width: isize, color: Color) {
+    pub fn draw_hline(&self, point: Point, width: isize, color: TrueColor) {
         let mut dx = point.x;
         let dy = point.y;
         let mut w = width;
@@ -599,7 +611,7 @@ impl Bitmap {
         }
     }
 
-    pub fn draw_vline(&self, point: Point<isize>, height: isize, color: Color) {
+    pub fn draw_vline(&self, point: Point, height: isize, color: TrueColor) {
         let dx = point.x;
         let mut dy = point.y;
         let mut h = height;
@@ -632,7 +644,7 @@ impl Bitmap {
         }
     }
 
-    pub fn draw_rect(&self, rect: Rect<isize>, color: Color) {
+    pub fn draw_rect(&self, rect: Rect, color: TrueColor) {
         let coords = Coordinates::from_rect(rect).unwrap();
         let width = rect.width();
         let height = rect.height();
@@ -644,7 +656,7 @@ impl Bitmap {
         }
     }
 
-    pub fn draw_circle(&self, origin: Point<isize>, radius: isize, color: Color) {
+    pub fn draw_circle(&self, origin: Point, radius: isize, color: TrueColor) {
         let rect = Rect {
             origin: origin - radius,
             size: Size::new(radius * 2, radius * 2),
@@ -652,7 +664,7 @@ impl Bitmap {
         self.draw_round_rect(rect, radius, color);
     }
 
-    pub fn fill_circle(&self, origin: Point<isize>, radius: isize, color: Color) {
+    pub fn fill_circle(&self, origin: Point, radius: isize, color: TrueColor) {
         let rect = Rect {
             origin: origin - radius,
             size: Size::new(radius * 2, radius * 2),
@@ -660,7 +672,7 @@ impl Bitmap {
         self.fill_round_rect(rect, radius, color);
     }
 
-    pub fn fill_round_rect(&self, rect: Rect<isize>, radius: isize, color: Color) {
+    pub fn fill_round_rect(&self, rect: Rect, radius: isize, color: TrueColor) {
         let width = rect.size.width;
         let height = rect.size.height;
         let dx = rect.origin.x;
@@ -711,7 +723,7 @@ impl Bitmap {
         }
     }
 
-    pub fn draw_round_rect(&self, rect: Rect<isize>, radius: isize, color: Color) {
+    pub fn draw_round_rect(&self, rect: Rect, radius: isize, color: TrueColor) {
         let width = rect.size.width;
         let height = rect.size.height;
         let dx = rect.origin.x;
@@ -777,7 +789,7 @@ impl Bitmap {
         }
     }
 
-    pub fn draw_pattern(&self, rect: Rect<isize>, pattern: &[u8], color: Color) {
+    pub fn draw_pattern(&self, rect: Rect, pattern: &[u8], color: TrueColor) {
         let width = rect.size.width;
         let mut height = rect.size.height;
         let dx = rect.origin.x;
@@ -835,7 +847,7 @@ impl Bitmap {
         self.blt(src, Point::new(0, 0), self.bounds(), BltOption::COPY);
     }
 
-    pub fn blt(&self, src: &Self, origin: Point<isize>, rect: Rect<isize>, option: BltOption) {
+    pub fn blt(&self, src: &Self, origin: Point, rect: Rect, option: BltOption) {
         let mut dx = origin.x;
         let mut dy = origin.y;
         let mut sx = rect.origin.x;
@@ -879,7 +891,7 @@ impl Bitmap {
             dx = self.size.height - dy;
             dy = temp;
             let dest_fb = self.get_fb();
-            let src_fb = src.get_fb() as &[Color];
+            let src_fb = src.get_fb() as &[TrueColor];
             let mut p = dx as usize + dy as usize * self.stride - height as usize;
             let q0 = sx as usize + (sy as usize + height - 1) * src.stride;
             let stride_p = self.stride - height;
@@ -940,21 +952,21 @@ impl Bitmap {
         }
     }
 
-    pub fn draw_line(&self, c0: Point<isize>, c1: Point<isize>, color: Color) {
+    pub fn draw_line(&self, c0: Point, c1: Point, color: TrueColor) {
         c0.line_to(c1, |point| self.draw_pixel(point, color));
     }
 
     #[inline]
     #[track_caller]
     #[allow(dead_code)]
-    fn get_pixel_unchecked(&self, point: Point<isize>) -> Color {
+    fn get_pixel_unchecked(&self, point: Point) -> TrueColor {
         self.get_fb()[point.x as usize + point.y as usize * self.stride()]
     }
 
     #[inline]
     #[track_caller]
     #[allow(dead_code)]
-    pub fn set_pixel_unchecked(&self, point: Point<isize>, color: Color) {
+    pub fn set_pixel_unchecked(&self, point: Point, color: TrueColor) {
         self.get_fb()[point.x as usize + point.y as usize * self.stride()] = color;
     }
 
@@ -1025,7 +1037,7 @@ impl Bitmap {
         }
     }
 
-    pub fn translate(&self, buffer: &[u8], origin: Point<isize>, size: Size<isize>, color: Color) {
+    pub fn translate(&self, buffer: &[u8], origin: Point, size: Size, color: TrueColor) {
         for y in 0..size.height {
             for x in 0..size.width {
                 let mut c = color.components();
@@ -1057,7 +1069,7 @@ bitflags! {
 pub struct AttributedString<'a> {
     text: &'a str,
     font: FontDescriptor,
-    color: Color,
+    color: TrueColor,
 }
 
 // TODO:
@@ -1075,11 +1087,11 @@ impl<'a> AttributedString<'a> {
         Self {
             text,
             font: FontManager::system_font(),
-            color: IndexedColor::Black.into(),
+            color: IndexedColor::BLACK.into(),
         }
     }
 
-    pub fn with(text: &'a str, font: FontDescriptor, color: Color) -> Self {
+    pub fn with(text: &'a str, font: FontDescriptor, color: TrueColor) -> Self {
         Self { text, font, color }
     }
 
@@ -1090,7 +1102,7 @@ impl<'a> AttributedString<'a> {
     }
 
     #[inline]
-    pub fn color(&mut self, color: Color) -> &Self {
+    pub fn color(&mut self, color: TrueColor) -> &Self {
         self.color = color;
         self
     }
@@ -1101,7 +1113,7 @@ impl<'a> AttributedString<'a> {
         self
     }
 
-    pub fn bounding_size(&self, size: Size<isize>) -> Size<isize> {
+    pub fn bounding_size(&self, size: Size) -> Size {
         let mut max_width = 0;
         let mut max_height = 0;
         let mut cursor = Point::new(0, 0);
@@ -1140,11 +1152,11 @@ impl<'a> AttributedString<'a> {
     //     let _ = max_lines;
     // }
 
-    pub fn draw(&self, bitmap: &Bitmap, rect: Rect<isize>) {
-        let mut cursor = Point::<isize>::zero();
+    pub fn draw(&self, bitmap: &Bitmap, rect: Rect) {
+        let mut cursor = Point::default();
         let coords = match Coordinates::from_rect(rect) {
-            Some(coords) => coords,
-            None => return,
+            Ok(coords) => coords,
+            Err(_) => return,
         };
 
         for c in self.text.chars() {
@@ -1174,19 +1186,19 @@ impl<'a> AttributedString<'a> {
 pub type OperationalBitmapResticted = OperationalBitmap<Restricted>;
 
 pub struct OperationalBitmap<View: BitmapView> {
-    size: Size<isize>,
+    size: Size,
     data: Vec<u8>,
     _phantom: PhantomData<View>,
 }
 
 impl<View: BitmapView> OperationalBitmap<View> {
     #[inline]
-    pub const fn size(&self) -> Size<isize> {
+    pub const fn size(&self) -> Size {
         self.size
     }
 
     #[inline]
-    pub fn bounds(&self) -> Rect<isize> {
+    pub fn bounds(&self) -> Rect {
         self.size.into()
     }
 
@@ -1217,7 +1229,7 @@ impl<View: BitmapView> OperationalBitmap<View> {
     }
 
     #[inline]
-    pub fn restrict<F, R>(&self, point: Point<isize>, insets: EdgeInsets<isize>, f: F) -> Option<R>
+    pub fn restrict<F, R>(&self, point: Point, insets: EdgeInsets, f: F) -> Option<R>
     where
         F: FnOnce(&OperationalBitmap<Direct>) -> R,
     {
@@ -1229,12 +1241,7 @@ impl<View: BitmapView> OperationalBitmap<View> {
     }
 
     #[inline]
-    pub fn restrict_mut<F, R>(
-        &mut self,
-        point: Point<isize>,
-        insets: EdgeInsets<isize>,
-        f: F,
-    ) -> Option<R>
+    pub fn restrict_mut<F, R>(&mut self, point: Point, insets: EdgeInsets, f: F) -> Option<R>
     where
         F: FnOnce(&mut OperationalBitmap<Direct>) -> R,
     {
@@ -1245,9 +1252,9 @@ impl<View: BitmapView> OperationalBitmap<View> {
         }
     }
 
-    pub fn transform<F>(&self, origin: Point<isize>, new_size: Size<isize>, f: F)
+    pub fn transform<F>(&self, origin: Point, new_size: Size, f: F)
     where
-        F: Fn(Point<isize>, u8),
+        F: Fn(Point, u8),
     {
         // TODO:
         for y in 0..new_size.height {
@@ -1258,9 +1265,9 @@ impl<View: BitmapView> OperationalBitmap<View> {
         }
     }
 
-    pub fn draw_line<F>(&mut self, c0: Point<isize>, c1: Point<isize>, mut f: F)
+    pub fn draw_line<F>(&mut self, c0: Point, c1: Point, mut f: F)
     where
-        F: FnMut(&mut OperationalBitmap<Restricted>, Point<isize>),
+        F: FnMut(&mut OperationalBitmap<Restricted>, Point),
     {
         c0.line_to(c1, |point| {
             f(unsafe { core::mem::transmute(&mut *self) }, point)
@@ -1279,13 +1286,15 @@ impl OperationalBitmap<Restricted> {
     }
 
     #[inline]
-    pub fn get_pixel(&self, point: Point<isize>) -> Option<u8> {
-        self.restrict(point, EdgeInsets::zero(), |bitmap| bitmap.get_pixel(point))
+    pub fn get_pixel(&self, point: Point) -> Option<u8> {
+        self.restrict(point, EdgeInsets::default(), |bitmap| {
+            bitmap.get_pixel(point)
+        })
     }
 
     #[inline]
-    pub fn set_pixel(&mut self, point: Point<isize>, color: u8) {
-        self.restrict_mut(point, EdgeInsets::zero(), |bitmap| {
+    pub fn set_pixel(&mut self, point: Point, color: u8) {
+        self.restrict_mut(point, EdgeInsets::default(), |bitmap| {
             bitmap.set_pixel(point, color)
         });
     }
@@ -1305,18 +1314,18 @@ impl OperationalBitmap<Direct> {
     }
 
     #[inline]
-    pub fn get_pixel(&self, point: Point<isize>) -> u8 {
+    pub fn get_pixel(&self, point: Point) -> u8 {
         self.data[point.x as usize + point.y as usize * self.stride()]
     }
 
     #[inline]
-    pub fn set_pixel(&mut self, point: Point<isize>, color: u8) {
+    pub fn set_pixel(&mut self, point: Point, color: u8) {
         let stride = self.stride();
         self.data[point.x as usize + point.y as usize * stride] = color;
     }
 
     #[inline]
-    pub fn process_pixel<F>(&mut self, point: Point<isize>, f: F)
+    pub fn process_pixel<F>(&mut self, point: Point, f: F)
     where
         F: FnOnce(u8) -> u8,
     {

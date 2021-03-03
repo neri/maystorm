@@ -13,8 +13,8 @@ use bootprot::*;
 use core::fmt::Write;
 use kernel::fs::*;
 use kernel::*;
-use mem::memory::*;
-use mem::string;
+use mem::*;
+// use mem::string;
 use mem::string::*;
 use rt::*;
 use system::*;
@@ -58,7 +58,7 @@ impl Application {
 
         loop {
             print!("# ");
-            if let Some(cmdline) = stdout().read_line_async(120).await {
+            if let Some(cmdline) = System::stdout().read_line_async(120).await {
                 Self::exec_cmd(&cmdline);
             }
         }
@@ -215,7 +215,7 @@ impl Application {
     }
 
     fn cmd_cls(_: &[&str]) -> isize {
-        match stdout().reset() {
+        match System::stdout().reset() {
             Ok(_) => 0,
             Err(_) => 1,
         }
@@ -342,13 +342,13 @@ impl Application {
                     for i in 0..(stat.blocks - 1) {
                         fs.x_read(inode, i, 1, &mut buffer);
                         for c in buffer.iter() {
-                            stdout().write_char(*c as char).unwrap();
+                            System::stdout().write_char(*c as char).unwrap();
                         }
                     }
                     fs.x_read(inode, stat.blocks - 1, 1, &mut buffer);
                     let buffer = &buffer[..last_bytes];
                     for c in buffer.iter() {
-                        stdout().write_char(*c as char).unwrap();
+                        System::stdout().write_char(*c as char).unwrap();
                     }
                 }
                 0

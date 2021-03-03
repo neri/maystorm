@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::dev::rng::*;
+use crate::graphics::*;
 use crate::io::hid::*;
-use crate::num::*;
 use crate::uuid::Uuid;
 use alloc::collections::BTreeMap;
 use byteorder::*;
@@ -253,7 +253,7 @@ impl ArleRuntime {
                     let origin = params.get_point()?;
                     let os_bitmap = params.get_bitmap8(memory)?;
                     let _ = window.draw_in_rect(os_bitmap.rect(origin), |bitmap| {
-                        os_bitmap.blt(bitmap, Point::zero());
+                        os_bitmap.blt(bitmap, Point::default());
                     });
                     window.set_needs_display();
                 }
@@ -265,7 +265,7 @@ impl ArleRuntime {
                     let color = params.get_color()?;
                     let mode = params.get_usize()?;
                     let _ = window.draw_in_rect(os_bitmap.rect(origin, mode), |bitmap| {
-                        os_bitmap.blt(bitmap, Point::zero(), color, mode);
+                        os_bitmap.blt(bitmap, Point::default(), color, mode);
                     });
                     window.set_needs_display();
                 }
@@ -275,7 +275,7 @@ impl ArleRuntime {
                     let origin = params.get_point()?;
                     let os_bitmap = params.get_bitmap24(memory)?;
                     let _ = window.draw_in_rect(os_bitmap.rect(origin), |bitmap| {
-                        os_bitmap.blt(bitmap, Point::zero());
+                        os_bitmap.blt(bitmap, Point::default());
                     });
                     window.set_needs_display();
                 }
@@ -423,20 +423,20 @@ impl ParamsDecoder<'_> {
             .and_then(|p| String::from_utf16(p).ok())
     }
 
-    fn get_point(&mut self) -> Result<Point<isize>, WasmRuntimeError> {
+    fn get_point(&mut self) -> Result<Point, WasmRuntimeError> {
         let x = self.get_i32()? as isize;
         let y = self.get_i32()? as isize;
         Ok(Point::new(x, y))
     }
 
-    fn get_size(&mut self) -> Result<Size<isize>, WasmRuntimeError> {
+    fn get_size(&mut self) -> Result<Size, WasmRuntimeError> {
         let width = self.get_i32()? as isize;
         let height = self.get_i32()? as isize;
         Ok(Size::new(width, height))
     }
 
-    fn get_color(&mut self) -> Result<Color, WasmRuntimeError> {
-        self.get_u32().map(|v| Color::from_argb(v))
+    fn get_color(&mut self) -> Result<TrueColor, WasmRuntimeError> {
+        self.get_u32().map(|v| TrueColor::from_argb(v))
     }
 
     fn get_bitmap8<'a>(
@@ -523,7 +523,7 @@ const PALETTE: [u32; 256] = [
 
 struct OsBitmap8<'a> {
     slice: &'a [u8],
-    dim: Size<isize>,
+    dim: Size,
 }
 
 impl<'a> OsBitmap8<'a> {
@@ -544,21 +544,21 @@ impl<'a> OsBitmap8<'a> {
 }
 
 impl OsBitmap8<'_> {
-    const fn rect(&self, origin: Point<isize>) -> Rect<isize> {
+    const fn rect(&self, origin: Point) -> Rect {
         Rect {
             origin,
             size: self.dim,
         }
     }
 
-    fn blt(&self, to: &Bitmap, origin: Point<isize>) {
+    fn blt(&self, to: &Bitmap, origin: Point) {
         // TODO: clipping
         let stride = self.dim.width as usize;
         let mut cursor = 0;
         for y in 0..self.dim.height {
             for x in 0..self.dim.width {
                 let point = Point::new(origin.x + x, origin.y + y);
-                let color = Color::from_argb(unsafe {
+                let color = TrueColor::from_argb(unsafe {
                     *PALETTE.get_unchecked(*self.slice.get_unchecked(cursor + x as usize) as usize)
                 });
                 if !color.is_transparent() {
@@ -572,7 +572,7 @@ impl OsBitmap8<'_> {
 
 struct OsBitmap1<'a> {
     slice: &'a [u8],
-    dim: Size<isize>,
+    dim: Size,
     stride: usize,
 }
 
@@ -595,7 +595,7 @@ impl<'a> OsBitmap1<'a> {
 }
 
 impl OsBitmap1<'_> {
-    const fn rect(&self, origin: Point<isize>, mode: usize) -> Rect<isize> {
+    const fn rect(&self, origin: Point, mode: usize) -> Rect {
         let scale = mode as isize;
         Rect {
             origin,
@@ -603,7 +603,7 @@ impl OsBitmap1<'_> {
         }
     }
 
-    fn blt(&self, to: &Bitmap, origin: Point<isize>, color: Color, mode: usize) {
+    fn blt(&self, to: &Bitmap, origin: Point, color: TrueColor, mode: usize) {
         // TODO: clipping
         let scale = mode as isize;
         let stride = self.stride;
@@ -649,7 +649,7 @@ impl OsBitmap1<'_> {
 
 struct OsBitmap24<'a> {
     slice: &'a [u8],
-    dim: Size<isize>,
+    dim: Size,
 }
 
 impl<'a> OsBitmap24<'a> {
@@ -670,14 +670,14 @@ impl<'a> OsBitmap24<'a> {
 }
 
 impl OsBitmap24<'_> {
-    const fn rect(&self, origin: Point<isize>) -> Rect<isize> {
+    const fn rect(&self, origin: Point) -> Rect {
         Rect {
             origin,
             size: self.dim,
         }
     }
 
-    fn blt(&self, to: &Bitmap, origin: Point<isize>) {
+    fn blt(&self, to: &Bitmap, origin: Point) {
         // TODO:
         let _ = to;
         let _ = origin;

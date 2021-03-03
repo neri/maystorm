@@ -1,6 +1,6 @@
 // Font Driver
 
-use crate::io::graphics::*;
+use crate::graphics::*;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
@@ -169,7 +169,7 @@ impl FontDescriptor {
     }
 
     #[inline]
-    pub fn draw_char(&self, character: char, bitmap: &Bitmap, origin: Point<isize>, color: Color) {
+    pub fn draw_char(&self, character: char, bitmap: &Bitmap, origin: Point, color: TrueColor) {
         self.driver
             .draw_char(character, bitmap, origin, self.point(), color)
     }
@@ -188,14 +188,14 @@ pub trait FontDriver {
         &self,
         character: char,
         bitmap: &Bitmap,
-        origin: Point<isize>,
+        origin: Point,
         height: isize,
-        color: Color,
+        color: TrueColor,
     );
 }
 
 pub struct FixedFontDriver<'a> {
-    size: Size<isize>,
+    size: Size,
     data: &'a [u8],
     leading: isize,
     line_height: isize,
@@ -266,9 +266,9 @@ impl FontDriver for FixedFontDriver<'_> {
         &self,
         character: char,
         bitmap: &Bitmap,
-        origin: Point<isize>,
+        origin: Point,
         height: isize,
-        color: Color,
+        color: TrueColor,
     ) {
         let _ = height;
         if let Some(glyph) = self.glyph_for(character) {
@@ -327,10 +327,10 @@ impl<'a> HersheyFont<'a> {
         &self,
         data: &[u8],
         bitmap: &Bitmap,
-        origin: Point<isize>,
+        origin: Point,
         width: isize,
         height: isize,
-        color: Color,
+        color: TrueColor,
     ) {
         let _ = width;
         if data.len() >= 12 {
@@ -346,7 +346,7 @@ impl<'a> HersheyFont<'a> {
                     shared.buffer.height() / 2 - 1,
                 );
                 let mut cursor = 10;
-                let mut c0: Option<Point<isize>> = None;
+                let mut c0: Option<Point> = None;
                 for _ in 1..n_pairs {
                     let c1 = data[cursor] as isize;
                     let c2 = data[cursor + 1] as isize;
@@ -397,16 +397,16 @@ impl<'a> HersheyFont<'a> {
                         width * height / Self::POINT,
                         self.line_height * height / Self::POINT,
                     );
-                    bitmap.draw_rect(rect, Color::from_rgb(0xFFCCFF));
+                    bitmap.draw_rect(rect, TrueColor::from_rgb(0xFFCCFF));
                     bitmap.draw_hline(
                         Point::new(origin.x, origin.y + height - 1),
                         width * height / Self::POINT,
-                        Color::from_rgb(0xFFFF33),
+                        TrueColor::from_rgb(0xFFFF33),
                     );
                     bitmap.draw_hline(
                         Point::new(origin.x, origin.y + height * 3 / 4),
                         width * height / Self::POINT,
-                        Color::from_rgb(0xFF3333),
+                        TrueColor::from_rgb(0xFF3333),
                     );
                 }
 
@@ -489,9 +489,9 @@ impl FontDriver for HersheyFont<'_> {
         &self,
         character: char,
         bitmap: &Bitmap,
-        origin: Point<isize>,
+        origin: Point,
         point: isize,
-        color: Color,
+        color: TrueColor,
     ) {
         let (base, last, width) = match self.glyph_for(character) {
             Some(info) => info,

@@ -1,9 +1,11 @@
 // Memory Mapped I/O Registers
 
-use super::memory::*;
-use crate::system::VirtualAddress;
-use core::mem::{size_of, transmute};
+use super::*;
 use core::sync::atomic::*;
+use core::{
+    mem::{size_of, transmute},
+    num::NonZeroUsize,
+};
 
 #[derive(Debug, Copy, Clone)]
 pub struct Mmio {
@@ -19,8 +21,8 @@ impl Mmio {
         })
     }
 
-    pub unsafe fn from_virt(base: VirtualAddress, size: usize) -> Option<Self> {
-        base.into_nonzero().map(|va| Self {
+    pub unsafe fn from_virt(base: usize, size: usize) -> Option<Self> {
+        NonZeroUsize::new(base).map(|va| Self {
             base: va.get(),
             size,
         })

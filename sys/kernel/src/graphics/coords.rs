@@ -1,35 +1,34 @@
 // Coordinate Types
 
-use crate::num::*;
+// use crate::num::*;
 use core::fmt;
-use core::ops::*;
+use core::{convert::TryFrom, ops::*};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default, PartialEq)]
-pub struct Point<T: Number> {
-    pub x: T,
-    pub y: T,
+pub struct Point {
+    pub x: isize,
+    pub y: isize,
 }
 
-impl<T: Number> Point<T> {
+impl Point {
     #[inline]
-    pub const fn new(x: T, y: T) -> Self {
+    pub const fn new(x: isize, y: isize) -> Self {
         Point { x, y }
     }
 
     #[inline]
-    pub const fn x(&self) -> T {
+    pub const fn x(&self) -> isize {
         self.x
     }
 
     #[inline]
-    pub const fn y(&self) -> T {
+    pub const fn y(&self) -> isize {
         self.y
     }
 
-    pub fn line_to<F>(&self, other: Point<T>, mut f: F)
+    pub fn line_to<F>(&self, other: Point, mut f: F)
     where
-        T: SignedInteger,
         F: FnMut(Self),
     {
         let c0 = *self;
@@ -49,16 +48,8 @@ impl<T: Number> Point<T> {
         );
 
         let s = Self::new(
-            if c1.x > c0.x {
-                T::one()
-            } else {
-                T::zero() - T::one()
-            },
-            if c1.y > c0.y {
-                T::one()
-            } else {
-                T::zero() - T::one()
-            },
+            if c1.x > c0.x { 1 } else { -1 },
+            if c1.y > c0.y { 1 } else { -1 },
         );
 
         let mut c0 = c0;
@@ -69,7 +60,7 @@ impl<T: Number> Point<T> {
                 break;
             }
             let e2 = e + e;
-            if e2 > T::zero() - d.y {
+            if e2 > 0 - d.y {
                 e -= d.y;
                 c0.x += s.x;
             }
@@ -81,22 +72,13 @@ impl<T: Number> Point<T> {
     }
 }
 
-impl<T: Number + fmt::Display> fmt::Display for Point<T> {
+impl fmt::Display for Point {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Point {{{}, {}}}", self.x, self.y,)
     }
 }
 
-impl<T: Number> Zero for Point<T> {
-    fn zero() -> Self {
-        Point {
-            x: T::zero(),
-            y: T::zero(),
-        }
-    }
-}
-
-impl<T: Number> Add<Self> for Point<T> {
+impl Add<Self> for Point {
     type Output = Self;
     fn add(self, rhs: Self) -> Self {
         Point {
@@ -106,9 +88,9 @@ impl<T: Number> Add<Self> for Point<T> {
     }
 }
 
-impl<T: Number> Add<Size<T>> for Point<T> {
+impl Add<Size> for Point {
     type Output = Self;
-    fn add(self, rhs: Size<T>) -> Self {
+    fn add(self, rhs: Size) -> Self {
         Point {
             x: self.x + rhs.width,
             y: self.y + rhs.height,
@@ -116,9 +98,9 @@ impl<T: Number> Add<Size<T>> for Point<T> {
     }
 }
 
-impl<T: Number> Add<T> for Point<T> {
+impl Add<isize> for Point {
     type Output = Self;
-    fn add(self, rhs: T) -> Self {
+    fn add(self, rhs: isize) -> Self {
         Point {
             x: self.x + rhs,
             y: self.y + rhs,
@@ -126,7 +108,7 @@ impl<T: Number> Add<T> for Point<T> {
     }
 }
 
-impl<T: Number> AddAssign for Point<T> {
+impl AddAssign for Point {
     fn add_assign(&mut self, rhs: Self) {
         *self = Self {
             x: self.x + rhs.x,
@@ -135,7 +117,7 @@ impl<T: Number> AddAssign for Point<T> {
     }
 }
 
-impl<T: Number> Sub<Self> for Point<T> {
+impl Sub<Self> for Point {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self {
         Point {
@@ -145,9 +127,9 @@ impl<T: Number> Sub<Self> for Point<T> {
     }
 }
 
-impl<T: Number> Sub<Size<T>> for Point<T> {
+impl Sub<Size> for Point {
     type Output = Self;
-    fn sub(self, rhs: Size<T>) -> Self {
+    fn sub(self, rhs: Size) -> Self {
         Point {
             x: self.x - rhs.width,
             y: self.y - rhs.height,
@@ -155,9 +137,9 @@ impl<T: Number> Sub<Size<T>> for Point<T> {
     }
 }
 
-impl<T: Number> Sub<T> for Point<T> {
+impl Sub<isize> for Point {
     type Output = Self;
-    fn sub(self, rhs: T) -> Self {
+    fn sub(self, rhs: isize) -> Self {
         Point {
             x: self.x - rhs,
             y: self.y - rhs,
@@ -165,7 +147,7 @@ impl<T: Number> Sub<T> for Point<T> {
     }
 }
 
-impl<T: Number> SubAssign for Point<T> {
+impl SubAssign for Point {
     fn sub_assign(&mut self, rhs: Self) {
         *self = Self {
             x: self.x - rhs.x,
@@ -176,44 +158,35 @@ impl<T: Number> SubAssign for Point<T> {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default, PartialEq)]
-pub struct Size<T: Number> {
-    pub width: T,
-    pub height: T,
+pub struct Size {
+    pub width: isize,
+    pub height: isize,
 }
 
-impl<T: Number> Size<T> {
+impl Size {
     #[inline]
-    pub const fn new(width: T, height: T) -> Self {
+    pub const fn new(width: isize, height: isize) -> Self {
         Size { width, height }
     }
 
     #[inline]
-    pub const fn width(&self) -> T {
+    pub const fn width(&self) -> isize {
         self.width
     }
 
     #[inline]
-    pub const fn height(&self) -> T {
+    pub const fn height(&self) -> isize {
         self.height
     }
 }
 
-impl<T: Number + fmt::Display> fmt::Display for Size<T> {
+impl fmt::Display for Size {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Size {{{}, {}}}", self.width, self.height,)
     }
 }
 
-impl<T: Number> Zero for Size<T> {
-    fn zero() -> Self {
-        Size {
-            width: T::zero(),
-            height: T::zero(),
-        }
-    }
-}
-
-impl<T: Number> Add<Self> for Size<T> {
+impl Add<Self> for Size {
     type Output = Self;
     fn add(self, rhs: Self) -> Self {
         Size {
@@ -223,9 +196,9 @@ impl<T: Number> Add<Self> for Size<T> {
     }
 }
 
-impl<T: Number> Add<EdgeInsets<T>> for Size<T> {
+impl Add<EdgeInsets> for Size {
     type Output = Self;
-    fn add(self, rhs: EdgeInsets<T>) -> Self {
+    fn add(self, rhs: EdgeInsets) -> Self {
         Size {
             width: self.width + rhs.left + rhs.right,
             height: self.height + rhs.top + rhs.bottom,
@@ -233,7 +206,7 @@ impl<T: Number> Add<EdgeInsets<T>> for Size<T> {
     }
 }
 
-impl<T: Number> AddAssign<Self> for Size<T> {
+impl AddAssign<Self> for Size {
     fn add_assign(&mut self, rhs: Self) {
         *self = Self {
             width: self.width + rhs.width,
@@ -242,8 +215,8 @@ impl<T: Number> AddAssign<Self> for Size<T> {
     }
 }
 
-impl<T: Number> AddAssign<EdgeInsets<T>> for Size<T> {
-    fn add_assign(&mut self, rhs: EdgeInsets<T>) {
+impl AddAssign<EdgeInsets> for Size {
+    fn add_assign(&mut self, rhs: EdgeInsets) {
         *self = Self {
             width: self.width + rhs.left + rhs.right,
             height: self.height + rhs.top + rhs.bottom,
@@ -251,7 +224,7 @@ impl<T: Number> AddAssign<EdgeInsets<T>> for Size<T> {
     }
 }
 
-impl<T: Number> Sub<Self> for Size<T> {
+impl Sub<Self> for Size {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self {
         Size {
@@ -261,9 +234,9 @@ impl<T: Number> Sub<Self> for Size<T> {
     }
 }
 
-impl<T: Number> Sub<EdgeInsets<T>> for Size<T> {
+impl Sub<EdgeInsets> for Size {
     type Output = Self;
-    fn sub(self, rhs: EdgeInsets<T>) -> Self {
+    fn sub(self, rhs: EdgeInsets) -> Self {
         Size {
             width: self.width - (rhs.left + rhs.left),
             height: self.height - (rhs.top + rhs.bottom),
@@ -271,7 +244,7 @@ impl<T: Number> Sub<EdgeInsets<T>> for Size<T> {
     }
 }
 
-impl<T: Number> SubAssign for Size<T> {
+impl SubAssign for Size {
     fn sub_assign(&mut self, rhs: Self) {
         *self = Self {
             width: self.width - rhs.width,
@@ -280,9 +253,9 @@ impl<T: Number> SubAssign for Size<T> {
     }
 }
 
-impl<T: Number> Mul<T> for Size<T> {
+impl Mul<isize> for Size {
     type Output = Self;
-    fn mul(self, rhs: T) -> Self::Output {
+    fn mul(self, rhs: isize) -> Self::Output {
         Self {
             width: self.width * rhs,
             height: self.height * rhs,
@@ -290,9 +263,9 @@ impl<T: Number> Mul<T> for Size<T> {
     }
 }
 
-impl<T: Number> Div<T> for Size<T> {
+impl Div<isize> for Size {
     type Output = Self;
-    fn div(self, rhs: T) -> Self::Output {
+    fn div(self, rhs: isize) -> Self::Output {
         Self {
             width: self.width / rhs,
             height: self.height / rhs,
@@ -302,14 +275,14 @@ impl<T: Number> Div<T> for Size<T> {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default, PartialEq)]
-pub struct Rect<T: Number> {
-    pub origin: Point<T>,
-    pub size: Size<T>,
+pub struct Rect {
+    pub origin: Point,
+    pub size: Size,
 }
 
-impl<T: Number> Rect<T> {
+impl Rect {
     #[inline]
-    pub const fn new(x: T, y: T, width: T, height: T) -> Self {
+    pub const fn new(x: isize, y: isize, width: isize, height: isize) -> Self {
         Rect {
             origin: Point { x, y },
             size: Size { width, height },
@@ -317,37 +290,37 @@ impl<T: Number> Rect<T> {
     }
 
     #[inline]
-    pub const fn origin(self) -> Point<T> {
+    pub const fn origin(&self) -> Point {
         self.origin
     }
 
     #[inline]
-    pub const fn x(self) -> T {
+    pub const fn x(&self) -> isize {
         self.origin.x
     }
 
     #[inline]
-    pub const fn y(self) -> T {
+    pub const fn y(&self) -> isize {
         self.origin.y
     }
 
     #[inline]
-    pub const fn size(self) -> Size<T> {
+    pub const fn size(&self) -> Size {
         self.size
     }
 
     #[inline]
-    pub const fn width(self) -> T {
+    pub const fn width(&self) -> isize {
         self.size.width
     }
 
     #[inline]
-    pub const fn height(self) -> T {
+    pub const fn height(&self) -> isize {
         self.size.height
     }
 
     #[inline]
-    pub fn insets_by(self, insets: EdgeInsets<T>) -> Self {
+    pub fn insets_by(&self, insets: EdgeInsets) -> Self {
         Rect {
             origin: Point {
                 x: self.origin.x + insets.left,
@@ -362,19 +335,19 @@ impl<T: Number> Rect<T> {
 
     pub fn hit_test_rect(self, rhs: Self) -> bool {
         let cl = match Coordinates::from_rect(self) {
-            Some(coords) => coords,
-            None => return false,
+            Ok(coords) => coords,
+            Err(_) => return false,
         };
         let cr = match Coordinates::from_rect(rhs) {
-            Some(coords) => coords,
-            None => return false,
+            Ok(coords) => coords,
+            Err(_) => return false,
         };
 
         cl.left < cr.right && cr.left < cl.right && cl.top < cr.bottom && cr.top < cl.bottom
     }
 
-    pub fn hit_test_point(self, point: Point<T>) -> bool {
-        if let Some(coords) = Coordinates::from_rect(self) {
+    pub fn hit_test_point(self, point: Point) -> bool {
+        if let Ok(coords) = Coordinates::from_rect(self) {
             coords.left <= point.x
                 && coords.right > point.x
                 && coords.top <= point.y
@@ -384,18 +357,15 @@ impl<T: Number> Rect<T> {
         }
     }
 
-    pub fn center(&self) -> Point<T>
-    where
-        T: Div2,
-    {
+    pub fn center(&self) -> Point {
         Point::new(
-            self.origin.x + self.size.width.div2(),
-            self.origin.y + self.size.height.div2(),
+            self.origin.x + self.size.width / 2,
+            self.origin.y + self.size.height / 2,
         )
     }
 }
 
-impl<T: Number + fmt::Display> fmt::Display for Rect<T> {
+impl fmt::Display for Rect {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -408,19 +378,10 @@ impl<T: Number + fmt::Display> fmt::Display for Rect<T> {
     }
 }
 
-impl<T: Number> Zero for Rect<T> {
-    fn zero() -> Self {
+impl From<Size> for Rect {
+    fn from(size: Size) -> Self {
         Rect {
-            origin: Point::zero(),
-            size: Size::zero(),
-        }
-    }
-}
-
-impl<T: Number> From<Size<T>> for Rect<T> {
-    fn from(size: Size<T>) -> Self {
-        Rect {
-            origin: Point::zero(),
+            origin: Point::default(),
             size,
         }
     }
@@ -428,15 +389,15 @@ impl<T: Number> From<Size<T>> for Rect<T> {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default, PartialEq)]
-pub struct Coordinates<T: Number> {
-    pub left: T,
-    pub top: T,
-    pub right: T,
-    pub bottom: T,
+pub struct Coordinates {
+    pub left: isize,
+    pub top: isize,
+    pub right: isize,
+    pub bottom: isize,
 }
 
-impl<T: Number> Coordinates<T> {
-    pub const fn new(left: T, top: T, right: T, bottom: T) -> Self {
+impl Coordinates {
+    pub const fn new(left: isize, top: isize, right: isize, bottom: isize) -> Self {
         Self {
             left,
             top,
@@ -446,44 +407,44 @@ impl<T: Number> Coordinates<T> {
     }
 
     #[inline]
-    pub fn left_top(self) -> Point<T> {
+    pub fn left_top(self) -> Point {
         Point::new(self.left, self.top)
     }
 
     #[inline]
-    pub fn right_bottom(self) -> Point<T> {
+    pub fn right_bottom(self) -> Point {
         Point::new(self.right, self.bottom)
     }
 
     #[inline]
-    pub fn left_bottom(self) -> Point<T> {
+    pub fn left_bottom(self) -> Point {
         Point::new(self.left, self.bottom)
     }
 
     #[inline]
-    pub fn right_top(self) -> Point<T> {
+    pub fn right_top(self) -> Point {
         Point::new(self.right, self.top)
     }
 
     #[inline]
-    pub fn size(self) -> Size<T> {
+    pub fn size(self) -> Size {
         Size::new(self.right - self.left, self.bottom - self.top)
     }
 
     #[inline]
-    pub fn from_rect(rect: Rect<T>) -> Option<Coordinates<T>> {
-        if rect.size.width == T::zero() || rect.size.height == T::zero() {
-            None
+    pub fn from_rect(rect: Rect) -> Result<Coordinates, ()> {
+        if rect.size.width == 0 || rect.size.height == 0 {
+            Err(())
         } else {
-            Some(unsafe { Self::from_rect_unchecked(rect) })
+            Ok(unsafe { Self::from_rect_unchecked(rect) })
         }
     }
 
     #[inline]
-    pub unsafe fn from_rect_unchecked(rect: Rect<T>) -> Coordinates<T> {
-        let left: T;
-        let right: T;
-        if rect.size.width > T::zero() {
+    pub unsafe fn from_rect_unchecked(rect: Rect) -> Coordinates {
+        let left: isize;
+        let right: isize;
+        if rect.size.width > 0 {
             left = rect.origin.x;
             right = left + rect.size.width;
         } else {
@@ -491,9 +452,9 @@ impl<T: Number> Coordinates<T> {
             left = right + rect.size.width;
         }
 
-        let top: T;
-        let bottom: T;
-        if rect.size.height > T::zero() {
+        let top: isize;
+        let bottom: isize;
+        if rect.size.height > 0 {
             top = rect.origin.y;
             bottom = top + rect.size.height;
         } else {
@@ -510,8 +471,15 @@ impl<T: Number> Coordinates<T> {
     }
 }
 
-impl<T: Number> From<Coordinates<T>> for Rect<T> {
-    fn from(coods: Coordinates<T>) -> Rect<T> {
+impl TryFrom<Rect> for Coordinates {
+    type Error = ();
+    fn try_from(value: Rect) -> Result<Self, Self::Error> {
+        Self::from_rect(value)
+    }
+}
+
+impl From<Coordinates> for Rect {
+    fn from(coods: Coordinates) -> Rect {
         Rect {
             origin: coods.left_top(),
             size: coods.size(),
@@ -521,16 +489,16 @@ impl<T: Number> From<Coordinates<T>> for Rect<T> {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default, PartialEq)]
-pub struct EdgeInsets<T: Number> {
-    pub top: T,
-    pub left: T,
-    pub bottom: T,
-    pub right: T,
+pub struct EdgeInsets {
+    pub top: isize,
+    pub left: isize,
+    pub bottom: isize,
+    pub right: isize,
 }
 
-impl<T: Number> EdgeInsets<T> {
+impl EdgeInsets {
     #[inline]
-    pub const fn new(top: T, left: T, bottom: T, right: T) -> Self {
+    pub const fn new(top: isize, left: isize, bottom: isize, right: isize) -> Self {
         Self {
             top,
             left,
@@ -540,7 +508,7 @@ impl<T: Number> EdgeInsets<T> {
     }
 
     #[inline]
-    pub const fn padding_each(value: T) -> Self {
+    pub const fn padding_each(value: isize) -> Self {
         Self {
             top: value,
             left: value,
@@ -550,18 +518,7 @@ impl<T: Number> EdgeInsets<T> {
     }
 }
 
-impl<T: Number> Zero for EdgeInsets<T> {
-    fn zero() -> Self {
-        EdgeInsets {
-            top: T::zero(),
-            left: T::zero(),
-            bottom: T::zero(),
-            right: T::zero(),
-        }
-    }
-}
-
-impl<T: Number> Add for EdgeInsets<T> {
+impl Add for EdgeInsets {
     type Output = Self;
     fn add(self, rhs: Self) -> Self {
         Self {
@@ -573,7 +530,7 @@ impl<T: Number> Add for EdgeInsets<T> {
     }
 }
 
-impl<T: Number> AddAssign for EdgeInsets<T> {
+impl AddAssign for EdgeInsets {
     fn add_assign(&mut self, rhs: Self) {
         *self = Self {
             top: self.top + rhs.top,
@@ -584,7 +541,7 @@ impl<T: Number> AddAssign for EdgeInsets<T> {
     }
 }
 
-impl<T: Number> Sub for EdgeInsets<T> {
+impl Sub for EdgeInsets {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self {
         Self {
@@ -596,7 +553,7 @@ impl<T: Number> Sub for EdgeInsets<T> {
     }
 }
 
-impl<T: Number> SubAssign for EdgeInsets<T> {
+impl SubAssign for EdgeInsets {
     fn sub_assign(&mut self, rhs: Self) {
         *self = Self {
             top: self.top - rhs.top,
