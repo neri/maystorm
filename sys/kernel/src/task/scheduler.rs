@@ -2,9 +2,8 @@
 
 use super::executor::Executor;
 use super::*;
-use crate::arch::cpu::Cpu;
+use crate::arch::cpu::{Cpu, CpuContextData};
 use crate::mem::string::*;
-use crate::mem::MemoryManager;
 use crate::rt::*;
 use crate::sync::atomicflags::*;
 use crate::sync::semaphore::*;
@@ -28,17 +27,12 @@ use crossbeam_queue::ArrayQueue;
 const THRESHOLD_SAVING: usize = 666;
 const THRESHOLD_FULL_THROTTLE_MODE: usize = 750;
 
-extern "C" {
-    fn asm_sch_switch_context(current: *mut u8, next: *mut u8);
-    fn asm_sch_make_new_thread(context: *mut u8, new_sp: *mut c_void, start: usize, args: usize);
-}
-
-static mut SCHEDULER: Option<Box<MyScheduler>> = None;
+static mut SCHEDULER: Option<Box<Scheduler>> = None;
 
 static SCHEDULER_ENABLED: AtomicBool = AtomicBool::new(false);
 
 /// System Scheduler
-pub struct MyScheduler {
+pub struct Scheduler {
     queue_realtime: ThreadQueue,
     queue_higher: ThreadQueue,
     queue_normal: ThreadQueue,
@@ -69,7 +63,7 @@ pub enum SchedulerState {
     MAX,
 }
 
-impl MyScheduler {
+impl Scheduler {
     /// Start scheduler and sleep forever
     pub(crate) fn start(f: fn(usize) -> (), args: usize) -> ! {
         const SIZE_OF_SUB_QUEUE: usize = 64;
@@ -182,7 +176,7 @@ impl MyScheduler {
                 if duration.as_nanos() > 0 {
                     Timer::sleep(duration);
                 } else {
-                    MyScheduler::sleep();
+                    Scheduler::sleep();
                 }
             });
         }
@@ -552,7 +546,7 @@ impl LocalScheduler {
         Cpu::assert_without_interrupt();
 
         let current = lsch.current;
-        let next = MyScheduler::next(lsch.index).unwrap_or(lsch.idle);
+        let next = Scheduler::next(lsch.index).unwrap_or(lsch.idle);
         current.update(|thread| {
             let now = Timer::measure().0;
             let diff = now - thread.measure.load(Ordering::SeqCst);
@@ -565,13 +559,13 @@ impl LocalScheduler {
             lsch.current = next;
 
             //-//-//-//-//
-            asm_sch_switch_context(
-                &current.as_ref().context as *const _ as *mut _,
-                &next.as_ref().context as *const _ as *mut _,
-            );
+            current.update(|current| {
+                let next = &next.as_ref().context;
+                current.context.switch(next);
+            });
             //-//-//-//-//
 
-            let lsch = MyScheduler::local_scheduler().unwrap();
+            let lsch = Scheduler::local_scheduler().unwrap();
             let current = lsch.current;
             current.update(|thread| {
                 thread.attribute.remove(ThreadAttributes::AWAKE);
@@ -581,7 +575,7 @@ impl LocalScheduler {
             });
             let retired = lsch.retired.unwrap();
             lsch.retired = None;
-            MyScheduler::retire(retired);
+            Scheduler::retire(retired);
         }
     }
 
@@ -592,14 +586,14 @@ impl LocalScheduler {
 
 #[no_mangle]
 pub unsafe extern "C" fn sch_setup_new_thread() {
-    let lsch = MyScheduler::local_scheduler().unwrap();
+    let lsch = Scheduler::local_scheduler().unwrap();
     let current = lsch.current;
     current.update(|thread| {
         thread.measure.store(Timer::measure().0, Ordering::SeqCst);
     });
     if let Some(retired) = lsch.retired {
         lsch.retired = None;
-        MyScheduler::retire(retired);
+        Scheduler::retire(retired);
     }
 }
 
@@ -636,13 +630,13 @@ impl SpawnOption {
 
     #[inline]
     pub fn spawn_f(self, start: fn(usize), args: usize, name: &str) -> Option<ThreadHandle> {
-        MyScheduler::spawn_f(start, args, name, self)
+        Scheduler::spawn_f(start, args, name, self)
     }
 
     #[inline]
     pub fn spawn(mut self, start: fn(usize), args: usize, name: &str) -> Option<ThreadHandle> {
         self.raise_pid = true;
-        MyScheduler::spawn_f(start, args, name, self)
+        Scheduler::spawn_f(start, args, name, self)
     }
 }
 
@@ -701,18 +695,18 @@ impl Timer {
 
     #[track_caller]
     pub fn sleep(duration: Duration) {
-        if MyScheduler::is_enabled() {
+        if Scheduler::is_enabled() {
             let timer = Timer::new(duration);
             let mut event = TimerEvent::one_shot(timer);
             while timer.until() {
-                match MyScheduler::schedule_timer(event) {
+                match Scheduler::schedule_timer(event) {
                     Ok(()) => {
-                        MyScheduler::sleep();
+                        Scheduler::sleep();
                         return;
                     }
                     Err(e) => {
                         event = e;
-                        MyScheduler::yield_thread();
+                        Scheduler::yield_thread();
                     }
                 }
             }
@@ -794,7 +788,7 @@ impl TimerEvent {
     pub fn one_shot(timer: Timer) -> Self {
         Self {
             timer,
-            timer_type: TimerType::OneShot(MyScheduler::current_thread().unwrap()),
+            timer_type: TimerType::OneShot(Scheduler::current_thread().unwrap()),
         }
     }
 
@@ -905,7 +899,7 @@ impl ThreadPool {
     #[inline]
     #[track_caller]
     fn shared<'a>() -> &'a mut Self {
-        &mut MyScheduler::shared().pool
+        &mut Scheduler::shared().pool
     }
 
     fn add(thread: Box<RawThread>) {
@@ -993,7 +987,7 @@ impl ThreadHandle {
     #[inline]
     fn wake(&self) {
         self.as_ref().attribute.insert(ThreadAttributes::AWAKE);
-        MyScheduler::add(*self);
+        Scheduler::add(*self);
     }
 
     #[inline]
@@ -1003,8 +997,6 @@ impl ThreadHandle {
     }
 }
 
-const SIZE_OF_CONTEXT: usize = 512;
-const SIZE_OF_STACK: usize = 0x10000;
 const THREAD_NAME_LENGTH: usize = 32;
 
 type ThreadStart = fn(usize) -> ();
@@ -1012,7 +1004,8 @@ type ThreadStart = fn(usize) -> ();
 #[allow(dead_code)]
 struct RawThread {
     /// Architectural context data
-    context: [u8; SIZE_OF_CONTEXT],
+    context: CpuContextData,
+    stack: Option<Box<[u8]>>,
 
     /// IDs
     pid: ProcessId,
@@ -1083,12 +1076,17 @@ impl RawThread {
         priority: Priority,
         name: &str,
         start: Option<ThreadStart>,
-        args: usize,
+        arg: usize,
         personality: Option<Box<dyn Personality>>,
     ) -> ThreadHandle {
         let handle = ThreadHandle::next();
+
+        let mut name_array = [0; THREAD_NAME_LENGTH];
+        Self::set_name_array(&mut name_array, name);
+
         let mut thread = Self {
-            context: [0; SIZE_OF_CONTEXT],
+            context: CpuContextData::new(),
+            stack: None,
             pid,
             handle,
             sem: Semaphore::new(0),
@@ -1101,20 +1099,21 @@ impl RawThread {
             load: AtomicU32::new(0),
             executor: None,
             personality,
-            name: [0; THREAD_NAME_LENGTH],
+            name: name_array,
         };
         if let Some(start) = start {
             unsafe {
-                let stack = MemoryManager::zalloc(SIZE_OF_STACK).unwrap().get() as *mut c_void;
-                asm_sch_make_new_thread(
-                    thread.context.as_mut_ptr(),
-                    stack.add(SIZE_OF_STACK),
-                    start as usize,
-                    args,
-                );
+                let size_of_stack = CpuContextData::SIZE_OF_STACK;
+                let mut stack = Vec::with_capacity(size_of_stack);
+                stack.resize(size_of_stack, 0);
+                let stack = stack.into_boxed_slice();
+                thread.stack = Some(stack);
+                let stack = thread.stack.as_mut().unwrap().as_mut_ptr() as *mut c_void;
+                thread
+                    .context
+                    .init(stack.add(size_of_stack), start as usize, arg);
             }
         }
-        thread.set_name(name);
         ThreadPool::add(Box::new(thread));
         handle
     }
@@ -1127,7 +1126,7 @@ impl RawThread {
         // TODO:
         Timer::sleep(Duration::from_secs(2));
         self.attribute.insert(ThreadAttributes::ZOMBIE);
-        MyScheduler::sleep();
+        Scheduler::sleep();
         unreachable!();
     }
 
@@ -1165,7 +1164,7 @@ impl SignallingObject {
 
     pub fn new() -> Self {
         Self(AtomicUsize::new(
-            MyScheduler::current_thread().unwrap().as_usize(),
+            Scheduler::current_thread().unwrap().as_usize(),
         ))
     }
 
@@ -1189,7 +1188,7 @@ impl SignallingObject {
     }
 
     pub fn wait(&self, duration: Duration) {
-        MyScheduler::wait_for(Some(self), duration)
+        Scheduler::wait_for(Some(self), duration)
     }
 
     pub fn signal(&self) {

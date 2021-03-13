@@ -495,7 +495,7 @@ impl HrbBinaryLoader {
     }
 
     fn start(_: usize) {
-        let context = MyScheduler::current_personality(|personality| {
+        let context = Scheduler::current_personality(|personality| {
             let hoe = match personality.context() {
                 PersonalityContext::Hoe(hoe) => hoe,
                 _ => unreachable!(),
@@ -524,7 +524,7 @@ impl BinaryLoader for HrbBinaryLoader {
             let image_size = rva_data + size_of_ds;
             let stack_pointer = header.esp as usize;
 
-            let image_base = MemoryManager::zalloc(image_size).unwrap().get() as *mut u8;
+            let image_base = MemoryManager::zalloc_legacy(image_size).unwrap().get() as *mut u8;
             image_base.write_bytes(0, image_size);
 
             let base_code = image_base;

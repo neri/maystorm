@@ -48,9 +48,9 @@ impl Application {
         shared.path_ext.push("hrb".to_string());
         // shared.path_ext.push("bin".to_string());
 
-        MyScheduler::spawn_async(Task::new(Self::repl_main()));
+        Scheduler::spawn_async(Task::new(Self::repl_main()));
         // MyScheduler::spawn_async(Task::new(test_task()));
-        MyScheduler::perform_tasks();
+        Scheduler::perform_tasks();
     }
 
     async fn repl_main() {
@@ -375,7 +375,7 @@ impl Application {
 
     fn cmd_ps(_argv: &[&str]) -> isize {
         let mut sb = string::StringBuffer::with_capacity(1024);
-        MyScheduler::print_statistics(&mut sb, false);
+        Scheduler::print_statistics(&mut sb, false);
         print!("{}", sb.as_str());
         0
     }

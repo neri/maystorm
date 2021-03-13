@@ -26,6 +26,8 @@ pub struct MemoryManager {
 }
 
 impl MemoryManager {
+    pub const PAGE_SIZE_MIN: usize = 0x1000;
+
     const fn new() -> Self {
         Self {
             total_memory_size: 0,
@@ -117,16 +119,16 @@ impl MemoryManager {
     }
 
     /// Allocate kernel memory (old form)
-    pub unsafe fn zalloc(size: usize) -> Result<NonZeroUsize, AllocationError> {
+    pub unsafe fn zalloc_legacy(size: usize) -> Result<NonZeroUsize, AllocationError> {
         let shared = Self::shared();
         match Layout::from_size_align(size, shared.page_size_min()) {
-            Ok(layout) => Self::zalloc_layout(layout),
+            Ok(layout) => Self::zalloc(layout),
             Err(_) => Err(AllocationError::InvalidArgument),
         }
     }
 
     /// Allocate kernel memory
-    pub unsafe fn zalloc_layout(layout: Layout) -> Result<NonZeroUsize, AllocationError> {
+    pub unsafe fn zalloc(layout: Layout) -> Result<NonZeroUsize, AllocationError> {
         let shared = Self::shared();
         if let Some(slab) = &shared.slab {
             match slab.alloc(layout) {

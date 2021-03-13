@@ -34,7 +34,6 @@ pub mod window;
 
 use crate::arch::cpu::Cpu;
 use crate::graphics::GraphicalConsole;
-// use crate::mem::memory::*;
 use crate::sync::spinlock::Spinlock;
 use crate::system::System;
 use crate::task::scheduler::*;
@@ -94,7 +93,7 @@ fn panic(info: &PanicInfo) -> ! {
         PANIC_GLOBAL_LOCK.lock();
     }
     // stdout.set_attribute(0x17);
-    if let Some(thread) = MyScheduler::current_thread() {
+    if let Some(thread) = Scheduler::current_thread() {
         if let Some(name) = thread.name() {
             let _ = write!(System::em_console(), "thread '{}' ", name);
         } else {
@@ -103,7 +102,7 @@ fn panic(info: &PanicInfo) -> ! {
     }
     let _ = writeln!(System::em_console(), "{}", info);
     unsafe {
-        let _ = MyScheduler::freeze(true);
+        let _ = Scheduler::freeze(true);
         PANIC_GLOBAL_LOCK.unlock();
         Cpu::stop();
     }

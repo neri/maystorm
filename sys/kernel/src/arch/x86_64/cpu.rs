@@ -7,6 +7,13 @@ use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;
 use bus::pci::*;
+use core::sync::atomic::*;
+
+extern "C" {
+    // fn asm_handle_exception(_: InterruptVector) -> usize;
+    fn asm_sch_switch_context(current: *mut u8, next: *const u8);
+    fn asm_sch_make_new_thread(context: *mut u8, new_sp: *mut c_void, start: usize, arg: usize);
+}
 
 static mut SHARED_CPU: SharedCpu = SharedCpu::new();
 
@@ -134,6 +141,32 @@ impl Cpu {
     }
 
     #[inline]
+    pub fn interlocked_test_and_set(p: &AtomicUsize, position: usize) -> bool {
+        unsafe {
+            let p = p as *const _ as *mut usize;
+            let r: usize;
+            asm!("
+                lock bts [{0}], {1}
+                sbb {2}, {2}
+                ", in(reg) p, in(reg) position, lateout(reg) r);
+            r != 0
+        }
+    }
+
+    #[inline]
+    pub fn interlocked_test_and_clear(p: &AtomicUsize, position: usize) -> bool {
+        unsafe {
+            let p = p as *const _ as *mut usize;
+            let r: usize;
+            asm!("
+                lock btr [{0}], {1}
+                sbb {2}, {2}
+                ", in(reg) p, in(reg) position, lateout(reg) r);
+            r != 0
+        }
+    }
+
+    #[inline]
     pub fn current_processor_id() -> ProcessorId {
         Apic::current_processor_id()
     }
@@ -197,7 +230,7 @@ impl Cpu {
     }
 
     pub(crate) unsafe fn reset() -> ! {
-        let _ = MyScheduler::freeze(true);
+        let _ = Scheduler::freeze(true);
 
         Self::out8(0x0CF9, 0x06);
         asm!("out 0x92, al", in("al") 0x01 as u8);
@@ -422,6 +455,39 @@ impl Into<u32> for PciConfigAddressSpace {
             | ((self.dev as u32) << 11)
             | ((self.fun as u32) << 8)
             | ((self.register as u32) << 2)
+    }
+}
+
+/// Architecture-specific context data
+#[repr(C)]
+pub struct CpuContextData {
+    _repr: [u8; Self::SIZE_OF_CONTEXT],
+}
+
+impl CpuContextData {
+    pub const SIZE_OF_CONTEXT: usize = 512;
+    pub const SIZE_OF_STACK: usize = 0x10000;
+
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            _repr: [0; Self::SIZE_OF_CONTEXT],
+        }
+    }
+
+    #[inline]
+    pub unsafe fn switch(&mut self, other: &Self) {
+        let current = self as *const _ as *mut u8;
+        let other = other as *const _ as *const u8;
+        asm_sch_switch_context(current, other);
+    }
+
+    #[inline]
+    pub fn init(&mut self, new_sp: *mut c_void, start: usize, arg: usize) {
+        unsafe {
+            let context = self as *const _ as *mut u8;
+            asm_sch_make_new_thread(context, new_sp, start, arg);
+        }
     }
 }
 
@@ -1331,7 +1397,7 @@ rbp {:016x} r10 {:016x} r15 {:016x} gs {:04x}",
     .unwrap();
 
     GLOBAL_EXCEPTION_LOCK.unlock();
-    if MyScheduler::current_personality(|_| ()).is_some() {
+    if Scheduler::current_personality(|_| ()).is_some() {
         RuntimeEnvironment::exit(1);
     } else {
         loop {
@@ -1345,7 +1411,7 @@ rbp {:016x} r10 {:016x} r15 {:016x} gs {:04x}",
 #[no_mangle]
 pub(super) unsafe extern "C" fn cpu_int40_handler(ctx: *mut haribote::HoeSyscallRegs) {
     let regs = ctx.as_mut().unwrap();
-    MyScheduler::current_personality(|personality| {
+    Scheduler::current_personality(|personality| {
         let hoe = match personality.context() {
             PersonalityContext::Hoe(hoe) => hoe,
             _ => unreachable!(),

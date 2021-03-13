@@ -1596,7 +1596,7 @@ impl WindowHandle {
         let mut event = TimerEvent::window(*self, timer_id, Timer::new(duration));
         loop {
             if event.until() {
-                match MyScheduler::schedule_timer(event) {
+                match Scheduler::schedule_timer(event) {
                     Ok(()) => break,
                     Err(e) => event = e,
                 }

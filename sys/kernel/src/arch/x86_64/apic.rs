@@ -188,7 +188,7 @@ impl Apic {
         let sipi_vec = InterruptVector(MemoryManager::static_alloc_real().unwrap().get());
         let max_cpu = core::cmp::min(System::num_of_cpus(), MAX_CPU);
         let stack_chunk_size = STACK_CHUNK_SIZE;
-        let stack_base = MemoryManager::zalloc(max_cpu * stack_chunk_size)
+        let stack_base = MemoryManager::zalloc_legacy(max_cpu * stack_chunk_size)
             .unwrap()
             .get() as *mut c_void;
         asm_apic_setup_sipi(sipi_vec, max_cpu, stack_chunk_size, stack_base);
@@ -638,6 +638,6 @@ extern "x86-interrupt" fn irq_0c_handler() {
 extern "x86-interrupt" fn timer_handler() {
     unsafe {
         LocalApic::eoi();
-        MyScheduler::reschedule();
+        Scheduler::reschedule();
     }
 }

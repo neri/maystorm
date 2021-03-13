@@ -59,7 +59,7 @@ impl RuntimeEnvironment {
 
     pub fn exit(exit_code: usize) -> ! {
         let _ = exit_code;
-        MyScheduler::exit();
+        Scheduler::exit();
     }
 
     pub unsafe fn invoke_legacy(context: &LegacyAppContext) -> ! {

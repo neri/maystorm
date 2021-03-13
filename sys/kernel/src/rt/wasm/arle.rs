@@ -26,7 +26,7 @@ impl ArleBinaryLoader {
     }
 
     fn start(_: usize) {
-        MyScheduler::current_personality(|personality| match personality.context() {
+        Scheduler::current_personality(|personality| match personality.context() {
             PersonalityContext::Arlequin(rt) => rt.start(),
             _ => unreachable!(),
         });
@@ -119,7 +119,7 @@ impl ArleRuntime {
     }
 
     fn syscall(_: &WasmModule, params: &[WasmValue]) -> Result<WasmValue, WasmRuntimeError> {
-        MyScheduler::current_personality(|personality| match personality.context() {
+        Scheduler::current_personality(|personality| match personality.context() {
             PersonalityContext::Arlequin(rt) => rt.dispatch_syscall(&params),
             _ => unreachable!(),
         })

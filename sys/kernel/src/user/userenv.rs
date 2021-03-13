@@ -62,9 +62,9 @@ impl UserEnv {
 
         SpawnOption::new().spawn(unsafe { core::mem::transmute(f) }, 0, "shell");
 
-        MyScheduler::spawn_async(Task::new(status_bar_main()));
-        MyScheduler::spawn_async(Task::new(activity_monitor_main()));
-        MyScheduler::perform_tasks();
+        Scheduler::spawn_async(Task::new(status_bar_main()));
+        Scheduler::spawn_async(Task::new(activity_monitor_main()));
+        Scheduler::perform_tasks();
     }
 }
 
@@ -220,7 +220,7 @@ async fn activity_monitor_main() {
                 let time1 = Timer::measure();
                 let tsc1 = unsafe { Cpu::read_tsc() };
 
-                MyScheduler::get_idle_statistics(&mut usage_temp);
+                Scheduler::get_idle_statistics(&mut usage_temp);
                 let max_value = num_of_cpus as u32 * 1000;
                 usage_history[usage_cursor] = (254
                     * u32::min(max_value, usage_temp.iter().fold(0, |acc, v| acc + *v))
@@ -290,7 +290,7 @@ async fn activity_monitor_main() {
                         let hz = ((tsc1 - tsc0) as usize / (time1.0 - time0.0) + 5) / 10;
                         let hz0 = hz % 100;
                         let hz1 = hz / 100;
-                        let usage = MyScheduler::usage_per_cpu();
+                        let usage = Scheduler::usage_per_cpu();
                         let usage0 = usage % 10;
                         let usage1 = usage / 10;
                         write!(
@@ -307,7 +307,7 @@ async fn activity_monitor_main() {
                         let rect = bitmap.bounds().insets_by(EdgeInsets::new(38, 4, 4, 4));
                         AttributedString::with(sb.as_str(), font, fg_color).draw(&bitmap, rect);
 
-                        MyScheduler::print_statistics(&mut sb, true);
+                        Scheduler::print_statistics(&mut sb, true);
                         let rect = bitmap.bounds().insets_by(EdgeInsets::new(48, 4, 4, 4));
                         AttributedString::with(sb.as_str(), font, fg_color).draw(&bitmap, rect);
                     })

@@ -1,15 +1,13 @@
 // Slab Allocator
 
 use super::*;
-// use crate::*;
-use ::alloc::vec::*;
-use core::alloc::Layout;
-use core::num::*;
+use crate::arch::cpu::Cpu;
+use ::alloc::vec::Vec;
 use core::sync::atomic::*;
+use core::{alloc::Layout, mem::transmute};
+use core::{mem::size_of, num::*};
 
 type UsizeSmall = u16;
-type AtomicUsizeSmall = AtomicU16;
-const MAX_BITMAP_SIZE: usize = 16;
 
 pub(crate) struct SlabAllocator {
     vec: Vec<SlabCache>,
@@ -17,12 +15,11 @@ pub(crate) struct SlabAllocator {
 
 impl SlabAllocator {
     pub unsafe fn new() -> Self {
-        let sizes = [16, 32, 64, 128, 256, 512, 1024];
+        let sizes = [16, 32, 64, 128, 256, 512, 1024, 2048];
 
         let mut vec: Vec<SlabCache> = Vec::with_capacity(sizes.len());
         for block_size in &sizes {
-            let block_size = *block_size;
-            vec.push(SlabCache::new(block_size));
+            vec.push(SlabCache::new(*block_size));
         }
 
         Self { vec }
@@ -56,143 +53,167 @@ impl SlabAllocator {
         Err(DeallocationError::Unsupported)
     }
 
-    pub fn statistics(&self) -> Vec<(usize, usize, usize)> {
+    #[allow(dead_code)]
+    pub(super) fn free_memory_size(&self) -> usize {
+        self.vec.iter().fold(0, |v, i| v + i.free_memory_size())
+    }
+
+    #[allow(dead_code)]
+    pub(super) fn statistics(&self) -> Vec<(usize, usize, usize)> {
         let mut vec = Vec::with_capacity(self.vec.len());
         for item in &self.vec {
             vec.push((
-                item.block_size as usize,
-                item.first_chunk.free.load(Ordering::Relaxed) as usize,
-                item.first_chunk.count as usize,
+                item.block_size(),
+                item.chunks[..item.count as usize].iter().fold(0, |v, i| {
+                    v + i.bitmap.load(Ordering::Relaxed).count_ones() as usize
+                }),
+                item.items_per_chunk() * item.count(),
             ));
         }
         vec
     }
 }
 
-#[derive(Debug)]
 struct SlabCache {
     block_size: UsizeSmall,
-    chunk_size_shift: UsizeSmall,
-    items_per_chunk: UsizeSmall,
-    first_chunk: SlabChunkHeader,
+    count: UsizeSmall,
+    chunks: [SlabChunkHeader; Self::N_CHUNKS],
 }
 
 impl SlabCache {
-    fn new(block_size: UsizeSmall) -> Self {
-        let min_bitmap_size = 8;
-        let mut chunk_size_shift = 12;
-        let mut items_per_chunk: UsizeSmall;
-        let mut bitmap_size: UsizeSmall;
-        loop {
-            let chunk_size = 1 << chunk_size_shift;
-            items_per_chunk =
-                usize::min(8 * MAX_BITMAP_SIZE, chunk_size / block_size as usize) as UsizeSmall;
-            bitmap_size = (items_per_chunk + 7) / 8;
-            if bitmap_size >= min_bitmap_size {
-                break;
+    const N_CHUNKS: usize = 63;
+    const ITEMS_PER_CHUNK: usize = 8 * size_of::<usize>();
+
+    fn new(block_size: usize) -> Self {
+        let mut chunks: [SlabChunkHeader; Self::N_CHUNKS] =
+            unsafe { transmute([0u8; size_of::<SlabChunkHeader>() * Self::N_CHUNKS]) };
+
+        let mut count = 0;
+        let items_per_chunk = Self::ITEMS_PER_CHUNK;
+        let preferred_page_size = items_per_chunk * block_size;
+        let atomic_page_size = if MemoryManager::PAGE_SIZE_MIN < preferred_page_size {
+            1
+        } else {
+            MemoryManager::PAGE_SIZE_MIN / preferred_page_size
+        };
+
+        unsafe {
+            let pages = usize::min(
+                (items_per_chunk / atomic_page_size) * atomic_page_size,
+                usize::max(atomic_page_size, 0x1000 / preferred_page_size),
+            );
+            let alloc_size = preferred_page_size * pages;
+            let blob = MemoryManager::zalloc(Layout::from_size_align_unchecked(
+                alloc_size,
+                MemoryManager::PAGE_SIZE_MIN,
+            ))
+            .unwrap();
+
+            // println!("CHUNK: {} {} {} ", block_size, preferred_page_size, pages);
+
+            for i in 0..pages {
+                let ptr = blob.get() + preferred_page_size * i;
+                let chunk = SlabChunkHeader::new(ptr, usize::MAX);
+                chunks[count as usize] = chunk;
+                count += 1;
             }
-            chunk_size_shift += 1;
         }
-        let chunk_size = 1 << chunk_size_shift;
 
         Self {
-            chunk_size_shift,
-            block_size,
-            items_per_chunk,
-            first_chunk: SlabChunkHeader::new(items_per_chunk, chunk_size),
+            block_size: block_size as UsizeSmall,
+            count,
+            chunks,
         }
     }
 
-    fn chunk_size(&self) -> usize {
-        1 << self.chunk_size_shift
+    #[inline]
+    const fn block_size(&self) -> usize {
+        self.block_size as usize
+    }
+
+    #[inline]
+    const fn count(&self) -> usize {
+        self.count as usize
+    }
+
+    #[inline]
+    const fn items_per_chunk(&self) -> usize {
+        Self::ITEMS_PER_CHUNK
     }
 
     fn alloc(&self) -> Result<NonZeroUsize, AllocationError> {
-        let chunk = &self.first_chunk;
-
-        match chunk.alloc() {
-            Ok(index) => {
-                return NonZeroUsize::new(chunk.entity + index * self.block_size as usize)
-                    .ok_or(AllocationError::Unexpected)
+        for chunk in self.chunks[..self.count()].iter() {
+            if !chunk.is_full() {
+                match chunk.alloc() {
+                    Some(index) => {
+                        return NonZeroUsize::new(chunk.ptr() + index * self.block_size as usize)
+                            .ok_or(AllocationError::Unexpected)
+                    }
+                    None => (),
+                }
             }
-            Err(err) => Err(err),
         }
+        Err(AllocationError::OutOfMemory)
     }
 
-    fn free(&self, base: NonZeroUsize) -> Result<(), DeallocationError> {
-        let base = base.get();
-        let chunk = &self.first_chunk;
+    fn free(&self, ptr: NonZeroUsize) -> Result<(), DeallocationError> {
+        let ptr = ptr.get();
 
-        if base >= chunk.entity && base < chunk.entity + self.chunk_size() {
-            let index = (base - chunk.entity) / self.block_size as usize;
-            chunk.free(index);
-            return Ok(());
+        for chunk in self.chunks[..self.count()].iter() {
+            let base = chunk.ptr();
+            if ptr >= base && ptr < base + self.items_per_chunk() * self.block_size() {
+                let index = (ptr - base) / self.block_size();
+                chunk.free(index);
+                return Ok(());
+            }
         }
-
         Err(DeallocationError::InvalidArgument)
+    }
+
+    fn free_memory_size(&self) -> usize {
+        self.chunks[..self.count()].iter().fold(0, |v, i| {
+            v + self.block_size() * i.bitmap.load(Ordering::Relaxed).count_ones() as usize
+        })
     }
 }
 
-#[derive(Debug)]
 struct SlabChunkHeader {
-    link: AtomicUsize,
-    free: AtomicUsizeSmall,
-    count: UsizeSmall,
-    entity: usize,
-    bitmap: [u8; MAX_BITMAP_SIZE],
+    ptr: AtomicUsize,
+    bitmap: AtomicUsize,
 }
 
 impl SlabChunkHeader {
-    fn new(items_per_chunk: UsizeSmall, chunk_size: usize) -> Self {
-        let entity = unsafe {
-            let blob = MemoryManager::zalloc(chunk_size).unwrap().get() as *mut u8;
-            blob.write_bytes(0, chunk_size);
-            blob as usize
-        };
-
+    #[inline]
+    fn new(ptr: usize, bitmap: usize) -> Self {
         Self {
-            link: AtomicUsize::new(0),
-            free: AtomicUsizeSmall::new(items_per_chunk),
-            count: items_per_chunk,
-            entity,
-            bitmap: [0; MAX_BITMAP_SIZE],
+            ptr: AtomicUsize::new(ptr),
+            bitmap: AtomicUsize::new(bitmap),
         }
     }
 
-    fn alloc(&self) -> Result<usize, AllocationError> {
-        if self
-            .free
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
-                if v > 0 {
-                    Some(v - 1)
-                } else {
-                    None
-                }
-            })
-            .is_ok()
-        {
-            for i in 0..self.count as usize {
-                unsafe {
-                    let mut result: usize;
-                    asm!("
-                        lock bts [{0}], {1}
-                        sbb {2}, {2}
-                        ", in(reg) &self.bitmap[0], in(reg) i, lateout(reg) result);
-                    if result == 0 {
-                        return Ok(i as usize);
-                    }
-                }
+    #[inline]
+    fn is_full(&self) -> bool {
+        self.bitmap.load(Ordering::Relaxed) == 0
+    }
+
+    #[inline]
+    fn ptr(&self) -> usize {
+        self.ptr.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    fn alloc(&self) -> Option<usize> {
+        let limit = 8 * size_of::<usize>();
+        for i in 0..limit {
+            if Cpu::interlocked_test_and_clear(&self.bitmap, i) {
+                return Some(i);
             }
-            Err(AllocationError::Unexpected)
-        } else {
-            Err(AllocationError::OutOfMemory)
         }
+        None
     }
 
-    fn free(&self, index: usize) {
-        unsafe {
-            asm!("lock btr [{0}], {1}", in(reg) &self.bitmap[0], in(reg) index);
-        }
-        self.free.fetch_add(1, Ordering::Relaxed);
+    #[inline]
+    fn free(&self, position: usize) {
+        Cpu::interlocked_test_and_set(&self.bitmap, position);
     }
 }

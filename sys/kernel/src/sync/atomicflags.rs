@@ -1,5 +1,6 @@
 // Atomic Bit Flags
 
+use crate::arch::cpu::Cpu;
 use core::marker::PhantomData;
 use core::sync::atomic::*;
 
@@ -75,13 +76,11 @@ impl<T: Into<usize>> AtomicBitflags<T> {
 
     #[inline]
     pub fn test_and_set(&self, bits: T) -> bool {
-        let bits = bits.into();
-        (self.repr.fetch_or(bits, Ordering::SeqCst) & bits) == bits
+        Cpu::interlocked_test_and_set(&self.repr, bits.into().trailing_zeros() as usize)
     }
 
     #[inline]
     pub fn test_and_clear(&self, bits: T) -> bool {
-        let bits = bits.into();
-        (self.repr.fetch_and(!bits, Ordering::SeqCst) & bits) == bits
+        Cpu::interlocked_test_and_clear(&self.repr, bits.into().trailing_zeros() as usize)
     }
 }

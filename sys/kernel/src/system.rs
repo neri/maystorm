@@ -181,7 +181,7 @@ impl System {
 
         bus::pci::Pci::init();
 
-        MyScheduler::start(Self::init_late, f as *const c_void as usize);
+        Scheduler::start(Self::init_late, f as *const c_void as usize);
     }
 
     fn init_late(args: usize) {
