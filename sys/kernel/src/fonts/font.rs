@@ -1,6 +1,7 @@
 // Font Driver
 
-use crate::graphics::*;
+use crate::drawing::*;
+use crate::sync::spinlock::Spinlock;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
@@ -18,7 +19,7 @@ static mut FONT_MANAGER: FontManager = FontManager::new();
 pub struct FontManager {
     fonts: Option<BTreeMap<FontFamily, Box<dyn FontDriver>>>,
     lock: Spinlock,
-    buffer: OperationalBitmapResticted,
+    buffer: OperationalBitmap,
 }
 
 impl FontManager {
@@ -26,7 +27,7 @@ impl FontManager {
         Self {
             fonts: None,
             lock: Spinlock::new(),
-            buffer: OperationalBitmapResticted::new(96, 96),
+            buffer: OperationalBitmap::new(Size::new(96, 96)),
         }
     }
 
@@ -45,25 +46,25 @@ impl FontManager {
 
         let font = Box::new(HersheyFont::new(
             0,
-            include_bytes!("../../../../../ext/hershey/futural.jhf"),
+            include_bytes!("../../../../ext/hershey/futural.jhf"),
         ));
         fonts.insert(FontFamily::SystemUI, font);
 
         let font = Box::new(HersheyFont::new(
             4,
-            include_bytes!("../../../../../ext/hershey/cursive.jhf"),
+            include_bytes!("../../../../ext/hershey/cursive.jhf"),
         ));
         fonts.insert(FontFamily::Cursive, font);
 
         let font = Box::new(HersheyFont::new(
             0,
-            include_bytes!("../../../../../ext/hershey/futuram.jhf"),
+            include_bytes!("../../../../ext/hershey/futuram.jhf"),
         ));
         fonts.insert(FontFamily::SansSerif, font);
 
         let font = Box::new(HersheyFont::new(
             0,
-            include_bytes!("../../../../../ext/hershey/timesr.jhf"),
+            include_bytes!("../../../../ext/hershey/timesr.jhf"),
         ));
         fonts.insert(FontFamily::Serif, font);
 
@@ -100,7 +101,7 @@ impl FontManager {
     }
 
     #[inline]
-    pub fn label_font() -> FontDescriptor {
+    pub fn ui_font() -> FontDescriptor {
         FontDescriptor::new(FontFamily::SystemUI, 16).unwrap_or(Self::system_font())
     }
 }
@@ -169,7 +170,13 @@ impl FontDescriptor {
     }
 
     #[inline]
-    pub fn draw_char(&self, character: char, bitmap: &Bitmap, origin: Point, color: TrueColor) {
+    pub fn draw_char(
+        &self,
+        character: char,
+        bitmap: &mut Bitmap,
+        origin: Point,
+        color: AmbiguousColor,
+    ) {
         self.driver
             .draw_char(character, bitmap, origin, self.point(), color)
     }
@@ -187,10 +194,10 @@ pub trait FontDriver {
     fn draw_char(
         &self,
         character: char,
-        bitmap: &Bitmap,
+        bitmap: &mut Bitmap,
         origin: Point,
         height: isize,
-        color: TrueColor,
+        color: AmbiguousColor,
     );
 }
 
@@ -265,20 +272,15 @@ impl FontDriver for FixedFontDriver<'_> {
     fn draw_char(
         &self,
         character: char,
-        bitmap: &Bitmap,
+        bitmap: &mut Bitmap,
         origin: Point,
-        height: isize,
-        color: TrueColor,
+        _height: isize,
+        color: AmbiguousColor,
     ) {
-        let _ = height;
-        if let Some(glyph) = self.glyph_for(character) {
-            let rect = Rect::new(
-                origin.x,
-                origin.y + self.leading,
-                self.width(),
-                self.base_height(),
-            );
-            bitmap.draw_pattern(rect, glyph, color);
+        if let Some(font) = self.glyph_for(character) {
+            let origin = Point::new(origin.x, origin.y + self.leading);
+            let size = Size::new(self.width_of(character), self.size.height());
+            bitmap.draw_font(font, size, origin, color);
         }
     }
 }
@@ -326,13 +328,12 @@ impl<'a> HersheyFont<'a> {
     fn draw_data(
         &self,
         data: &[u8],
-        bitmap: &Bitmap,
+        bitmap: &mut Bitmap,
         origin: Point,
         width: isize,
         height: isize,
-        color: TrueColor,
+        color: AmbiguousColor,
     ) {
-        let _ = width;
         if data.len() >= 12 {
             FontManager::shared().lock.synchronized(|| {
                 let shared = FontManager::shared();
@@ -342,11 +343,12 @@ impl<'a> HersheyFont<'a> {
                 let left = data[8] as isize - Self::MAGIC_52;
 
                 let center = Point::new(
-                    shared.buffer.width() / 2 - 1,
-                    shared.buffer.height() / 2 - 1,
+                    shared.buffer.size().width() / 2,
+                    shared.buffer.size().height() / 2,
                 );
                 let mut cursor = 10;
                 let mut c0: Option<Point> = None;
+                let bounds = Rect::from(bitmap.size()).insets_by(EdgeInsets::padding_each(1));
                 for _ in 1..n_pairs {
                     let c1 = data[cursor] as isize;
                     let c2 = data[cursor + 1] as isize;
@@ -362,32 +364,39 @@ impl<'a> HersheyFont<'a> {
                             );
                         if let Some(c0) = c0 {
                             shared.buffer.draw_line(c0, c1, |bitmap, point| {
-                                bitmap.restrict_mut(point, EdgeInsets::padding_each(1), |bitmap| {
-                                    if bitmap.get_pixel(point) != u8::MAX {
+                                if point.is_within(bounds) {
+                                    unsafe {
                                         let level1 = 51;
-
-                                        bitmap.process_pixel(point + Point::new(0, -1), |v| {
-                                            v.saturating_add(level1)
-                                        });
-
-                                        let line = bitmap.fetch_line(point.y);
-                                        line[point.x as usize - 1] =
-                                            line[point.x as usize - 1].saturating_add(level1);
-                                        line[point.x as usize] = u8::MAX;
-                                        line[point.x as usize + 1] =
-                                            line[point.x as usize + 1].saturating_add(level1);
-
-                                        bitmap.process_pixel(point + Point::new(0, 1), |v| {
-                                            v.saturating_add(level1)
-                                        });
+                                        bitmap.set_pixel_unchecked(point, u8::MAX);
+                                        bitmap.process_pixel_unchecked(
+                                            point + Point::new(0, -1),
+                                            |v| v.saturating_add(level1),
+                                        );
+                                        bitmap.process_pixel_unchecked(
+                                            point + Point::new(-1, 0),
+                                            |v| v.saturating_add(level1),
+                                        );
+                                        bitmap.process_pixel_unchecked(
+                                            point + Point::new(1, 0),
+                                            |v| v.saturating_add(level1),
+                                        );
+                                        bitmap.process_pixel_unchecked(
+                                            point + Point::new(0, 1),
+                                            |v| v.saturating_add(level1),
+                                        );
                                     }
-                                });
+                                }
                             });
                         }
                         c0 = Some(c1);
                     }
                     cursor += 2;
                 }
+
+                // let shared = FontManager::shared();
+                let act_w = (width + height - 1) * height / Self::POINT;
+                let offset_x = center.x - ((height - left - 1) * height / Self::POINT) - 2;
+                let offset_y = center.y - height;
 
                 // DEBUG
                 if false {
@@ -397,33 +406,44 @@ impl<'a> HersheyFont<'a> {
                         width * height / Self::POINT,
                         self.line_height * height / Self::POINT,
                     );
-                    bitmap.draw_rect(rect, TrueColor::from_rgb(0xFFCCFF));
+                    bitmap.draw_rect(rect, AmbiguousColor::from_rgb(0xFFCCFF));
                     bitmap.draw_hline(
                         Point::new(origin.x, origin.y + height - 1),
                         width * height / Self::POINT,
-                        TrueColor::from_rgb(0xFFFF33),
+                        AmbiguousColor::from_rgb(0xFFFF33),
                     );
                     bitmap.draw_hline(
                         Point::new(origin.x, origin.y + height * 3 / 4),
                         width * height / Self::POINT,
-                        TrueColor::from_rgb(0xFF3333),
+                        AmbiguousColor::from_rgb(0xFF3333),
                     );
                 }
 
-                let shared = FontManager::shared();
-                let offset_x = (shared.buffer.width() / 4) + left * height / self.base_height() - 1;
-                let offset_y = (shared.buffer.height() / 2 - height) / 2;
-                shared.buffer.transform(
-                    origin - Point::new(offset_x, offset_y),
-                    shared.buffer.size() / 2,
-                    |point, alpha| {
-                        if alpha > 0 {
-                            let mut c = color.components();
-                            c.a = alpha;
-                            bitmap.blend_pixel(point, c.into());
+                let buffer = &mut shared.buffer;
+                match bitmap {
+                    Bitmap::Indexed(_) => {
+                        // TODO:
+                    }
+                    Bitmap::Argb32(bitmap) => {
+                        let color = color.into_argb();
+                        for y in 0..height {
+                            for x in 0..act_w {
+                                let point = origin + Point::new(x, y);
+                                unsafe {
+                                    bitmap.process_pixel_unchecked(point, |v| {
+                                        let mut c = color.components();
+                                        let alpha = buffer.get_pixel_unchecked(Point::new(
+                                            offset_x + x * 2,
+                                            offset_y + y * 2,
+                                        ));
+                                        c.a = alpha;
+                                        v.blend(c.into())
+                                    })
+                                }
+                            }
                         }
-                    },
-                );
+                    }
+                }
             })
         }
     }
@@ -488,16 +508,16 @@ impl FontDriver for HersheyFont<'_> {
     fn draw_char(
         &self,
         character: char,
-        bitmap: &Bitmap,
+        bitmap: &mut Bitmap,
         origin: Point,
-        point: isize,
-        color: TrueColor,
+        height: isize,
+        color: AmbiguousColor,
     ) {
         let (base, last, width) = match self.glyph_for(character) {
             Some(info) => info,
             None => return,
         };
         let data = &self.data[base..last];
-        self.draw_data(data, &bitmap, origin, width, point, color);
+        self.draw_data(data, bitmap, origin, width, height, color);
     }
 }

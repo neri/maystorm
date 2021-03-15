@@ -1,16 +1,16 @@
 // A Computer System
 
-use crate::arch::cpu::*;
-use crate::graphics::Bitmap;
-use crate::io::tty::*;
+use crate::drawing::*;
+use crate::io::emcon::*;
 use crate::task::scheduler::*;
 use crate::*;
+use crate::{arch::cpu::*, fonts::*};
 use alloc::boxed::Box;
 use alloc::vec::*;
 use bootprot::BootInfo;
 use core::fmt;
+use core::fmt::Write;
 use core::ptr::*;
-// use core::sync::atomic::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Version {
@@ -20,6 +20,7 @@ pub struct Version {
 
 impl Version {
     const SYSTEM_NAME: &'static str = "my OS";
+    const SYSTEM_SHORT_NAME: &'static str = "MYOS";
     const RELEASE: &'static str = "";
     const VERSION: Version = Version::new(0, 0, 1, Self::RELEASE);
 
@@ -116,9 +117,8 @@ pub struct System {
     acpi: Option<Box<acpi::AcpiTables<MyAcpiHandler>>>,
 
     // screens
-    boot_screen: Option<Box<Bitmap>>,
-    stdout: Option<Box<dyn Tty>>,
-    em_console: Option<Box<dyn Tty>>,
+    main_screen: Option<Bitmap32<'static>>,
+    em_console: EmConsole,
 
     // copy of boot info
     boot_flags: BootFlags,
@@ -138,9 +138,8 @@ impl System {
             cpus: Vec::new(),
             acpi: None,
             boot_flags: BootFlags::empty(),
-            boot_screen: None,
-            stdout: None,
-            em_console: None,
+            main_screen: None,
+            em_console: EmConsole::new(),
             boot_vram: 0,
             boot_vram_stride: 0,
             initrd_base: 0,
@@ -161,10 +160,14 @@ impl System {
 
         mem::MemoryManager::init_first(&info);
 
-        let screen = Bitmap::from(info);
-        shared.boot_screen = Some(Box::new(screen));
-        let stdout = Box::new(GraphicalConsole::from(shared.boot_screen.as_ref().unwrap()));
-        shared.em_console = Some(stdout);
+        let width = info.screen_width as isize;
+        let height = info.screen_height as isize;
+        let stride = info.vram_stride as usize;
+        shared.main_screen = Some(Bitmap32::from_static(
+            info.vram_base as usize as *mut TrueColor,
+            Size::new(width, height),
+            stride,
+        ));
 
         shared.acpi = Some(Box::new(
             acpi::AcpiTables::from_rsdp(MyAcpiHandler::new(), info.acpi_rsdptr as usize).unwrap(),
@@ -181,7 +184,7 @@ impl System {
 
         bus::pci::Pci::init();
 
-        Scheduler::start(Self::init_late, f as *const c_void as usize);
+        Scheduler::start(Self::init_late, f as usize);
     }
 
     fn init_late(args: usize) {
@@ -193,9 +196,9 @@ impl System {
 
             rt::RuntimeEnvironment::init();
 
-            if let Some(main_screen) = shared.boot_screen.as_ref() {
-                io::fonts::FontManager::init();
-                window::WindowManager::init(main_screen);
+            if let Some(main_screen) = shared.main_screen.as_mut() {
+                fonts::FontManager::init();
+                window::WindowManager::init(main_screen.clone());
             }
 
             io::hid::HidManager::init();
@@ -231,6 +234,12 @@ impl System {
     #[inline]
     pub const fn name() -> &'static str {
         &Version::SYSTEM_NAME
+    }
+
+    /// Returns abbreviated name of current system.
+    #[inline]
+    pub const fn short_name() -> &'static str {
+        &Version::SYSTEM_SHORT_NAME
     }
 
     /// Returns the version of current system.
@@ -329,19 +338,25 @@ impl System {
         todo!();
     }
 
-    pub fn em_console<'a>() -> &'a mut Box<dyn Tty> {
+    /// Get main screen
+    pub fn main_screen() -> Bitmap<'static> {
         let shared = Self::shared();
-        shared.em_console.as_mut().unwrap()
+        shared.main_screen.as_mut().unwrap().into()
     }
 
-    pub fn stdout<'a>() -> &'a mut Box<dyn Tty> {
-        let shared = Self::shared();
-        shared.stdout.as_mut().unwrap_or(Self::em_console())
+    #[inline]
+    pub const fn em_console_font() -> &'static FixedFontDriver<'static> {
+        // FontManager::fixed_system_font()
+        FontManager::fixed_small_font()
     }
 
-    pub fn set_stdout(console: Box<dyn Tty>) {
+    pub fn em_console<'a>() -> &'a mut EmConsole {
         let shared = Self::shared();
-        shared.stdout = Some(console);
+        &mut shared.em_console
+    }
+
+    pub fn stdout<'a>() -> &'a mut dyn Write {
+        Self::em_console()
     }
 }
 

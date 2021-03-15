@@ -1,7 +1,5 @@
 // Coordinate Types
 
-// use crate::num::*;
-use core::fmt;
 use core::{convert::TryFrom, ops::*};
 
 #[repr(C)]
@@ -14,7 +12,7 @@ pub struct Point {
 impl Point {
     #[inline]
     pub const fn new(x: isize, y: isize) -> Self {
-        Point { x, y }
+        Self { x, y }
     }
 
     #[inline]
@@ -60,7 +58,7 @@ impl Point {
                 break;
             }
             let e2 = e + e;
-            if e2 > 0 - d.y {
+            if e2 > -d.y {
                 e -= d.y;
                 c0.x += s.x;
             }
@@ -70,11 +68,17 @@ impl Point {
             }
         }
     }
-}
 
-impl fmt::Display for Point {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Point {{{}, {}}}", self.x, self.y,)
+    #[inline]
+    pub fn is_within(self, rect: Rect) -> bool {
+        if let Ok(coords) = Coordinates::from_rect(rect) {
+            coords.left <= self.x
+                && coords.right > self.x
+                && coords.top <= self.y
+                && coords.bottom > self.y
+        } else {
+            false
+        }
     }
 }
 
@@ -166,7 +170,7 @@ pub struct Size {
 impl Size {
     #[inline]
     pub const fn new(width: isize, height: isize) -> Self {
-        Size { width, height }
+        Self { width, height }
     }
 
     #[inline]
@@ -177,12 +181,6 @@ impl Size {
     #[inline]
     pub const fn height(&self) -> isize {
         self.height
-    }
-}
-
-impl fmt::Display for Size {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Size {{{}, {}}}", self.width, self.height,)
     }
 }
 
@@ -253,26 +251,6 @@ impl SubAssign for Size {
     }
 }
 
-impl Mul<isize> for Size {
-    type Output = Self;
-    fn mul(self, rhs: isize) -> Self::Output {
-        Self {
-            width: self.width * rhs,
-            height: self.height * rhs,
-        }
-    }
-}
-
-impl Div<isize> for Size {
-    type Output = Self;
-    fn div(self, rhs: isize) -> Self::Output {
-        Self {
-            width: self.width / rhs,
-            height: self.height / rhs,
-        }
-    }
-}
-
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default, PartialEq)]
 pub struct Rect {
@@ -283,7 +261,7 @@ pub struct Rect {
 impl Rect {
     #[inline]
     pub const fn new(x: isize, y: isize, width: isize, height: isize) -> Self {
-        Rect {
+        Self {
             origin: Point { x, y },
             size: Size { width, height },
         }
@@ -320,7 +298,7 @@ impl Rect {
     }
 
     #[inline]
-    pub fn insets_by(&self, insets: EdgeInsets) -> Self {
+    pub fn insets_by(self, insets: EdgeInsets) -> Self {
         Rect {
             origin: Point {
                 x: self.origin.x + insets.left,
@@ -333,7 +311,7 @@ impl Rect {
         }
     }
 
-    pub fn hit_test_rect(self, rhs: Self) -> bool {
+    pub fn is_within_rect(self, rhs: Self) -> bool {
         let cl = match Coordinates::from_rect(self) {
             Ok(coords) => coords,
             Err(_) => return false,
@@ -346,17 +324,6 @@ impl Rect {
         cl.left < cr.right && cr.left < cl.right && cl.top < cr.bottom && cr.top < cl.bottom
     }
 
-    pub fn hit_test_point(self, point: Point) -> bool {
-        if let Ok(coords) = Coordinates::from_rect(self) {
-            coords.left <= point.x
-                && coords.right > point.x
-                && coords.top <= point.y
-                && coords.bottom > point.y
-        } else {
-            false
-        }
-    }
-
     pub fn center(&self) -> Point {
         Point::new(
             self.origin.x + self.size.width / 2,
@@ -365,25 +332,75 @@ impl Rect {
     }
 }
 
-impl fmt::Display for Rect {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Rect {{{}, {}}} {{{}, {}}}",
-            self.x(),
-            self.y(),
-            self.width(),
-            self.height()
-        )
-    }
-}
-
 impl From<Size> for Rect {
     fn from(size: Size) -> Self {
         Rect {
-            origin: Point::default(),
+            origin: Point::new(0, 0),
             size,
         }
+    }
+}
+
+impl Add<Point> for Rect {
+    type Output = Self;
+    fn add(self, rhs: Point) -> Self::Output {
+        Self {
+            origin: self.origin + rhs,
+            size: self.size,
+        }
+    }
+}
+
+impl Sub<Point> for Rect {
+    type Output = Self;
+    fn sub(self, rhs: Point) -> Self::Output {
+        Self {
+            origin: self.origin - rhs,
+            size: self.size,
+        }
+    }
+}
+
+impl Add<Size> for Rect {
+    type Output = Self;
+    fn add(self, rhs: Size) -> Self::Output {
+        Self {
+            origin: self.origin,
+            size: self.size + rhs,
+        }
+    }
+}
+
+impl Sub<Size> for Rect {
+    type Output = Self;
+    fn sub(self, rhs: Size) -> Self::Output {
+        Self {
+            origin: self.origin,
+            size: self.size - rhs,
+        }
+    }
+}
+
+impl Add<EdgeInsets> for Rect {
+    type Output = Self;
+    fn add(self, rhs: EdgeInsets) -> Self::Output {
+        Rect {
+            origin: Point {
+                x: self.origin.x - rhs.left,
+                y: self.origin.y - rhs.top,
+            },
+            size: Size {
+                width: self.size.width + (rhs.left + rhs.right),
+                height: self.size.height + (rhs.top + rhs.bottom),
+            },
+        }
+    }
+}
+
+impl Sub<EdgeInsets> for Rect {
+    type Output = Self;
+    fn sub(self, rhs: EdgeInsets) -> Self::Output {
+        self.insets_by(rhs)
     }
 }
 

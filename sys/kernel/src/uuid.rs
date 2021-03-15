@@ -1,6 +1,6 @@
 // Universally Unique Identifier
 
-use crate::dev::rng::*;
+use crate::util::rng::*;
 use core::fmt::*;
 
 #[derive(Copy, Clone, Eq, PartialEq)]

@@ -1,21 +1,21 @@
 // User Environment Manager
 
 use crate::arch::cpu::*;
-use crate::dev::rng::*;
-use crate::graphics::*;
-use crate::io::fonts::*;
+use crate::drawing::*;
+use crate::fonts::*;
 use crate::mem::string;
 use crate::system::*;
 use crate::task::scheduler::*;
 use crate::task::*;
+use crate::util::rng::*;
 use crate::window::*;
 use crate::*;
-use alloc::boxed::Box;
 use alloc::vec::*;
 use core::fmt::Write;
 use core::time::Duration;
+use util::text::{AttributedString, VerticalAlignment};
 
-const DESKTOP_COLOR: TrueColor = TrueColor::from_argb(0x802196F3);
+const DESKTOP_COLOR: AmbiguousColor = AmbiguousColor::from_argb(0x802196F3);
 
 pub struct UserEnv {
     _phantom: (),
@@ -25,40 +25,36 @@ impl UserEnv {
     pub(crate) fn start(f: fn()) {
         {
             let screen_bounds = WindowManager::main_screen_bounds();
-            let bitmap = Bitmap::new(
-                screen_bounds.width() as usize,
-                screen_bounds.height() as usize,
-                false,
-            );
+            let mut bitmap = BoxedBitmap32::new(screen_bounds.size(), TrueColor::TRANSPARENT);
 
-            bitmap
-                .update_bitmap(|slice| {
-                    let rng = XorShift64::default();
-                    for color in slice.iter_mut() {
-                        *color = if (rng.next() & 1) > 0 {
-                            TrueColor::WHITE
-                        } else {
-                            TrueColor::TRANSPARENT
-                        }
+            {
+                let slice = bitmap.slice_mut();
+                let rng = XorShift64::default();
+                for color in slice.iter_mut() {
+                    *color = if (rng.next() & 1) > 0 {
+                        TrueColor::WHITE
+                    } else {
+                        TrueColor::TRANSPARENT
                     }
-                })
-                .unwrap();
-            bitmap.blur(&bitmap, 4);
-            bitmap.blend_rect(bitmap.bounds(), DESKTOP_COLOR);
+                }
+            }
+            // bitmap.blur(&bitmap, 4);
+            // bitmap.blend_rect(bitmap.bounds(), DESKTOP_COLOR);
 
-            WindowManager::set_desktop_bitmap(Some(Box::new(bitmap)));
+            // WindowManager::set_desktop_bitmap(Some(Box::new(bitmap)));
+            WindowManager::set_desktop_color(DESKTOP_COLOR);
             WindowManager::set_pointer_visible(true);
             Timer::sleep(Duration::from_millis(1000));
         }
 
-        {
-            // Main Terminal
-            let (console, window) =
-                GraphicalConsole::new("Terminal", (80, 24), FontManager::fixed_system_font(), 0, 0);
-            window.move_to(Point::new(16, 40));
-            window.make_active();
-            System::set_stdout(console);
-        }
+        // {
+        //     // Main Terminal
+        //     let (console, window) =
+        //         GraphicalConsole::new("Terminal", (80, 24), FontManager::fixed_system_font(), 0, 0);
+        //     window.move_to(Point::new(16, 40));
+        //     window.make_active();
+        //     System::set_stdout(console);
+        // }
 
         SpawnOption::new().spawn(unsafe { core::mem::transmute(f) }, 0, "shell");
 
@@ -71,8 +67,8 @@ impl UserEnv {
 #[allow(dead_code)]
 async fn status_bar_main() {
     const STATUS_BAR_HEIGHT: isize = 24;
-    let bg_color = TrueColor::from_argb(0xC0EEEEEE);
-    let fg_color = IndexedColor::BLACK.into();
+    let bg_color = AmbiguousColor::from_argb(0xC0EEEEEE);
+    let fg_color = AmbiguousColor::BLACK;
 
     let screen_bounds = WindowManager::main_screen_bounds();
     let window = WindowBuilder::new("Status Bar")
@@ -84,16 +80,13 @@ async fn status_bar_main() {
 
     window
         .draw(|bitmap| {
-            let ats = AttributedString::with("myos", FontManager::title_font(), fg_color);
-            let bounds = bitmap.bounds();
-            let size = ats.bounding_size(Size::new(isize::MAX, isize::MAX));
-            let rect = Rect::new(
-                16,
-                (bounds.height() - size.height) / 2,
-                size.width,
-                size.height,
-            );
-            ats.draw(&bitmap, rect);
+            let font = FontManager::title_font();
+            let ats = AttributedString::props()
+                .font(font)
+                .color(fg_color)
+                .text(System::short_name());
+            let rect = Rect::new(16, 0, isize::MAX, STATUS_BAR_HEIGHT);
+            ats.draw_text(bitmap, rect, 1);
         })
         .unwrap();
     window.show();
@@ -132,10 +125,15 @@ async fn status_bar_main() {
                 } else {
                     write!(sb, "{:2}:{:02}", hour, min).unwrap();
                 }
-                let ats = AttributedString::with(sb.as_str(), font, fg_color);
+                let ats = AttributedString::props()
+                    .font(font)
+                    .color(fg_color)
+                    .text(sb.as_str());
 
                 let bounds = window.frame();
-                let width = ats.bounding_size(Size::new(isize::MAX, isize::MAX)).width;
+                let width = ats
+                    .bounding_size(Size::new(isize::MAX, isize::MAX), 1)
+                    .width;
                 let rect = Rect::new(
                     bounds.width() - width - 16,
                     (bounds.height() - font.line_height()) / 2,
@@ -145,7 +143,7 @@ async fn status_bar_main() {
                 window
                     .draw(|bitmap| {
                         bitmap.fill_rect(rect, bg_color);
-                        ats.draw(&bitmap, rect);
+                        ats.draw_text(bitmap, rect, 1);
                     })
                     .unwrap();
             }
@@ -166,11 +164,11 @@ async fn status_bar_main() {
 static mut ACTIVITY_WINDOW: Option<WindowHandle> = None;
 
 async fn activity_monitor_main() {
-    let bg_color = TrueColor::from(IndexedColor::BLACK).set_opacity(0xC0);
-    let fg_color = IndexedColor::YELLOW.into();
-    let graph_sub_color = IndexedColor::LIGHT_GREEN.into();
-    let graph_main_color = IndexedColor::YELLOW.into();
-    let graph_border_color = IndexedColor::LIGHT_GRAY.into();
+    let bg_color = AmbiguousColor::Argb32(TrueColor::from(IndexedColor::BLACK).set_opacity(0xC0));
+    let fg_color = AmbiguousColor::from(IndexedColor::YELLOW);
+    let graph_sub_color = AmbiguousColor::from(IndexedColor::LIGHT_GREEN);
+    let graph_main_color = AmbiguousColor::from(IndexedColor::YELLOW);
+    let graph_border_color = AmbiguousColor::from(IndexedColor::LIGHT_GRAY);
 
     let screen_bounds = WindowManager::user_screen_bounds();
     let width = 280;
@@ -293,7 +291,7 @@ async fn activity_monitor_main() {
                         let usage = Scheduler::usage_per_cpu();
                         let usage0 = usage % 10;
                         let usage1 = usage / 10;
-                        write!(
+                        writeln!(
                             sb,
                             "CPU: {}.{:02} GHz {:3}.{}% {} Cores {} Threads",
                             hz1,
@@ -304,12 +302,15 @@ async fn activity_monitor_main() {
                             System::num_of_cpus(),
                         )
                         .unwrap();
-                        let rect = bitmap.bounds().insets_by(EdgeInsets::new(38, 4, 4, 4));
-                        AttributedString::with(sb.as_str(), font, fg_color).draw(&bitmap, rect);
-
                         Scheduler::print_statistics(&mut sb, true);
-                        let rect = bitmap.bounds().insets_by(EdgeInsets::new(48, 4, 4, 4));
-                        AttributedString::with(sb.as_str(), font, fg_color).draw(&bitmap, rect);
+
+                        let rect = bitmap.bounds().insets_by(EdgeInsets::new(38, 4, 4, 4));
+                        AttributedString::props()
+                            .font(font)
+                            .color(fg_color)
+                            .valign(VerticalAlignment::Top)
+                            .text(sb.as_str())
+                            .draw_text(bitmap, rect, 0);
                     })
                     .unwrap();
 

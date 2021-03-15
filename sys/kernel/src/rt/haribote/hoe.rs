@@ -1,8 +1,8 @@
 // Haribote-OS Emulator
 
 use super::*;
+use crate::drawing::*;
 use crate::fs::*;
-use crate::graphics::*;
 use crate::mem::MemoryManager;
 use crate::window::*;
 use crate::*;
@@ -368,8 +368,8 @@ impl Hoe {
             .ok_or(())
     }
 
-    fn get_color(index: u8) -> TrueColor {
-        TrueColor::from_argb(Self::PALETTE[index as usize])
+    fn get_color(index: u8) -> AmbiguousColor {
+        AmbiguousColor::from_argb(Self::PALETTE[index as usize])
     }
 
     fn alloc_window(&mut self, title: &str, width: u32, height: u32, buffer: u32) -> u32 {
@@ -654,7 +654,9 @@ impl HoeWindow {
                     let line = &buffer[cursor..cursor + width];
                     for x in 0..width {
                         let color = Hoe::get_color(line[x]);
-                        bitmap.set_pixel_unchecked(Point::new(x as isize, y as isize), color);
+                        unsafe {
+                            bitmap.set_pixel_unchecked(Point::new(x as isize, y as isize), color);
+                        }
                     }
                 }
             })

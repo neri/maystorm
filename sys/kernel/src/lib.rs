@@ -4,6 +4,8 @@
 #![feature(abi_x86_interrupt)]
 #![feature(alloc_error_handler)]
 #![feature(asm)]
+#![feature(cfg_target_has_atomic)]
+#![feature(const_fn_transmute)]
 #![feature(const_fn)]
 #![feature(const_mut_refs)]
 #![feature(core_intrinsics)]
@@ -14,14 +16,13 @@
 #![feature(option_result_contains)]
 #![feature(panic_info_message)]
 #![feature(try_reserve)]
-#![feature(cfg_target_has_atomic)]
 
 pub mod arch;
 pub mod bus;
-// pub mod expr;
 pub mod dev;
+pub mod drawing;
+pub mod fonts;
 pub mod fs;
-pub mod graphics;
 pub mod io;
 pub mod mem;
 pub mod rt;
@@ -29,17 +30,15 @@ pub mod sync;
 pub mod system;
 pub mod task;
 pub mod user;
+pub mod util;
 pub mod uuid;
 pub mod window;
 
 use crate::arch::cpu::Cpu;
-use crate::graphics::GraphicalConsole;
-use crate::sync::spinlock::Spinlock;
 use crate::system::System;
-use crate::task::scheduler::*;
 use alloc::boxed::Box;
 use bootprot::*;
-use core::ffi::c_void;
+use core::fmt::Write;
 use core::panic::PanicInfo;
 
 extern crate alloc;
@@ -85,7 +84,7 @@ pub unsafe fn kernel_entry(info: &BootInfo, mbz: usize, f: fn() -> ()) -> usize 
     system::System::init(info, f);
 }
 
-static mut PANIC_GLOBAL_LOCK: Spinlock = Spinlock::new();
+static mut PANIC_GLOBAL_LOCK: sync::spinlock::Spinlock = sync::spinlock::Spinlock::new();
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
@@ -93,7 +92,7 @@ fn panic(info: &PanicInfo) -> ! {
         PANIC_GLOBAL_LOCK.lock();
     }
     // stdout.set_attribute(0x17);
-    if let Some(thread) = Scheduler::current_thread() {
+    if let Some(thread) = task::scheduler::Scheduler::current_thread() {
         if let Some(name) = thread.name() {
             let _ = write!(System::em_console(), "thread '{}' ", name);
         } else {
@@ -102,7 +101,7 @@ fn panic(info: &PanicInfo) -> ! {
     }
     let _ = writeln!(System::em_console(), "{}", info);
     unsafe {
-        let _ = Scheduler::freeze(true);
+        let _ = task::scheduler::Scheduler::freeze(true);
         PANIC_GLOBAL_LOCK.unlock();
         Cpu::stop();
     }

@@ -1,6 +1,6 @@
 // Human Interface Device Manager
 
-use crate::graphics::coords::*;
+use crate::drawing::*;
 use crate::window::*;
 use crate::*;
 use alloc::boxed::Box;

@@ -1,10 +1,10 @@
 // Arlequin Subsystem
 
 use super::*;
-use crate::dev::rng::*;
-use crate::graphics::*;
 use crate::io::hid::*;
+use crate::util::rng::*;
 use crate::uuid::Uuid;
+use crate::{drawing::*, util::text::AttributedString};
 use alloc::collections::BTreeMap;
 use byteorder::*;
 use core::convert::TryFrom;
@@ -195,6 +195,7 @@ impl ArleRuntime {
             }
             svc::Function::DrawText => {
                 if let Some(window) = params.get_window(self)? {
+                    let max_lines = 0;
                     let origin = params.get_point()?;
                     let text = params.get_string(memory).unwrap_or("");
                     let color = params.get_color()?;
@@ -202,10 +203,12 @@ impl ArleRuntime {
                     rect.origin = origin;
                     rect.size.width -= origin.x * 2;
                     rect.size.height -= origin.y;
-                    let mut ats = AttributedString::new(text);
-                    ats.color(color);
                     let _ = window.draw_in_rect(rect, |bitmap| {
-                        ats.draw(bitmap, rect.size.into());
+                        AttributedString::props().color(color).text(text).draw_text(
+                            bitmap,
+                            rect.size.into(),
+                            max_lines,
+                        );
                     });
                     window.set_needs_display();
                 }
@@ -251,9 +254,13 @@ impl ArleRuntime {
             svc::Function::Blt8 => {
                 if let Some(window) = params.get_window(self)? {
                     let origin = params.get_point()?;
-                    let os_bitmap = params.get_bitmap8(memory)?;
-                    let _ = window.draw_in_rect(os_bitmap.rect(origin), |bitmap| {
-                        os_bitmap.blt(bitmap, Point::default());
+                    let src = params.get_bitmap8(memory)?;
+                    let rect = Rect {
+                        origin,
+                        size: src.size(),
+                    };
+                    let _ = window.draw_in_rect(rect, |bitmap| {
+                        bitmap.blt(&src, origin, src.size().into());
                     });
                     window.set_needs_display();
                 }
@@ -271,14 +278,7 @@ impl ArleRuntime {
                 }
             }
             svc::Function::Blt24 => {
-                if let Some(window) = params.get_window(self)? {
-                    let origin = params.get_point()?;
-                    let os_bitmap = params.get_bitmap24(memory)?;
-                    let _ = window.draw_in_rect(os_bitmap.rect(origin), |bitmap| {
-                        os_bitmap.blt(bitmap, Point::default());
-                    });
-                    window.set_needs_display();
-                }
+                unimplemented!()
             }
             svc::Function::FlashWindow => {
                 if let Some(window) = params.get_window(self)? {
@@ -435,16 +435,29 @@ impl ParamsDecoder<'_> {
         Ok(Size::new(width, height))
     }
 
-    fn get_color(&mut self) -> Result<TrueColor, WasmRuntimeError> {
-        self.get_u32().map(|v| TrueColor::from_argb(v))
+    fn get_color(&mut self) -> Result<AmbiguousColor, WasmRuntimeError> {
+        self.get_u32().map(|v| AmbiguousColor::from_argb(v))
     }
 
     fn get_bitmap8<'a>(
         &mut self,
         memory: &'a WasmMemory,
-    ) -> Result<OsBitmap8<'a>, WasmRuntimeError> {
-        let base = self.get_u32()?;
-        OsBitmap8::from_memory(memory, base)
+    ) -> Result<ConstBitmap8<'a>, WasmRuntimeError> {
+        const SIZE_OF_BITMAP: usize = 16;
+        let base = self.get_u32()? as usize;
+        let array = memory.read_bytes(base as usize, SIZE_OF_BITMAP)?;
+
+        let width = LE::read_u32(&array[0..4]) as usize;
+        let height = LE::read_u32(&array[4..8]) as usize;
+        let base = LE::read_u32(&array[8..12]) as usize;
+
+        let len = width * height;
+        let slice = memory.read_bytes(base, len)?;
+
+        Ok(ConstBitmap8::from_bytes(
+            slice,
+            Size::new(width as isize, height as isize),
+        ))
     }
 
     fn get_bitmap1<'a>(
@@ -453,14 +466,6 @@ impl ParamsDecoder<'_> {
     ) -> Result<OsBitmap1<'a>, WasmRuntimeError> {
         let base = self.get_u32()?;
         OsBitmap1::from_memory(memory, base)
-    }
-
-    fn get_bitmap24<'a>(
-        &mut self,
-        memory: &'a WasmMemory,
-    ) -> Result<OsBitmap24<'a>, WasmRuntimeError> {
-        let base = self.get_u32()?;
-        OsBitmap24::from_memory(memory, base)
     }
 
     fn get_window(&mut self, rt: &ArleRuntime) -> Result<Option<WindowHandle>, WasmRuntimeError> {
@@ -485,88 +490,6 @@ impl MemArg {
 
     const fn len(&self) -> usize {
         self.len
-    }
-}
-
-const PALETTE: [u32; 256] = [
-    0xFF212121, 0xFF0D47A1, 0xFF1B5E20, 0xFF006064, 0xFFb71c1c, 0xFF4A148C, 0xFF795548, 0xFF9E9E9E,
-    0xFF616161, 0xFF2196F3, 0xFF4CAF50, 0xFF00BCD4, 0xFFf44336, 0xFF9C27B0, 0xFFFFEB3B, 0xFFFFFFFF,
-    0xFF000000, 0xFF330000, 0xFF660000, 0xFF990000, 0xFFCC0000, 0xFFFF0000, 0xFF003300, 0xFF333300,
-    0xFF663300, 0xFF993300, 0xFFCC3300, 0xFFFF3300, 0xFF006600, 0xFF336600, 0xFF666600, 0xFF996600,
-    0xFFCC6600, 0xFFFF6600, 0xFF009900, 0xFF339900, 0xFF669900, 0xFF999900, 0xFFCC9900, 0xFFFF9900,
-    0xFF00CC00, 0xFF33CC00, 0xFF66CC00, 0xFF99CC00, 0xFFCCCC00, 0xFFFFCC00, 0xFF00FF00, 0xFF33FF00,
-    0xFF66FF00, 0xFF99FF00, 0xFFCCFF00, 0xFFFFFF00, 0xFF000033, 0xFF330033, 0xFF660033, 0xFF990033,
-    0xFFCC0033, 0xFFFF0033, 0xFF003333, 0xFF333333, 0xFF663333, 0xFF993333, 0xFFCC3333, 0xFFFF3333,
-    0xFF006633, 0xFF336633, 0xFF666633, 0xFF996633, 0xFFCC6633, 0xFFFF6633, 0xFF009933, 0xFF339933,
-    0xFF669933, 0xFF999933, 0xFFCC9933, 0xFFFF9933, 0xFF00CC33, 0xFF33CC33, 0xFF66CC33, 0xFF99CC33,
-    0xFFCCCC33, 0xFFFFCC33, 0xFF00FF33, 0xFF33FF33, 0xFF66FF33, 0xFF99FF33, 0xFFCCFF33, 0xFFFFFF33,
-    0xFF000066, 0xFF330066, 0xFF660066, 0xFF990066, 0xFFCC0066, 0xFFFF0066, 0xFF003366, 0xFF333366,
-    0xFF663366, 0xFF993366, 0xFFCC3366, 0xFFFF3366, 0xFF006666, 0xFF336666, 0xFF666666, 0xFF996666,
-    0xFFCC6666, 0xFFFF6666, 0xFF009966, 0xFF339966, 0xFF669966, 0xFF999966, 0xFFCC9966, 0xFFFF9966,
-    0xFF00CC66, 0xFF33CC66, 0xFF66CC66, 0xFF99CC66, 0xFFCCCC66, 0xFFFFCC66, 0xFF00FF66, 0xFF33FF66,
-    0xFF66FF66, 0xFF99FF66, 0xFFCCFF66, 0xFFFFFF66, 0xFF000099, 0xFF330099, 0xFF660099, 0xFF990099,
-    0xFFCC0099, 0xFFFF0099, 0xFF003399, 0xFF333399, 0xFF663399, 0xFF993399, 0xFFCC3399, 0xFFFF3399,
-    0xFF006699, 0xFF336699, 0xFF666699, 0xFF996699, 0xFFCC6699, 0xFFFF6699, 0xFF009999, 0xFF339999,
-    0xFF669999, 0xFF999999, 0xFFCC9999, 0xFFFF9999, 0xFF00CC99, 0xFF33CC99, 0xFF66CC99, 0xFF99CC99,
-    0xFFCCCC99, 0xFFFFCC99, 0xFF00FF99, 0xFF33FF99, 0xFF66FF99, 0xFF99FF99, 0xFFCCFF99, 0xFFFFFF99,
-    0xFF0000CC, 0xFF3300CC, 0xFF6600CC, 0xFF9900CC, 0xFFCC00CC, 0xFFFF00CC, 0xFF0033CC, 0xFF3333CC,
-    0xFF6633CC, 0xFF9933CC, 0xFFCC33CC, 0xFFFF33CC, 0xFF0066CC, 0xFF3366CC, 0xFF6666CC, 0xFF9966CC,
-    0xFFCC66CC, 0xFFFF66CC, 0xFF0099CC, 0xFF3399CC, 0xFF6699CC, 0xFF9999CC, 0xFFCC99CC, 0xFFFF99CC,
-    0xFF00CCCC, 0xFF33CCCC, 0xFF66CCCC, 0xFF99CCCC, 0xFFCCCCCC, 0xFFFFCCCC, 0xFF00FFCC, 0xFF33FFCC,
-    0xFF66FFCC, 0xFF99FFCC, 0xFFCCFFCC, 0xFFFFFFCC, 0xFF0000FF, 0xFF3300FF, 0xFF6600FF, 0xFF9900FF,
-    0xFFCC00FF, 0xFFFF00FF, 0xFF0033FF, 0xFF3333FF, 0xFF6633FF, 0xFF9933FF, 0xFFCC33FF, 0xFFFF33FF,
-    0xFF0066FF, 0xFF3366FF, 0xFF6666FF, 0xFF9966FF, 0xFFCC66FF, 0xFFFF66FF, 0xFF0099FF, 0xFF3399FF,
-    0xFF6699FF, 0xFF9999FF, 0xFFCC99FF, 0xFFFF99FF, 0xFF00CCFF, 0xFF33CCFF, 0xFF66CCFF, 0xFF99CCFF,
-    0xFFCCCCFF, 0xFFFFCCFF, 0xFF00FFFF, 0xFF33FFFF, 0xFF66FFFF, 0xFF99FFFF, 0xFFCCFFFF, 0xFFFFFFFF,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-];
-
-struct OsBitmap8<'a> {
-    slice: &'a [u8],
-    dim: Size,
-}
-
-impl<'a> OsBitmap8<'a> {
-    fn from_memory(memory: &'a WasmMemory, base: u32) -> Result<Self, WasmRuntimeError> {
-        const SIZE_OF_BITMAP: usize = 16;
-        let array = memory.read_bytes(base as usize, SIZE_OF_BITMAP)?;
-
-        let width = LE::read_u32(&array[0..4]) as usize;
-        let height = LE::read_u32(&array[4..8]) as usize;
-        let base = LE::read_u32(&array[8..12]) as usize;
-
-        let dim = Size::new(width as isize, height as isize);
-        let size = width * height;
-        let slice = memory.read_bytes(base, size)?;
-
-        Ok(Self { slice, dim })
-    }
-}
-
-impl OsBitmap8<'_> {
-    const fn rect(&self, origin: Point) -> Rect {
-        Rect {
-            origin,
-            size: self.dim,
-        }
-    }
-
-    fn blt(&self, to: &Bitmap, origin: Point) {
-        // TODO: clipping
-        let stride = self.dim.width as usize;
-        let mut cursor = 0;
-        for y in 0..self.dim.height {
-            for x in 0..self.dim.width {
-                let point = Point::new(origin.x + x, origin.y + y);
-                let color = TrueColor::from_argb(unsafe {
-                    *PALETTE.get_unchecked(*self.slice.get_unchecked(cursor + x as usize) as usize)
-                });
-                if !color.is_transparent() {
-                    to.set_pixel_unchecked(point, color);
-                }
-            }
-            cursor += stride;
-        }
     }
 }
 
@@ -603,7 +526,7 @@ impl OsBitmap1<'_> {
         }
     }
 
-    fn blt(&self, to: &Bitmap, origin: Point, color: TrueColor, mode: usize) {
+    fn blt(&self, to: &mut Bitmap, origin: Point, color: AmbiguousColor, mode: usize) {
         // TODO: clipping
         let scale = mode as isize;
         let stride = self.stride;
@@ -621,7 +544,7 @@ impl OsBitmap1<'_> {
                         for offset in &[(0, 0), (0, 1), (1, 0), (1, 1)] {
                             let point =
                                 Point::new(origin.x + x + offset.0, origin.y + y + offset.1);
-                            to.set_pixel_unchecked(point, color);
+                            unsafe { to.set_pixel_unchecked(point, color) };
                         }
                     }
                 }
@@ -637,50 +560,12 @@ impl OsBitmap1<'_> {
                         for offset in &[(0, 0), (0, 1), (1, 0), (1, 1)] {
                             let point =
                                 Point::new(origin.x + x + offset.0, origin.y + y + offset.1);
-                            to.set_pixel_unchecked(point, color);
+                            unsafe { to.set_pixel_unchecked(point, color) };
                         }
                     }
                 }
             }
             cursor += stride;
         }
-    }
-}
-
-struct OsBitmap24<'a> {
-    slice: &'a [u8],
-    dim: Size,
-}
-
-impl<'a> OsBitmap24<'a> {
-    fn from_memory(memory: &'a WasmMemory, base: u32) -> Result<Self, WasmRuntimeError> {
-        const SIZE_OF_BITMAP: usize = 16;
-        let array = memory.read_bytes(base as usize, SIZE_OF_BITMAP)?;
-
-        let width = LE::read_u32(&array[0..4]) as usize;
-        let height = LE::read_u32(&array[4..8]) as usize;
-        let base = LE::read_u32(&array[8..12]) as usize;
-
-        let dim = Size::new(width as isize, height as isize);
-        let size = width * height;
-        let slice = memory.read_bytes(base, size)?;
-
-        Ok(Self { slice, dim })
-    }
-}
-
-impl OsBitmap24<'_> {
-    const fn rect(&self, origin: Point) -> Rect {
-        Rect {
-            origin,
-            size: self.dim,
-        }
-    }
-
-    fn blt(&self, to: &Bitmap, origin: Point) {
-        // TODO:
-        let _ = to;
-        let _ = origin;
-        let _ = self.slice;
     }
 }

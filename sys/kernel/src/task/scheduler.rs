@@ -17,6 +17,7 @@ use alloc::sync::Arc;
 use alloc::vec::*;
 use bitflags::*;
 use core::cell::UnsafeCell;
+use core::ffi::c_void;
 use core::fmt::Write;
 use core::num::*;
 use core::ops::*;
@@ -482,7 +483,6 @@ impl Scheduler {
 
     pub fn print_statistics(sb: &mut StringBuffer, exclude_idle: bool) {
         let sch = Self::shared();
-        sb.clear();
         writeln!(sb, "PID PRI %CPU TIME     NAME").unwrap();
         for thread in sch.pool.data.values() {
             let thread = thread.clone();

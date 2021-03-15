@@ -2,11 +2,15 @@
 
 use crate::arch::apic::Apic;
 use crate::rt::*;
+use crate::sync::spinlock::Spinlock;
 use crate::system::*;
+use crate::task::scheduler::Scheduler;
 use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;
 use bus::pci::*;
+use core::ffi::c_void;
+use core::fmt::Write;
 use core::sync::atomic::*;
 
 extern "C" {
