@@ -296,8 +296,22 @@ pub enum AmbiguousColor {
 
 impl AmbiguousColor {
     pub const TRANSPARENT: Self = Self::Argb32(TrueColor::TRANSPARENT);
-    pub const WHITE: Self = Self::Indexed(IndexedColor::WHITE);
     pub const BLACK: Self = Self::Indexed(IndexedColor::BLACK);
+    pub const BLUE: Self = Self::Indexed(IndexedColor::BLUE);
+    pub const GREEN: Self = Self::Indexed(IndexedColor::GREEN);
+    pub const CYAN: Self = Self::Indexed(IndexedColor::CYAN);
+    pub const RED: Self = Self::Indexed(IndexedColor::RED);
+    pub const MAGENTA: Self = Self::Indexed(IndexedColor::MAGENTA);
+    pub const BROWN: Self = Self::Indexed(IndexedColor::BROWN);
+    pub const LIGHT_GRAY: Self = Self::Indexed(IndexedColor::LIGHT_GRAY);
+    pub const DARK_GRAY: Self = Self::Indexed(IndexedColor::DARK_GRAY);
+    pub const LIGHT_BLUE: Self = Self::Indexed(IndexedColor::LIGHT_BLUE);
+    pub const LIGHT_GREEN: Self = Self::Indexed(IndexedColor::LIGHT_GREEN);
+    pub const LIGHT_CYAN: Self = Self::Indexed(IndexedColor::LIGHT_CYAN);
+    pub const LIGHT_RED: Self = Self::Indexed(IndexedColor::LIGHT_RED);
+    pub const LIGHT_MAGENTA: Self = Self::Indexed(IndexedColor::LIGHT_MAGENTA);
+    pub const YELLOW: Self = Self::Indexed(IndexedColor::YELLOW);
+    pub const WHITE: Self = Self::Indexed(IndexedColor::WHITE);
 
     #[inline]
     pub const fn from_rgb(rgb: u32) -> Self {

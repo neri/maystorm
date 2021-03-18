@@ -1,6 +1,5 @@
 // User Environment Manager
 
-use crate::arch::cpu::*;
 use crate::drawing::*;
 use crate::fonts::*;
 use crate::mem::string;
@@ -10,6 +9,7 @@ use crate::task::*;
 use crate::util::rng::*;
 use crate::window::*;
 use crate::*;
+use crate::{arch::cpu::*, window::terminal::Terminal};
 use alloc::vec::*;
 use core::fmt::Write;
 use core::time::Duration;
@@ -23,38 +23,37 @@ pub struct UserEnv {
 
 impl UserEnv {
     pub(crate) fn start(f: fn()) {
-        {
-            let screen_bounds = WindowManager::main_screen_bounds();
-            let mut bitmap = BoxedBitmap32::new(screen_bounds.size(), TrueColor::TRANSPARENT);
-
-            {
-                let slice = bitmap.slice_mut();
-                let rng = XorShift64::default();
-                for color in slice.iter_mut() {
-                    *color = if (rng.next() & 1) > 0 {
-                        TrueColor::WHITE
-                    } else {
-                        TrueColor::TRANSPARENT
-                    }
-                }
-            }
+        if false {
+            // let screen_bounds = WindowManager::main_screen_bounds();
+            // let mut bitmap = BoxedBitmap32::new(screen_bounds.size(), TrueColor::TRANSPARENT);
+            // {
+            //     let slice = bitmap.slice_mut();
+            //     let rng = XorShift64::default();
+            //     for color in slice.iter_mut() {
+            //         *color = if (rng.next() & 1) > 0 {
+            //             TrueColor::WHITE
+            //         } else {
+            //             TrueColor::TRANSPARENT
+            //         }
+            //     }
+            // }
             // bitmap.blur(&bitmap, 4);
             // bitmap.blend_rect(bitmap.bounds(), DESKTOP_COLOR);
 
             // WindowManager::set_desktop_bitmap(Some(Box::new(bitmap)));
+        }
+
+        {
             WindowManager::set_desktop_color(DESKTOP_COLOR);
             WindowManager::set_pointer_visible(true);
             Timer::sleep(Duration::from_millis(1000));
         }
 
-        // {
-        //     // Main Terminal
-        //     let (console, window) =
-        //         GraphicalConsole::new("Terminal", (80, 24), FontManager::fixed_system_font(), 0, 0);
-        //     window.move_to(Point::new(16, 40));
-        //     window.make_active();
-        //     System::set_stdout(console);
-        // }
+        {
+            // Main Terminal
+            let terminal = Terminal::new(80, 24);
+            System::set_stdout(Box::new(terminal));
+        }
 
         SpawnOption::new().spawn(unsafe { core::mem::transmute(f) }, 0, "shell");
 
@@ -85,7 +84,7 @@ async fn status_bar_main() {
                 .font(font)
                 .color(fg_color)
                 .text(System::short_name());
-            let rect = Rect::new(16, 0, isize::MAX, STATUS_BAR_HEIGHT);
+            let rect = Rect::new(16, 0, 320, STATUS_BAR_HEIGHT);
             ats.draw_text(bitmap, rect, 1);
         })
         .unwrap();

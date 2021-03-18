@@ -1450,6 +1450,17 @@ impl WindowHandle {
     }
 
     #[inline]
+    pub fn content_rect(&self) -> Rect {
+        let window = self.as_ref();
+        Rect::from(window.frame.size()).insets_by(window.content_insets)
+    }
+
+    #[inline]
+    pub fn content_size(&self) -> Size {
+        self.content_rect().size()
+    }
+
+    #[inline]
     pub fn move_by(&self, delta: Point) {
         let mut new_rect = self.frame();
         new_rect.origin += delta;
@@ -1482,7 +1493,7 @@ impl WindowHandle {
     pub fn close(&self) {
         self.hide();
         // TODO: remove window
-        // WindowManager::remove(self);
+        WindowManager::remove(self);
     }
 
     #[inline]
@@ -1497,7 +1508,12 @@ impl WindowHandle {
 
     #[inline]
     pub fn invalidate_rect(&self, rect: Rect) {
-        self.update(|window| window.invalidate_rect(rect));
+        self.update(|window| {
+            let mut frame = rect;
+            frame.origin.x += window.content_insets.left;
+            frame.origin.y += window.content_insets.top;
+            window.invalidate_rect(frame);
+        });
     }
 
     #[inline]

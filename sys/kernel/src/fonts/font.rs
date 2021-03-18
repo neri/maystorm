@@ -348,7 +348,8 @@ impl<'a> HersheyFont<'a> {
                 );
                 let mut cursor = 10;
                 let mut c0: Option<Point> = None;
-                let bounds = Rect::from(bitmap.size()).insets_by(EdgeInsets::padding_each(1));
+                let bounds =
+                    Rect::from(shared.buffer.size()).insets_by(EdgeInsets::padding_each(1));
                 for _ in 1..n_pairs {
                     let c1 = data[cursor] as isize;
                     let c2 = data[cursor + 1] as isize;
@@ -393,9 +394,8 @@ impl<'a> HersheyFont<'a> {
                     cursor += 2;
                 }
 
-                // let shared = FontManager::shared();
-                let act_w = (width + height - 1) * height / Self::POINT;
-                let offset_x = center.x - ((height - left - 1) * height / Self::POINT) - 2;
+                let act_w = width * height / Self::POINT;
+                let offset_x = center.x - (-left * 2) * height / Self::POINT;
                 let offset_y = center.y - height;
 
                 // DEBUG

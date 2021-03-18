@@ -1,15 +1,15 @@
 // A Computer System
 
-use crate::drawing::*;
 use crate::io::emcon::*;
 use crate::task::scheduler::*;
 use crate::*;
 use crate::{arch::cpu::*, fonts::*};
+use crate::{drawing::*, io::tty::Tty};
 use alloc::boxed::Box;
 use alloc::vec::*;
 use bootprot::BootInfo;
 use core::fmt;
-use core::fmt::Write;
+// use core::fmt::Write;
 use core::ptr::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -19,8 +19,8 @@ pub struct Version {
 }
 
 impl Version {
-    const SYSTEM_NAME: &'static str = "my OS";
-    const SYSTEM_SHORT_NAME: &'static str = "MYOS";
+    const SYSTEM_NAME: &'static str = "codename MYOS";
+    const SYSTEM_SHORT_NAME: &'static str = "myos";
     const RELEASE: &'static str = "";
     const VERSION: Version = Version::new(0, 0, 1, Self::RELEASE);
 
@@ -119,6 +119,7 @@ pub struct System {
     // screens
     main_screen: Option<Bitmap32<'static>>,
     em_console: EmConsole,
+    stdout: Option<Box<dyn Tty>>,
 
     // copy of boot info
     boot_flags: BootFlags,
@@ -140,6 +141,7 @@ impl System {
             boot_flags: BootFlags::empty(),
             main_screen: None,
             em_console: EmConsole::new(),
+            stdout: None,
             boot_vram: 0,
             boot_vram_stride: 0,
             initrd_base: 0,
@@ -346,8 +348,8 @@ impl System {
 
     #[inline]
     pub const fn em_console_font() -> &'static FixedFontDriver<'static> {
-        // FontManager::fixed_system_font()
-        FontManager::fixed_small_font()
+        FontManager::fixed_system_font()
+        // FontManager::fixed_small_font()
     }
 
     pub fn em_console<'a>() -> &'a mut EmConsole {
@@ -355,8 +357,14 @@ impl System {
         &mut shared.em_console
     }
 
-    pub fn stdout<'a>() -> &'a mut dyn Write {
-        Self::em_console()
+    pub fn set_stdout(stdout: Box<dyn Tty>) {
+        let shared = Self::shared();
+        shared.stdout = Some(stdout);
+    }
+
+    pub fn stdout<'a>() -> &'a mut Box<dyn Tty> {
+        let shared = Self::shared();
+        shared.stdout.as_mut().unwrap()
     }
 }
 

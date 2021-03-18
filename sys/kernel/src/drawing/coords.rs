@@ -424,28 +424,38 @@ impl Coordinates {
     }
 
     #[inline]
-    pub fn left_top(self) -> Point {
+    pub fn left_top(&self) -> Point {
         Point::new(self.left, self.top)
     }
 
     #[inline]
-    pub fn right_bottom(self) -> Point {
+    pub fn right_bottom(&self) -> Point {
         Point::new(self.right, self.bottom)
     }
 
     #[inline]
-    pub fn left_bottom(self) -> Point {
+    pub fn left_bottom(&self) -> Point {
         Point::new(self.left, self.bottom)
     }
 
     #[inline]
-    pub fn right_top(self) -> Point {
+    pub fn right_top(&self) -> Point {
         Point::new(self.right, self.top)
     }
 
     #[inline]
-    pub fn size(self) -> Size {
+    pub fn size(&self) -> Size {
         Size::new(self.right - self.left, self.bottom - self.top)
+    }
+
+    #[inline]
+    pub fn comprehensive(&self, other: Self) -> Self {
+        Self {
+            left: isize::min(self.left, other.left),
+            top: isize::min(self.top, other.top),
+            right: isize::max(self.right, other.right),
+            bottom: isize::max(self.bottom, other.bottom),
+        }
     }
 
     #[inline]
@@ -485,6 +495,20 @@ impl Coordinates {
             right,
             bottom,
         }
+    }
+}
+
+impl Add for Coordinates {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        self.comprehensive(rhs)
+    }
+}
+
+impl AddAssign for Coordinates {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = self.comprehensive(rhs)
     }
 }
 

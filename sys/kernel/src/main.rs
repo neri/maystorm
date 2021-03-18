@@ -10,10 +10,7 @@ use alloc::string::*;
 use alloc::vec::*;
 use bootprot::*;
 use core::fmt::Write;
-use core::time::Duration;
 use kernel::arch::cpu::*;
-use kernel::drawing::*;
-use kernel::fonts::*;
 use kernel::fs::*;
 use kernel::mem::string::*;
 use kernel::mem::*;
@@ -21,9 +18,13 @@ use kernel::rt::*;
 use kernel::system::*;
 use kernel::task::scheduler::*;
 use kernel::task::Task;
-use kernel::util::text::*;
-use kernel::window::*;
 use kernel::*;
+
+// use core::time::Duration;
+// use kernel::drawing::*;
+// use kernel::fonts::*;
+// use kernel::util::text::*;
+// use kernel::window::*;
 
 extern crate alloc;
 
@@ -52,102 +53,19 @@ impl Application {
         shared.path_ext.push("hrb".to_string());
         // shared.path_ext.push("bin".to_string());
 
-        // Scheduler::spawn_async(Task::new(Self::repl_main()));
-        Scheduler::spawn_async(Task::new(Self::console_main()));
+        Scheduler::spawn_async(Task::new(Self::repl_main()));
         Scheduler::perform_tasks();
     }
 
-    // async fn repl_main() {
-    //     Self::exec_cmd("ver");
+    async fn repl_main() {
+        Self::exec_cmd("ver");
 
-    //     loop {
-    //         print!("# ");
-    //         // if let Some(cmdline) = System::stdout().read_line_async(120).await {
-    //         //     Self::exec_cmd(&cmdline);
-    //         // }
-    //         Timer::sleep(Duration::from_secs(5));
-    //     }
-    // }
-
-    async fn console_main() {
-        let padding_x = 4;
-        let padding_y = 4;
-        let font = FontManager::system_font();
-        let bg_color = AmbiguousColor::from(IndexedColor::WHITE);
-        let fg_color = AmbiguousColor::from(IndexedColor::BLACK);
-
-        let window_rect = Rect::new(8, 40, 240, font.line_height() + padding_y * 2);
-        let window = WindowBuilder::new("Mini Console")
-            .style_add(WindowStyle::NAKED)
-            .frame(window_rect)
-            .bg_color(bg_color.into())
-            .build();
-        window.make_active();
-
-        let interval = 500;
-        window.create_timer(0, Duration::from_millis(0));
-        let mut sb = Sb255::new();
-        let mut cursor_phase = 0;
-        while let Some(message) = window.get_message().await {
-            match message {
-                WindowMessage::Activated | WindowMessage::Deactivated => {
-                    window.set_needs_display();
-                }
-                WindowMessage::Timer(_timer) => {
-                    cursor_phase ^= 1;
-                    window.create_timer(0, Duration::from_millis(interval));
-                    if window.is_active() {
-                        window.set_needs_display();
-                    }
-                }
-                WindowMessage::Char(c) => {
-                    match c {
-                        '\x08' => sb.backspace(),
-                        '\x0D' => {
-                            Self::exec_cmd(sb.as_str());
-                            sb.clear();
-                        }
-                        _ => {
-                            let _ = sb.write_char(c);
-                        }
-                    }
-                    window.set_needs_display();
-                }
-                WindowMessage::Draw => {
-                    window
-                        .draw(|bitmap| {
-                            let rect = Rect::new(
-                                padding_x,
-                                padding_y,
-                                bitmap.size().width() as isize - padding_x * 2,
-                                font.line_height(),
-                            );
-                            bitmap.fill_rect(rect, bg_color.into());
-                            TextProcessing::write_str(
-                                bitmap,
-                                sb.as_str(),
-                                font,
-                                Point::new(rect.x(), rect.y()),
-                                fg_color.into(),
-                            );
-                            if window.is_active() && cursor_phase == 1 {
-                                bitmap.fill_rect(
-                                    Rect::new(
-                                        rect.x() + font.width_of(' ') * sb.len() as isize,
-                                        rect.y(),
-                                        font.width_of(' '),
-                                        font.line_height(),
-                                    ),
-                                    fg_color,
-                                );
-                            }
-                        })
-                        .unwrap();
-                }
-                _ => window.handle_default_message(message),
+        loop {
+            print!("# ");
+            if let Some(cmdline) = System::stdout().read_line_async(120).await {
+                Self::exec_cmd(&cmdline);
             }
         }
-        unimplemented!()
     }
 
     fn exec_cmd(cmdline: &str) {
@@ -301,12 +219,10 @@ impl Application {
     }
 
     fn cmd_cls(_: &[&str]) -> isize {
-        // TODO:
-        // match System::stdout().reset() {
-        //     Ok(_) => 0,
-        //     Err(_) => 1,
-        // }
-        0
+        match System::stdout().reset() {
+            Ok(_) => 0,
+            Err(_) => 1,
+        }
     }
 
     fn cmd_ver(_: &[&str]) -> isize {
