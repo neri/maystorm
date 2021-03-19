@@ -154,16 +154,52 @@ impl Scheduler {
 
     /// Perform the preemption
     pub(crate) unsafe fn reschedule() {
-        if Self::is_enabled() {
-            Cpu::without_interrupts(|| {
-                let lsch = Self::local_scheduler().unwrap();
-                if lsch.current.as_ref().priority != Priority::Realtime {
-                    if lsch.current.update(|current| current.quantum.consume()) {
-                        LocalScheduler::switch_context(lsch);
-                    }
-                }
-            });
+        if !Self::is_enabled() {
+            return;
         }
+        Cpu::without_interrupts(|| {
+            let local = Self::local_scheduler().unwrap();
+            local.current.update_statistics();
+            let priority = local.current.as_ref().priority;
+            let shared = Self::shared();
+            if !shared.next_timer.until() {
+                shared.sem_timer.signal();
+            }
+            if priority == Priority::Realtime {
+                return;
+            }
+            if let Some(next) = shared.queue_realtime.dequeue() {
+                LocalScheduler::switch_context(local, next);
+            } else if let Some(next) = if priority < Priority::High {
+                shared.queue_higher.dequeue()
+            } else {
+                None
+            } {
+                LocalScheduler::switch_context(local, next);
+            } else if let Some(next) = if priority < Priority::Normal {
+                shared.queue_normal.dequeue()
+            } else {
+                None
+            } {
+                LocalScheduler::switch_context(local, next);
+            } else if let Some(next) = if priority < Priority::Low {
+                shared.queue_lower.dequeue()
+            } else {
+                None
+            } {
+                LocalScheduler::switch_context(local, next);
+            } else if local.current.update(|current| current.quantum.consume()) {
+                if let Some(next) = match priority {
+                    Priority::Idle => None,
+                    Priority::Low => shared.queue_lower.dequeue(),
+                    Priority::Normal => shared.queue_normal.dequeue(),
+                    Priority::High => shared.queue_higher.dequeue(),
+                    Priority::Realtime => None,
+                } {
+                    LocalScheduler::switch_context(local, next);
+                }
+            }
+        });
     }
 
     pub fn wait_for(object: Option<&SignallingObject>, duration: Duration) {
@@ -186,10 +222,11 @@ impl Scheduler {
     pub fn sleep() {
         unsafe {
             Cpu::without_interrupts(|| {
-                let lsch = Self::local_scheduler().unwrap();
-                let current = lsch.current;
+                let local = Self::local_scheduler().unwrap();
+                let current = local.current;
+                current.update_statistics();
                 current.as_ref().attribute.insert(ThreadAttributes::ASLEEP);
-                LocalScheduler::switch_context(lsch);
+                LocalScheduler::switch_context(local, Scheduler::next(local));
             });
         }
     }
@@ -197,8 +234,9 @@ impl Scheduler {
     pub fn yield_thread() {
         unsafe {
             Cpu::without_interrupts(|| {
-                let lsch = Self::local_scheduler().unwrap();
-                LocalScheduler::switch_context(lsch);
+                let local = Self::local_scheduler().unwrap();
+                local.current.update_statistics();
+                LocalScheduler::switch_context(local, Scheduler::next(local));
             });
         }
     }
@@ -215,40 +253,36 @@ impl Scheduler {
     }
 
     /// Get the next executable thread from the thread queue
-    fn next(index: ProcessorIndex) -> Option<ThreadHandle> {
+    fn next(scheduler: &LocalScheduler) -> ThreadHandle {
+        let index = scheduler.index;
         let shared = Self::shared();
         if shared.is_frozen.load(Ordering::SeqCst) {
-            return None;
+            return scheduler.idle;
         }
         match shared.state {
             SchedulerState::FullThrottle => (),
             SchedulerState::Saving => {
                 if index.0 != 0 {
-                    return None;
+                    return scheduler.idle;
                 }
             }
             _ => {
                 if System::cpu(index.0).processor_type() != ProcessorCoreType::Main {
-                    return None;
+                    return scheduler.idle;
                 }
             }
         }
-        if !shared.next_timer.until() {
-            shared.sem_timer.signal();
-        }
         if let Some(next) = shared.queue_realtime.dequeue() {
-            return Some(next);
+            next
+        } else if let Some(next) = shared.queue_higher.dequeue() {
+            next
+        } else if let Some(next) = shared.queue_normal.dequeue() {
+            next
+        } else if let Some(next) = shared.queue_lower.dequeue() {
+            next
+        } else {
+            scheduler.idle
         }
-        if let Some(next) = shared.queue_higher.dequeue() {
-            return Some(next);
-        }
-        if let Some(next) = shared.queue_normal.dequeue() {
-            return Some(next);
-        }
-        if let Some(next) = shared.queue_lower.dequeue() {
-            return Some(next);
-        }
-        None
     }
 
     fn enqueue(&mut self, handle: ThreadHandle) {
@@ -310,7 +344,7 @@ impl Scheduler {
     fn scheduler_thread(_args: usize) {
         let shared = Self::shared();
 
-        SpawnOption::with_priority(Priority::High).spawn_f(
+        SpawnOption::with_priority(Priority::Realtime).spawn_f(
             Self::statistics_thread,
             0,
             "Statistics",
@@ -542,39 +576,30 @@ impl LocalScheduler {
         })
     }
 
-    unsafe fn switch_context(lsch: &'static mut Self) {
+    unsafe fn switch_context(scheduler: &'static mut Self, next: ThreadHandle) {
         Cpu::assert_without_interrupt();
 
-        let current = lsch.current;
-        let next = Scheduler::next(lsch.index).unwrap_or(lsch.idle);
-        current.update(|thread| {
-            let now = Timer::measure().0;
-            let diff = now - thread.measure.load(Ordering::SeqCst);
-            thread.cpu_time.fetch_add(diff, Ordering::SeqCst);
-            thread.load0.fetch_add(diff as u32, Ordering::SeqCst);
-            thread.measure.store(now, Ordering::SeqCst);
-        });
+        let current = scheduler.current;
         if current.as_ref().handle != next.as_ref().handle {
-            lsch.retired = Some(current);
-            lsch.current = next;
-
+            scheduler.retired = Some(current);
+            scheduler.current = next;
             //-//-//-//-//
-            current.update(|current| {
-                let next = &next.as_ref().context;
+            let next = &next.as_ref().context;
+            current.update(move |current| {
                 current.context.switch(next);
             });
             //-//-//-//-//
+            let scheduler = Scheduler::local_scheduler().unwrap();
+            let current = scheduler.current;
 
-            let lsch = Scheduler::local_scheduler().unwrap();
-            let current = lsch.current;
             current.update(|thread| {
                 thread.attribute.remove(ThreadAttributes::AWAKE);
                 thread.attribute.remove(ThreadAttributes::ASLEEP);
                 thread.measure.store(Timer::measure().0, Ordering::SeqCst);
                 // thread.quantum.reset();
             });
-            let retired = lsch.retired.unwrap();
-            lsch.retired = None;
+            let retired = scheduler.retired.unwrap();
+            scheduler.retired = None;
             Scheduler::retire(retired);
         }
     }
@@ -995,6 +1020,16 @@ impl ThreadHandle {
         self.get().map(|t| t.sem.wait());
         0
     }
+
+    fn update_statistics(&self) {
+        self.update(|thread| {
+            let now = Timer::measure().0;
+            let then = thread.measure.swap(now, Ordering::SeqCst);
+            let diff = now - then;
+            thread.cpu_time.fetch_add(diff, Ordering::SeqCst);
+            thread.load0.fetch_add(diff as u32, Ordering::SeqCst);
+        });
+    }
 }
 
 const THREAD_NAME_LENGTH: usize = 32;
@@ -1213,12 +1248,17 @@ impl From<SignallingObject> for usize {
 struct ThreadQueue(ArrayQueue<NonZeroUsize>);
 
 impl ThreadQueue {
+    #[inline]
     fn with_capacity(capacity: usize) -> Self {
         Self(ArrayQueue::new(capacity))
     }
+
+    #[inline]
     fn dequeue(&self) -> Option<ThreadHandle> {
         self.0.pop().map(|v| ThreadHandle(v))
     }
+
+    #[inline]
     fn enqueue(&self, data: ThreadHandle) -> Result<(), ()> {
         self.0.push(data.0).map_err(|_| ())
     }

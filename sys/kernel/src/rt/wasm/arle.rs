@@ -260,7 +260,7 @@ impl ArleRuntime {
                         size: src.size(),
                     };
                     let _ = window.draw_in_rect(rect, |bitmap| {
-                        bitmap.blt(&src, origin, src.size().into());
+                        bitmap.blt(&src, Point::default(), src.size().into());
                     });
                     window.set_needs_display();
                 }

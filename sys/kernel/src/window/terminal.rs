@@ -62,9 +62,8 @@ pub struct Terminal {
 
 impl Terminal {
     pub fn new(cols: usize, rows: usize) -> Self {
-        let font = 
-        // FontDescriptor::new(FontFamily::SmallFixed, 0).unwrap();
-        FontManager::system_font();
+        let font = FontDescriptor::new(FontFamily::SmallFixed, 0).unwrap();
+        // FontManager::system_font();
         let insets = DEFAULT_INSETS;
         let attribute = DEFAULT_ATTRIBUTE;
         let (fg_color, bg_color) = Self::split_attr(attribute);
@@ -236,7 +235,7 @@ impl TtyWrite for Terminal {
                 bitmap.fill_rect(bitmap.bounds(), self.bg_color);
             })
             .unwrap();
-            self.set_cursor_position(0, 0);
+        self.set_cursor_position(0, 0);
         self.window.set_needs_display();
         Ok(())
     }
