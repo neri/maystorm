@@ -140,7 +140,7 @@ impl System {
             acpi: None,
             boot_flags: BootFlags::empty(),
             main_screen: None,
-            em_console: EmConsole::new(),
+            em_console: EmConsole::new(FontManager::fixed_system_font()),
             stdout: None,
             boot_vram: 0,
             boot_vram_stride: 0,
@@ -160,8 +160,6 @@ impl System {
         }
         // shared.boot_flags.insert(BootFlags::HEADLESS);
 
-        mem::MemoryManager::init_first(&info);
-
         let width = info.screen_width as isize;
         let height = info.screen_height as isize;
         let stride = info.vram_stride as usize;
@@ -170,6 +168,8 @@ impl System {
             Size::new(width, height),
             stride,
         ));
+
+        mem::MemoryManager::init_first(&info);
 
         shared.acpi = Some(Box::new(
             acpi::AcpiTables::from_rsdp(MyAcpiHandler::new(), info.acpi_rsdptr as usize).unwrap(),
@@ -186,13 +186,13 @@ impl System {
 
         bus::pci::Pci::init();
 
-        Scheduler::start(Self::init_late, f as usize);
+        Scheduler::start(Self::late_init, f as usize);
     }
 
-    fn init_late(args: usize) {
+    fn late_init(args: usize) {
         let shared = Self::shared();
         unsafe {
-            mem::MemoryManager::init_late();
+            mem::MemoryManager::late_init();
 
             fs::Fs::init(shared.initrd_base, shared.initrd_size);
 
@@ -204,7 +204,7 @@ impl System {
             }
 
             io::hid::HidManager::init();
-            arch::Arch::init_late();
+            arch::Arch::late_init();
 
             user::userenv::UserEnv::start(core::mem::transmute(args));
         }
@@ -346,12 +346,6 @@ impl System {
         shared.main_screen.as_mut().unwrap().into()
     }
 
-    #[inline]
-    pub const fn em_console_font() -> &'static FixedFontDriver<'static> {
-        FontManager::fixed_system_font()
-        // FontManager::fixed_small_font()
-    }
-
     pub fn em_console<'a>() -> &'a mut EmConsole {
         let shared = Self::shared();
         &mut shared.em_console
@@ -385,7 +379,7 @@ impl MyAcpiHandler {
     }
 }
 
-use ::acpi::PhysicalMapping;
+use acpi::PhysicalMapping;
 impl ::acpi::AcpiHandler for MyAcpiHandler {
     unsafe fn map_physical_region<T>(
         &self,

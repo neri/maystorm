@@ -77,23 +77,6 @@ impl Cpu {
     }
 
     pub(crate) unsafe fn new(apic_id: ProcessorId) -> Box<Self> {
-        let gdt = GlobalDescriptorTable::new();
-
-        let core_type;
-        if (apic_id.as_u32() & Self::shared().smt_topology) != 0 {
-            core_type = ProcessorCoreType::Sub;
-        } else {
-            core_type = ProcessorCoreType::Main;
-        }
-
-        let cpu = Box::new(Cpu {
-            cpu_index: ProcessorIndex(0),
-            cpu_id: apic_id,
-            core_type,
-            gdt,
-            tsc_base: 0,
-        });
-
         // Currently force disabling SSE
         asm!("
             mov {0}, cr4
@@ -101,7 +84,22 @@ impl Cpu {
             mov cr4, {0}
             ", out(reg) _);
 
-        cpu
+        let gdt = GlobalDescriptorTable::new();
+
+        let core_type;
+        if (apic_id.as_u32() & Self::shared().smt_topology) == 0 {
+            core_type = ProcessorCoreType::Main;
+        } else {
+            core_type = ProcessorCoreType::Sub;
+        }
+
+        Box::new(Cpu {
+            cpu_index: ProcessorIndex(0),
+            cpu_id: apic_id,
+            core_type,
+            gdt,
+            tsc_base: 0,
+        })
     }
 
     #[inline]

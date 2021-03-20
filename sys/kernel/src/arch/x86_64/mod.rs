@@ -27,8 +27,8 @@ impl Arch {
         rtc::Rtc::init();
     }
 
-    pub unsafe fn init_late() {
-        ComPort::init_late();
+    pub unsafe fn late_init() {
+        ComPort::late_init();
         let _ = ps2::Ps2::init();
     }
 

@@ -467,17 +467,15 @@ impl LocalApic {
     unsafe fn init(base: usize) {
         LOCAL_APIC = Mmio::from_phys(base, 0x1000).ok();
 
-        let msr = Msr::ApicBase;
-        let val = msr.read();
-        msr.write(
-            (val & Self::IA32_APIC_BASE_MSR_BSP)
-                | ((base as u64 & !0xFFF) | Self::IA32_APIC_BASE_MSR_ENABLE),
+        Msr::ApicBase.write(
+            (base as u64 & !0xFFF) | Self::IA32_APIC_BASE_MSR_ENABLE | Self::IA32_APIC_BASE_MSR_BSP,
         );
     }
 
     unsafe fn init_ap() -> ProcessorId {
-        Msr::ApicBase
-            .write(LOCAL_APIC.as_ref().unwrap().base() as u64 | Self::IA32_APIC_BASE_MSR_ENABLE);
+        Msr::ApicBase.write(
+            LOCAL_APIC.as_ref().unwrap() as *const _ as u64 | Self::IA32_APIC_BASE_MSR_ENABLE,
+        );
 
         let apicid = LocalApic::current_processor_id();
 

@@ -159,8 +159,9 @@ impl Scheduler {
         }
         Cpu::without_interrupts(|| {
             let local = Self::local_scheduler().unwrap();
-            local.current.update_statistics();
-            let priority = local.current.as_ref().priority;
+            let current = local.current;
+            current.update_statistics();
+            let priority = current.as_ref().priority;
             let shared = Self::shared();
             if !shared.next_timer.until() {
                 shared.sem_timer.signal();
@@ -188,7 +189,7 @@ impl Scheduler {
                 None
             } {
                 LocalScheduler::switch_context(local, next);
-            } else if local.current.update(|current| current.quantum.consume()) {
+            } else if current.update(|current| current.quantum.consume()) {
                 if let Some(next) = match priority {
                     Priority::Idle => None,
                     Priority::Low => shared.queue_lower.dequeue(),

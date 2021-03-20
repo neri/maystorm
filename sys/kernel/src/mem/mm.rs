@@ -59,7 +59,7 @@ impl MemoryManager {
         shared.slab = Some(Box::new(SlabAllocator::new()));
     }
 
-    pub(crate) unsafe fn init_late() {
+    pub(crate) unsafe fn late_init() {
         // SpawnOption::with_priority(Priority::Realtime).spawn(Self::page_thread, 0, "Page");
     }
 

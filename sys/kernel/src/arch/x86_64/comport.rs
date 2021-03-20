@@ -37,7 +37,7 @@ impl ComPort {
         COM_PORTS.first()
     }
 
-    pub unsafe fn init_late() {
+    pub unsafe fn late_init() {
         if COM_PORTS.len() == 0 {
             Self::init_first();
         }

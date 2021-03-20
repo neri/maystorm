@@ -14,13 +14,13 @@ pub struct EmConsole {
 }
 
 impl EmConsole {
-    pub const fn new() -> Self {
+    pub const fn new(font: &'static FixedFontDriver<'static>) -> Self {
         Self {
             x: 0,
             y: 0,
             fg_color: IndexedColor::WHITE,
             bg_color: IndexedColor::BLUE,
-            font: System::em_console_font(),
+            font,
         }
     }
 
