@@ -191,7 +191,7 @@ async fn activity_monitor_main() {
 
     let font = FontDescriptor::new(FontFamily::SmallFixed, 8).unwrap_or(FontManager::system_font());
 
-    let num_of_cpus = System::num_of_cpus();
+    let num_of_cpus = System::num_of_active_cpus();
     let n_items = 64;
     let mut usage_temp = Vec::with_capacity(num_of_cpus);
     let mut usage_cursor = 0;

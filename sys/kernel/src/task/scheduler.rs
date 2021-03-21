@@ -693,9 +693,16 @@ impl Timer {
 
     #[inline]
     pub fn new(duration: Duration) -> Self {
-        let timer = unsafe { TIMER_SOURCE.as_ref().unwrap() };
+        let timer = Self::timer_source();
         Timer {
             deadline: timer.create(duration.into()),
+        }
+    }
+
+    pub fn epsilon() -> Self {
+        let timer = Self::timer_source();
+        Timer {
+            deadline: timer.create(TimeSpec::EPSILON),
         }
     }
 
@@ -709,14 +716,28 @@ impl Timer {
         if self.is_just() {
             false
         } else {
-            let timer = unsafe { TIMER_SOURCE.as_ref().unwrap() };
+            let timer = Self::timer_source();
             timer.until(self.deadline)
+        }
+    }
+
+    #[inline]
+    pub fn repeat_until<F>(&self, mut f: F)
+    where
+        F: FnMut(),
+    {
+        while self.until() {
+            f()
         }
     }
 
     #[inline]
     pub(crate) unsafe fn set_timer(source: Box<dyn TimerSource>) {
         TIMER_SOURCE = Some(source);
+    }
+
+    fn timer_source<'a>() -> &'a Box<dyn TimerSource> {
+        unsafe { TIMER_SOURCE.as_ref().unwrap() }
     }
 
     #[track_caller]
@@ -775,6 +796,10 @@ impl Timer {
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TimeSpec(pub usize);
+
+impl TimeSpec {
+    pub const EPSILON: Self = Self(1);
+}
 
 impl Add<TimeSpec> for TimeSpec {
     type Output = Self;

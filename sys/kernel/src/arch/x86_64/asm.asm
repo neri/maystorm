@@ -354,17 +354,11 @@ _smp_rm_payload:
     mov ebx, SMPINFO
 
     ; acquire a temporary core-id
-    mov ax, [bx]
-    mov cx, [bx + SMPINFO_MAX_CPU]
-.loop:
-    cmp ax, cx
+    mov ax, 1
+    lock xadd [bx], ax
+    cmp ax, [bx + SMPINFO_MAX_CPU]
     jae .fail
-    mov dx, ax
-    inc dx
-    lock cmpxchg [bx], dx
-    jz .core_ok
-    pause
-    jmp short .loop
+    jmp .core_ok
 .fail:
 .forever:
     hlt

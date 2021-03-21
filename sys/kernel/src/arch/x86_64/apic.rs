@@ -160,21 +160,15 @@ impl Apic {
         LocalApic::set_timer_div(LocalApicTimerDivide::By1);
         if let Ok(hpet_info) = acpi::HpetInfo::new(System::acpi()) {
             // Use HPET
-            let hpet = Hpet::new(&hpet_info);
+            Timer::set_timer(Hpet::new(&hpet_info));
+
             let magic_number = 100;
-            let deadline0 = hpet.create(TimeSpec(1));
-            while hpet.until(deadline0) {
-                Cpu::spin_loop_hint();
-            }
-            let deadline1 =
-                hpet.create(hpet.from_duration(Duration::from_micros(100_0000 / magic_number)));
+            Timer::epsilon().repeat_until(|| Cpu::spin_loop_hint());
+            let timer = Timer::new(Duration::from_micros(100_0000 / magic_number));
             LocalApic::TimerInitialCount.write(u32::MAX);
-            while hpet.until(deadline1) {
-                Cpu::spin_loop_hint();
-            }
+            timer.repeat_until(|| Cpu::spin_loop_hint());
             let count = LocalApic::TimerCurrentCount.read() as u64;
             APIC.lapic_timer_value = ((u32::MAX as u64 - count) * magic_number / 1000) as u32;
-            Timer::set_timer(hpet);
         } else {
             panic!("No Reference Timer found");
         }
@@ -194,22 +188,15 @@ impl Apic {
         asm_apic_setup_sipi(sipi_vec, max_cpu, stack_chunk_size, stack_base);
 
         LocalApic::broadcast_init();
-        let timer = Timer::new(Duration::from_millis(10));
-        while timer.until() {
-            Cpu::halt();
-        }
+        Timer::new(Duration::from_millis(10)).repeat_until(|| Cpu::halt());
         LocalApic::broadcast_startup(sipi_vec);
-        let timer = Timer::new(Duration::from_millis(200));
-        while timer.until() {
-            let timer = Timer::new(Duration::from_millis(5));
-            while timer.until() {
-                Cpu::halt();
-            }
+        let deadline = Timer::new(Duration::from_millis(200));
+        while deadline.until() {
+            Timer::new(Duration::from_millis(5)).repeat_until(|| Cpu::halt());
             if System::num_of_active_cpus() == max_cpu {
                 break;
             }
         }
-
         if System::num_of_active_cpus() != max_cpu {
             panic!("Some of application processors are not responding");
         }
@@ -473,9 +460,8 @@ impl LocalApic {
     }
 
     unsafe fn init_ap() -> ProcessorId {
-        Msr::ApicBase.write(
-            LOCAL_APIC.as_ref().unwrap() as *const _ as u64 | Self::IA32_APIC_BASE_MSR_ENABLE,
-        );
+        Msr::ApicBase
+            .write(LOCAL_APIC.as_ref().unwrap().base() as u64 | Self::IA32_APIC_BASE_MSR_ENABLE);
 
         let apicid = LocalApic::current_processor_id();
 

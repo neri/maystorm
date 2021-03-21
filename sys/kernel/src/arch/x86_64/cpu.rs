@@ -86,12 +86,11 @@ impl Cpu {
 
         let gdt = GlobalDescriptorTable::new();
 
-        let core_type;
-        if (apic_id.as_u32() & Self::shared().smt_topology) == 0 {
-            core_type = ProcessorCoreType::Main;
+        let core_type = if (apic_id.as_u32() & Self::shared().smt_topology) == 0 {
+            ProcessorCoreType::Main
         } else {
-            core_type = ProcessorCoreType::Sub;
-        }
+            ProcessorCoreType::Sub
+        };
 
         Box::new(Cpu {
             cpu_index: ProcessorIndex(0),
