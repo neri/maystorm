@@ -123,8 +123,6 @@ pub struct System {
 
     // copy of boot info
     boot_flags: BootFlags,
-    boot_vram: usize,
-    boot_vram_stride: usize,
     initrd_base: usize,
     initrd_size: usize,
 }
@@ -142,31 +140,24 @@ impl System {
             main_screen: None,
             em_console: EmConsole::new(FontManager::fixed_system_font()),
             stdout: None,
-            boot_vram: 0,
-            boot_vram_stride: 0,
             initrd_base: 0,
             initrd_size: 0,
         }
     }
 
+    /// Init the system
     pub unsafe fn init(info: &BootInfo, f: fn() -> ()) -> ! {
         let shared = &mut SYSTEM;
-        shared.boot_vram = info.vram_base as usize;
-        shared.boot_vram_stride = info.vram_stride as usize;
         shared.boot_flags = info.flags;
         if shared.boot_flags.contains(BootFlags::INITRD_EXISTS) {
             shared.initrd_base = info.initrd_base as usize;
             shared.initrd_size = info.initrd_size as usize;
         }
-        // shared.boot_flags.insert(BootFlags::HEADLESS);
 
-        let width = info.screen_width as isize;
-        let height = info.screen_height as isize;
-        let stride = info.vram_stride as usize;
         shared.main_screen = Some(Bitmap32::from_static(
             info.vram_base as usize as *mut TrueColor,
-            Size::new(width, height),
-            stride,
+            Size::new(info.screen_width as isize, info.screen_height as isize),
+            info.vram_stride as usize,
         ));
 
         mem::MemoryManager::init_first(&info);
@@ -204,25 +195,10 @@ impl System {
             }
 
             io::hid::HidManager::init();
+
             arch::Arch::late_init();
 
             user::userenv::UserEnv::start(core::mem::transmute(args));
-        }
-    }
-
-    #[inline]
-    pub fn debug_tick() {
-        let shared = Self::shared();
-        static mut DEBUG_PTR: usize = 0;
-        if shared.boot_flags.contains(BootFlags::DEBUG_MODE) {
-            unsafe {
-                if DEBUG_PTR == 0 {
-                    DEBUG_PTR = shared.boot_vram_stride * 6 + 6;
-                }
-                let vram = shared.boot_vram as *mut u32;
-                vram.add(DEBUG_PTR).write_volatile(0xCCCCCC);
-                DEBUG_PTR += 4;
-            }
         }
     }
 

@@ -10,6 +10,7 @@ static mut CONSOLE: DebugConsole = DebugConsole::new();
 
 static BIT_MASKS: [u8; 8] = [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
 
+#[allow(dead_code)]
 pub struct DebugConsole {
     base: usize,
     width: usize,

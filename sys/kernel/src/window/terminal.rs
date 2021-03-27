@@ -14,24 +14,31 @@ use core::task::{Context, Poll};
 const DEFAULT_INSETS: EdgeInsets = EdgeInsets::new(4, 4, 4, 4);
 const DEFAULT_ATTRIBUTE: u8 = 0xF0;
 
-// static mut TA: TerminalAgent = TerminalAgent::new();
+static mut TA: TerminalAgent = TerminalAgent::new();
 
 pub struct TerminalAgent {
-    //
+    n_instances: usize,
 }
 
 impl TerminalAgent {
-    // const fn new() -> Self {
-    //     Self {}
-    // }
+    const fn new() -> Self {
+        Self { n_instances: 0 }
+    }
 
     // pub(crate) unsafe fn init() {
     //     SpawnOption::new().spawn(Self::console_thread, 0, "TerminalAgent");
     // }
 
-    // fn shared<'a>() -> &'a Self {
-    //     unsafe { &TA }
-    // }
+    fn shared<'a>() -> &'a mut Self {
+        unsafe { &mut TA }
+    }
+
+    fn next_instance() -> usize {
+        let shared = Self::shared();
+        let r = shared.n_instances;
+        shared.n_instances = r + 1;
+        r
+    }
 
     // fn console_thread(_: usize) {
     //     let shared = Self::shared();
@@ -62,20 +69,30 @@ pub struct Terminal {
 
 impl Terminal {
     pub fn new(cols: usize, rows: usize) -> Self {
-        let font = FontDescriptor::new(FontFamily::SmallFixed, 0).unwrap();
-        // FontManager::system_font();
+        let font = if false {
+            FontManager::system_font()
+        } else {
+            FontDescriptor::new(FontFamily::SmallFixed, 0).unwrap()
+        };
         let insets = DEFAULT_INSETS;
         let attribute = DEFAULT_ATTRIBUTE;
         let (fg_color, bg_color) = Self::split_attr(attribute);
 
+        let n_instances = TerminalAgent::next_instance();
+        let screen_insets = WindowManager::screen_insets();
+        let window_size = Size::new(
+            font.width_of(' ') * cols as isize,
+            font.line_height() * rows as isize,
+        ) + insets;
+
         let window = WindowBuilder::new("Terminal")
             .style_add(WindowStyle::NAKED)
-            .size(
-                Size::new(
-                    font.width_of(' ') * cols as isize,
-                    font.line_height() * rows as isize,
-                ) + insets,
-            )
+            .frame(Rect::new(
+                screen_insets.left + 8 + 24 * n_instances as isize,
+                screen_insets.top + 8 + 24 * n_instances as isize,
+                window_size.width,
+                window_size.height,
+            ))
             .bg_color(bg_color)
             .build();
         window.make_active();

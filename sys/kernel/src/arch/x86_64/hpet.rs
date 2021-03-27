@@ -50,14 +50,6 @@ impl Hpet {
 }
 
 impl TimerSource for Hpet {
-    fn create(&self, duration: TimeSpec) -> TimeSpec {
-        self.measure() + duration
-    }
-
-    fn until(&self, deadline: TimeSpec) -> bool {
-        deadline > self.measure()
-    }
-
     fn measure(&self) -> TimeSpec {
         TimeSpec((unsafe { self.read(0xF0) } / self.measure_div) as usize)
     }

@@ -5,9 +5,11 @@ EFI_ARCH	= x86_64-unknown-uefi
 EFI_SUFFIX	= x64
 MNT			= ./mnt
 EFI_BOOT	= $(MNT)/efi/boot
-KERNEL_BIN	= $(EFI_BOOT)/kernel.bin
-BOOT_EFI	= $(EFI_BOOT)/boot$(EFI_SUFFIX).efi
-INITRD_IMG	= $(EFI_BOOT)/initrd.img
+EFI_VENDOR	= $(MNT)/efi/megos
+KERNEL_BIN	= $(EFI_VENDOR)/kernel.bin
+BOOT_EFI1	= $(EFI_BOOT)/boot$(EFI_SUFFIX).efi
+BOOT_EFI2	= $(EFI_VENDOR)/boot$(EFI_SUFFIX).efi
+INITRD_IMG	= $(EFI_VENDOR)/initrd.img
 TARGET_KERNEL	= sys/target/$(KRNL_ARCH)/release/kernel.efi
 TARGET_BOOT_EFI	= boot/target/$(EFI_ARCH)/release/boot-efi.efi
 TARGET_ISO	= var/myos.iso
@@ -31,23 +33,27 @@ $(TARGET_BOOT_EFI): boot/boot-efi/* boot/boot-efi/src/* boot/boot-efi/src/**/*
 $(EFI_BOOT):
 	mkdir -p $(EFI_BOOT)
 
+$(EFI_VENDOR):
+	mkdir -p $(EFI_VENDOR)
+
 run: install $(OVMF)
 	qemu-system-x86_64 -cpu max -smp 4 -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -rtc base=localtime,clock=host -monitor stdio -device nec-usb-xhci,id=xhci
 
-runs: install $(OVMF)
-	qemu-system-x86_64 -cpu max -smp 4 -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -nographic
+# runs: install $(OVMF)
+# 	qemu-system-x86_64 -cpu max -smp 4 -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -nographic
 
-install: $(KERNEL_BIN) $(BOOT_EFI)
+install: $(KERNEL_BIN) $(BOOT_EFI1)
 	mcopy -D o -i $(INITRD_IMG) apps/target/wasm32-unknown-unknown/release/*.wasm ::
 
 iso: install
 	mkisofs -r -J -o $(TARGET_ISO) $(MNT)
 
-$(KERNEL_BIN): $(TARGET_KERNEL) $(EFI_BOOT)
+$(KERNEL_BIN): $(TARGET_KERNEL) $(EFI_VENDOR)
 	cp $< $@
 
-$(BOOT_EFI): $(TARGET_BOOT_EFI) $(EFI_BOOT)
+$(BOOT_EFI1): $(TARGET_BOOT_EFI) $(EFI_BOOT) $(EFI_VENDOR)
 	cp $< $@
+	cp $< $(BOOT_EFI2)
 
 apps:
 	cd apps; cargo build --target wasm32-unknown-unknown --release

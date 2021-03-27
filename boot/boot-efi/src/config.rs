@@ -4,8 +4,8 @@ use crate::page::*;
 use serde::Deserialize;
 use serde_json_core::*;
 
-#[serde(deny_unknown_fields)]
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BootSettings {
     #[serde(default = "default_kernel")]
     kernel: &'static str,
@@ -30,11 +30,11 @@ pub struct BootSettings {
 }
 
 fn default_kernel() -> &'static str {
-    "/EFI/BOOT/kernel.bin"
+    "/EFI/MEGOS/kernel.bin"
 }
 
 fn default_initrd() -> &'static str {
-    "/EFI/BOOT/initrd.img"
+    "/EFI/MEGOS/initrd.img"
 }
 
 fn default_cmdline() -> &'static str {
@@ -52,7 +52,7 @@ impl Default for BootSettings {
 }
 
 impl BootSettings {
-    pub const DEFAULT_CONFIG_PATH: &'static str = "/EFI/BOOT/config.json";
+    pub const DEFAULT_CONFIG_PATH: &'static str = "/EFI/MEGOS/config.json";
 
     const DEFAULT_JSON: &'static str = r#"{}"#;
 

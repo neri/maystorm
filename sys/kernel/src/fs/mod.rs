@@ -1,6 +1,6 @@
 // File System
 pub mod fatfs;
-pub mod fs;
+mod fs;
 pub mod ramdisk;
 
 pub use fs::*;

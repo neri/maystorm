@@ -669,15 +669,10 @@ impl SpawnOption {
 static mut TIMER_SOURCE: Option<Box<dyn TimerSource>> = None;
 
 pub trait TimerSource {
-    /// Create timer object from duration
-    fn create(&self, duration: TimeSpec) -> TimeSpec;
-
-    /// Is that a timer before the deadline?
-    fn until(&self, deadline: TimeSpec) -> bool;
-
     fn measure(&self) -> TimeSpec;
 
     fn from_duration(&self, val: Duration) -> TimeSpec;
+
     fn to_duration(&self, val: TimeSpec) -> Duration;
 }
 
@@ -695,14 +690,14 @@ impl Timer {
     pub fn new(duration: Duration) -> Self {
         let timer = Self::timer_source();
         Timer {
-            deadline: timer.create(duration.into()),
+            deadline: timer.measure() + duration.into(),
         }
     }
 
     pub fn epsilon() -> Self {
         let timer = Self::timer_source();
         Timer {
-            deadline: timer.create(TimeSpec::EPSILON),
+            deadline: timer.measure() + TimeSpec::EPSILON,
         }
     }
 
@@ -717,7 +712,7 @@ impl Timer {
             false
         } else {
             let timer = Self::timer_source();
-            timer.until(self.deadline)
+            self.deadline > timer.measure()
         }
     }
 
@@ -774,7 +769,7 @@ impl Timer {
 
     #[inline]
     pub fn measure() -> TimeSpec {
-        unsafe { TIMER_SOURCE.as_ref() }.unwrap().measure()
+        Self::timer_source().measure()
     }
 
     #[inline]
@@ -784,12 +779,12 @@ impl Timer {
 
     #[inline]
     fn timespec_to_duration(val: TimeSpec) -> Duration {
-        unsafe { TIMER_SOURCE.as_ref() }.unwrap().to_duration(val)
+        Self::timer_source().to_duration(val)
     }
 
     #[inline]
     fn duration_to_timespec(val: Duration) -> TimeSpec {
-        unsafe { TIMER_SOURCE.as_ref() }.unwrap().from_duration(val)
+        Self::timer_source().from_duration(val)
     }
 }
 
