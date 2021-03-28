@@ -8,7 +8,7 @@ version = "0.1.0"
 
 [dependencies]
 bitflags = "1"
-bootprot = {path = "../../common/bootprot"}
+bootprot = {path = "../../lib/bootprot"}
 byteorder = {version = "1", default-features = false}
 rlibc = "1.0.0"
 serde = {version = "1", default-features = false, features = ["derive"]}

@@ -1,7 +1,6 @@
 // Haribote-OS Emulator
 
 use super::*;
-use crate::drawing::*;
 use crate::fs::*;
 use crate::mem::MemoryManager;
 use crate::window::*;
@@ -10,6 +9,7 @@ use alloc::boxed::Box;
 use core::ptr::*;
 use core::time::Duration;
 use core::{slice, str};
+use megstd::drawing::*;
 
 include!("hankaku.rs");
 
@@ -227,14 +227,14 @@ impl Hoe {
             23 => {
                 // seek
                 self.get_file(regs.eax).map(|file| {
-                    file.seek(regs.ebx as i32 as isize, regs.ecx.into());
+                    file.seek(regs.ebx as i32 as isize, Whence::from(regs.ecx as usize));
                 });
             }
             24 => {
                 // get size
                 // SAFETY: Undefined return value when a handle is invalid
                 self.get_file(regs.eax).map(|file| {
-                    regs.eax = file.get_file_size(regs.ecx.into()) as u32;
+                    regs.eax = file.get_file_size(Whence::from(regs.ecx as usize)) as u32;
                 });
             }
             25 => {
@@ -758,89 +758,30 @@ impl HoeTimer {
     }
 }
 
-struct HoeFile {
-    fs: &'static Box<dyn FileSystem>,
-    buffer: Vec<u8>,
-    inode: INodeType,
-    block_size: usize,
-    file_pos: usize,
-    file_size: usize,
-}
+struct HoeFile(FsRawFileControlBlock);
 
 impl HoeFile {
     fn open(name: &str) -> Option<Self> {
-        Fs::find_file(name).map(|(fs, inode)| {
-            let stat = fs.stat(inode).unwrap();
-            let mut buffer = Vec::with_capacity(stat.block_size);
-            buffer.resize(stat.block_size, 0);
-            Self {
-                fs,
-                buffer,
-                inode,
-                block_size: stat.block_size,
-                file_pos: 0,
-                file_size: stat.file_size,
-            }
-        })
+        FileManager::open(name).ok().map(Self)
     }
 
     fn seek(&mut self, offset: isize, whence: Whence) {
-        match whence {
-            Whence::SeekSet => self.file_pos = offset as usize,
-            Whence::SeekCur => self.file_pos = (self.file_pos as isize + offset) as usize,
-            Whence::SeekEnd => self.file_pos = (self.file_size as isize + offset) as usize,
-        }
+        self.0.lseek(offset as OffsetType, whence);
     }
 
-    fn get_file_size(&self, whence: Whence) -> usize {
+    fn get_file_size(&mut self, whence: Whence) -> usize {
+        let file_pos = self.0.lseek(0, Whence::SeekCur);
+        let file_size = self.0.lseek(0, Whence::SeekEnd);
+        self.0.lseek(file_pos, Whence::SeekSet);
         match whence {
-            Whence::SeekSet => self.file_size as usize,
-            Whence::SeekCur => self.file_pos as usize,
-            Whence::SeekEnd => (self.file_pos - self.file_size) as usize,
+            Whence::SeekSet => file_size as usize,
+            Whence::SeekCur => file_pos as usize,
+            Whence::SeekEnd => (file_pos - file_size) as usize,
         }
     }
 
     fn read(&mut self, ptr: usize, size: u32) -> u32 {
-        if self.file_pos >= self.file_size {
-            return 0;
-        }
-
-        let mut result = 0;
-        let mut index = self.file_pos / self.block_size;
-        let mut rest = usize::min(size as usize, self.file_size - self.file_pos);
-        let dest = unsafe { slice::from_raw_parts_mut(ptr as *mut u8, rest) };
-
-        let offset = self.file_pos % self.block_size;
-        if offset > 0 || rest < self.block_size {
-            self.fs.x_read(self.inode, index, 1, &mut self.buffer);
-            let size = usize::min(rest, self.block_size - offset);
-            for (i, d) in self.buffer[offset..offset + size].iter().enumerate() {
-                dest[i] = *d;
-            }
-            index += 1;
-            rest -= size;
-            result += size;
-        }
-        if rest > 0 {
-            let count = rest / self.block_size;
-            if count > 0 {
-                let len = count * self.block_size;
-                self.fs
-                    .x_read(self.inode, index, count, &mut dest[result..]);
-                index += count;
-                rest -= len;
-                result += len;
-            }
-            if rest > 0 {
-                self.fs.x_read(self.inode, index, 1, &mut self.buffer);
-                for d in self.buffer[..rest].iter() {
-                    dest[result] = *d;
-                    result += 1;
-                }
-            }
-        }
-
-        self.file_pos += result;
-        result as u32
+        let dest = unsafe { slice::from_raw_parts_mut(ptr as *mut u8, size as usize) };
+        self.0.read(dest).map(|v| v as u32).unwrap_or(0)
     }
 }

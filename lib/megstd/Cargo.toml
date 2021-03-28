@@ -1,10 +1,10 @@
 [package]
 authors = ["Nerry <108566+neri@users.noreply.github.com>"]
 edition = "2018"
-name = "myoslib"
+name = "megstd"
 version = "0.1.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-myosabi = {path = "../../lib/myosabi"}
+bitflags = "1.2.1"

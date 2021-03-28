@@ -1,0 +1,12 @@
+[workspace]
+members = [
+  "elf2ceef",
+  "mkfdfs",
+  "mkinitrd",
+]
+
+[profile.release]
+lto = true
+opt-level = "z"
+
+[profile.dev]

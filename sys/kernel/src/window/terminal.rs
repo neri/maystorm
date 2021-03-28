@@ -1,10 +1,10 @@
 // MEG-OS Terminal
 
 use crate::{
-    drawing::*, fonts::*, io::tty::*, sync::semaphore::Semaphore, task::scheduler::*, task::*,
-    window::*, *,
+    fonts::*, io::tty::*, sync::semaphore::Semaphore, task::scheduler::*, task::*, window::*, *,
 };
 use alloc::boxed::Box;
+use megstd::drawing::*;
 // use alloc::sync::Arc;
 use core::fmt::Write;
 use core::future::Future;

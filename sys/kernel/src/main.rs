@@ -21,7 +21,6 @@ use kernel::task::Task;
 use kernel::*;
 
 // use core::time::Duration;
-// use kernel::drawing::*;
 // use kernel::fonts::*;
 // use kernel::util::text::*;
 // use kernel::window::*;
@@ -137,36 +136,38 @@ impl Application {
     }
 
     fn spawn_main(name: &str, argv: &[&str], wait_until: bool) -> Option<usize> {
-        Fs::find_file(name).map(|(fs, inode)| {
-            let stat = fs.stat(inode).unwrap();
-            if stat.file_size > 0 {
-                let bsize = stat.blocks * stat.block_size;
-                let mut blob = Vec::with_capacity(bsize);
-                blob.resize(bsize, 0);
-                fs.x_read(inode, 0, stat.blocks, &mut blob);
-                let blob = &blob[0..stat.file_size];
-                if let Some(mut loader) = RuntimeEnvironment::recognize(blob) {
-                    loader.option().name = name.to_string();
-                    loader.option().argv = argv.iter().map(|v| v.to_string()).collect();
-                    match loader.load(blob) {
-                        Ok(_) => {
-                            let child = loader.invoke_start();
-                            if wait_until {
-                                child.map(|thread| thread.join());
+        FileManager::open(name)
+            .map(|mut fcb| {
+                let stat = fcb.stat().unwrap();
+                let file_size = stat.len() as usize;
+                if file_size > 0 {
+                    let mut vec = Vec::with_capacity(file_size);
+                    vec.resize(file_size, 0);
+                    let act_size = fcb.read(vec.as_mut_slice()).unwrap();
+                    let blob = &vec[..act_size];
+                    if let Some(mut loader) = RuntimeEnvironment::recognize(blob) {
+                        loader.option().name = name.to_string();
+                        loader.option().argv = argv.iter().map(|v| v.to_string()).collect();
+                        match loader.load(blob) {
+                            Ok(_) => {
+                                let child = loader.invoke_start();
+                                if wait_until {
+                                    child.map(|thread| thread.join());
+                                }
+                            }
+                            Err(_) => {
+                                println!("Load error");
+                                return 1;
                             }
                         }
-                        Err(_) => {
-                            println!("Load error");
-                            return 1;
-                        }
+                    } else {
+                        println!("Bad executable");
+                        return 1;
                     }
-                } else {
-                    println!("Bad executable");
-                    return 1;
                 }
-            }
-            0
-        })
+                0
+            })
+            .ok()
     }
 
     fn command(cmd: &str) -> Option<&'static fn(&[&str]) -> isize> {
@@ -178,7 +179,7 @@ impl Application {
         None
     }
 
-    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> isize, &'static str); 15] = [
+    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> isize, &'static str); 14] = [
         ("cls", Self::cmd_cls, "Clear screen"),
         ("dir", Self::cmd_dir, "Show directory"),
         ("echo", Self::cmd_echo, ""),
@@ -190,7 +191,6 @@ impl Application {
         //
         ("ps", Self::cmd_ps, ""),
         ("lspci", Self::cmd_lspci, "Show List of PCI Devices"),
-        ("stat", Self::cmd_stat, "Show stat"),
         ("sysctl", Self::cmd_sysctl, "System Control"),
         //
         ("cd", Self::cmd_reserved, ""),
@@ -288,80 +288,47 @@ impl Application {
         0
     }
 
-    fn cmd_dir(_argv: &[&str]) -> isize {
-        let fs = match Fs::list_of_volumes().first() {
-            Some(fs) => fs,
-            None => return 1,
+    fn cmd_dir(_args: &[&str]) -> isize {
+        let dir = match FileManager::read_dir("/") {
+            Ok(v) => v,
+            Err(_) => return 1,
         };
-        let inode = fs.root_dir();
-        for file in fs.read_dir_iter(inode) {
-            print!(" {:<14} ", file.name(),);
+        for dir_ent in dir {
+            print!(" {:<14} ", dir_ent.name());
         }
-        let info = fs.info();
-        println!(
-            "\n {} kb / {} kb",
-            (info.free_records as usize * info.bytes_per_record) >> 10,
-            (info.total_records as usize * info.bytes_per_record) >> 10,
-        );
+        println!("");
         0
     }
 
-    fn cmd_stat(argv: &[&str]) -> isize {
-        if argv.len() < 2 {
-            println!("usage: stat FILENAME");
-            return 1;
-        }
-        let name = argv[1];
-
-        match Fs::find_file(name) {
-            Some((fs, inode)) => {
-                let stat = fs.stat(inode).unwrap();
-                println!(
-                    "{} inode {} size {} blk {} {}",
-                    name, stat.inode, stat.file_size, stat.block_size, stat.blocks
-                );
-                0
-            }
-            _ => {
-                println!("No such file: {}", name);
-                1
-            }
-        }
-    }
-
-    fn cmd_type(argv: &[&str]) -> isize {
-        if argv.len() < 2 {
-            println!("usage: type FILENAME");
-            return 1;
-        }
-        let name = argv[1];
-
-        match Fs::find_file(name) {
-            Some((fs, inode)) => {
-                let stat = fs.stat(inode).unwrap();
-                if stat.file_size > 0 {
-                    let mut buffer = Vec::new();
-                    buffer.resize(stat.block_size, 0);
-                    let last_bytes = stat.file_size % stat.block_size;
-                    for i in 0..(stat.blocks - 1) {
-                        fs.x_read(inode, i, 1, &mut buffer);
-                        for c in buffer.iter() {
-                            System::stdout().write_char(*c as char).unwrap();
+    fn cmd_type(args: &[&str]) -> isize {
+        let len = 1024;
+        let mut sb = Vec::with_capacity(len);
+        sb.resize(len, 0);
+        for path in args.iter().skip(1) {
+            let mut file = match FileManager::open(path) {
+                Ok(v) => v,
+                Err(err) => {
+                    println!("{:?}", err.kind());
+                    continue;
+                }
+            };
+            loop {
+                match file.read(sb.as_mut_slice()) {
+                    Ok(0) => break,
+                    Ok(size) => {
+                        for b in &sb[..size] {
+                            System::stdout().write_char(*b as char).unwrap();
                         }
                     }
-                    fs.x_read(inode, stat.blocks - 1, 1, &mut buffer);
-                    let buffer = &buffer[..last_bytes];
-                    for c in buffer.iter() {
-                        System::stdout().write_char(*c as char).unwrap();
+                    Err(err) => {
+                        println!("Error: {:?}", err.kind());
+                        break;
                     }
                 }
-                0
             }
-            _ => {
-                println!("No such file: {}", name);
-                1
-            }
+            System::stdout().write_str("\r\n").unwrap();
         }
+        0
     }
 
     fn cmd_open(argv: &[&str]) -> isize {
@@ -382,6 +349,42 @@ impl Application {
         Scheduler::print_statistics(&mut sb, false);
         print!("{}", sb.as_str());
         0
+    }
+
+    fn format_bytes(sb: &mut dyn Write, val: usize) -> core::fmt::Result {
+        let kb = (val >> 10) & 0x3FF;
+        let mb = (val >> 20) & 0x3FF;
+        let gb = val >> 30;
+
+        if gb >= 10 {
+            // > 10G
+            write!(sb, "{:4}G", gb)
+        } else if gb >= 1 {
+            // 1G~10G
+            let mb0 = (mb * 100) >> 10;
+            write!(sb, "{}.{:02}G", gb, mb0)
+        } else if mb >= 100 {
+            // 100M~1G
+            write!(sb, "{:4}M", mb)
+        } else if mb >= 10 {
+            // 10M~100M
+            let kb00 = (kb * 10) >> 10;
+            write!(sb, "{:2}.{}M", mb, kb00)
+        } else if mb >= 1 {
+            // 1M~10M
+            let kb0 = (kb * 100) >> 10;
+            write!(sb, "{}.{:02}M", mb, kb0)
+        } else if kb >= 100 {
+            // 100K~1M
+            write!(sb, "{:4}K", kb)
+        } else if kb >= 10 {
+            // 10K~100K
+            let b00 = ((val & 0x3FF) * 10) >> 10;
+            write!(sb, "{:2}.{}K", kb, b00)
+        } else {
+            // 0~10K
+            write!(sb, "{:5}", val)
+        }
     }
 
     fn cmd_lspci(argv: &[&str]) -> isize {

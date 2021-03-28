@@ -1,14 +1,15 @@
 // A Computer System
 
 use crate::io::emcon::*;
+use crate::io::tty::Tty;
 use crate::task::scheduler::*;
 use crate::*;
 use crate::{arch::cpu::*, fonts::*};
-use crate::{drawing::*, io::tty::Tty};
 use alloc::boxed::Box;
 use alloc::vec::*;
 use bootprot::BootInfo;
 use core::fmt;
+use megstd::drawing::*;
 // use core::fmt::Write;
 use core::ptr::*;
 
@@ -185,7 +186,7 @@ impl System {
         unsafe {
             mem::MemoryManager::late_init();
 
-            fs::Fs::init(shared.initrd_base, shared.initrd_size);
+            fs::FileManager::init(shared.initrd_base, shared.initrd_size);
 
             rt::RuntimeEnvironment::init();
 

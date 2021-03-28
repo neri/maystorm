@@ -1,9 +1,9 @@
 // Emergency debugging console
 
-use crate::drawing::*;
 use crate::fonts::*;
 use crate::system::*;
 use core::fmt;
+use megstd::drawing::*;
 
 pub struct EmConsole {
     x: usize,

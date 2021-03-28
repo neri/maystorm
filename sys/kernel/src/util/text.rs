@@ -1,9 +1,9 @@
 // Text Drawing
 
-use crate::drawing::*;
 use crate::fonts::*;
 use alloc::vec::Vec;
 use core::num::NonZeroUsize;
+use megstd::drawing::*;
 
 pub struct AttributedString<'a> {
     text: &'a str,

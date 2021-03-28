@@ -12,8 +12,9 @@ version = "0.1.0"
 acpi = {git = "https://github.com/rust-osdev/acpi"}
 # aml = {git = "https://github.com/rust-osdev/acpi"}
 bitflags = "1"
-bootprot = {path = "../../common/bootprot"}
+bootprot = {path = "../../lib/bootprot"}
 byteorder = {version = "1", default-features = false}
 crossbeam-queue = {version = "0.3", default-features = false, features = ["alloc"]}
 futures-util = {default-features = false, features = ["alloc"], version = "0.3"}
-myosabi = {path = "../../common/myosabi"}
+megstd = {path = "../../lib/megstd"}
+myosabi = {path = "../../lib/myosabi"}

@@ -3,13 +3,14 @@
 use super::*;
 use crate::io::hid::*;
 use crate::util::rng::*;
+use crate::util::text::AttributedString;
 use crate::uuid::Uuid;
-use crate::{drawing::*, util::text::AttributedString};
 use alloc::collections::BTreeMap;
 use byteorder::*;
 use core::convert::TryFrom;
 use core::sync::atomic::*;
 use core::{mem::size_of, time::Duration};
+use megstd::drawing::*;
 use myosabi::*;
 
 pub(super) struct ArleBinaryLoader {
@@ -128,8 +129,8 @@ impl ArleRuntime {
 
     fn dispatch_syscall(&mut self, params: &[WasmValue]) -> Result<WasmValue, WasmRuntimeError> {
         let mut params = ParamsDecoder::new(params);
-        let module = &self.module;
-        let memory = module.memory(0).ok_or(WasmRuntimeError::OutOfMemory)?;
+        // let module = &self.module;
+        let memory = self.module.memory(0).ok_or(WasmRuntimeError::OutOfMemory)?;
         let func_no = params.get_u32().and_then(|v| {
             svc::Function::try_from(v).map_err(|_| WasmRuntimeError::InvalidParameter)
         })?;

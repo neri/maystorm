@@ -2,15 +2,14 @@
 
 use core::mem::transmute;
 
+/// Common color trait
 pub trait ColorTrait: Sized + Copy + Clone + PartialEq + Eq {}
-
-impl ColorTrait for IndexedColor {}
-impl ColorTrait for TrueColor {}
-impl ColorTrait for AmbiguousColor {}
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IndexedColor(pub u8);
+
+impl ColorTrait for IndexedColor {}
 
 impl IndexedColor {
     pub const MIN: Self = Self(u8::MIN);
@@ -112,6 +111,8 @@ impl From<IndexedColor> for TrueColor {
 pub struct TrueColor {
     argb: u32,
 }
+
+impl ColorTrait for TrueColor {}
 
 impl TrueColor {
     pub const TRANSPARENT: Self = Self::from_argb(0);
@@ -288,11 +289,79 @@ impl Into<u32> for ColorComponents {
     }
 }
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeepColor30 {
+    rgb: u32,
+}
+
+impl ColorTrait for DeepColor30 {}
+
+impl DeepColor30 {
+    #[inline]
+    pub const fn from_rgb(rgb: u32) -> Self {
+        Self { rgb }
+    }
+
+    #[inline]
+    pub const fn from_true_color(val: TrueColor) -> Self {
+        let rgb32 = val.argb();
+        let components = (
+            (rgb32 & 0xFF),
+            ((rgb32 >> 8) & 0xFF),
+            ((rgb32 >> 16) & 0xFF),
+        );
+        Self {
+            rgb: Self::c8c10(components.0)
+                | (Self::c8c10(components.1) << 10)
+                | (Self::c8c10(components.2) << 20),
+        }
+    }
+
+    #[inline]
+    pub const fn components(&self) -> (u32, u32, u32) {
+        let rgb = self.rgb();
+        ((rgb & 0x3FF), ((rgb >> 10) & 0x3FF), ((rgb >> 20) & 0x3FF))
+    }
+
+    #[inline]
+    pub const fn into_true_color(&self) -> TrueColor {
+        let components = self.components();
+        TrueColor::from_rgb(
+            (components.0 >> 2) | ((components.1 >> 2) << 8) | ((components.2 >> 2) << 16),
+        )
+    }
+
+    /// Convert 8bit color component to 10bit color component
+    const fn c8c10(c8: u32) -> u32 {
+        (c8 * 0x0101) >> 6
+    }
+
+    #[inline]
+    pub const fn rgb(&self) -> u32 {
+        self.rgb
+    }
+}
+
+impl From<TrueColor> for DeepColor30 {
+    fn from(val: TrueColor) -> Self {
+        Self::from_true_color(val)
+    }
+}
+
+impl From<DeepColor30> for TrueColor {
+    fn from(val: DeepColor30) -> Self {
+        val.into_true_color()
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum AmbiguousColor {
     Indexed(IndexedColor),
     Argb32(TrueColor),
 }
+
+impl ColorTrait for AmbiguousColor {}
 
 impl AmbiguousColor {
     pub const TRANSPARENT: Self = Self::Argb32(TrueColor::TRANSPARENT);

@@ -1,6 +1,5 @@
 // User Environment Manager
 
-use crate::drawing::*;
 use crate::fonts::*;
 use crate::mem::string;
 use crate::system::*;
@@ -13,6 +12,7 @@ use crate::{arch::cpu::*, window::terminal::Terminal};
 use alloc::vec::*;
 use core::fmt::Write;
 use core::time::Duration;
+use megstd::drawing::*;
 use util::text::{AttributedString, VerticalAlignment};
 
 const DESKTOP_COLOR: AmbiguousColor = AmbiguousColor::from_argb(0x802196F3);

@@ -6,8 +6,8 @@ use crate::sync::atomicflags::*;
 use crate::sync::semaphore::*;
 use crate::sync::spinlock::Spinlock;
 use crate::task::scheduler::*;
+use crate::util::text::*;
 use crate::*;
-use crate::{drawing::*, util::text::*};
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::Arc;
@@ -23,6 +23,7 @@ use core::task::{Context, Poll};
 use core::time::Duration;
 use crossbeam_queue::ArrayQueue;
 use futures_util::task::AtomicWaker;
+use megstd::drawing::*;
 
 const WINDOW_TITLE_LENGTH: usize = 32;
 

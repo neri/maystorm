@@ -1,11 +1,11 @@
 // Font Driver
 
-use crate::drawing::*;
 use crate::sync::spinlock::Spinlock;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::vec::*;
+use megstd::drawing::*;
 
 // include!("megbtan.rs");
 include!("megh0816.rs");

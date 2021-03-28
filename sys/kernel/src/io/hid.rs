@@ -1,11 +1,11 @@
 // Human Interface Device Manager
 
-use crate::drawing::*;
 use crate::window::*;
 use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;
 use core::num::*;
+use megstd::drawing::*;
 
 const INVALID_UNICHAR: char = '\u{FEFF}';
 
