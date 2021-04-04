@@ -1,17 +1,17 @@
-// Arlequin Subsystem
+// MEG-OS Arlequin Subsystem
 
 use super::*;
 use crate::io::hid::*;
 use crate::util::rng::*;
-use crate::util::text::AttributedString;
-use crate::uuid::Uuid;
+use crate::util::text::*;
 use alloc::collections::BTreeMap;
 use byteorder::*;
-use core::convert::TryFrom;
-use core::sync::atomic::*;
-use core::{mem::size_of, time::Duration};
+use core::{
+    convert::TryFrom, intrinsics::transmute, num::NonZeroU32, sync::atomic::*, time::Duration,
+};
 use megstd::drawing::*;
 use myosabi::*;
+use wasm::{wasmintr::*, *};
 
 pub(super) struct ArleBinaryLoader {
     loader: WasmLoader,
@@ -41,7 +41,7 @@ impl BinaryLoader for ArleBinaryLoader {
 
     fn load(&mut self, blob: &[u8]) -> Result<(), ()> {
         self.loader
-            .load(blob, &|mod_name, name, _type_ref| match mod_name {
+            .load(blob, |mod_name, name, _type_ref| match mod_name {
                 ArleRuntime::MOD_NAME => match name {
                     "svc0" => Ok(ArleRuntime::syscall),
                     "svc1" => Ok(ArleRuntime::syscall),
@@ -76,7 +76,7 @@ impl BinaryLoader for ArleBinaryLoader {
 /// Arlequin subsystem
 #[allow(dead_code)]
 pub struct ArleRuntime {
-    uuid: Uuid,
+    // uuid: Uuid,
     module: WasmModule,
     next_handle: AtomicUsize,
     windows: BTreeMap<usize, WindowHandle>,
@@ -92,7 +92,7 @@ impl ArleRuntime {
 
     fn new(module: WasmModule) -> Box<Self> {
         Box::new(Self {
-            uuid: Uuid::generate().unwrap(),
+            // uuid: Uuid::generate().unwrap(),
             module,
             next_handle: AtomicUsize::new(1),
             windows: BTreeMap::new(),
@@ -102,16 +102,24 @@ impl ArleRuntime {
     }
 
     fn next_handle(&self) -> usize {
-        self.next_handle.fetch_add(1, Ordering::SeqCst)
+        let result = 1 + self.next_handle.load(Ordering::SeqCst);
+        self.next_handle.swap(result, Ordering::SeqCst)
     }
 
     fn start(&self) -> ! {
-        match self
-            .module
-            .func(Self::ENTRY_FUNC_NAME)
-            .map(|v| v.invoke(&[]))
-        {
-            Ok(_) => RuntimeEnvironment::exit(0),
+        let function = match self.module.func(Self::ENTRY_FUNC_NAME) {
+            Ok(v) => v,
+            Err(err) => {
+                println!("error: {:?}", err);
+                RuntimeEnvironment::exit(1);
+            }
+        };
+
+        match function.invoke(&[]) {
+            Ok(_v) => {
+                // println!("exit: {}", v.get_u32().unwrap_or(0));
+                RuntimeEnvironment::exit(0);
+            }
             Err(err) => {
                 println!("error: {:?}", err);
                 RuntimeEnvironment::exit(1);
@@ -129,7 +137,6 @@ impl ArleRuntime {
 
     fn dispatch_syscall(&mut self, params: &[WasmValue]) -> Result<WasmValue, WasmRuntimeError> {
         let mut params = ParamsDecoder::new(params);
-        // let module = &self.module;
         let memory = self.module.memory(0).ok_or(WasmRuntimeError::OutOfMemory)?;
         let func_no = params.get_u32().and_then(|v| {
             svc::Function::try_from(v).map_err(|_| WasmRuntimeError::InvalidParameter)
@@ -174,10 +181,18 @@ impl ArleRuntime {
             svc::Function::NewWindow => {
                 let title = params.get_string(memory).unwrap_or("");
                 let size = params.get_size()?;
+                let bg_color = params.get_color().unwrap_or(WindowManager::DEFAULT_BGCOLOR);
+                let window_option = params.get_u32().unwrap_or(0);
 
                 let window = WindowBuilder::new(title)
                     .style_add(WindowStyle::NAKED)
                     .size(size)
+                    .bg_color(bg_color)
+                    .bitmap_strategy(if (window_option & MyOsAbi::WINDOW_32BIT_BITMAP) != 0 {
+                        BitmapStrategy::Expressive
+                    } else {
+                        BitmapStrategy::Compact
+                    })
                     .build();
                 window.make_active();
 
@@ -194,22 +209,23 @@ impl ArleRuntime {
                     self.windows.remove(&handle);
                 }
             }
-            svc::Function::DrawText => {
+            svc::Function::DrawString => {
                 if let Some(window) = params.get_window(self)? {
                     let max_lines = 0;
                     let origin = params.get_point()?;
                     let text = params.get_string(memory).unwrap_or("");
                     let color = params.get_color()?;
-                    let mut rect = window.frame();
+                    let mut rect = Rect::from(window.content_rect().size());
                     rect.origin = origin;
-                    rect.size.width -= origin.x * 2;
+                    rect.size.width -= origin.x;
                     rect.size.height -= origin.y;
                     let _ = window.draw_in_rect(rect, |bitmap| {
-                        AttributedString::props().color(color).text(text).draw_text(
-                            bitmap,
-                            rect.size.into(),
-                            max_lines,
-                        );
+                        AttributedString::props()
+                            .align(TextAlignment::Left)
+                            .valign(VerticalAlignment::Top)
+                            .color(color)
+                            .text(text)
+                            .draw_text(bitmap, rect.size.into(), max_lines);
                     });
                     window.set_needs_display();
                 }
@@ -238,6 +254,18 @@ impl ArleRuntime {
                     window.set_needs_display();
                 }
             }
+            svc::Function::DrawLine => {
+                if let Some(window) = params.get_window(self)? {
+                    let c1 = params.get_point()?;
+                    let c2 = params.get_point()?;
+                    let color = params.get_color()?;
+                    let rect = Rect::from(Coordinates::from_two(c1, c2)) + Size::new(1, 1);
+                    let _ = window.draw_in_rect(rect, |bitmap| {
+                        bitmap.draw_line(c1 - rect.origin, c2 - rect.origin, color);
+                    });
+                    window.set_needs_display();
+                }
+            }
             svc::Function::WaitChar => {
                 if let Some(window) = params.get_window(self)? {
                     let c = self.wait_key(window);
@@ -261,10 +289,42 @@ impl ArleRuntime {
                         size: src.size(),
                     };
                     let _ = window.draw_in_rect(rect, |bitmap| {
-                        bitmap.blt(&src, Point::default(), src.size().into());
+                        bitmap.blt_transparent(
+                            &ConstBitmap::from(&src),
+                            Point::default(),
+                            src.size().into(),
+                            IndexedColor::DEFAULT_KEY,
+                        );
                     });
                     window.set_needs_display();
                 }
+            }
+            svc::Function::Blt32 => {
+                if let Some(window) = params.get_window(self)? {
+                    let origin = params.get_point()?;
+                    let src = params.get_bitmap32(memory)?;
+                    let rect = Rect {
+                        origin,
+                        size: src.size(),
+                    };
+                    let _ = window.draw_in_rect(rect, |bitmap| {
+                        bitmap.blt(
+                            &ConstBitmap::from(&src),
+                            Point::default(),
+                            src.size().into(),
+                        );
+                    });
+                    window.set_needs_display();
+                }
+            }
+            svc::Function::BlendRect => {
+                let bitmap = params.get_bitmap32(memory)?;
+                let origin = params.get_point()?;
+                let size = params.get_size()?;
+                let color = params.get_u32().map(|v| TrueColor::from_argb(v))?;
+                let rect = Rect { origin, size };
+                let mut bitmap: Bitmap32 = unsafe { transmute(bitmap) };
+                bitmap.blend_rect(rect, color);
             }
             svc::Function::Blt1 => {
                 if let Some(window) = params.get_window(self)? {
@@ -278,10 +338,7 @@ impl ArleRuntime {
                     window.set_needs_display();
                 }
             }
-            svc::Function::Blt24 => {
-                unimplemented!()
-            }
-            svc::Function::FlashWindow => {
+            svc::Function::RefreshWindow => {
                 if let Some(window) = params.get_window(self)? {
                     window.refresh_if_needed();
                 }
@@ -292,11 +349,16 @@ impl ArleRuntime {
             }
             svc::Function::Srand => {
                 let seed = params.get_u32()?;
-                self.rng32 = XorShift32::new(seed);
+                NonZeroU32::new(seed).map(|v| self.rng32 = XorShift32::new(v));
             }
 
             svc::Function::Alloc | svc::Function::Free => {
                 // TODO:
+            }
+
+            svc::Function::Test => {
+                let val = params.get_u32()?;
+                println!("val: {}", val);
             }
         }
 
@@ -343,14 +405,6 @@ impl ArleRuntime {
 }
 
 impl Personality for ArleRuntime {
-    fn info(&self) -> PersonalityInfo {
-        PersonalityInfo {
-            is_native: false,
-            cpu_mode: size_of::<usize>(),
-            address_size: 4,
-        }
-    }
-
     fn context(&mut self) -> PersonalityContext {
         PersonalityContext::Arlequin(self)
     }
@@ -437,25 +491,48 @@ impl ParamsDecoder<'_> {
     }
 
     fn get_color(&mut self) -> Result<AmbiguousColor, WasmRuntimeError> {
-        self.get_u32().map(|v| AmbiguousColor::from_argb(v))
+        self.get_u32().map(|v| IndexedColor::from(v as u8).into())
     }
 
     fn get_bitmap8<'a>(
         &mut self,
         memory: &'a WasmMemory,
     ) -> Result<ConstBitmap8<'a>, WasmRuntimeError> {
-        const SIZE_OF_BITMAP: usize = 16;
+        const SIZE_OF_BITMAP: usize = 20;
         let base = self.get_u32()? as usize;
         let array = memory.read_bytes(base as usize, SIZE_OF_BITMAP)?;
 
         let width = LE::read_u32(&array[0..4]) as usize;
         let height = LE::read_u32(&array[4..8]) as usize;
-        let base = LE::read_u32(&array[8..12]) as usize;
+        let _stride = LE::read_u32(&array[8..12]) as usize;
+        let base = LE::read_u32(&array[12..16]) as usize;
 
         let len = width * height;
         let slice = memory.read_bytes(base, len)?;
 
         Ok(ConstBitmap8::from_bytes(
+            slice,
+            Size::new(width as isize, height as isize),
+        ))
+    }
+
+    fn get_bitmap32<'a>(
+        &mut self,
+        memory: &'a WasmMemory,
+    ) -> Result<ConstBitmap32<'a>, WasmRuntimeError> {
+        const SIZE_OF_BITMAP: usize = 20;
+        let base = self.get_u32()? as usize;
+        let array = memory.read_bytes(base as usize, SIZE_OF_BITMAP)?;
+
+        let width = LE::read_u32(&array[0..4]) as usize;
+        let height = LE::read_u32(&array[4..8]) as usize;
+        let _stride = LE::read_u32(&array[8..12]) as usize;
+        let base = LE::read_u32(&array[12..16]) as usize;
+
+        let len = width * height;
+        let slice = memory.read_u32_array(base, len)?;
+
+        Ok(ConstBitmap32::from_bytes(
             slice,
             Size::new(width as isize, height as isize),
         ))
@@ -481,14 +558,17 @@ struct MemArg {
 }
 
 impl MemArg {
+    #[inline]
     const fn new(base: usize, len: usize) -> Self {
         Self { base, len }
     }
 
+    #[inline]
     const fn base(&self) -> usize {
         self.base
     }
 
+    #[inline]
     const fn len(&self) -> usize {
         self.len
     }
@@ -519,6 +599,7 @@ impl<'a> OsBitmap1<'a> {
 }
 
 impl OsBitmap1<'_> {
+    #[inline]
     const fn rect(&self, origin: Point, mode: usize) -> Rect {
         let scale = mode as isize;
         Rect {

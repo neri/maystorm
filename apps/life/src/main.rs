@@ -2,8 +2,8 @@
 #![no_main]
 #![no_std]
 
-use myoslib::*;
-use myoslib::{bitmap::*, graphics::*, window::Window};
+use megstd::drawing::*;
+use myoslib::{bitmap::*, window::*, *};
 
 const DRAW_SCALE: isize = 2;
 const BITMAP_WIDTH: isize = 64;
@@ -32,15 +32,15 @@ fn _start() {
     loop {
         window.fill_rect(
             Rect::new(0, 0, BITMAP_WIDTH * DRAW_SCALE, BITMAP_HEIGHT * DRAW_SCALE),
-            Color::WHITE,
+            WindowColor::WHITE,
         );
         current.blt(
             &window,
             Point::new(0, 0),
-            Color::DARK_GRAY,
+            WindowColor::DARK_GRAY,
             DRAW_SCALE as usize,
         );
-        window.flash();
+        window.refresh();
 
         let w = BITMAP_WIDTH - 1;
         let h = BITMAP_HEIGHT - 1;

@@ -1,7 +1,7 @@
 // Runtime Environment
 
 pub mod haribote;
-pub mod wasm;
+pub mod megos;
 
 use crate::arch::cpu::*;
 use crate::task::scheduler::*;
@@ -30,7 +30,7 @@ impl RuntimeEnvironment {
     pub(crate) unsafe fn init() {
         let shared = Self::shared();
 
-        shared.image_loaders.push(wasm::WasmRecognizer::new());
+        shared.image_loaders.push(megos::WasmRecognizer::new());
         shared.image_loaders.push(haribote::HrbRecognizer::new());
     }
 
@@ -68,8 +68,6 @@ impl RuntimeEnvironment {
 }
 
 pub trait Personality {
-    /// Gets the current personality information
-    fn info(&self) -> PersonalityInfo;
     /// Gets the current personality context
     fn context(&mut self) -> PersonalityContext;
 
@@ -78,28 +76,8 @@ pub trait Personality {
 
 pub enum PersonalityContext<'a> {
     Native,
-    Arlequin(&'a mut wasm::arle::ArleRuntime),
+    Arlequin(&'a mut megos::ArleRuntime),
     Hoe(&'a mut haribote::hoe::Hoe),
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct PersonalityInfo {
-    /// Whether the CPU native binary is running or not.
-    pub is_native: bool,
-    /// Address space for applications. The default value is `size_of::<usize>()`
-    pub address_size: usize,
-    /// Address space of the processor. The default value is `size_of::<usize>()`
-    pub cpu_mode: usize,
-}
-
-impl Default for PersonalityInfo {
-    fn default() -> Self {
-        Self {
-            is_native: true,
-            address_size: size_of::<usize>(),
-            cpu_mode: size_of::<usize>(),
-        }
-    }
 }
 
 pub trait BinaryRecognizer {

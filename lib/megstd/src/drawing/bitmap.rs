@@ -5,6 +5,7 @@ use super::coords::*;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use bitflags::*;
+use byteorder::*;
 use core::cell::UnsafeCell;
 use core::convert::TryFrom;
 use core::mem::transmute;
@@ -614,6 +615,16 @@ impl<'a> Bitmap8<'a> {
         }
     }
 
+    #[inline]
+    pub fn from_bytes(bytes: &'a mut [u8], size: Size) -> Self {
+        Self {
+            width: size.width() as usize,
+            height: size.height() as usize,
+            stride: size.width() as usize,
+            slice: unsafe { transmute(bytes) },
+        }
+    }
+
     /// Clone a bitmap
     #[inline]
     pub fn clone(&self) -> Bitmap8<'a> {
@@ -1186,6 +1197,16 @@ impl<'a> Bitmap32<'a> {
         }
     }
 
+    #[inline]
+    pub fn from_bytes(bytes: &'a mut [u32], size: Size) -> Self {
+        Self {
+            width: size.width() as usize,
+            height: size.height() as usize,
+            stride: size.width() as usize,
+            slice: unsafe { transmute(bytes) },
+        }
+    }
+
     /// Clone a bitmap
     #[inline]
     pub fn clone(&self) -> Bitmap32<'a> {
@@ -1592,6 +1613,17 @@ impl<'a> BoxedBitmap32<'a> {
         Self { inner, slice }
     }
 
+    pub fn from_vec(vec: Vec<TrueColor>, size: Size) -> BoxedBitmap32<'a> {
+        // let vec: Vec<TrueColor> = unsafe { transmute(vec) };
+        let slice = UnsafeCell::new(vec.into_boxed_slice());
+        let inner = Bitmap32::from_slice(
+            unsafe { slice.get().as_mut().unwrap() },
+            size,
+            size.width as usize,
+        );
+        Self { inner, slice }
+    }
+
     #[inline]
     pub fn inner(&'a mut self) -> &mut Bitmap32<'a> {
         &mut self.inner
@@ -1616,10 +1648,11 @@ impl<'a> AsRef<ConstBitmap32<'a>> for BoxedBitmap32<'a> {
 /// Fast Fill
 #[inline]
 fn memset_colors32(slice: &mut [TrueColor], cursor: usize, count: usize, color: TrueColor) {
-    let slice = &mut slice[cursor..cursor + count];
+    // let slice = &mut slice[cursor..cursor + count];
     unsafe {
+        let slice = slice.get_unchecked_mut(cursor);
         let color32 = color.argb();
-        let mut ptr: *mut u32 = core::mem::transmute(&slice[0]);
+        let mut ptr: *mut u32 = core::mem::transmute(slice);
         let mut remain = count;
 
         let prologue = usize::min(ptr as usize & 0x0F / 4, remain);
@@ -1662,11 +1695,13 @@ fn memcpy_colors32(
     src_cursor: usize,
     count: usize,
 ) {
-    let dest = &mut dest[dest_cursor..dest_cursor + count];
-    let src = &src[src_cursor..src_cursor + count];
+    // let dest = &mut dest[dest_cursor..dest_cursor + count];
+    // let src = &src[src_cursor..src_cursor + count];
     unsafe {
-        let mut ptr_d: *mut u32 = core::mem::transmute(&dest[0]);
-        let mut ptr_s: *const u32 = core::mem::transmute(&src[0]);
+        let dest = dest.get_unchecked_mut(dest_cursor);
+        let src = src.get_unchecked(src_cursor);
+        let mut ptr_d: *mut u32 = transmute(dest);
+        let mut ptr_s: *const u32 = transmute(src);
         let mut remain = count;
         if ((ptr_d as usize) & 0xF) == ((ptr_s as usize) & 0xF) {
             let prologue = usize::min(ptr_d as usize & 0x0F, remain);
@@ -1699,8 +1734,10 @@ fn memcpy_colors32(
                 ptr_s = ptr_s.add(1);
             }
         } else {
-            for i in 0..count {
-                dest[i] = src[i];
+            for _ in 0..count {
+                ptr_d.write_volatile(ptr_s.read_volatile());
+                ptr_d = ptr_d.add(1);
+                ptr_s = ptr_s.add(1);
             }
         }
     }
@@ -2151,5 +2188,97 @@ impl OperationalBitmap {
         F: FnMut(&mut OperationalBitmap, Point),
     {
         c0.line_to(c1, |point| f(self, point));
+    }
+}
+
+pub struct ImageLoader {
+    _phantom: (),
+}
+
+impl ImageLoader {
+    pub fn from_msdib(dib: &[u8]) -> Option<BoxedBitmap> {
+        // use_palette
+        if LE::read_u16(dib) != 0x4D42 {
+            return None;
+        }
+        let bpp = LE::read_u16(&dib[0x1C..0x1E]) as usize;
+        match bpp {
+            4 | 8 | 24 | 32 => (),
+            _ => return None,
+        }
+        let offset = LE::read_u32(&dib[0x0A..0x0E]) as usize;
+        let pal_offset = LE::read_u32(&dib[0x0E..0x12]) as usize + 0x0E;
+        let width = LE::read_u32(&dib[0x12..0x16]) as usize;
+        let height = LE::read_u32(&dib[0x16..0x1A]) as usize;
+        let pal_len = LE::read_u32(&dib[0x2E..0x32]) as usize;
+        let bpp8 = (bpp + 7) / 8;
+        let stride = (width * bpp8 + 3) & !3;
+        let mut vec = Vec::with_capacity(width * height);
+        match bpp {
+            4 => {
+                let palette = &dib[pal_offset..pal_offset + pal_len * 4];
+                let width2_f = width / 2;
+                let width2_c = (width + 1) / 2;
+                let stride = (width2_c + 3) & !3;
+                for y in 0..height {
+                    let mut src = offset + (height - y - 1) * stride;
+                    for _ in 0..width2_f {
+                        let c4 = dib[src] as usize;
+                        let cl = c4 >> 4;
+                        let cr = c4 & 0x0F;
+                        vec.push(TrueColor::from_rgb(LE::read_u32(
+                            &palette[cl * 4..cl * 4 + 4],
+                        )));
+                        vec.push(TrueColor::from_rgb(LE::read_u32(
+                            &palette[cr * 4..cr * 4 + 4],
+                        )));
+                        src += bpp8;
+                    }
+                    if width2_f < width2_c {
+                        let c4 = dib[src] as usize;
+                        let cl = c4 >> 4;
+                        vec.push(TrueColor::from_rgb(LE::read_u32(
+                            &palette[cl * 4..cl * 4 + 4],
+                        )));
+                    }
+                }
+            }
+            8 => {
+                let palette = &dib[pal_offset..pal_offset + pal_len * 4];
+                for y in 0..height {
+                    let mut src = offset + (height - y - 1) * stride;
+                    for _ in 0..width {
+                        let ic = dib[src] as usize;
+                        vec.push(TrueColor::from_rgb(LE::read_u32(
+                            &palette[ic * 4..ic * 4 + 4],
+                        )));
+                        src += bpp8;
+                    }
+                }
+            }
+            24 => {
+                for y in 0..height {
+                    let mut src = offset + (height - y - 1) * stride;
+                    for _ in 0..width {
+                        let b = dib[src] as u32;
+                        let g = dib[src + 1] as u32;
+                        let r = dib[src + 2] as u32;
+                        vec.push(TrueColor::from_rgb(b + g * 0x100 + r * 0x10000));
+                        src += bpp8;
+                    }
+                }
+            }
+            32 => {
+                for y in 0..height {
+                    let mut src = offset + (height - y - 1) * stride;
+                    for _ in 0..width {
+                        vec.push(TrueColor::from_rgb(LE::read_u32(&dib[src..src + bpp8])));
+                        src += bpp8;
+                    }
+                }
+            }
+            _ => unreachable!(),
+        }
+        Some(BoxedBitmap32::from_vec(vec, Size::new(width as isize, height as isize)).into())
     }
 }

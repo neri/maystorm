@@ -1,10 +1,9 @@
-// myos bitmap Library
+// myos bitmap Library (DEPRECATED)
 
 use super::*;
-use crate::{graphics::*, window::Window};
+use crate::window::*;
 use core::intrinsics::copy_nonoverlapping;
-
-pub enum OsBitmap {}
+use megstd::drawing::*;
 
 pub trait BitmapTrait {
     type PixelType;
@@ -61,129 +60,6 @@ pub trait MutableBitmapTrait: BitmapTrait {
 }
 
 #[repr(C)]
-pub struct OsBitmap8<'a> {
-    width: usize,
-    height: usize,
-    slice: &'a [u8],
-}
-
-impl<'a> OsBitmap8<'a> {
-    #[inline]
-    pub const fn from_slice(slice: &'a [u8], size: Size) -> Self {
-        Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
-            slice,
-        }
-    }
-}
-
-impl OsBitmap8<'_> {
-    #[inline]
-    pub fn blt(&self, window: &Window, origin: Point) {
-        os_blt8(
-            window.handle().0,
-            origin.x as usize,
-            origin.y as usize,
-            self as *const _ as usize,
-        )
-    }
-}
-
-impl BitmapTrait for OsBitmap8<'_> {
-    type PixelType = u8;
-
-    fn bits_per_pixel(&self) -> usize {
-        8
-    }
-
-    fn width(&self) -> usize {
-        self.width
-    }
-
-    fn height(&self) -> usize {
-        self.height
-    }
-
-    fn slice(&self) -> &[Self::PixelType] {
-        self.slice
-    }
-}
-
-#[repr(C)]
-pub struct OsMutBitmap8<'a> {
-    width: usize,
-    height: usize,
-    slice: &'a mut [u8],
-}
-
-impl<'a> OsMutBitmap8<'a> {
-    #[inline]
-    pub fn from_slice(slice: &'a mut [u8], size: Size) -> Self {
-        Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
-            slice,
-        }
-    }
-}
-
-impl OsMutBitmap8<'_> {
-    #[inline]
-    pub fn blt(&self, window: &Window, origin: Point) {
-        os_blt8(
-            window.handle().0,
-            origin.x as usize,
-            origin.y as usize,
-            self as *const _ as usize,
-        )
-    }
-
-    /// Copy bitmap
-    pub fn copy_from(&mut self, other: &Self) {
-        // TODO:
-        unsafe {
-            let p = self.slice_mut();
-            let q = other.slice();
-            let count = p.len();
-            copy_nonoverlapping(q.as_ptr(), p.as_mut_ptr(), count);
-        }
-    }
-}
-
-impl BitmapTrait for OsMutBitmap8<'_> {
-    type PixelType = u8;
-
-    fn bits_per_pixel(&self) -> usize {
-        8
-    }
-
-    fn width(&self) -> usize {
-        self.width
-    }
-
-    fn height(&self) -> usize {
-        self.height
-    }
-
-    fn slice(&self) -> &[Self::PixelType] {
-        self.slice
-    }
-}
-
-impl MutableBitmapTrait for OsMutBitmap8<'_> {
-    fn slice_mut(&mut self) -> &mut [Self::PixelType] {
-        &mut self.slice
-    }
-}
-
-impl<'a> From<&'a OsMutBitmap8<'a>> for OsBitmap8<'a> {
-    fn from(src: &'a OsMutBitmap8) -> Self {
-        Self::from_slice(src.slice(), src.size())
-    }
-}
-
-#[repr(C)]
 pub struct OsBitmap1<'a> {
     width: usize,
     height: usize,
@@ -206,13 +82,13 @@ impl<'a> OsBitmap1<'a> {
 
 impl OsBitmap1<'_> {
     #[inline]
-    pub fn blt(&self, window: &Window, origin: Point, color: Color, mode: usize) {
+    pub fn blt(&self, window: &Window, origin: Point, color: WindowColor, mode: usize) {
         os_blt1(
             window.handle().0,
             origin.x as usize,
             origin.y as usize,
             self as *const _ as usize,
-            color.argb(),
+            color.0 as u32,
             mode,
         )
     }
@@ -267,13 +143,13 @@ impl<'a> OsMutBitmap1<'a> {
 
 impl OsMutBitmap1<'_> {
     #[inline]
-    pub fn blt(&self, window: &Window, origin: Point, color: Color, mode: usize) {
+    pub fn blt(&self, window: &Window, origin: Point, color: WindowColor, mode: usize) {
         os_blt1(
             window.handle().0,
             origin.x as usize,
             origin.y as usize,
             self as *const _ as usize,
-            color.argb(),
+            color.0 as u32,
             mode,
         )
     }
@@ -336,32 +212,5 @@ impl MutableBitmapTrait for OsMutBitmap1<'_> {
 impl<'a> From<&'a OsMutBitmap1<'a>> for OsBitmap1<'a> {
     fn from(src: &'a OsMutBitmap1) -> Self {
         Self::from_slice(src.slice(), src.size())
-    }
-}
-
-#[repr(C)]
-pub struct Bitmap32<'a> {
-    width: usize,
-    height: usize,
-    slice: &'a [u32],
-}
-
-impl BitmapTrait for Bitmap32<'_> {
-    type PixelType = u32;
-
-    fn bits_per_pixel(&self) -> usize {
-        32
-    }
-
-    fn width(&self) -> usize {
-        self.width
-    }
-
-    fn height(&self) -> usize {
-        self.height
-    }
-
-    fn slice(&self) -> &[Self::PixelType] {
-        self.slice
     }
 }

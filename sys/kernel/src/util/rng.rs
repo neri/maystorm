@@ -1,6 +1,7 @@
 // Random Number Generator
 
 use crate::arch::cpu::*;
+use core::num::{NonZeroU32, NonZeroU64};
 use core::sync::atomic::*;
 
 pub trait Rng {
@@ -13,9 +14,9 @@ pub struct XorShift64 {
 }
 
 impl XorShift64 {
-    pub const fn new(seed: u64) -> Self {
+    pub const fn new(seed: NonZeroU64) -> Self {
         Self {
-            seed: AtomicU64::new(seed),
+            seed: AtomicU64::new(seed.get()),
         }
     }
 
@@ -33,7 +34,9 @@ impl XorShift64 {
 
 impl Default for XorShift64 {
     fn default() -> Self {
-        Self::new(88172645463325252)
+        Self {
+            seed: AtomicU64::new(88172645463325252),
+        }
     }
 }
 
@@ -49,9 +52,9 @@ pub struct XorShift32 {
 }
 
 impl XorShift32 {
-    pub const fn new(seed: u32) -> Self {
+    pub const fn new(seed: NonZeroU32) -> Self {
         Self {
-            seed: AtomicU32::new(seed),
+            seed: AtomicU32::new(seed.get()),
         }
     }
 
@@ -70,7 +73,9 @@ impl XorShift32 {
 
 impl Default for XorShift32 {
     fn default() -> Self {
-        Self::new(2463534242)
+        Self {
+            seed: AtomicU32::new(2463534242),
+        }
     }
 }
 

@@ -21,23 +21,27 @@ pub enum Function {
     /// [7] Close a window
     CloseWindow = 7,
     /// [8] Draw a string in a window
-    DrawText = 8,
+    DrawString = 8,
     /// [9] Fill a rectangle in a window
     FillRect = 9,
     /// [10] Draw a rectangle in a window
     DrawRect = 10,
-    /// [11] Draw a bitmap in a window
-    Blt8 = 11,
+    /// [11] Draw a line in a window
+    DrawLine = 11,
     /// [12] Draw a bitmap in a window
-    Blt1 = 12,
+    Blt8 = 12,
     /// [13] Draw a bitmap in a window
-    Blt24 = 13,
-    /// [14] Reflect the window's bitmap to the screen now
-    FlashWindow = 14,
-    /// [15] Wait for char event
-    WaitChar = 15,
-    /// [16] Read a char event
-    ReadChar = 16,
+    Blt1 = 13,
+    /// [14] Draw a bitmap in a window
+    Blt32 = 14,
+    /// [15] Blend (test)
+    BlendRect = 15,
+    /// [16] Reflect the window's bitmap if needed
+    RefreshWindow = 16,
+    /// [17] Wait for char event
+    WaitChar = 17,
+    /// [18] Read a char event
+    ReadChar = 18,
     /// [100] Return a random number
     Rand = 100,
     /// [101] Set the seed of the random number
@@ -46,6 +50,8 @@ pub enum Function {
     Alloc = 10000,
     /// [10001] RESERVED
     Free = 10001,
+    /// [10002] test_u64
+    Test = 10002,
 }
 
 impl TryFrom<u32> for Function {
@@ -61,19 +67,22 @@ impl TryFrom<u32> for Function {
             5 => Ok(Self::GetSystemInfo),
             6 => Ok(Self::NewWindow),
             7 => Ok(Self::CloseWindow),
-            8 => Ok(Self::DrawText),
+            8 => Ok(Self::DrawString),
             9 => Ok(Self::FillRect),
             10 => Ok(Self::DrawRect),
-            11 => Ok(Self::Blt8),
-            12 => Ok(Self::Blt1),
-            13 => Ok(Self::Blt24),
-            14 => Ok(Self::FlashWindow),
-            15 => Ok(Self::WaitChar),
-            16 => Ok(Self::ReadChar),
+            11 => Ok(Self::DrawLine),
+            12 => Ok(Self::Blt8),
+            13 => Ok(Self::Blt1),
+            14 => Ok(Self::Blt32),
+            15 => Ok(Self::BlendRect),
+            16 => Ok(Self::RefreshWindow),
+            17 => Ok(Self::WaitChar),
+            18 => Ok(Self::ReadChar),
             100 => Ok(Self::Rand),
             101 => Ok(Self::Srand),
             10000 => Ok(Self::Alloc),
             10001 => Ok(Self::Free),
+            10002 => Ok(Self::Test),
             _ => Err(()),
         }
     }

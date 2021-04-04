@@ -55,14 +55,36 @@ pub fn os_version() -> u32 {
 
 /// Create a new window.
 #[inline]
-pub fn os_new_window(s: &str, width: usize, height: usize) -> usize {
+pub fn os_new_window1(title: &str, width: usize, height: usize) -> usize {
     unsafe {
         svc4(
             Function::NewWindow,
-            s.as_ptr() as usize,
-            s.len(),
+            title.as_ptr() as usize,
+            title.len(),
             width,
             height,
+        )
+    }
+}
+
+/// Create a new window.
+#[inline]
+pub fn os_new_window2(
+    title: &str,
+    width: usize,
+    height: usize,
+    bg_color: usize,
+    flag: usize,
+) -> usize {
+    unsafe {
+        svc6(
+            Function::NewWindow,
+            title.as_ptr() as usize,
+            title.len(),
+            width,
+            height,
+            bg_color,
+            flag,
         )
     }
 }
@@ -75,17 +97,27 @@ pub fn os_close_window(window: usize) {
 
 /// Draw a string in a window.
 #[inline]
-pub fn os_draw_text(window: usize, x: usize, y: usize, s: &str, color: u32) {
+pub fn os_win_draw_string(window: usize, x: usize, y: usize, s: &str, color: usize) {
     let ptr = s.as_ptr() as usize;
-    let color = color as usize;
-    unsafe { svc6(Function::DrawText, window, x, y, ptr, s.len(), color) };
+    unsafe { svc6(Function::DrawString, window, x, y, ptr, s.len(), color) };
 }
 
 /// Fill a rectangle in a window.
 #[inline]
-pub fn os_fill_rect(window: usize, x: usize, y: usize, width: usize, height: usize, color: u32) {
-    let color = color as usize;
+pub fn os_win_fill_rect(
+    window: usize,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+    color: usize,
+) {
     unsafe { svc6(Function::FillRect, window, x, y, width, height, color) };
+}
+
+#[inline]
+pub fn os_win_draw_line(window: usize, x1: usize, y1: usize, x2: usize, y2: usize, color: usize) {
+    unsafe { svc6(Function::DrawLine, window, x1, y1, x2, y2, color) };
 }
 
 /// Wait for key event
@@ -106,16 +138,37 @@ pub fn os_blt8(window: usize, x: usize, y: usize, bitmap: usize) {
     unsafe { svc4(Function::Blt8, window, x, y, bitmap) };
 }
 
+#[inline]
+pub fn os_blt32(window: usize, x: usize, y: usize, bitmap: usize) {
+    unsafe { svc4(Function::Blt32, window, x, y, bitmap) };
+}
+
 /// Draw a bitmap in a window
 #[inline]
 pub fn os_blt1(window: usize, x: usize, y: usize, bitmap: usize, color: u32, mode: usize) {
     unsafe { svc6(Function::Blt1, window, x, y, bitmap, color as usize, mode) };
 }
 
-/// Reflect the window's bitmap to the screen now.
+/// TEST
 #[inline]
-pub fn os_flash_window(window: usize) {
-    unsafe { svc1(Function::FlashWindow, window) };
+pub fn os_blend_rect(bitmap: usize, x: usize, y: usize, width: usize, height: usize, color: u32) {
+    unsafe {
+        svc6(
+            Function::BlendRect,
+            bitmap,
+            x,
+            y,
+            width,
+            height,
+            color as usize,
+        );
+    }
+}
+
+/// Reflect the window's bitmap if needed.
+#[inline]
+pub fn os_refresh_window(window: usize) {
+    unsafe { svc1(Function::RefreshWindow, window) };
 }
 
 /// Return a random number
@@ -138,4 +191,9 @@ pub fn os_alloc(size: usize, align: usize) -> usize {
 #[inline]
 pub fn os_free(ptr: usize) {
     unsafe { svc1(Function::Free, ptr) };
+}
+
+#[inline]
+pub fn os_test(val: usize) {
+    unsafe { svc1(Function::Test, val) };
 }

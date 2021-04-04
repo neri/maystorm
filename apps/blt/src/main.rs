@@ -2,17 +2,21 @@
 #![no_main]
 #![no_std]
 
-use myoslib::{bitmap::OsBitmap8, graphics::*, os_rand, window::Window};
+use megstd::drawing::*;
+use myoslib::{os_rand, window::*, *};
 
 #[no_mangle]
 fn _start() {
-    let window = Window::new("Blt Test", Size::new(256, 224));
-    let bitmap = OsBitmap8::from_slice(&BITMAP_DATA, Size::new(BITMAP_WIDTH, BITMAP_HEIGHT));
+    let window = WindowBuilder::new()
+        .size(Size::new(256, 224))
+        .bg_color(WindowColor::BLACK)
+        .build("Blt Test");
+    let bitmap = ConstBitmap8::from_bytes(&BITMAP_DATA, Size::new(BITMAP_WIDTH, BITMAP_HEIGHT));
     loop {
         for _ in 0..100 {
             let x = (os_rand() % 240) as isize;
             let y = (os_rand() % 200) as isize;
-            bitmap.blt(&window, Point::new(x, y));
+            window.blt8(&bitmap, Point::new(x, y));
         }
         if window.read_char().is_some() {
             break;

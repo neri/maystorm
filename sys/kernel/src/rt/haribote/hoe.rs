@@ -422,14 +422,6 @@ impl Hoe {
 }
 
 impl Personality for Hoe {
-    fn info(&self) -> PersonalityInfo {
-        PersonalityInfo {
-            is_native: true,
-            cpu_mode: 4,
-            address_size: 4,
-        }
-    }
-
     fn context(&mut self) -> PersonalityContext {
         PersonalityContext::Hoe(self)
     }

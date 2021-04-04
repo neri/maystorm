@@ -414,12 +414,23 @@ pub struct Coordinates {
 }
 
 impl Coordinates {
+    #[inline]
     pub const fn new(left: isize, top: isize, right: isize, bottom: isize) -> Self {
         Self {
             left,
             top,
             right,
             bottom,
+        }
+    }
+
+    #[inline]
+    pub fn from_two(c1: Point, c2: Point) -> Self {
+        Self {
+            left: isize::min(c1.x, c2.x),
+            top: isize::min(c1.y, c2.y),
+            right: isize::max(c1.x, c2.x),
+            bottom: isize::max(c1.y, c2.y),
         }
     }
 

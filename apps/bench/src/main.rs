@@ -6,11 +6,13 @@
 use core::fmt::Write;
 use myoslib::*;
 
-const BENCH_STEPS: u64 = 1_000_000;
+const BENCH_STEPS: u64 = 100_000;
 
 #[no_mangle]
 fn _start() {
     {
+        println!("Benchmarking...");
+
         let mut mips_temp: usize = 0;
         let time = os_bench(|| {
             for _ in 0..BENCH_STEPS {
@@ -41,7 +43,7 @@ fn _start() {
         //   br 0 (;@2;)
         let steps: u64 = 13 * BENCH_STEPS;
 
-        let bogomips = steps * 1_000_000 / time;
-        println!("{} bogomips", bogomips);
+        let bogomips = (steps * 1_000_000).checked_div(time).unwrap_or(0);
+        println!("result: {} bogomips", bogomips as usize);
     }
 }

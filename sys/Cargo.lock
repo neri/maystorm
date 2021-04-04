@@ -105,6 +105,7 @@ dependencies = [
  "futures-util",
  "megstd",
  "myosabi",
+ "wasm",
 ]
 
 [[package]]
@@ -121,6 +122,7 @@ name = "megstd"
 version = "0.1.0"
 dependencies = [
  "bitflags",
+ "byteorder",
 ]
 
 [[package]]
@@ -146,4 +148,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f4f3deb5b80701c91a04117876f7d44996b2da123a822054166180e970f5226"
 dependencies = [
  "log",
+]
+
+[[package]]
+name = "wasm"
+version = "0.1.0"
+dependencies = [
+ "bitflags",
+ "byteorder",
 ]

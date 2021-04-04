@@ -1,8 +1,6 @@
 // WebAssembly
-pub mod arle;
-pub mod opcode;
-pub mod wasm;
-pub mod wasmintr;
+mod arle;
+pub use arle::*;
 
 use super::*;
 use crate::window::*;

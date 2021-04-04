@@ -260,6 +260,8 @@ impl WindowManager<'static> {
 }
 
 impl WindowManager<'_> {
+    pub const DEFAULT_BGCOLOR: AmbiguousColor = AmbiguousColor::WHITE;
+
     #[inline]
     #[track_caller]
     fn shared<'a>() -> &'a WindowManager<'static> {
@@ -1192,7 +1194,7 @@ pub struct WindowBuilder {
     bg_color: AmbiguousColor,
     title: [u8; WINDOW_TITLE_LENGTH],
     queue_size: usize,
-    no_bitmap: bool,
+    bitmap_strategy: BitmapStrategy,
 }
 
 impl WindowBuilder {
@@ -1201,10 +1203,10 @@ impl WindowBuilder {
             frame: Rect::new(isize::MIN, isize::MIN, 300, 300),
             level: WindowLevel::NORMAL,
             style: WindowStyle::DEFAULT,
-            bg_color: AmbiguousColor::WHITE,
+            bg_color: WindowManager::DEFAULT_BGCOLOR,
             title: [0; WINDOW_TITLE_LENGTH],
             queue_size: 100,
-            no_bitmap: false,
+            bitmap_strategy: BitmapStrategy::default(),
         };
         window.title(title).style(WindowStyle::DEFAULT)
     }
@@ -1280,10 +1282,13 @@ impl WindowBuilder {
             next: None,
         });
 
-        if !self.no_bitmap {
-            window.bitmap = Some(UnsafeCell::new(
-                BoxedBitmap32::new(frame.size(), self.bg_color.into()).into(),
-            ));
+        match self.bitmap_strategy {
+            BitmapStrategy::NonBitmap => (),
+            BitmapStrategy::Native | BitmapStrategy::Compact | BitmapStrategy::Expressive => {
+                window.bitmap = Some(UnsafeCell::new(
+                    BoxedBitmap32::new(frame.size(), self.bg_color.into()).into(),
+                ));
+            }
         }
 
         window
@@ -1357,8 +1362,28 @@ impl WindowBuilder {
 
     #[inline]
     pub const fn without_bitmap(mut self) -> Self {
-        self.no_bitmap = true;
+        self.bitmap_strategy = BitmapStrategy::NonBitmap;
         self
+    }
+
+    #[inline]
+    pub const fn bitmap_strategy(mut self, bitmap_strategy: BitmapStrategy) -> Self {
+        self.bitmap_strategy = bitmap_strategy;
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BitmapStrategy {
+    NonBitmap,
+    Native,
+    Compact,
+    Expressive,
+}
+
+impl Default for BitmapStrategy {
+    fn default() -> Self {
+        Self::Compact
     }
 }
 
