@@ -44,7 +44,7 @@ run: install $(OVMF)
 # runs: install $(OVMF)
 # 	qemu-system-x86_64 -cpu max -smp 4 -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -nographic
 
-install: $(KERNEL_BIN) $(BOOT_EFI1) tools/mkinitrd/src/*.rs $(INITRD_FILES)
+install: $(KERNEL_BIN) $(BOOT_EFI1) tools/mkinitrd/src/*.rs $(INITRD_FILES) apps
 	cargo run --manifest-path ./tools/mkinitrd/Cargo.toml -- $(INITRD_IMG) $(INITRD_FILES)
 
 iso: install

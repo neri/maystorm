@@ -43,13 +43,9 @@ impl BinaryLoader for ArleBinaryLoader {
         self.loader
             .load(blob, |mod_name, name, _type_ref| match mod_name {
                 ArleRuntime::MOD_NAME => match name {
-                    "svc0" => Ok(ArleRuntime::syscall),
-                    "svc1" => Ok(ArleRuntime::syscall),
-                    "svc2" => Ok(ArleRuntime::syscall),
-                    "svc3" => Ok(ArleRuntime::syscall),
-                    "svc4" => Ok(ArleRuntime::syscall),
-                    "svc5" => Ok(ArleRuntime::syscall),
-                    "svc6" => Ok(ArleRuntime::syscall),
+                    "svc0" | "svc1" | "svc2" | "svc3" | "svc4" | "svc5" | "svc6" => {
+                        Ok(ArleRuntime::syscall)
+                    }
                     _ => Err(WasmDecodeError::DynamicLinkError),
                 },
                 _ => Err(WasmDecodeError::DynamicLinkError),
@@ -116,15 +112,14 @@ impl ArleRuntime {
         };
 
         match function.invoke(&[]) {
-            Ok(_v) => {
-                // println!("exit: {}", v.get_u32().unwrap_or(0));
-                RuntimeEnvironment::exit(0);
-            }
-            Err(err) => {
-                println!("error: {:?}", err);
-                RuntimeEnvironment::exit(1);
-            }
+            Ok(_v) => (),
+            Err(err) => match err.kind() {
+                WasmRuntimeError::NoError => (),
+                _ => println!("error: {:?}", err),
+            },
         }
+
+        RuntimeEnvironment::exit(0);
     }
 
     fn syscall(_: &WasmModule, params: &[WasmValue]) -> Result<WasmValue, WasmRuntimeError> {
@@ -144,8 +139,7 @@ impl ArleRuntime {
 
         match func_no {
             svc::Function::Exit => {
-                let v = params.get_usize()?;
-                RuntimeEnvironment::exit(v);
+                return Err(WasmRuntimeError::NoError);
             }
 
             svc::Function::Monotonic => {
@@ -422,12 +416,14 @@ struct ParamsDecoder<'a> {
 }
 
 impl<'a> ParamsDecoder<'a> {
+    #[inline]
     pub const fn new(params: &'a [WasmValue]) -> Self {
         Self { params, index: 0 }
     }
 }
 
 impl ParamsDecoder<'_> {
+    #[inline]
     fn get_u32(&mut self) -> Result<u32, WasmRuntimeError> {
         let index = self.index;
         self.params
@@ -440,6 +436,7 @@ impl ParamsDecoder<'_> {
             })
     }
 
+    #[inline]
     fn get_i32(&mut self) -> Result<i32, WasmRuntimeError> {
         let index = self.index;
         self.params
@@ -452,16 +449,19 @@ impl ParamsDecoder<'_> {
             })
     }
 
+    #[inline]
     fn get_usize(&mut self) -> Result<usize, WasmRuntimeError> {
         self.get_u32().map(|v| v as usize)
     }
 
+    #[inline]
     fn get_memarg(&mut self) -> Result<MemArg, WasmRuntimeError> {
         let base = self.get_u32()? as usize;
         let len = self.get_u32()? as usize;
         Ok(MemArg::new(base, len))
     }
 
+    #[inline]
     fn get_string<'a>(&mut self, memory: &'a WasmMemory) -> Option<&'a str> {
         self.get_memarg()
             .ok()
@@ -470,6 +470,7 @@ impl ParamsDecoder<'_> {
     }
 
     #[allow(dead_code)]
+    #[inline]
     fn get_string16(&mut self, memory: &WasmMemory) -> Option<String> {
         self.get_memarg()
             .ok()
@@ -478,18 +479,21 @@ impl ParamsDecoder<'_> {
             .and_then(|p| String::from_utf16(p).ok())
     }
 
+    #[inline]
     fn get_point(&mut self) -> Result<Point, WasmRuntimeError> {
         let x = self.get_i32()? as isize;
         let y = self.get_i32()? as isize;
         Ok(Point::new(x, y))
     }
 
+    #[inline]
     fn get_size(&mut self) -> Result<Size, WasmRuntimeError> {
         let width = self.get_i32()? as isize;
         let height = self.get_i32()? as isize;
         Ok(Size::new(width, height))
     }
 
+    #[inline]
     fn get_color(&mut self) -> Result<AmbiguousColor, WasmRuntimeError> {
         self.get_u32().map(|v| IndexedColor::from(v as u8).into())
     }
@@ -546,6 +550,7 @@ impl ParamsDecoder<'_> {
         OsBitmap1::from_memory(memory, base)
     }
 
+    #[inline]
     fn get_window(&mut self, rt: &ArleRuntime) -> Result<Option<WindowHandle>, WasmRuntimeError> {
         self.get_u32()
             .map(|v| rt.windows.get(&(v as usize)).map(|v| *v))

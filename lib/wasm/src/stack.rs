@@ -17,6 +17,7 @@ pub union WasmStackValue {
 }
 
 impl WasmStackValue {
+    #[inline]
     pub const fn zero() -> Self {
         Self { u64: 0 }
     }
@@ -169,6 +170,7 @@ impl WasmStackValue {
         self.usize = f(val);
     }
 
+    #[inline]
     pub fn get_by_type(&self, val_type: WasmValType) -> WasmValue {
         match val_type {
             WasmValType::I32 => WasmValue::I32(self.get_i32()),
@@ -179,6 +181,7 @@ impl WasmStackValue {
         }
     }
 
+    #[inline]
     pub fn into_value(&self, val_type: WasmValType) -> WasmValue {
         match val_type {
             WasmValType::I32 => WasmValue::I32(self.get_i32()),
@@ -191,42 +194,49 @@ impl WasmStackValue {
 }
 
 impl From<bool> for WasmStackValue {
+    #[inline]
     fn from(v: bool) -> Self {
         Self::from_bool(v)
     }
 }
 
 impl From<usize> for WasmStackValue {
+    #[inline]
     fn from(v: usize) -> Self {
         Self::from_usize(v)
     }
 }
 
 impl From<u32> for WasmStackValue {
+    #[inline]
     fn from(v: u32) -> Self {
         Self::from_u32(v)
     }
 }
 
 impl From<i32> for WasmStackValue {
+    #[inline]
     fn from(v: i32) -> Self {
         Self::from_i32(v)
     }
 }
 
 impl From<u64> for WasmStackValue {
+    #[inline]
     fn from(v: u64) -> Self {
         Self::from_u64(v)
     }
 }
 
 impl From<i64> for WasmStackValue {
+    #[inline]
     fn from(v: i64) -> Self {
         Self::from_i64(v)
     }
 }
 
 impl From<WasmValue> for WasmStackValue {
+    #[inline]
     fn from(v: WasmValue) -> Self {
         match v {
             WasmValue::Empty => Self::from_i64(0),
@@ -244,6 +254,7 @@ pub struct FixedStack<'a, T> {
 }
 
 impl<'a, T> FixedStack<'a, T> {
+    #[inline]
     pub fn from_slice(slice: &'a mut [T]) -> Self {
         Self {
             slice,
@@ -253,24 +264,29 @@ impl<'a, T> FixedStack<'a, T> {
 }
 
 impl<T> FixedStack<'_, T> {
+    #[inline]
     pub const fn len(&self) -> usize {
         self.stack_pointer
     }
 }
 
 impl<T: Sized + Copy + Clone> FixedStack<'_, T> {
+    #[inline]
     pub fn remove_all(&mut self) {
         self.stack_pointer = 0;
     }
 
+    #[inline]
     pub fn as_slice(&self) -> &[T] {
         &self.slice[..self.stack_pointer]
     }
 
+    #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         &mut self.slice[..self.stack_pointer]
     }
 
+    #[inline]
     pub fn last(&self) -> Option<&T> {
         if self.stack_pointer > 0 {
             self.slice.get(self.stack_pointer - 1)
@@ -279,6 +295,7 @@ impl<T: Sized + Copy + Clone> FixedStack<'_, T> {
         }
     }
 
+    #[inline]
     pub fn last_mut(&mut self) -> Option<&mut T> {
         if self.stack_pointer > 0 {
             self.slice.get_mut(self.stack_pointer - 1)
@@ -287,6 +304,7 @@ impl<T: Sized + Copy + Clone> FixedStack<'_, T> {
         }
     }
 
+    #[inline]
     pub fn push(&mut self, data: T) -> Result<(), ()> {
         if self.stack_pointer < self.slice.len() {
             self.slice
@@ -299,6 +317,7 @@ impl<T: Sized + Copy + Clone> FixedStack<'_, T> {
         }
     }
 
+    #[inline]
     pub fn pop(&mut self) -> Option<T> {
         if self.stack_pointer > 0 {
             let new_sp = self.stack_pointer - 1;

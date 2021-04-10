@@ -248,11 +248,6 @@ impl Application {
                 MemoryManager::statistics(&mut sb);
                 print!("{}", sb.as_str());
             }
-            "slab" => {
-                let mut sb = string::StringBuffer::with_capacity(256);
-                MemoryManager::statistics_slab(&mut sb);
-                print!("{}", sb.as_str());
-            }
             "random" => match Cpu::secure_rand() {
                 Ok(rand) => println!("{:016x}", rand),
                 Err(_) => println!("# No SecureRandom"),

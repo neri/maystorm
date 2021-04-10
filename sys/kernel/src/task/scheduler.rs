@@ -149,7 +149,9 @@ impl Scheduler {
         F: FnOnce(&mut Box<dyn Personality>) -> R,
     {
         Self::current_thread()
-            .and_then(|thread| thread.update(|thread| thread.personality.as_mut().map(|v| f(v))))
+            .and_then(|thread| unsafe { thread.unsafe_weak() })
+            .and_then(|thread| thread.personality.as_mut())
+            .map(|v| f(v))
     }
 
     /// Perform the preemption
@@ -499,8 +501,10 @@ impl Scheduler {
     }
 
     pub fn exit() -> ! {
-        Self::current_thread().unwrap().update(|t| t.exit());
-        unreachable!()
+        let current = Self::current_thread().unwrap();
+        unsafe {
+            current.unsafe_weak().unwrap().exit();
+        }
     }
 
     pub fn get_idle_statistics(vec: &mut Vec<u32>) {
@@ -582,16 +586,19 @@ impl LocalScheduler {
 
         let current = scheduler.current;
         if current.as_ref().handle != next.as_ref().handle {
+            //-//-//-//-//
             scheduler.retired = Some(current);
             scheduler.current = next;
-            //-//-//-//-//
-            let next = &next.as_ref().context;
-            current.update(move |current| {
+
+            {
+                let current = current.unsafe_weak().unwrap();
+                let next = &next.unsafe_weak().unwrap().context;
                 current.context.switch(next);
-            });
-            //-//-//-//-//
+            }
+
             let scheduler = Scheduler::local_scheduler().unwrap();
             let current = scheduler.current;
+            //-//-//-//-//
 
             current.update(|thread| {
                 thread.attribute.remove(ThreadAttributes::AWAKE);
@@ -958,6 +965,7 @@ impl ThreadPool {
         });
     }
 
+    #[inline]
     fn drop_thread(handle: ThreadHandle) {
         Self::synchronized(|| {
             let shared = Self::shared();
@@ -965,11 +973,18 @@ impl ThreadPool {
         });
     }
 
+    #[inline]
+    unsafe fn unsafe_weak<'a>(&self, key: ThreadHandle) -> Option<&'a mut Box<RawThread>> {
+        Self::synchronized(|| self.data.get(&key).map(|v| &mut *(&*Arc::as_ptr(v)).get()))
+    }
+
+    #[inline]
     fn get<'a>(&self, key: &ThreadHandle) -> Option<&'a Box<RawThread>> {
         Self::synchronized(|| self.data.get(key).map(|v| v.clone().get()))
             .map(|thread| unsafe { &(*thread) })
     }
 
+    #[inline]
     fn get_mut<F, R>(&mut self, key: &ThreadHandle, f: F) -> Option<R>
     where
         F: FnOnce(&mut RawThread) -> R,
@@ -1023,6 +1038,13 @@ impl ThreadHandle {
     #[track_caller]
     fn as_ref<'a>(&self) -> &'a RawThread {
         self.get().unwrap()
+    }
+
+    #[inline]
+    #[track_caller]
+    unsafe fn unsafe_weak<'a>(&self) -> Option<&'a mut Box<RawThread>> {
+        let shared = ThreadPool::shared();
+        shared.unsafe_weak(*self)
     }
 
     #[inline]
@@ -1211,6 +1233,12 @@ impl RawThread {
         }
     }
 }
+
+// impl Drop for RawThread {
+//     fn drop(&mut self) {
+//         println!("DROP THREAD {}", self.handle.0.get());
+//     }
+// }
 
 #[derive(Debug)]
 pub struct SignallingObject(AtomicUsize);

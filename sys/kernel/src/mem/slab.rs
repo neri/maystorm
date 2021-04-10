@@ -62,12 +62,14 @@ impl SlabAllocator {
     pub(super) fn statistics(&self) -> Vec<(usize, usize, usize)> {
         let mut vec = Vec::with_capacity(self.vec.len());
         for item in &self.vec {
+            let count = item.items_per_chunk() * item.count();
             vec.push((
                 item.block_size(),
-                item.chunks[..item.count as usize].iter().fold(0, |v, i| {
-                    v + i.bitmap.load(Ordering::Relaxed).count_ones() as usize
-                }),
-                item.items_per_chunk() * item.count(),
+                count
+                    - item.chunks[..item.count as usize].iter().fold(0, |v, i| {
+                        v + i.bitmap.load(Ordering::Relaxed).count_ones() as usize
+                    }),
+                count,
             ));
         }
         vec

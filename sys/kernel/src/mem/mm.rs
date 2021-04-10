@@ -181,21 +181,22 @@ impl MemoryManager {
     pub fn statistics(sb: &mut StringBuffer) {
         let shared = Self::shared();
         sb.clear();
-        writeln!(sb, "Total: {} KB", shared.total_memory_size / 1024).unwrap();
         writeln!(
             sb,
-            "Kernel: {} / {} KB",
-            shared.static_free.load(Ordering::Relaxed) / 1024,
-            shared.static_total / 1024,
+            "Memory: {} MB {} / {} Pages",
+            shared.total_memory_size >> 20,
+            shared.static_free.load(Ordering::Relaxed) / Self::PAGE_SIZE_MIN,
+            shared.static_total / Self::PAGE_SIZE_MIN,
         )
         .unwrap();
-    }
 
-    pub fn statistics_slab(sb: &mut StringBuffer) {
-        let shared = Self::shared();
-        sb.clear();
-        for slab in shared.slab.as_ref().unwrap().statistics() {
-            writeln!(sb, "Slab {:4}: {:3} / {:3}", slab.0, slab.1, slab.2).unwrap();
+        for chunk in shared.slab.as_ref().unwrap().statistics().chunks(2) {
+            writeln!(
+                sb,
+                "Slab {:4}: {:3} / {:3} :: {:4}: {:3} / {:3}",
+                chunk[0].0, chunk[0].1, chunk[0].2, chunk[1].0, chunk[1].1, chunk[1].2,
+            )
+            .unwrap();
         }
     }
 }

@@ -7,13 +7,13 @@ use core::fmt::Debug;
 
 type StackType = usize;
 
-/// Wasm Intermediate Code Interpreter
+/// Wasm Intermediate Code
 #[derive(Debug, Clone, Copy)]
 pub struct WasmImc {
-    position: usize,
-    mnemonic: WasmIntMnemonic,
-    stack_level: StackType,
-    param1: u64,
+    pub position: usize,
+    pub mnemonic: WasmIntMnemonic,
+    pub stack_level: StackType,
+    pub param1: u64,
 }
 
 impl WasmImc {
@@ -48,7 +48,7 @@ impl WasmImc {
     }
 
     #[inline]
-    pub const fn opcode(&self) -> WasmIntMnemonic {
+    pub const fn mnemonic(&self) -> WasmIntMnemonic {
         self.mnemonic
     }
 
@@ -84,6 +84,7 @@ pub struct WasmInterpreter<'a> {
 }
 
 impl<'a> WasmInterpreter<'a> {
+    #[inline]
     pub fn new(module: &'a WasmModule) -> Self {
         Self {
             module,
@@ -110,10 +111,9 @@ impl WasmInterpreter<'_> {
             output
         };
 
-        let mut codes = WasmIntermediateCodeBlock::from_codes(info.intermediate_codes());
         self.func_index = func_index;
 
-        self.internal_exec(info, &mut codes, &mut locals, result_types, &mut stack)
+        self.interpret(info, &mut locals, result_types, &mut stack)
             .map_err(|v| WasmIntrError {
                 kind: v,
                 function: self.func_index,
@@ -121,14 +121,15 @@ impl WasmInterpreter<'_> {
             })
     }
 
-    fn internal_exec(
+    fn interpret(
         &mut self,
         info: &WasmBlockInfo,
-        codes: &mut WasmIntermediateCodeBlock,
         locals: &mut [WasmStackValue],
         result_types: &[WasmValType],
         stack: &mut SharedStack,
     ) -> Result<WasmValue, WasmRuntimeError> {
+        let mut codes = WasmIntermediateCodeBlock::from_codes(info.intermediate_codes());
+
         let value_stack = stack.alloc(info.max_stack());
         for value in value_stack.iter_mut() {
             *value = WasmStackValue::zero();
@@ -139,18 +140,22 @@ impl WasmInterpreter<'_> {
         while let Some(code) = codes.fetch() {
             // self.last_postion = code.position();
             // self.last_code = code;
-            match code.opcode() {
+            match code.mnemonic() {
                 WasmIntMnemonic::Unreachable => return Err(WasmRuntimeError::Unreachable),
 
-                WasmIntMnemonic::Nop => (),
+                // Currently, NOP is unreachable
+                WasmIntMnemonic::Nop => unreachable!(),
 
                 WasmIntMnemonic::Br => {
-                    codes.set_position(code.param1() as usize);
+                    let br = code.param1() as usize;
+                    codes.set_position(br);
                 }
+
                 WasmIntMnemonic::BrIf => {
                     let cc = value_stack[code.stack_level()].get_bool();
                     if cc {
-                        codes.set_position(code.param1() as usize);
+                        let br = code.param1() as usize;
+                        codes.set_position(br);
                     }
                 }
                 WasmIntMnemonic::BrTable => {
@@ -221,7 +226,7 @@ impl WasmInterpreter<'_> {
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     *ref_a = *local;
                 }
-                WasmIntMnemonic::LocalSet => {
+                WasmIntMnemonic::LocalSet | WasmIntMnemonic::LocalTee => {
                     let local = locals
                         .get_mut(code.param1() as usize)
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
@@ -1129,6 +1134,49 @@ impl WasmInterpreter<'_> {
                     *var = WasmStackValue::from_i32(var.get_i16() as i32);
                 }
 
+                WasmIntMnemonic::FusedI32AddI => {
+                    let lhs = value_stack
+                        .get_mut(code.stack_level())
+                        .ok_or(WasmRuntimeError::InternalInconsistency)?;
+
+                    lhs.map_i32(|lhs| lhs.wrapping_add(code.param1() as i32));
+                }
+                WasmIntMnemonic::FusedI32SubI => {
+                    let lhs = value_stack
+                        .get_mut(code.stack_level())
+                        .ok_or(WasmRuntimeError::InternalInconsistency)?;
+
+                    lhs.map_i32(|lhs| lhs.wrapping_sub(code.param1() as i32));
+                }
+                WasmIntMnemonic::FusedI64AddI => {
+                    let lhs = value_stack
+                        .get_mut(code.stack_level())
+                        .ok_or(WasmRuntimeError::InternalInconsistency)?;
+
+                    lhs.map_i64(|lhs| lhs.wrapping_add(code.param1() as i64));
+                }
+                WasmIntMnemonic::FusedI64SubI => {
+                    let lhs = value_stack
+                        .get_mut(code.stack_level())
+                        .ok_or(WasmRuntimeError::InternalInconsistency)?;
+
+                    lhs.map_i64(|lhs| lhs.wrapping_sub(code.param1() as i64));
+                }
+                WasmIntMnemonic::FusedI32BrZ => {
+                    let cc = value_stack[code.stack_level()].get_i32() == 0;
+                    if cc {
+                        let br = code.param1() as usize;
+                        codes.set_position(br);
+                    }
+                }
+                WasmIntMnemonic::FusedI64BrZ => {
+                    let cc = value_stack[code.stack_level()].get_i64() == 0;
+                    if cc {
+                        let br = code.param1() as usize;
+                        codes.set_position(br);
+                    }
+                }
+
                 #[allow(unreachable_patterns)]
                 _ => return Err(WasmRuntimeError::InvalidBytecode),
             }
@@ -1179,15 +1227,8 @@ impl WasmInterpreter<'_> {
                         .map_err(|_| WasmRuntimeError::InternalInconsistency)?;
                 }
 
-                let mut codes = WasmIntermediateCodeBlock::from_codes(info.intermediate_codes());
                 self.func_index = func.index();
-                let result = self.internal_exec(
-                    info,
-                    &mut codes,
-                    locals.as_mut_slice(),
-                    result_types,
-                    stack,
-                )?;
+                let result = self.interpret(info, locals.as_mut_slice(), result_types, stack)?;
                 if !result.is_empty() {
                     let var = value_stack
                         .get_mut(stack_under)
@@ -1234,17 +1275,18 @@ struct WasmIntermediateCodeBlock<'a> {
 }
 
 impl<'a> WasmIntermediateCodeBlock<'a> {
+    #[inline]
     fn from_codes(codes: &'a [WasmImc]) -> Self {
         Self { codes, position: 0 }
     }
 }
 
 impl WasmIntermediateCodeBlock<'_> {
-    fn fetch(&mut self) -> Option<WasmImc> {
-        let position = self.position;
-        self.codes.get(position).map(|v| {
+    #[inline]
+    fn fetch(&mut self) -> Option<&WasmImc> {
+        self.codes.get(self.position).map(|v| {
             self.position += 1;
-            *v
+            v
         })
     }
 
@@ -1283,7 +1325,7 @@ impl WasmInvocation for WasmRunnable<'_> {
             locals.push(WasmStackValue::from(param.clone()));
         }
         for _ in body.local_types() {
-            locals.push(WasmStackValue::from_u64(0));
+            locals.push(WasmStackValue::zero());
         }
 
         let result_types = function.result_types();
@@ -1313,6 +1355,7 @@ impl WasmIntrError {
 }
 
 impl From<WasmRuntimeError> for WasmIntrError {
+    #[inline]
     fn from(kind: WasmRuntimeError) -> Self {
         Self {
             kind,

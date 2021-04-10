@@ -13,6 +13,11 @@ extern "C" {
     pub fn svc6(_: Function, _: usize, _: usize, _: usize, _: usize, _: usize, _: usize) -> usize;
 }
 
+#[inline]
+pub fn os_exit() {
+    unsafe { svc0(Function::Exit) };
+}
+
 /// Display a string.
 #[inline]
 pub fn os_print(s: &str) {
