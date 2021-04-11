@@ -26,7 +26,7 @@ clean:
 # $(RUST_ARCH).json:
 # 	rustc +nightly -Z unstable-options --print target-spec-json --target $(RUST_ARCH) | sed -e 's/-sse,+/+sse,-/' > $@
 
-$(TARGET_KERNEL): sys/kernel/* sys/kernel/**/* sys/kernel/**/**/* sys/kernel/**/**/**/* sys/kernel/**/**/**/**/*
+$(TARGET_KERNEL): sys/kernel/* sys/kernel/**/* sys/kernel/**/**/* sys/kernel/**/**/**/* sys/kernel/**/**/**/**/* lib/**/src/**/*.rs lib/**/src/**/**/*.rs
 	(cd sys; cargo build -Zbuild-std --release --target $(KRNL_ARCH).json)
 
 $(TARGET_BOOT_EFI): boot/boot-efi/* boot/boot-efi/src/* boot/boot-efi/src/**/*
@@ -59,3 +59,6 @@ $(BOOT_EFI1): $(TARGET_BOOT_EFI) $(EFI_BOOT) $(EFI_VENDOR)
 
 apps:
 	cd apps; cargo build --target wasm32-unknown-unknown --release
+
+test:
+	cargo test --manifest-path lib/wasm/Cargo.toml

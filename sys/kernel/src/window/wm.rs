@@ -686,11 +686,22 @@ impl WindowManager<'_> {
         desktop.set_bg_color(color);
     }
 
-    // pub fn set_desktop_bitmap(bitmap: Option<Box<Bitmap32>>) {
-    //     let desktop = Self::shared().root;
-    //     desktop.update(|window| window.bitmap = bitmap);
-    //     desktop.set_needs_display();
-    // }
+    pub fn set_desktop_bitmap(bitmap: &ConstBitmap) {
+        let shared = Self::shared();
+        let _ = shared.root.update_opt(|root| {
+            if root.bitmap.is_none() {
+                let bitmap = ConstBitmap::from(&shared.main_screen);
+                root.bitmap = Some(UnsafeCell::new(BoxedBitmap::same_format(
+                    &bitmap,
+                    root.frame.size(),
+                    root.bg_color,
+                )));
+            }
+            root.bitmap()
+                .map(|mut v| v.blt(bitmap, Point::default(), bitmap.bounds()));
+            root.set_needs_display();
+        });
+    }
 
     #[inline]
     pub fn is_pointer_visible() -> bool {

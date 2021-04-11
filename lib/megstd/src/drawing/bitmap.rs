@@ -1790,10 +1790,24 @@ impl<'a> From<&'a ConstBitmap8<'a>> for ConstBitmap<'a> {
     }
 }
 
+impl<'a> From<&'a Bitmap8<'a>> for ConstBitmap<'a> {
+    #[inline]
+    fn from(val: &'a Bitmap8<'a>) -> Self {
+        ConstBitmap::Indexed(val.as_ref())
+    }
+}
+
 impl<'a> From<&'a ConstBitmap32<'a>> for ConstBitmap<'a> {
     #[inline]
     fn from(val: &'a ConstBitmap32<'a>) -> ConstBitmap {
         ConstBitmap::Argb32(val)
+    }
+}
+
+impl<'a> From<&'a Bitmap32<'a>> for ConstBitmap<'a> {
+    #[inline]
+    fn from(val: &'a Bitmap32<'a>) -> Self {
+        ConstBitmap::Argb32(val.as_ref())
     }
 }
 
@@ -2084,10 +2098,14 @@ impl Drawable for BoxedBitmap<'_> {
 }
 
 impl<'a> BoxedBitmap<'a> {
-    pub fn same_format(template: &Bitmap, size: Size, bg_color: AmbiguousColor) -> BoxedBitmap<'a> {
-        match template {
-            Bitmap::Indexed(_) => BoxedBitmap8::new(size, bg_color.into()).into(),
-            Bitmap::Argb32(_) => BoxedBitmap32::new(size, bg_color.into()).into(),
+    pub fn same_format<'b, T: AsRef<ConstBitmap<'b>>>(
+        template: &T,
+        size: Size,
+        bg_color: AmbiguousColor,
+    ) -> BoxedBitmap<'a> {
+        match template.as_ref() {
+            ConstBitmap::Indexed(_) => BoxedBitmap8::new(size, bg_color.into()).into(),
+            ConstBitmap::Argb32(_) => BoxedBitmap32::new(size, bg_color.into()).into(),
         }
     }
 

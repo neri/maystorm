@@ -3,10 +3,20 @@
 // use crate::mem::alloc;
 use crate::mem::*;
 use bitflags::*;
-// use bootprot::*;
+use bootprot::*;
 
 pub type PhysicalAddress = u64;
 type PageTableRepr = u64;
+
+pub(crate) struct PageManager {
+    //
+}
+
+impl PageManager {
+    pub unsafe fn init(_info: &BootInfo) {
+        //
+    }
+}
 
 bitflags! {
     struct PageAttributes: PageTableRepr {

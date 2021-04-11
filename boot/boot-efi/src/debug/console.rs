@@ -66,6 +66,7 @@ impl DebugConsole {
             '\n' => self.update_cursor(|_, y| (0, y + 1)),
             _ => {
                 let (x, y) = self.cursor;
+                let y = usize::min(y, self.rows - 1);
                 self.draw_char(x, y, c, Self::FG_COLOR, Self::BG_COLOR);
                 self.cursor = (x + 1, y);
             }

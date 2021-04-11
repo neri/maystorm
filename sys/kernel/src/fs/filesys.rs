@@ -2,6 +2,7 @@
 
 use super::initramfs::*;
 use alloc::string::String;
+use alloc::vec::Vec;
 use core::num::{NonZeroU64, NonZeroUsize};
 use megstd::io;
 
@@ -170,6 +171,15 @@ impl FsRawFileControlBlock {
                 self.file_pos += v as OffsetType;
                 v
             })
+    }
+
+    pub fn read_to_end(&mut self, vec: &mut Vec<u8>) -> io::Result<usize> {
+        let size = (self.file_size - self.file_pos) as usize;
+        vec.resize(size, 0);
+        self.read(vec.as_mut_slice()).map(|v| {
+            vec.resize(v, 0);
+            v
+        })
     }
 
     pub fn lseek(&mut self, offset: OffsetType, whence: Whence) -> OffsetType {

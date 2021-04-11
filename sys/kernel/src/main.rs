@@ -346,41 +346,41 @@ impl Application {
         0
     }
 
-    fn format_bytes(sb: &mut dyn Write, val: usize) -> core::fmt::Result {
-        let kb = (val >> 10) & 0x3FF;
-        let mb = (val >> 20) & 0x3FF;
-        let gb = val >> 30;
+    // fn format_bytes(sb: &mut dyn Write, val: usize) -> core::fmt::Result {
+    //     let kb = (val >> 10) & 0x3FF;
+    //     let mb = (val >> 20) & 0x3FF;
+    //     let gb = val >> 30;
 
-        if gb >= 10 {
-            // > 10G
-            write!(sb, "{:4}G", gb)
-        } else if gb >= 1 {
-            // 1G~10G
-            let mb0 = (mb * 100) >> 10;
-            write!(sb, "{}.{:02}G", gb, mb0)
-        } else if mb >= 100 {
-            // 100M~1G
-            write!(sb, "{:4}M", mb)
-        } else if mb >= 10 {
-            // 10M~100M
-            let kb00 = (kb * 10) >> 10;
-            write!(sb, "{:2}.{}M", mb, kb00)
-        } else if mb >= 1 {
-            // 1M~10M
-            let kb0 = (kb * 100) >> 10;
-            write!(sb, "{}.{:02}M", mb, kb0)
-        } else if kb >= 100 {
-            // 100K~1M
-            write!(sb, "{:4}K", kb)
-        } else if kb >= 10 {
-            // 10K~100K
-            let b00 = ((val & 0x3FF) * 10) >> 10;
-            write!(sb, "{:2}.{}K", kb, b00)
-        } else {
-            // 0~10K
-            write!(sb, "{:5}", val)
-        }
-    }
+    //     if gb >= 10 {
+    //         // > 10G
+    //         write!(sb, "{:4}G", gb)
+    //     } else if gb >= 1 {
+    //         // 1G~10G
+    //         let mb0 = (mb * 100) >> 10;
+    //         write!(sb, "{}.{:02}G", gb, mb0)
+    //     } else if mb >= 100 {
+    //         // 100M~1G
+    //         write!(sb, "{:4}M", mb)
+    //     } else if mb >= 10 {
+    //         // 10M~100M
+    //         let kb00 = (kb * 10) >> 10;
+    //         write!(sb, "{:2}.{}M", mb, kb00)
+    //     } else if mb >= 1 {
+    //         // 1M~10M
+    //         let kb0 = (kb * 100) >> 10;
+    //         write!(sb, "{}.{:02}M", mb, kb0)
+    //     } else if kb >= 100 {
+    //         // 100K~1M
+    //         write!(sb, "{:4}K", kb)
+    //     } else if kb >= 10 {
+    //         // 10K~100K
+    //         let b00 = ((val & 0x3FF) * 10) >> 10;
+    //         write!(sb, "{:2}.{}K", kb, b00)
+    //     } else {
+    //         // 0~10K
+    //         write!(sb, "{:5}", val)
+    //     }
+    // }
 
     fn cmd_lspci(argv: &[&str]) -> isize {
         let opt_all = argv.len() > 1;

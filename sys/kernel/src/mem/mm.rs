@@ -3,6 +3,8 @@
 // use crate::arch::page::*;
 use super::slab::*;
 use super::string::*;
+use crate::arch::cpu::Cpu;
+use crate::sync::spinlock::Spinlock;
 use crate::task::scheduler::*;
 use alloc::boxed::Box;
 use bitflags::*;
@@ -10,47 +12,62 @@ use bootprot::*;
 use core::alloc::Layout;
 use core::fmt::Write;
 use core::num::*;
+use core::slice;
 use core::sync::atomic::*;
 
 static mut MM: MemoryManager = MemoryManager::new();
 
 pub struct MemoryManager {
-    total_memory_size: u64,
+    total_memory_size: usize,
+    reserved_memory_size: usize,
     page_size_min: usize,
-    static_start: AtomicUsize,
-    static_free: AtomicUsize,
-    static_total: usize,
+    lock: Spinlock,
+    dummy_size: AtomicUsize,
+    n_free: AtomicUsize,
+    pairs: [MemFreePair; Self::MAX_FREE_PAIRS],
     slab: Option<Box<SlabAllocator>>,
-    #[cfg(any(target_arch = "x86_64"))]
     real_bitmap: [u32; 8],
 }
 
 impl MemoryManager {
+    const MAX_FREE_PAIRS: usize = 1024;
     pub const PAGE_SIZE_MIN: usize = 0x1000;
 
     const fn new() -> Self {
         Self {
             total_memory_size: 0,
+            reserved_memory_size: 0,
             page_size_min: 0x1000,
-            static_start: AtomicUsize::new(0),
-            static_free: AtomicUsize::new(0),
-            static_total: 0,
+            lock: Spinlock::new(),
+            dummy_size: AtomicUsize::new(0),
+            n_free: AtomicUsize::new(0),
+            pairs: [MemFreePair::empty(); Self::MAX_FREE_PAIRS],
             slab: None,
-            #[cfg(any(target_arch = "x86_64"))]
             real_bitmap: [0; 8],
         }
     }
 
     pub(crate) unsafe fn init_first(info: &BootInfo) {
         let shared = Self::shared();
-        shared.total_memory_size = info.total_memory_size;
-        shared.static_total = info.free_memory as usize;
-        shared
-            .static_start
-            .store(info.static_start as usize, Ordering::Relaxed);
-        shared
-            .static_free
-            .store(info.free_memory as usize, Ordering::Relaxed);
+        shared.total_memory_size = info.total_memory_size as usize;
+
+        let mm: &[BootMemoryMapDescriptor] =
+            slice::from_raw_parts(info.mmap_base as usize as *const _, info.mmap_len as usize);
+        let mut free_count = 0;
+        let mut n_free = 0;
+        for mem_desc in mm {
+            if mem_desc.mem_type == BootMemoryType::Available {
+                let size = mem_desc.page_count as usize * Self::PAGE_SIZE_MIN;
+                shared.pairs[n_free] = MemFreePair {
+                    base: mem_desc.base as usize,
+                    size,
+                };
+                free_count += size;
+            }
+            n_free += 1;
+        }
+        shared.n_free.store(n_free, Ordering::SeqCst);
+        shared.reserved_memory_size = shared.total_memory_size - free_count;
 
         if cfg!(any(target_arch = "x86_64")) {
             shared.real_bitmap = info.real_bitmap;
@@ -88,8 +105,9 @@ impl MemoryManager {
     }
 
     #[inline]
-    pub fn total_memory_size(&self) -> u64 {
-        self.total_memory_size
+    pub fn total_memory_size() -> usize {
+        let shared = Self::shared();
+        shared.total_memory_size
     }
 
     #[inline]
@@ -97,25 +115,46 @@ impl MemoryManager {
         self.page_size_min
     }
 
+    #[inline]
+    pub fn reserved_memory_size() -> usize {
+        let shared = Self::shared();
+        shared.reserved_memory_size
+    }
+
+    #[inline]
+    pub fn free_memory_size() -> usize {
+        let shared = Self::shared();
+        shared.lock.synchronized(|| {
+            let mut total = shared.dummy_size.load(Ordering::Relaxed);
+            total += shared
+                .slab
+                .as_ref()
+                .map(|v| v.free_memory_size())
+                .unwrap_or(0);
+            total += shared.pairs[..shared.n_free.load(Ordering::Relaxed)]
+                .iter()
+                .fold(0, |v, i| v + i.size);
+            total
+        })
+    }
+
     /// Allocate static pages
     unsafe fn static_alloc(layout: Layout) -> Result<NonZeroUsize, AllocationError> {
         let shared = Self::shared();
-        let page_mask = shared.page_size_min() - 1;
-        let size = (layout.size() + page_mask * 2 + 1) & !page_mask;
-        loop {
-            let left = shared.static_free.load(Ordering::Relaxed);
-            if left < size {
-                return Err(AllocationError::OutOfMemory);
-            }
-            if shared
-                .static_free
-                .compare_exchange_weak(left, left - size, Ordering::SeqCst, Ordering::Relaxed)
-                .is_ok()
-            {
-                let result = shared.static_start.fetch_add(size, Ordering::SeqCst);
-                return NonZeroUsize::new(result).ok_or(AllocationError::Unexpected);
+
+        let align_m1 = Self::PAGE_SIZE_MIN - 1;
+        let size = (layout.size() + align_m1) & !(align_m1);
+        let n_free = shared.n_free.load(Ordering::SeqCst);
+        for i in 0..n_free {
+            let free_pair = &mut shared.pairs[i];
+            if free_pair.size >= size {
+                let ptr = free_pair.base;
+                free_pair.base += size;
+                free_pair.size -= size;
+                return Ok(NonZeroUsize::new_unchecked(ptr));
             }
         }
+        Err(AllocationError::OutOfMemory)
     }
 
     /// Allocate kernel memory (old form)
@@ -137,7 +176,7 @@ impl MemoryManager {
                 Err(err) => return Err(err),
             }
         }
-        Self::static_alloc(layout)
+        shared.lock.synchronized(|| Self::static_alloc(layout))
     }
 
     /// Deallocate kernel memory
@@ -152,26 +191,31 @@ impl MemoryManager {
             let shared = Self::shared();
             if let Some(slab) = &shared.slab {
                 match slab.free(base, layout) {
-                    Ok(_) => (),
-                    Err(err) => return Err(err),
+                    Ok(_) => Ok(()),
+                    Err(_) => {
+                        shared.dummy_size.fetch_add(layout.size(), Ordering::SeqCst);
+                        Ok(())
+                    }
                 }
+            } else {
+                shared.dummy_size.fetch_add(layout.size(), Ordering::SeqCst);
+                Ok(())
             }
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 
     /// Allocate a page on real memory
-    #[cfg(any(target_arch = "x86_64"))]
     pub unsafe fn static_alloc_real() -> Option<NonZeroU8> {
         let max_real = 0xA0;
         let shared = Self::shared();
         for i in 1..max_real {
-            let mut result: u32;
-            asm!("
-                lock btr [{0}], {1:e}
-                sbb {2:e}, {2:e}
-                ", in(reg) &shared.real_bitmap[0], in(reg) i, lateout(reg) result, );
-            if result != 0 {
+            let result = Cpu::interlocked_test_and_clear(
+                &*(&shared.real_bitmap[0] as *const _ as *const AtomicUsize),
+                i,
+            );
+            if result {
                 return NonZeroU8::new(i as u8);
             }
         }
@@ -181,23 +225,41 @@ impl MemoryManager {
     pub fn statistics(sb: &mut StringBuffer) {
         let shared = Self::shared();
         sb.clear();
+
+        let dummy = shared.dummy_size.load(Ordering::Relaxed);
+        let free = shared.pairs[..shared.n_free.load(Ordering::Relaxed)]
+            .iter()
+            .fold(0, |v, i| v + i.size);
+        let total = free + dummy;
         writeln!(
             sb,
-            "Memory: {} MB {} / {} Pages",
+            "Memory {} MB Pages {} ({} + {})",
             shared.total_memory_size >> 20,
-            shared.static_free.load(Ordering::Relaxed) / Self::PAGE_SIZE_MIN,
-            shared.static_total / Self::PAGE_SIZE_MIN,
+            total / Self::PAGE_SIZE_MIN,
+            free / Self::PAGE_SIZE_MIN,
+            dummy / Self::PAGE_SIZE_MIN,
         )
         .unwrap();
 
-        for chunk in shared.slab.as_ref().unwrap().statistics().chunks(2) {
-            writeln!(
-                sb,
-                "Slab {:4}: {:3} / {:3} :: {:4}: {:3} / {:3}",
-                chunk[0].0, chunk[0].1, chunk[0].2, chunk[1].0, chunk[1].1, chunk[1].2,
-            )
-            .unwrap();
+        for chunk in shared.slab.as_ref().unwrap().statistics().chunks(4) {
+            write!(sb, "Slab").unwrap();
+            for item in chunk {
+                write!(sb, " {:4}: {:3} / {:3}", item.0, item.1, item.2,).unwrap();
+            }
+            writeln!(sb, "").unwrap();
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MemFreePair {
+    base: usize,
+    size: usize,
+}
+
+impl MemFreePair {
+    const fn empty() -> Self {
+        Self { base: 0, size: 0 }
     }
 }
 

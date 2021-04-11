@@ -118,7 +118,6 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
     // Load initrd
     match get_file(handle, &bs, config.initrd_path()) {
         Ok(blob) => {
-            info.flags.insert(BootFlags::INITRD_EXISTS);
             info.initrd_base = &blob[0] as *const u8 as u32;
             info.initrd_size = blob.len() as u32;
         }
@@ -128,8 +127,19 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
         }
     };
 
-    // ----------------------------------------------------------------
+    unsafe {
+        match PageManager::init_first(&bs) {
+            Ok(_) => (),
+            Err(err) => {
+                writeln!(st.stdout(), "Error: {:?}", err).unwrap();
+                return err;
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Exit Boot Services
+    //
 
     // because some UEFI implementations require an additional buffer during exit_boot_services
     let buf_size = st.boot_services().memory_map_size() * 2;
@@ -141,7 +151,11 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
     let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr, buf_size) };
     let (_st, mm) = st.exit_boot_services(handle, buf).unwrap().unwrap();
 
-    // ----------------------------------------------------------------
+    // ------------------------------------------------------------------------
+
+    unsafe {
+        PageManager::init_late(&mut info, mm);
+    }
 
     // let mut mm: Vec<uefi::table::boot::MemoryDescriptor> = mm
     //     .copied()
@@ -156,8 +170,6 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
     //         .unwrap()
     //         .unwrap();
     // }
-
-    PageManager::init(&mut info, mm);
 
     let entry = kernel.locate(VirtualAddress(info.kernel_base));
 

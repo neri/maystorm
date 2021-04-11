@@ -9,9 +9,8 @@ use alloc::boxed::Box;
 use alloc::vec::*;
 use bootprot::BootInfo;
 use core::fmt;
-use megstd::drawing::*;
-// use core::fmt::Write;
 use core::ptr::*;
+use megstd::drawing::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Version {
@@ -150,10 +149,9 @@ impl System {
     pub unsafe fn init(info: &BootInfo, f: fn() -> ()) -> ! {
         let shared = &mut SYSTEM;
         shared.boot_flags = info.flags;
-        if shared.boot_flags.contains(BootFlags::INITRD_EXISTS) {
-            shared.initrd_base = info.initrd_base as usize;
-            shared.initrd_size = info.initrd_size as usize;
-        }
+        shared.initrd_base = info.initrd_base as usize;
+        shared.initrd_size = info.initrd_size as usize;
+        arch::page::PageManager::init(info);
 
         shared.main_screen = Some(Bitmap32::from_static(
             info.vram_base as usize as *mut TrueColor,

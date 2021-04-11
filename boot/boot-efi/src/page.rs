@@ -1,17 +1,20 @@
 // Minimal Page Manager
 
 // use crate::*;
+use crate::*;
+use _core::ptr::slice_from_raw_parts_mut;
 use bitflags::*;
 use bootprot::*;
 use core::intrinsics::*;
 use core::ops::*;
 use core::ptr;
 use core::slice;
-use uefi::table::boot::*;
+use uefi::{table::boot::*, Completion};
 
 struct PageConfig {}
 
 impl PageConfig {
+    /// UEFI virtual page size (not the actual page size)
     const UEFI_PAGE_SIZE: u64 = 0x0000_1000;
     const N_DIRECT_MAP_GIGA: usize = 4;
     const MAX_REAL_MEMORY: u64 = 0x0000A_0000;
@@ -83,12 +86,48 @@ impl PageManager {
         }
     }
 
-    pub fn init(info: &mut BootInfo, mm: impl Iterator<Item = &'static MemoryDescriptor>) {
+    /// First initialize before exit_boot_services
+    pub unsafe fn init_first(bs: &BootServices) -> Result<(), Status> {
+        let max_address = 0xFFFF_0000;
+        let page_size = 0x0010_0000;
+        let count = page_size / PageConfig::UEFI_PAGE_SIZE;
+        let page_base = match bs.allocate_pages(
+            AllocateType::MaxAddress(max_address),
+            MemoryType::LOADER_DATA,
+            count as usize,
+        ) {
+            Ok(v) => v.unwrap(),
+            Err(err) => return Err(err.status()),
+        };
         let shared = Self::shared();
+        shared.static_start = page_base;
+        shared.static_free = page_size;
+        Ok(())
+    }
+
+    /// Second initialize after exit_boot_services
+    pub unsafe fn init_late(
+        info: &mut BootInfo,
+        mm: impl ExactSizeIterator<Item = &'static MemoryDescriptor>,
+    ) {
+        let shared = Self::shared();
+
+        let mm_len = mm.len();
+        let buffer = Self::alloc_pages(
+            (size_of::<BootMemoryMapDescriptor>() * mm_len + PageConfig::UEFI_PAGE_SIZE as usize
+                - 1)
+                / PageConfig::UEFI_PAGE_SIZE as usize,
+        ) as usize as *const BootMemoryMapDescriptor
+            as *mut BootMemoryMapDescriptor;
+        info.mmap_base = buffer as usize as u32;
+        let buffer = unsafe { slice::from_raw_parts_mut(buffer, mm_len) };
+        let mut write_cursor = 0;
+        let mut read_cursor = 0;
 
         let mut last_pa_4g = 0;
         let mut total_memory_size: u64 = 0;
-        for mem_desc in mm {
+        for (index, mem_desc) in mm.enumerate() {
+            let mut has_to_copy = true;
             let page_base = mem_desc.phys_start;
             let page_size = mem_desc.page_count * PageConfig::UEFI_PAGE_SIZE;
             let last_pa = page_base + page_size;
@@ -99,7 +138,6 @@ impl PageManager {
                 }
             }
             if mem_desc.ty.is_conventional_at_runtime() {
-                #[cfg(any(target_arch = "x86_64"))]
                 if last_pa <= PageConfig::MAX_REAL_MEMORY {
                     let base = page_base / 0x1000;
                     let count = page_size / 0x1000;
@@ -109,14 +147,41 @@ impl PageManager {
                         let bit = 1 << (i & 31);
                         info.real_bitmap[index] |= bit;
                     }
+                    has_to_copy = false;
                 }
-                if page_size > shared.static_free && last_pa < u32::MAX.into() {
-                    shared.static_start = page_base;
-                    shared.static_free = page_size;
+            }
+            let boot_mem_desc = BootMemoryMapDescriptor {
+                base: page_base,
+                page_count: mem_desc.page_count as u32,
+                mem_type: mem_desc.ty.as_boot_memory_type(),
+            };
+
+            if has_to_copy {
+                unsafe {
+                    if write_cursor == 0 {
+                        buffer[write_cursor] = boot_mem_desc;
+                        write_cursor += 1;
+                    } else {
+                        let prev_mem_desc = &buffer[read_cursor];
+                        let prev_last_pa = prev_mem_desc.base
+                            + prev_mem_desc.page_count as u64 * PageConfig::UEFI_PAGE_SIZE;
+
+                        if prev_mem_desc.mem_type == BootMemoryType::Available
+                            && boot_mem_desc.mem_type == BootMemoryType::Available
+                            && prev_last_pa == boot_mem_desc.base
+                        {
+                            buffer[read_cursor].page_count += boot_mem_desc.page_count;
+                        } else {
+                            read_cursor = write_cursor;
+                            buffer[write_cursor] = boot_mem_desc;
+                            write_cursor += 1;
+                        }
+                    }
                 }
             }
         }
         info.total_memory_size = total_memory_size;
+        info.mmap_len = write_cursor as u32 + 1;
 
         // Minimal Paging
         let common_attributes = PageAttributes::from(MProtect::all());
@@ -193,6 +258,17 @@ impl PageManager {
         }
     }
 
+    #[allow(dead_code)]
+    fn debug_unit(val: usize) -> (usize, char) {
+        if val < 0x0020_0000 {
+            (val >> 10, 'K')
+        } else if val < 0x8000_0000 {
+            (val >> 20, 'M')
+        } else {
+            (val >> 30, 'G')
+        }
+    }
+
     pub unsafe fn finalize(info: &mut BootInfo) {
         let shared = Self::shared();
         info.static_start = shared.static_start as u32;
@@ -208,6 +284,9 @@ impl PageManager {
         let size = pages as u64 * PageTableEntry::NATIVE_PAGE_SIZE;
         unsafe {
             let result = atomic_xadd(&mut shared.static_start, size) as PhysicalAddress;
+            if shared.static_free <= size {
+                panic!("Out of memory");
+            }
             atomic_xsub(&mut shared.static_free, size);
             let ptr = result as *const u8 as *mut u8;
             ptr::write_bytes(ptr, 0, size as usize);
@@ -273,8 +352,10 @@ use uefi::table::boot::MemoryType;
 pub trait MemoryTypeHelper {
     fn is_conventional_at_runtime(&self) -> bool;
     fn is_countable(&self) -> bool;
+    fn as_boot_memory_type(&self) -> BootMemoryType;
 }
 impl MemoryTypeHelper for MemoryType {
+    #[inline]
     fn is_conventional_at_runtime(&self) -> bool {
         match *self {
             MemoryType::CONVENTIONAL
@@ -284,6 +365,7 @@ impl MemoryTypeHelper for MemoryType {
         }
     }
 
+    #[inline]
     fn is_countable(&self) -> bool {
         match *self {
             MemoryType::CONVENTIONAL
@@ -295,6 +377,25 @@ impl MemoryTypeHelper for MemoryType {
             | MemoryType::RUNTIME_SERVICES_DATA
             | MemoryType::ACPI_RECLAIM => true,
             _ => false,
+        }
+    }
+
+    #[inline]
+    fn as_boot_memory_type(&self) -> BootMemoryType {
+        match *self {
+            MemoryType::CONVENTIONAL
+            | MemoryType::BOOT_SERVICES_CODE
+            | MemoryType::BOOT_SERVICES_DATA => BootMemoryType::Available,
+            MemoryType::LOADER_CODE | MemoryType::LOADER_DATA => BootMemoryType::OsLoader,
+            MemoryType::ACPI_RECLAIM => BootMemoryType::AcpiReclaim,
+            MemoryType::ACPI_NON_VOLATILE => BootMemoryType::AcpiNonVolatile,
+            MemoryType::MMIO => BootMemoryType::MMIO,
+            MemoryType::MMIO_PORT_SPACE => BootMemoryType::MmioPortSpace,
+            MemoryType::RESERVED => BootMemoryType::Reserved,
+            MemoryType::UNUSABLE => BootMemoryType::Unussable,
+            // RUNTIME_SERVICES_CODE
+            // | RUNTIME_SERVICES_DATA
+            _ => BootMemoryType::Firmware,
         }
     }
 }

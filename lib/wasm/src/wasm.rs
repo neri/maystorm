@@ -4,11 +4,11 @@ use super::opcode::*;
 use crate::intcode::*;
 use crate::wasmintr::*;
 use crate::*;
-use _core::borrow::BorrowMut;
 use alloc::{boxed::Box, string::*, sync::Arc, vec::Vec};
 use bitflags::*;
 use byteorder::*;
 use core::{
+    borrow::BorrowMut,
     cell::{RefCell, UnsafeCell},
     convert::TryFrom,
     fmt,
