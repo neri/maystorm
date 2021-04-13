@@ -11,6 +11,7 @@ use bootprot::BootInfo;
 use core::fmt;
 use core::ptr::*;
 use megstd::drawing::*;
+use megstd::time::SystemTime;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Version {
@@ -151,6 +152,8 @@ impl System {
         shared.boot_flags = info.flags;
         shared.initrd_base = info.initrd_base as usize;
         shared.initrd_size = info.initrd_size as usize;
+
+        mem::MemoryManager::init_first(info);
         arch::page::PageManager::init(info);
 
         shared.main_screen = Some(Bitmap32::from_static(
@@ -158,8 +161,6 @@ impl System {
             Size::new(info.screen_width as isize, info.screen_height as isize),
             info.vram_stride as usize,
         ));
-
-        mem::MemoryManager::init_first(&info);
 
         shared.acpi = Some(Box::new(
             acpi::AcpiTables::from_rsdp(MyAcpiHandler::new(), info.acpi_rsdptr as usize).unwrap(),
@@ -335,12 +336,6 @@ impl System {
         let shared = Self::shared();
         shared.stdout.as_mut().unwrap()
     }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct SystemTime {
-    pub secs: u64,
-    pub nanos: u32,
 }
 
 //-//-//-//-//

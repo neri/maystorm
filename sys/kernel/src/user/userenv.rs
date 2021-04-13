@@ -35,7 +35,7 @@ impl UserEnv {
                 }
             }
             WindowManager::set_pointer_visible(true);
-            // Timer::sleep(Duration::from_millis(1000));
+            Timer::sleep(Duration::from_millis(1000));
         }
 
         Scheduler::spawn_async(Task::new(status_bar_main()));

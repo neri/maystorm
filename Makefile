@@ -26,7 +26,7 @@ clean:
 # $(RUST_ARCH).json:
 # 	rustc +nightly -Z unstable-options --print target-spec-json --target $(RUST_ARCH) | sed -e 's/-sse,+/+sse,-/' > $@
 
-$(TARGET_KERNEL): sys/kernel/* sys/kernel/**/* sys/kernel/**/**/* sys/kernel/**/**/**/* sys/kernel/**/**/**/**/* lib/**/src/**/*.rs lib/**/src/**/**/*.rs
+$(TARGET_KERNEL): sys/kernel/* sys/kernel/**/* sys/kernel/**/**/* sys/kernel/**/**/**/* sys/kernel/**/**/**/**/* lib/**/src/*.rs lib/**/src/**/*.rs
 	(cd sys; cargo build -Zbuild-std --release --target $(KRNL_ARCH).json)
 
 $(TARGET_BOOT_EFI): boot/boot-efi/* boot/boot-efi/src/* boot/boot-efi/src/**/*

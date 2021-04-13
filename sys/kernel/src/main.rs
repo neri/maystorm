@@ -35,6 +35,11 @@ pub struct Application {
     path_ext: Vec<String>,
 }
 
+enum ParsedCmdLine {
+    Empty,
+    InvalidQuote,
+}
+
 impl Application {
     const fn new() -> Self {
         Self {
@@ -68,15 +73,37 @@ impl Application {
     }
 
     fn exec_cmd(cmdline: &str) {
+        match Self::parse_cmd(&cmdline, |name, args| match Self::command(name) {
+            Some(exec) => {
+                exec(args);
+            }
+            None => {
+                Self::spawn(name, args, true);
+            }
+        }) {
+            Ok(_) => {}
+            Err(ParsedCmdLine::Empty) => (),
+            Err(ParsedCmdLine::InvalidQuote) => {
+                println!("Error: Invalid quote");
+            }
+        }
+    }
+
+    fn parse_cmd<F, R>(cmdline: &str, f: F) -> Result<R, ParsedCmdLine>
+    where
+        F: FnOnce(&str, &[&str]) -> R,
+    {
         enum CmdLinePhase {
             LeadingSpace,
             Token,
+            SingleQuote,
+            DoubleQuote,
         }
 
         if cmdline.len() == 0 {
-            return;
+            return Err(ParsedCmdLine::Empty);
         }
-        let mut sb = string::StringBuffer::with_capacity(cmdline.len());
+        let mut sb = StringBuffer::with_capacity(cmdline.len());
         let mut args = Vec::new();
         let mut phase = CmdLinePhase::LeadingSpace;
         sb.clear();
@@ -84,6 +111,12 @@ impl Application {
             match phase {
                 CmdLinePhase::LeadingSpace => match c {
                     ' ' => (),
+                    '\'' => {
+                        phase = CmdLinePhase::SingleQuote;
+                    }
+                    '\"' => {
+                        phase = CmdLinePhase::DoubleQuote;
+                    }
                     _ => {
                         sb.write_char(c).unwrap();
                         phase = CmdLinePhase::Token;
@@ -99,22 +132,41 @@ impl Application {
                         sb.write_char(c).unwrap();
                     }
                 },
+                CmdLinePhase::SingleQuote => match c {
+                    '\'' => {
+                        args.push(sb.as_str());
+                        phase = CmdLinePhase::LeadingSpace;
+                        sb.split();
+                    }
+                    _ => {
+                        sb.write_char(c).unwrap();
+                    }
+                },
+                CmdLinePhase::DoubleQuote => match c {
+                    '\"' => {
+                        args.push(sb.as_str());
+                        phase = CmdLinePhase::LeadingSpace;
+                        sb.split();
+                    }
+                    _ => {
+                        sb.write_char(c).unwrap();
+                    }
+                },
+            }
+        }
+        match phase {
+            CmdLinePhase::LeadingSpace | CmdLinePhase::Token => (),
+            CmdLinePhase::SingleQuote | CmdLinePhase::DoubleQuote => {
+                return Err(ParsedCmdLine::InvalidQuote)
             }
         }
         if sb.len() > 0 {
             args.push(sb.as_str());
         }
-
         if args.len() > 0 {
-            let cmd = args[0];
-            match Self::command(cmd) {
-                Some(exec) => {
-                    exec(args.as_slice());
-                }
-                None => {
-                    Self::spawn(cmd, args.as_slice(), true);
-                }
-            }
+            Ok(f(args[0], args.as_slice()))
+        } else {
+            Err(ParsedCmdLine::Empty)
         }
     }
 

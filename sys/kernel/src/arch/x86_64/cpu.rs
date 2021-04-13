@@ -1294,17 +1294,13 @@ impl Msr {
 }
 
 #[allow(dead_code)]
-#[repr(C, packed)]
+#[repr(C)]
 pub(super) struct X64StackContext {
     cr2: u64,
-    gs: u16,
-    _padding_gs: [u16; 3],
-    fs: u16,
-    _padding_fs: [u16; 3],
-    es: u16,
-    _padding_es: [u16; 3],
-    ds: u16,
-    _padding_ds: [u16; 3],
+    _gs: u64,
+    _fs: u64,
+    _es: u64,
+    _ds: u64,
     r15: u64,
     r14: u64,
     r13: u64,
@@ -1320,17 +1316,55 @@ pub(super) struct X64StackContext {
     rdx: u64,
     rcx: u64,
     rax: u64,
-    vector: InterruptVector,
-    _padding_vec: [u8; 7],
-    error_code: u16,
-    _padding_err: [u16; 3],
+    _vector: u64,
+    _error_code: u64,
     rip: u64,
-    cs: u16,
-    _padding_cs: [u16; 3],
+    _cs: u64,
     rflags: Rflags,
     rsp: u64,
-    ss: u16,
-    _padding_ss: [u16; 3],
+    _ss: u64,
+}
+
+impl X64StackContext {
+    #[inline]
+    pub const fn cs(&self) -> Selector {
+        Selector(self._cs as u16)
+    }
+
+    #[inline]
+    pub const fn ds(&self) -> Selector {
+        Selector(self._ds as u16)
+    }
+
+    #[inline]
+    pub const fn es(&self) -> Selector {
+        Selector(self._es as u16)
+    }
+
+    #[inline]
+    pub const fn fs(&self) -> Selector {
+        Selector(self._fs as u16)
+    }
+
+    #[inline]
+    pub const fn gs(&self) -> Selector {
+        Selector(self._gs as u16)
+    }
+
+    #[inline]
+    pub const fn ss(&self) -> Selector {
+        Selector(self._ss as u16)
+    }
+
+    #[inline]
+    pub const fn error_code(&self) -> u16 {
+        self._error_code as u16
+    }
+
+    #[inline]
+    pub const fn vector(&self) -> InterruptVector {
+        InterruptVector(self._vector as u8)
+    }
 }
 
 static mut GLOBAL_EXCEPTION_LOCK: Spinlock = Spinlock::new();
@@ -1340,16 +1374,16 @@ pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext)
     GLOBAL_EXCEPTION_LOCK.lock();
     let ctx = ctx.as_ref().unwrap();
     let va_mask = 0xFFFF_FFFF_FFFF;
-    if Exception::PageFault.as_vec() == ctx.vector {
+    if Exception::PageFault.as_vec() == ctx.vector() {
         writeln!(
             System::em_console(),
             "\n#### EXCEPTION {:02x} err {:04x} {:012x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
-            ctx.vector.0,
-            ctx.error_code,
+            ctx.vector().0,
+            ctx.error_code(),
             ctx.cr2 & va_mask,
-            ctx.cs,
+            ctx.cs().0,
             ctx.rip & va_mask,
-            ctx.ss,
+            ctx.ss().0,
             ctx.rsp & va_mask,
         )
         .unwrap();
@@ -1357,11 +1391,11 @@ pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext)
         writeln!(
             System::em_console(),
             "\n#### EXCEPTION {:02x} err {:04x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
-            ctx.vector.0,
-            ctx.error_code,
-            ctx.cs,
+            ctx.vector().0,
+            ctx.error_code(),
+            ctx.cs().0,
             ctx.rip & va_mask,
-            ctx.ss,
+            ctx.ss().0,
             ctx.rsp & va_mask,
         )
         .unwrap();
@@ -1381,19 +1415,19 @@ rbp {:016x} r10 {:016x} r15 {:016x} gs {:04x}",
         ctx.rbx,
         ctx.rdi,
         ctx.r12,
-        ctx.ds,
+        ctx.ds().0,
         ctx.rcx,
         ctx.r8,
         ctx.r13,
-        ctx.es,
+        ctx.es().0,
         ctx.rdx,
         ctx.r9,
         ctx.r14,
-        ctx.fs,
+        ctx.fs().0,
         ctx.rbp,
         ctx.r10,
         ctx.r15,
-        ctx.gs,
+        ctx.gs().0,
     )
     .unwrap();
 

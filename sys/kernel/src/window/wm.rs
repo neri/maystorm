@@ -225,16 +225,6 @@ impl WindowManager<'static> {
         // })
     }
 
-    // #[inline]
-    // fn get(&self, key: &WindowHandle) -> Option<&Box<RawWindow>> {
-    //     WindowManager::synchronized_pool(|| self.window_pool.get(key))
-    // }
-
-    // #[inline]
-    // fn get_mut(&mut self, key: &WindowHandle) -> Option<&mut Box<RawWindow>> {
-    //     WindowManager::synchronized_pool(move || self.window_pool.get_mut(key))
-    // }
-
     #[inline]
     fn get<'a>(&self, key: &WindowHandle) -> Option<&'a Box<RawWindow<'static>>> {
         WindowManager::synchronized_pool(|| {

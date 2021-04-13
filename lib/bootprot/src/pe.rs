@@ -2,6 +2,7 @@
 use bitflags::*;
 use core::marker::PhantomData;
 use core::mem::*;
+use core::ptr::*;
 use core::slice;
 
 pub const IMAGE_DOS_SIGNATURE: u16 = 0x5A4D;
@@ -17,10 +18,15 @@ pub struct PeHeader64 {
 }
 
 impl PeHeader64 {
+    #[inline]
     pub fn is_valid(&self) -> bool {
-        unsafe { self.signature == PeSignature::IMAGE_NT_SIGNATURE && self.optional.is_valid() }
+        unsafe {
+            addr_of!(self.signature).read_unaligned() == PeSignature::IMAGE_NT_SIGNATURE
+                && self.optional.is_valid()
+        }
     }
 
+    #[inline]
     pub const fn size(&self) -> usize {
         size_of::<PeSignature>() + size_of::<CoffHeader>() + self.coff.size_of_optional as usize
     }
@@ -115,8 +121,9 @@ pub struct OptionalHeaderPe64 {
 }
 
 impl OptionalHeaderPe64 {
+    #[inline]
     pub fn is_valid(&self) -> bool {
-        unsafe { self.magic == Magic::PE64 }
+        unsafe { addr_of!(self.magic).read_unaligned() == Magic::PE64 }
     }
 }
 
@@ -177,6 +184,8 @@ pub enum ImageDirectoryEntry {
 
 impl core::ops::Index<ImageDirectoryEntry> for [ImageDataDirectory] {
     type Output = ImageDataDirectory;
+
+    #[inline]
     fn index(&self, index: ImageDirectoryEntry) -> &Self::Output {
         &self[index as usize]
     }
@@ -234,6 +243,7 @@ pub struct BaseReloc<'a> {
 }
 
 impl BaseReloc<'_> {
+    #[inline]
     pub unsafe fn new(base: *const u8, size: usize) -> Self {
         Self {
             base,
@@ -247,6 +257,7 @@ impl BaseReloc<'_> {
 impl<'a> Iterator for BaseReloc<'a> {
     type Item = &'a BaseRelocBlock;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.size {
             let result: &BaseRelocBlock = unsafe { transmute(self.base.add(self.index)) };
@@ -266,14 +277,18 @@ pub struct BaseRelocBlock {
 }
 
 impl BaseRelocBlock {
+    #[inline]
     pub const fn count(&self) -> usize {
         (self.size as usize - 8) / 2
     }
+
+    #[inline]
     pub fn entry<'a>(&self, index: usize) -> &'a BaseRelocEntry {
-        let array = unsafe { slice::from_raw_parts(&self.entries[0], self.count()) };
+        let array = unsafe { slice::from_raw_parts(addr_of!(self.entries[0]), self.count()) };
         &array[index]
     }
 
+    #[inline]
     pub fn into_iter<'a>(&'a self) -> impl Iterator<Item = (ImageRelBased, Rva)> + 'a {
         BaseRelocBlockIter::<'a> {
             repr: &self,
@@ -292,6 +307,7 @@ struct BaseRelocBlockIter<'a> {
 impl<'a> Iterator for BaseRelocBlockIter<'a> {
     type Item = (ImageRelBased, Rva);
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.len {
             let item: &BaseRelocEntry = self.repr.entry(self.index);
@@ -307,10 +323,12 @@ impl<'a> Iterator for BaseRelocBlockIter<'a> {
 pub struct BaseRelocEntry(u16);
 
 impl BaseRelocEntry {
+    #[inline]
     pub const fn offset(&self) -> Rva {
         self.0 as Rva & 0xFFF
     }
 
+    #[inline]
     pub const fn reloc_type(&self) -> ImageRelBased {
         ImageRelBased(self.0 as usize >> 12)
     }

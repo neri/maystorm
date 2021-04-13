@@ -594,7 +594,7 @@ impl RasterImage for Bitmap8<'_> {
     }
 
     fn slice(&self) -> &[Self::ColorType] {
-        unsafe { self.slice.get().as_ref().unwrap() }
+        unsafe { &*self.slice.get() }
     }
 }
 
@@ -929,7 +929,7 @@ impl RasterImage for BoxedBitmap8<'_> {
     }
 
     fn slice(&self) -> &[Self::ColorType] {
-        unsafe { self.slice.get().as_ref().unwrap() }
+        unsafe { &*self.slice.get() }
     }
 }
 
@@ -1176,7 +1176,7 @@ impl RasterImage for Bitmap32<'_> {
     }
 
     fn slice(&self) -> &[Self::ColorType] {
-        unsafe { self.slice.get().as_ref().unwrap() }
+        unsafe { &*self.slice.get() }
     }
 }
 
@@ -1588,7 +1588,7 @@ impl RasterImage for BoxedBitmap32<'_> {
     }
 
     fn slice(&self) -> &[Self::ColorType] {
-        unsafe { self.slice.get().as_ref().unwrap() }
+        unsafe { &*self.slice.get() }
     }
 }
 
@@ -2168,7 +2168,7 @@ impl RasterImage for OperationalBitmap {
     }
 
     fn slice(&self) -> &[Self::ColorType] {
-        unsafe { self.vec.get().as_ref().unwrap().as_slice() }
+        unsafe { &*self.vec.get() }
     }
 }
 

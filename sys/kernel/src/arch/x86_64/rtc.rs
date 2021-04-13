@@ -2,8 +2,8 @@
 
 use super::cpu::*;
 use crate::sync::spinlock::*;
-use crate::system::*;
 use crate::task::scheduler::*;
+use megstd::time::SystemTime;
 
 static mut RTC: Rtc = Rtc::new();
 

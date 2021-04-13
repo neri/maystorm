@@ -8,7 +8,6 @@ use crate::task::scheduler::*;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::mem::size_of;
 use core::sync::atomic::*;
 
 static mut RE: RuntimeEnvironment = RuntimeEnvironment::new();

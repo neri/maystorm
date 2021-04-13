@@ -8,7 +8,6 @@ use alloc::{boxed::Box, string::*, sync::Arc, vec::Vec};
 use bitflags::*;
 use byteorder::*;
 use core::{
-    borrow::BorrowMut,
     cell::{RefCell, UnsafeCell},
     convert::TryFrom,
     fmt,
@@ -777,18 +776,14 @@ impl WasmMemory {
         self.limit
     }
 
-    // fn memory_arc(&self) -> Arc<UnsafeCell<Vec<u8>>> {
-    //     self.memory.clone()
-    // }
-
     #[inline]
     fn memory(&self) -> &[u8] {
-        unsafe { self.memory.get().as_ref().unwrap() }
+        unsafe { &*self.memory.get() }
     }
 
     #[inline]
     fn memory_mut(&self) -> &mut [u8] {
-        unsafe { self.memory.get().as_mut().unwrap() }
+        unsafe { &mut *self.memory.get() }
     }
 
     pub fn grow(&self, delta: usize) -> isize {
