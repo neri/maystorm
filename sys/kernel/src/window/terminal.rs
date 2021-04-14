@@ -1,7 +1,11 @@
 // MEG-OS Terminal
 
 use crate::{
-    fonts::*, io::tty::*, sync::semaphore::Semaphore, task::scheduler::*, task::*, window::*, *,
+    fonts::*,
+    io::tty::*,
+    window::*,
+    *,
+    //sync::semaphore::Semaphore, task::scheduler::*, task::*,
 };
 use alloc::boxed::Box;
 use megstd::drawing::*;
@@ -12,7 +16,8 @@ use core::pin::Pin;
 use core::task::{Context, Poll};
 
 const DEFAULT_INSETS: EdgeInsets = EdgeInsets::new(4, 4, 4, 4);
-const DEFAULT_ATTRIBUTE: u8 = 0xF0;
+const DEFAULT_ATTRIBUTE: u8 = 0x0F;
+const BG_ALPHA: u8 = 0xC0;
 
 static mut TA: TerminalAgent = TerminalAgent::new();
 
@@ -88,8 +93,8 @@ impl Terminal {
         let window = WindowBuilder::new("Terminal")
             .style_add(WindowStyle::NAKED)
             .frame(Rect::new(
-                screen_insets.left + 8 + 24 * n_instances as isize,
-                screen_insets.top + 8 + 24 * n_instances as isize,
+                screen_insets.left + 16 + 24 * n_instances as isize,
+                screen_insets.top + 16 + 24 * n_instances as isize,
                 window_size.width,
                 window_size.height,
             ))
@@ -115,7 +120,7 @@ impl Terminal {
     fn split_attr(val: u8) -> (AmbiguousColor, AmbiguousColor) {
         (
             AmbiguousColor::Indexed(IndexedColor(val & 0x0F)),
-            AmbiguousColor::Indexed(IndexedColor(val >> 4)),
+            AmbiguousColor::from(TrueColor::from(IndexedColor(val >> 4)).set_opacity(BG_ALPHA)),
         )
     }
 

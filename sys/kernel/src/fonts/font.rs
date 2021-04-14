@@ -337,7 +337,7 @@ impl<'a> HersheyFont<'a> {
         if data.len() >= 12 {
             FontManager::shared().lock.synchronized(|| {
                 let shared = FontManager::shared();
-                shared.buffer.reset();
+                shared.buffer.fill(u8::MAX);
 
                 let n_pairs = (data[6] & 0x0F) * 10 + (data[7] & 0x0F);
                 let left = data[8] as isize - Self::MAGIC_52;
@@ -366,24 +366,27 @@ impl<'a> HersheyFont<'a> {
                         if let Some(c0) = c0 {
                             shared.buffer.draw_line(c0, c1, |bitmap, point| {
                                 if point.is_within(bounds) {
+                                    fn process_pixel(a: u8, b: u8) -> u8 {
+                                        ((a as usize * b as usize) >> 8) as u8
+                                    }
                                     unsafe {
-                                        let level1 = 51;
-                                        bitmap.set_pixel_unchecked(point, u8::MAX);
+                                        let level1 = u8::MAX - 51;
+                                        bitmap.set_pixel_unchecked(point, 0);
                                         bitmap.process_pixel_unchecked(
                                             point + Point::new(0, -1),
-                                            |v| v.saturating_add(level1),
+                                            |v| process_pixel(v, level1),
                                         );
                                         bitmap.process_pixel_unchecked(
                                             point + Point::new(-1, 0),
-                                            |v| v.saturating_add(level1),
+                                            |v| process_pixel(v, level1),
                                         );
                                         bitmap.process_pixel_unchecked(
                                             point + Point::new(1, 0),
-                                            |v| v.saturating_add(level1),
+                                            |v| process_pixel(v, level1),
                                         );
                                         bitmap.process_pixel_unchecked(
                                             point + Point::new(0, 1),
-                                            |v| v.saturating_add(level1),
+                                            |v| process_pixel(v, level1),
                                         );
                                     }
                                 }
@@ -436,7 +439,7 @@ impl<'a> HersheyFont<'a> {
                                             offset_x + x * 2,
                                             offset_y + y * 2,
                                         ));
-                                        c.a = alpha;
+                                        c.a = u8::MAX - alpha;
                                         v.blend(c.into())
                                     })
                                 }

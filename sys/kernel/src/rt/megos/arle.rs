@@ -175,18 +175,30 @@ impl ArleRuntime {
             svc::Function::NewWindow => {
                 let title = params.get_string(memory).unwrap_or("");
                 let size = params.get_size()?;
-                let bg_color = params.get_color().unwrap_or(WindowManager::DEFAULT_BGCOLOR);
+                let bg_color = params.get_color().ok();
                 let window_option = params.get_u32().unwrap_or(0);
+
+                let bitmap_strategy = if (window_option & MyOsAbi::WINDOW_32BIT_BITMAP) != 0 {
+                    BitmapStrategy::Expressive
+                } else {
+                    BitmapStrategy::Compact
+                };
+                let bg_color = if (window_option & MyOsAbi::WINDOW_TRANSPARENT) != 0 {
+                    match bitmap_strategy {
+                        BitmapStrategy::NonBitmap
+                        | BitmapStrategy::Native
+                        | BitmapStrategy::Compact => AmbiguousColor::DEFAULT_KEY,
+                        BitmapStrategy::Expressive => AmbiguousColor::TRANSPARENT,
+                    }
+                } else {
+                    bg_color.unwrap_or(WindowManager::DEFAULT_BGCOLOR)
+                };
 
                 let window = WindowBuilder::new(title)
                     .style_add(WindowStyle::NAKED)
                     .size(size)
                     .bg_color(bg_color)
-                    .bitmap_strategy(if (window_option & MyOsAbi::WINDOW_32BIT_BITMAP) != 0 {
-                        BitmapStrategy::Expressive
-                    } else {
-                        BitmapStrategy::Compact
-                    })
+                    .bitmap_strategy(bitmap_strategy)
                     .build();
                 window.make_active();
 

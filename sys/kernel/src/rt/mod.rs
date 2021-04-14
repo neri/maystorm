@@ -1,4 +1,4 @@
-// Runtime Environment
+// Runtime Environment Supports
 
 pub mod haribote;
 pub mod megos;
@@ -7,6 +7,7 @@ use crate::arch::cpu::*;
 use crate::task::scheduler::*;
 use alloc::boxed::Box;
 use alloc::string::String;
+use alloc::string::*;
 use alloc::vec::Vec;
 use core::sync::atomic::*;
 
@@ -16,25 +17,37 @@ static mut RE: RuntimeEnvironment = RuntimeEnvironment::new();
 pub struct ProcessId(pub usize);
 
 pub struct RuntimeEnvironment {
+    exts: Vec<String>,
     image_loaders: Vec<Box<dyn BinaryRecognizer>>,
 }
 
 impl RuntimeEnvironment {
     const fn new() -> Self {
         Self {
+            exts: Vec::new(),
             image_loaders: Vec::new(),
         }
     }
 
     pub(crate) unsafe fn init() {
         let shared = Self::shared();
+        shared.add_image("wasm", megos::WasmRecognizer::new());
+        shared.add_image("hrb", haribote::HrbRecognizer::new());
+    }
 
-        shared.image_loaders.push(megos::WasmRecognizer::new());
-        shared.image_loaders.push(haribote::HrbRecognizer::new());
+    fn add_image(&mut self, ext: &str, loader: Box<dyn BinaryRecognizer>) {
+        self.exts.push(ext.to_string());
+        self.image_loaders.push(loader);
     }
 
     fn shared() -> &'static mut Self {
         unsafe { &mut RE }
+    }
+
+    #[inline]
+    pub fn supported_extensions<'a>() -> &'a [String] {
+        let shared = Self::shared();
+        shared.exts.as_slice()
     }
 
     pub(crate) fn raise_pid() -> ProcessId {

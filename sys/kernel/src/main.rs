@@ -27,11 +27,11 @@ use kernel::*;
 
 extern crate alloc;
 
-entry!(Application::main);
+entry!(Shell::start);
 
-static mut MAIN: Application = Application::new();
+static mut MAIN: Shell = Shell::new();
 
-pub struct Application {
+pub struct Shell {
     path_ext: Vec<String>,
 }
 
@@ -40,7 +40,7 @@ enum ParsedCmdLine {
     InvalidQuote,
 }
 
-impl Application {
+impl Shell {
     const fn new() -> Self {
         Self {
             path_ext: Vec::new(),
@@ -51,11 +51,12 @@ impl Application {
         unsafe { &mut MAIN }
     }
 
-    fn main() {
+    // Shell's Entry point
+    fn start() {
         let shared = Self::shared();
-        shared.path_ext.push("wasm".to_string());
-        shared.path_ext.push("hrb".to_string());
-        // shared.path_ext.push("bin".to_string());
+        for ext in RuntimeEnvironment::supported_extensions() {
+            shared.path_ext.push(ext.to_string());
+        }
 
         Scheduler::spawn_async(Task::new(Self::repl_main()));
         Scheduler::perform_tasks();
@@ -448,6 +449,15 @@ impl Application {
                 device.device_id().0,
                 class_string,
             );
+            for (index, bar) in device.bars().iter().enumerate() {
+                println!(
+                    " BAR({}) {:012x} {:08x} {:?}",
+                    index,
+                    bar.base(),
+                    bar.size() - 1,
+                    bar.bar_type(),
+                );
+            }
             if opt_all {
                 for function in device.functions() {
                     let addr = function.address();
@@ -459,6 +469,15 @@ impl Application {
                         function.device_id().0,
                         class_string,
                     );
+                    for (index, bar) in function.bars().iter().enumerate() {
+                        println!(
+                            " BAR({}) {:012x} {:08x} {:?}",
+                            index,
+                            bar.base(),
+                            bar.size() - 1,
+                            bar.bar_type()
+                        );
+                    }
                 }
             }
         }

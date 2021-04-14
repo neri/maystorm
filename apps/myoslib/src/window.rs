@@ -157,4 +157,10 @@ impl WindowBuilder {
         self.flag |= MyOsAbi::WINDOW_32BIT_BITMAP;
         self
     }
+
+    #[inline]
+    pub const fn transparent(mut self) -> Self {
+        self.flag |= MyOsAbi::WINDOW_TRANSPARENT;
+        self
+    }
 }

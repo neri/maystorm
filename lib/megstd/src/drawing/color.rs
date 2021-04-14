@@ -381,6 +381,7 @@ impl AmbiguousColor {
     pub const LIGHT_MAGENTA: Self = Self::Indexed(IndexedColor::LIGHT_MAGENTA);
     pub const YELLOW: Self = Self::Indexed(IndexedColor::YELLOW);
     pub const WHITE: Self = Self::Indexed(IndexedColor::WHITE);
+    pub const DEFAULT_KEY: Self = Self::Indexed(IndexedColor::DEFAULT_KEY);
 
     #[inline]
     pub const fn from_rgb(rgb: u32) -> Self {

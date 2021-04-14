@@ -2201,6 +2201,19 @@ impl OperationalBitmap {
         }
     }
 
+    pub fn fill(&mut self, color: u8) {
+        let count = self.stride() * self.height() as usize;
+        let vec = self.vec.get_mut();
+        if vec.capacity() >= count {
+            let slice = vec.as_mut_slice();
+            for i in 0..count {
+                slice[i] = color;
+            }
+        } else {
+            vec.resize(count, color);
+        }
+    }
+
     pub fn draw_line<F>(&mut self, c0: Point, c1: Point, mut f: F)
     where
         F: FnMut(&mut OperationalBitmap, Point),

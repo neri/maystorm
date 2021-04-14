@@ -232,10 +232,10 @@ impl System {
         arch::Arch::system_time()
     }
 
-    /// Returns whether the current system is in headless mode.
+    /// Returns whether the kernel is multiprocessor-capable.
     #[inline]
-    pub fn is_headless() -> bool {
-        Self::shared().boot_flags.contains(BootFlags::HEADLESS)
+    pub const fn is_multi_processor_capable_kernel() -> bool {
+        true
     }
 
     /// Returns the number of logical CPU cores.
