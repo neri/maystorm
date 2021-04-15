@@ -83,7 +83,7 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
         let stride = gop_info.stride();
         let (mut width, mut height) = gop_info.resolution();
 
-        debug::console::DebugConsole::init(info.vram_base as usize, width, height, stride);
+        debug::Console::init(info.vram_base as usize, width, height, stride);
 
         if height > width {
             info.flags.insert(BootFlags::PORTRAIT);

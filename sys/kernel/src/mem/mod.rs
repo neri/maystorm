@@ -1,7 +1,6 @@
 pub mod alloc;
-pub mod mm;
 pub mod mmio;
 pub mod slab;
-pub mod string;
 
+mod mm;
 pub use mm::*;

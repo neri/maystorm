@@ -2,7 +2,6 @@
 
 use super::*;
 use crate::io::hid::*;
-use crate::util::rng::*;
 use crate::util::text::*;
 use alloc::collections::BTreeMap;
 use byteorder::*;
@@ -10,6 +9,7 @@ use core::{
     convert::TryFrom, intrinsics::transmute, num::NonZeroU32, sync::atomic::*, time::Duration,
 };
 use megstd::drawing::*;
+use megstd::rand::*;
 use myosabi::*;
 use wasm::{wasmintr::*, *};
 

@@ -6,7 +6,6 @@ use crate::mem::*;
 use crate::system::*;
 use crate::task::scheduler::*;
 use crate::task::*;
-use crate::util::rng::*;
 use crate::window::*;
 use crate::*;
 use crate::{arch::cpu::*, window::terminal::Terminal};
@@ -14,6 +13,7 @@ use ::alloc::vec::*;
 use core::fmt::Write;
 use core::time::Duration;
 use megstd::drawing::*;
+use megstd::string::*;
 use util::text::{AttributedString, VerticalAlignment};
 
 const DESKTOP_COLOR: AmbiguousColor = AmbiguousColor::from_argb(0x802196F3);
@@ -83,7 +83,7 @@ async fn status_bar_main() {
     WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT, 0, 0, 0));
 
     let font = FontManager::system_font();
-    let mut sb = string::Sb255::new();
+    let mut sb = Sb255::new();
 
     let interval = Duration::from_millis(500);
     window.create_timer(0, interval);
@@ -240,7 +240,7 @@ async fn activity_monitor_main() {
         vec
     };
 
-    let mut sb = string::StringBuffer::with_capacity(0x1000);
+    let mut sb = StringBuffer::with_capacity(0x1000);
     let mut time0 = Timer::measure();
     let mut tsc0 = unsafe { Cpu::read_tsc() };
 

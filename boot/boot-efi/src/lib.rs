@@ -26,7 +26,7 @@ fn panic(info: &PanicInfo) -> ! {
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => {
-        write!(debug::console::DebugConsole::shared(), $($arg)*).unwrap()
+        write!(debug::Console::shared(), $($arg)*).unwrap()
     };
 }
 

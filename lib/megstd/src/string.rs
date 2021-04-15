@@ -3,14 +3,6 @@
 use ::alloc::vec::Vec;
 use core::{fmt, slice, str};
 
-#[macro_export]
-macro_rules! sformat {
-    ($sb:expr, $($arg:tt)*) => {
-        $sb.clear();
-        write!($sb, $($arg)*).unwrap();
-    };
-}
-
 /// Small String Buffer
 pub struct Sb255([u8; 256]);
 

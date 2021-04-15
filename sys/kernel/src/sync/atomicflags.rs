@@ -39,12 +39,12 @@ impl<T: Into<usize>> AtomicBitflags<T> {
     #[inline]
     pub fn contains(&self, other: T) -> bool {
         let other = other.into();
-        (self.repr.load(Ordering::Relaxed) & other) == other
+        (self.repr.load(Ordering::SeqCst) & other) == other
     }
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.repr.load(Ordering::Relaxed) == 0
+        self.repr.load(Ordering::SeqCst) == 0
     }
 
     #[inline]

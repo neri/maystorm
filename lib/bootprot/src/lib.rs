@@ -1,5 +1,6 @@
 // MEG-OS Boot Info
 #![no_std]
+#![feature(const_ptr_read)]
 
 pub mod pe;
 

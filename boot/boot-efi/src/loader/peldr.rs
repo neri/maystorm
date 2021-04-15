@@ -31,8 +31,8 @@ impl ImageLoader<'_> {
                 self.lfa_new = self.blob.read_u32(0x3C) as usize;
                 let header: &PeHeader64 = self.blob.transmute(self.lfa_new);
                 if header.is_valid()
-                    && header.coff.machine == ImageFileMachine::AMD64
-                    && header.coff.flags.contains(ImageFile::EXECUTABLE_IMAGE)
+                    && header.coff().machine == ImageFileMachine::AMD64
+                    && header.coff().flags.contains(ImageFile::EXECUTABLE_IMAGE)
                 {
                     self.sec_tbl = self.lfa_new + header.size();
                     Ok(())
@@ -47,33 +47,20 @@ impl ImageLoader<'_> {
     pub fn locate(&self, base: VirtualAddress) -> VirtualAddress {
         unsafe {
             let header: &PeHeader64 = self.blob.transmute(self.lfa_new);
-            let image_base = header.optional.image_base;
+            let optional = header.optional();
+            let image_base = optional.image_base;
 
             // Step 1 - allocate memory
-            let size = header.optional.size_of_image as usize;
+            let size = optional.size_of_image as usize;
             let vmem = PageManager::valloc(base, size) as *const u8 as *mut u8;
             vmem.write_bytes(0, size);
-
-            // println!(
-            //     "Kernel Base: {:08x} => {:08x} Size: {:08x}",
-            //     base.0, vmem as usize, header.optional.size_of_image
-            // );
 
             // Step 2 - locate sections
             let sec_tbl: &[SectionTable] = self
                 .blob
-                .transmute_slice(self.sec_tbl, header.coff.n_sections as usize);
+                .transmute_slice(self.sec_tbl, header.coff().n_sections as usize);
 
             for section in sec_tbl {
-                // println!(
-                //     "Section: {} {:08x} {:08x} {:08x} {:08x} {:08x}",
-                //     core::str::from_utf8(&section.name).unwrap(),
-                //     section.vsize,
-                //     section.rva,
-                //     section.size,
-                //     section.file_offset,
-                //     section.flags.bits()
-                // );
                 if section.size > 0 {
                     let p = vmem.add(section.rva as usize);
                     let q: *const u8 = self.blob.transmute(section.file_offset as usize);
@@ -83,7 +70,7 @@ impl ImageLoader<'_> {
             }
 
             // Step 3 - relocate
-            let reloc = header.optional.dir[ImageDirectoryEntry::BASERELOC];
+            let reloc = optional.dir[ImageDirectoryEntry::BASERELOC];
             for block in BaseReloc::new(vmem.add(reloc.rva as usize), reloc.size as usize) {
                 for (ty, rva) in block.into_iter() {
                     match ty {
@@ -112,7 +99,7 @@ impl ImageLoader<'_> {
                 PageManager::vprotect(base + section.rva, section.vsize as usize, prot);
             }
 
-            base + header.optional.entry_point
+            base + optional.entry_point
         }
     }
 }

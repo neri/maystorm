@@ -8,7 +8,6 @@
 #![feature(const_fn)]
 #![feature(const_mut_refs)]
 #![feature(core_intrinsics)]
-#![feature(duration_zero)]
 #![feature(global_asm)]
 #![feature(lang_items)]
 #![feature(new_uninit)]

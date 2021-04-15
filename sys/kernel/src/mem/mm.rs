@@ -2,7 +2,6 @@
 
 // use crate::arch::page::*;
 use super::slab::*;
-use super::string::*;
 use crate::arch::cpu::Cpu;
 use crate::sync::spinlock::Spinlock;
 use crate::task::scheduler::*;
@@ -14,6 +13,7 @@ use core::fmt::Write;
 use core::num::*;
 use core::slice;
 use core::sync::atomic::*;
+use megstd::string::*;
 
 static mut MM: MemoryManager = MemoryManager::new();
 
@@ -176,7 +176,9 @@ impl MemoryManager {
                 Err(err) => return Err(err),
             }
         }
-        shared.lock.synchronized(|| Self::static_alloc(layout))
+        shared
+            .lock
+            .synchronized(|| Cpu::without_interrupts(|| Self::static_alloc(layout)))
     }
 
     /// Deallocate kernel memory

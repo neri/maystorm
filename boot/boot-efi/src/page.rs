@@ -2,14 +2,13 @@
 
 // use crate::*;
 use crate::*;
-use _core::ptr::slice_from_raw_parts_mut;
 use bitflags::*;
 use bootprot::*;
 use core::intrinsics::*;
 use core::ops::*;
 use core::ptr;
 use core::slice;
-use uefi::{table::boot::*, Completion};
+use uefi::table::boot::*;
 
 struct PageConfig {}
 
@@ -120,13 +119,13 @@ impl PageManager {
         ) as usize as *const BootMemoryMapDescriptor
             as *mut BootMemoryMapDescriptor;
         info.mmap_base = buffer as usize as u32;
-        let buffer = unsafe { slice::from_raw_parts_mut(buffer, mm_len) };
+        let buffer = slice::from_raw_parts_mut(buffer, mm_len);
         let mut write_cursor = 0;
         let mut read_cursor = 0;
 
         let mut last_pa_4g = 0;
         let mut total_memory_size: u64 = 0;
-        for (index, mem_desc) in mm.enumerate() {
+        for (_index, mem_desc) in mm.enumerate() {
             let mut has_to_copy = true;
             let page_base = mem_desc.phys_start;
             let page_size = mem_desc.page_count * PageConfig::UEFI_PAGE_SIZE;
@@ -157,25 +156,23 @@ impl PageManager {
             };
 
             if has_to_copy {
-                unsafe {
-                    if write_cursor == 0 {
+                if write_cursor == 0 {
+                    buffer[write_cursor] = boot_mem_desc;
+                    write_cursor += 1;
+                } else {
+                    let prev_mem_desc = &buffer[read_cursor];
+                    let prev_last_pa = prev_mem_desc.base
+                        + prev_mem_desc.page_count as u64 * PageConfig::UEFI_PAGE_SIZE;
+
+                    if prev_mem_desc.mem_type == BootMemoryType::Available
+                        && boot_mem_desc.mem_type == BootMemoryType::Available
+                        && prev_last_pa == boot_mem_desc.base
+                    {
+                        buffer[read_cursor].page_count += boot_mem_desc.page_count;
+                    } else {
+                        read_cursor = write_cursor;
                         buffer[write_cursor] = boot_mem_desc;
                         write_cursor += 1;
-                    } else {
-                        let prev_mem_desc = &buffer[read_cursor];
-                        let prev_last_pa = prev_mem_desc.base
-                            + prev_mem_desc.page_count as u64 * PageConfig::UEFI_PAGE_SIZE;
-
-                        if prev_mem_desc.mem_type == BootMemoryType::Available
-                            && boot_mem_desc.mem_type == BootMemoryType::Available
-                            && prev_last_pa == boot_mem_desc.base
-                        {
-                            buffer[read_cursor].page_count += boot_mem_desc.page_count;
-                        } else {
-                            read_cursor = write_cursor;
-                            buffer[write_cursor] = boot_mem_desc;
-                            write_cursor += 1;
-                        }
                     }
                 }
             }

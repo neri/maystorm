@@ -10,7 +10,7 @@ pub const EFI_TE_IMAGE_HEADER_SIGNATURE: u16 = 0x5A56;
 
 pub type Rva = u32;
 
-#[repr(C, packed)]
+#[repr(C)]
 pub struct PeHeader64 {
     pub signature: PeSignature,
     pub coff: CoffHeader,
@@ -19,16 +19,28 @@ pub struct PeHeader64 {
 
 impl PeHeader64 {
     #[inline]
+    pub const fn signature(&self) -> PeSignature {
+        self.signature
+    }
+
+    #[inline]
+    pub const fn coff(&self) -> &CoffHeader {
+        &self.coff
+    }
+
+    #[inline]
+    pub const fn optional(&self) -> &OptionalHeaderPe64 {
+        &self.optional
+    }
+
+    #[inline]
     pub fn is_valid(&self) -> bool {
-        unsafe {
-            addr_of!(self.signature).read_unaligned() == PeSignature::IMAGE_NT_SIGNATURE
-                && self.optional.is_valid()
-        }
+        self.signature() == PeSignature::IMAGE_NT_SIGNATURE && self.optional.is_valid()
     }
 
     #[inline]
     pub const fn size(&self) -> usize {
-        size_of::<PeSignature>() + size_of::<CoffHeader>() + self.coff.size_of_optional as usize
+        size_of::<PeSignature>() + size_of::<CoffHeader>() + self.coff().size_of_optional as usize
     }
 }
 
@@ -39,7 +51,7 @@ pub enum PeSignature {
     IMAGE_NT_SIGNATURE = 0x00004550,
 }
 
-#[repr(C, packed)]
+#[repr(C)]
 pub struct CoffHeader {
     pub machine: ImageFileMachine,
     pub n_sections: u16,
@@ -86,7 +98,7 @@ bitflags! {
     }
 }
 
-#[repr(C, packed)]
+#[repr(C)]
 pub struct OptionalHeaderPe64 {
     pub magic: Magic,
     pub major_linker_version: u8,
@@ -123,7 +135,7 @@ pub struct OptionalHeaderPe64 {
 impl OptionalHeaderPe64 {
     #[inline]
     pub fn is_valid(&self) -> bool {
-        unsafe { addr_of!(self.magic).read_unaligned() == Magic::PE64 }
+        self.magic == Magic::PE64
     }
 }
 
@@ -191,7 +203,7 @@ impl core::ops::Index<ImageDirectoryEntry> for [ImageDataDirectory] {
     }
 }
 
-#[repr(C, packed)]
+#[repr(C)]
 pub struct SectionTable {
     pub name: [u8; 8],
     pub vsize: u32,

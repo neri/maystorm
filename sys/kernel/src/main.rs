@@ -12,13 +12,13 @@ use bootprot::*;
 use core::fmt::Write;
 use kernel::arch::cpu::*;
 use kernel::fs::*;
-use kernel::mem::string::*;
 use kernel::mem::*;
 use kernel::rt::*;
 use kernel::system::*;
 use kernel::task::scheduler::*;
 use kernel::task::Task;
 use kernel::*;
+use megstd::string::*;
 
 // use core::time::Duration;
 // use kernel::fonts::*;
@@ -297,7 +297,7 @@ impl Shell {
         let subcmd = argv[1];
         match subcmd {
             "memory" => {
-                let mut sb = string::StringBuffer::with_capacity(256);
+                let mut sb = StringBuffer::with_capacity(256);
                 MemoryManager::statistics(&mut sb);
                 print!("{}", sb.as_str());
             }
@@ -393,7 +393,7 @@ impl Shell {
     }
 
     fn cmd_ps(_argv: &[&str]) -> isize {
-        let mut sb = string::StringBuffer::with_capacity(1024);
+        let mut sb = StringBuffer::with_capacity(1024);
         Scheduler::print_statistics(&mut sb, false);
         print!("{}", sb.as_str());
         0

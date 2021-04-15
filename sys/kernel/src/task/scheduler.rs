@@ -3,7 +3,6 @@
 use super::executor::Executor;
 use super::*;
 use crate::arch::cpu::{Cpu, CpuContextData};
-use crate::mem::string::*;
 use crate::rt::*;
 use crate::sync::atomicflags::*;
 use crate::sync::semaphore::*;
@@ -24,6 +23,7 @@ use core::ops::*;
 use core::sync::atomic::*;
 use core::time::Duration;
 use crossbeam_queue::ArrayQueue;
+use megstd::string::*;
 
 const THRESHOLD_SAVING: usize = 666;
 const THRESHOLD_FULL_THROTTLE_MODE: usize = 750;
@@ -571,7 +571,7 @@ struct LocalScheduler {
 impl LocalScheduler {
     fn new(index: ProcessorIndex) -> Box<Self> {
         let mut sb = Sb255::new();
-        sformat!(sb, "(Idle Core #{})", index.0);
+        write!(sb, "(Idle Core #{})", index.0).unwrap();
         let idle = RawThread::new(ProcessId(0), Priority::Idle, sb.as_str(), None, 0, None);
         Box::new(Self {
             index,
@@ -1127,9 +1127,9 @@ impl Into<usize> for ThreadAttributes {
 impl AtomicBitflags<ThreadAttributes> {
     fn to_char(&self) -> char {
         if self.contains(ThreadAttributes::ZOMBIE) {
-            'Z'
+            'z'
         } else if self.contains(ThreadAttributes::AWAKE) {
-            'W'
+            'w'
         } else if self.contains(ThreadAttributes::ASLEEP) {
             'S'
         } else if self.contains(ThreadAttributes::QUEUED) {
