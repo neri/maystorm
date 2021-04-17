@@ -208,6 +208,19 @@ impl TrueColor {
         })
         .into()
     }
+
+    #[inline]
+    pub fn blend_draw(self, other: Self) -> Self {
+        let c = other.components();
+        let alpha_l = c.a as usize;
+        let alpha_r = 255 - alpha_l;
+        c.blend_color(
+            self.components(),
+            |a, b| ((a as usize * alpha_l + b as usize * alpha_r) / 255) as u8,
+            |a, b| a.saturating_add(b),
+        )
+        .into()
+    }
 }
 
 impl From<u32> for TrueColor {

@@ -29,6 +29,7 @@
 
 [bits 64]
 [section .text]
+_base:
 
     ; pub unsafe extern "C" fn apic_start_ap(_cpuid: u8)
     extern apic_start_ap
@@ -41,13 +42,31 @@
     ; pub unsafe extern "C" fn cpu_int40_handler(ctx: *mut X64StackContext)
     extern cpu_int40_handler
 
-    global _asm_int_00
-    global _asm_int_03
-    global _asm_int_06
-    global _asm_int_08
-    global _asm_int_0d
-    global _asm_int_0e
-    global _asm_int_40
+    ; pub unsafe extern "C" fn apic_handle_irq(irq: Irq)
+    extern apic_handle_irq
+
+
+    ; fn asm_handle_exception(_: InterruptVector) -> usize;
+    global asm_handle_exception
+asm_handle_exception:
+    cmp cl, 0x40
+    jz .hoe
+    cmp cl, 15
+    ja .no_exception
+    movzx ecx, cl
+    lea rdx, [rel _exception_table]
+    mov eax, [rdx + rcx * 4]
+    or eax, eax
+    jz .no_exception
+    lea rdx, [rel _base]
+    add rax, rdx
+    ret
+.no_exception:
+    xor eax, eax
+    ret
+.hoe:
+    lea rax, [rel _asm_int_40]
+    ret
 
 _asm_int_00: ; #DE Divide Error
     push BYTE 0
@@ -68,11 +87,11 @@ _asm_int_08: ; #DF Double Fault
     push BYTE 0x08
     jmp short _exception
 
-_asm_int_0d: ; #GP General Protection Fault
+_asm_int_0D: ; #GP General Protection Fault
     push BYTE 0x0D
     jmp short _exception
 
-_asm_int_0e: ; #PF Page Fault
+_asm_int_0E: ; #PF Page Fault
     push BYTE 0x0E
     ; jmp short _exception
 
@@ -159,6 +178,174 @@ _asm_int_40: ; INT40 Haribote OS SVC
     lea rsp, [rbp + 8 * 4]
     mov rbp, r8
     iretq
+
+
+_irq1:
+    push rax
+    mov al, 1
+    jmp _irq
+
+_irq2:
+    push rax
+    mov al, 2
+    jmp _irq
+
+_irq3:
+    push rax
+    mov al, 3
+    jmp _irq
+
+_irq4:
+    push rax
+    mov al, 4
+    jmp _irq
+
+_irq5:
+    push rax
+    mov al, 5
+    jmp _irq
+
+_irq6:
+    push rax
+    mov al, 6
+    jmp _irq
+
+_irq7:
+    push rax
+    mov al, 7
+    jmp _irq
+
+_irq8:
+    push rax
+    mov al, 8
+    jmp _irq
+
+_irq9:
+    push rax
+    mov al, 9
+    jmp _irq
+
+_irq10:
+    push rax
+    mov al, 10
+    jmp _irq
+
+_irq11:
+    push rax
+    mov al, 11
+    jmp _irq
+
+_irq12:
+    push rax
+    mov al, 12
+    jmp _irq
+
+_irq13:
+    push rax
+    mov al, 13
+    jmp _irq
+
+_irq14:
+    push rax
+    mov al, 14
+    jmp _irq
+
+_irq15:
+    push rax
+    mov al, 15
+    jmp _irq
+
+_irq16:
+    push rax
+    mov al, 16
+    jmp _irq
+
+_irq17:
+    push rax
+    mov al, 17
+    jmp _irq
+
+_irq18:
+    push rax
+    mov al, 18
+    jmp _irq
+
+_irq19:
+    push rax
+    mov al, 19
+    jmp _irq
+
+_irq20:
+    push rax
+    mov al, 20
+    jmp _irq
+
+_irq21:
+    push rax
+    mov al, 21
+    jmp _irq
+
+_irq22:
+    push rax
+    mov al, 22
+    jmp _irq
+
+_irq23:
+    push rax
+    mov al, 23
+    jmp _irq
+
+_irq:
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push r8
+    push r9
+    push r10
+    push r11
+    movzx ecx, al
+    cld
+
+    call apic_handle_irq
+
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rax
+    iretq
+
+
+    ; fn asm_handle_irq_table(_table: &mut [usize; MAX_GSI], _max_gsi: usize);
+    global asm_handle_irq_table
+asm_handle_irq_table:
+    push rsi
+    push rdi
+    mov rdi, rcx
+    mov ecx, edx
+    lea rsi, [rel _irq_table]
+    lea rdx, [rel _base]
+    mov eax, (_end_irq_table - _irq_table) / 4
+    cmp ecx, eax
+    cmova ecx, eax
+.loop:
+    lodsd
+    or rax, rax
+    jz .skip
+    add rax, rdx
+.skip:
+    stosq
+    loop .loop
+
+    pop rdi
+    pop rsi
+    ret
+
 
 
 ;   fn asm_sch_switch_context(current: *mut u8, next: *mut u8);
@@ -338,12 +525,58 @@ _ap_startup:
 
 
 
-[section .rdata]
+[section .rodata]
     ; Boot time minimal GDT
 _minimal_GDT:
     dw 0xFFFF, 0x0000, 0x9A00, 0x00AF   ; 08 DPL0 CODE64 FLAT
     dw 0xFFFF, 0x0000, 0x9200, 0x00CF   ; 10 DPL0 DATA FLAT MANDATORY
 _end_GDT:
+
+_exception_table:
+    dd _asm_int_00 - _base
+    dd 0 ; int_01
+    dd 0 ; int_02
+    dd _asm_int_03 - _base
+    dd 0 ; int_04
+    dd 0 ; int_05
+    dd _asm_int_06 - _base
+    dd 0 ; int_07
+    dd _asm_int_08 - _base
+    dd 0 ; int_09
+    dd 0 ; int_0A
+    dd 0 ; int_0B
+    dd 0 ; int_0C
+    dd _asm_int_0D - _base
+    dd _asm_int_0E - _base
+    dd 0 ; int_0F
+
+
+_irq_table:
+    dd 0
+    dd _irq1 - _base
+    dd _irq2 - _base
+    dd _irq3 - _base
+    dd _irq4 - _base
+    dd _irq5 - _base
+    dd _irq6 - _base
+    dd _irq7 - _base
+    dd _irq8 - _base
+    dd _irq9 - _base
+    dd _irq10 - _base
+    dd _irq11 - _base
+    dd _irq12 - _base
+    dd _irq13 - _base
+    dd _irq14 - _base
+    dd _irq15 - _base
+    dd _irq16 - _base
+    dd _irq17 - _base
+    dd _irq18 - _base
+    dd _irq19 - _base
+    dd _irq20 - _base
+    dd _irq21 - _base
+    dd _irq22 - _base
+    dd _irq23 - _base
+_end_irq_table
 
     ; SMP initialization payload
 [bits 16]

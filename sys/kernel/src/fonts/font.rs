@@ -296,7 +296,7 @@ impl<'a> HersheyFont<'a> {
     const MAGIC_20: isize = 0x20;
     const MAGIC_52: isize = 0x52;
     const POINT: isize = 32;
-    const DESCENT: isize = 2;
+    const DESCENT: isize = 4;
 
     fn new(extra_height: isize, font_data: &'a [u8]) -> Self {
         let descent = Self::DESCENT + extra_height;
@@ -429,7 +429,7 @@ impl<'a> HersheyFont<'a> {
                     }
                     Bitmap::Argb32(bitmap) => {
                         let color = color.into_argb();
-                        for y in 0..height {
+                        for y in 0..=height {
                             for x in 0..act_w {
                                 let point = origin + Point::new(x, y);
                                 unsafe {
@@ -440,7 +440,7 @@ impl<'a> HersheyFont<'a> {
                                             offset_y + y * 2,
                                         ));
                                         c.a = u8::MAX - alpha;
-                                        v.blend(c.into())
+                                        v.blend_draw(c.into())
                                     })
                                 }
                             }

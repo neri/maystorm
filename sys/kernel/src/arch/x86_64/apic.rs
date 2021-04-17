@@ -7,21 +7,24 @@ use crate::mem::*;
 use crate::sync::spinlock::Spinlock;
 use crate::system::*;
 use crate::task::scheduler::*;
-// use crate::*;
 use ::alloc::boxed::Box;
 use ::alloc::vec::*;
 use core::ffi::c_void;
 use core::sync::atomic::*;
 use core::time::Duration;
 
+/// max number of supported cpu cores
 const MAX_CPU: usize = 64;
 const STACK_CHUNK_SIZE: usize = 0x4000;
+/// max number of supported GSI
+const MAX_GSI: usize = 24;
 
 static mut APIC: Apic = Apic::new();
 const INVALID_PROCESSOR_INDEX: u8 = 0xFF;
 static mut CURRENT_PROCESSOR_INDEXES: [u8; 256] = [INVALID_PROCESSOR_INDEX; 256];
 
 extern "C" {
+    fn asm_handle_irq_table(_table: &mut [usize; MAX_GSI], _max_gsi: usize);
     fn asm_apic_setup_sipi(
         vec_sipi: InterruptVector,
         max_cpu: usize,
@@ -126,28 +129,24 @@ impl Apic {
             APIC.gsi_table[source.isa_source as usize] = props;
         }
 
-        Cpu::enable_interrupt();
-
         // Init IO Apics
         for acpi_ioapic in &acpi_apic.io_apics {
             APIC.ioapics.push(Box::new(IoApic::new(acpi_ioapic)));
         }
 
-        InterruptDescriptorTable::register(
-            Irq(1).into(),
-            irq_01_handler as usize,
-            PrivilegeLevel::Kernel,
-        );
-        InterruptDescriptorTable::register(
-            Irq(2).into(),
-            irq_02_handler as usize,
-            PrivilegeLevel::Kernel,
-        );
-        InterruptDescriptorTable::register(
-            Irq(12).into(),
-            irq_0c_handler as usize,
-            PrivilegeLevel::Kernel,
-        );
+        let mut irq_table = [0usize; MAX_GSI];
+        asm_handle_irq_table(&mut irq_table, MAX_GSI);
+        for irq in 1..MAX_GSI {
+            let offset = irq_table[irq];
+            InterruptDescriptorTable::register(
+                Irq(irq as u8).into(),
+                offset,
+                super::cpu::PrivilegeLevel::Kernel,
+            );
+        }
+
+        // then enable irq
+        Cpu::enable_interrupt();
 
         // Local APIC Timer
         let vec_latimer = Irq(0).as_vec();
@@ -178,7 +177,7 @@ impl Apic {
             APIC.lapic_timer_value,
         );
 
-        // Setup SMP
+        // preparing SMP
         let sipi_vec = InterruptVector(MemoryManager::static_alloc_real().unwrap().get());
         let max_cpu = core::cmp::min(System::num_of_cpus(), MAX_CPU);
         let stack_chunk_size = STACK_CHUNK_SIZE;
@@ -187,6 +186,7 @@ impl Apic {
             .get() as *mut c_void;
         asm_apic_setup_sipi(sipi_vec, max_cpu, stack_chunk_size, stack_base);
 
+        // start SMP
         LocalApic::broadcast_init();
         Timer::new(Duration::from_millis(10)).repeat_until(|| Cpu::halt());
         LocalApic::broadcast_startup(sipi_vec);
@@ -201,6 +201,9 @@ impl Apic {
             panic!("Some of application processors are not responding");
         }
 
+        // Since each processor that receives an IPI starts initializing asynchronously,
+        // the physical processor ID and the logical ID assigned by the OS will not match.
+        // Therefore, sorting is required here.
         System::sort_cpus(|a, b| a.cpu_id.0.cmp(&b.cpu_id.0));
 
         for index in 0..System::num_of_active_cpus() {
@@ -600,24 +603,6 @@ impl IoApic {
 }
 
 //-//-//-// TEST //-//-//-//
-
-extern "x86-interrupt" fn irq_01_handler() {
-    unsafe {
-        apic_handle_irq(Irq(1));
-    }
-}
-
-extern "x86-interrupt" fn irq_02_handler() {
-    unsafe {
-        apic_handle_irq(Irq(2));
-    }
-}
-
-extern "x86-interrupt" fn irq_0c_handler() {
-    unsafe {
-        apic_handle_irq(Irq(12));
-    }
-}
 
 extern "x86-interrupt" fn timer_handler() {
     unsafe {

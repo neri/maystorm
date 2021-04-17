@@ -16,8 +16,6 @@ use core::fmt::Write;
 use core::mem::*;
 use uefi::prelude::*;
 
-extern crate rlibc;
-
 #[entry]
 fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
     let mut info = BootInfo::default();

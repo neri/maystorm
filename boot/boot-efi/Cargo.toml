@@ -10,7 +10,6 @@ version = "0.1.0"
 bitflags = "1"
 bootprot = {path = "../../lib/bootprot"}
 byteorder = {version = "1", default-features = false}
-rlibc = "1.0.0"
 serde = {version = "1", default-features = false, features = ["derive"]}
 serde-json-core = "0.2.0"
 uefi = {git = "https://github.com/rust-osdev/uefi-rs.git"}

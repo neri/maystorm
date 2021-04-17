@@ -125,7 +125,7 @@ impl PageManager {
 
         let mut last_pa_4g = 0;
         let mut total_memory_size: u64 = 0;
-        for (_index, mem_desc) in mm.enumerate() {
+        for mem_desc in mm {
             let mut has_to_copy = true;
             let page_base = mem_desc.phys_start;
             let page_size = mem_desc.page_count * PageConfig::UEFI_PAGE_SIZE;

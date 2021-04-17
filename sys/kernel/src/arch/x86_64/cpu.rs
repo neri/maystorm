@@ -14,9 +14,10 @@ use core::fmt::Write;
 use core::sync::atomic::*;
 
 extern "C" {
-    // fn asm_handle_exception(_: InterruptVector) -> usize;
+    fn asm_handle_exception(_: InterruptVector) -> usize;
     fn asm_sch_switch_context(current: *mut u8, next: *const u8);
     fn asm_sch_make_new_thread(context: *mut u8, new_sp: *mut c_void, start: usize, arg: usize);
+    fn _asm_int_40() -> !;
 }
 
 static mut SHARED_CPU: SharedCpu = SharedCpu::new();
@@ -28,16 +29,6 @@ pub struct Cpu {
     tsc_base: u64,
     #[allow(dead_code)]
     gdt: Box<GlobalDescriptorTable>,
-}
-
-extern "C" {
-    fn _asm_int_00() -> !;
-    fn _asm_int_03() -> !;
-    fn _asm_int_06() -> !;
-    fn _asm_int_08() -> !;
-    fn _asm_int_0d() -> !;
-    fn _asm_int_0e() -> !;
-    fn _asm_int_40() -> !;
 }
 
 #[allow(dead_code)]
@@ -953,6 +944,11 @@ pub enum Exception {
     AlignmentCheck = 17,
     MachineCheck = 18,
     SimdException = 19,
+    Virtualization = 20,
+    //Reserved
+    Security = 30,
+    //Reserved = 31,
+    MaxReserved = 32,
 }
 
 impl Exception {
@@ -1176,42 +1172,22 @@ impl InterruptDescriptorTable {
 
     unsafe fn init() {
         Self::load();
-        Self::register(
-            Exception::DivideError.into(),
-            _asm_int_00 as usize,
-            PrivilegeLevel::Kernel,
-        );
-        Self::register(
-            Exception::Breakpoint.into(),
-            _asm_int_03 as usize,
-            PrivilegeLevel::Kernel,
-        );
-        Self::register(
-            Exception::InvalidOpcode.into(),
-            _asm_int_06 as usize,
-            PrivilegeLevel::Kernel,
-        );
-        Self::register(
-            Exception::DoubleFault.into(),
-            _asm_int_08 as usize,
-            PrivilegeLevel::Kernel,
-        );
-        Self::register(
-            Exception::GeneralProtection.into(),
-            _asm_int_0d as usize,
-            PrivilegeLevel::Kernel,
-        );
-        Self::register(
-            Exception::PageFault.into(),
-            _asm_int_0e as usize,
-            PrivilegeLevel::Kernel,
-        );
+        for vec in 0..(Exception::MaxReserved as u8) {
+            let vec = InterruptVector(vec);
+            let offset = asm_handle_exception(vec);
+            if offset != 0 {
+                Self::register(vec, offset, PrivilegeLevel::Kernel);
+            }
+        }
+
         // Haribote OS Supports
-        Self::register(
-            InterruptVector(0x40),
-            _asm_int_40 as usize,
-            PrivilegeLevel::User,
-        );
+        {
+            let vec = InterruptVector(0x40);
+            let offset = asm_handle_exception(vec);
+            if offset != 0 {
+                Self::register(vec, offset, PrivilegeLevel::User);
+            }
+        }
     }
 
     unsafe fn load() {
