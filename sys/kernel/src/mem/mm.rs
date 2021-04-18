@@ -260,9 +260,20 @@ struct MemFreePair {
 }
 
 impl MemFreePair {
-    const fn empty() -> Self {
+    #[inline]
+    pub const fn empty() -> Self {
         Self { base: 0, size: 0 }
     }
+
+    // #[inline]
+    // pub const fn base(&self) -> usize {
+    //     self.base
+    // }
+
+    // #[inline]
+    // pub const fn size(&self) -> usize {
+    //     self.size
+    // }
 }
 
 bitflags! {

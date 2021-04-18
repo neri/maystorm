@@ -6,7 +6,8 @@ use crate::task::scheduler::*;
 use crate::*;
 use crate::{arch::cpu::*, fonts::*};
 use alloc::boxed::Box;
-use alloc::vec::*;
+use alloc::string::*;
+use alloc::vec::Vec;
 use bootprot::BootInfo;
 use core::fmt;
 use core::ptr::*;
@@ -117,6 +118,14 @@ pub struct System {
     /// An instance of ACPI tables
     acpi: Option<Box<acpi::AcpiTables<MyAcpiHandler>>>,
 
+    /// An instance of SMBIOS
+    smbios: Option<Box<fw::smbios::SMBIOS>>,
+
+    /// Machine's manufacture name
+    manufacturer: Option<String>,
+    /// Machine's product name
+    product: Option<String>,
+
     // screens
     main_screen: Option<Bitmap32<'static>>,
     em_console: EmConsole,
@@ -137,6 +146,9 @@ impl System {
             num_of_performance_cpus: 1,
             cpus: Vec::new(),
             acpi: None,
+            smbios: None,
+            manufacturer: None,
+            product: None,
             boot_flags: BootFlags::empty(),
             main_screen: None,
             em_console: EmConsole::new(FontManager::fixed_system_font()),
@@ -165,6 +177,15 @@ impl System {
         shared.acpi = Some(Box::new(
             acpi::AcpiTables::from_rsdp(MyAcpiHandler::new(), info.acpi_rsdptr as usize).unwrap(),
         ));
+
+        if info.smbios != 0 {
+            let smbios = fw::smbios::SMBIOS::init(info.smbios as usize);
+            let h = smbios.find(fw::smbios::HeaderType::SYSTEM_INFO).unwrap();
+            let slice = h.as_slice();
+            shared.manufacturer = h.string(slice[4] as usize).map(|v| v.to_string());
+            shared.product = h.string(slice[5] as usize).map(|v| v.to_string());
+            shared.smbios = Some(smbios);
+        }
 
         let pi = Self::acpi_platform().processor_info.unwrap();
         shared.num_of_cpus = pi.application_processors.len() + 1;
@@ -301,6 +322,21 @@ impl System {
     }
 
     #[inline]
+    pub fn smbios() -> Option<&'static Box<fw::smbios::SMBIOS>> {
+        Self::shared().smbios.as_ref()
+    }
+
+    #[inline]
+    pub fn manufacturer<'a>() -> Option<&'a str> {
+        Self::shared().manufacturer.as_ref().map(|v| v.as_str())
+    }
+
+    #[inline]
+    pub fn product<'a>() -> Option<&'a str> {
+        Self::shared().product.as_ref().map(|v| v.as_str())
+    }
+
+    #[inline]
     #[track_caller]
     pub fn acpi_platform() -> acpi::PlatformInfo {
         Self::acpi().platform_info().unwrap()
@@ -337,6 +373,13 @@ impl System {
         shared.stdout.as_mut().unwrap()
     }
 }
+
+// pub struct DeviceInfo {
+//     manufacturer: String,
+//     product: String,
+//     num_of_active_cpus: usize,
+//     num_of_performance_cpus: usize,
+// }
 
 //-//-//-//-//
 

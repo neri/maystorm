@@ -65,6 +65,17 @@ impl Shell {
     async fn repl_main() {
         Self::exec_cmd("ver");
 
+        println!(
+            "Manufacturer: {}",
+            System::manufacturer().unwrap_or("UNKNOWN"),
+        );
+        println!("Machine: {}", System::product().unwrap_or("UNKNOWN"),);
+        println!(
+            "Processor Cores: {} / {}",
+            System::num_of_performance_cpus(),
+            System::num_of_active_cpus()
+        );
+
         loop {
             print!("# ");
             if let Some(cmdline) = System::stdout().read_line_async(120).await {
@@ -74,13 +85,45 @@ impl Shell {
     }
 
     fn exec_cmd(cmdline: &str) {
-        match Self::parse_cmd(&cmdline, |name, args| match Self::command(name) {
-            Some(exec) => {
-                exec(args);
+        match Self::parse_cmd(&cmdline, |name, args| match name {
+            "clear" | "cls" => System::stdout().reset().unwrap(),
+            "cd" | "exit" => println!("Feature not available"),
+            // "dir" => Self::cmd_dir(args),
+            // "type" => Self::cmd_type(stdout, args),
+            "echo" => {
+                let stdout = System::stdout();
+                for (index, word) in args.iter().skip(1).enumerate() {
+                    if index > 0 {
+                        stdout.write_char(' ').unwrap();
+                    }
+                    stdout.write_str(word).unwrap();
+                }
+                stdout.write_str("\r\n").unwrap();
             }
-            None => {
-                Self::spawn(name, args, true);
+            "ver" => {
+                println!("{} v{}", System::name(), System::version(),)
             }
+            "reboot" => unsafe {
+                System::reset();
+            },
+            "memory" => {
+                let mut sb = StringBuffer::with_capacity(0x1000);
+                MemoryManager::statistics(&mut sb);
+                print!("{}", sb.as_str());
+            }
+            "open" => {
+                let args = &args[1..];
+                let name = args[0];
+                Self::spawn(name, args, false);
+            }
+            _ => match Self::command(name) {
+                Some(exec) => {
+                    exec(args);
+                }
+                None => {
+                    Self::spawn(name, args, true);
+                }
+            },
         }) {
             Ok(_) => {}
             Err(ParsedCmdLine::Empty) => (),
@@ -232,35 +275,15 @@ impl Shell {
         None
     }
 
-    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> isize, &'static str); 14] = [
-        ("cls", Self::cmd_cls, "Clear screen"),
+    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> isize, &'static str); 6] = [
         ("dir", Self::cmd_dir, "Show directory"),
-        ("echo", Self::cmd_echo, ""),
         ("help", Self::cmd_help, "Show Help"),
-        ("open", Self::cmd_open, "Open program separated"),
-        ("reboot", Self::cmd_reboot, "Restart computer"),
         ("type", Self::cmd_type, "Show file"),
-        ("ver", Self::cmd_ver, "Display version"),
         //
         ("ps", Self::cmd_ps, ""),
         ("lspci", Self::cmd_lspci, "Show List of PCI Devices"),
         ("sysctl", Self::cmd_sysctl, "System Control"),
-        //
-        ("cd", Self::cmd_reserved, ""),
-        ("exit", Self::cmd_reserved, ""),
-        ("rm", Self::cmd_reserved, ""),
     ];
-
-    fn cmd_reserved(_: &[&str]) -> isize {
-        println!("Feature not available");
-        1
-    }
-
-    fn cmd_reboot(_: &[&str]) -> isize {
-        unsafe {
-            System::reset();
-        }
-    }
 
     fn cmd_help(_: &[&str]) -> isize {
         for cmd in &Self::COMMAND_TABLE {
@@ -268,23 +291,6 @@ impl Shell {
                 println!("{}\t{}", cmd.0, cmd.2);
             }
         }
-        0
-    }
-
-    fn cmd_cls(_: &[&str]) -> isize {
-        match System::stdout().reset() {
-            Ok(_) => 0,
-            Err(_) => 1,
-        }
-    }
-
-    fn cmd_ver(_: &[&str]) -> isize {
-        println!("{} v{}", System::name(), System::version(),);
-        0
-    }
-
-    fn cmd_echo(args: &[&str]) -> isize {
-        println!("{}", args[1..].join(" "));
         0
     }
 
@@ -376,19 +382,6 @@ impl Shell {
             }
             System::stdout().write_str("\r\n").unwrap();
         }
-        0
-    }
-
-    fn cmd_open(argv: &[&str]) -> isize {
-        if argv.len() < 2 {
-            println!("usage: open PROGRAM [ARGUMENTS ...]");
-            return 1;
-        }
-
-        let argv = &argv[1..];
-        let name = argv[0];
-        Self::spawn(name, argv, false);
-
         0
     }
 

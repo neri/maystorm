@@ -20,6 +20,7 @@ pub mod bus;
 pub mod dev;
 pub mod fonts;
 pub mod fs;
+pub mod fw;
 pub mod io;
 pub mod mem;
 pub mod rt;

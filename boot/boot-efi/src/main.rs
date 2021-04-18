@@ -64,7 +64,7 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
     };
 
     // Find SMBIOS Table
-    info.smbios = match st.find_config_table(::uefi::table::cfg::SMBIOS3_GUID) {
+    info.smbios = match st.find_config_table(::uefi::table::cfg::SMBIOS_GUID) {
         Some(val) => val as u64,
         None => 0,
     };
@@ -83,13 +83,9 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
 
         debug::Console::init(info.vram_base as usize, width, height, stride);
 
-        if height > width {
-            info.flags.insert(BootFlags::PORTRAIT);
-            swap(&mut width, &mut height);
-        }
         if width > stride {
             // GPD micro PC fake landscape mode
-            info.flags.insert(BootFlags::PORTRAIT);
+            swap(&mut width, &mut height);
         }
 
         info.vram_stride = stride as u16;
