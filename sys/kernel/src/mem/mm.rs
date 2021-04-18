@@ -260,20 +260,27 @@ struct MemFreePair {
 }
 
 impl MemFreePair {
+    const PAGE_SIZE: usize = 0x1000;
+
     #[inline]
     pub const fn empty() -> Self {
         Self { base: 0, size: 0 }
     }
 
-    // #[inline]
-    // pub const fn base(&self) -> usize {
-    //     self.base
-    // }
+    #[inline]
+    pub fn hoge(&self, size: usize) -> Result<usize, ()> {
+        Ok(0)
+    }
 
-    // #[inline]
-    // pub const fn size(&self) -> usize {
-    //     self.size
-    // }
+    #[inline]
+    pub const fn base(&self) -> usize {
+        self.base
+    }
+
+    #[inline]
+    pub const fn size(&self) -> usize {
+        self.size
+    }
 }
 
 bitflags! {

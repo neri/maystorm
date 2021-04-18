@@ -77,43 +77,54 @@ pub struct SmBiosHeader {
 }
 
 impl SmBiosHeader {
+    /// Some Chinese products return a "Default string"
+    pub const DEFAULT_STRING: &'static str = "Default string";
+
     #[inline]
     pub const fn header_type(&self) -> HeaderType {
         self.header_type
     }
 
     #[inline]
-    pub const fn fixed_size(&self) -> usize {
+    pub const fn header_size(&self) -> usize {
         self.size as usize
+    }
+
+    #[inline]
+    pub const fn handle(&self) -> u16 {
+        self.handle
     }
 
     #[inline]
     pub fn as_slice<'a>(&'a self) -> &'a [u8] {
         let data = self as *const _ as *const u8;
-        let len = self.next_size();
+        let len = self.header_size();
         unsafe { slice::from_raw_parts(data, len) }
     }
 
     #[inline]
-    fn iter(&self) -> SmBiosStringWalker {
-        let base = self as *const _ as usize + self.fixed_size();
+    fn strings(&self) -> SmBiosStringWalker {
+        let base = self as *const _ as usize + self.header_size();
         SmBiosStringWalker { base, offset: 0 }
     }
 
     #[inline]
     pub fn string<'a>(&'a self, index: usize) -> Option<&'a str> {
         if index > 0 {
-            self.iter().nth(index - 1)
+            self.strings().nth(index - 1).and_then(|v| match v {
+                Self::DEFAULT_STRING => None,
+                _ => Some(v),
+            })
         } else {
             None
         }
     }
 
     #[inline]
-    pub fn next_size(&self) -> usize {
-        let mut iter = self.iter();
+    pub fn struct_size(&self) -> usize {
+        let mut iter = self.strings();
         while iter.next().is_some() {}
-        self.fixed_size() + iter.offset + 1
+        self.header_size() + iter.offset + 1
     }
 }
 
@@ -170,7 +181,7 @@ impl Iterator for SmBiosStructWalker {
         unsafe {
             let p = (self.base + self.offset) as *const SmBiosHeader;
             let r = &*p;
-            self.offset += r.next_size();
+            self.offset += r.struct_size();
             self.index += 1;
             Some(r)
         }

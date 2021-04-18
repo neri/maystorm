@@ -65,15 +65,16 @@ impl Shell {
     async fn repl_main() {
         Self::exec_cmd("ver");
 
+        let device = System::current_device();
         println!(
-            "Manufacturer: {}",
-            System::manufacturer().unwrap_or("UNKNOWN"),
+            "System Manufacturer: {}",
+            device.manufacturer_name().unwrap_or("Unknown"),
         );
-        println!("Machine: {}", System::product().unwrap_or("UNKNOWN"),);
+        println!("System Model: {}", device.model_name().unwrap_or("Unknown"),);
         println!(
             "Processor Cores: {} / {}",
-            System::num_of_performance_cpus(),
-            System::num_of_active_cpus()
+            device.num_of_performance_cpus(),
+            device.num_of_active_cpus(),
         );
 
         loop {

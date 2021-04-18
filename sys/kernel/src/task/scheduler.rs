@@ -2,31 +2,26 @@
 
 use super::executor::Executor;
 use super::*;
-use crate::arch::cpu::{Cpu, CpuContextData};
-use crate::rt::*;
-use crate::sync::atomicflags::*;
-use crate::sync::semaphore::*;
-use crate::sync::spinlock::*;
-use crate::system::*;
-use crate::window::*;
-use crate::*;
-use alloc::boxed::Box;
-use alloc::collections::btree_map::BTreeMap;
-use alloc::sync::Arc;
-use alloc::vec::*;
+use crate::{
+    arch::cpu::{Cpu, CpuContextData},
+    rt::{Personality, ProcessId, RuntimeEnvironment},
+    sync::atomicflags::*,
+    sync::semaphore::*,
+    sync::spinlock::*,
+    system::*,
+    window::{WindowHandle, WindowMessage},
+    *,
+};
+use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc, vec::*};
 use bitflags::*;
-use core::cell::UnsafeCell;
-use core::ffi::c_void;
-use core::fmt::Write;
-use core::num::*;
-use core::ops::*;
-use core::sync::atomic::*;
-use core::time::Duration;
+use core::{
+    cell::UnsafeCell, ffi::c_void, fmt::Write, num::*, ops::*, sync::atomic::*, time::Duration,
+};
 use crossbeam_queue::ArrayQueue;
 use megstd::string::*;
 
-const THRESHOLD_SAVING: usize = 666;
-const THRESHOLD_FULL_THROTTLE_MODE: usize = 750;
+// const THRESHOLD_SAVING: usize = 666;
+// const THRESHOLD_FULL_THROTTLE_MODE: usize = 750;
 
 static mut SCHEDULER: Option<Box<Scheduler>> = None;
 
@@ -97,7 +92,7 @@ impl Scheduler {
         }
 
         let sch = Self::shared();
-        for index in 0..System::num_of_active_cpus() {
+        for index in 0..System::current_device().num_of_active_cpus() {
             sch.locals.push(LocalScheduler::new(ProcessorIndex(index)));
         }
 
@@ -404,20 +399,21 @@ impl Scheduler {
                 }
             }
 
-            let num_cpu = System::num_of_active_cpus();
+            let num_cpu = System::current_device().num_of_active_cpus();
             let usage_total = usize::min(usage, num_cpu * 1000);
             let usage_per_cpu = usize::min(usage / num_cpu, 1000);
             shared.usage_total.store(usage_total, Ordering::SeqCst);
             shared.usage.store(usage_per_cpu, Ordering::SeqCst);
 
-            if usage_total < THRESHOLD_SAVING {
-                shared.state = SchedulerState::Saving;
-            } else if usage_total > System::num_of_performance_cpus() * THRESHOLD_FULL_THROTTLE_MODE
-            {
-                shared.state = SchedulerState::FullThrottle;
-            } else {
-                shared.state = SchedulerState::Running;
-            }
+            // if usage_total < THRESHOLD_SAVING {
+            //     shared.state = SchedulerState::Saving;
+            // } else if usage_total
+            //     > System::current_device().num_of_performance_cpus() * THRESHOLD_FULL_THROTTLE_MODE
+            // {
+            //     shared.state = SchedulerState::FullThrottle;
+            // } else {
+            //     shared.state = SchedulerState::Running;
+            // }
 
             measure = now;
         }

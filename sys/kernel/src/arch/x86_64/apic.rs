@@ -51,7 +51,7 @@ pub unsafe extern "C" fn apic_start_ap() {
     }
     let tsc = Cpu::rdtsc();
 
-    for index in 0..System::num_of_active_cpus() {
+    for index in 0..System::current_device().num_of_active_cpus() {
         let cpu = System::cpu(index);
         if cpu.cpu_id == apic_id {
             System::cpu_mut(index).set_tsc_base(tsc);
@@ -193,11 +193,11 @@ impl Apic {
         let deadline = Timer::new(Duration::from_millis(200));
         while deadline.until() {
             Timer::new(Duration::from_millis(5)).repeat_until(|| Cpu::halt());
-            if System::num_of_active_cpus() == max_cpu {
+            if System::current_device().num_of_active_cpus() == max_cpu {
                 break;
             }
         }
-        if System::num_of_active_cpus() != max_cpu {
+        if System::current_device().num_of_active_cpus() != max_cpu {
             panic!("Some of application processors are not responding");
         }
 
@@ -206,7 +206,7 @@ impl Apic {
         // Therefore, sorting is required here.
         System::sort_cpus(|a, b| a.cpu_id.0.cmp(&b.cpu_id.0));
 
-        for index in 0..System::num_of_active_cpus() {
+        for index in 0..System::current_device().num_of_active_cpus() {
             let cpu = System::cpu(index);
             CURRENT_PROCESSOR_INDEXES[cpu.cpu_id.0 as usize] = cpu.cpu_index.0 as u8;
         }

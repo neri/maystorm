@@ -1,16 +1,10 @@
 // A Computer System
 
-use crate::io::emcon::*;
-use crate::io::tty::Tty;
-use crate::task::scheduler::*;
-use crate::*;
-use crate::{arch::cpu::*, fonts::*};
-use alloc::boxed::Box;
-use alloc::string::*;
-use alloc::vec::Vec;
+use crate::{arch::cpu::*, fonts::*, io::emcon::*, io::tty::Tty, task::scheduler::*, *};
+use alloc::{boxed::Box, string::*, vec::Vec};
 use bootprot::BootInfo;
-use core::fmt;
-use core::ptr::*;
+
+use core::{fmt, ptr::*, sync::atomic::*};
 use megstd::drawing::*;
 use megstd::time::SystemTime;
 
@@ -107,11 +101,13 @@ pub enum ProcessorCoreType {
 #[derive(Copy, Clone, Default, PartialEq, PartialOrd)]
 pub struct PhysicalAddress(pub usize);
 
+#[allow(dead_code)]
 pub struct System {
+    /// Current device information
+    current_device: DeviceInfo,
+
     /// Number of cpu cores
     num_of_cpus: usize,
-    /// Number of physical cpu cores
-    num_of_performance_cpus: usize,
     /// Vector of cpu cores
     cpus: Vec<Box<Cpu>>,
 
@@ -120,11 +116,6 @@ pub struct System {
 
     /// An instance of SMBIOS
     smbios: Option<Box<fw::smbios::SMBIOS>>,
-
-    /// Machine's manufacture name
-    manufacturer: Option<String>,
-    /// Machine's product name
-    product: Option<String>,
 
     // screens
     main_screen: Option<Bitmap32<'static>>,
@@ -142,13 +133,11 @@ static mut SYSTEM: System = System::new();
 impl System {
     const fn new() -> Self {
         System {
+            current_device: DeviceInfo::new(),
             num_of_cpus: 0,
-            num_of_performance_cpus: 1,
             cpus: Vec::new(),
             acpi: None,
             smbios: None,
-            manufacturer: None,
-            product: None,
             boot_flags: BootFlags::empty(),
             main_screen: None,
             em_console: EmConsole::new(FontManager::fixed_system_font()),
@@ -179,11 +168,12 @@ impl System {
         ));
 
         if info.smbios != 0 {
+            let device = &mut shared.current_device;
             let smbios = fw::smbios::SMBIOS::init(info.smbios as usize);
             let h = smbios.find(fw::smbios::HeaderType::SYSTEM_INFO).unwrap();
             let slice = h.as_slice();
-            shared.manufacturer = h.string(slice[4] as usize).map(|v| v.to_string());
-            shared.product = h.string(slice[5] as usize).map(|v| v.to_string());
+            device.manufacturer_name = h.string(slice[4] as usize).map(|v| v.to_string());
+            device.model_name = h.string(slice[5] as usize).map(|v| v.to_string());
             shared.smbios = Some(smbios);
         }
 
@@ -261,22 +251,8 @@ impl System {
 
     /// Returns the number of logical CPU cores.
     #[inline]
-    pub fn num_of_cpus() -> usize {
+    pub(crate) fn num_of_cpus() -> usize {
         Self::shared().num_of_cpus
-    }
-
-    /// Returns the number of performance CPU cores.
-    /// Returns less than `num_of_cpus` for SMT-enabled processors or heterogeneous computing.
-    #[inline]
-    pub fn num_of_performance_cpus() -> usize {
-        Self::shared().num_of_performance_cpus
-    }
-
-    /// Returns the number of active logical CPU cores.
-    /// Returns the same value as `num_of_cpus` except during SMP initialization.
-    #[inline]
-    pub fn num_of_active_cpus() -> usize {
-        Self::shared().cpus.len()
     }
 
     /// Add SMP-initialized CPU cores to the list of enabled cores.
@@ -286,13 +262,20 @@ impl System {
     pub(crate) unsafe fn activate_cpu(new_cpu: Box<Cpu>) {
         let shared = Self::shared();
         if new_cpu.processor_type() == ProcessorCoreType::Main {
-            shared.num_of_performance_cpus += 1;
+            shared
+                .current_device
+                .num_of_performance_cpus
+                .fetch_add(1, Ordering::SeqCst);
         }
+        shared
+            .current_device
+            .num_of_active_cpus
+            .fetch_add(1, Ordering::SeqCst);
         shared.cpus.push(new_cpu);
     }
 
     #[inline]
-    pub fn cpu<'a>(index: usize) -> &'a Box<Cpu> {
+    pub(crate) fn cpu<'a>(index: usize) -> &'a Box<Cpu> {
         &Self::shared().cpus[index]
     }
 
@@ -327,13 +310,9 @@ impl System {
     }
 
     #[inline]
-    pub fn manufacturer<'a>() -> Option<&'a str> {
-        Self::shared().manufacturer.as_ref().map(|v| v.as_str())
-    }
-
-    #[inline]
-    pub fn product<'a>() -> Option<&'a str> {
-        Self::shared().product.as_ref().map(|v| v.as_str())
+    #[track_caller]
+    pub fn current_device<'a>() -> &'a DeviceInfo {
+        &Self::shared().current_device
     }
 
     #[inline]
@@ -374,12 +353,47 @@ impl System {
     }
 }
 
-// pub struct DeviceInfo {
-//     manufacturer: String,
-//     product: String,
-//     num_of_active_cpus: usize,
-//     num_of_performance_cpus: usize,
-// }
+pub struct DeviceInfo {
+    manufacturer_name: Option<String>,
+    model_name: Option<String>,
+    num_of_active_cpus: AtomicUsize,
+    num_of_performance_cpus: AtomicUsize,
+}
+
+impl DeviceInfo {
+    const fn new() -> Self {
+        Self {
+            manufacturer_name: None,
+            model_name: None,
+            num_of_active_cpus: AtomicUsize::new(1),
+            num_of_performance_cpus: AtomicUsize::new(1),
+        }
+    }
+
+    #[inline]
+    pub fn manufacturer_name(&self) -> Option<&str> {
+        self.manufacturer_name.as_ref().map(|v| v.as_str())
+    }
+
+    #[inline]
+    pub fn model_name(&self) -> Option<&str> {
+        self.model_name.as_ref().map(|v| v.as_str())
+    }
+
+    /// Returns the number of performance CPU cores.
+    /// Returns less than `num_of_cpus` for SMT-enabled processors or heterogeneous computing.
+    #[inline]
+    pub fn num_of_active_cpus(&self) -> usize {
+        self.num_of_active_cpus.load(Ordering::SeqCst)
+    }
+
+    /// Returns the number of active logical CPU cores.
+    /// Returns the same value as `num_of_cpus` except during SMP initialization.
+    #[inline]
+    pub fn num_of_performance_cpus(&self) -> usize {
+        self.num_of_performance_cpus.load(Ordering::SeqCst)
+    }
+}
 
 //-//-//-//-//
 
