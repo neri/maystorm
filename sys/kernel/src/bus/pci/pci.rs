@@ -1,4 +1,5 @@
 // PCI: Peripheral Component Interconnect Bus
+
 use crate::arch::cpu::*;
 use alloc::vec::*;
 
@@ -11,6 +12,7 @@ pub struct PciConfigAddressSpace {
 }
 
 impl PciConfigAddressSpace {
+    #[inline]
     pub const fn bus(bus: u8) -> Self {
         Self {
             bus,
@@ -20,16 +22,19 @@ impl PciConfigAddressSpace {
         }
     }
 
+    #[inline]
     pub const fn dev(mut self, dev: u8) -> Self {
         self.dev = dev;
         self
     }
 
+    #[inline]
     pub const fn fun(mut self, fun: u8) -> Self {
         self.fun = fun;
         self
     }
 
+    #[inline]
     pub const fn register(mut self, register: u8) -> Self {
         self.register = register;
         self
@@ -49,6 +54,7 @@ impl Pci {
         }
     }
 
+    #[inline]
     fn shared() -> &'static mut Pci {
         unsafe { &mut PCI }
     }
@@ -64,8 +70,7 @@ impl Pci {
     }
 
     pub fn devices() -> &'static [PciDevice] {
-        let shared = Self::shared();
-        shared.devices.as_slice()
+        Self::shared().devices.as_slice()
     }
 }
 
@@ -203,7 +208,7 @@ impl PciBar {
             }
             let org = PciBar::from_raw(raw as u64);
             match org.bar_type() {
-                PciBarType::SeparatedIo | PciBarType::Mmio32 | PciBarType::Mmio1MB => {
+                PciBarType::SeparatedIo | PciBarType::Mmio32 => {
                     let mask = org.bar_type().mask() as u32;
                     let bias = org.bar_type().mask_bias() as u32;
                     Cpu::write_pci(reg, mask);
@@ -227,14 +232,14 @@ impl PciBar {
                             .set_scale(scale),
                     )
                 }
-                PciBarType::Reserved => None,
+                PciBarType::Mmio1MB | PciBarType::Reserved => None,
             }
         })
     }
 
     #[inline]
     pub const fn base(&self) -> u64 {
-        if self.is_io() {
+        if self.is_separated_io() {
             self.0 & 0xFFFF_FFFC
         } else {
             (self.0 & Self::VALID_BASE_MASK) & !0x0F
@@ -255,7 +260,7 @@ impl PciBar {
     #[inline]
     pub const fn bar_type(&self) -> PciBarType {
         use PciBarType::*;
-        if self.is_io() {
+        if self.is_separated_io() {
             SeparatedIo
         } else {
             match self.0 & 0x06 {
@@ -268,13 +273,13 @@ impl PciBar {
     }
 
     #[inline]
-    pub const fn is_io(&self) -> bool {
+    pub const fn is_separated_io(&self) -> bool {
         (self.0 & 0x01) == 0x01
     }
 
     #[inline]
     pub const fn is_prefetchable(&self) -> bool {
-        !self.is_io() && (self.0 & 0x08) == 0x08
+        !self.is_separated_io() && (self.0 & 0x08) == 0x08
     }
 }
 
@@ -285,7 +290,7 @@ pub enum PciBarType {
     SeparatedIo,
     /// Any 32bit MMIO
     Mmio32,
-    /// Under 1MB MMIO
+    /// Under 1MB MMIO (obsoleted)
     Mmio1MB,
     /// Any 64bit MMIO
     Mmio64,
