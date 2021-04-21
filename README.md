@@ -40,8 +40,6 @@ $ make run
 ## Haribote-OS emulator
 
 * We have confirmed that about half of the apps work at this point. Some APIs are not yet implemented.
-* Window and timer handles are task-specific. They are set to the same initial value each time a task is launched. They are not visible to other tasks.
-* The drawing mechanism is different, so I converted it when it was displayed. Frequent re-drawing may slow it down.
 
 ## History
 
