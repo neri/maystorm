@@ -11,7 +11,7 @@ pub struct Semaphore {
 }
 
 impl Semaphore {
-    pub const fn new(value: isize) -> Self {
+    pub fn new(value: isize) -> Self {
         Self {
             value: AtomicIsize::new(value),
             signal_object: AtomicObject::NONE,

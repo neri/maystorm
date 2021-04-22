@@ -113,18 +113,18 @@ impl PciDevice {
         let subsys_device_id = PciDeviceId((subsys >> 16) as u16);
         let class_code = Cpu::read_pci(base.register(0x02)) >> 8;
         let header_type = ((Cpu::read_pci(base.register(3)) >> 16) & 0xFF) as u8;
+        let has_multi_func = (header_type & 0x80) != 0;
+        let header_type = header_type & 0x7F;
 
-        let mut bars = Vec::new();
-        let limit_bar = if header_type == 0x00 {
-            6
-        } else if header_type == 0x01 {
-            2
-        } else {
-            0
+        let bar_limit = match header_type {
+            0x00 => 6,
+            0x01 => 2,
+            _ => 0,
         };
 
+        let mut bars = Vec::with_capacity(bar_limit);
         let mut index = 0;
-        while index < limit_bar {
+        while index < bar_limit {
             if let Some(bar) = PciBar::parse(base, index + 4) {
                 bars.push(bar);
                 if bar.bar_type() == PciBarType::Mmio64 {
@@ -134,15 +134,14 @@ impl PciDevice {
             index += 1;
         }
 
-        let mut functions = Vec::new();
-        if fun == 0 && (header_type & 0x80) != 0 {
+        let mut functions = Vec::with_capacity(8);
+        if fun == 0 && has_multi_func {
             for fun in 1..8 {
                 if let Some(function) = PciDevice::new(bus, dev, fun) {
                     functions.push(function);
                 }
             }
         }
-        functions.shrink_to_fit();
 
         let device = Self {
             addr: base,
@@ -209,22 +208,20 @@ impl PciBar {
             let org = PciBar::from_raw(raw as u64);
             match org.bar_type() {
                 PciBarType::SeparatedIo | PciBarType::Mmio32 => {
-                    let mask = org.bar_type().mask() as u32;
                     let bias = org.bar_type().mask_bias() as u32;
-                    Cpu::write_pci(reg, mask);
-                    let scale = (!Cpu::read_pci(reg) | bias).count_ones() as usize;
+                    Cpu::write_pci(reg, u32::MAX);
+                    let scale = (Cpu::read_pci(reg) & bias).trailing_zeros() as usize;
                     Cpu::write_pci(reg, org.0 as u32);
                     Some(org.set_scale(scale))
                 }
                 PciBarType::Mmio64 => {
                     let reg_h = base.register(index as u8 + 1);
                     let org_h = PciBar::from_raw(Cpu::read_pci(reg_h) as u64);
-                    let mask = org.bar_type().mask() as u32;
                     let bias = org.bar_type().mask_bias();
-                    Cpu::write_pci(reg, mask);
+                    Cpu::write_pci(reg, u32::MAX);
                     Cpu::write_pci(reg_h, u32::MAX);
                     let data = (Cpu::read_pci(reg) as u64) | ((Cpu::read_pci(reg_h) as u64) << 32);
-                    let scale = (!data | bias).count_ones() as usize;
+                    let scale = (data & bias).trailing_zeros() as usize;
                     Cpu::write_pci(reg, org.0 as u32);
                     Cpu::write_pci(reg_h, org_h.0 as u32);
                     Some(
@@ -300,20 +297,10 @@ pub enum PciBarType {
 
 impl PciBarType {
     #[inline]
-    pub const fn mask(&self) -> u64 {
-        match *self {
-            PciBarType::SeparatedIo => 0xFFFF_FFFC,
-            PciBarType::Mmio32 | PciBarType::Mmio1MB => 0xFFFF_FFF0,
-            PciBarType::Mmio64 => 0xFFFF_FFFF_FFFF_FFF0,
-            PciBarType::Reserved => 0,
-        }
-    }
-
-    #[inline]
     pub const fn mask_bias(&self) -> u64 {
         match *self {
-            PciBarType::SeparatedIo => 0x03,
-            PciBarType::Mmio32 | PciBarType::Mmio1MB | PciBarType::Mmio64 => 0x0F,
+            PciBarType::SeparatedIo => !0x03,
+            PciBarType::Mmio32 | PciBarType::Mmio1MB | PciBarType::Mmio64 => !0x0F,
             PciBarType::Reserved => 0,
         }
     }

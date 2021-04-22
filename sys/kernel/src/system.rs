@@ -154,7 +154,6 @@ impl System {
         shared.initrd_size = info.initrd_size as usize;
 
         mem::MemoryManager::init_first(info);
-        arch::page::PageManager::init(info);
 
         shared.main_screen = Some(Bitmap32::from_static(
             info.vram_base as usize as *mut TrueColor,
@@ -163,7 +162,7 @@ impl System {
         ));
 
         shared.acpi = Some(Box::new(
-            acpi::AcpiTables::from_rsdp(MyAcpiHandler::new(), info.acpi_rsdptr as usize).unwrap(),
+            ::acpi::AcpiTables::from_rsdp(MyAcpiHandler::new(), info.acpi_rsdptr as usize).unwrap(),
         ));
 
         if info.smbios != 0 {
@@ -402,7 +401,7 @@ impl MyAcpiHandler {
     }
 }
 
-use acpi::PhysicalMapping;
+use ::acpi::PhysicalMapping;
 impl ::acpi::AcpiHandler for MyAcpiHandler {
     unsafe fn map_physical_region<T>(
         &self,
