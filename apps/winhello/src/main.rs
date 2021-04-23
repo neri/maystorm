@@ -9,6 +9,6 @@ use myoslib::*;
 #[no_mangle]
 fn _start() {
     let window = Window::new("Hello", Size::new(240, 50));
-    window.draw_string("Hello, World!", Point::new(10, 10), WindowColor::BLACK);
+    window.draw(|ctx| ctx.draw_string("Hello, World!", Point::new(10, 10), WindowColor::BLACK));
     let _ = window.wait_char();
 }

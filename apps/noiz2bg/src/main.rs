@@ -94,7 +94,8 @@ impl App<'_> {
         while self.window.read_char().is_none() {
             self.move_bg();
             self.draw_bg();
-            self.window.blt32(&self.bitmap, Point::default());
+            self.window
+                .draw(|ctx| ctx.blt32(&self.bitmap, Point::default()));
             if self.scene_count > 1 {
                 self.scene_count -= 1;
             } else {

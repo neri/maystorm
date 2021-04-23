@@ -168,23 +168,20 @@ impl Scheduler {
             }
             if let Some(next) = shared.queue_realtime.dequeue() {
                 LocalScheduler::switch_context(local, next);
-            } else if let Some(next) = if priority < Priority::High {
-                shared.queue_higher.dequeue()
-            } else {
-                None
-            } {
+            } else if let Some(next) = (priority < Priority::High)
+                .then(|| shared.queue_higher.dequeue())
+                .flatten()
+            {
                 LocalScheduler::switch_context(local, next);
-            } else if let Some(next) = if priority < Priority::Normal {
-                shared.queue_normal.dequeue()
-            } else {
-                None
-            } {
+            } else if let Some(next) = (priority < Priority::Normal)
+                .then(|| shared.queue_normal.dequeue())
+                .flatten()
+            {
                 LocalScheduler::switch_context(local, next);
-            } else if let Some(next) = if priority < Priority::Low {
-                shared.queue_lower.dequeue()
-            } else {
-                None
-            } {
+            } else if let Some(next) = (priority < Priority::Low)
+                .then(|| shared.queue_lower.dequeue())
+                .flatten()
+            {
                 LocalScheduler::switch_context(local, next);
             } else if current.update(|current| current.quantum.consume()) {
                 if let Some(next) = match priority {
@@ -256,19 +253,6 @@ impl Scheduler {
         let shared = Self::shared();
         if shared.is_frozen.load(Ordering::SeqCst) {
             return scheduler.idle;
-        }
-        match shared.state {
-            SchedulerState::FullThrottle => (),
-            SchedulerState::Saving => {
-                if index.0 != 0 {
-                    return scheduler.idle;
-                }
-            }
-            _ => {
-                if System::cpu(index.0).processor_type() != ProcessorCoreType::Main {
-                    return scheduler.idle;
-                }
-            }
         }
         if let Some(next) = shared.queue_realtime.dequeue() {
             next

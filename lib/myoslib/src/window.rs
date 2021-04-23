@@ -35,58 +35,17 @@ impl Window {
     }
 
     #[inline]
-    pub fn draw_string(&self, s: &str, origin: Point, color: WindowColor) {
-        os_win_draw_string(
-            self.handle.0,
-            origin.x as usize,
-            origin.y as usize,
-            s,
-            color.0 as usize,
-        );
-    }
-
-    #[inline]
-    pub fn draw_line(&self, c1: Point, c2: Point, color: WindowColor) {
-        os_win_draw_line(
-            self.handle.0,
-            c1.x as usize,
-            c1.y as usize,
-            c2.x as usize,
-            c2.y as usize,
-            color.0 as usize,
-        )
-    }
-
-    #[inline]
-    pub fn fill_rect(&self, rect: Rect, color: WindowColor) {
-        os_win_fill_rect(
-            self.handle.0,
-            rect.x() as usize,
-            rect.y() as usize,
-            rect.width() as usize,
-            rect.height() as usize,
-            color.0 as usize,
-        )
-    }
-
-    #[inline]
-    pub fn blt8<'a, T: AsRef<ConstBitmap8<'a>>>(&self, bitmap: &T, origin: Point) {
-        os_blt8(
-            self.handle.0,
-            origin.x as usize,
-            origin.y as usize,
-            bitmap as *const _ as usize,
-        )
-    }
-
-    #[inline]
-    pub fn blt32<'a, T: AsRef<ConstBitmap32<'a>>>(&self, bitmap: &T, origin: Point) {
-        os_blt32(
-            self.handle.0,
-            origin.x as usize,
-            origin.y as usize,
-            bitmap as *const _ as usize,
-        )
+    pub fn draw<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&DrawingContext) -> R,
+    {
+        os_begin_draw(self.handle.0);
+        let context = DrawingContext {
+            inner: self.handle.0,
+        };
+        let r = f(&context);
+        os_end_draw(self.handle.0);
+        r
     }
 
     #[inline]
@@ -101,10 +60,66 @@ impl Window {
             c => Some(unsafe { core::char::from_u32_unchecked(c as u32) }),
         }
     }
+}
+
+pub struct DrawingContext {
+    inner: usize,
+}
+
+impl DrawingContext {
+    #[inline]
+    pub fn draw_string(&self, s: &str, origin: Point, color: WindowColor) {
+        os_win_draw_string(
+            self.inner,
+            origin.x as usize,
+            origin.y as usize,
+            s,
+            color.0 as usize,
+        );
+    }
 
     #[inline]
-    pub fn refresh(&self) {
-        os_refresh_window(self.handle.0)
+    pub fn draw_line(&self, c1: Point, c2: Point, color: WindowColor) {
+        os_win_draw_line(
+            self.inner,
+            c1.x as usize,
+            c1.y as usize,
+            c2.x as usize,
+            c2.y as usize,
+            color.0 as usize,
+        )
+    }
+
+    #[inline]
+    pub fn fill_rect(&self, rect: Rect, color: WindowColor) {
+        os_win_fill_rect(
+            self.inner,
+            rect.x() as usize,
+            rect.y() as usize,
+            rect.width() as usize,
+            rect.height() as usize,
+            color.0 as usize,
+        )
+    }
+
+    #[inline]
+    pub fn blt8<'a, T: AsRef<ConstBitmap8<'a>>>(&self, bitmap: &T, origin: Point) {
+        os_blt8(
+            self.inner,
+            origin.x as usize,
+            origin.y as usize,
+            bitmap as *const _ as usize,
+        )
+    }
+
+    #[inline]
+    pub fn blt32<'a, T: AsRef<ConstBitmap32<'a>>>(&self, bitmap: &T, origin: Point) {
+        os_blt32(
+            self.inner,
+            origin.x as usize,
+            origin.y as usize,
+            bitmap as *const _ as usize,
+        )
     }
 }
 

@@ -215,6 +215,16 @@ impl ArleRuntime {
                     self.windows.remove(&handle);
                 }
             }
+
+            svc::Function::BeginDraw => {
+                // TODO:
+            }
+            svc::Function::EndDraw => {
+                if let Some(window) = params.get_window(self)? {
+                    window.refresh_if_needed();
+                }
+            }
+
             svc::Function::DrawString => {
                 if let Some(window) = params.get_window(self)? {
                     let max_lines = 0;
@@ -342,11 +352,6 @@ impl ArleRuntime {
                         os_bitmap.blt(bitmap, Point::default(), color, mode);
                     });
                     window.set_needs_display();
-                }
-            }
-            svc::Function::RefreshWindow => {
-                if let Some(window) = params.get_window(self)? {
-                    window.refresh_if_needed();
                 }
             }
 

@@ -20,28 +20,30 @@ pub enum Function {
     NewWindow = 6,
     /// [7] Close a window
     CloseWindow = 7,
-    /// [8] Draw a string in a window
-    DrawString = 8,
-    /// [9] Fill a rectangle in a window
-    FillRect = 9,
-    /// [10] Draw a rectangle in a window
-    DrawRect = 10,
-    /// [11] Draw a line in a window
-    DrawLine = 11,
-    /// [12] Draw a bitmap in a window
-    Blt8 = 12,
-    /// [13] Draw a bitmap in a window
-    Blt1 = 13,
+    /// [8] Create a drawing context
+    BeginDraw = 8,
+    /// [9] Discard the drawing context and reflect it to the screen
+    EndDraw = 9,
+    /// [10] Draw a string in a window
+    DrawString = 10,
+    /// [11] Fill a rectangle in a window
+    FillRect = 11,
+    /// [12] Draw a rectangle in a window
+    DrawRect = 12,
+    /// [13] Draw a line in a window
+    DrawLine = 13,
     /// [14] Draw a bitmap in a window
-    Blt32 = 14,
-    /// [15] Blend (test)
-    BlendRect = 15,
-    /// [16] Reflect the window's bitmap if needed
-    RefreshWindow = 16,
-    /// [17] Wait for char event
-    WaitChar = 17,
-    /// [18] Read a char event
-    ReadChar = 18,
+    Blt8 = 14,
+    /// [15] Draw a bitmap in a window
+    Blt1 = 15,
+    /// [16] Draw a bitmap in a window
+    Blt32 = 16,
+    /// [17] Blend (test)
+    BlendRect = 17,
+    /// [18] Wait for char event
+    WaitChar = 18,
+    /// [19] Read a char event
+    ReadChar = 19,
     /// [100] Return a random number
     Rand = 100,
     /// [101] Set the seed of the random number
@@ -67,17 +69,18 @@ impl TryFrom<u32> for Function {
             5 => Ok(Self::GetSystemInfo),
             6 => Ok(Self::NewWindow),
             7 => Ok(Self::CloseWindow),
-            8 => Ok(Self::DrawString),
-            9 => Ok(Self::FillRect),
-            10 => Ok(Self::DrawRect),
-            11 => Ok(Self::DrawLine),
-            12 => Ok(Self::Blt8),
-            13 => Ok(Self::Blt1),
-            14 => Ok(Self::Blt32),
-            15 => Ok(Self::BlendRect),
-            16 => Ok(Self::RefreshWindow),
-            17 => Ok(Self::WaitChar),
-            18 => Ok(Self::ReadChar),
+            8 => Ok(Self::BeginDraw),
+            9 => Ok(Self::EndDraw),
+            10 => Ok(Self::DrawString),
+            11 => Ok(Self::FillRect),
+            12 => Ok(Self::DrawRect),
+            13 => Ok(Self::DrawLine),
+            14 => Ok(Self::Blt8),
+            15 => Ok(Self::Blt1),
+            16 => Ok(Self::Blt32),
+            17 => Ok(Self::BlendRect),
+            18 => Ok(Self::WaitChar),
+            19 => Ok(Self::ReadChar),
             100 => Ok(Self::Rand),
             101 => Ok(Self::Srand),
             10000 => Ok(Self::Alloc),

@@ -100,6 +100,18 @@ pub fn os_close_window(window: usize) {
     unsafe { svc1(Function::CloseWindow, window) };
 }
 
+/// Create a drawing context
+#[inline]
+pub fn os_begin_draw(window: usize) {
+    unsafe { svc1(Function::BeginDraw, window) };
+}
+
+/// Discard the drawing context and reflect it to the screen
+#[inline]
+pub fn os_end_draw(window: usize) {
+    unsafe { svc1(Function::EndDraw, window) };
+}
+
 /// Draw a string in a window.
 #[inline]
 pub fn os_win_draw_string(window: usize, x: usize, y: usize, s: &str, color: usize) {
@@ -168,12 +180,6 @@ pub fn os_blend_rect(bitmap: usize, x: usize, y: usize, width: usize, height: us
             color as usize,
         );
     }
-}
-
-/// Reflect the window's bitmap if needed.
-#[inline]
-pub fn os_refresh_window(window: usize) {
-    unsafe { svc1(Function::RefreshWindow, window) };
 }
 
 /// Return a random number

@@ -30,17 +30,18 @@ fn _start() {
     let mut next = OsMutBitmap1::from_slice(&mut next_data, Size::new(BITMAP_WIDTH, BITMAP_HEIGHT));
 
     loop {
-        window.fill_rect(
-            Rect::new(0, 0, BITMAP_WIDTH * DRAW_SCALE, BITMAP_HEIGHT * DRAW_SCALE),
-            WindowColor::WHITE,
-        );
-        current.blt(
-            &window,
-            Point::new(0, 0),
-            WindowColor::DARK_GRAY,
-            DRAW_SCALE as usize,
-        );
-        window.refresh();
+        window.draw(|ctx| {
+            ctx.fill_rect(
+                Rect::new(0, 0, BITMAP_WIDTH * DRAW_SCALE, BITMAP_HEIGHT * DRAW_SCALE),
+                WindowColor::WHITE,
+            );
+            current.blt(
+                &window,
+                Point::new(0, 0),
+                WindowColor::DARK_GRAY,
+                DRAW_SCALE as usize,
+            );
+        });
 
         let w = BITMAP_WIDTH - 1;
         let h = BITMAP_HEIGHT - 1;

@@ -11,17 +11,18 @@ fn _start() {
         .size(Size::new(200, 200))
         .bg_color(WindowColor::BLACK)
         .build("bball");
-    for (i, t1) in TABLE[..14].iter().enumerate() {
-        for (j, t2) in TABLE[i..].iter().enumerate() {
-            let dis = if j < 8 { j } else { 15 - j };
-            window.draw_line(
-                Point::new(t1.0 as isize, t1.1 as isize),
-                Point::new(t2.0 as isize, t2.1 as isize),
-                IndexedColor(16 - dis as u8),
-            );
+    window.draw(|ctx| {
+        for (i, t1) in TABLE[..14].iter().enumerate() {
+            for (j, t2) in TABLE[i..].iter().enumerate() {
+                let dis = if j < 8 { j } else { 15 - j };
+                ctx.draw_line(
+                    Point::new(t1.0 as isize, t1.1 as isize),
+                    Point::new(t2.0 as isize, t2.1 as isize),
+                    IndexedColor(16 - dis as u8),
+                );
+            }
         }
-    }
-    window.refresh();
+    });
     window.wait_char();
 }
 

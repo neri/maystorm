@@ -13,11 +13,13 @@ fn _start() {
         .build("Blt Test");
     let bitmap = ConstBitmap8::from_bytes(&BITMAP_DATA, Size::new(BITMAP_WIDTH, BITMAP_HEIGHT));
     loop {
-        for _ in 0..100 {
-            let x = (os_rand() % 240) as isize;
-            let y = (os_rand() % 200) as isize;
-            window.blt8(&bitmap, Point::new(x, y));
-        }
+        window.draw(|ctx| {
+            for _ in 0..100 {
+                let x = (os_rand() % 240) as isize;
+                let y = (os_rand() % 200) as isize;
+                ctx.blt8(&bitmap, Point::new(x, y));
+            }
+        });
         if window.read_char().is_some() {
             break;
         }
