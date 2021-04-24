@@ -4,12 +4,14 @@
 use super::slab::*;
 use crate::arch::cpu::Cpu;
 use crate::sync::spinlock::Spinlock;
+use crate::system::System;
 use crate::task::scheduler::*;
 use alloc::boxed::Box;
 use bitflags::*;
 use bootprot::*;
 use core::alloc::Layout;
 use core::fmt::Write;
+use core::mem::transmute;
 use core::num::*;
 use core::slice;
 use core::sync::atomic::*;
@@ -18,7 +20,6 @@ use megstd::string::*;
 static mut MM: MemoryManager = MemoryManager::new();
 
 pub struct MemoryManager {
-    total_memory_size: usize,
     reserved_memory_size: usize,
     page_size_min: usize,
     lock: Spinlock,
@@ -35,7 +36,6 @@ impl MemoryManager {
 
     const fn new() -> Self {
         Self {
-            total_memory_size: 0,
             reserved_memory_size: 0,
             page_size_min: 0x1000,
             lock: Spinlock::new(),
@@ -49,7 +49,6 @@ impl MemoryManager {
 
     pub(crate) unsafe fn init_first(info: &BootInfo) {
         let shared = Self::shared();
-        shared.total_memory_size = info.total_memory_size as usize;
 
         let mm: &[BootMemoryMapDescriptor] =
             slice::from_raw_parts(info.mmap_base as usize as *const _, info.mmap_len as usize);
@@ -58,16 +57,13 @@ impl MemoryManager {
         for mem_desc in mm {
             if mem_desc.mem_type == BootMemoryType::Available {
                 let size = mem_desc.page_count as usize * Self::PAGE_SIZE_MIN;
-                shared.pairs[n_free] = MemFreePair {
-                    base: mem_desc.base as usize,
-                    size,
-                };
+                shared.pairs[n_free] = MemFreePair::new(mem_desc.base as usize, size);
                 free_count += size;
             }
             n_free += 1;
         }
         shared.n_free.store(n_free, Ordering::SeqCst);
-        shared.reserved_memory_size = shared.total_memory_size - free_count;
+        shared.reserved_memory_size = info.total_memory_size as usize - free_count;
 
         if cfg!(any(target_arch = "x86_64")) {
             shared.real_bitmap = info.real_bitmap;
@@ -105,12 +101,6 @@ impl MemoryManager {
     }
 
     #[inline]
-    pub fn total_memory_size() -> usize {
-        let shared = Self::shared();
-        shared.total_memory_size
-    }
-
-    #[inline]
     pub fn page_size_min(&self) -> usize {
         self.page_size_min
     }
@@ -133,7 +123,7 @@ impl MemoryManager {
                 .unwrap_or(0);
             total += shared.pairs[..shared.n_free.load(Ordering::Relaxed)]
                 .iter()
-                .fold(0, |v, i| v + i.size);
+                .fold(0, |v, i| v + i.size());
             total
         })
     }
@@ -146,12 +136,10 @@ impl MemoryManager {
         let size = (layout.size() + align_m1) & !(align_m1);
         let n_free = shared.n_free.load(Ordering::SeqCst);
         for i in 0..n_free {
-            let free_pair = &mut shared.pairs[i];
-            if free_pair.size >= size {
-                let ptr = free_pair.base;
-                free_pair.base += size;
-                free_pair.size -= size;
-                return Ok(NonZeroUsize::new_unchecked(ptr));
+            let free_pair = &shared.pairs[i];
+            match free_pair.alloc(size) {
+                Ok(v) => return Ok(NonZeroUsize::new_unchecked(v)),
+                Err(_) => (),
             }
         }
         Err(AllocationError::OutOfMemory)
@@ -176,9 +164,7 @@ impl MemoryManager {
                 Err(err) => return Err(err),
             }
         }
-        shared
-            .lock
-            .synchronized(|| Cpu::without_interrupts(|| Self::static_alloc(layout)))
+        Self::static_alloc(layout)
     }
 
     /// Deallocate kernel memory
@@ -231,12 +217,13 @@ impl MemoryManager {
         let dummy = shared.dummy_size.load(Ordering::Relaxed);
         let free = shared.pairs[..shared.n_free.load(Ordering::Relaxed)]
             .iter()
-            .fold(0, |v, i| v + i.size);
+            .fold(0, |v, i| v + i.size());
         let total = free + dummy;
+
         writeln!(
             sb,
             "Memory {} MB Pages {} ({} + {})",
-            shared.total_memory_size >> 20,
+            System::current_device().total_memory_size() >> 20,
             total / Self::PAGE_SIZE_MIN,
             free / Self::PAGE_SIZE_MIN,
             dummy / Self::PAGE_SIZE_MIN,
@@ -255,8 +242,7 @@ impl MemoryManager {
 
 #[derive(Debug, Clone, Copy)]
 struct MemFreePair {
-    base: usize,
-    size: usize,
+    inner: u64,
 }
 
 impl MemFreePair {
@@ -264,22 +250,54 @@ impl MemFreePair {
 
     #[inline]
     pub const fn empty() -> Self {
-        Self { base: 0, size: 0 }
+        Self { inner: 0 }
     }
 
     #[inline]
-    pub fn hoge(&self, size: usize) -> Result<usize, ()> {
-        Ok(0)
+    pub const fn new(base: usize, size: usize) -> Self {
+        let base = (base / Self::PAGE_SIZE) as u64;
+        let size = (size / Self::PAGE_SIZE) as u64;
+        Self {
+            inner: base | (size << 32),
+        }
     }
 
     #[inline]
-    pub const fn base(&self) -> usize {
-        self.base
+    pub fn alloc(&self, size: usize) -> Result<usize, ()> {
+        let size = (size + Self::PAGE_SIZE - 1) / Self::PAGE_SIZE;
+
+        let p: &AtomicU64 = unsafe { transmute(&self.inner) };
+        let mut data = p.load(Ordering::SeqCst);
+        loop {
+            let (base, limit) = ((data & 0xFFFF_FFFF) as usize, (data >> 32) as usize);
+            if limit < size {
+                return Err(());
+            }
+            let new_size = limit - size;
+            let new_data = (base as u64) | ((new_size as u64) << 32);
+
+            data = match p.compare_exchange(data, new_data, Ordering::SeqCst, Ordering::Relaxed) {
+                Ok(_) => return Ok((base + new_size) * Self::PAGE_SIZE),
+                Err(v) => v,
+            };
+        }
     }
 
     #[inline]
-    pub const fn size(&self) -> usize {
-        self.size
+    fn split(&self) -> (usize, usize) {
+        let p: &AtomicU64 = unsafe { transmute(&self.inner) };
+        let data = p.load(Ordering::SeqCst);
+        ((data & 0xFFFF_FFFF) as usize, (data >> 32) as usize)
+    }
+
+    #[inline]
+    pub fn base(&self) -> usize {
+        self.split().0 * Self::PAGE_SIZE
+    }
+
+    #[inline]
+    pub fn size(&self) -> usize {
+        self.split().1 * Self::PAGE_SIZE
     }
 }
 

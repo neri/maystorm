@@ -1,26 +1,22 @@
 // A Window System
 
-use crate::fonts::*;
-use crate::io::hid::*;
-use crate::sync::atomicflags::*;
-use crate::sync::semaphore::*;
-use crate::sync::spinlock::Spinlock;
-use crate::task::scheduler::*;
-use crate::util::text::*;
-use crate::*;
-use alloc::boxed::Box;
-use alloc::collections::btree_map::BTreeMap;
-use alloc::sync::Arc;
+use crate::{
+    fonts::*, io::hid::*, sync::atomicflags::*, sync::semaphore::*, sync::spinlock::Spinlock,
+    task::scheduler::*, util::text::*, *,
+};
+use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc};
 use bitflags::*;
-use core::cell::UnsafeCell;
-use core::cmp;
-use core::future::Future;
-use core::isize;
-use core::num::*;
-use core::pin::Pin;
-use core::sync::atomic::*;
-use core::task::{Context, Poll};
-use core::time::Duration;
+use core::{
+    cell::UnsafeCell,
+    cmp,
+    future::Future,
+    isize,
+    num::*,
+    pin::Pin,
+    sync::atomic::*,
+    task::{Context, Poll},
+    time::Duration,
+};
 use crossbeam_queue::ArrayQueue;
 use futures_util::task::AtomicWaker;
 use megstd::drawing::*;

@@ -291,11 +291,11 @@ impl Cpu {
             cli
             pop {0}
             ", lateout(reg) rax);
-        let flags = Rflags::from_bits_unchecked(rax);
+        let has_to_restore = Rflags::from_bits_unchecked(rax).contains(Rflags::IF);
 
         let result = f();
 
-        if flags.contains(Rflags::IF) {
+        if has_to_restore {
             Self::enable_interrupt();
         }
 

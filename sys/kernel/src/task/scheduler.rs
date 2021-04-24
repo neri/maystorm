@@ -12,6 +12,7 @@ use crate::{
     window::{WindowHandle, WindowMessage},
     *,
 };
+use _core::intrinsics::unreachable;
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc, vec::*};
 use bitflags::*;
 use core::{
@@ -43,7 +44,7 @@ pub struct Scheduler {
     is_frozen: AtomicBool,
     state: SchedulerState,
 
-    next_timer: Timer,
+    next_timer: AtomicUsize,
     sem_timer: Semaphore,
     timer_queue: ArrayQueue<TimerEvent>,
 }
@@ -85,7 +86,7 @@ impl Scheduler {
                 usage_total: AtomicUsize::new(0),
                 is_frozen: AtomicBool::new(false),
                 state: SchedulerState::Running,
-                next_timer: Timer::JUST,
+                next_timer: AtomicUsize::new(0),
                 sem_timer: Semaphore::new(0),
                 timer_queue: ArrayQueue::new(100),
             }));
@@ -154,54 +155,52 @@ impl Scheduler {
         if !Self::is_enabled() {
             return;
         }
-        Cpu::without_interrupts(|| {
-            let local = Self::local_scheduler().unwrap();
-            let current = local.current;
-            current.update_statistics();
-            let priority = current.as_ref().priority;
-            let shared = Self::shared();
-            if !shared.next_timer.until() {
-                shared.sem_timer.signal();
+        let local = Self::local_scheduler().unwrap();
+        let current = local.current_thread();
+        current.update_statistics();
+        let priority = { current.as_ref().priority };
+        let shared = Self::shared();
+        if !Timer::from_usize(shared.next_timer.load(Ordering::SeqCst)).until() {
+            shared.sem_timer.signal();
+        }
+        if priority == Priority::Realtime {
+            return;
+        }
+        if let Some(next) = shared.queue_realtime.dequeue() {
+            LocalScheduler::switch_context(local, next);
+        } else if let Some(next) = (priority < Priority::High)
+            .then(|| shared.queue_higher.dequeue())
+            .flatten()
+        {
+            LocalScheduler::switch_context(local, next);
+        } else if let Some(next) = (priority < Priority::Normal)
+            .then(|| shared.queue_normal.dequeue())
+            .flatten()
+        {
+            LocalScheduler::switch_context(local, next);
+        } else if let Some(next) = (priority < Priority::Low)
+            .then(|| shared.queue_lower.dequeue())
+            .flatten()
+        {
+            LocalScheduler::switch_context(local, next);
+        } else if current.update(|current| current.quantum.consume()) {
+            if let Some(next) = match priority {
+                Priority::Idle => None,
+                Priority::Low => shared.queue_lower.dequeue(),
+                Priority::Normal => shared.queue_normal.dequeue(),
+                Priority::High => shared.queue_higher.dequeue(),
+                Priority::Realtime => unreachable!(),
+            } {
+                LocalScheduler::switch_context(local, next);
             }
-            if priority == Priority::Realtime {
-                return;
-            }
-            if let Some(next) = shared.queue_realtime.dequeue() {
-                LocalScheduler::switch_context(local, next);
-            } else if let Some(next) = (priority < Priority::High)
-                .then(|| shared.queue_higher.dequeue())
-                .flatten()
-            {
-                LocalScheduler::switch_context(local, next);
-            } else if let Some(next) = (priority < Priority::Normal)
-                .then(|| shared.queue_normal.dequeue())
-                .flatten()
-            {
-                LocalScheduler::switch_context(local, next);
-            } else if let Some(next) = (priority < Priority::Low)
-                .then(|| shared.queue_lower.dequeue())
-                .flatten()
-            {
-                LocalScheduler::switch_context(local, next);
-            } else if current.update(|current| current.quantum.consume()) {
-                if let Some(next) = match priority {
-                    Priority::Idle => None,
-                    Priority::Low => shared.queue_lower.dequeue(),
-                    Priority::Normal => shared.queue_normal.dequeue(),
-                    Priority::High => shared.queue_higher.dequeue(),
-                    Priority::Realtime => None,
-                } {
-                    LocalScheduler::switch_context(local, next);
-                }
-            }
-        });
+        }
     }
 
     pub fn wait_for(object: Option<&SignallingObject>, duration: Duration) {
         unsafe {
             Cpu::without_interrupts(|| {
                 let lsch = Self::local_scheduler().unwrap();
-                let current = lsch.current;
+                let current = lsch.current_thread();
                 if let Some(object) = object {
                     let _ = object.set(current);
                 }
@@ -218,7 +217,7 @@ impl Scheduler {
         unsafe {
             Cpu::without_interrupts(|| {
                 let local = Self::local_scheduler().unwrap();
-                let current = local.current;
+                let current = local.current_thread();
                 current.update_statistics();
                 current.as_ref().attribute.insert(ThreadAttributes::ASLEEP);
                 LocalScheduler::switch_context(local, Scheduler::next(local));
@@ -226,11 +225,11 @@ impl Scheduler {
         }
     }
 
-    pub fn yield_thread() {
+    fn yield_thread() {
         unsafe {
             Cpu::without_interrupts(|| {
                 let local = Self::local_scheduler().unwrap();
-                local.current.update_statistics();
+                local.current_thread().update_statistics();
                 LocalScheduler::switch_context(local, Scheduler::next(local));
             });
         }
@@ -249,7 +248,7 @@ impl Scheduler {
 
     /// Get the next executable thread from the thread queue
     fn next(scheduler: &LocalScheduler) -> ThreadHandle {
-        let index = scheduler.index;
+        // let index = scheduler.index;
         let shared = Self::shared();
         if shared.is_frozen.load(Ordering::SeqCst) {
             return scheduler.idle;
@@ -351,7 +350,9 @@ impl Scheduler {
             }
 
             if let Some(event) = events.first() {
-                shared.next_timer = event.timer;
+                shared
+                    .next_timer
+                    .store(event.timer.into_usize(), Ordering::SeqCst);
             }
             shared.sem_timer.wait();
         }
@@ -540,12 +541,12 @@ impl Scheduler {
 }
 
 /// Processor Local Scheduler
+#[allow(dead_code)]
 struct LocalScheduler {
-    #[allow(dead_code)]
     index: ProcessorIndex,
     idle: ThreadHandle,
-    current: ThreadHandle,
-    retired: Option<ThreadHandle>,
+    current: AtomicUsize,
+    retired: AtomicUsize,
 }
 
 impl LocalScheduler {
@@ -556,19 +557,23 @@ impl LocalScheduler {
         Box::new(Self {
             index,
             idle,
-            current: idle,
-            retired: None,
+            current: AtomicUsize::new(idle.as_usize()),
+            retired: AtomicUsize::new(0),
         })
     }
 
+    #[inline(never)]
     unsafe fn switch_context(scheduler: &'static mut Self, next: ThreadHandle) {
         Cpu::assert_without_interrupt();
+        scheduler._switch_context(next);
+    }
 
-        let current = scheduler.current;
+    #[inline]
+    unsafe fn _switch_context(&mut self, next: ThreadHandle) {
+        let current = self.current_thread();
         if current.as_ref().handle != next.as_ref().handle {
-            //-//-//-//-//
-            scheduler.retired = Some(current);
-            scheduler.current = next;
+            self.swap_retired(Some(current));
+            self.current.store(next.as_usize(), Ordering::SeqCst);
 
             {
                 let current = current.unsafe_weak().unwrap();
@@ -576,38 +581,48 @@ impl LocalScheduler {
                 current.context.switch(next);
             }
 
-            let scheduler = Scheduler::local_scheduler().unwrap();
-            let current = scheduler.current;
-            //-//-//-//-//
-
-            current.update(|thread| {
-                thread.attribute.remove(ThreadAttributes::AWAKE);
-                thread.attribute.remove(ThreadAttributes::ASLEEP);
-                thread.measure.store(Timer::measure().0, Ordering::SeqCst);
-                // thread.quantum.reset();
-            });
-            let retired = scheduler.retired.unwrap();
-            scheduler.retired = None;
-            Scheduler::retire(retired);
+            Scheduler::local_scheduler()
+                .unwrap()
+                ._switch_context_after();
         }
     }
 
+    #[inline]
+    unsafe fn _switch_context_after(&mut self) {
+        let current = self.current_thread();
+
+        current.update(|thread| {
+            thread.attribute.remove(ThreadAttributes::AWAKE);
+            thread.attribute.remove(ThreadAttributes::ASLEEP);
+            thread.measure.store(Timer::measure().0, Ordering::SeqCst);
+        });
+        let retired = self.swap_retired(None).unwrap();
+        Scheduler::retire(retired);
+    }
+
+    #[inline]
+    fn swap_retired(&self, val: Option<ThreadHandle>) -> Option<ThreadHandle> {
+        ThreadHandle::new(
+            self.retired
+                .swap(val.map(|v| v.as_usize()).unwrap_or(0), Ordering::SeqCst),
+        )
+    }
+
+    #[inline]
     fn current_thread(&self) -> ThreadHandle {
-        self.current
+        unsafe { ThreadHandle::new_unchecked(self.current.load(Ordering::SeqCst)) }
     }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn sch_setup_new_thread() {
     let lsch = Scheduler::local_scheduler().unwrap();
-    let current = lsch.current;
+    let current = lsch.current_thread();
     current.update(|thread| {
         thread.measure.store(Timer::measure().0, Ordering::SeqCst);
     });
-    if let Some(retired) = lsch.retired {
-        lsch.retired = None;
-        Scheduler::retire(retired);
-    }
+    let retired = lsch.swap_retired(None).unwrap();
+    Scheduler::retire(retired);
 }
 
 pub struct SpawnOption {
@@ -674,6 +689,18 @@ impl Timer {
     };
 
     #[inline]
+    pub const fn from_usize(val: usize) -> Self {
+        Self {
+            deadline: TimeSpec(val),
+        }
+    }
+
+    #[inline]
+    pub const fn into_usize(&self) -> usize {
+        self.deadline.0
+    }
+
+    #[inline]
     pub fn new(duration: Duration) -> Self {
         let timer = Self::timer_source();
         Timer {
@@ -681,6 +708,7 @@ impl Timer {
         }
     }
 
+    #[inline]
     pub fn epsilon() -> Self {
         let timer = Self::timer_source();
         Timer {
@@ -763,16 +791,6 @@ impl Timer {
     pub fn monotonic() -> Duration {
         Self::measure().into()
     }
-
-    #[inline]
-    fn timespec_to_duration(val: TimeSpec) -> Duration {
-        Self::timer_source().to_duration(val)
-    }
-
-    #[inline]
-    fn duration_to_timespec(val: Duration) -> TimeSpec {
-        Self::timer_source().from_duration(val)
-    }
 }
 
 #[repr(transparent)]
@@ -781,6 +799,16 @@ pub struct TimeSpec(pub usize);
 
 impl TimeSpec {
     pub const EPSILON: Self = Self(1);
+
+    #[inline]
+    fn into_duration(&self) -> Duration {
+        Timer::timer_source().to_duration(*self)
+    }
+
+    #[inline]
+    fn from_duration(val: Duration) -> TimeSpec {
+        Timer::timer_source().from_duration(val)
+    }
 }
 
 impl Add<TimeSpec> for TimeSpec {
@@ -794,14 +822,14 @@ impl Add<TimeSpec> for TimeSpec {
 impl From<TimeSpec> for Duration {
     #[inline]
     fn from(val: TimeSpec) -> Duration {
-        Timer::timespec_to_duration(val)
+        val.into_duration()
     }
 }
 
 impl From<Duration> for TimeSpec {
     #[inline]
     fn from(val: Duration) -> TimeSpec {
-        Timer::duration_to_timespec(val)
+        TimeSpec::from_duration(val)
     }
 }
 
@@ -982,8 +1010,16 @@ pub struct ThreadHandle(NonZeroUsize);
 
 impl ThreadHandle {
     #[inline]
-    fn new(val: usize) -> Option<Self> {
-        NonZeroUsize::new(val).map(|x| Self(x))
+    const fn new(val: usize) -> Option<Self> {
+        match NonZeroUsize::new(val) {
+            Some(v) => Some(Self(v)),
+            None => None,
+        }
+    }
+
+    #[inline]
+    const unsafe fn new_unchecked(val: usize) -> Self {
+        Self(NonZeroUsize::new_unchecked(val))
     }
 
     /// Acquire the next thread ID

@@ -12,12 +12,12 @@ fn _start() {
         .bg_color(WindowColor::BLACK)
         .build("bball");
     window.draw(|ctx| {
-        for (i, t1) in TABLE[..14].iter().enumerate() {
-            for (j, t2) in TABLE[i..].iter().enumerate() {
+        for (i, c1) in COORD_TABLE[..14].iter().enumerate() {
+            for (j, c2) in COORD_TABLE[i..].iter().enumerate() {
                 let dis = if j < 8 { j } else { 15 - j };
                 ctx.draw_line(
-                    Point::new(t1.0 as isize, t1.1 as isize),
-                    Point::new(t2.0 as isize, t2.1 as isize),
+                    Point::new(c1.0 as isize, c1.1 as isize),
+                    Point::new(c2.0 as isize, c2.1 as isize),
                     IndexedColor(16 - dis as u8),
                 );
             }
@@ -28,7 +28,7 @@ fn _start() {
 
 const ADJUST_X: u8 = 8;
 const ADJUST_Y: u8 = 29;
-const TABLE: [(u8, u8); 16] = [
+const COORD_TABLE: [(u8, u8); 16] = [
     (204 - ADJUST_X, 129 - ADJUST_Y),
     (195 - ADJUST_X, 90 - ADJUST_Y),
     (172 - ADJUST_X, 58 - ADJUST_Y),

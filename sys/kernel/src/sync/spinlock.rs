@@ -9,12 +9,14 @@ pub struct Spinlock {
 }
 
 impl Spinlock {
+    #[inline]
     pub const fn new() -> Self {
         Self {
             value: AtomicBool::new(false),
         }
     }
 
+    #[inline]
     pub fn try_to_lock(&self) -> Result<(), ()> {
         match self
             .value
@@ -59,10 +61,12 @@ impl Spinlock {
 pub struct SpinLoopWait(usize);
 
 impl SpinLoopWait {
+    #[inline]
     pub const fn new() -> Self {
         Self(0)
     }
 
+    #[inline]
     pub fn reset(&mut self) {
         self.0 = 0;
     }

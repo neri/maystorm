@@ -331,14 +331,16 @@ async fn activity_monitor_main() {
 
                             sb.clear();
 
+                            let device = System::current_device();
+
                             write!(sb, "Memory ").unwrap();
-                            format_bytes(&mut sb, MemoryManager::total_memory_size()).unwrap();
+                            format_bytes(&mut sb, device.total_memory_size()).unwrap();
                             write!(sb, "B, ").unwrap();
                             format_bytes(&mut sb, MemoryManager::free_memory_size()).unwrap();
                             write!(sb, "B Free, ").unwrap();
                             format_bytes(
                                 &mut sb,
-                                MemoryManager::total_memory_size()
+                                device.total_memory_size()
                                     - MemoryManager::free_memory_size()
                                     - MemoryManager::reserved_memory_size(),
                             )
@@ -351,7 +353,6 @@ async fn activity_monitor_main() {
                             let usage = Scheduler::usage_per_cpu();
                             let usage0 = usage % 10;
                             let usage1 = usage / 10;
-                            let device = System::current_device();
                             writeln!(
                                 sb,
                                 "CPU: {}.{:02} GHz {:3}.{}% {} Cores {} Threads",

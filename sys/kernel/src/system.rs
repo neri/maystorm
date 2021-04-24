@@ -152,6 +152,7 @@ impl System {
         shared.boot_flags = info.flags;
         shared.initrd_base = info.initrd_base as usize;
         shared.initrd_size = info.initrd_size as usize;
+        shared.current_device.total_memory_size = info.total_memory_size as usize;
 
         mem::MemoryManager::init_first(info);
 
@@ -353,6 +354,7 @@ pub struct DeviceInfo {
     model_name: Option<String>,
     num_of_active_cpus: AtomicUsize,
     num_of_performance_cpus: AtomicUsize,
+    total_memory_size: usize,
 }
 
 impl DeviceInfo {
@@ -362,6 +364,7 @@ impl DeviceInfo {
             model_name: None,
             num_of_active_cpus: AtomicUsize::new(1),
             num_of_performance_cpus: AtomicUsize::new(1),
+            total_memory_size: 0,
         }
     }
 
@@ -373,6 +376,11 @@ impl DeviceInfo {
     #[inline]
     pub fn model_name(&self) -> Option<&str> {
         self.model_name.as_ref().map(|v| v.as_str())
+    }
+
+    #[inline]
+    pub const fn total_memory_size(&self) -> usize {
+        self.total_memory_size
     }
 
     /// Returns the number of performance CPU cores.
