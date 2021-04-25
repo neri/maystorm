@@ -18,4 +18,6 @@ crossbeam-queue = {version = "0.3", default-features = false, features = ["alloc
 futures-util = {default-features = false, features = ["alloc"], version = "0.3"}
 megstd = {path = "../../lib/megstd"}
 myosabi = {path = "../../lib/myosabi"}
+num-derive = {version = "0.2", default-features = false}
+num-traits = {version = "0.2", default-features = false}
 wasm = {path = "../../lib/wasm"}

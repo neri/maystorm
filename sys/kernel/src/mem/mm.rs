@@ -3,6 +3,7 @@
 // use crate::arch::page::*;
 use super::slab::*;
 use crate::arch::cpu::Cpu;
+use crate::arch::page::*;
 use crate::sync::spinlock::Spinlock;
 use crate::system::System;
 use crate::task::scheduler::*;
@@ -69,10 +70,13 @@ impl MemoryManager {
             shared.real_bitmap = info.real_bitmap;
         }
 
+        PageManager::init(info);
+
         shared.slab = Some(Box::new(SlabAllocator::new()));
     }
 
     pub(crate) unsafe fn late_init() {
+        PageManager::init_late();
         // SpawnOption::with_priority(Priority::Realtime).spawn(Self::page_thread, 0, "Page");
     }
 
@@ -97,7 +101,7 @@ impl MemoryManager {
         // TODO:
         let _ = size;
         let _ = prot;
-        NonZeroUsize::new(base).ok_or(AllocationError::InvalidArgument)
+        NonZeroUsize::new(PageManager::direct_map(base)).ok_or(AllocationError::InvalidArgument)
     }
 
     #[inline]
@@ -129,7 +133,7 @@ impl MemoryManager {
     }
 
     /// Allocate static pages
-    unsafe fn static_alloc(layout: Layout) -> Result<NonZeroUsize, AllocationError> {
+    pub(crate) unsafe fn pg_alloc(layout: Layout) -> Option<NonZeroUsize> {
         let shared = Self::shared();
 
         let align_m1 = Self::PAGE_SIZE_MIN - 1;
@@ -138,33 +142,33 @@ impl MemoryManager {
         for i in 0..n_free {
             let free_pair = &shared.pairs[i];
             match free_pair.alloc(size) {
-                Ok(v) => return Ok(NonZeroUsize::new_unchecked(v)),
+                Ok(v) => return Some(NonZeroUsize::new_unchecked(v)),
                 Err(_) => (),
             }
         }
-        Err(AllocationError::OutOfMemory)
+        None
     }
 
     /// Allocate kernel memory (old form)
-    pub unsafe fn zalloc_legacy(size: usize) -> Result<NonZeroUsize, AllocationError> {
+    pub unsafe fn zalloc_legacy(size: usize) -> Option<NonZeroUsize> {
         let shared = Self::shared();
         match Layout::from_size_align(size, shared.page_size_min()) {
             Ok(layout) => Self::zalloc(layout),
-            Err(_) => Err(AllocationError::InvalidArgument),
+            Err(_) => None,
         }
     }
 
     /// Allocate kernel memory
-    pub unsafe fn zalloc(layout: Layout) -> Result<NonZeroUsize, AllocationError> {
+    pub unsafe fn zalloc(layout: Layout) -> Option<NonZeroUsize> {
         let shared = Self::shared();
         if let Some(slab) = &shared.slab {
             match slab.alloc(layout) {
-                Ok(result) => return Ok(result),
+                Ok(result) => return Some(result),
                 Err(AllocationError::Unsupported) => (),
-                Err(err) => return Err(err),
+                Err(_err) => return None,
             }
         }
-        Self::static_alloc(layout)
+        Self::pg_alloc(layout).and_then(|v| NonZeroUsize::new(PageManager::direct_map(v.get())))
     }
 
     /// Deallocate kernel memory
@@ -291,6 +295,7 @@ impl MemFreePair {
     }
 
     #[inline]
+    #[allow(dead_code)]
     pub fn base(&self) -> usize {
         self.split().0 * Self::PAGE_SIZE
     }
@@ -307,6 +312,9 @@ bitflags! {
         const WRITE = 0x2;
         const EXEC  = 0x4;
         const NONE  = 0x0;
+
+        const READ_WRITE = Self::READ.bits | Self::WRITE.bits;
+        const READ_EXEC = Self::READ.bits | Self::WRITE.bits;
     }
 }
 

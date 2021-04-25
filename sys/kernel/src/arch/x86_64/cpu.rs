@@ -6,12 +6,14 @@ use crate::sync::spinlock::Spinlock;
 use crate::system::*;
 use crate::task::scheduler::Scheduler;
 use crate::*;
+use _core::convert::TryFrom;
 use alloc::boxed::Box;
 use bitflags::*;
 use bus::pci::*;
 use core::ffi::c_void;
-use core::fmt::Write;
+// use core::fmt::Write;
 use core::sync::atomic::*;
+use io::tty::Tty;
 
 extern "C" {
     fn asm_handle_exception(_: InterruptVector) -> usize;
@@ -266,19 +268,19 @@ impl Cpu {
         result
     }
 
-    #[inline]
-    #[track_caller]
-    pub(crate) fn assert_without_interrupt() {
-        let flags = unsafe {
-            let mut rax: usize;
-            asm!("
-                pushfq
-                pop {0}
-                ", lateout(reg) rax);
-            Rflags::from_bits_unchecked(rax)
-        };
-        assert!(!flags.contains(Rflags::IF));
-    }
+    // #[inline]
+    // #[track_caller]
+    // pub(crate) fn assert_without_interrupt() {
+    //     let flags = unsafe {
+    //         let mut rax: usize;
+    //         asm!("
+    //             pushfq
+    //             pop {0}
+    //             ", lateout(reg) rax);
+    //         Rflags::from_bits_unchecked(rax)
+    //     };
+    //     assert!(!flags.contains(Rflags::IF));
+    // }
 
     #[inline]
     pub(crate) unsafe fn without_interrupts<F, R>(f: F) -> R
@@ -526,6 +528,12 @@ impl GlobalDescriptorTable {
             asm!("ltr {0:x}", in(reg) Selector::SYSTEM_TSS.0);
         }
         gdt
+    }
+
+    #[inline]
+    fn item(&self, selector: Selector) -> Option<&DescriptorEntry> {
+        let index = selector.index();
+        self.table.get(index)
     }
 
     /// Reload GDT
@@ -1005,6 +1013,29 @@ impl DefaultSize {
     pub const fn as_descriptor_entry(self) -> u64 {
         self as u64
     }
+
+    #[inline]
+    pub const fn from_descriptor(value: DescriptorEntry) -> Option<Self> {
+        if value.is_code_segment() {
+            let is_32 = (value.0 & Self::Use32 as u64) != 0;
+            let is_64 = (value.0 & Self::Use64 as u64) != 0;
+            match (is_32, is_64) {
+                (false, false) => Some(Self::Use16),
+                (false, true) => Some(Self::Use64),
+                (true, false) => Some(Self::Use32),
+                (true, true) => None,
+            }
+        } else {
+            None
+        }
+    }
+}
+
+impl TryFrom<DescriptorEntry> for DefaultSize {
+    type Error = ();
+    fn try_from(value: DescriptorEntry) -> Result<Self, Self::Error> {
+        Self::from_descriptor(value).ok_or(())
+    }
 }
 
 #[repr(transparent)]
@@ -1012,37 +1043,21 @@ impl DefaultSize {
 pub struct DescriptorEntry(pub u64);
 
 impl DescriptorEntry {
+    const PRESENT: u64 = 0x8000_0000_0000;
+    const GRANULARITY: u64 = 0x0080_0000_0000_0000;
+    const BIG_DATA: u64 = 0x0040_0000_0000_0000;
+
     #[inline]
     pub const fn null() -> Self {
         Self(0)
     }
 
     #[inline]
-    pub const fn is_null(self) -> bool {
-        self.0 == 0
-    }
-
-    #[inline]
-    pub const fn present() -> u64 {
-        0x8000_0000_0000
-    }
-
-    #[inline]
-    pub const fn granularity() -> u64 {
-        0x0080_0000_0000_0000
-    }
-
-    #[inline]
-    pub const fn big_data() -> u64 {
-        0x0040_0000_0000_0000
-    }
-
-    #[inline]
     pub const fn code_segment(dpl: PrivilegeLevel, size: DefaultSize) -> DescriptorEntry {
         DescriptorEntry(
             0x000F_1A00_0000_FFFFu64
-                | Self::present()
-                | Self::granularity()
+                | Self::PRESENT
+                | Self::GRANULARITY
                 | dpl.as_descriptor_entry()
                 | size.as_descriptor_entry(),
         )
@@ -1052,9 +1067,9 @@ impl DescriptorEntry {
     pub const fn data_segment(dpl: PrivilegeLevel) -> DescriptorEntry {
         DescriptorEntry(
             0x000F_1200_0000_FFFFu64
-                | Self::present()
-                | Self::granularity()
-                | Self::big_data()
+                | Self::PRESENT
+                | Self::GRANULARITY
+                | Self::BIG_DATA
                 | dpl.as_descriptor_entry(),
         )
     }
@@ -1067,7 +1082,7 @@ impl DescriptorEntry {
         size: DefaultSize,
     ) -> DescriptorEntry {
         let limit = if limit > 0xFFFF {
-            Self::granularity()
+            Self::GRANULARITY
                 | ((limit as u64) >> 10) & 0xFFFF
                 | ((limit as u64 & 0xF000_0000) << 16)
         } else {
@@ -1076,7 +1091,7 @@ impl DescriptorEntry {
         DescriptorEntry(
             0x0000_1A00_0000_0000u64
                 | limit
-                | Self::present()
+                | Self::PRESENT
                 | dpl.as_descriptor_entry()
                 | size.as_descriptor_entry()
                 | ((base as u64 & 0x00FF_FFFF) << 16)
@@ -1087,17 +1102,15 @@ impl DescriptorEntry {
     #[inline]
     pub const fn data_legacy(base: u32, limit: u32, dpl: PrivilegeLevel) -> DescriptorEntry {
         let limit = if limit > 0xFFFF {
-            Self::granularity()
-                | ((limit as u64) >> 10) & 0xFFFF
-                | (limit as u64 & 0xF000_0000) << 16
+            Self::GRANULARITY | ((limit as u64) >> 10) & 0xFFFF | (limit as u64 & 0xF000_0000) << 16
         } else {
             limit as u64
         };
         DescriptorEntry(
             0x0000_1200_0000_0000u64
                 | limit
-                | Self::present()
-                | Self::big_data()
+                | Self::PRESENT
+                | Self::BIG_DATA
                 | dpl.as_descriptor_entry()
                 | ((base as u64 & 0x00FF_FFFF) << 16)
                 | ((base as u64 & 0xFF00_0000) << 32),
@@ -1109,7 +1122,7 @@ impl DescriptorEntry {
         let offset = offset as u64;
         let low = DescriptorEntry(
             limit.0 as u64
-                | Self::present()
+                | Self::PRESENT
                 | DescriptorType::Tss.as_descriptor_entry()
                 | ((offset & 0x00FF_FFFF) << 16)
                 | ((offset & 0xFF00_0000) << 32),
@@ -1129,7 +1142,7 @@ impl DescriptorEntry {
         let low = DescriptorEntry(
             (offset & 0xFFFF)
                 | (sel.0 as u64) << 16
-                | Self::present()
+                | Self::PRESENT
                 | dpl.as_descriptor_entry()
                 | ty.as_descriptor_entry()
                 | (offset & 0xFFFF_0000) << 32,
@@ -1137,6 +1150,31 @@ impl DescriptorEntry {
         let high = DescriptorEntry(offset >> 32);
 
         DescriptorPair::new(low, high)
+    }
+
+    #[inline]
+    pub const fn is_null(&self) -> bool {
+        self.0 == 0
+    }
+
+    #[inline]
+    pub const fn is_present(&self) -> bool {
+        (self.0 & Self::PRESENT) != 0
+    }
+
+    #[inline]
+    pub const fn is_segment(&self) -> bool {
+        (self.0 & 0x1000_0000_0000) != 0
+    }
+
+    #[inline]
+    pub const fn is_code_segment(&self) -> bool {
+        self.is_segment() && (self.0 & 0x0800_0000_0000) != 0
+    }
+
+    #[inline]
+    pub const fn default_operand_size(&self) -> Option<DefaultSize> {
+        DefaultSize::from_descriptor(*self)
     }
 }
 
@@ -1348,67 +1386,127 @@ static mut GLOBAL_EXCEPTION_LOCK: Spinlock = Spinlock::new();
 #[no_mangle]
 pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext) {
     GLOBAL_EXCEPTION_LOCK.lock();
-    let ctx = ctx.as_ref().unwrap();
-    let va_mask = 0xFFFF_FFFF_FFFF;
-    if Exception::PageFault.as_vec() == ctx.vector() {
-        writeln!(
-            System::em_console(),
-            "\n#### EXCEPTION {:02x} err {:04x} {:012x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
-            ctx.vector().0,
-            ctx.error_code(),
-            ctx.cr2 & va_mask,
-            ctx.cs().0,
-            ctx.rip & va_mask,
-            ctx.ss().0,
-            ctx.rsp & va_mask,
-        )
-        .unwrap();
+    let is_user = Scheduler::current_personality(|_| ()).is_some();
+    let stdout = if is_user {
+        System::stdout()
     } else {
-        writeln!(
-            System::em_console(),
-            "\n#### EXCEPTION {:02x} err {:04x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
-            ctx.vector().0,
-            ctx.error_code(),
-            ctx.cs().0,
-            ctx.rip & va_mask,
-            ctx.ss().0,
-            ctx.rsp & va_mask,
-        )
-        .unwrap();
+        System::em_console() as &mut dyn Tty
+    };
+    let ctx = ctx.as_ref().unwrap();
+    let cpu = System::cpu(Cpu::current_processor_index().unwrap().0);
+    let csd = cpu.gdt.item(ctx.cs()).unwrap();
+
+    match csd.default_operand_size().unwrap() {
+        DefaultSize::Use16 | DefaultSize::Use32 => {
+            let va_mask = 0xFFFF_FFFF_FFFF;
+            let mask32 = 0xFFFF_FFFF;
+            if Exception::PageFault.as_vec() == ctx.vector() {
+                writeln!(
+                    stdout,
+                    "\n#### PAGE FAULT {:04x} {:08x} EIP {:02x}:{:08x} ESP {:02x}:{:08x}",
+                    ctx.error_code(),
+                    ctx.cr2 & va_mask,
+                    ctx.cs().0,
+                    ctx.rip & mask32,
+                    ctx.ss().0,
+                    ctx.rsp & mask32,
+                )
+                .unwrap();
+            } else {
+                writeln!(
+                    stdout,
+                    "\n#### EXCEPTION {:02x} err {:04x} EIP {:02x}:{:08x} ESP {:02x}:{:08x}",
+                    ctx.vector().0,
+                    ctx.error_code(),
+                    ctx.cs().0,
+                    ctx.rip & mask32,
+                    ctx.ss().0,
+                    ctx.rsp & mask32,
+                )
+                .unwrap();
+            }
+
+            println!(
+                "EAX {:08x} EBX {:08x} ECX {:08x} EDX {:08x} EFLAGS {:08x}",
+                ctx.rax & mask32,
+                ctx.rbx & mask32,
+                ctx.rcx & mask32,
+                ctx.rdx & mask32,
+                ctx.rflags.bits(),
+            );
+            println!(
+                "EBP {:08x} ESI {:08x} EDI {:08x} DS {:04x} ES {:04x} FS {:04x} GS {:04x}",
+                ctx.rbp & mask32,
+                ctx.rsi & mask32,
+                ctx.rdi & mask32,
+                ctx.ds().0,
+                ctx.es().0,
+                ctx.fs().0,
+                ctx.gs().0,
+            );
+        }
+        DefaultSize::Use64 => {
+            let va_mask = 0xFFFF_FFFF_FFFF;
+            if Exception::PageFault.as_vec() == ctx.vector() {
+                writeln!(
+                    stdout,
+                    "\n#### PAGE FAULT {:04x} {:012x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
+                    ctx.error_code(),
+                    ctx.cr2 & va_mask,
+                    ctx.cs().0,
+                    ctx.rip & va_mask,
+                    ctx.ss().0,
+                    ctx.rsp & va_mask,
+                )
+                .unwrap();
+            } else {
+                writeln!(
+                    stdout,
+                    "\n#### EXCEPTION {:02x} err {:04x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
+                    ctx.vector().0,
+                    ctx.error_code(),
+                    ctx.cs().0,
+                    ctx.rip & va_mask,
+                    ctx.ss().0,
+                    ctx.rsp & va_mask,
+                )
+                .unwrap();
+            }
+
+            writeln!(
+                stdout,
+                "rax {:016x} rsi {:016x} r11 {:016x} fl {:08x}
+        rbx {:016x} rdi {:016x} r12 {:016x} ds {:04x}
+        rcx {:016x} r8  {:016x} r13 {:016x} es {:04x}
+        rdx {:016x} r9  {:016x} r14 {:016x} fs {:04x}
+        rbp {:016x} r10 {:016x} r15 {:016x} gs {:04x}",
+                ctx.rax,
+                ctx.rsi,
+                ctx.r11,
+                ctx.rflags.bits(),
+                ctx.rbx,
+                ctx.rdi,
+                ctx.r12,
+                ctx.ds().0,
+                ctx.rcx,
+                ctx.r8,
+                ctx.r13,
+                ctx.es().0,
+                ctx.rdx,
+                ctx.r9,
+                ctx.r14,
+                ctx.fs().0,
+                ctx.rbp,
+                ctx.r10,
+                ctx.r15,
+                ctx.gs().0,
+            )
+            .unwrap();
+        }
     }
 
-    writeln!(
-        System::em_console(),
-        "rax {:016x} rsi {:016x} r11 {:016x} fl {:08x}
-rbx {:016x} rdi {:016x} r12 {:016x} ds {:04x}
-rcx {:016x} r8  {:016x} r13 {:016x} es {:04x}
-rdx {:016x} r9  {:016x} r14 {:016x} fs {:04x}
-rbp {:016x} r10 {:016x} r15 {:016x} gs {:04x}",
-        ctx.rax,
-        ctx.rsi,
-        ctx.r11,
-        ctx.rflags.bits(),
-        ctx.rbx,
-        ctx.rdi,
-        ctx.r12,
-        ctx.ds().0,
-        ctx.rcx,
-        ctx.r8,
-        ctx.r13,
-        ctx.es().0,
-        ctx.rdx,
-        ctx.r9,
-        ctx.r14,
-        ctx.fs().0,
-        ctx.rbp,
-        ctx.r10,
-        ctx.r15,
-        ctx.gs().0,
-    )
-    .unwrap();
-
     GLOBAL_EXCEPTION_LOCK.unlock();
-    if Scheduler::current_personality(|_| ()).is_some() {
+    if is_user {
         RuntimeEnvironment::exit(1);
     } else {
         loop {

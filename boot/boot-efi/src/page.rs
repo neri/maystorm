@@ -383,16 +383,18 @@ impl MemoryTypeHelper for MemoryType {
             MemoryType::CONVENTIONAL
             | MemoryType::BOOT_SERVICES_CODE
             | MemoryType::BOOT_SERVICES_DATA => BootMemoryType::Available,
-            MemoryType::LOADER_CODE | MemoryType::LOADER_DATA => BootMemoryType::OsLoader,
+            MemoryType::LOADER_CODE => BootMemoryType::OsLoaderCode,
+            MemoryType::LOADER_DATA => BootMemoryType::OsLoaderData,
             MemoryType::ACPI_RECLAIM => BootMemoryType::AcpiReclaim,
             MemoryType::ACPI_NON_VOLATILE => BootMemoryType::AcpiNonVolatile,
-            MemoryType::MMIO => BootMemoryType::MMIO,
+            MemoryType::MMIO => BootMemoryType::Mmio,
             MemoryType::MMIO_PORT_SPACE => BootMemoryType::MmioPortSpace,
             MemoryType::RESERVED => BootMemoryType::Reserved,
-            MemoryType::UNUSABLE => BootMemoryType::Unussable,
-            // RUNTIME_SERVICES_CODE
-            // | RUNTIME_SERVICES_DATA
-            _ => BootMemoryType::Firmware,
+            MemoryType::UNUSABLE => BootMemoryType::Unavailable,
+            MemoryType::RUNTIME_SERVICES_CODE | MemoryType::PAL_CODE => {
+                BootMemoryType::FirmwareCode
+            }
+            _ => BootMemoryType::FirmwareData,
         }
     }
 }

@@ -307,7 +307,7 @@ pub unsafe extern "C" fn apic_handle_irq(irq: Irq) {
         }
         entry => {
             let f: IrqHandler = core::mem::transmute(entry);
-            f(irq);
+            Irql::raise(Irql::DIrql, || f(irq));
             LocalApic::eoi();
         }
     }

@@ -79,7 +79,7 @@ impl Shell {
 
         loop {
             print!("# ");
-            if let Some(cmdline) = System::stdout().read_line_async(120).await {
+            if let Ok(cmdline) = System::stdout().read_line_async(120).await {
                 Self::exec_cmd(&cmdline);
             }
         }

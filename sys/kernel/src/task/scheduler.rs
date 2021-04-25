@@ -4,7 +4,7 @@ use super::executor::Executor;
 use super::*;
 use crate::{
     arch::cpu::{Cpu, CpuContextData},
-    rt::{Personality, ProcessId, RuntimeEnvironment},
+    rt::Personality,
     sync::atomicflags::*,
     sync::semaphore::*,
     sync::spinlock::*,
@@ -12,7 +12,6 @@ use crate::{
     window::{WindowHandle, WindowMessage},
     *,
 };
-use _core::intrinsics::unreachable;
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc, vec::*};
 use bitflags::*;
 use core::{
@@ -20,6 +19,8 @@ use core::{
 };
 use crossbeam_queue::ArrayQueue;
 use megstd::string::*;
+use num_derive::FromPrimitive;
+use num_traits::FromPrimitive;
 
 // const THRESHOLD_SAVING: usize = 666;
 // const THRESHOLD_FULL_THROTTLE_MODE: usize = 750;
@@ -199,8 +200,7 @@ impl Scheduler {
     pub fn wait_for(object: Option<&SignallingObject>, duration: Duration) {
         unsafe {
             Cpu::without_interrupts(|| {
-                let lsch = Self::local_scheduler().unwrap();
-                let current = lsch.current_thread();
+                let current = Self::current_thread().unwrap();
                 if let Some(object) = object {
                     let _ = object.set(current);
                 }
@@ -237,8 +237,8 @@ impl Scheduler {
 
     /// Get the scheduler for the current processor
     #[inline]
-    fn local_scheduler() -> Option<&'static mut Box<LocalScheduler>> {
-        match unsafe { SCHEDULER.as_mut() } {
+    unsafe fn local_scheduler() -> Option<&'static mut Box<LocalScheduler>> {
+        match SCHEDULER.as_mut() {
             Some(sch) => {
                 Cpu::current_processor_index().and_then(move |index| sch.locals.get_mut(index.0))
             }
@@ -447,7 +447,7 @@ impl Scheduler {
         options: SpawnOption,
     ) -> Option<ThreadHandle> {
         let pid = if options.raise_pid {
-            RuntimeEnvironment::raise_pid()
+            ProcessId::next()
         } else {
             Self::current_pid().unwrap_or(ProcessId(0))
         };
@@ -547,6 +547,7 @@ struct LocalScheduler {
     idle: ThreadHandle,
     current: AtomicUsize,
     retired: AtomicUsize,
+    irql: AtomicUsize,
 }
 
 impl LocalScheduler {
@@ -559,17 +560,18 @@ impl LocalScheduler {
             idle,
             current: AtomicUsize::new(idle.as_usize()),
             retired: AtomicUsize::new(0),
+            irql: AtomicUsize::new(0),
         })
     }
 
     #[inline(never)]
     unsafe fn switch_context(scheduler: &'static mut Self, next: ThreadHandle) {
-        Cpu::assert_without_interrupt();
         scheduler._switch_context(next);
     }
 
     #[inline]
     unsafe fn _switch_context(&mut self, next: ThreadHandle) {
+        let old_irql = self.raise_irql(Irql::Dispatch);
         let current = self.current_thread();
         if current.as_ref().handle != next.as_ref().handle {
             self.swap_retired(Some(current));
@@ -583,12 +585,14 @@ impl LocalScheduler {
 
             Scheduler::local_scheduler()
                 .unwrap()
-                ._switch_context_after();
+                ._switch_context_after(old_irql);
+        } else {
+            self.lower_irql(old_irql);
         }
     }
 
     #[inline]
-    unsafe fn _switch_context_after(&mut self) {
+    unsafe fn _switch_context_after(&mut self, irql: Irql) {
         let current = self.current_thread();
 
         current.update(|thread| {
@@ -598,6 +602,7 @@ impl LocalScheduler {
         });
         let retired = self.swap_retired(None).unwrap();
         Scheduler::retire(retired);
+        self.lower_irql(irql);
     }
 
     #[inline]
@@ -612,6 +617,32 @@ impl LocalScheduler {
     fn current_thread(&self) -> ThreadHandle {
         unsafe { ThreadHandle::new_unchecked(self.current.load(Ordering::SeqCst)) }
     }
+
+    #[inline]
+    fn current_irql(&self) -> Irql {
+        FromPrimitive::from_usize(self.irql.load(Ordering::SeqCst)).unwrap_or(Irql::Passive)
+    }
+
+    #[inline]
+    #[track_caller]
+    unsafe fn raise_irql(&self, new_irql: Irql) -> Irql {
+        let old_irql = self.current_irql();
+        if new_irql < old_irql {
+            panic!("IRQL_NOT_GREATER_OR_EQUAL");
+        }
+        self.irql.store(new_irql as usize, Ordering::SeqCst);
+        old_irql
+    }
+
+    #[inline]
+    #[track_caller]
+    unsafe fn lower_irql(&self, new_irql: Irql) {
+        let old_irql = self.current_irql();
+        if new_irql > old_irql {
+            panic!("IRQL_NOT_LESS_OR_EQUAL");
+        }
+        self.irql.store(new_irql as usize, Ordering::SeqCst);
+    }
 }
 
 #[no_mangle]
@@ -623,6 +654,18 @@ pub unsafe extern "C" fn sch_setup_new_thread() {
     });
     let retired = lsch.swap_retired(None).unwrap();
     Scheduler::retire(retired);
+    lsch.lower_irql(Irql::Passive);
+}
+
+#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+pub struct ProcessId(pub usize);
+
+impl ProcessId {
+    #[inline]
+    pub(crate) fn next() -> ProcessId {
+        static NEXT_PID: AtomicUsize = AtomicUsize::new(1);
+        ProcessId(NEXT_PID.fetch_add(1, Ordering::SeqCst))
+    }
 }
 
 pub struct SpawnOption {
@@ -1326,5 +1369,45 @@ impl ThreadQueue {
     #[inline]
     fn enqueue(&self, data: ThreadHandle) -> Result<(), ()> {
         self.0.push(data.0).map_err(|_| ())
+    }
+}
+
+/// Interrupt Request Level
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+pub enum Irql {
+    Passive = 0,
+    Dispatch,
+    DIrql,
+    IPI,
+    High,
+}
+
+impl Irql {
+    #[inline]
+    pub fn current() -> Irql {
+        unsafe {
+            Scheduler::local_scheduler()
+                .map(|v| v.current_irql())
+                .unwrap_or(Irql::Passive)
+        }
+    }
+
+    #[inline]
+    #[track_caller]
+    pub unsafe fn raise<F, R>(new_irql: Irql, f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        Cpu::without_interrupts(|| match Scheduler::local_scheduler() {
+            Some(lsch) => {
+                let old_irql = lsch.raise_irql(new_irql);
+                let r = f();
+                Scheduler::local_scheduler().unwrap().lower_irql(old_irql);
+                r
+            }
+            // TODO: can't change irql
+            None => f(),
+        })
     }
 }

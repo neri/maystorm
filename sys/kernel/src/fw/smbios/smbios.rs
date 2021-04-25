@@ -3,6 +3,8 @@
 use alloc::boxed::Box;
 use core::{mem::transmute, ptr::addr_of, slice, str};
 
+use crate::arch::page::PageManager;
+
 pub struct SMBIOS {
     base: usize,
     n_structures: usize,
@@ -12,7 +14,7 @@ impl SMBIOS {
     #[inline]
     pub(crate) unsafe fn init(entry: usize) -> Box<Self> {
         let ep: &SmBiosEntryV1 = transmute(entry);
-        let base = ep.base as usize;
+        let base = PageManager::direct_map(ep.base as usize);
         let n_structures = ep.n_structures as usize;
         Box::new(Self { base, n_structures })
     }

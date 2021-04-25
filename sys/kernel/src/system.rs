@@ -1,6 +1,9 @@
 // A Computer System
 
-use crate::{arch::cpu::*, fonts::*, io::emcon::*, io::tty::Tty, task::scheduler::*, *};
+use crate::{
+    arch::cpu::*, arch::page::PageManager, fonts::*, io::emcon::*, io::tty::Tty,
+    task::scheduler::*, *,
+};
 use alloc::{boxed::Box, string::*, vec::Vec};
 use bootprot::BootInfo;
 use core::{fmt, ptr::*, sync::atomic::*};
@@ -157,7 +160,7 @@ impl System {
         mem::MemoryManager::init_first(info);
 
         shared.main_screen = Some(Bitmap32::from_static(
-            info.vram_base as usize as *mut TrueColor,
+            PageManager::direct_map(info.vram_base as usize) as *mut TrueColor,
             Size::new(info.screen_width as isize, info.screen_height as isize),
             info.vram_stride as usize,
         ));
@@ -193,7 +196,10 @@ impl System {
         unsafe {
             mem::MemoryManager::late_init();
 
-            fs::FileManager::init(shared.initrd_base, shared.initrd_size);
+            fs::FileManager::init(
+                PageManager::direct_map(shared.initrd_base),
+                shared.initrd_size,
+            );
 
             rt::RuntimeEnvironment::init();
 
@@ -343,9 +349,9 @@ impl System {
         shared.stdout = Some(stdout);
     }
 
-    pub fn stdout<'a>() -> &'a mut Box<dyn Tty> {
+    pub fn stdout<'a>() -> &'a mut dyn Tty {
         let shared = Self::shared();
-        shared.stdout.as_mut().unwrap()
+        shared.stdout.as_mut().unwrap().as_mut()
     }
 }
 
@@ -418,7 +424,8 @@ impl ::acpi::AcpiHandler for MyAcpiHandler {
     ) -> PhysicalMapping<Self, T> {
         PhysicalMapping {
             physical_start: physical_address,
-            virtual_start: NonNull::new(physical_address as *mut T).unwrap(),
+            virtual_start: NonNull::new(PageManager::direct_map(physical_address) as *mut T)
+                .unwrap(),
             region_length: size,
             mapped_length: size,
             handler: Self::new(),

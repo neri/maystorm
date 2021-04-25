@@ -9,12 +9,60 @@ pub type PhysicalAddress = u64;
 type PageTableRepr = u64;
 
 pub(crate) struct PageManager {
-    //
+    _phantom: (),
 }
 
 impl PageManager {
-    pub unsafe fn init(_info: &BootInfo) {
-        //
+    const PAGE_SIZE_MIN: usize = 0x1000;
+    const PAGE_RECURSIVE: usize = 0x1FE;
+    const PAGE_DIRECT_MAP: usize = 0x180;
+    const DIRECT_BASE: usize = 0xFFFF_0000_0000_0000 | (Self::PAGE_DIRECT_MAP << 39);
+
+    #[inline]
+    pub(crate) unsafe fn init(_info: &BootInfo) {
+        let base = Self::read_pdbr() as usize & !(Self::PAGE_SIZE_MIN - 1);
+        let p = base as *const u64 as *mut PageTableEntry;
+
+        p.add(Self::PAGE_RECURSIVE)
+            .write_volatile(PageTableEntry::new(
+                base as u64,
+                MProtect::READ_WRITE.into(),
+            ));
+
+        p.add(Self::PAGE_DIRECT_MAP)
+            .write_volatile(p.read_volatile());
+
+        Self::invalidate_all_pages();
+    }
+
+    #[inline]
+    pub(crate) unsafe fn init_late() {
+        // let base = Self::read_pdbr() as usize & !(Self::PAGE_SIZE_MIN - 1);
+        // let p = base as *const u64 as *mut PageTableEntry;
+        // p.write_volatile(PageTableEntry::empty());
+        // Self::invalidate_all_pages();
+    }
+
+    #[inline]
+    unsafe fn invalidate_all_pages() {
+        Self::write_pdbr(Self::read_pdbr());
+    }
+
+    #[inline]
+    unsafe fn read_pdbr() -> u64 {
+        let result: u64;
+        asm!("mov {}, cr3", out(reg) result);
+        result
+    }
+
+    #[inline]
+    unsafe fn write_pdbr(val: u64) {
+        asm!("mov cr3, {}", in(reg) val);
+    }
+
+    #[inline]
+    pub const fn direct_map(pa: usize) -> usize {
+        Self::DIRECT_BASE + pa
     }
 }
 
@@ -77,9 +125,7 @@ impl From<MProtect> for PageAttributes {
 }
 
 #[derive(Debug, Copy, Clone, Default, PartialEq, PartialOrd)]
-struct PageTableEntry {
-    repr: PageTableRepr,
-}
+struct PageTableEntry(PageTableRepr);
 
 #[allow(dead_code)]
 impl PageTableEntry {
@@ -92,53 +138,65 @@ impl PageTableEntry {
     const SHIFT_PER_LEVEL: usize = 9;
     const SHIFT_PTE: usize = 3;
 
+    #[inline]
     const fn empty() -> Self {
-        Self { repr: 0 }
+        Self(0)
     }
 
-    fn is_empty(&self) -> bool {
-        self.repr == 0
+    #[inline]
+    const fn repr(&self) -> PageTableRepr {
+        self.0
     }
 
+    #[inline]
+    const fn is_empty(&self) -> bool {
+        self.0 == 0
+    }
+
+    #[inline]
     const fn new(base: PhysicalAddress, attr: PageAttributes) -> Self {
-        Self {
-            repr: (base & Self::ADDRESS_BIT) | attr.bits(),
-        }
+        Self((base & Self::ADDRESS_BIT) | attr.bits())
     }
 
+    #[inline]
     fn contains(&self, flags: PageAttributes) -> bool {
-        (self.repr & flags.bits()) == flags.bits()
+        (self.0 & flags.bits()) == flags.bits()
     }
 
+    #[inline]
     fn insert(&mut self, flags: PageAttributes) {
-        self.repr |= flags.bits();
+        self.0 |= flags.bits();
     }
 
+    #[inline]
     fn remove(&mut self, flags: PageAttributes) {
-        self.repr &= !flags.bits();
+        self.0 &= !flags.bits();
     }
 
+    #[inline]
     fn frame_address(&self) -> PhysicalAddress {
-        self.repr & Self::ADDRESS_BIT
+        self.0 & Self::ADDRESS_BIT
     }
 
+    #[inline]
     fn attributes(&self) -> PageAttributes {
-        PageAttributes::from_bits_truncate(self.repr)
+        PageAttributes::from_bits_truncate(self.0)
     }
 
+    #[inline]
     fn set_frame_address(&mut self, pa: PhysicalAddress) {
-        self.repr = (pa & Self::ADDRESS_BIT) | (self.repr & !Self::ADDRESS_BIT);
+        self.0 = (pa & Self::ADDRESS_BIT) | (self.0 & !Self::ADDRESS_BIT);
     }
 
+    #[inline]
     fn set_attributes(&mut self, flags: PageAttributes) {
-        self.repr = (self.repr & Self::ADDRESS_BIT) | (flags.bits() & !Self::ADDRESS_BIT);
+        self.0 = (self.0 & Self::ADDRESS_BIT) | (flags.bits() & !Self::ADDRESS_BIT);
     }
 }
 
 impl From<PhysicalAddress> for PageTableEntry {
+    #[inline]
     fn from(value: PhysicalAddress) -> Self {
-        Self {
-            repr: value as PageTableRepr,
-        }
+        Self(value as PageTableRepr)
     }
 }

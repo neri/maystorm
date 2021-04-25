@@ -5,16 +5,9 @@ pub mod megos;
 
 use crate::arch::cpu::*;
 use crate::task::scheduler::*;
-use alloc::boxed::Box;
-use alloc::string::String;
-use alloc::string::*;
-use alloc::vec::Vec;
-use core::sync::atomic::*;
+use alloc::{boxed::Box, string::String, string::*, vec::Vec};
 
 static mut RE: RuntimeEnvironment = RuntimeEnvironment::new();
-
-#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
-pub struct ProcessId(pub usize);
 
 pub struct RuntimeEnvironment {
     exts: Vec<String>,
@@ -22,6 +15,7 @@ pub struct RuntimeEnvironment {
 }
 
 impl RuntimeEnvironment {
+    #[inline]
     const fn new() -> Self {
         Self {
             exts: Vec::new(),
@@ -29,17 +23,20 @@ impl RuntimeEnvironment {
         }
     }
 
+    #[inline]
     pub(crate) unsafe fn init() {
         let shared = Self::shared();
         shared.add_image("wasm", megos::WasmRecognizer::new());
         shared.add_image("hrb", haribote::HrbRecognizer::new());
     }
 
+    #[inline]
     fn add_image(&mut self, ext: &str, loader: Box<dyn BinaryRecognizer>) {
         self.exts.push(ext.to_string());
         self.image_loaders.push(loader);
     }
 
+    #[inline]
     fn shared() -> &'static mut Self {
         unsafe { &mut RE }
     }
@@ -50,15 +47,7 @@ impl RuntimeEnvironment {
         shared.exts.as_slice()
     }
 
-    pub(crate) fn raise_pid() -> ProcessId {
-        static NEXT_PID: AtomicUsize = AtomicUsize::new(1);
-        let pid = ProcessId(NEXT_PID.fetch_add(1, Ordering::SeqCst));
-
-        // TODO:
-
-        pid
-    }
-
+    #[inline]
     pub fn recognize(blob: &[u8]) -> Option<Box<dyn BinaryLoader>> {
         let shared = Self::shared();
         for recognizer in &shared.image_loaders {
@@ -69,11 +58,12 @@ impl RuntimeEnvironment {
         None
     }
 
-    pub fn exit(exit_code: usize) -> ! {
-        let _ = exit_code;
+    #[inline]
+    pub fn exit(_exit_code: usize) -> ! {
         Scheduler::exit();
     }
 
+    #[inline]
     pub unsafe fn invoke_legacy(context: &LegacyAppContext) -> ! {
         Cpu::invoke_legacy(context);
     }

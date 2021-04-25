@@ -1,7 +1,8 @@
 .PHONY: love all clean install iso run runs test apps
 
-KRNL_ARCH	= x86_64-unknown-uefi
 EFI_ARCH	= x86_64-unknown-uefi
+KRNL_ARCH	= x86_64-unknown-uefi
+# KRNL_ARCH	= x86_64-unknown-linux-gnu
 EFI_SUFFIX	= x64
 MNT			= ./mnt/
 MISC		= ./misc/
