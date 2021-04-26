@@ -221,21 +221,6 @@ impl PageManager {
         shared.pml2k = PageTableEntry::new(pml2kp, common_attributes);
         pml3k[kernel_base.index_of(3)] = shared.pml2k;
 
-        // TODO: Temp Peripherals
-        // FEC00000 IOAPIC
-        // FED00000 HPET
-        // FEE00000 LocalAPIC
-        {
-            let la = 0xFEC0_0000;
-            let offset = la / PageTableEntry::LARGE_PAGE_SIZE;
-            for i in 0..2 {
-                pml2[(offset + i) as usize] = PageTableEntry::new(
-                    la + i * PageTableEntry::LARGE_PAGE_SIZE,
-                    common_attributes | PageAttributes::LARGE,
-                );
-            }
-        }
-
         // vram (temp)
         let vram_base = info.vram_base;
         let vram_size = Self::pages(

@@ -93,15 +93,9 @@ impl MemoryManager {
         unsafe { &mut MM }
     }
 
-    pub unsafe fn direct_map(
-        base: usize,
-        size: usize,
-        prot: MProtect,
-    ) -> Result<NonZeroUsize, AllocationError> {
-        // TODO:
-        let _ = size;
-        let _ = prot;
-        NonZeroUsize::new(PageManager::direct_map(base)).ok_or(AllocationError::InvalidArgument)
+    #[inline]
+    pub unsafe fn map_mmio(base: usize, size: usize) -> Result<NonZeroUsize, AllocationError> {
+        NonZeroUsize::new(PageManager::map_mmio(base, size)).ok_or(AllocationError::InvalidArgument)
     }
 
     #[inline]

@@ -294,10 +294,8 @@ impl System {
         F: FnMut(&Box<Cpu>, &Box<Cpu>) -> core::cmp::Ordering,
     {
         Self::shared().cpus.sort_by(compare);
-        let mut i = 0;
-        for cpu in &mut Self::shared().cpus {
-            cpu.cpu_index = ProcessorIndex(i);
-            i += 1;
+        for (index, cpu) in Self::shared().cpus.iter_mut().enumerate() {
+            cpu.cpu_index = ProcessorIndex(index);
         }
     }
 

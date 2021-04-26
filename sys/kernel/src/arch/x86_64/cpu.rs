@@ -268,20 +268,6 @@ impl Cpu {
         result
     }
 
-    // #[inline]
-    // #[track_caller]
-    // pub(crate) fn assert_without_interrupt() {
-    //     let flags = unsafe {
-    //         let mut rax: usize;
-    //         asm!("
-    //             pushfq
-    //             pop {0}
-    //             ", lateout(reg) rax);
-    //         Rflags::from_bits_unchecked(rax)
-    //     };
-    //     assert!(!flags.contains(Rflags::IF));
-    // }
-
     #[inline]
     pub(crate) unsafe fn without_interrupts<F, R>(f: F) -> R
     where
@@ -404,8 +390,6 @@ impl Cpu {
     pub unsafe fn invoke_legacy(ctx: &LegacyAppContext) -> ! {
         Cpu::disable_interrupt();
 
-        let ds_limit = ctx.size_of_data - 1;
-
         let cpu = System::cpu_mut(Cpu::current_processor_index().unwrap().0);
         cpu.gdt.table[Selector::LEGACY_CODE.index()] = DescriptorEntry::code_legacy(
             ctx.base_of_code,
@@ -413,12 +397,15 @@ impl Cpu {
             PrivilegeLevel::User,
             DefaultSize::Use32,
         );
-        cpu.gdt.table[Selector::LEGACY_DATA.index()] =
-            DescriptorEntry::data_legacy(ctx.base_of_data, ds_limit, PrivilegeLevel::User);
+        cpu.gdt.table[Selector::LEGACY_DATA.index()] = DescriptorEntry::data_legacy(
+            ctx.base_of_data,
+            ctx.size_of_data - 1,
+            PrivilegeLevel::User,
+        );
         cpu.gdt.reload();
 
         let rsp: u64;
-        asm!("mov {0}, rsp", lateout(reg) rsp);
+        asm!("mov {0}, rsp", out(reg) rsp);
         cpu.gdt.tss.stack_pointer[0] = rsp;
 
         asm!("
@@ -1476,10 +1463,10 @@ pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext)
             writeln!(
                 stdout,
                 "rax {:016x} rsi {:016x} r11 {:016x} fl {:08x}
-        rbx {:016x} rdi {:016x} r12 {:016x} ds {:04x}
-        rcx {:016x} r8  {:016x} r13 {:016x} es {:04x}
-        rdx {:016x} r9  {:016x} r14 {:016x} fs {:04x}
-        rbp {:016x} r10 {:016x} r15 {:016x} gs {:04x}",
+rbx {:016x} rdi {:016x} r12 {:016x} ds {:04x}
+rcx {:016x} r8  {:016x} r13 {:016x} es {:04x}
+rdx {:016x} r9  {:016x} r14 {:016x} fs {:04x}
+rbp {:016x} r10 {:016x} r15 {:016x} gs {:04x}",
                 ctx.rax,
                 ctx.rsi,
                 ctx.r11,

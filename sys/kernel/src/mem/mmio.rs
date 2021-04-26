@@ -14,13 +14,15 @@ pub struct Mmio {
 }
 
 impl Mmio {
+    #[inline]
     pub unsafe fn from_phys(base: usize, size: usize) -> Result<Self, AllocationError> {
-        MemoryManager::direct_map(base, size, MProtect::READ | MProtect::WRITE).map(|va| Self {
+        MemoryManager::map_mmio(base, size).map(|va| Self {
             base: va.get(),
             size,
         })
     }
 
+    #[inline]
     pub unsafe fn from_virt(base: usize, size: usize) -> Option<Self> {
         NonZeroUsize::new(base).map(|va| Self {
             base: va.get(),
