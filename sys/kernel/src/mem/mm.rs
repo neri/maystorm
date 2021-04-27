@@ -2,20 +2,18 @@
 
 // use crate::arch::page::*;
 use super::slab::*;
-use crate::arch::cpu::Cpu;
-use crate::arch::page::*;
-use crate::sync::spinlock::Spinlock;
-use crate::system::System;
-use crate::task::scheduler::*;
+use crate::{
+    arch::page::*,
+    sync::spinlock::Spinlock,
+    system::System,
+    task::scheduler::*,
+    {arch::cpu::Cpu, sync::semaphore::Semaphore},
+};
 use alloc::boxed::Box;
 use bitflags::*;
 use bootprot::*;
-use core::alloc::Layout;
-use core::fmt::Write;
-use core::mem::transmute;
-use core::num::*;
-use core::slice;
-use core::sync::atomic::*;
+use core::{alloc::Layout, fmt::Write, mem::transmute, num::*, slice, sync::atomic::*};
+
 use megstd::string::*;
 
 static mut MM: MemoryManager = MemoryManager::new();
@@ -77,14 +75,15 @@ impl MemoryManager {
 
     pub(crate) unsafe fn late_init() {
         PageManager::init_late();
-        // SpawnOption::with_priority(Priority::Realtime).spawn(Self::page_thread, 0, "Page");
+        SpawnOption::with_priority(Priority::Realtime).spawn(Self::page_thread, 0, "Page Manager");
     }
 
     #[allow(dead_code)]
     fn page_thread(_args: usize) {
         // TODO:
+        let sem = Semaphore::new(0);
         loop {
-            Timer::usleep(1000_000);
+            sem.wait();
         }
     }
 
@@ -94,7 +93,10 @@ impl MemoryManager {
     }
 
     #[inline]
-    pub unsafe fn map_mmio(base: usize, size: usize) -> Result<NonZeroUsize, AllocationError> {
+    pub unsafe fn map_mmio(
+        base: usize,
+        size: NonZeroUsize,
+    ) -> Result<NonZeroUsize, AllocationError> {
         NonZeroUsize::new(PageManager::map_mmio(base, size)).ok_or(AllocationError::InvalidArgument)
     }
 
@@ -126,7 +128,7 @@ impl MemoryManager {
         })
     }
 
-    /// Allocate static pages
+    /// Allocate pages
     pub(crate) unsafe fn pg_alloc(layout: Layout) -> Option<NonZeroUsize> {
         let shared = Self::shared();
 

@@ -3,9 +3,12 @@
 use crate::mem::*;
 use bitflags::*;
 use bootprot::*;
-use core::alloc::Layout;
-use core::mem::transmute;
-use core::ops::AddAssign;
+use core::{
+    alloc::Layout,
+    mem::transmute,
+    num::NonZeroUsize,
+    ops::{AddAssign, BitOrAssign, SubAssign},
+};
 
 pub type PhysicalAddress = u64;
 type PageTableRepr = u64;
@@ -17,7 +20,6 @@ pub(crate) struct PageManager {
 impl PageManager {
     const PAGE_SIZE_MIN: usize = 0x1000;
     const PAGE_SIZE_2M: usize = 0x200000;
-    const PAGE_IS_KERNEL: usize = 0x8000_0000_0000;
     const PAGE_KERNEL_PREFIX: usize = 0xFFFF_0000_0000_0000;
     const PAGE_RECURSIVE: usize = 0x1FE;
     const PAGE_DIRECT_MAP: usize = 0x180;
@@ -28,24 +30,32 @@ impl PageManager {
         let base = Self::read_pdbr() as usize & !(Self::PAGE_SIZE_MIN - 1);
         let p = base as *const u64 as *mut PageTableEntry;
 
+        // FFFF_FF00_0000_0000 - FFFF_FF7F_FFFF_FFFF RECURSIVE PAGE TABLE AREA
         p.add(Self::PAGE_RECURSIVE)
             .write_volatile(PageTableEntry::new(
                 base as u64,
-                MProtect::READ_WRITE.into(),
+                PageAttributes::NO_EXECUTE
+                    | PageAttributes::GLOBAL
+                    | PageAttributes::WRITE
+                    | PageAttributes::PRESENT,
             ));
 
-        p.add(Self::PAGE_DIRECT_MAP)
-            .write_volatile(p.read_volatile());
+        // FFFF_????_????_???? (TEMP) DIRECT MAPPING AREA
+        {
+            let mut pte = p.read_volatile();
+            pte += PageAttributes::NO_EXECUTE | PageAttributes::GLOBAL;
+            p.add(Self::PAGE_DIRECT_MAP).write_volatile(pte);
+        }
 
         Self::invalidate_all_pages();
     }
 
     #[inline]
     pub(crate) unsafe fn init_late() {
-        // let base = Self::read_pdbr() as usize & !(Self::PAGE_SIZE_MIN - 1);
-        // let p = base as *const u64 as *mut PageTableEntry;
-        // p.write_volatile(PageTableEntry::empty());
-        // Self::invalidate_all_pages();
+        let base = Self::read_pdbr() as usize & !(Self::PAGE_SIZE_MIN - 1);
+        let p = base as *const u64 as *mut PageTableEntry;
+        p.write_volatile(PageTableEntry::empty());
+        Self::invalidate_all_pages();
     }
 
     #[inline]
@@ -54,21 +64,27 @@ impl PageManager {
     }
 
     #[inline]
-    pub(crate) unsafe fn map_mmio(pa: usize, len: usize) -> usize {
-        let va = Self::direct_map(pa);
-        let template = PageTableEntry::new(pa as PhysicalAddress, PageAttributes::WRITE);
-        Self::map(va, len, template);
+    #[track_caller]
+    pub(crate) unsafe fn map_mmio(base: usize, len: NonZeroUsize) -> usize {
+        let pa = base as PhysicalAddress;
+        let va = Self::direct_map(base);
+        Self::map(
+            va,
+            len,
+            PageTableEntry::new(
+                pa,
+                PageAttributes::NO_EXECUTE | PageAttributes::GLOBAL | PageAttributes::WRITE,
+            ),
+        );
         va
     }
 
     #[inline]
-    pub(super) unsafe fn map(va: usize, len: usize, template: PageTableEntry) {
+    #[track_caller]
+    pub(super) unsafe fn map(va: usize, len: NonZeroUsize, template: PageTableEntry) {
         let mask_4k = Self::PAGE_SIZE_MIN - 1;
         let mask_2m = Self::PAGE_SIZE_2M - 1;
-        let len = (len + mask_4k) & !mask_4k;
-        if len == 0 {
-            panic!("len must be grater than 0");
-        }
+        let len = (len.get() + mask_4k) & !mask_4k;
 
         if template.contains(PageAttributes::LARGE)
             && (va & mask_2m) == 0
@@ -81,14 +97,14 @@ impl PageManager {
             // 4K Pages
             let count = len / Self::PAGE_SIZE_MIN;
             let mut template = template;
+            template += PageAttributes::PRESENT;
+            template -= PageAttributes::LARGE;
             let mut va = va;
-            template.insert(PageAttributes::PRESENT);
-            template.remove(PageAttributes::LARGE);
             for _ in 0..count {
                 Self::map_table_if_needed(va, PageLevel::Level4, template);
                 Self::map_table_if_needed(va, PageLevel::Level3, template);
                 Self::map_table_if_needed(va, PageLevel::Level2, template);
-                let pte: *mut PageTableEntry = transmute(PageLevel::Level1.recursive_for(va));
+                let pte = PageLevel::Level1.pte_of(va);
                 pte.write_volatile(template);
                 Self::invalidate_tlb(va);
                 va += Self::PAGE_SIZE_MIN;
@@ -99,11 +115,14 @@ impl PageManager {
 
     #[inline]
     unsafe fn map_table_if_needed(va: usize, level: PageLevel, template: PageTableEntry) {
-        let pte: *mut PageTableEntry = transmute(level.recursive_for(va));
+        let pte = level.pte_of(va);
         if !pte.read_volatile().is_present() {
-            let layout =
-                Layout::from_size_align_unchecked(Self::PAGE_SIZE_MIN, Self::PAGE_SIZE_MIN);
-            let pa = MemoryManager::pg_alloc(layout).unwrap().get();
+            let pa = MemoryManager::pg_alloc(Layout::from_size_align_unchecked(
+                Self::PAGE_SIZE_MIN,
+                Self::PAGE_SIZE_MIN,
+            ))
+            .unwrap()
+            .get();
             let table: *mut u8 = transmute(Self::direct_map(pa));
             table.write_bytes(0, Self::PAGE_SIZE_MIN);
             pte.write_volatile(PageTableEntry::new(
@@ -112,11 +131,6 @@ impl PageManager {
             ));
             Self::invalidate_tlb(va);
         }
-    }
-
-    #[inline]
-    pub fn page_is_kernel(va: usize) -> bool {
-        (va & Self::PAGE_IS_KERNEL) != 0
     }
 
     #[inline]
@@ -207,12 +221,6 @@ pub(super) struct PageTableEntry(PageTableRepr);
 impl PageTableEntry {
     pub const ADDRESS_BIT: PageTableRepr = 0x0000_FFFF_FFFF_F000;
     pub const NORMAL_ATTRIBUTE_BITS: PageTableRepr = 0x8000_0000_0000_0FFF;
-    pub const N_NATIVE_PAGE_ENTRIES: usize = 512;
-    pub const LARGE_PAGE_SIZE: PageTableRepr = 0x0020_0000;
-    pub const INDEX_MASK: usize = 0x1FF;
-    pub const MAX_PAGE_LEVEL: usize = 4;
-    pub const SHIFT_PER_LEVEL: usize = 9;
-    pub const SHIFT_PTE: usize = 3;
 
     #[inline]
     pub const fn empty() -> Self {
@@ -275,6 +283,24 @@ impl PageTableEntry {
     }
 }
 
+impl AddAssign<PageAttributes> for PageTableEntry {
+    fn add_assign(&mut self, rhs: PageAttributes) {
+        self.insert(rhs);
+    }
+}
+
+impl SubAssign<PageAttributes> for PageTableEntry {
+    fn sub_assign(&mut self, rhs: PageAttributes) {
+        self.remove(rhs);
+    }
+}
+
+impl BitOrAssign<PageAttributes> for PageTableEntry {
+    fn bitor_assign(&mut self, rhs: PageAttributes) {
+        self.insert(rhs);
+    }
+}
+
 impl AddAssign<usize> for PageTableEntry {
     fn add_assign(&mut self, rhs: usize) {
         let pa = self.frame_address() + rhs as PhysicalAddress;
@@ -290,7 +316,7 @@ impl From<PhysicalAddress> for PageTableEntry {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum PageLevel {
+pub(super) enum PageLevel {
     Level1,
     Level2,
     Level3,
@@ -339,13 +365,21 @@ impl PageLevel {
     }
 
     #[inline]
-    pub const fn recursive_for(&self, va: usize) -> usize {
+    pub const unsafe fn pte_of(&self, va: usize) -> *mut PageTableEntry {
         let base = va & Self::MASK_MAX_VA;
-        match *self {
+        let pte = match *self {
             PageLevel::Level1 => Self::RECURSIVE_LV1 + ((base >> 12) << 3),
             PageLevel::Level2 => Self::RECURSIVE_LV2 + ((base >> 21) << 3),
             PageLevel::Level3 => Self::RECURSIVE_LV3 + ((base >> 30) << 3),
             PageLevel::Level4 => Self::RECURSIVE_LV4 + ((base >> 39) << 3),
-        }
+        };
+        pte as *mut PageTableEntry
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MemoryMapRequest {
+    va: usize,
+    len: NonZeroUsize,
+    template: PageTableEntry,
 }

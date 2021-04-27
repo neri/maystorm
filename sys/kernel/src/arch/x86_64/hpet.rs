@@ -5,7 +5,7 @@ use crate::mem::mmio::*;
 use crate::task::scheduler::*;
 use crate::*;
 use alloc::boxed::Box;
-use core::time::Duration;
+use core::{num::NonZeroUsize, time::Duration};
 
 pub(super) struct Hpet {
     mmio: Mmio,
@@ -16,7 +16,7 @@ pub(super) struct Hpet {
 impl Hpet {
     pub unsafe fn new(info: &acpi::HpetInfo) -> Box<Self> {
         let mut hpet = Hpet {
-            mmio: Mmio::from_phys(info.base_address, 0x1000).unwrap(),
+            mmio: Mmio::from_phys(info.base_address, NonZeroUsize::new_unchecked(0x1000)).unwrap(),
             main_cnt_period: 0,
             measure_div: 0,
         };

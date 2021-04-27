@@ -2,29 +2,25 @@
 
 use super::cpu::*;
 use super::hpet::*;
-use crate::mem::mmio::*;
-use crate::mem::*;
-use crate::sync::spinlock::Spinlock;
-use crate::system::*;
-use crate::task::scheduler::*;
-use ::alloc::boxed::Box;
-use ::alloc::vec::*;
-use core::ffi::c_void;
-use core::sync::atomic::*;
-use core::time::Duration;
+use crate::{mem::mmio::*, mem::*, sync::spinlock::Spinlock, system::*, task::scheduler::*};
+use ::alloc::{boxed::Box, vec::*};
+use core::{ffi::c_void, num::NonZeroUsize, sync::atomic::*, time::Duration};
 
 /// max number of supported cpu cores
 const MAX_CPU: usize = 64;
 const STACK_CHUNK_SIZE: usize = 0x4000;
-/// max number of supported GSI
-const MAX_GSI: usize = 24;
+/// max number of supported IOAPIC's IRQ
+const MAX_IOAPIC_IRQS: usize = 24;
+/// max number of supported MSI IRQ
+const MAX_MSI_IRQS: usize = 8;
+const MAX_IRQ: usize = MAX_IOAPIC_IRQS + MAX_MSI_IRQS;
 
 static mut APIC: Apic = Apic::new();
 const INVALID_PROCESSOR_INDEX: u8 = 0xFF;
 static mut CURRENT_PROCESSOR_INDEXES: [u8; 256] = [INVALID_PROCESSOR_INDEX; 256];
 
 extern "C" {
-    fn asm_handle_irq_table(_table: &mut [usize; MAX_GSI], _max_gsi: usize);
+    fn asm_handle_irq_table(_table: &mut [usize; MAX_IRQ], _max_irq: usize);
     fn asm_apic_setup_sipi(
         vec_sipi: InterruptVector,
         max_cpu: usize,
@@ -34,7 +30,7 @@ extern "C" {
 }
 
 static AP_STALLED: AtomicBool = AtomicBool::new(true);
-static mut GLOBALLOCK: Spinlock = Spinlock::new();
+static GLOBALLOCK: Spinlock = Spinlock::new();
 
 #[no_mangle]
 pub unsafe extern "C" fn apic_start_ap() {
@@ -60,6 +56,13 @@ pub unsafe extern "C" fn apic_start_ap() {
             }
             break;
         }
+    }
+}
+
+extern "x86-interrupt" fn timer_handler() {
+    unsafe {
+        LocalApic::eoi();
+        Scheduler::reschedule();
     }
 }
 
@@ -134,9 +137,9 @@ impl Apic {
             APIC.ioapics.push(Box::new(IoApic::new(acpi_ioapic)));
         }
 
-        let mut irq_table = [0usize; MAX_GSI];
-        asm_handle_irq_table(&mut irq_table, MAX_GSI);
-        for irq in 1..MAX_GSI {
+        let mut irq_table = [0usize; MAX_IRQ];
+        asm_handle_irq_table(&mut irq_table, MAX_IRQ);
+        for irq in 1..MAX_IRQ {
             let offset = irq_table[irq];
             InterruptDescriptorTable::register(
                 Irq(irq as u8).into(),
@@ -294,6 +297,25 @@ impl Apic {
             None
         }
     }
+
+    // #[inline]
+    // pub unsafe fn register_msi(f: IrqHandler) -> Result<Irq, ()> {
+    //     static NEXT_MSI: AtomicUsize = AtomicUsize::new(0);
+    //     NEXT_MSI
+    //         .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |v| {
+    //             if v < MAX_MSI_IRQS {
+    //                 Some(v + 1)
+    //             } else {
+    //                 None
+    //             }
+    //         })
+    //         .map(|v| {
+    //             let global_irq = MAX_IRQ - v;
+    //             APIC.idt[global_irq] = f as usize;
+    //             Irq(v as u8)
+    //         })
+    //         .map_err(|_| ())
+    // }
 }
 
 pub type IrqHandler = fn(Irq) -> ();
@@ -455,7 +477,7 @@ impl LocalApic {
     const IA32_APIC_BASE_MSR_ENABLE: u64 = 0x00000800;
 
     unsafe fn init(base: usize) {
-        LOCAL_APIC = Mmio::from_phys(base, 0x1000).ok();
+        LOCAL_APIC = Mmio::from_phys(base, NonZeroUsize::new_unchecked(0x1000)).ok();
 
         Msr::ApicBase.write(
             (base as u64 & !0xFFF) | Self::IA32_APIC_BASE_MSR_ENABLE | Self::IA32_APIC_BASE_MSR_BSP,
@@ -572,7 +594,11 @@ struct IoApic {
 impl IoApic {
     unsafe fn new(acpi_ioapic: &acpi::platform::IoApic) -> Self {
         let mut ioapic = IoApic {
-            mmio: Mmio::from_phys(acpi_ioapic.address as usize, 0x14).unwrap(),
+            mmio: Mmio::from_phys(
+                acpi_ioapic.address as usize,
+                NonZeroUsize::new_unchecked(0x14),
+            )
+            .unwrap(),
             global_int: Irq(acpi_ioapic.global_system_interrupt_base as u8),
             entries: 0,
             id: acpi_ioapic.id,
@@ -599,14 +625,5 @@ impl IoApic {
                 self.mmio.write_u32(0x10, data);
             });
         });
-    }
-}
-
-//-//-//-// TEST //-//-//-//
-
-extern "x86-interrupt" fn timer_handler() {
-    unsafe {
-        LocalApic::eoi();
-        Scheduler::reschedule();
     }
 }

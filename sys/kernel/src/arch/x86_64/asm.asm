@@ -295,6 +295,46 @@ _irq23:
     mov al, 23
     jmp _irq
 
+_irq24:
+    push rax
+    mov al, 24
+    jmp _irq
+
+_irq25:
+    push rax
+    mov al, 25
+    jmp _irq
+
+_irq26:
+    push rax
+    mov al, 26
+    jmp _irq
+
+_irq27:
+    push rax
+    mov al, 27
+    jmp _irq
+
+_irq28:
+    push rax
+    mov al, 28
+    jmp _irq
+
+_irq29:
+    push rax
+    mov al, 29
+    jmp _irq
+
+_irq30:
+    push rax
+    mov al, 30
+    jmp _irq
+
+_irq31:
+    push rax
+    mov al, 31
+    jmp _irq
+
 _irq:
     push rcx
     push rdx
@@ -576,6 +616,14 @@ _irq_table:
     dd _irq21 - _base
     dd _irq22 - _base
     dd _irq23 - _base
+    dd _irq24 - _base
+    dd _irq25 - _base
+    dd _irq26 - _base
+    dd _irq27 - _base
+    dd _irq28 - _base
+    dd _irq29 - _base
+    dd _irq30 - _base
+    dd _irq31 - _base
 _end_irq_table
 
     ; SMP initialization payload

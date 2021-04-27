@@ -5,6 +5,7 @@
 #![feature(alloc_error_handler)]
 #![feature(asm)]
 #![feature(cfg_target_has_atomic)]
+#![feature(const_fn_transmute)]
 #![feature(const_fn)]
 #![feature(const_mut_refs)]
 #![feature(core_intrinsics)]

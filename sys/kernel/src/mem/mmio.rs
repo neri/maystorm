@@ -1,10 +1,10 @@
 // Memory Mapped I/O Registers
 
 use super::*;
-use core::sync::atomic::*;
 use core::{
     mem::{size_of, transmute},
     num::NonZeroUsize,
+    sync::atomic::*,
 };
 
 #[derive(Debug, Copy, Clone)]
@@ -15,19 +15,19 @@ pub struct Mmio {
 
 impl Mmio {
     #[inline]
-    pub unsafe fn from_phys(base: usize, size: usize) -> Result<Self, AllocationError> {
+    pub unsafe fn from_phys(base: usize, size: NonZeroUsize) -> Result<Self, AllocationError> {
         MemoryManager::map_mmio(base, size).map(|va| Self {
             base: va.get(),
-            size,
+            size: size.get(),
         })
     }
 
     #[inline]
-    pub unsafe fn from_virt(base: usize, size: usize) -> Option<Self> {
-        NonZeroUsize::new(base).map(|va| Self {
-            base: va.get(),
-            size,
-        })
+    pub unsafe fn from_virt(base: NonZeroUsize, size: NonZeroUsize) -> Self {
+        Self {
+            base: base.get(),
+            size: size.get(),
+        }
     }
 
     #[inline]
