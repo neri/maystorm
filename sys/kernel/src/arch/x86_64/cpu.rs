@@ -1,6 +1,7 @@
 // Central Processing Unit
 
 use crate::arch::apic::*;
+use crate::io::tty::Tty;
 use crate::rt::*;
 use crate::sync::spinlock::Spinlock;
 use crate::system::{ProcessorCoreType, ProcessorIndex};
@@ -12,7 +13,8 @@ use bus::pci::*;
 use core::convert::TryFrom;
 use core::ffi::c_void;
 use core::sync::atomic::*;
-use io::tty::Tty;
+use num_derive::FromPrimitive;
+use num_traits::FromPrimitive;
 
 extern "C" {
     fn asm_handle_exception(_: InterruptVector) -> usize;
@@ -168,13 +170,8 @@ impl Cpu {
     }
 
     #[inline]
-    pub fn current_processor_index() -> Option<ProcessorIndex> {
-        // TODO: RDTSCP
-        if false {
-            Apic::current_processor_index()
-        } else {
-            Some(ProcessorIndex(unsafe { Self::rdtscp().1 } as usize))
-        }
+    pub fn current_processor_index() -> ProcessorIndex {
+        ProcessorIndex(unsafe { Self::rdtscp().1 } as usize)
     }
 
     #[inline]
@@ -184,7 +181,7 @@ impl Cpu {
 
     #[inline]
     pub fn current_processor_type() -> ProcessorCoreType {
-        let index = Self::current_processor_index().unwrap();
+        let index = Self::current_processor_index();
         System::cpu(index.0).processor_type()
     }
 
@@ -293,23 +290,6 @@ impl Cpu {
     }
 
     #[inline]
-    pub(crate) unsafe fn read_pci(addr: PciConfigAddressSpace) -> u32 {
-        Cpu::without_interrupts(|| {
-            Cpu::out32(0xCF8, addr.into());
-            Cpu::in32(0xCFC)
-        })
-    }
-
-    #[inline]
-    #[allow(dead_code)]
-    pub(crate) unsafe fn write_pci(addr: PciConfigAddressSpace, value: u32) {
-        Cpu::without_interrupts(|| {
-            Cpu::out32(0xCF8, addr.into());
-            Cpu::out32(0xCFC, value);
-        })
-    }
-
-    #[inline]
     #[allow(dead_code)]
     pub(crate) unsafe fn register_msi(f: fn() -> ()) -> Result<(u64, u16), ()> {
         Apic::register_msi(f)
@@ -398,7 +378,7 @@ impl Cpu {
     pub unsafe fn invoke_legacy(ctx: &LegacyAppContext) -> ! {
         Cpu::disable_interrupt();
 
-        let cpu = System::cpu_mut(Cpu::current_processor_index().unwrap().0);
+        let cpu = System::cpu_mut(Cpu::current_processor_index().0);
         cpu.gdt.table[Selector::LEGACY_CODE.index()] = DescriptorEntry::code_legacy(
             ctx.base_of_code,
             ctx.size_of_code - 1,
@@ -434,6 +414,24 @@ impl Cpu {
             in (reg) ctx.start as usize,
             in (reg) Rflags::IF.bits(),
             options(noreturn));
+    }
+}
+
+impl PciImpl for Cpu {
+    #[inline]
+    unsafe fn read_pci(&self, addr: PciConfigAddressSpace) -> u32 {
+        Cpu::without_interrupts(|| {
+            Cpu::out32(0xCF8, addr.into());
+            Cpu::in32(0xCFC)
+        })
+    }
+
+    #[inline]
+    unsafe fn write_pci(&self, addr: PciConfigAddressSpace, value: u32) {
+        Cpu::without_interrupts(|| {
+            Cpu::out32(0xCF8, addr.into());
+            Cpu::out32(0xCFC, value);
+        })
     }
 }
 
@@ -925,8 +923,8 @@ pub struct InterruptVector(pub u8);
 
 #[repr(u8)]
 #[non_exhaustive]
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum Exception {
+#[derive(Debug, Copy, Clone, PartialEq, FromPrimitive)]
+pub enum ExceptionType {
     DivideError = 0,
     Debug = 1,
     NonMaskable = 2,
@@ -954,14 +952,14 @@ pub enum Exception {
     MaxReserved = 32,
 }
 
-impl Exception {
+impl ExceptionType {
     pub const fn as_vec(self) -> InterruptVector {
         InterruptVector(self as u8)
     }
 }
 
-impl From<Exception> for InterruptVector {
-    fn from(ex: Exception) -> Self {
+impl From<ExceptionType> for InterruptVector {
+    fn from(ex: ExceptionType) -> Self {
         InterruptVector(ex as u8)
     }
 }
@@ -1205,7 +1203,7 @@ impl InterruptDescriptorTable {
 
     unsafe fn init() {
         Self::load();
-        for vec in 0..(Exception::MaxReserved as u8) {
+        for vec in 0..(ExceptionType::MaxReserved as u8) {
             let vec = InterruptVector(vec);
             let offset = asm_handle_exception(vec);
             if offset != 0 {
@@ -1388,37 +1386,41 @@ pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext)
         System::em_console() as &mut dyn Tty
     };
     let ctx = ctx.as_ref().unwrap();
-    let cpu = System::cpu(Cpu::current_processor_index().unwrap().0);
-    let csd = cpu.gdt.item(ctx.cs()).unwrap();
+    let cpu = System::current_processor();
+    let cs_desc = cpu.gdt.item(ctx.cs()).unwrap();
+    let ex: ExceptionType = FromPrimitive::from_u8(ctx.vector().0).unwrap();
 
-    match csd.default_operand_size().unwrap() {
+    match cs_desc.default_operand_size().unwrap() {
         DefaultSize::Use16 | DefaultSize::Use32 => {
             let va_mask = 0xFFFF_FFFF_FFFF;
             let mask32 = 0xFFFF_FFFF;
-            if Exception::PageFault.as_vec() == ctx.vector() {
-                writeln!(
-                    stdout,
-                    "\n#### PAGE FAULT {:04x} {:08x} EIP {:02x}:{:08x} ESP {:02x}:{:08x}",
-                    ctx.error_code(),
-                    ctx.cr2 & va_mask,
-                    ctx.cs().0,
-                    ctx.rip & mask32,
-                    ctx.ss().0,
-                    ctx.rsp & mask32,
-                )
-                .unwrap();
-            } else {
-                writeln!(
-                    stdout,
-                    "\n#### EXCEPTION {:02x} err {:04x} EIP {:02x}:{:08x} ESP {:02x}:{:08x}",
-                    ctx.vector().0,
-                    ctx.error_code(),
-                    ctx.cs().0,
-                    ctx.rip & mask32,
-                    ctx.ss().0,
-                    ctx.rsp & mask32,
-                )
-                .unwrap();
+            match ex {
+                ExceptionType::PageFault => {
+                    writeln!(
+                        stdout,
+                        "\n#### PAGE FAULT {:04x} {:08x} EIP {:02x}:{:08x} ESP {:02x}:{:08x}",
+                        ctx.error_code(),
+                        ctx.cr2 & va_mask,
+                        ctx.cs().0,
+                        ctx.rip & mask32,
+                        ctx.ss().0,
+                        ctx.rsp & mask32,
+                    )
+                    .unwrap();
+                }
+                _ => {
+                    writeln!(
+                        stdout,
+                        "\n#### {:?} err {:04x} EIP {:02x}:{:08x} ESP {:02x}:{:08x}",
+                        ex,
+                        ctx.error_code(),
+                        ctx.cs().0,
+                        ctx.rip & mask32,
+                        ctx.ss().0,
+                        ctx.rsp & mask32,
+                    )
+                    .unwrap();
+                }
             }
 
             println!(
@@ -1442,30 +1444,33 @@ pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext)
         }
         DefaultSize::Use64 => {
             let va_mask = 0xFFFF_FFFF_FFFF;
-            if Exception::PageFault.as_vec() == ctx.vector() {
-                writeln!(
-                    stdout,
-                    "\n#### PAGE FAULT {:04x} {:012x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
-                    ctx.error_code(),
-                    ctx.cr2 & va_mask,
-                    ctx.cs().0,
-                    ctx.rip & va_mask,
-                    ctx.ss().0,
-                    ctx.rsp & va_mask,
-                )
-                .unwrap();
-            } else {
-                writeln!(
-                    stdout,
-                    "\n#### EXCEPTION {:02x} err {:04x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
-                    ctx.vector().0,
-                    ctx.error_code(),
-                    ctx.cs().0,
-                    ctx.rip & va_mask,
-                    ctx.ss().0,
-                    ctx.rsp & va_mask,
-                )
-                .unwrap();
+            match ex {
+                ExceptionType::PageFault => {
+                    writeln!(
+                        stdout,
+                        "\n#### PAGE FAULT {:04x} {:012x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
+                        ctx.error_code(),
+                        ctx.cr2 & va_mask,
+                        ctx.cs().0,
+                        ctx.rip & va_mask,
+                        ctx.ss().0,
+                        ctx.rsp & va_mask,
+                    )
+                    .unwrap();
+                }
+                _ => {
+                    writeln!(
+                        stdout,
+                        "\n#### {:?} err {:04x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
+                        ex,
+                        ctx.error_code(),
+                        ctx.cs().0,
+                        ctx.rip & va_mask,
+                        ctx.ss().0,
+                        ctx.rsp & va_mask,
+                    )
+                    .unwrap();
+                }
             }
 
             writeln!(

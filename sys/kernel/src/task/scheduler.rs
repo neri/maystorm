@@ -239,9 +239,7 @@ impl Scheduler {
     #[inline]
     unsafe fn local_scheduler() -> Option<&'static mut Box<LocalScheduler>> {
         match SCHEDULER.as_mut() {
-            Some(sch) => {
-                Cpu::current_processor_index().and_then(move |index| sch.locals.get_mut(index.0))
-            }
+            Some(sch) => sch.locals.get_mut(Cpu::current_processor_index().0),
             None => None,
         }
     }

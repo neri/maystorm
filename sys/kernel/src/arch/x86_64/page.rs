@@ -378,8 +378,13 @@ impl PageLevel {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct MemoryMapRequest {
-    va: usize,
-    len: NonZeroUsize,
-    template: PageTableEntry,
+pub enum MemoryMapRequest {
+    /// for MMIO (physical_address, length)
+    Mmio(PhysicalAddress, usize),
+    /// for VRAM (physical_address, length)
+    Vram(PhysicalAddress, usize),
+    /// for Kernel Mode Heap (base, length, attr)
+    Kernel(usize, usize, MProtect),
+    /// for User Mode Heap (base, length, attr)
+    User(usize, usize, MProtect),
 }

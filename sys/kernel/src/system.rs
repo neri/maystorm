@@ -225,6 +225,15 @@ impl System {
     }
 
     #[inline]
+    #[track_caller]
+    pub unsafe fn current_processor<'a>() -> &'a Cpu {
+        Self::shared()
+            .cpus
+            .get(Cpu::current_processor_index().0)
+            .unwrap()
+    }
+
+    #[inline]
     pub(crate) fn cpu<'a>(index: usize) -> &'a Box<Cpu> {
         &Self::shared().cpus[index]
     }

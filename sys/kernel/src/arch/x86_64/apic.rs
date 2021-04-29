@@ -4,6 +4,7 @@ use super::cpu::*;
 use super::hpet::*;
 use crate::{mem::mmio::*, mem::*, sync::spinlock::Spinlock, system::*, task::scheduler::*};
 use ::alloc::{boxed::Box, vec::*};
+use acpi::platform::ProcessorState;
 use core::{ffi::c_void, num::NonZeroUsize, sync::atomic::*, time::Duration};
 
 /// Maximum number of supported cpu cores
@@ -41,7 +42,6 @@ pub unsafe extern "C" fn apic_start_ap() {
     let apic_id = GLOBALLOCK.synchronized(|| {
         let apic_id = LocalApic::init_ap();
         System::activate_cpu(Cpu::new(apic_id));
-
         apic_id
     });
 
@@ -157,11 +157,6 @@ impl Apic {
 
         // Local APIC Timer
         let vec_latimer = Irq(0).as_vec();
-        InterruptDescriptorTable::register(
-            vec_latimer,
-            timer_handler as usize,
-            PrivilegeLevel::Kernel,
-        );
         LocalApic::clear_timer();
         LocalApic::set_timer_div(LocalApicTimerDivide::By1);
         if let Ok(hpet_info) = acpi::HpetInfo::new(System::acpi()) {
@@ -178,6 +173,11 @@ impl Apic {
         } else {
             panic!("No Reference Timer found");
         }
+        InterruptDescriptorTable::register(
+            vec_latimer,
+            timer_handler as usize,
+            PrivilegeLevel::Kernel,
+        );
         LocalApic::set_timer(
             LocalApicTimerMode::Periodic,
             vec_latimer,
@@ -187,7 +187,14 @@ impl Apic {
         // preparing SMP
         let sipi_vec = InterruptVector(MemoryManager::static_alloc_real().unwrap().get());
         let pi = System::acpi_platform().processor_info.unwrap();
-        let max_cpu = core::cmp::min(pi.application_processors.len() + 1, MAX_CPU);
+        let max_cpu = core::cmp::min(
+            1 + pi
+                .application_processors
+                .iter()
+                .filter(|v| v.state != ProcessorState::Disabled)
+                .count(),
+            MAX_CPU,
+        );
         let stack_chunk_size = STACK_CHUNK_SIZE;
         let stack_base = MemoryManager::zalloc_legacy(max_cpu * stack_chunk_size)
             .unwrap()
@@ -206,7 +213,7 @@ impl Apic {
             }
         }
         if System::current_device().num_of_active_cpus() != max_cpu {
-            panic!("Some of application processors are not responding");
+            panic!("SMP: Some of application processors are not responding");
         }
 
         // Since each processor that receives an IPI starts initializing asynchronously,
@@ -290,17 +297,6 @@ impl Apic {
     #[inline]
     pub fn current_processor_id() -> ProcessorId {
         unsafe { LocalApic::current_processor_id() }
-    }
-
-    #[inline]
-    #[allow(dead_code)]
-    pub fn current_processor_index() -> Option<ProcessorIndex> {
-        let index = unsafe { CURRENT_PROCESSOR_INDEXES[Self::current_processor_id().0 as usize] };
-        if index != INVALID_PROCESSOR_INDEX {
-            Some(ProcessorIndex(index as usize))
-        } else {
-            None
-        }
     }
 
     #[inline]
@@ -510,6 +506,7 @@ impl From<&acpi::platform::TriggerMode> for ApicTriggerMode {
     }
 }
 
+static mut LOCAL_APIC_PA: u64 = 0;
 static mut LOCAL_APIC: Option<Mmio> = None;
 
 #[allow(dead_code)]
@@ -537,16 +534,15 @@ impl LocalApic {
     const IA32_APIC_BASE_MSR_ENABLE: u64 = 0x00000800;
 
     unsafe fn init(base: usize) {
+        LOCAL_APIC_PA = base as u64;
         LOCAL_APIC = Mmio::from_phys(base, NonZeroUsize::new_unchecked(0x1000)).ok();
 
-        Msr::ApicBase.write(
-            (base as u64 & !0xFFF) | Self::IA32_APIC_BASE_MSR_ENABLE | Self::IA32_APIC_BASE_MSR_BSP,
-        );
+        Msr::ApicBase
+            .write(LOCAL_APIC_PA | Self::IA32_APIC_BASE_MSR_ENABLE | Self::IA32_APIC_BASE_MSR_BSP);
     }
 
     unsafe fn init_ap() -> ProcessorId {
-        Msr::ApicBase
-            .write(LOCAL_APIC.as_ref().unwrap().base() as u64 | Self::IA32_APIC_BASE_MSR_ENABLE);
+        Msr::ApicBase.write(LOCAL_APIC_PA | Self::IA32_APIC_BASE_MSR_ENABLE);
 
         let apicid = LocalApic::current_processor_id();
 

@@ -1,7 +1,10 @@
 // PCI: Peripheral Component Interconnect Bus
 
 use crate::arch::cpu::*;
+use crate::system::System;
 use alloc::vec::*;
+use num_derive::FromPrimitive;
+use num_traits::FromPrimitive;
 
 #[derive(Debug, Copy, Clone, Default, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PciConfigAddressSpace {
@@ -41,6 +44,12 @@ impl PciConfigAddressSpace {
     }
 }
 
+pub(crate) trait PciImpl {
+    unsafe fn read_pci(&self, addr: PciConfigAddressSpace) -> u32;
+
+    unsafe fn write_pci(&self, addr: PciConfigAddressSpace, value: u32);
+}
+
 static mut PCI: Pci = Pci::new();
 
 pub struct Pci {
@@ -61,9 +70,10 @@ impl Pci {
 
     pub(crate) unsafe fn init() {
         let shared = Self::shared();
+        let cpu = System::current_processor();
         let bus = 0;
         for dev in 0..32 {
-            if let Some(device) = PciDevice::new(bus, dev, 0) {
+            if let Some(device) = PciDevice::from_address(cpu, bus, dev, 0) {
                 shared.devices.push(device);
             }
         }
@@ -100,19 +110,19 @@ pub struct PciDevice {
 }
 
 impl PciDevice {
-    unsafe fn new(bus: u8, dev: u8, fun: u8) -> Option<Self> {
+    unsafe fn from_address(cpu: &Cpu, bus: u8, dev: u8, fun: u8) -> Option<Self> {
         let base = PciConfigAddressSpace::bus(bus).dev(dev).fun(fun);
-        let dev_ven = Cpu::read_pci(base);
+        let dev_ven = cpu.read_pci(base);
         let vendor_id = PciVendorId(dev_ven as u16);
         if vendor_id == PciVendorId::INVALID {
             return None;
         }
         let device_id = PciDeviceId((dev_ven >> 16) as u16);
-        let subsys = Cpu::read_pci(base.register(0x0B));
+        let subsys = cpu.read_pci(base.register(0x0B));
         let subsys_vendor_id = PciVendorId(subsys as u16);
         let subsys_device_id = PciDeviceId((subsys >> 16) as u16);
-        let class_code = Cpu::read_pci(base.register(0x02)) >> 8;
-        let header_type = ((Cpu::read_pci(base.register(3)) >> 16) & 0xFF) as u8;
+        let class_code = cpu.read_pci(base.register(0x02)) >> 8;
+        let header_type = ((cpu.read_pci(base.register(3)) >> 16) & 0xFF) as u8;
         let has_multi_func = (header_type & 0x80) != 0;
         let header_type = header_type & 0x7F;
 
@@ -121,11 +131,10 @@ impl PciDevice {
             0x01 => 2,
             _ => 0,
         };
-
         let mut bars = Vec::with_capacity(bar_limit);
         let mut index = 0;
         while index < bar_limit {
-            if let Some(bar) = PciBar::parse(base, index + 4) {
+            if let Some(bar) = PciBar::parse(cpu, base, index + 4) {
                 bars.push(bar);
                 if bar.bar_type() == PciBarType::Mmio64 {
                     index += 1;
@@ -134,10 +143,10 @@ impl PciDevice {
             index += 1;
         }
 
-        let mut functions = Vec::with_capacity(8);
+        let mut functions = Vec::new();
         if fun == 0 && has_multi_func {
             for fun in 1..8 {
-                if let Some(function) = PciDevice::new(bus, dev, fun) {
+                if let Some(function) = PciDevice::from_address(cpu, bus, dev, fun) {
                     functions.push(function);
                 }
             }
@@ -198,10 +207,10 @@ impl PciBar {
         Self(raw)
     }
 
-    unsafe fn parse(base: PciConfigAddressSpace, index: usize) -> Option<PciBar> {
+    unsafe fn parse(cpu: &Cpu, base: PciConfigAddressSpace, index: usize) -> Option<PciBar> {
         Cpu::without_interrupts(|| {
             let reg = base.register(index as u8);
-            let raw = Cpu::read_pci(reg);
+            let raw = cpu.read_pci(reg);
             if raw == 0 {
                 return None;
             }
@@ -209,21 +218,21 @@ impl PciBar {
             match org.bar_type() {
                 PciBarType::SeparatedIo | PciBarType::Mmio32 => {
                     let bias = org.bar_type().mask_bias() as u32;
-                    Cpu::write_pci(reg, u32::MAX);
-                    let scale = (Cpu::read_pci(reg) & bias).trailing_zeros() as usize;
-                    Cpu::write_pci(reg, org.0 as u32);
+                    cpu.write_pci(reg, u32::MAX);
+                    let scale = (cpu.read_pci(reg) & bias).trailing_zeros() as usize;
+                    cpu.write_pci(reg, org.0 as u32);
                     Some(org.set_scale(scale))
                 }
                 PciBarType::Mmio64 => {
                     let reg_h = base.register(index as u8 + 1);
-                    let org_h = PciBar::from_raw(Cpu::read_pci(reg_h) as u64);
+                    let org_h = PciBar::from_raw(cpu.read_pci(reg_h) as u64);
                     let bias = org.bar_type().mask_bias();
-                    Cpu::write_pci(reg, u32::MAX);
-                    Cpu::write_pci(reg_h, u32::MAX);
-                    let data = (Cpu::read_pci(reg) as u64) | ((Cpu::read_pci(reg_h) as u64) << 32);
+                    cpu.write_pci(reg, u32::MAX);
+                    cpu.write_pci(reg_h, u32::MAX);
+                    let data = (cpu.read_pci(reg) as u64) | ((cpu.read_pci(reg_h) as u64) << 32);
                     let scale = (data & bias).trailing_zeros() as usize;
-                    Cpu::write_pci(reg, org.0 as u32);
-                    Cpu::write_pci(reg_h, org_h.0 as u32);
+                    cpu.write_pci(reg, org.0 as u32);
+                    cpu.write_pci(reg_h, org_h.0 as u32);
                     Some(
                         PciBar::from_raw(((org_h.0 as u64) << 32) | (org.0 as u64))
                             .set_scale(scale),
@@ -304,4 +313,13 @@ impl PciBarType {
             PciBarType::Reserved => 0,
         }
     }
+}
+
+#[repr(u8)]
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+pub enum PciCapabilityId {
+    Null = 0x00,
+    Msi = 0x05,
+    MsiX = 0x11,
 }
