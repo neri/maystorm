@@ -1,17 +1,16 @@
 // Central Processing Unit
 
-use crate::arch::apic::Apic;
+use crate::arch::apic::*;
 use crate::rt::*;
 use crate::sync::spinlock::Spinlock;
-use crate::system::*;
+use crate::system::{ProcessorCoreType, ProcessorIndex};
 use crate::task::scheduler::Scheduler;
 use crate::*;
-use _core::convert::TryFrom;
 use alloc::boxed::Box;
 use bitflags::*;
 use bus::pci::*;
+use core::convert::TryFrom;
 use core::ffi::c_void;
-// use core::fmt::Write;
 use core::sync::atomic::*;
 use io::tty::Tty;
 
@@ -50,6 +49,9 @@ impl SharedCpu {
 
 impl Cpu {
     pub(crate) unsafe fn init() {
+        let pi = System::acpi_platform().processor_info.unwrap();
+        System::activate_cpu(Cpu::new(ProcessorId(pi.boot_processor.local_apic_id)));
+
         let cpuid0 = Cpu::cpuid(0, 0);
 
         Self::shared().has_feature_rdtscp = Self::has_feature(Feature::F81D(F81D::RDTSCP));
@@ -305,6 +307,12 @@ impl Cpu {
             Cpu::out32(0xCF8, addr.into());
             Cpu::out32(0xCFC, value);
         })
+    }
+
+    #[inline]
+    #[allow(dead_code)]
+    pub(crate) unsafe fn register_msi(f: fn() -> ()) -> Result<(u64, u16), ()> {
+        Apic::register_msi(f)
     }
 
     pub fn secure_rand() -> Result<u64, ()> {

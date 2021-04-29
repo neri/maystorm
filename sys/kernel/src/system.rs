@@ -62,34 +62,6 @@ impl fmt::Display for Version {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, Default)]
-pub struct ProcessorId(pub u8);
-
-impl ProcessorId {
-    pub const fn as_u32(self) -> u32 {
-        self.0 as u32
-    }
-}
-
-impl From<u8> for ProcessorId {
-    fn from(val: u8) -> Self {
-        Self(val)
-    }
-}
-
-impl From<u32> for ProcessorId {
-    fn from(val: u32) -> Self {
-        Self(val as u8)
-    }
-}
-
-impl From<usize> for ProcessorId {
-    fn from(val: usize) -> Self {
-        Self(val as u8)
-    }
-}
-
-#[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct ProcessorIndex(pub usize);
 
@@ -99,18 +71,12 @@ pub enum ProcessorCoreType {
     Sub,
 }
 
-#[repr(transparent)]
-#[derive(Copy, Clone, Default, PartialEq, PartialOrd)]
-pub struct PhysicalAddress(pub usize);
-
 #[allow(dead_code)]
 pub struct System {
     /// Current device information
     current_device: DeviceInfo,
 
-    /// Number of cpu cores
-    num_of_cpus: usize,
-    /// Vector of cpu cores
+    /// Array of activated processors
     cpus: Vec<Box<Cpu>>,
 
     /// An instance of ACPI tables
@@ -136,7 +102,6 @@ impl System {
     const fn new() -> Self {
         System {
             current_device: DeviceInfo::new(),
-            num_of_cpus: 0,
             cpus: Vec::new(),
             acpi: None,
             smbios: None,
@@ -176,13 +141,6 @@ impl System {
             device.model_name = smbios.model_name().map(|v| v.to_string());
             shared.smbios = Some(smbios);
         }
-
-        let pi = Self::acpi_platform().processor_info.unwrap();
-        shared.num_of_cpus = pi.application_processors.len() + 1;
-        shared.cpus.reserve(shared.num_of_cpus);
-        shared
-            .cpus
-            .push(Cpu::new(ProcessorId(pi.boot_processor.local_apic_id)));
 
         arch::Arch::init();
 
@@ -252,28 +210,17 @@ impl System {
         true
     }
 
-    /// Returns the number of logical CPU cores.
-    #[inline]
-    pub(crate) fn num_of_cpus() -> usize {
-        Self::shared().num_of_cpus
-    }
-
     /// Add SMP-initialized CPU cores to the list of enabled cores.
     ///
     /// SAFETY: THREAD UNSAFE. DO NOT CALL IT EXCEPT FOR SMP INITIALIZATION.
     #[inline]
     pub(crate) unsafe fn activate_cpu(new_cpu: Box<Cpu>) {
         let shared = Self::shared();
+        let device = &shared.current_device;
         if new_cpu.processor_type() == ProcessorCoreType::Main {
-            shared
-                .current_device
-                .num_of_performance_cpus
-                .fetch_add(1, Ordering::SeqCst);
+            device.num_of_main_cpus.fetch_add(1, Ordering::SeqCst);
         }
-        shared
-            .current_device
-            .num_of_active_cpus
-            .fetch_add(1, Ordering::SeqCst);
+        device.num_of_active_cpus.fetch_add(1, Ordering::SeqCst);
         shared.cpus.push(new_cpu);
     }
 
@@ -357,7 +304,7 @@ pub struct DeviceInfo {
     manufacturer_name: Option<String>,
     model_name: Option<String>,
     num_of_active_cpus: AtomicUsize,
-    num_of_performance_cpus: AtomicUsize,
+    num_of_main_cpus: AtomicUsize,
     total_memory_size: usize,
 }
 
@@ -366,8 +313,8 @@ impl DeviceInfo {
         Self {
             manufacturer_name: None,
             model_name: None,
-            num_of_active_cpus: AtomicUsize::new(1),
-            num_of_performance_cpus: AtomicUsize::new(1),
+            num_of_active_cpus: AtomicUsize::new(0),
+            num_of_main_cpus: AtomicUsize::new(0),
             total_memory_size: 0,
         }
     }
@@ -398,7 +345,7 @@ impl DeviceInfo {
     /// Returns the same value as `num_of_cpus` except during SMP initialization.
     #[inline]
     pub fn num_of_performance_cpus(&self) -> usize {
-        self.num_of_performance_cpus.load(Ordering::SeqCst)
+        self.num_of_main_cpus.load(Ordering::SeqCst)
     }
 }
 

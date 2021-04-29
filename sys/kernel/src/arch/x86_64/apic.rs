@@ -6,14 +6,18 @@ use crate::{mem::mmio::*, mem::*, sync::spinlock::Spinlock, system::*, task::sch
 use ::alloc::{boxed::Box, vec::*};
 use core::{ffi::c_void, num::NonZeroUsize, sync::atomic::*, time::Duration};
 
-/// max number of supported cpu cores
+/// Maximum number of supported cpu cores
 const MAX_CPU: usize = 64;
+
 const STACK_CHUNK_SIZE: usize = 0x4000;
-/// max number of supported IOAPIC's IRQ
+
+/// Maximum number of supported IOAPIC's IRQ
 const MAX_IOAPIC_IRQS: usize = 24;
-/// max number of supported MSI IRQ
-const MAX_MSI_IRQS: usize = 8;
-const MAX_IRQ: usize = MAX_IOAPIC_IRQS + MAX_MSI_IRQS;
+
+/// Maximum number of supported MSI IRQ
+const MAX_MSI: isize = 8;
+
+const MAX_IRQ: usize = MAX_IOAPIC_IRQS + MAX_MSI as usize;
 
 static mut APIC: Apic = Apic::new();
 const INVALID_PROCESSOR_INDEX: u8 = 0xFF;
@@ -76,8 +80,8 @@ pub(super) struct Apic {
 
 impl Apic {
     const REDIR_MASK: u32 = 0x00010000;
-    #[allow(dead_code)]
-    const MSI_BASE: usize = 0xFEE00000;
+    const MSI_DATA: u16 = 0xC000;
+    const MSI_BASE: u64 = 0xFEE00000;
 
     const fn new() -> Self {
         Apic {
@@ -182,7 +186,8 @@ impl Apic {
 
         // preparing SMP
         let sipi_vec = InterruptVector(MemoryManager::static_alloc_real().unwrap().get());
-        let max_cpu = core::cmp::min(System::num_of_cpus(), MAX_CPU);
+        let pi = System::acpi_platform().processor_info.unwrap();
+        let max_cpu = core::cmp::min(pi.application_processors.len() + 1, MAX_CPU);
         let stack_chunk_size = STACK_CHUNK_SIZE;
         let stack_base = MemoryManager::zalloc_legacy(max_cpu * stack_chunk_size)
             .unwrap()
@@ -298,24 +303,28 @@ impl Apic {
         }
     }
 
-    // #[inline]
-    // pub unsafe fn register_msi(f: IrqHandler) -> Result<Irq, ()> {
-    //     static NEXT_MSI: AtomicUsize = AtomicUsize::new(0);
-    //     NEXT_MSI
-    //         .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |v| {
-    //             if v < MAX_MSI_IRQS {
-    //                 Some(v + 1)
-    //             } else {
-    //                 None
-    //             }
-    //         })
-    //         .map(|v| {
-    //             let global_irq = MAX_IRQ - v;
-    //             APIC.idt[global_irq] = f as usize;
-    //             Irq(v as u8)
-    //         })
-    //         .map_err(|_| ())
-    // }
+    #[inline]
+    pub unsafe fn register_msi(f: fn() -> ()) -> Result<(u64, u16), ()> {
+        static NEXT_MSI: AtomicIsize = AtomicIsize::new(0);
+        NEXT_MSI
+            .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |v| {
+                if v < MAX_MSI {
+                    Some(v + 1)
+                } else {
+                    None
+                }
+            })
+            .map(|v| {
+                let msi = Msi(v);
+                let global_irq = msi.as_irq();
+                APIC.idt[global_irq.0 as usize] = f as usize;
+                let vec = msi.as_vec();
+                let addr = Self::MSI_BASE;
+                let data = Self::MSI_DATA | vec.0 as u16;
+                (addr, data)
+            })
+            .map_err(|_| ())
+    }
 }
 
 pub type IrqHandler = fn(Irq) -> ();
@@ -335,6 +344,35 @@ pub unsafe extern "C" fn apic_handle_irq(irq: Irq) {
     }
 }
 
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, PartialEq, Default)]
+pub struct ProcessorId(pub u8);
+
+impl ProcessorId {
+    pub const fn as_u32(self) -> u32 {
+        self.0 as u32
+    }
+}
+
+impl From<u8> for ProcessorId {
+    fn from(val: u8) -> Self {
+        Self(val)
+    }
+}
+
+impl From<u32> for ProcessorId {
+    fn from(val: u32) -> Self {
+        Self(val as u8)
+    }
+}
+
+impl From<usize> for ProcessorId {
+    fn from(val: usize) -> Self {
+        Self(val as u8)
+    }
+}
+
+/// Interrupt Request
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Default)]
 pub struct Irq(pub u8);
@@ -374,6 +412,28 @@ impl Irq {
 impl From<Irq> for InterruptVector {
     fn from(irq: Irq) -> InterruptVector {
         irq.as_vec()
+    }
+}
+
+/// Message Signaled Interrupts
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Default)]
+pub struct Msi(pub isize);
+
+impl Msi {
+    #[inline]
+    const fn as_irq(self) -> Irq {
+        Irq((MAX_MSI as isize + self.0) as u8)
+    }
+
+    #[inline]
+    pub const fn as_vec(self) -> InterruptVector {
+        self.as_irq().as_vec()
+    }
+}
+
+impl From<Msi> for InterruptVector {
+    fn from(msi: Msi) -> Self {
+        msi.as_vec()
     }
 }
 
@@ -545,7 +605,7 @@ impl LocalApic {
 
     #[inline]
     unsafe fn current_processor_id() -> ProcessorId {
-        ProcessorId::from(LocalApic::Id.read() >> 24)
+        ProcessorId((LocalApic::Id.read() >> 24) as u8)
     }
 }
 
