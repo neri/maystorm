@@ -27,25 +27,20 @@ static mut SHARED_CPU: SharedCpu = SharedCpu::new();
 
 pub struct Cpu {
     pub cpu_index: ProcessorIndex,
-    pub cpu_id: ProcessorId,
+    cpu_id: ProcessorId,
     core_type: ProcessorCoreType,
     tsc_base: u64,
-    #[allow(dead_code)]
     gdt: Box<GlobalDescriptorTable>,
 }
 
 #[allow(dead_code)]
 struct SharedCpu {
-    has_feature_rdtscp: bool,
     smt_topology: u32,
 }
 
 impl SharedCpu {
     const fn new() -> Self {
-        Self {
-            has_feature_rdtscp: false,
-            smt_topology: 0,
-        }
+        Self { smt_topology: 0 }
     }
 }
 
@@ -56,7 +51,7 @@ impl Cpu {
 
         let cpuid0 = Cpu::cpuid(0, 0);
 
-        Self::shared().has_feature_rdtscp = Self::has_feature(Feature::F81D(F81D::RDTSCP));
+        // Self::shared().has_feature_rdtscp = Self::has_feature(Feature::F81D(F81D::RDTSCP));
 
         if cpuid0.eax() >= 0x1F {
             let cpuid1f = Cpu::cpuid(0x1F, 0);
@@ -73,7 +68,7 @@ impl Cpu {
         InterruptDescriptorTable::init();
     }
 
-    pub(crate) unsafe fn new(apic_id: ProcessorId) -> Box<Self> {
+    pub(super) unsafe fn new(apic_id: ProcessorId) -> Box<Self> {
         // Currently force disabling SSE
         asm!("
             mov {0}, cr4
@@ -121,10 +116,10 @@ impl Cpu {
         p
     }
 
-    #[inline]
-    pub fn has_feature_rdtscp() -> bool {
-        Self::shared().has_feature_rdtscp
-    }
+    // #[inline]
+    // pub fn has_feature_rdtscp() -> bool {
+    //     Self::shared().has_feature_rdtscp
+    // }
 
     pub fn has_feature(feature: Feature) -> bool {
         match feature {
@@ -165,8 +160,8 @@ impl Cpu {
     }
 
     #[inline]
-    pub fn current_processor_id() -> ProcessorId {
-        Apic::current_processor_id()
+    pub(super) const fn cpu_id(&self) -> ProcessorId {
+        self.cpu_id
     }
 
     #[inline]

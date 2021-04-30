@@ -320,6 +320,10 @@ impl PciBarType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
 pub enum PciCapabilityId {
     Null = 0x00,
+    Pm = 0x01,
+    Agp = 0x02,
+    Vpd = 0x03,
+    SlotId = 0x04,
     Msi = 0x05,
     MsiX = 0x11,
 }

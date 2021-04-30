@@ -53,11 +53,9 @@ pub unsafe extern "C" fn apic_start_ap() {
 
     for index in 0..System::current_device().num_of_active_cpus() {
         let cpu = System::cpu(index);
-        if cpu.cpu_id == apic_id {
+        if cpu.cpu_id() == apic_id {
             System::cpu_mut(index).set_tsc_base(tsc);
-            if Cpu::has_feature_rdtscp() {
-                Msr::TscAux.write(index as u64);
-            }
+            Msr::TscAux.write(index as u64);
             break;
         }
     }
@@ -112,9 +110,7 @@ impl Apic {
         CURRENT_PROCESSOR_INDEXES[APIC.master_apic_id.0 as usize] = 0;
         LocalApic::init(acpi_apic.local_apic_address as usize);
 
-        if Cpu::has_feature_rdtscp() {
-            Msr::TscAux.write(0);
-        }
+        Msr::TscAux.write(0);
 
         // Define Default GSI table for ISA devices
         for irq in &[1, 12] {
@@ -219,11 +215,11 @@ impl Apic {
         // Since each processor that receives an IPI starts initializing asynchronously,
         // the physical processor ID and the logical ID assigned by the OS will not match.
         // Therefore, sorting is required here.
-        System::sort_cpus(|a, b| a.cpu_id.0.cmp(&b.cpu_id.0));
+        System::sort_cpus(|a, b| a.cpu_id().0.cmp(&b.cpu_id().0));
 
         for index in 0..System::current_device().num_of_active_cpus() {
             let cpu = System::cpu(index);
-            CURRENT_PROCESSOR_INDEXES[cpu.cpu_id.0 as usize] = cpu.cpu_index.0 as u8;
+            CURRENT_PROCESSOR_INDEXES[cpu.cpu_id().0 as usize] = cpu.cpu_index.0 as u8;
         }
 
         AP_STALLED.store(false, Ordering::SeqCst);
@@ -295,11 +291,6 @@ impl Apic {
     }
 
     #[inline]
-    pub fn current_processor_id() -> ProcessorId {
-        unsafe { LocalApic::current_processor_id() }
-    }
-
-    #[inline]
     pub unsafe fn register_msi(f: fn() -> ()) -> Result<(u64, u16), ()> {
         static NEXT_MSI: AtomicIsize = AtomicIsize::new(0);
         NEXT_MSI
@@ -342,7 +333,7 @@ pub unsafe extern "C" fn apic_handle_irq(irq: Irq) {
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, Default)]
-pub struct ProcessorId(pub u8);
+pub(super) struct ProcessorId(pub u8);
 
 impl ProcessorId {
     pub const fn as_u32(self) -> u32 {
