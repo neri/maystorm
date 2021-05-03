@@ -1,4 +1,4 @@
-// myos bitmap Library (DEPRECATED)
+// MEG-OS Bitmap Library (DEPRECATED)
 
 use super::*;
 use crate::window::*;

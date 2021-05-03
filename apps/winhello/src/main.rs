@@ -1,10 +1,9 @@
-// Window Hello World for myos + wasm
+// Window Hello World for megos + wasm
 #![no_main]
 #![no_std]
 
+use megoslib::{window::*, *};
 use megstd::drawing::*;
-use myoslib::window::*;
-use myoslib::*;
 
 #[no_mangle]
 fn _start() {

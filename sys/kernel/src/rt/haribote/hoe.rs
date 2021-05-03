@@ -214,7 +214,6 @@ impl Hoe {
             }
             20 => {
                 // TODO: Sound
-                // Because myos doesn't have a sound driver.
             }
             21 => {
                 // file open

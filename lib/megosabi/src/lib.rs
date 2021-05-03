@@ -1,11 +1,11 @@
-// MyOS System Call ABI
+// MEG-OS System Call ABI
 #![no_std]
 
 pub mod svc;
 
-pub struct MyOsAbi {}
+pub struct MegOsAbi {}
 
-impl MyOsAbi {
+impl MegOsAbi {
     /// Invalid character representation in Rust
     pub const OPTION_CHAR_NONE: u32 = 0x110000;
 

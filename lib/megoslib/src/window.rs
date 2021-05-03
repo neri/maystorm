@@ -1,8 +1,8 @@
-// myos Window API
+// MEG-OS Window API
 
 use super::*;
+use megosabi::MegOsAbi;
 use megstd::drawing::*;
-use myosabi::MyOsAbi;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct WindowHandle(pub usize);
@@ -56,7 +56,7 @@ impl Window {
     #[inline]
     pub fn read_char(&self) -> Option<char> {
         match os_read_char(self.handle.0) {
-            MyOsAbi::OPTION_CHAR_NONE => None,
+            MegOsAbi::OPTION_CHAR_NONE => None,
             c => Some(unsafe { core::char::from_u32_unchecked(c as u32) }),
         }
     }
@@ -169,13 +169,13 @@ impl WindowBuilder {
     /// Make window's bitmap to expressive (32bit)
     #[inline]
     pub const fn expressive(mut self) -> Self {
-        self.flag |= MyOsAbi::WINDOW_32BIT_BITMAP;
+        self.flag |= MegOsAbi::WINDOW_32BIT_BITMAP;
         self
     }
 
     #[inline]
     pub const fn transparent(mut self) -> Self {
-        self.flag |= MyOsAbi::WINDOW_TRANSPARENT;
+        self.flag |= MegOsAbi::WINDOW_TRANSPARENT;
         self
     }
 }

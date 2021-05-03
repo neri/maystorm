@@ -2,8 +2,8 @@
 #![no_main]
 #![no_std]
 
+use megoslib::{bitmap::*, window::*, *};
 use megstd::drawing::*;
-use myoslib::{bitmap::*, window::*, *};
 
 const DRAW_SCALE: isize = 2;
 const BITMAP_WIDTH: isize = 64;

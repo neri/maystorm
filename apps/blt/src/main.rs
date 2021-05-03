@@ -2,8 +2,8 @@
 #![no_main]
 #![no_std]
 
+use megoslib::{os_rand, window::*, *};
 use megstd::drawing::*;
-use myoslib::{os_rand, window::*, *};
 
 #[no_mangle]
 fn _start() {

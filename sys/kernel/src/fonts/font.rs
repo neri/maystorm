@@ -11,6 +11,9 @@ use megstd::drawing::*;
 include!("megh0816.rs");
 const SYSTEM_FONT: FixedFontDriver = FixedFontDriver::new(8, 16, &FONT_MEGH0816_DATA);
 
+include!("megh0710.rs");
+const TERMINAL_FONT: FixedFontDriver = FixedFontDriver::new(7, 10, &FONT_MEGH0710_DATA);
+
 include!("megh0608.rs");
 const SMALL_FONT: FixedFontDriver = FixedFontDriver::new(6, 8, &FONT_MEGH0608_DATA);
 
@@ -43,6 +46,7 @@ impl FontManager {
 
         fonts.insert(FontFamily::FixedSystem, Box::new(SYSTEM_FONT));
         fonts.insert(FontFamily::SmallFixed, Box::new(SMALL_FONT));
+        fonts.insert(FontFamily::Terminal, Box::new(TERMINAL_FONT));
 
         let font = Box::new(HersheyFont::new(
             0,
@@ -114,6 +118,7 @@ pub enum FontFamily {
     Serif,
     Cursive,
     FixedSystem,
+    Terminal,
     SmallFixed,
     Japanese,
 }

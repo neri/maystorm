@@ -17,10 +17,10 @@ pub struct Version {
 }
 
 impl Version {
-    const SYSTEM_NAME: &'static str = "codename MYOS";
-    const SYSTEM_SHORT_NAME: &'static str = "myos";
+    const SYSTEM_NAME: &'static str = "codename Maystorm";
+    const SYSTEM_SHORT_NAME: &'static str = "maystorm";
     const RELEASE: &'static str = "";
-    const VERSION: Version = Version::new(0, 0, 1, Self::RELEASE);
+    const VERSION: Version = Version::new(0, 21, 0, Self::RELEASE);
 
     const fn new(maj: u8, min: u8, patch: u16, rel: &'static str) -> Self {
         let versions = ((maj as u32) << 24) | ((min as u32) << 16) | (patch as u32);

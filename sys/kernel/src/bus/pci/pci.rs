@@ -2,9 +2,9 @@
 
 use crate::arch::cpu::*;
 use crate::system::System;
-use alloc::vec::*;
-use num_derive::FromPrimitive;
-use num_traits::FromPrimitive;
+use alloc::{boxed::Box, vec::Vec};
+// use num_derive::FromPrimitive;
+// use num_traits::FromPrimitive;
 
 #[derive(Debug, Copy, Clone, Default, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PciConfigAddressSpace {
@@ -105,8 +105,9 @@ pub struct PciDevice {
     subsys_vendor_id: PciVendorId,
     subsys_device_id: PciDeviceId,
     class_code: u32,
-    bars: Vec<PciBar>,
-    functions: Vec<PciDevice>,
+    bars: Box<[PciBar]>,
+    functions: Box<[PciDevice]>,
+    capabilities: Box<[(PciCapabilityId, u8)]>,
 }
 
 impl PciDevice {
@@ -118,6 +119,7 @@ impl PciDevice {
             return None;
         }
         let device_id = PciDeviceId((dev_ven >> 16) as u16);
+        let sta_cmd = cpu.read_pci(base.register(1));
         let subsys = cpu.read_pci(base.register(0x0B));
         let subsys_vendor_id = PciVendorId(subsys as u16);
         let subsys_device_id = PciDeviceId((subsys >> 16) as u16);
@@ -143,6 +145,26 @@ impl PciDevice {
             index += 1;
         }
 
+        let mut capabilities = Vec::new();
+        if (sta_cmd & 0x0010_0000) != 0 {
+            let mut cap_ptr = (cpu.read_pci(base.register(0x0D)) & 0xFF) as u8;
+
+            loop {
+                let current_register = cap_ptr / 4;
+                let cap_head = cpu.read_pci(base.register(current_register));
+                let cap_id = PciCapabilityId((cap_head & 0xFF) as u8);
+                let next_ptr = ((cap_head >> 8) & 0xFF) as u8;
+
+                capabilities.push((cap_id, current_register));
+
+                if next_ptr == 0 {
+                    break;
+                } else {
+                    cap_ptr = next_ptr;
+                }
+            }
+        }
+
         let mut functions = Vec::new();
         if fun == 0 && has_multi_func {
             for fun in 1..8 {
@@ -159,8 +181,9 @@ impl PciDevice {
             subsys_vendor_id,
             subsys_device_id,
             class_code,
-            bars,
-            functions,
+            bars: bars.into_boxed_slice(),
+            functions: functions.into_boxed_slice(),
+            capabilities: capabilities.into_boxed_slice(),
         };
         Some(device)
     }
@@ -187,12 +210,17 @@ impl PciDevice {
 
     #[inline]
     pub fn bars(&self) -> &[PciBar] {
-        self.bars.as_slice()
+        self.bars.as_ref()
     }
 
     #[inline]
     pub fn functions(&self) -> &[PciDevice] {
-        self.functions.as_slice()
+        self.functions.as_ref()
+    }
+
+    #[inline]
+    pub fn capabilities(&self) -> &[(PciCapabilityId, u8)] {
+        self.capabilities.as_ref()
     }
 }
 
@@ -315,15 +343,30 @@ impl PciBarType {
     }
 }
 
-#[repr(u8)]
-#[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
-pub enum PciCapabilityId {
-    Null = 0x00,
-    Pm = 0x01,
-    Agp = 0x02,
-    Vpd = 0x03,
-    SlotId = 0x04,
-    Msi = 0x05,
-    MsiX = 0x11,
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PciCapabilityId(pub u8);
+
+impl PciCapabilityId {
+    pub const NULL: Self = Self(0x00);
+    pub const PM: Self = Self(0x01);
+    pub const AGP: Self = Self(0x02);
+    pub const VOD: Self = Self(0x03);
+    pub const SLOT_ID: Self = Self(0x04);
+    pub const MSI: Self = Self(0x05);
+    pub const HOT_SWAP: Self = Self(0x06);
+    pub const PCI_X: Self = Self(0x07);
+    pub const HYPER_TRANSPORT: Self = Self(0x08);
+    pub const VENDOR_SPECIFIC: Self = Self(0x09);
+    pub const COMPACT_PCI: Self = Self(0x0B);
+    pub const HOT_PLUG: Self = Self(0x0B);
+    pub const AGP_8X: Self = Self(0x0E);
+    pub const PCI_EXPRESS: Self = Self(0x10);
+    pub const MSI_X: Self = Self(0x11);
+}
+
+impl From<u8> for PciCapabilityId {
+    fn from(raw: u8) -> Self {
+        Self(raw)
+    }
 }

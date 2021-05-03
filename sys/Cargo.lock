@@ -95,7 +95,7 @@ dependencies = [
 
 [[package]]
 name = "kernel"
-version = "0.1.0"
+version = "0.21.0"
 dependencies = [
  "acpi",
  "bitflags",
@@ -103,8 +103,8 @@ dependencies = [
  "byteorder",
  "crossbeam-queue",
  "futures-util",
+ "megosabi",
  "megstd",
- "myosabi",
  "num-derive",
  "num-traits",
  "wasm",
@@ -120,16 +120,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "megosabi"
+version = "0.1.0"
+
+[[package]]
 name = "megstd"
 version = "0.1.0"
 dependencies = [
  "bitflags",
  "byteorder",
+ "num-derive",
+ "num-traits",
 ]
-
-[[package]]
-name = "myosabi"
-version = "0.1.0"
 
 [[package]]
 name = "num-derive"

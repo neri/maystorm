@@ -1,4 +1,4 @@
-# Architecture of MYOS
+# Architecture of MEG-OS
 
 ## Kernel
 

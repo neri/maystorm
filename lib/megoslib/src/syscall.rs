@@ -1,6 +1,6 @@
-// myos system calls
+// MEG-OS System Calls
 
-use myosabi::svc::Function;
+use megosabi::svc::Function;
 
 #[link(wasm_import_module = "megos-canary")]
 extern "C" {

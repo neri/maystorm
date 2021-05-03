@@ -1,4 +1,4 @@
-// My OS
+// MEG-OS codename Maystorm
 
 #![no_std]
 #![feature(abi_x86_interrupt)]
@@ -30,7 +30,6 @@ pub mod system;
 pub mod task;
 pub mod user;
 pub mod util;
-pub mod uuid;
 pub mod window;
 
 use crate::arch::cpu::Cpu;

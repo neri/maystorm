@@ -8,9 +8,9 @@ use byteorder::*;
 use core::{
     convert::TryFrom, intrinsics::transmute, num::NonZeroU32, sync::atomic::*, time::Duration,
 };
+use megosabi::*;
 use megstd::drawing::*;
 use megstd::rand::*;
-use myosabi::*;
 use wasm::{wasmintr::*, *};
 
 pub(super) struct ArleBinaryLoader {
@@ -178,12 +178,12 @@ impl ArleRuntime {
                 let bg_color = params.get_color().ok();
                 let window_option = params.get_u32().unwrap_or(0);
 
-                let bitmap_strategy = if (window_option & MyOsAbi::WINDOW_32BIT_BITMAP) != 0 {
+                let bitmap_strategy = if (window_option & MegOsAbi::WINDOW_32BIT_BITMAP) != 0 {
                     BitmapStrategy::Expressive
                 } else {
                     BitmapStrategy::Compact
                 };
-                let bg_color = if (window_option & MyOsAbi::WINDOW_TRANSPARENT) != 0 {
+                let bg_color = if (window_option & MegOsAbi::WINDOW_TRANSPARENT) != 0 {
                     match bitmap_strategy {
                         BitmapStrategy::NonBitmap
                         | BitmapStrategy::Native
@@ -292,7 +292,7 @@ impl ArleRuntime {
                 if let Some(window) = params.get_window(self)? {
                     let c = self.read_key(window);
                     return Ok(WasmValue::from(
-                        c.map(|v| v as u32).unwrap_or(MyOsAbi::OPTION_CHAR_NONE),
+                        c.map(|v| v as u32).unwrap_or(MegOsAbi::OPTION_CHAR_NONE),
                     ));
                 }
             }

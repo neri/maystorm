@@ -1,19 +1,14 @@
 // MEG-OS Terminal
 
-use crate::{
-    fonts::*,
-    io::tty::*,
-    window::*,
-    *,
-    //sync::semaphore::Semaphore, task::scheduler::*, task::*,
-};
+use crate::{fonts::*, io::tty::*, window::*, *};
 use alloc::boxed::Box;
+use core::{
+    fmt::Write,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
 use megstd::drawing::*;
-// use alloc::sync::Arc;
-use core::fmt::Write;
-use core::future::Future;
-use core::pin::Pin;
-use core::task::{Context, Poll};
 
 const DEFAULT_INSETS: EdgeInsets = EdgeInsets::new(4, 4, 4, 4);
 const DEFAULT_ATTRIBUTE: u8 = 0x0F;
@@ -77,7 +72,7 @@ impl Terminal {
         let font = if false {
             FontManager::system_font()
         } else {
-            FontDescriptor::new(FontFamily::SmallFixed, 0).unwrap()
+            FontDescriptor::new(FontFamily::Terminal, 0).unwrap()
         };
         let insets = DEFAULT_INSETS;
         let attribute = DEFAULT_ATTRIBUTE;

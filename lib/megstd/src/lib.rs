@@ -13,5 +13,6 @@ pub mod rand;
 pub mod string;
 pub mod sys;
 pub mod time;
+pub mod uuid;
 
 extern crate alloc;

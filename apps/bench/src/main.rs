@@ -1,10 +1,10 @@
-// MyOS benchmark
+// MEG-OS benchmark
 #![no_main]
 #![no_std]
 #![feature(asm)]
 
 use core::fmt::Write;
-use myoslib::*;
+use megoslib::*;
 
 // The number of instruction steps below is 13
 // loop  ;; label = @2
