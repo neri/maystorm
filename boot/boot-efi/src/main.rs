@@ -1,19 +1,13 @@
-// MEG-OS Boot loader
+// MEG-OS Boot loader for UEFI
 
 #![feature(abi_efiapi)]
 #![no_std]
 #![no_main]
 #![feature(asm)]
 
-use boot_efi::config::*;
-use boot_efi::invocation::*;
-use boot_efi::loader::*;
-use boot_efi::page::*;
-use boot_efi::*;
+use boot_efi::{config::*, invocation::*, loader::*, page::*, *};
 use bootprot::*;
-use core::ffi::c_void;
-use core::fmt::Write;
-use core::mem::*;
+use core::{ffi::c_void, fmt::Write, mem::*};
 use uefi::prelude::*;
 
 #[entry]

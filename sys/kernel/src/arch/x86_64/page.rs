@@ -43,7 +43,10 @@ impl PageManager {
         // FFFF_????_????_???? (TEMP) DIRECT MAPPING AREA
         {
             let mut pte = p.read_volatile();
-            pte += PageAttributes::NO_EXECUTE | PageAttributes::GLOBAL;
+            pte += PageAttributes::NO_EXECUTE
+                | PageAttributes::GLOBAL
+                | PageAttributes::WRITE
+                | PageAttributes::PRESENT;
             p.add(Self::PAGE_DIRECT_MAP).write_volatile(pte);
         }
 
@@ -317,9 +320,13 @@ impl From<PhysicalAddress> for PageTableEntry {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum PageLevel {
+    /// The official name is Page Table
     Level1,
+    /// The official name is Page Directory Table
     Level2,
+    /// The official name is Page Directory Pointer Table
     Level3,
+    /// The official name is Page Map Level 4 Table
     Level4,
 }
 

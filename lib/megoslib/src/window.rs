@@ -1,7 +1,7 @@
 // MEG-OS Window API
 
 use super::*;
-use megosabi::MegOsAbi;
+use megosabi;
 use megstd::drawing::*;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -56,7 +56,7 @@ impl Window {
     #[inline]
     pub fn read_char(&self) -> Option<char> {
         match os_read_char(self.handle.0) {
-            MegOsAbi::OPTION_CHAR_NONE => None,
+            megosabi::OPTION_CHAR_NONE => None,
             c => Some(unsafe { core::char::from_u32_unchecked(c as u32) }),
         }
     }
@@ -169,13 +169,13 @@ impl WindowBuilder {
     /// Make window's bitmap to expressive (32bit)
     #[inline]
     pub const fn expressive(mut self) -> Self {
-        self.flag |= MegOsAbi::WINDOW_32BIT_BITMAP;
+        self.flag |= megosabi::window::USE_BITMAP32;
         self
     }
 
     #[inline]
     pub const fn transparent(mut self) -> Self {
-        self.flag |= MegOsAbi::WINDOW_TRANSPARENT;
+        self.flag |= megosabi::window::TRANSPARENT_WINDOW;
         self
     }
 }

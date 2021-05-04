@@ -6,7 +6,7 @@
 use core::fmt::Write;
 use megoslib::*;
 
-// The number of instruction steps below is 13
+// The number of instruction steps below is 12
 // loop  ;; label = @2
 //   local.get 2
 //   i64.eqz
@@ -20,9 +20,8 @@ use megoslib::*;
 //   i32.add
 //   local.set 1
 //   br 0 (;@2;)
-const BENCH_STEPS: u64 = 13;
+const BENCH_STEPS: u64 = 12;
 const BENCH_COUNT1: u64 = 100_000;
-const BENCH_COUNT2: u64 = 1_000_000;
 
 #[no_mangle]
 fn _start() {
@@ -48,8 +47,10 @@ fn _start() {
             println!("result: {} bogomips", bogomips as usize);
         } else {
             let mut mips_temp: usize = 0;
+            let multi = (1 + time / steps) * 10;
+            let count = BENCH_COUNT1 * multi;
             let time = os_bench(|| {
-                for _ in 0..BENCH_COUNT2 {
+                for _ in 0..count {
                     unsafe {
                         asm!("
                         local.get {0}
@@ -60,9 +61,9 @@ fn _start() {
                     }
                 }
             }) as u64;
-            let steps: u64 = BENCH_STEPS * BENCH_COUNT2;
+            let steps: u64 = BENCH_STEPS * count;
             let bogomips = (steps * 1_000_000).checked_div(time).unwrap_or(0);
-            println!("result: {} bogomips", bogomips as usize);
+            println!("result: {} bogomips {}", bogomips as usize, multi as usize);
         }
     }
 }

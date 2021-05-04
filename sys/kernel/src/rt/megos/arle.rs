@@ -1,16 +1,13 @@
 // MEG-OS Arlequin Subsystem
 
 use super::*;
-use crate::io::hid::*;
-use crate::util::text::*;
+use crate::{io::hid::*, util::text::*};
 use alloc::collections::BTreeMap;
 use byteorder::*;
-use core::{
-    convert::TryFrom, intrinsics::transmute, num::NonZeroU32, sync::atomic::*, time::Duration,
-};
-use megosabi::*;
+use core::{intrinsics::transmute, num::NonZeroU32, sync::atomic::*, time::Duration};
 use megstd::drawing::*;
 use megstd::rand::*;
+use num_traits::FromPrimitive;
 use wasm::{wasmintr::*, *};
 
 pub(super) struct ArleBinaryLoader {
@@ -131,21 +128,22 @@ impl ArleRuntime {
     }
 
     fn dispatch_syscall(&mut self, params: &[WasmValue]) -> Result<WasmValue, WasmRuntimeError> {
+        use megosabi::svc::Function;
         let mut params = ParamsDecoder::new(params);
         let memory = self.module.memory(0).ok_or(WasmRuntimeError::OutOfMemory)?;
-        let func_no = params.get_u32().and_then(|v| {
-            svc::Function::try_from(v).map_err(|_| WasmRuntimeError::InvalidParameter)
-        })?;
+        let func_no = params
+            .get_u32()
+            .and_then(|v| FromPrimitive::from_u32(v).ok_or(WasmRuntimeError::InvalidParameter))?;
 
         match func_no {
-            svc::Function::Exit => {
+            Function::Exit => {
                 return Err(WasmRuntimeError::NoError);
             }
 
-            svc::Function::Monotonic => {
+            Function::Monotonic => {
                 return Ok(WasmValue::I32(Timer::monotonic().as_micros() as i32));
             }
-            svc::Function::Time => {
+            Function::Time => {
                 let sub_func_no = params.get_usize()?;
                 match sub_func_no {
                     0 => {
@@ -155,12 +153,12 @@ impl ArleRuntime {
                     _ => (),
                 }
             }
-            svc::Function::Usleep => {
+            Function::Usleep => {
                 let us = params.get_u32()? as u64;
                 Timer::sleep(Duration::from_micros(us));
             }
 
-            svc::Function::GetSystemInfo => {
+            Function::GetSystemInfo => {
                 let sub_func_no = params.get_usize()?;
                 match sub_func_no {
                     0 => return Ok(WasmValue::from(System::version().as_u32())),
@@ -168,22 +166,22 @@ impl ArleRuntime {
                 }
             }
 
-            svc::Function::PrintString => {
+            Function::PrintString => {
                 params.get_string(memory).map(|s| print!("{}", s));
             }
 
-            svc::Function::NewWindow => {
+            Function::NewWindow => {
                 let title = params.get_string(memory).unwrap_or("");
                 let size = params.get_size()?;
                 let bg_color = params.get_color().ok();
                 let window_option = params.get_u32().unwrap_or(0);
 
-                let bitmap_strategy = if (window_option & MegOsAbi::WINDOW_32BIT_BITMAP) != 0 {
+                let bitmap_strategy = if (window_option & megosabi::window::USE_BITMAP32) != 0 {
                     BitmapStrategy::Expressive
                 } else {
                     BitmapStrategy::Compact
                 };
-                let bg_color = if (window_option & MegOsAbi::WINDOW_TRANSPARENT) != 0 {
+                let bg_color = if (window_option & megosabi::window::TRANSPARENT_WINDOW) != 0 {
                     match bitmap_strategy {
                         BitmapStrategy::NonBitmap
                         | BitmapStrategy::Native
@@ -208,7 +206,7 @@ impl ArleRuntime {
                     return Ok(WasmValue::I32(handle as i32));
                 }
             }
-            svc::Function::CloseWindow => {
+            Function::CloseWindow => {
                 let handle = params.get_usize()?;
                 if let Some(window) = self.windows.get(&handle) {
                     window.close();
@@ -216,16 +214,16 @@ impl ArleRuntime {
                 }
             }
 
-            svc::Function::BeginDraw => {
+            Function::BeginDraw => {
                 // TODO:
             }
-            svc::Function::EndDraw => {
+            Function::EndDraw => {
                 if let Some(window) = params.get_window(self)? {
                     window.refresh_if_needed();
                 }
             }
 
-            svc::Function::DrawString => {
+            Function::DrawString => {
                 if let Some(window) = params.get_window(self)? {
                     let max_lines = 0;
                     let origin = params.get_point()?;
@@ -246,7 +244,7 @@ impl ArleRuntime {
                     window.set_needs_display();
                 }
             }
-            svc::Function::FillRect => {
+            Function::FillRect => {
                 if let Some(window) = params.get_window(self)? {
                     let origin = params.get_point()?;
                     let size = params.get_size()?;
@@ -258,7 +256,7 @@ impl ArleRuntime {
                     window.set_needs_display();
                 }
             }
-            svc::Function::DrawRect => {
+            Function::DrawRect => {
                 if let Some(window) = params.get_window(self)? {
                     let origin = params.get_point()?;
                     let size = params.get_size()?;
@@ -270,7 +268,7 @@ impl ArleRuntime {
                     window.set_needs_display();
                 }
             }
-            svc::Function::DrawLine => {
+            Function::DrawLine => {
                 if let Some(window) = params.get_window(self)? {
                     let c1 = params.get_point()?;
                     let c2 = params.get_point()?;
@@ -282,21 +280,21 @@ impl ArleRuntime {
                     window.set_needs_display();
                 }
             }
-            svc::Function::WaitChar => {
+            Function::WaitChar => {
                 if let Some(window) = params.get_window(self)? {
                     let c = self.wait_key(window);
                     return Ok(WasmValue::I32(c.unwrap_or('\0') as i32));
                 }
             }
-            svc::Function::ReadChar => {
+            Function::ReadChar => {
                 if let Some(window) = params.get_window(self)? {
                     let c = self.read_key(window);
                     return Ok(WasmValue::from(
-                        c.map(|v| v as u32).unwrap_or(MegOsAbi::OPTION_CHAR_NONE),
+                        c.map(|v| v as u32).unwrap_or(megosabi::OPTION_CHAR_NONE),
                     ));
                 }
             }
-            svc::Function::Blt8 => {
+            Function::Blt8 => {
                 if let Some(window) = params.get_window(self)? {
                     let origin = params.get_point()?;
                     let src = params.get_bitmap8(memory)?;
@@ -315,7 +313,7 @@ impl ArleRuntime {
                     window.set_needs_display();
                 }
             }
-            svc::Function::Blt32 => {
+            Function::Blt32 => {
                 if let Some(window) = params.get_window(self)? {
                     let origin = params.get_point()?;
                     let src = params.get_bitmap32(memory)?;
@@ -333,7 +331,7 @@ impl ArleRuntime {
                     window.set_needs_display();
                 }
             }
-            svc::Function::BlendRect => {
+            Function::BlendRect => {
                 let bitmap = params.get_bitmap32(memory)?;
                 let origin = params.get_point()?;
                 let size = params.get_size()?;
@@ -342,7 +340,7 @@ impl ArleRuntime {
                 let mut bitmap: Bitmap32 = unsafe { transmute(bitmap) };
                 bitmap.blend_rect(rect, color);
             }
-            svc::Function::Blt1 => {
+            Function::Blt1 => {
                 if let Some(window) = params.get_window(self)? {
                     let origin = params.get_point()?;
                     let os_bitmap = params.get_bitmap1(memory)?;
@@ -355,19 +353,19 @@ impl ArleRuntime {
                 }
             }
 
-            svc::Function::Rand => {
+            Function::Rand => {
                 return Ok(WasmValue::from(self.rng32.next()));
             }
-            svc::Function::Srand => {
+            Function::Srand => {
                 let seed = params.get_u32()?;
                 NonZeroU32::new(seed).map(|v| self.rng32 = XorShift32::new(v));
             }
 
-            svc::Function::Alloc | svc::Function::Free => {
+            Function::Alloc | Function::Free => {
                 // TODO:
             }
 
-            svc::Function::Test => {
+            Function::Test => {
                 let val = params.get_u32()?;
                 println!("val: {}", val);
             }

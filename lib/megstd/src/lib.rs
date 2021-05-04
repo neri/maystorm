@@ -16,3 +16,8 @@ pub mod time;
 pub mod uuid;
 
 extern crate alloc;
+
+pub use prelude::*;
+mod prelude {
+    //
+}

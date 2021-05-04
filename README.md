@@ -37,9 +37,10 @@ $ make
 $ make run
 ```
 
-## Haribote-OS emulator
+## HOE: Haribote-OS Emulation Subsystem
 
 * We have confirmed that about half of the apps work at this point. Some APIs are not yet implemented.
+* This subsystem may not be supported in the future, or its architecture may change.
 
 ## History
 

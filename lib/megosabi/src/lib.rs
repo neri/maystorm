@@ -1,16 +1,14 @@
-// MEG-OS System Call ABI
+// MEG-OS Arlequin System Call ABI
 #![no_std]
 
 pub mod svc;
 
-pub struct MegOsAbi {}
+/// Invalid character representation in Rust
+pub const OPTION_CHAR_NONE: u32 = 0x110000;
 
-impl MegOsAbi {
-    /// Invalid character representation in Rust
-    pub const OPTION_CHAR_NONE: u32 = 0x110000;
-
+pub mod window {
     /// Use 32bit bitmap in window
-    pub const WINDOW_32BIT_BITMAP: u32 = 0b0000_0000_0000_0001;
+    pub const USE_BITMAP32: u32 = 0b0000_0000_0000_0001;
     /// Transparent Window
-    pub const WINDOW_TRANSPARENT: u32 = 0b0000_0000_0000_0010;
+    pub const TRANSPARENT_WINDOW: u32 = 0b0000_0000_0000_0010;
 }

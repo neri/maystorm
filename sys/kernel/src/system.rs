@@ -17,34 +17,40 @@ pub struct Version {
 }
 
 impl Version {
-    const SYSTEM_NAME: &'static str = "codename Maystorm";
+    const SYSTEM_NAME: &'static str = "An Operating Environment codename Maystorm";
     const SYSTEM_SHORT_NAME: &'static str = "maystorm";
     const RELEASE: &'static str = "";
     const VERSION: Version = Version::new(0, 21, 0, Self::RELEASE);
 
+    #[inline]
     const fn new(maj: u8, min: u8, patch: u16, rel: &'static str) -> Self {
         let versions = ((maj as u32) << 24) | ((min as u32) << 16) | (patch as u32);
         Version { versions, rel }
     }
 
+    #[inline]
     pub const fn as_u32(&self) -> u32 {
         self.versions
     }
 
+    #[inline]
     pub const fn maj(&self) -> usize {
         ((self.versions >> 24) & 0xFF) as usize
     }
 
+    #[inline]
     pub const fn min(&self) -> usize {
         ((self.versions >> 16) & 0xFF) as usize
     }
 
+    #[inline]
     pub const fn patch(&self) -> usize {
         (self.versions & 0xFFFF) as usize
     }
 }
 
 impl fmt::Display for Version {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.rel.len() > 0 {
             write!(
@@ -99,6 +105,7 @@ pub struct System {
 static mut SYSTEM: System = System::new();
 
 impl System {
+    #[inline]
     const fn new() -> Self {
         System {
             current_device: DeviceInfo::new(),
@@ -318,6 +325,7 @@ pub struct DeviceInfo {
 }
 
 impl DeviceInfo {
+    #[inline]
     const fn new() -> Self {
         Self {
             manufacturer_name: None,
@@ -328,30 +336,32 @@ impl DeviceInfo {
         }
     }
 
+    /// Returns the name of the manufacturer of the system, if available.
     #[inline]
     pub fn manufacturer_name(&self) -> Option<&str> {
         self.manufacturer_name.as_ref().map(|v| v.as_str())
     }
 
+    /// Returns the model name of the system, if available.
     #[inline]
     pub fn model_name(&self) -> Option<&str> {
         self.model_name.as_ref().map(|v| v.as_str())
     }
 
+    /// Returns the total amount of memory size in bytes.
     #[inline]
     pub const fn total_memory_size(&self) -> usize {
         self.total_memory_size
     }
 
-    /// Returns the number of performance CPU cores.
-    /// Returns less than `num_of_cpus` for SMT-enabled processors or heterogeneous computing.
+    /// Returns the number of active logical CPU cores.
     #[inline]
     pub fn num_of_active_cpus(&self) -> usize {
         self.num_of_active_cpus.load(Ordering::SeqCst)
     }
 
-    /// Returns the number of active logical CPU cores.
-    /// Returns the same value as `num_of_cpus` except during SMP initialization.
+    /// Returns the number of performance CPU cores.
+    /// Returns less than `num_of_active_cpus` for SMT-enabled processors or heterogeneous computing.
     #[inline]
     pub fn num_of_performance_cpus(&self) -> usize {
         self.num_of_main_cpus.load(Ordering::SeqCst)
@@ -378,8 +388,9 @@ impl ::acpi::AcpiHandler for MyAcpiHandler {
     ) -> PhysicalMapping<Self, T> {
         PhysicalMapping {
             physical_start: physical_address,
-            virtual_start: NonNull::new(PageManager::direct_map(physical_address) as *mut T)
-                .unwrap(),
+            virtual_start: NonNull::new_unchecked(
+                PageManager::direct_map(physical_address) as *mut T
+            ),
             region_length: size,
             mapped_length: size,
             handler: Self::new(),

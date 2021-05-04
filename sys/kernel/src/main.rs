@@ -62,15 +62,16 @@ impl Shell {
 
         let device = System::current_device();
         println!(
-            "System Manufacturer: {}",
-            device.manufacturer_name().unwrap_or("Unknown"),
-        );
-        println!("System Model: {}", device.model_name().unwrap_or("Unknown"),);
-        println!(
-            "Processor Cores: {} / {}",
+            "Processor {} Cores / {} Threads, Memory {} MB",
             device.num_of_performance_cpus(),
             device.num_of_active_cpus(),
+            device.total_memory_size() >> 20,
         );
+        println!(
+            "Manufacturer: {}",
+            device.manufacturer_name().unwrap_or("Unknown"),
+        );
+        println!("Model: {}", device.model_name().unwrap_or("Unknown"),);
 
         loop {
             print!("# ");

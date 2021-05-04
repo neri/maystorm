@@ -143,6 +143,12 @@ pub enum WasmIntMnemonic {
     FusedI32SubI,
     FusedI64AddI,
     FusedI64SubI,
+    FusedI32AndI,
+    FusedI32OrI,
+    FusedI32XorI,
+    FusedI32ShlI,
+    FusedI32ShrSI,
+    FusedI32ShrUI,
 }
 
 impl WasmIntMnemonic {

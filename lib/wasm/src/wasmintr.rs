@@ -1148,6 +1148,49 @@ impl WasmInterpreter<'_> {
 
                     lhs.map_i32(|lhs| lhs.wrapping_sub(code.param1() as i32));
                 }
+                WasmIntMnemonic::FusedI32AndI => {
+                    let lhs = value_stack
+                        .get_mut(code.stack_level())
+                        .ok_or(WasmRuntimeError::InternalInconsistency)?;
+
+                    lhs.map_i32(|lhs| lhs & code.param1() as i32);
+                }
+                WasmIntMnemonic::FusedI32OrI => {
+                    let lhs = value_stack
+                        .get_mut(code.stack_level())
+                        .ok_or(WasmRuntimeError::InternalInconsistency)?;
+
+                    lhs.map_i32(|lhs| lhs | code.param1() as i32);
+                }
+                WasmIntMnemonic::FusedI32XorI => {
+                    let lhs = value_stack
+                        .get_mut(code.stack_level())
+                        .ok_or(WasmRuntimeError::InternalInconsistency)?;
+
+                    lhs.map_i32(|lhs| lhs ^ code.param1() as i32);
+                }
+                WasmIntMnemonic::FusedI32ShlI => {
+                    let lhs = value_stack
+                        .get_mut(code.stack_level())
+                        .ok_or(WasmRuntimeError::InternalInconsistency)?;
+
+                    lhs.map_u32(|lhs| lhs << (code.param1() as u32));
+                }
+                WasmIntMnemonic::FusedI32ShrUI => {
+                    let lhs = value_stack
+                        .get_mut(code.stack_level())
+                        .ok_or(WasmRuntimeError::InternalInconsistency)?;
+
+                    lhs.map_u32(|lhs| lhs >> (code.param1() as u32));
+                }
+                WasmIntMnemonic::FusedI32ShrSI => {
+                    let lhs = value_stack
+                        .get_mut(code.stack_level())
+                        .ok_or(WasmRuntimeError::InternalInconsistency)?;
+
+                    lhs.map_i32(|lhs| lhs >> (code.param1() as i32));
+                }
+
                 WasmIntMnemonic::FusedI64AddI => {
                     let lhs = value_stack
                         .get_mut(code.stack_level())
@@ -1162,6 +1205,7 @@ impl WasmInterpreter<'_> {
 
                     lhs.map_i64(|lhs| lhs.wrapping_sub(code.param1() as i64));
                 }
+
                 WasmIntMnemonic::FusedI32BrZ => {
                     let cc = value_stack[code.stack_level()].get_i32() == 0;
                     if cc {
@@ -1400,6 +1444,35 @@ mod tests {
             .get_i32()
             .unwrap();
         assert_eq!(result, 0x34031444);
+    }
+
+    #[test]
+    fn fused_add() {
+        let slice = [0x20, 0, 0x41, 1, 0x6A, 0x0B];
+        let local_types = [WasmValType::I32, WasmValType::I32];
+        let result_types = [WasmValType::I32];
+        let mut stream = Leb128Stream::from_slice(&slice);
+        let module = WasmModule::new();
+        let info =
+            WasmBlockInfo::analyze(0, &mut stream, &local_types, &result_types, &module).unwrap();
+        let mut interp = WasmInterpreter::new(&module);
+
+        let params = [1234_5678.into()];
+
+        let result = interp
+            .invoke(0, &info, &params, &result_types)
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 12345679);
+
+        let params = [0xFFFF_FFFFu32.into()];
+        let result = interp
+            .invoke(0, &info, &params, &result_types)
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 0);
     }
 
     #[test]

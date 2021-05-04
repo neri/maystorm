@@ -3451,47 +3451,70 @@ impl WasmBlockInfo {
             }
         }
 
+        macro_rules! fused_const_opr {
+            ( $array:ident, $index:expr, $opr:expr ) => {
+                let next = $index + 1;
+                $array[$index].mnemonic = Nop;
+                $array[next].mnemonic = $opr;
+                $array[next].param1 = $array[$index].param1();
+            };
+        }
+
+        macro_rules! fused_branch {
+            ( $array:ident, $index:expr, $opr:expr ) => {
+                let next = $index + 1;
+                $array[$index].mnemonic = Nop;
+                $array[next].mnemonic = $opr;
+            };
+        }
+
         // fused instructions
         if int_codes.len() > 2 {
             let limit = int_codes.len() - 1;
             for i in 0..limit {
                 use WasmIntMnemonic::*;
-                let j = i + 1;
-                let current = int_codes[i].mnemonic();
-                let next = int_codes[j].mnemonic();
-                match (current, next) {
+                let this_op = int_codes[i].mnemonic();
+                let next_op = int_codes[i + 1].mnemonic();
+                match (this_op, next_op) {
                     (I32Const, I32Add) => {
-                        let param1 = int_codes[i].param1();
-                        int_codes[i].mnemonic = Nop;
-                        int_codes[j].mnemonic = FusedI32AddI;
-                        int_codes[j].param1 = param1;
+                        fused_const_opr!(int_codes, i, FusedI32AddI);
                     }
                     (I32Const, I32Sub) => {
-                        let param1 = int_codes[i].param1();
-                        int_codes[i].mnemonic = Nop;
-                        int_codes[j].mnemonic = FusedI32SubI;
-                        int_codes[j].param1 = param1;
+                        fused_const_opr!(int_codes, i, FusedI32SubI);
                     }
+                    (I32Const, I32And) => {
+                        fused_const_opr!(int_codes, i, FusedI32AndI);
+                    }
+                    (I32Const, I32Or) => {
+                        fused_const_opr!(int_codes, i, FusedI32OrI);
+                    }
+                    (I32Const, I32Xor) => {
+                        fused_const_opr!(int_codes, i, FusedI32XorI);
+                    }
+                    (I32Const, I32Shl) => {
+                        fused_const_opr!(int_codes, i, FusedI32ShlI);
+                    }
+                    (I32Const, I32ShrS) => {
+                        fused_const_opr!(int_codes, i, FusedI32ShrSI);
+                    }
+                    (I32Const, I32ShrU) => {
+                        fused_const_opr!(int_codes, i, FusedI32ShrUI);
+                    }
+
                     (I64Const, I64Add) => {
-                        let param1 = int_codes[i].param1();
-                        int_codes[i].mnemonic = Nop;
-                        int_codes[j].mnemonic = FusedI64AddI;
-                        int_codes[j].param1 = param1;
+                        fused_const_opr!(int_codes, i, FusedI64AddI);
                     }
                     (I64Const, I64Sub) => {
-                        let param1 = int_codes[i].param1();
-                        int_codes[i].mnemonic = Nop;
-                        int_codes[j].mnemonic = FusedI64SubI;
-                        int_codes[j].param1 = param1;
+                        fused_const_opr!(int_codes, i, FusedI64SubI);
                     }
+
                     (I32Eqz, BrIf) => {
-                        int_codes[i].mnemonic = Nop;
-                        int_codes[j].mnemonic = FusedI32BrZ;
+                        fused_branch!(int_codes, i, FusedI32BrZ);
                     }
                     (I64Eqz, BrIf) => {
-                        int_codes[i].mnemonic = Nop;
-                        int_codes[j].mnemonic = FusedI64BrZ;
+                        fused_branch!(int_codes, i, FusedI64BrZ);
                     }
+
                     _ => (),
                 }
             }
