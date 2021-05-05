@@ -55,31 +55,62 @@ impl PageManager {
 
     #[inline]
     pub(crate) unsafe fn init_late() {
-        let base = Self::read_pdbr() as usize & !(Self::PAGE_SIZE_MIN - 1);
-        let p = base as *const u64 as *mut PageTableEntry;
-        p.write_volatile(PageTableEntry::empty());
-        Self::invalidate_all_pages();
+        // let base = Self::read_pdbr() as usize & !(Self::PAGE_SIZE_MIN - 1);
+        // let p = base as *const u64 as *mut PageTableEntry;
+        // p.write_volatile(PageTableEntry::empty());
+        // Self::invalidate_all_pages();
     }
 
     #[inline]
-    unsafe fn invalidate_all_pages() {
+    pub(super) unsafe fn invalidate_all_pages() {
         Self::write_pdbr(Self::read_pdbr());
     }
 
     #[inline]
     #[track_caller]
-    pub(crate) unsafe fn map_mmio(base: usize, len: NonZeroUsize) -> usize {
-        let pa = base as PhysicalAddress;
-        let va = Self::direct_map(base);
-        Self::map(
-            va,
-            len,
-            PageTableEntry::new(
-                pa,
-                PageAttributes::NO_EXECUTE | PageAttributes::GLOBAL | PageAttributes::WRITE,
-            ),
-        );
-        va
+    pub(crate) unsafe fn mmap(request: MemoryMapRequest) -> usize {
+        use MemoryMapRequest::*;
+        match request {
+            Mmio(base, len) => {
+                let len = match NonZeroUsize::new(len) {
+                    Some(v) => v,
+                    None => return 0,
+                };
+                let pa = base as PhysicalAddress;
+                let va = Self::direct_map(base);
+                Self::map(
+                    va,
+                    len,
+                    PageTableEntry::new(
+                        pa,
+                        PageAttributes::NO_EXECUTE | PageAttributes::GLOBAL | PageAttributes::WRITE,
+                    ),
+                );
+                va
+            }
+            Vram(base, len) => {
+                let len = match NonZeroUsize::new(len) {
+                    Some(v) => v,
+                    None => return 0,
+                };
+                let pa = base as PhysicalAddress;
+                let va = Self::direct_map(base);
+                Self::map(
+                    va,
+                    len,
+                    PageTableEntry::new(
+                        pa,
+                        PageAttributes::NO_EXECUTE
+                            | PageAttributes::GLOBAL
+                            | PageAttributes::WRITE
+                            | PageAttributes::USER,
+                    ),
+                );
+                va
+            }
+            // Kernel(_, _, _) => todo!(),
+            _ => todo!(),
+        }
     }
 
     #[inline]
@@ -107,6 +138,10 @@ impl PageManager {
                 Self::map_table_if_needed(va, PageLevel::Level4, template);
                 Self::map_table_if_needed(va, PageLevel::Level3, template);
                 Self::map_table_if_needed(va, PageLevel::Level2, template);
+                let pdte = PageLevel::Level2.pte_of(va).read_volatile();
+                if pdte.contains(PageAttributes::LARGE) {
+                    panic!("LARGE PDT");
+                }
                 let pte = PageLevel::Level1.pte_of(va);
                 pte.write_volatile(template);
                 Self::invalidate_tlb(va);
@@ -125,7 +160,7 @@ impl PageManager {
                 Self::PAGE_SIZE_MIN,
             ))
             .unwrap()
-            .get();
+            .get() as PhysicalAddress;
             let table: *mut u8 = transmute(Self::direct_map(pa));
             table.write_bytes(0, Self::PAGE_SIZE_MIN);
             pte.write_volatile(PageTableEntry::new(
@@ -154,8 +189,8 @@ impl PageManager {
     }
 
     #[inline]
-    pub const fn direct_map(pa: usize) -> usize {
-        Self::DIRECT_BASE + pa
+    pub const fn direct_map(pa: PhysicalAddress) -> usize {
+        Self::DIRECT_BASE + pa as usize
     }
 }
 
@@ -382,16 +417,4 @@ impl PageLevel {
         };
         pte as *mut PageTableEntry
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum MemoryMapRequest {
-    /// for MMIO (physical_address, length)
-    Mmio(PhysicalAddress, usize),
-    /// for VRAM (physical_address, length)
-    Vram(PhysicalAddress, usize),
-    /// for Kernel Mode Heap (base, length, attr)
-    Kernel(usize, usize, MProtect),
-    /// for User Mode Heap (base, length, attr)
-    User(usize, usize, MProtect),
 }

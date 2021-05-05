@@ -1,5 +1,7 @@
 // Memory Mapped I/O Registers
 
+use crate::arch::page::PhysicalAddress;
+
 use super::*;
 use core::{
     mem::{size_of, transmute},
@@ -15,18 +17,18 @@ pub struct Mmio {
 
 impl Mmio {
     #[inline]
-    pub unsafe fn from_phys(base: usize, size: NonZeroUsize) -> Result<Self, AllocationError> {
-        MemoryManager::map_mmio(base, size).map(|va| Self {
+    pub unsafe fn from_phys(base: PhysicalAddress, size: usize) -> Option<Self> {
+        MemoryManager::mmap(MemoryMapRequest::Mmio(base, size)).map(|va| Self {
             base: va.get(),
-            size: size.get(),
+            size,
         })
     }
 
     #[inline]
-    pub unsafe fn from_virt(base: NonZeroUsize, size: NonZeroUsize) -> Self {
+    pub unsafe fn from_virt(base: NonZeroUsize, size: usize) -> Self {
         Self {
             base: base.get(),
-            size: size.get(),
+            size,
         }
     }
 

@@ -12,7 +12,14 @@ use crate::{
 use alloc::boxed::Box;
 use bitflags::*;
 use bootprot::*;
-use core::{alloc::Layout, fmt::Write, mem::transmute, num::*, slice, sync::atomic::*};
+use core::{
+    alloc::Layout,
+    fmt::Write,
+    mem::{size_of, transmute},
+    num::*,
+    slice,
+    sync::atomic::*,
+};
 
 use megstd::string::*;
 
@@ -93,11 +100,13 @@ impl MemoryManager {
     }
 
     #[inline]
-    pub unsafe fn map_mmio(
-        base: usize,
-        size: NonZeroUsize,
-    ) -> Result<NonZeroUsize, AllocationError> {
-        NonZeroUsize::new(PageManager::map_mmio(base, size)).ok_or(AllocationError::InvalidArgument)
+    pub unsafe fn mmap(request: MemoryMapRequest) -> Option<NonZeroUsize> {
+        let va = NonZeroUsize::new(PageManager::mmap(request));
+        if Scheduler::is_enabled() {
+            // TODO:
+            Cpu::broadcast_invalidate_tlb().unwrap();
+        }
+        va
     }
 
     #[inline]
@@ -145,7 +154,8 @@ impl MemoryManager {
         None
     }
 
-    /// Allocate kernel memory (old form)
+    /// Allocate kernel memory (DEPRECATED)
+    #[deprecated]
     pub unsafe fn zalloc_legacy(size: usize) -> Option<NonZeroUsize> {
         let shared = Self::shared();
         match Layout::from_size_align(size, shared.page_size_min()) {
@@ -164,7 +174,8 @@ impl MemoryManager {
                 Err(_err) => return None,
             }
         }
-        Self::pg_alloc(layout).and_then(|v| NonZeroUsize::new(PageManager::direct_map(v.get())))
+        Self::pg_alloc(layout)
+            .and_then(|v| NonZeroUsize::new(PageManager::direct_map(v.get() as PhysicalAddress)))
     }
 
     /// Deallocate kernel memory
@@ -327,4 +338,23 @@ pub enum DeallocationError {
     Unexpected,
     InvalidArgument,
     Unsupported,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum MemoryMapRequest {
+    /// for MMIO (physical_address, length)
+    Mmio(PhysicalAddress, usize),
+    /// for VRAM (physical_address, length)
+    Vram(PhysicalAddress, usize),
+    /// for Kernel Mode Heap (base, length, attr)
+    Kernel(usize, usize, MProtect),
+    /// for User Mode Heap (base, length, attr)
+    User(usize, usize, MProtect),
+}
+
+impl MemoryMapRequest {
+    #[allow(dead_code)]
+    fn to_slice(&self) -> &[u8] {
+        unsafe { slice::from_raw_parts(&self as *const _ as *const u8, size_of::<Self>()) }
+    }
 }

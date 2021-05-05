@@ -424,7 +424,7 @@ impl Scheduler {
     }
 
     /// Returns whether or not the thread scheduler is working.
-    fn is_enabled() -> bool {
+    pub fn is_enabled() -> bool {
         unsafe { &SCHEDULER }.is_some() && SCHEDULER_ENABLED.load(Ordering::SeqCst)
     }
 
@@ -1028,17 +1028,17 @@ impl ThreadPool {
     }
 
     #[inline]
-    fn get<'a>(&self, key: &ThreadHandle) -> Option<&'a Box<RawThread>> {
-        Self::synchronized(|| self.data.get(key).map(|v| v.clone().get()))
+    fn get<'a>(&self, key: ThreadHandle) -> Option<&'a Box<RawThread>> {
+        Self::synchronized(|| self.data.get(&key).map(|v| v.clone().get()))
             .map(|thread| unsafe { &(*thread) })
     }
 
     #[inline]
-    fn get_mut<F, R>(&mut self, key: &ThreadHandle, f: F) -> Option<R>
+    fn get_mut<F, R>(&mut self, key: ThreadHandle, f: F) -> Option<R>
     where
         F: FnOnce(&mut RawThread) -> R,
     {
-        let thread = Self::synchronized(move || self.data.get_mut(key).map(|v| v.clone()));
+        let thread = Self::synchronized(move || self.data.get_mut(&key).map(|v| v.clone()));
         thread.map(|thread| unsafe {
             let thread = thread.get();
             f(&mut *thread)
@@ -1051,7 +1051,7 @@ pub struct ThreadHandle(NonZeroUsize);
 
 impl ThreadHandle {
     #[inline]
-    const fn new(val: usize) -> Option<Self> {
+    pub const fn new(val: usize) -> Option<Self> {
         match NonZeroUsize::new(val) {
             Some(v) => Some(Self(v)),
             None => None,
@@ -1082,13 +1082,13 @@ impl ThreadHandle {
         F: FnOnce(&mut RawThread) -> R,
     {
         let shared = ThreadPool::shared();
-        shared.get_mut(self, f).unwrap()
+        shared.get_mut(*self, f).unwrap()
     }
 
     #[inline]
     fn get<'a>(&self) -> Option<&'a Box<RawThread>> {
         let shared = ThreadPool::shared();
-        shared.get(self)
+        shared.get(*self)
     }
 
     #[inline]
@@ -1110,7 +1110,7 @@ impl ThreadHandle {
     }
 
     #[inline]
-    fn wake(&self) {
+    pub fn wake(&self) {
         self.as_ref().attribute.insert(ThreadAttributes::AWAKE);
         Scheduler::add(*self);
     }

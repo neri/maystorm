@@ -1,11 +1,17 @@
 // Advanced Programmable Interrupt Controller
 
-use super::cpu::*;
-use super::hpet::*;
-use crate::{mem::mmio::*, mem::*, sync::spinlock::Spinlock, system::*, task::scheduler::*};
+use super::{cpu::*, page::PhysicalAddress};
+use super::{hpet::*, page::PageManager};
+use crate::{
+    mem::mmio::*,
+    mem::*,
+    sync::spinlock::{SpinLoopWait, Spinlock},
+    system::*,
+    task::scheduler::*,
+};
 use ::alloc::{boxed::Box, vec::*};
 use acpi::platform::ProcessorState;
-use core::{ffi::c_void, num::NonZeroUsize, sync::atomic::*, time::Duration};
+use core::{ffi::c_void, sync::atomic::*, time::Duration};
 
 /// Maximum number of supported cpu cores
 const MAX_CPU: usize = 64;
@@ -68,12 +74,21 @@ extern "x86-interrupt" fn timer_handler() {
     }
 }
 
+extern "x86-interrupt" fn ipi_tlb_flush_handler() {
+    unsafe {
+        PageManager::invalidate_all_pages();
+        Cpu::interlocked_test_and_clear(&APIC.tlb_flush_bitmap, Cpu::current_processor_index().0);
+        LocalApic::eoi();
+    }
+}
+
 pub(super) struct Apic {
     master_apic_id: ProcessorId,
     ioapics: Vec<Box<IoApic>>,
     gsi_table: [GsiProps; 256],
     idt: [usize; Irq::MAX.0 as usize],
     lapic_timer_value: u32,
+    tlb_flush_bitmap: AtomicUsize,
 }
 
 impl Apic {
@@ -88,6 +103,7 @@ impl Apic {
             gsi_table: [GsiProps::default(); 256],
             idt: [0; Irq::MAX.0 as usize],
             lapic_timer_value: 0,
+            tlb_flush_bitmap: AtomicUsize::new(0),
         }
     }
 
@@ -108,7 +124,7 @@ impl Apic {
             .local_apic_id
             .into();
         CURRENT_PROCESSOR_INDEXES[APIC.master_apic_id.0 as usize] = 0;
-        LocalApic::init(acpi_apic.local_apic_address as usize);
+        LocalApic::init(acpi_apic.local_apic_address);
 
         Msr::TscAux.write(0);
 
@@ -178,6 +194,12 @@ impl Apic {
             LocalApicTimerMode::Periodic,
             vec_latimer,
             APIC.lapic_timer_value,
+        );
+
+        InterruptDescriptorTable::register(
+            InterruptVector::IPI_INVALIDATE_TLB,
+            ipi_tlb_flush_handler as usize,
+            PrivilegeLevel::Kernel,
         );
 
         // preparing SMP
@@ -311,6 +333,34 @@ impl Apic {
                 (addr, data)
             })
             .map_err(|_| ())
+    }
+
+    #[inline]
+    #[must_use]
+    pub unsafe fn broadcast_invalidate_tlb() -> bool {
+        Cpu::without_interrupts(|| {
+            let max_cpu = System::current_device().num_of_active_cpus();
+            if max_cpu < 2 {
+                return true;
+            }
+            APIC.tlb_flush_bitmap.store(
+                ((1usize << max_cpu) - 1) & !(1usize << Cpu::current_processor_index().0),
+                Ordering::SeqCst,
+            );
+
+            LocalApic::broadcast_ipi(InterruptVector::IPI_INVALIDATE_TLB);
+
+            let mut hint = SpinLoopWait::new();
+            let deadline = Timer::new(Duration::from_millis(200));
+            while deadline.until() {
+                if APIC.tlb_flush_bitmap.load(Ordering::Relaxed) == 0 {
+                    break;
+                }
+                hint.wait();
+            }
+
+            APIC.tlb_flush_bitmap.load(Ordering::Relaxed) == 0
+        })
     }
 }
 
@@ -497,7 +547,7 @@ impl From<&acpi::platform::TriggerMode> for ApicTriggerMode {
     }
 }
 
-static mut LOCAL_APIC_PA: u64 = 0;
+static mut LOCAL_APIC_PA: PhysicalAddress = 0;
 static mut LOCAL_APIC: Option<Mmio> = None;
 
 #[allow(dead_code)]
@@ -524,9 +574,10 @@ impl LocalApic {
     const IA32_APIC_BASE_MSR_BSP: u64 = 0x00000100;
     const IA32_APIC_BASE_MSR_ENABLE: u64 = 0x00000800;
 
-    unsafe fn init(base: usize) {
-        LOCAL_APIC_PA = base as u64;
-        LOCAL_APIC = Mmio::from_phys(base, NonZeroUsize::new_unchecked(0x1000)).ok();
+    #[inline]
+    unsafe fn init(base: PhysicalAddress) {
+        LOCAL_APIC_PA = base;
+        LOCAL_APIC = Mmio::from_phys(base, 0x1000);
 
         Msr::ApicBase
             .write(LOCAL_APIC_PA | Self::IA32_APIC_BASE_MSR_ENABLE | Self::IA32_APIC_BASE_MSR_BSP);
@@ -551,43 +602,58 @@ impl LocalApic {
         apicid
     }
 
+    #[inline]
     #[track_caller]
     unsafe fn read(&self) -> u32 {
         LOCAL_APIC.as_ref().unwrap().read_u32(*self as usize)
     }
 
+    #[inline]
     #[track_caller]
     unsafe fn write(&self, val: u32) {
         LOCAL_APIC.as_ref().unwrap().write_u32(*self as usize, val);
     }
 
+    #[inline]
     unsafe fn eoi() {
         Self::Eoi.write(0);
     }
 
+    #[inline]
     unsafe fn set_timer_div(div: LocalApicTimerDivide) {
         Self::TimerDivideConfiguration.write(div as u32);
     }
 
+    #[inline]
     unsafe fn set_timer(mode: LocalApicTimerMode, vec: InterruptVector, count: u32) {
         Self::TimerInitialCount.write(count);
         Self::LvtTimer.write((vec.0 as u32) | mode as u32);
     }
 
+    #[inline]
     unsafe fn clear_timer() {
         Self::LvtTimer.write(Apic::REDIR_MASK);
     }
 
-    /// Broadcast INIT IPI to all another APs
+    /// Broadcasts INIT IPI to all another APs
+    #[inline]
     unsafe fn broadcast_init() {
         Self::InterruptCommandHigh.write(0);
         Self::InterruptCommand.write(0x000C4500);
     }
 
-    /// Broadcast Startup IPI to all another APs
+    /// Broadcasts Startup IPI to all another APs
+    #[inline]
     unsafe fn broadcast_startup(init_vec: InterruptVector) {
         Self::InterruptCommandHigh.write(0);
         Self::InterruptCommand.write(0x000C4600 | init_vec.0 as u32);
+    }
+
+    /// Broadcasts an inter-processor interrupt to all excluding self.
+    #[inline]
+    unsafe fn broadcast_ipi(vec: InterruptVector) {
+        Self::InterruptCommandHigh.write(0);
+        Self::InterruptCommand.write(0x000C4000 | vec.0 as u32);
     }
 
     #[inline]
@@ -641,11 +707,7 @@ struct IoApic {
 impl IoApic {
     unsafe fn new(acpi_ioapic: &acpi::platform::IoApic) -> Self {
         let mut ioapic = IoApic {
-            mmio: Mmio::from_phys(
-                acpi_ioapic.address as usize,
-                NonZeroUsize::new_unchecked(0x14),
-            )
-            .unwrap(),
+            mmio: Mmio::from_phys(acpi_ioapic.address as PhysicalAddress, 0x14).unwrap(),
             global_int: Irq(acpi_ioapic.global_system_interrupt_base as u8),
             entries: 0,
             id: acpi_ioapic.id,

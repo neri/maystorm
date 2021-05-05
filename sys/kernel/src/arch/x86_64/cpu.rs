@@ -134,6 +134,36 @@ impl Cpu {
     }
 
     #[inline]
+    pub fn interlocked_increment(p: &AtomicUsize) -> usize {
+        p.fetch_add(1, Ordering::SeqCst)
+    }
+
+    #[inline]
+    pub fn interlocked_compare_and_swap(
+        p: &AtomicUsize,
+        expected: usize,
+        desired: usize,
+    ) -> (bool, usize) {
+        match p.compare_exchange(expected, desired, Ordering::SeqCst, Ordering::Relaxed) {
+            Ok(v) => (true, v),
+            Err(v) => (false, v),
+        }
+    }
+
+    #[inline]
+    pub fn interlocked_fetch_update<F>(p: &AtomicUsize, f: F) -> Result<usize, usize>
+    where
+        F: FnMut(usize) -> Option<usize>,
+    {
+        p.fetch_update(Ordering::SeqCst, Ordering::Relaxed, f)
+    }
+
+    #[inline]
+    pub fn interlocked_swap(p: &AtomicUsize, val: usize) -> usize {
+        p.swap(val, Ordering::SeqCst)
+    }
+
+    #[inline]
     pub fn interlocked_test_and_set(p: &AtomicUsize, position: usize) -> bool {
         unsafe {
             let p = p as *const _ as *mut usize;
@@ -188,17 +218,17 @@ impl Cpu {
     }
 
     #[inline]
-    pub unsafe fn halt() {
+    pub(crate) unsafe fn halt() {
         asm!("hlt");
     }
 
     #[inline]
-    pub unsafe fn enable_interrupt() {
+    pub(super) unsafe fn enable_interrupt() {
         asm!("sti");
     }
 
     #[inline]
-    pub unsafe fn disable_interrupt() {
+    pub(super) unsafe fn disable_interrupt() {
         asm!("cli");
     }
 
@@ -290,6 +320,15 @@ impl Cpu {
         Apic::register_msi(f)
     }
 
+    #[inline]
+    pub(crate) unsafe fn broadcast_invalidate_tlb() -> Result<(), ()> {
+        match Apic::broadcast_invalidate_tlb() {
+            true => Ok(()),
+            false => Err(()),
+        }
+    }
+
+    #[inline]
     pub fn secure_rand() -> Result<u64, ()> {
         if Self::has_feature(Feature::F01C(F01C::RDRND)) {
             unsafe { Self::secure_rand_unsafe().ok_or(()) }
@@ -348,7 +387,7 @@ impl Cpu {
         eax as u64 + edx as u64 * 0x10000_0000
     }
 
-    // SAFETY: Does not check the CPUID feature bit
+    /// SAFETY: Does not check the CPUID feature bit
     #[inline]
     pub unsafe fn rdtscp() -> (u64, u32) {
         let eax: u32;
@@ -363,7 +402,7 @@ impl Cpu {
         (eax as u64 + edx as u64 * 0x10000_0000, ecx)
     }
 
-    // SAFETY: Does not check the CPUID feature bit
+    /// SAFETY: Does not check the CPUID feature bit
     #[inline]
     pub unsafe fn read_tsc() -> u64 {
         let (tsc_raw, index) = Self::rdtscp();
@@ -374,13 +413,13 @@ impl Cpu {
         Cpu::disable_interrupt();
 
         let cpu = System::cpu_mut(Cpu::current_processor_index().0);
-        cpu.gdt.table[Selector::LEGACY_CODE.index()] = DescriptorEntry::code_legacy(
+        *cpu.gdt.item_mut(Selector::LEGACY_CODE).unwrap() = DescriptorEntry::code_legacy(
             ctx.base_of_code,
             ctx.size_of_code - 1,
             PrivilegeLevel::User,
             DefaultSize::Use32,
         );
-        cpu.gdt.table[Selector::LEGACY_DATA.index()] = DescriptorEntry::data_legacy(
+        *cpu.gdt.item_mut(Selector::LEGACY_DATA).unwrap() = DescriptorEntry::data_legacy(
             ctx.base_of_data,
             ctx.size_of_data - 1,
             PrivilegeLevel::User,
@@ -522,6 +561,12 @@ impl GlobalDescriptorTable {
     fn item(&self, selector: Selector) -> Option<&DescriptorEntry> {
         let index = selector.index();
         self.table.get(index)
+    }
+
+    #[inline]
+    fn item_mut(&mut self, selector: Selector) -> Option<&mut DescriptorEntry> {
+        let index = selector.index();
+        self.table.get_mut(index)
     }
 
     /// Reload GDT
@@ -915,6 +960,10 @@ impl DescriptorType {
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct InterruptVector(pub u8);
+
+impl InterruptVector {
+    pub const IPI_INVALIDATE_TLB: Self = Self(0xEE);
+}
 
 #[repr(u8)]
 #[non_exhaustive]

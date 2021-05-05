@@ -1,8 +1,13 @@
 // A Computer System
 
 use crate::{
-    arch::cpu::*, arch::page::PageManager, fonts::*, io::emcon::*, io::tty::Tty,
-    task::scheduler::*, *,
+    arch::cpu::*,
+    arch::page::{PageManager, PhysicalAddress},
+    fonts::*,
+    io::emcon::*,
+    io::tty::Tty,
+    task::scheduler::*,
+    *,
 };
 use alloc::{boxed::Box, string::*, vec::Vec};
 use bootprot::BootInfo;
@@ -132,7 +137,7 @@ impl System {
         mem::MemoryManager::init_first(info);
 
         shared.main_screen = Some(Bitmap32::from_static(
-            PageManager::direct_map(info.vram_base as usize) as *mut TrueColor,
+            PageManager::direct_map(info.vram_base) as *mut TrueColor,
             Size::new(info.screen_width as isize, info.screen_height as isize),
             info.vram_stride as usize,
         ));
@@ -162,7 +167,7 @@ impl System {
             mem::MemoryManager::late_init();
 
             fs::FileManager::init(
-                PageManager::direct_map(shared.initrd_base),
+                PageManager::direct_map(shared.initrd_base as PhysicalAddress),
                 shared.initrd_size,
             );
 
@@ -388,9 +393,9 @@ impl ::acpi::AcpiHandler for MyAcpiHandler {
     ) -> PhysicalMapping<Self, T> {
         PhysicalMapping {
             physical_start: physical_address,
-            virtual_start: NonNull::new_unchecked(
-                PageManager::direct_map(physical_address) as *mut T
-            ),
+            virtual_start: NonNull::new_unchecked(PageManager::direct_map(
+                physical_address as PhysicalAddress,
+            ) as *mut T),
             region_length: size,
             mapped_length: size,
             handler: Self::new(),

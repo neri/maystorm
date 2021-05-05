@@ -188,6 +188,7 @@ impl PageManager {
         info.master_cr3 = cr3;
         let pml4 = PageTableEntry::from(cr3).table(1);
 
+        // 0000_0000_0000_0000 - 0000_0000_FFFF_FFFF Identity Mapping (<4G)
         let pml3p = Self::alloc_pages(1);
         let pml3 = PageTableEntry::from(pml3p).table(1);
         pml4[0] = PageTableEntry::new(pml3p, common_attributes);
