@@ -148,7 +148,7 @@ impl System {
 
         if info.smbios != 0 {
             let device = &mut shared.current_device;
-            let smbios = fw::smbios::SMBIOS::init(info.smbios as usize);
+            let smbios = fw::smbios::SMBIOS::init(info.smbios);
             device.manufacturer_name = smbios.manufacturer_name().map(|v| v.to_string());
             device.model_name = smbios.model_name().map(|v| v.to_string());
             shared.smbios = Some(smbios);

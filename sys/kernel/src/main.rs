@@ -308,29 +308,6 @@ impl Shell {
                 Ok(rand) => println!("{:016x}", rand),
                 Err(_) => println!("# No SecureRandom"),
             },
-            "cpuid" => {
-                let cpuid0 = Cpu::cpuid(0x000_0000, 0);
-                let cpuid1 = Cpu::cpuid(0x000_0001, 0);
-                let cpuid7 = Cpu::cpuid(0x000_0007, 0);
-                let cpuid81 = Cpu::cpuid(0x8000_0001, 0);
-                println!("CPUID {:08x}", cpuid0.eax());
-                println!(
-                    "Feature 0~1 EDX {:08x} ECX {:08x}",
-                    cpuid1.edx(),
-                    cpuid1.ecx(),
-                );
-                println!(
-                    "Feature 0~7 EBX {:08x} ECX {:08x} EDX {:08x}",
-                    cpuid7.ebx(),
-                    cpuid7.ecx(),
-                    cpuid7.edx(),
-                );
-                println!(
-                    "Feature 8~1 EDX {:08x} ECX {:08x}",
-                    cpuid81.edx(),
-                    cpuid81.ecx(),
-                );
-            }
             _ => {
                 println!("Unknown command: {}", subcmd);
                 return 1;

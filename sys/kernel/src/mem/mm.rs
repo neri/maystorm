@@ -104,7 +104,7 @@ impl MemoryManager {
         let va = NonZeroUsize::new(PageManager::mmap(request));
         if Scheduler::is_enabled() {
             // TODO:
-            Cpu::broadcast_invalidate_tlb().unwrap();
+            // PageManager::broadcast_invalidate_tlb().unwrap();
         }
         va
     }

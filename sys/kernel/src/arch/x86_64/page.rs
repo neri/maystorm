@@ -1,5 +1,6 @@
 // x64 Paging
 
+use super::apic::Apic;
 use crate::mem::*;
 use bitflags::*;
 use bootprot::*;
@@ -191,6 +192,14 @@ impl PageManager {
     #[inline]
     pub const fn direct_map(pa: PhysicalAddress) -> usize {
         Self::DIRECT_BASE + pa as usize
+    }
+
+    #[inline]
+    pub(crate) unsafe fn broadcast_invalidate_tlb() -> Result<(), ()> {
+        match Apic::broadcast_invalidate_tlb() {
+            true => Ok(()),
+            false => Err(()),
+        }
     }
 }
 

@@ -1,18 +1,18 @@
 // Central Processing Unit
 
-use crate::arch::apic::*;
-use crate::io::tty::Tty;
-use crate::rt::*;
-use crate::sync::spinlock::Spinlock;
-use crate::system::{ProcessorCoreType, ProcessorIndex};
-use crate::task::scheduler::Scheduler;
-use crate::*;
+use crate::{
+    arch::apic::*,
+    io::tty::Tty,
+    rt::*,
+    sync::spinlock::Spinlock,
+    system::{ProcessorCoreType, ProcessorIndex},
+    task::scheduler::Scheduler,
+    *,
+};
 use alloc::boxed::Box;
 use bitflags::*;
 use bus::pci::*;
-use core::convert::TryFrom;
-use core::ffi::c_void;
-use core::sync::atomic::*;
+use core::{arch::x86_64::__cpuid_count, convert::TryFrom, ffi::c_void, sync::atomic::*};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
@@ -49,19 +49,19 @@ impl Cpu {
         let pi = System::acpi_platform().processor_info.unwrap();
         System::activate_cpu(Cpu::new(ProcessorId(pi.boot_processor.local_apic_id)));
 
-        let cpuid0 = Cpu::cpuid(0, 0);
+        let cpuid0 = __cpuid_count(0, 0);
 
         // Self::shared().has_feature_rdtscp = Self::has_feature(Feature::F81D(F81D::RDTSCP));
 
-        if cpuid0.eax() >= 0x1F {
-            let cpuid1f = Cpu::cpuid(0x1F, 0);
-            if (cpuid1f.ecx() & 0xFF00) == 0x0100 {
-                Self::shared().smt_topology = (1 << cpuid1f.eax()) - 1;
+        if cpuid0.eax >= 0x1F {
+            let cpuid1f = __cpuid_count(0x1F, 0);
+            if (cpuid1f.ecx & 0xFF00) == 0x0100 {
+                Self::shared().smt_topology = (1 << cpuid1f.eax) - 1;
             }
-        } else if cpuid0.eax() >= 0x0B {
-            let cpuid0b = Cpu::cpuid(0x0B, 0);
-            if (cpuid0b.ecx() & 0xFF00) == 0x0100 {
-                Self::shared().smt_topology = (1 << cpuid0b.eax()) - 1;
+        } else if cpuid0.eax >= 0x0B {
+            let cpuid0b = __cpuid_count(0x0B, 0);
+            if (cpuid0b.ecx & 0xFF00) == 0x0100 {
+                Self::shared().smt_topology = (1 << cpuid0b.eax) - 1;
             }
         }
 
@@ -103,33 +103,31 @@ impl Cpu {
         unsafe { &mut SHARED_CPU }
     }
 
-    #[inline]
-    pub fn cpuid(eax: u32, ecx: u32) -> Cpuid {
-        let mut p = Cpuid {
-            regs: CpuidRegs {
-                eax,
-                ecx,
-                ..CpuidRegs::default()
-            },
-        };
-        p.perform();
-        p
-    }
-
-    // #[inline]
-    // pub fn has_feature_rdtscp() -> bool {
-    //     Self::shared().has_feature_rdtscp
-    // }
-
     pub fn has_feature(feature: Feature) -> bool {
-        match feature {
-            Feature::F01D(bit) => (Cpu::cpuid(0x0000_0001, 0).edx() & (1 << bit as usize)) != 0,
-            Feature::F01C(bit) => (Cpu::cpuid(0x0000_0001, 0).ecx() & (1 << bit as usize)) != 0,
-            Feature::F07B(bit) => (Cpu::cpuid(0x0000_0007, 0).ebx() & (1 << bit as usize)) != 0,
-            Feature::F07C(bit) => (Cpu::cpuid(0x0000_0007, 0).ecx() & (1 << bit as usize)) != 0,
-            Feature::F07D(bit) => (Cpu::cpuid(0x0000_0007, 0).edx() & (1 << bit as usize)) != 0,
-            Feature::F81D(bit) => (Cpu::cpuid(0x8000_0001, 0).edx() & (1 << bit as usize)) != 0,
-            Feature::F81C(bit) => (Cpu::cpuid(0x8000_0001, 0).ecx() & (1 << bit as usize)) != 0,
+        unsafe {
+            match feature {
+                Feature::F01D(bit) => {
+                    (__cpuid_count(0x0000_0001, 0).edx & (1 << bit as usize)) != 0
+                }
+                Feature::F01C(bit) => {
+                    (__cpuid_count(0x0000_0001, 0).ecx & (1 << bit as usize)) != 0
+                }
+                Feature::F07B(bit) => {
+                    (__cpuid_count(0x0000_0007, 0).ebx & (1 << bit as usize)) != 0
+                }
+                Feature::F07C(bit) => {
+                    (__cpuid_count(0x0000_0007, 0).ecx & (1 << bit as usize)) != 0
+                }
+                Feature::F07D(bit) => {
+                    (__cpuid_count(0x0000_0007, 0).edx & (1 << bit as usize)) != 0
+                }
+                Feature::F81D(bit) => {
+                    (__cpuid_count(0x8000_0001, 0).edx & (1 << bit as usize)) != 0
+                }
+                Feature::F81C(bit) => {
+                    (__cpuid_count(0x8000_0001, 0).ecx & (1 << bit as usize)) != 0
+                }
+            }
         }
     }
 
@@ -318,14 +316,6 @@ impl Cpu {
     #[allow(dead_code)]
     pub(crate) unsafe fn register_msi(f: fn() -> ()) -> Result<(u64, u16), ()> {
         Apic::register_msi(f)
-    }
-
-    #[inline]
-    pub(crate) unsafe fn broadcast_invalidate_tlb() -> Result<(), ()> {
-        match Apic::broadcast_invalidate_tlb() {
-            true => Ok(()),
-            false => Err(()),
-        }
     }
 
     #[inline]
@@ -577,62 +567,6 @@ impl GlobalDescriptorTable {
             lgdt [rsp + 6]
             add rsp, 16
             ", in(reg) &self.table, in(reg) ((self.table.len() * 8 - 1) << 48));
-    }
-}
-
-#[derive(Debug, Copy, Clone, Default)]
-struct CpuidRegs {
-    pub ebx: u32,
-    pub edx: u32,
-    pub ecx: u32,
-    pub eax: u32,
-}
-
-#[derive(Copy, Clone)]
-pub union Cpuid {
-    regs: CpuidRegs,
-    pub bytes: [u8; 16],
-}
-
-impl Cpuid {
-    #[inline]
-    pub fn perform(&mut self) {
-        unsafe {
-            asm!("cpuid",
-                inlateout("eax") self.regs.eax,
-                inlateout("ecx") self.regs.ecx,
-                lateout("edx") self.regs.edx,
-                lateout("ebx") self.regs.ebx,
-            );
-        }
-    }
-
-    #[inline]
-    pub fn eax(&self) -> u32 {
-        unsafe { self.regs.eax }
-    }
-
-    #[inline]
-    pub fn ecx(&self) -> u32 {
-        unsafe { self.regs.ecx }
-    }
-
-    #[inline]
-    pub fn edx(&self) -> u32 {
-        unsafe { self.regs.edx }
-    }
-
-    #[inline]
-    pub fn ebx(&self) -> u32 {
-        unsafe { self.regs.ebx }
-    }
-}
-
-impl Default for Cpuid {
-    fn default() -> Self {
-        Self {
-            regs: CpuidRegs::default(),
-        }
     }
 }
 
@@ -1422,75 +1356,75 @@ static mut GLOBAL_EXCEPTION_LOCK: Spinlock = Spinlock::new();
 
 #[no_mangle]
 pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext) {
-    GLOBAL_EXCEPTION_LOCK.lock();
-    let is_user = Scheduler::current_personality(|_| ()).is_some();
-    let stdout = if is_user {
-        System::stdout()
-    } else {
-        System::em_console() as &mut dyn Tty
-    };
-    let ctx = ctx.as_ref().unwrap();
-    let cpu = System::current_processor();
-    let cs_desc = cpu.gdt.item(ctx.cs()).unwrap();
-    let ex: ExceptionType = FromPrimitive::from_u8(ctx.vector().0).unwrap();
+    let is_user = GLOBAL_EXCEPTION_LOCK.synchronized(|| {
+        let is_user = Scheduler::current_personality(|_| ()).is_some();
+        let stdout = if is_user {
+            System::stdout()
+        } else {
+            System::em_console() as &mut dyn Tty
+        };
+        let ctx = ctx.as_ref().unwrap();
+        let cpu = System::current_processor();
+        let cs_desc = cpu.gdt.item(ctx.cs()).unwrap();
+        let ex: ExceptionType = FromPrimitive::from_u8(ctx.vector().0).unwrap();
 
-    match cs_desc.default_operand_size().unwrap() {
-        DefaultSize::Use16 | DefaultSize::Use32 => {
-            let va_mask = 0xFFFF_FFFF_FFFF;
-            let mask32 = 0xFFFF_FFFF;
-            match ex {
-                ExceptionType::PageFault => {
-                    writeln!(
-                        stdout,
-                        "\n#### PAGE FAULT {:04x} {:08x} EIP {:02x}:{:08x} ESP {:02x}:{:08x}",
-                        ctx.error_code(),
-                        ctx.cr2 & va_mask,
-                        ctx.cs().0,
-                        ctx.rip & mask32,
-                        ctx.ss().0,
-                        ctx.rsp & mask32,
-                    )
-                    .unwrap();
+        match cs_desc.default_operand_size().unwrap() {
+            DefaultSize::Use16 | DefaultSize::Use32 => {
+                let va_mask = 0xFFFF_FFFF_FFFF;
+                let mask32 = 0xFFFF_FFFF;
+                match ex {
+                    ExceptionType::PageFault => {
+                        writeln!(
+                            stdout,
+                            "\n#### PAGE FAULT {:04x} {:08x} EIP {:02x}:{:08x} ESP {:02x}:{:08x}",
+                            ctx.error_code(),
+                            ctx.cr2 & va_mask,
+                            ctx.cs().0,
+                            ctx.rip & mask32,
+                            ctx.ss().0,
+                            ctx.rsp & mask32,
+                        )
+                        .unwrap();
+                    }
+                    _ => {
+                        writeln!(
+                            stdout,
+                            "\n#### {:?} err {:04x} EIP {:02x}:{:08x} ESP {:02x}:{:08x}",
+                            ex,
+                            ctx.error_code(),
+                            ctx.cs().0,
+                            ctx.rip & mask32,
+                            ctx.ss().0,
+                            ctx.rsp & mask32,
+                        )
+                        .unwrap();
+                    }
                 }
-                _ => {
-                    writeln!(
-                        stdout,
-                        "\n#### {:?} err {:04x} EIP {:02x}:{:08x} ESP {:02x}:{:08x}",
-                        ex,
-                        ctx.error_code(),
-                        ctx.cs().0,
-                        ctx.rip & mask32,
-                        ctx.ss().0,
-                        ctx.rsp & mask32,
-                    )
-                    .unwrap();
-                }
+
+                println!(
+                    "EAX {:08x} EBX {:08x} ECX {:08x} EDX {:08x} EFLAGS {:08x}",
+                    ctx.rax & mask32,
+                    ctx.rbx & mask32,
+                    ctx.rcx & mask32,
+                    ctx.rdx & mask32,
+                    ctx.rflags.bits(),
+                );
+                println!(
+                    "EBP {:08x} ESI {:08x} EDI {:08x} DS {:04x} ES {:04x} FS {:04x} GS {:04x}",
+                    ctx.rbp & mask32,
+                    ctx.rsi & mask32,
+                    ctx.rdi & mask32,
+                    ctx.ds().0,
+                    ctx.es().0,
+                    ctx.fs().0,
+                    ctx.gs().0,
+                );
             }
-
-            println!(
-                "EAX {:08x} EBX {:08x} ECX {:08x} EDX {:08x} EFLAGS {:08x}",
-                ctx.rax & mask32,
-                ctx.rbx & mask32,
-                ctx.rcx & mask32,
-                ctx.rdx & mask32,
-                ctx.rflags.bits(),
-            );
-            println!(
-                "EBP {:08x} ESI {:08x} EDI {:08x} DS {:04x} ES {:04x} FS {:04x} GS {:04x}",
-                ctx.rbp & mask32,
-                ctx.rsi & mask32,
-                ctx.rdi & mask32,
-                ctx.ds().0,
-                ctx.es().0,
-                ctx.fs().0,
-                ctx.gs().0,
-            );
-        }
-        DefaultSize::Use64 => {
-            let va_mask = 0xFFFF_FFFF_FFFF;
-            match ex {
-                ExceptionType::PageFault => {
-                    writeln!(
+            DefaultSize::Use64 => {
+                let va_mask = 0xFFFF_FFFF_FFFF;
+                match ex {
+                    ExceptionType::PageFault => {
+                        writeln!(
                         stdout,
                         "\n#### PAGE FAULT {:04x} {:012x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
                         ctx.error_code(),
@@ -1500,56 +1434,58 @@ pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext)
                         ctx.ss().0,
                         ctx.rsp & va_mask,
                     )
-                    .unwrap();
+                        .unwrap();
+                    }
+                    _ => {
+                        writeln!(
+                            stdout,
+                            "\n#### {:?} err {:04x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
+                            ex,
+                            ctx.error_code(),
+                            ctx.cs().0,
+                            ctx.rip & va_mask,
+                            ctx.ss().0,
+                            ctx.rsp & va_mask,
+                        )
+                        .unwrap();
+                    }
                 }
-                _ => {
-                    writeln!(
-                        stdout,
-                        "\n#### {:?} err {:04x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
-                        ex,
-                        ctx.error_code(),
-                        ctx.cs().0,
-                        ctx.rip & va_mask,
-                        ctx.ss().0,
-                        ctx.rsp & va_mask,
-                    )
-                    .unwrap();
-                }
-            }
 
-            writeln!(
-                stdout,
-                "rax {:016x} rsi {:016x} r11 {:016x} fl {:08x}
+                writeln!(
+                    stdout,
+                    "rax {:016x} rsi {:016x} r11 {:016x} fl {:08x}
 rbx {:016x} rdi {:016x} r12 {:016x} ds {:04x}
 rcx {:016x} r8  {:016x} r13 {:016x} es {:04x}
 rdx {:016x} r9  {:016x} r14 {:016x} fs {:04x}
 rbp {:016x} r10 {:016x} r15 {:016x} gs {:04x}",
-                ctx.rax,
-                ctx.rsi,
-                ctx.r11,
-                ctx.rflags.bits(),
-                ctx.rbx,
-                ctx.rdi,
-                ctx.r12,
-                ctx.ds().0,
-                ctx.rcx,
-                ctx.r8,
-                ctx.r13,
-                ctx.es().0,
-                ctx.rdx,
-                ctx.r9,
-                ctx.r14,
-                ctx.fs().0,
-                ctx.rbp,
-                ctx.r10,
-                ctx.r15,
-                ctx.gs().0,
-            )
-            .unwrap();
+                    ctx.rax,
+                    ctx.rsi,
+                    ctx.r11,
+                    ctx.rflags.bits(),
+                    ctx.rbx,
+                    ctx.rdi,
+                    ctx.r12,
+                    ctx.ds().0,
+                    ctx.rcx,
+                    ctx.r8,
+                    ctx.r13,
+                    ctx.es().0,
+                    ctx.rdx,
+                    ctx.r9,
+                    ctx.r14,
+                    ctx.fs().0,
+                    ctx.rbp,
+                    ctx.r10,
+                    ctx.r15,
+                    ctx.gs().0,
+                )
+                .unwrap();
+            }
         }
-    }
 
-    GLOBAL_EXCEPTION_LOCK.unlock();
+        is_user
+    });
+
     if is_user {
         RuntimeEnvironment::exit(1);
     } else {

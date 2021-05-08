@@ -87,20 +87,17 @@ static mut PANIC_GLOBAL_LOCK: sync::spinlock::Spinlock = sync::spinlock::Spinloc
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     unsafe {
-        PANIC_GLOBAL_LOCK.lock();
-    }
-    // stdout.set_attribute(0x17);
-    if let Some(thread) = task::scheduler::Scheduler::current_thread() {
-        if let Some(name) = thread.name() {
-            let _ = write!(System::em_console(), "thread '{}' ", name);
-        } else {
-            let _ = write!(System::em_console(), "thread {} ", thread.as_usize());
-        }
-    }
-    let _ = writeln!(System::em_console(), "{}", info);
-    unsafe {
-        let _ = task::scheduler::Scheduler::freeze(true);
-        PANIC_GLOBAL_LOCK.unlock();
+        PANIC_GLOBAL_LOCK.synchronized(|| {
+            if let Some(thread) = task::scheduler::Scheduler::current_thread() {
+                if let Some(name) = thread.name() {
+                    let _ = write!(System::em_console(), "thread '{}' ", name);
+                } else {
+                    let _ = write!(System::em_console(), "thread {} ", thread.as_usize());
+                }
+            }
+            let _ = writeln!(System::em_console(), "{}", info);
+            let _ = task::scheduler::Scheduler::freeze(true);
+        });
         Cpu::stop();
     }
 }

@@ -127,12 +127,6 @@ _exception:
     call cpu_default_exception
 
     lea rsp, [rbp + 8 * 5]
-    ; mov rsp, rbp
-    ; pop rax ; CR2
-    ; pop gs
-    ; pop fs
-    ; pop es
-    ; pop ds
     pop r15
     pop r14
     pop r13
@@ -344,9 +338,9 @@ _irq:
     push r9
     push r10
     push r11
-    movzx ecx, al
     cld
 
+    movzx ecx, al
     call apic_handle_irq
 
     pop r11
@@ -366,6 +360,7 @@ _irq:
 asm_handle_irq_table:
     push rsi
     push rdi
+
     mov rdi, rcx
     mov ecx, edx
     lea rsi, [rel _irq_table]

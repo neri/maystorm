@@ -1,9 +1,8 @@
 // System Management BIOS
 
+use crate::arch::page::{PageManager, PhysicalAddress};
 use alloc::boxed::Box;
 use core::{mem::transmute, ptr::addr_of, slice, str};
-
-use crate::arch::page::{PageManager, PhysicalAddress};
 
 pub struct SMBIOS {
     base: usize,
@@ -12,8 +11,8 @@ pub struct SMBIOS {
 
 impl SMBIOS {
     #[inline]
-    pub(crate) unsafe fn init(entry: usize) -> Box<Self> {
-        let ep: &SmBiosEntryV1 = transmute(entry);
+    pub(crate) unsafe fn init(entry: PhysicalAddress) -> Box<Self> {
+        let ep: &SmBiosEntryV1 = transmute(entry as usize);
         let base = PageManager::direct_map(ep.base as PhysicalAddress);
         let n_structures = ep.n_structures as usize;
         Box::new(Self { base, n_structures })
