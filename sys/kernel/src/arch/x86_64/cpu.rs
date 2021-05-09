@@ -36,11 +36,17 @@ pub struct Cpu {
 #[allow(dead_code)]
 struct SharedCpu {
     smt_topology: u32,
+    max_cpuid_level_0: u32,
+    max_cpuid_level_8: u32,
 }
 
 impl SharedCpu {
     const fn new() -> Self {
-        Self { smt_topology: 0 }
+        Self {
+            smt_topology: 0,
+            max_cpuid_level_0: 0,
+            max_cpuid_level_8: 0,
+        }
     }
 }
 
@@ -49,16 +55,16 @@ impl Cpu {
         let pi = System::acpi_platform().processor_info.unwrap();
         System::activate_cpu(Cpu::new(ProcessorId(pi.boot_processor.local_apic_id)));
 
-        let cpuid0 = __cpuid_count(0, 0);
+        let shared = Self::shared();
+        shared.max_cpuid_level_0 = __cpuid_count(0, 0).eax;
+        shared.max_cpuid_level_8 = __cpuid_count(0x8000_0000, 0).eax;
 
-        // Self::shared().has_feature_rdtscp = Self::has_feature(Feature::F81D(F81D::RDTSCP));
-
-        if cpuid0.eax >= 0x1F {
+        if shared.max_cpuid_level_0 >= 0x1F {
             let cpuid1f = __cpuid_count(0x1F, 0);
             if (cpuid1f.ecx & 0xFF00) == 0x0100 {
                 Self::shared().smt_topology = (1 << cpuid1f.eax) - 1;
             }
-        } else if cpuid0.eax >= 0x0B {
+        } else if shared.max_cpuid_level_0 >= 0x0B {
             let cpuid0b = __cpuid_count(0x0B, 0);
             if (cpuid0b.ecx & 0xFF00) == 0x0100 {
                 Self::shared().smt_topology = (1 << cpuid0b.eax) - 1;
@@ -165,11 +171,11 @@ impl Cpu {
     pub fn interlocked_test_and_set(p: &AtomicUsize, position: usize) -> bool {
         unsafe {
             let p = p as *const _ as *mut usize;
-            let r: usize;
+            let r: u8;
             asm!("
                 lock bts [{0}], {1}
-                sbb {2}, {2}
-                ", in(reg) p, in(reg) position, lateout(reg) r);
+                setc {2}
+                ", in(reg) p, in(reg) position, lateout(reg_byte) r);
             r != 0
         }
     }
@@ -178,11 +184,11 @@ impl Cpu {
     pub fn interlocked_test_and_clear(p: &AtomicUsize, position: usize) -> bool {
         unsafe {
             let p = p as *const _ as *mut usize;
-            let r: usize;
+            let r: u8;
             asm!("
                 lock btr [{0}], {1}
-                sbb {2}, {2}
-                ", in(reg) p, in(reg) position, lateout(reg) r);
+                setc {2}
+                ", in(reg) p, in(reg) position, lateout(reg_byte) r);
             r != 0
         }
     }
@@ -221,12 +227,12 @@ impl Cpu {
     }
 
     #[inline]
-    pub(super) unsafe fn enable_interrupt() {
+    pub unsafe fn enable_interrupt() {
         asm!("sti");
     }
 
     #[inline]
-    pub(super) unsafe fn disable_interrupt() {
+    pub unsafe fn disable_interrupt() {
         asm!("cli");
     }
 
@@ -287,28 +293,6 @@ impl Cpu {
     pub unsafe fn in32(port: u16) -> u32 {
         let mut result: u32;
         asm!("in eax, dx", in("dx") port, lateout("eax") result);
-        result
-    }
-
-    #[inline]
-    pub(crate) unsafe fn without_interrupts<F, R>(f: F) -> R
-    where
-        F: FnOnce() -> R,
-    {
-        let mut rax: usize;
-        asm!("
-            pushfq
-            cli
-            pop {0}
-            ", lateout(reg) rax);
-        let has_to_restore = Rflags::from_bits_unchecked(rax).contains(Rflags::IF);
-
-        let result = f();
-
-        if has_to_restore {
-            Self::enable_interrupt();
-        }
-
         result
     }
 
@@ -439,12 +423,42 @@ impl Cpu {
             in (reg) Rflags::IF.bits(),
             options(noreturn));
     }
+
+    #[inline]
+    #[track_caller]
+    pub unsafe fn without_interrupts<F, R>(f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        let mut rax: usize;
+        asm!("
+            pushfq
+            cli
+            pop {0}
+            ", lateout(reg) rax);
+        let has_to_restore = Rflags::from_bits_unchecked(rax).contains(Rflags::IF);
+
+        let result = f();
+
+        if has_to_restore {
+            Cpu::enable_interrupt();
+        }
+
+        result
+    }
+}
+
+#[macro_export]
+macro_rules! without_interrupts {
+    ( $f:expr ) => {
+        Cpu::without_interrupts(|| $f)
+    };
 }
 
 impl PciImpl for Cpu {
     #[inline]
     unsafe fn read_pci(&self, addr: PciConfigAddressSpace) -> u32 {
-        Cpu::without_interrupts(|| {
+        without_interrupts!({
             Cpu::out32(0xCF8, addr.into());
             Cpu::in32(0xCFC)
         })
@@ -452,7 +466,7 @@ impl PciImpl for Cpu {
 
     #[inline]
     unsafe fn write_pci(&self, addr: PciConfigAddressSpace, value: u32) {
-        Cpu::without_interrupts(|| {
+        without_interrupts!({
             Cpu::out32(0xCF8, addr.into());
             Cpu::out32(0xCFC, value);
         })

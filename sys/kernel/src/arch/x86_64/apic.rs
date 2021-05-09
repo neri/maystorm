@@ -1,7 +1,6 @@
 // Advanced Programmable Interrupt Controller
 
-use super::{cpu::*, page::PhysicalAddress};
-use super::{hpet::*, page::PageManager};
+use super::{cpu::*, hpet::*, page::PageManager, page::PhysicalAddress};
 use crate::{
     mem::mmio::*,
     mem::*,
@@ -11,7 +10,8 @@ use crate::{
 };
 use ::alloc::{boxed::Box, vec::*};
 use acpi::platform::ProcessorState;
-use core::{ffi::c_void, sync::atomic::*, time::Duration};
+use core::{alloc::Layout, ffi::c_void, mem::transmute, sync::atomic::*, time::Duration};
+use seq_macro::seq;
 
 /// Maximum number of supported cpu cores
 const MAX_CPU: usize = 64;
@@ -19,11 +19,13 @@ const MAX_CPU: usize = 64;
 const STACK_CHUNK_SIZE: usize = 0x4000;
 
 /// Maximum number of supported IOAPIC's IRQ
-const MAX_IOAPIC_IRQS: usize = 24;
+#[allow(dead_code)]
+const MAX_IOAPIC_IRQS: usize = 48;
 
 /// Maximum number of supported MSI IRQ
-const MAX_MSI: isize = 8;
+const MAX_MSI: isize = 16;
 
+#[allow(dead_code)]
 const MAX_IRQ: usize = MAX_IOAPIC_IRQS + MAX_MSI as usize;
 
 static mut APIC: Apic = Apic::new();
@@ -31,7 +33,6 @@ const INVALID_PROCESSOR_INDEX: u8 = 0xFF;
 static mut CURRENT_PROCESSOR_INDEXES: [u8; 256] = [INVALID_PROCESSOR_INDEX; 256];
 
 extern "C" {
-    fn asm_handle_irq_table(_table: &mut [usize; MAX_IRQ], _max_irq: usize);
     fn asm_apic_setup_sipi(
         vec_sipi: InterruptVector,
         max_cpu: usize,
@@ -64,21 +65,6 @@ pub unsafe extern "C" fn apic_start_ap() {
             Msr::TscAux.write(index as u64);
             break;
         }
-    }
-}
-
-extern "x86-interrupt" fn timer_handler() {
-    unsafe {
-        LocalApic::eoi();
-        Scheduler::reschedule();
-    }
-}
-
-extern "x86-interrupt" fn ipi_tlb_flush_handler() {
-    unsafe {
-        PageManager::invalidate_all_pages();
-        Cpu::interlocked_test_and_clear(&APIC.tlb_flush_bitmap, Cpu::current_processor_index().0);
-        LocalApic::eoi();
     }
 }
 
@@ -153,16 +139,13 @@ impl Apic {
             APIC.ioapics.push(Box::new(IoApic::new(acpi_ioapic)));
         }
 
-        let mut irq_table = [0usize; MAX_IRQ];
-        asm_handle_irq_table(&mut irq_table, MAX_IRQ);
-        for irq in 1..MAX_IRQ {
-            let offset = irq_table[irq];
+        seq!(N in 1..64 {
             InterruptDescriptorTable::register(
-                Irq(irq as u8).into(),
-                offset,
+                Irq(N).into(),
+                handle_irq_#N as usize,
                 super::cpu::PrivilegeLevel::Kernel,
             );
-        }
+        });
 
         // then enable irq
         Cpu::enable_interrupt();
@@ -214,9 +197,12 @@ impl Apic {
             MAX_CPU,
         );
         let stack_chunk_size = STACK_CHUNK_SIZE;
-        let stack_base = MemoryManager::zalloc_legacy(max_cpu * stack_chunk_size)
-            .unwrap()
-            .get() as *mut c_void;
+        let stack_base = MemoryManager::zalloc(Layout::from_size_align_unchecked(
+            max_cpu * stack_chunk_size,
+            1,
+        ))
+        .unwrap()
+        .get() as *mut c_void;
         asm_apic_setup_sipi(sipi_vec, max_cpu, stack_chunk_size, stack_base);
 
         // start SMP
@@ -338,7 +324,7 @@ impl Apic {
     #[inline]
     #[must_use]
     pub unsafe fn broadcast_invalidate_tlb() -> bool {
-        Cpu::without_interrupts(|| {
+        without_interrupts!({
             let max_cpu = System::current_device().num_of_active_cpus();
             if max_cpu < 2 {
                 return true;
@@ -362,23 +348,40 @@ impl Apic {
             APIC.tlb_flush_bitmap.load(Ordering::Relaxed) == 0
         })
     }
+
+    #[inline]
+    unsafe fn handle_irq(irq: Irq) {
+        match APIC.idt[irq.0 as usize] {
+            0 => {
+                let _ = irq.disable();
+                panic!("IRQ {} is Enabled, But not Installed", irq.0);
+            }
+            entry => {
+                let f: IrqHandler = transmute(entry);
+                Irql::DIrql.raise(|| f(irq));
+                LocalApic::eoi();
+            }
+        }
+    }
 }
 
 pub type IrqHandler = fn(Irq) -> ();
 
-#[no_mangle]
-pub unsafe extern "C" fn apic_handle_irq(irq: Irq) {
-    match APIC.idt[irq.0 as usize] {
-        0 => {
-            let _ = irq.disable();
-            panic!("IRQ {} is Enabled, But not Installed", irq.0);
-        }
-        entry => {
-            let f: IrqHandler = core::mem::transmute(entry);
-            Irql::raise(Irql::DIrql, || f(irq));
-            LocalApic::eoi();
-        }
+seq!(N in 1..64 {
+    unsafe extern "x86-interrupt" fn handle_irq_#N () {
+        Apic::handle_irq(Irq(N));
     }
+});
+
+unsafe extern "x86-interrupt" fn timer_handler() {
+    LocalApic::eoi();
+    Scheduler::reschedule();
+}
+
+unsafe extern "x86-interrupt" fn ipi_tlb_flush_handler() {
+    PageManager::invalidate_all_pages();
+    Cpu::interlocked_test_and_clear(&APIC.tlb_flush_bitmap, Cpu::current_processor_index().0);
+    LocalApic::eoi();
 }
 
 #[repr(transparent)]
@@ -719,7 +722,7 @@ impl IoApic {
     }
 
     unsafe fn read(&mut self, index: IoApicIndex) -> u32 {
-        Cpu::without_interrupts(|| {
+        without_interrupts!({
             self.lock.synchronized(|| {
                 self.mmio.write_u8(0x00, index.0);
                 self.mmio.read_u32(0x10)
@@ -728,7 +731,7 @@ impl IoApic {
     }
 
     unsafe fn write(&mut self, index: IoApicIndex, data: u32) {
-        Cpu::without_interrupts(|| {
+        without_interrupts!({
             self.lock.synchronized(|| {
                 self.mmio.write_u8(0x00, index.0);
                 self.mmio.write_u32(0x10, data);

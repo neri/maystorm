@@ -33,17 +33,12 @@ _base:
 
     ; pub unsafe extern "C" fn apic_start_ap(_cpuid: u8)
     extern apic_start_ap
-    ; pub unsafe extern "C" fn apic_handle_irq(irq: Irq)
-    extern apic_handle_irq
     ; pub unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext)
     extern cpu_default_exception
     ; pub unsafe extern "C" fn sch_setup_new_thread()
     extern sch_setup_new_thread
     ; pub unsafe extern "C" fn cpu_int40_handler(ctx: *mut X64StackContext)
     extern cpu_int40_handler
-
-    ; pub unsafe extern "C" fn apic_handle_irq(irq: Irq)
-    extern apic_handle_irq
 
 
     ; fn asm_handle_exception(_: InterruptVector) -> usize;
@@ -173,213 +168,6 @@ _asm_int_40: ; INT40 Haribote OS SVC
     mov rbp, r8
     iretq
 
-
-_irq1:
-    push rax
-    mov al, 1
-    jmp _irq
-
-_irq2:
-    push rax
-    mov al, 2
-    jmp _irq
-
-_irq3:
-    push rax
-    mov al, 3
-    jmp _irq
-
-_irq4:
-    push rax
-    mov al, 4
-    jmp _irq
-
-_irq5:
-    push rax
-    mov al, 5
-    jmp _irq
-
-_irq6:
-    push rax
-    mov al, 6
-    jmp _irq
-
-_irq7:
-    push rax
-    mov al, 7
-    jmp _irq
-
-_irq8:
-    push rax
-    mov al, 8
-    jmp _irq
-
-_irq9:
-    push rax
-    mov al, 9
-    jmp _irq
-
-_irq10:
-    push rax
-    mov al, 10
-    jmp _irq
-
-_irq11:
-    push rax
-    mov al, 11
-    jmp _irq
-
-_irq12:
-    push rax
-    mov al, 12
-    jmp _irq
-
-_irq13:
-    push rax
-    mov al, 13
-    jmp _irq
-
-_irq14:
-    push rax
-    mov al, 14
-    jmp _irq
-
-_irq15:
-    push rax
-    mov al, 15
-    jmp _irq
-
-_irq16:
-    push rax
-    mov al, 16
-    jmp _irq
-
-_irq17:
-    push rax
-    mov al, 17
-    jmp _irq
-
-_irq18:
-    push rax
-    mov al, 18
-    jmp _irq
-
-_irq19:
-    push rax
-    mov al, 19
-    jmp _irq
-
-_irq20:
-    push rax
-    mov al, 20
-    jmp _irq
-
-_irq21:
-    push rax
-    mov al, 21
-    jmp _irq
-
-_irq22:
-    push rax
-    mov al, 22
-    jmp _irq
-
-_irq23:
-    push rax
-    mov al, 23
-    jmp _irq
-
-_irq24:
-    push rax
-    mov al, 24
-    jmp _irq
-
-_irq25:
-    push rax
-    mov al, 25
-    jmp _irq
-
-_irq26:
-    push rax
-    mov al, 26
-    jmp _irq
-
-_irq27:
-    push rax
-    mov al, 27
-    jmp _irq
-
-_irq28:
-    push rax
-    mov al, 28
-    jmp _irq
-
-_irq29:
-    push rax
-    mov al, 29
-    jmp _irq
-
-_irq30:
-    push rax
-    mov al, 30
-    jmp _irq
-
-_irq31:
-    push rax
-    mov al, 31
-    jmp _irq
-
-_irq:
-    push rcx
-    push rdx
-    push rsi
-    push rdi
-    push r8
-    push r9
-    push r10
-    push r11
-    cld
-
-    movzx ecx, al
-    call apic_handle_irq
-
-    pop r11
-    pop r10
-    pop r9
-    pop r8
-    pop rdi
-    pop rsi
-    pop rdx
-    pop rcx
-    pop rax
-    iretq
-
-
-    ; fn asm_handle_irq_table(_table: &mut [usize; MAX_GSI], _max_gsi: usize);
-    global asm_handle_irq_table
-asm_handle_irq_table:
-    push rsi
-    push rdi
-
-    mov rdi, rcx
-    mov ecx, edx
-    lea rsi, [rel _irq_table]
-    lea rdx, [rel _base]
-    mov eax, (_end_irq_table - _irq_table) / 4
-    cmp ecx, eax
-    cmova ecx, eax
-.loop:
-    lodsd
-    or rax, rax
-    jz .skip
-    add rax, rdx
-.skip:
-    stosq
-    loop .loop
-
-    pop rdi
-    pop rsi
-    ret
 
 
 
@@ -586,40 +374,7 @@ _exception_table:
     dd 0 ; int_0F
 
 
-_irq_table:
-    dd 0
-    dd _irq1 - _base
-    dd _irq2 - _base
-    dd _irq3 - _base
-    dd _irq4 - _base
-    dd _irq5 - _base
-    dd _irq6 - _base
-    dd _irq7 - _base
-    dd _irq8 - _base
-    dd _irq9 - _base
-    dd _irq10 - _base
-    dd _irq11 - _base
-    dd _irq12 - _base
-    dd _irq13 - _base
-    dd _irq14 - _base
-    dd _irq15 - _base
-    dd _irq16 - _base
-    dd _irq17 - _base
-    dd _irq18 - _base
-    dd _irq19 - _base
-    dd _irq20 - _base
-    dd _irq21 - _base
-    dd _irq22 - _base
-    dd _irq23 - _base
-    dd _irq24 - _base
-    dd _irq25 - _base
-    dd _irq26 - _base
-    dd _irq27 - _base
-    dd _irq28 - _base
-    dd _irq29 - _base
-    dd _irq30 - _base
-    dd _irq31 - _base
-_end_irq_table
+
 
     ; SMP initialization payload
 [bits 16]

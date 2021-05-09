@@ -1,6 +1,8 @@
+#[macro_use]
+pub mod cpu;
+
 pub mod apic;
 pub mod comport;
-pub mod cpu;
 pub mod hpet;
 pub mod page;
 pub mod ps2;

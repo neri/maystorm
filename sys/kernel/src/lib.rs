@@ -5,6 +5,7 @@
 #![feature(alloc_error_handler)]
 #![feature(asm)]
 #![feature(cfg_target_has_atomic)]
+#![feature(const_fn_trait_bound)]
 #![feature(const_fn_transmute)]
 #![feature(const_fn)]
 #![feature(const_mut_refs)]
@@ -16,6 +17,7 @@
 #![feature(panic_info_message)]
 #![feature(try_reserve)]
 
+#[macro_use]
 pub mod arch;
 pub mod bus;
 pub mod dev;

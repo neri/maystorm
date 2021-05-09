@@ -1,9 +1,8 @@
 // Thread Scheduler
 
-use super::executor::Executor;
-use super::*;
+use super::{executor::Executor, *};
 use crate::{
-    arch::cpu::{Cpu, CpuContextData},
+    arch::cpu::*,
     rt::Personality,
     sync::atomicflags::*,
     sync::semaphore::*,
@@ -134,9 +133,7 @@ impl Scheduler {
     /// Get the current thread running on the current processor
     #[inline]
     pub fn current_thread() -> Option<ThreadHandle> {
-        unsafe {
-            Cpu::without_interrupts(|| Self::local_scheduler().map(|sch| sch.current_thread()))
-        }
+        unsafe { without_interrupts!(Self::local_scheduler().map(|sch| sch.current_thread())) }
     }
 
     /// Get the personality instance associated with the current thread
@@ -199,7 +196,7 @@ impl Scheduler {
 
     pub fn wait_for(object: Option<&SignallingObject>, duration: Duration) {
         unsafe {
-            Cpu::without_interrupts(|| {
+            without_interrupts!({
                 let current = Self::current_thread().unwrap();
                 if let Some(object) = object {
                     let _ = object.set(current);
@@ -215,7 +212,7 @@ impl Scheduler {
 
     pub fn sleep() {
         unsafe {
-            Cpu::without_interrupts(|| {
+            without_interrupts!({
                 let local = Self::local_scheduler().unwrap();
                 let current = local.current_thread();
                 current.update_statistics();
@@ -227,7 +224,7 @@ impl Scheduler {
 
     fn yield_thread() {
         unsafe {
-            Cpu::without_interrupts(|| {
+            without_interrupts!({
                 let local = Self::local_scheduler().unwrap();
                 local.current_thread().update_statistics();
                 LocalScheduler::switch_context(local, Scheduler::next(local));
@@ -991,7 +988,7 @@ impl ThreadPool {
         F: FnOnce() -> R,
     {
         unsafe {
-            Cpu::without_interrupts(|| {
+            without_interrupts!({
                 let shared = Self::shared();
                 shared.lock.synchronized(f)
             })
@@ -1393,13 +1390,13 @@ impl Irql {
 
     #[inline]
     #[track_caller]
-    pub unsafe fn raise<F, R>(new_irql: Irql, f: F) -> R
+    pub unsafe fn raise<F, R>(&self, f: F) -> R
     where
         F: FnOnce() -> R,
     {
-        Cpu::without_interrupts(|| match Scheduler::local_scheduler() {
+        without_interrupts!(match Scheduler::local_scheduler() {
             Some(lsch) => {
-                let old_irql = lsch.raise_irql(new_irql);
+                let old_irql = lsch.raise_irql(*self);
                 let r = f();
                 Scheduler::local_scheduler().unwrap().lower_irql(old_irql);
                 r

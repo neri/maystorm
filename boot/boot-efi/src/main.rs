@@ -145,20 +145,6 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
         PageManager::init_late(&mut info, mm);
     }
 
-    // let mut mm: Vec<uefi::table::boot::MemoryDescriptor> = mm
-    //     .copied()
-    //     .map(|mut m| {
-    //         m.virt_start = m.phys_start;
-    //         m
-    //     })
-    //     .collect();
-    // unsafe {
-    //     st.runtime_services()
-    //         .set_virtual_address_map(&mut mm)
-    //         .unwrap()
-    //         .unwrap();
-    // }
-
     let entry = kernel.locate(VirtualAddress(info.kernel_base));
 
     let stack_size: usize = 0x4000;
@@ -168,7 +154,7 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
     // println!("Now starting MEG-OS...");
     unsafe {
         PageManager::finalize(&mut info);
-        Invocation::invoke_kernel(info, entry, new_sp);
+        Invocation::invoke_kernel(&info, entry, new_sp);
     }
 }
 

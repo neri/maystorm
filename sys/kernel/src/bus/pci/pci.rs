@@ -236,7 +236,7 @@ impl PciBar {
     }
 
     unsafe fn parse(cpu: &Cpu, base: PciConfigAddressSpace, index: usize) -> Option<PciBar> {
-        Cpu::without_interrupts(|| {
+        without_interrupts!({
             let reg = base.register(index as u8);
             let raw = cpu.read_pci(reg);
             if raw == 0 {

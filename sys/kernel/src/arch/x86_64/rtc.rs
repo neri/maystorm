@@ -40,7 +40,7 @@ impl Rtc {
 
     unsafe fn fetch_time() -> u64 {
         RTC.lock.synchronized(|| {
-            Cpu::without_interrupts(|| loop {
+            without_interrupts!(loop {
                 let time1 = Self::read_time();
                 let time2 = Self::read_time();
                 if time1 == time2 {

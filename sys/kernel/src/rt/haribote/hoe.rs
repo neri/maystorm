@@ -6,8 +6,8 @@ use crate::mem::MemoryManager;
 use crate::window::*;
 use crate::*;
 use alloc::boxed::Box;
-use core::ptr::*;
 use core::time::Duration;
+use core::{alloc::Layout, ptr::*};
 use core::{slice, str};
 use megstd::drawing::*;
 
@@ -515,7 +515,12 @@ impl BinaryLoader for HrbBinaryLoader {
             let image_size = rva_data + size_of_ds;
             let stack_pointer = header.esp as usize;
 
-            let image_base = MemoryManager::zalloc_legacy(image_size).unwrap().get() as *mut u8;
+            let image_base = MemoryManager::zalloc(Layout::from_size_align_unchecked(
+                image_size,
+                MemoryManager::PAGE_SIZE_MIN,
+            ))
+            .unwrap()
+            .get() as *mut u8;
             image_base.write_bytes(0, image_size);
 
             let base_code = image_base;

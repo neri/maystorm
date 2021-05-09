@@ -1,6 +1,6 @@
 [build]
-target = "x86_64-unknown-uefi.json"
-# target = "x86_64-unknown-linux-gnu.json"
+# target = "x86_64-unknown-uefi.json"
+target = "x86_64-unknown-linux-gnu"
 # rustflags = ["-C", "relocation-model=static", "-C", "lto", "-C", "link-args=--image-base=0x00100000 --omagic"]
 # rustflags = ["-C", "target-feature=-mmx,-sse,-soft-float"]
 
