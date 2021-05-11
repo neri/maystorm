@@ -233,13 +233,13 @@ impl Apic {
         AP_STALLED.store(false, Ordering::SeqCst);
         System::cpu_mut(0).set_tsc_base(Cpu::rdtsc());
 
-        asm!("
-            mov eax, 0xCCCCCCCC
-            mov ecx, 256
-            xor edi, edi
-            rep stosd
-            ",
-            lateout("eax") _, lateout("ecx") _, lateout("edi") _,);
+        // asm!("
+        //     mov eax, 0xCCCCCCCC
+        //     mov ecx, 256
+        //     xor edi, edi
+        //     rep stosd
+        //     ",
+        //     lateout("eax") _, lateout("ecx") _, lateout("edi") _,);
     }
 
     pub unsafe fn register(irq: Irq, f: IrqHandler) -> Result<(), ()> {
@@ -418,7 +418,7 @@ impl From<usize> for ProcessorId {
 pub struct Irq(pub u8);
 
 impl Irq {
-    const BASE: InterruptVector = InterruptVector(0x20);
+    const BASE: InterruptVector = InterruptVector(0x80);
     const MAX: Irq = Irq(127);
 
     pub const LPC_TIMER: Irq = Irq(0);

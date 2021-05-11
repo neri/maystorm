@@ -44,11 +44,12 @@ _base:
     ; fn asm_handle_exception(_: InterruptVector) -> usize;
     global asm_handle_exception
 asm_handle_exception:
-    cmp cl, 0x40
+    mov al, dil
+    cmp al, 0x40
     jz .hoe
-    cmp cl, 15
+    cmp al, 15
     ja .no_exception
-    movzx ecx, cl
+    movzx ecx, al
     lea rdx, [rel _exception_table]
     mov eax, [rdx + rcx * 4]
     or eax, eax
@@ -118,7 +119,7 @@ _exception:
     and rsp, byte 0xF0
     cld
 
-    mov rcx, rbp
+    mov rdi, rbp
     call cpu_default_exception
 
     lea rsp, [rbp + 8 * 5]
@@ -154,7 +155,7 @@ _asm_int_40: ; INT40 Haribote OS SVC
     and rsp, byte 0xF0
     cld
 
-    mov rcx, rbp
+    mov rdi, rbp
     call cpu_int40_handler
 
     mov eax, [rbp]
@@ -177,69 +178,65 @@ _asm_int_40: ; INT40 Haribote OS SVC
 %define CTX_SP          0x20
 %define CTX_BP          0x28
 %define CTX_BX          0x30
-%define CTX_SI          0x38
-%define CTX_DI          0x40
-%define CTX_R12         0x48
-%define CTX_R13         0x50
-%define CTX_R14         0x58
-%define CTX_R15         0x60
-%define CTX_TSS_RSP0    0x68
-%define CTX_DS          0x70
-%define CTX_ES          0x74
-%define CTX_FS          0x78
-%define CTX_GS          0x7C
+%define CTX_R12         0x38
+%define CTX_R13         0x40
+%define CTX_R14         0x48
+%define CTX_R15         0x50
+%define CTX_TSS_RSP0    0x58
+%define CTX_DS          0x60
+%define CTX_ES          0x64
+%define CTX_FS          0x68
+%define CTX_GS          0x6C
 %define CTX_GDT_TEMP    0xF0
 %define CTX_FPU_BASE    0x100
     global asm_sch_switch_context
 asm_sch_switch_context:
 
-    mov [rcx + CTX_SP], rsp
-    mov [rcx + CTX_BP], rbp
-    mov [rcx + CTX_BX], rbx
-    mov [rcx + CTX_SI], rsi
-    mov [rcx + CTX_DI], rdi
-    mov [rcx + CTX_R12], r12
-    mov [rcx + CTX_R13], r13
-    mov [rcx + CTX_R14], r14
-    mov [rcx + CTX_R15], r15
-    mov [rcx + CTX_DS], ds
-    mov [rcx + CTX_ES], es
-    mov [rcx + CTX_FS], fs
-    mov [rcx + CTX_GS], gs
+    mov [rdi + CTX_SP], rsp
+    mov [rdi + CTX_BP], rbp
+    mov [rdi + CTX_BX], rbx
+    mov [rdi + CTX_R12], r12
+    mov [rdi + CTX_R13], r13
+    mov [rdi + CTX_R14], r14
+    mov [rdi + CTX_R15], r15
+    mov [rdi + CTX_DS], ds
+    mov [rdi + CTX_ES], es
+    mov [rdi + CTX_FS], fs
+    mov [rdi + CTX_GS], gs
 
-    sgdt [rcx + CTX_GDT_TEMP + 6]
-    mov rbx, [rcx + CTX_GDT_TEMP + 8]
+    sgdt [rdi + CTX_GDT_TEMP + 6]
+    mov rbx, [rdi + CTX_GDT_TEMP + 8]
 
-    mov rax, [rdx + CTX_USER_CS]
+    mov rax, [rsi + CTX_USER_CS]
     xchg rax, [rbx + 8 * 4]
-    mov [rcx + CTX_USER_CS], rax
+    mov [rdi + CTX_USER_CS], rax
 
-    mov rax, [rdx + CTX_USER_DS]
+    mov rax, [rsi + CTX_USER_DS]
     xchg rax, [rbx + 8 * 5]
-    mov [rcx + CTX_USER_DS], rax
+    mov [rdi + CTX_USER_DS], rax
 
     add rbx, 64
-    mov rax, [rdx + CTX_TSS_RSP0]
+    mov rax, [rsi + CTX_TSS_RSP0]
     xchg rax, [rbx + TSS64_RSP0]
-    mov [rcx + CTX_TSS_RSP0], rax
+    mov [rdi + CTX_TSS_RSP0], rax
 
-    mov ds, [rdx + CTX_DS]
-    mov es, [rdx + CTX_ES]
-    mov fs, [rdx + CTX_FS]
-    mov gs, [rdx + CTX_GS]
-    mov rsp, [rdx + CTX_SP]
-    mov rbp, [rdx + CTX_BP]
-    mov rbx, [rdx + CTX_BX]
-    mov rsi, [rdx + CTX_SI]
-    mov rdi, [rdx + CTX_DI]
-    mov r12, [rdx + CTX_R12]
-    mov r13, [rdx + CTX_R13]
-    mov r14, [rdx + CTX_R14]
-    mov r15, [rdx + CTX_R15]
+    mov ds, [rsi + CTX_DS]
+    mov es, [rsi + CTX_ES]
+    mov fs, [rsi + CTX_FS]
+    mov gs, [rsi + CTX_GS]
+    mov rsp, [rsi + CTX_SP]
+    mov rbp, [rsi + CTX_BP]
+    mov rbx, [rsi + CTX_BX]
+    mov r12, [rsi + CTX_R12]
+    mov r13, [rsi + CTX_R13]
+    mov r14, [rsi + CTX_R14]
+    mov r15, [rsi + CTX_R15]
 
     xor eax, eax
     xor ecx, ecx
     xor edx, edx
+    xor esi, esi
+    xor edi, edi
     xor r8d, r8d
     xor r9d, r9d
     xor r10d, r10d
@@ -252,14 +249,14 @@ asm_sch_switch_context:
     global asm_sch_make_new_thread
 asm_sch_make_new_thread:
     lea rax, [rel _new_thread]
-    sub rdx, BYTE 0x18
-    mov [rdx], rax
-    mov [rdx + 0x08], r8
-    mov [rdx + 0x10], r9
-    mov [rcx + CTX_SP], rdx
+    sub rsi, BYTE 0x18
+    mov [rsi], rax
+    mov [rsi + 0x08], rdx
+    mov [rsi + 0x10], rcx
+    mov [rdi + CTX_SP], rsi
     xor eax, eax
-    mov [rcx + CTX_USER_CS], rax
-    mov [rcx + CTX_USER_DS], rax
+    mov [rdi + CTX_USER_CS], rax
+    mov [rdi + CTX_USER_DS], rax
     ret
 
 
@@ -267,7 +264,7 @@ _new_thread:
     call sch_setup_new_thread
     sti
     pop rax
-    pop rcx
+    pop rdi
     call rax
     ud2
 
@@ -275,10 +272,11 @@ _new_thread:
 ;   fn asm_apic_setup_sipi(vec_sipi: u8, max_cpu: usize, stack_chunk_size: usize, stack_base: *mut u8);
     global asm_apic_setup_sipi
 asm_apic_setup_sipi:
-    push rsi
-    push rdi
+    mov r8, rdx
+    mov r9, rcx
+    mov edx, esi
 
-    movzx r11d, cl
+    movzx r11d, dil
     shl r11d, 12
     mov edi, r11d
     lea rsi, [rel _smp_rm_payload]
@@ -321,8 +319,6 @@ asm_apic_setup_sipi:
     mov [r10 + SMPINFO_AP_STARTUP], rax
 
     mov eax, r10d
-    pop rdi
-    pop rsi
     ret
 
 
@@ -336,7 +332,7 @@ _ap_startup:
     lea rsp, [rcx + rax]
 
     ; init APIC
-    mov ecx, ebp
+    mov edi, ebp
     call apic_start_ap
 
     ; idle thread

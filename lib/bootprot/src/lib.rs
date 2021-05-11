@@ -1,8 +1,6 @@
 // MEG-OS Boot Info
 #![no_std]
 
-pub mod pe;
-
 use bitflags::*;
 
 #[repr(C)]

@@ -1,9 +1,7 @@
 // High Precision Event Timer
 
 use super::{apic::*, page::PhysicalAddress};
-use crate::mem::mmio::*;
-use crate::task::scheduler::*;
-use crate::*;
+use crate::{mem::mmio::*, task::scheduler::*, *};
 use alloc::boxed::Box;
 use core::time::Duration;
 
@@ -44,6 +42,8 @@ impl Hpet {
         self.mmio.write_u64(index, value);
     }
 
+    /// IRQ of HPET
+    /// Currently, this system does not require an IRQ for HPET, but it is receiving an interrupt just in case.
     fn irq_handler(_irq: Irq) {
         // TODO:
     }

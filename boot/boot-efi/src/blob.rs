@@ -16,6 +16,16 @@ impl<'a> Blob<'a> {
 
 impl Blob<'_> {
     #[inline]
+    pub const fn len(&self) -> usize {
+        self.blob.len()
+    }
+
+    #[inline]
+    pub fn base(&self) -> *const u8 {
+        &self.blob[0] as *const u8
+    }
+
+    #[inline]
     #[track_caller]
     pub const fn read_u8(&self, offset: usize) -> u8 {
         self.blob[offset]

@@ -315,9 +315,9 @@ impl MemFreePair {
 
 bitflags! {
     pub struct MProtect: usize {
-        const READ  = 0x1;
+        const READ  = 0x4;
         const WRITE = 0x2;
-        const EXEC  = 0x4;
+        const EXEC  = 0x1;
         const NONE  = 0x0;
 
         const READ_WRITE = Self::READ.bits | Self::WRITE.bits;

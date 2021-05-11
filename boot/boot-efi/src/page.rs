@@ -10,11 +10,11 @@ use core::ptr;
 use core::slice;
 use uefi::table::boot::*;
 
-struct PageConfig {}
+pub struct PageConfig {}
 
 impl PageConfig {
     /// UEFI virtual page size (not the actual page size)
-    const UEFI_PAGE_SIZE: u64 = 0x0000_1000;
+    pub const UEFI_PAGE_SIZE: u64 = 0x0000_1000;
     const N_DIRECT_MAP_GIGA: usize = 4;
     const MAX_REAL_MEMORY: u64 = 0x0000A_0000;
 }
@@ -387,9 +387,9 @@ impl MemoryTypeHelper for MemoryType {
 
 bitflags! {
     pub struct MProtect: usize {
-        const READ  = 0x1;
+        const READ  = 0x4;
         const WRITE = 0x2;
-        const EXEC  = 0x4;
+        const EXEC  = 0x1;
         const NONE  = 0x0;
     }
 }

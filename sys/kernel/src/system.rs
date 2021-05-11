@@ -246,13 +246,15 @@ impl System {
     }
 
     #[inline]
-    pub(crate) fn cpu<'a>(index: usize) -> &'a Box<Cpu> {
-        &Self::shared().cpus[index]
+    #[track_caller]
+    pub(crate) fn cpu<'a>(index: usize) -> &'a Cpu {
+        Self::shared().cpus.get(index).as_ref().unwrap()
     }
 
     #[inline]
-    pub(crate) unsafe fn cpu_mut<'a>(index: usize) -> &'a mut Box<Cpu> {
-        &mut Self::shared().cpus[index]
+    #[track_caller]
+    pub(crate) unsafe fn cpu_mut<'a>(index: usize) -> &'a mut Cpu {
+        Self::shared().cpus.get_mut(index).unwrap()
     }
 
     /// SAFETY: THREAD UNSAFE. DO NOT CALL IT EXCEPT FOR SMP INITIALIZATION.

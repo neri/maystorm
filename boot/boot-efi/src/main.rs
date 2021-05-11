@@ -91,7 +91,7 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
     }
 
     // Load KERNEL
-    let mut kernel = ImageLoader::new(match get_file(handle, &bs, config.kernel_path()) {
+    let mut kernel = ElfLoader::new(match get_file(handle, &bs, config.kernel_path()) {
         Ok(blob) => (blob),
         Err(status) => {
             writeln!(st.stdout(), "Error: Load failed {}", config.kernel_path()).unwrap();

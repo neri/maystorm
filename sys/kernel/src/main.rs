@@ -22,7 +22,11 @@ use megstd::string::*;
 
 extern crate alloc;
 
-entry!(Shell::start);
+/// Entry Point of The Kernel
+#[no_mangle]
+unsafe fn _start(info: &BootInfo) -> ! {
+    system::System::init(info, Shell::start);
+}
 
 static mut MAIN: Shell = Shell::new();
 

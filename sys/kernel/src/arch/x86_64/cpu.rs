@@ -217,23 +217,23 @@ impl Cpu {
     #[inline]
     pub fn spin_loop_hint() {
         unsafe {
-            asm!("pause");
+            asm!("pause", options(nomem, nostack));
         }
     }
 
     #[inline]
     pub(crate) unsafe fn halt() {
-        asm!("hlt");
+        asm!("hlt", options(nomem, nostack));
     }
 
     #[inline]
     pub unsafe fn enable_interrupt() {
-        asm!("sti");
+        asm!("sti", options(nomem, nostack));
     }
 
     #[inline]
     pub unsafe fn disable_interrupt() {
-        asm!("cli");
+        asm!("cli", options(nomem, nostack));
     }
 
     #[inline]
@@ -356,7 +356,7 @@ impl Cpu {
         let eax: u32;
         let edx: u32;
         unsafe {
-            asm!("rdtsc", lateout("edx") edx, lateout("eax") eax);
+            asm!("rdtsc", lateout("edx") edx, lateout("eax") eax, options(nomem, nostack));
         }
         eax as u64 + edx as u64 * 0x10000_0000
     }
@@ -372,6 +372,7 @@ impl Cpu {
             lateout("eax") eax,
             lateout("ecx") ecx,
             lateout("edx") edx,
+            options(nomem, nostack),
         );
         (eax as u64 + edx as u64 * 0x10000_0000, ecx)
     }
@@ -1217,12 +1218,17 @@ impl InterruptDescriptorTable {
         asm!("
             push {0}
             push {1}
-            lidt [rsp+6]
+            lidt [rsp + 6]
             add rsp, 16
             ", in(reg) &IDT.table, in(reg) ((IDT.table.len() * 8 - 1) << 48));
     }
 
+    #[track_caller]
     pub unsafe fn register(vec: InterruptVector, offset: usize, dpl: PrivilegeLevel) {
+        let table_offset = vec.0 as usize * 2;
+        if !IDT.table[table_offset].is_null() {
+            panic!("IDT entry #{} is already in use", vec.0);
+        }
         let pair = DescriptorEntry::gate_descriptor(
             offset,
             Selector::KERNEL_CODE,
@@ -1233,7 +1239,6 @@ impl InterruptDescriptorTable {
                 DescriptorType::TrapGate
             },
         );
-        let table_offset = vec.0 as usize * 2;
         IDT.table[table_offset + 1] = pair.high;
         IDT.table[table_offset] = pair.low;
     }
@@ -1277,16 +1282,16 @@ impl Msr {
     #[inline]
     pub unsafe fn write(self, value: u64) {
         let value = MsrResult { qword: value };
-        asm!("wrmsr", in("eax") value.tuple.eax, in("edx") value.tuple.edx, in("ecx") self as u32);
+        asm!("wrmsr", in("eax") value.tuple.eax, in("edx") value.tuple.edx, in("ecx") self as u32, options(nomem, nostack),);
     }
 
     #[inline]
     pub unsafe fn read(self) -> u64 {
         let mut eax: u32;
         let mut edx: u32;
-        asm!("rdmsr", lateout("eax") eax, lateout("edx") edx, in("ecx") self as u32);
+        asm!("rdmsr", lateout("eax") eax, lateout("edx") edx, in("ecx") self as u32, options(nomem, nostack));
         MsrResult {
-            tuple: EaxEdx { eax: eax, edx: edx },
+            tuple: EaxEdx { eax, edx },
         }
         .qword
     }
@@ -1510,7 +1515,6 @@ rbp {:016x} r10 {:016x} r15 {:016x} gs {:04x}",
 }
 
 #[inline]
-#[allow(dead_code)]
 #[no_mangle]
 pub(super) unsafe extern "C" fn cpu_int40_handler(ctx: *mut haribote::HoeSyscallRegs) {
     let regs = ctx.as_mut().unwrap();

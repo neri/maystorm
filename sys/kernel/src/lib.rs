@@ -63,27 +63,6 @@ macro_rules! println {
     };
 }
 
-#[macro_export]
-macro_rules! entry {
-    ($path:path) => {
-        #[no_mangle]
-        pub fn efi_main(info: &BootInfo, mbz: usize) -> usize {
-            let f: fn() = $path;
-            unsafe { kernel_entry(info, mbz, f) }
-        }
-    };
-}
-
-/// Entry Point of The Kernel
-#[inline]
-pub unsafe fn kernel_entry(info: &BootInfo, mbz: usize, f: fn() -> ()) -> usize {
-    if mbz != 0 {
-        // EFI Stub is no longer supported
-        return !(isize::MAX as usize) + 1;
-    }
-    system::System::init(info, f);
-}
-
 static mut PANIC_GLOBAL_LOCK: sync::spinlock::Spinlock = sync::spinlock::Spinlock::new();
 
 #[panic_handler]

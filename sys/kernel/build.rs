@@ -10,8 +10,8 @@ fn main() {
     match &*target_arch {
         "x86_64" => {
             Command::new("nasm")
-                .args(&["-f", "win64", "src/arch/x86_64/asm.asm", "-o"])
-                // .args(&["-f", "elf64", "src/arch/x86_64/asm.asm", "-o"])
+                // .args(&["-f", "win64", "src/arch/x86_64/asm.asm", "-o"])
+                .args(&["-f", "elf64", "src/arch/x86_64/asm.asm", "-o"])
                 .arg(&format!("{}/asm.o", out_dir))
                 .status()
                 .unwrap();
