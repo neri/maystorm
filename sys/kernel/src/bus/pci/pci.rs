@@ -204,6 +204,16 @@ impl PciDevice {
     }
 
     #[inline]
+    pub const fn subsys_vendor_id(&self) -> PciVendorId {
+        self.subsys_vendor_id
+    }
+
+    #[inline]
+    pub const fn subsys_device_id(&self) -> PciDeviceId {
+        self.subsys_device_id
+    }
+
+    #[inline]
     pub const fn class_code(&self) -> u32 {
         self.class_code
     }
@@ -218,6 +228,7 @@ impl PciDevice {
         self.functions.as_ref()
     }
 
+    /// Returns an array of capability ID and register offset pairs.
     #[inline]
     pub fn capabilities(&self) -> &[(PciCapabilityId, u8)] {
         self.capabilities.as_ref()

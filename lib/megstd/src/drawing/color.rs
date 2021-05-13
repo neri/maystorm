@@ -369,14 +369,14 @@ impl From<DeepColor30> for TrueColor {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum AmbiguousColor {
+pub enum SomeColor {
     Indexed(IndexedColor),
     Argb32(TrueColor),
 }
 
-impl ColorTrait for AmbiguousColor {}
+impl ColorTrait for SomeColor {}
 
-impl AmbiguousColor {
+impl SomeColor {
     pub const TRANSPARENT: Self = Self::Argb32(TrueColor::TRANSPARENT);
     pub const BLACK: Self = Self::Indexed(IndexedColor::BLACK);
     pub const BLUE: Self = Self::Indexed(IndexedColor::BLUE);
@@ -409,37 +409,37 @@ impl AmbiguousColor {
     #[inline]
     pub const fn into_argb(&self) -> TrueColor {
         match self {
-            AmbiguousColor::Indexed(v) => v.as_true_color(),
-            AmbiguousColor::Argb32(v) => *v,
+            SomeColor::Indexed(v) => v.as_true_color(),
+            SomeColor::Argb32(v) => *v,
         }
     }
 }
 
-impl Into<IndexedColor> for AmbiguousColor {
+impl Into<IndexedColor> for SomeColor {
     fn into(self) -> IndexedColor {
         match self {
-            AmbiguousColor::Indexed(v) => v,
-            AmbiguousColor::Argb32(v) => v.into(),
+            SomeColor::Indexed(v) => v,
+            SomeColor::Argb32(v) => v.into(),
         }
     }
 }
 
-impl Into<TrueColor> for AmbiguousColor {
+impl Into<TrueColor> for SomeColor {
     fn into(self) -> TrueColor {
         match self {
-            AmbiguousColor::Indexed(v) => v.into(),
-            AmbiguousColor::Argb32(v) => v,
+            SomeColor::Indexed(v) => v.into(),
+            SomeColor::Argb32(v) => v,
         }
     }
 }
 
-impl From<IndexedColor> for AmbiguousColor {
+impl From<IndexedColor> for SomeColor {
     fn from(val: IndexedColor) -> Self {
         Self::Indexed(val)
     }
 }
 
-impl From<TrueColor> for AmbiguousColor {
+impl From<TrueColor> for SomeColor {
     fn from(val: TrueColor) -> Self {
         Self::Argb32(val)
     }

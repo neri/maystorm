@@ -8,7 +8,7 @@ use megstd::drawing::*;
 pub struct AttributedString<'a> {
     text: &'a str,
     font: FontDescriptor,
-    color: AmbiguousColor,
+    color: SomeColor,
     line_break_mode: LineBreakMode,
     align: TextAlignment,
     valign: VerticalAlignment,
@@ -30,7 +30,7 @@ impl AttributedString<'_> {
     }
 
     #[inline]
-    pub const fn color(&self) -> AmbiguousColor {
+    pub const fn color(&self) -> SomeColor {
         self.color
     }
 
@@ -72,7 +72,7 @@ impl AttributedString<'_> {
 
 pub struct AttributedStringBuilder {
     font: FontDescriptor,
-    color: AmbiguousColor,
+    color: SomeColor,
     line_break_mode: LineBreakMode,
     align: TextAlignment,
     valign: VerticalAlignment,
@@ -83,7 +83,7 @@ impl AttributedStringBuilder {
     pub fn new() -> Self {
         Self {
             font: FontManager::ui_font(),
-            color: AmbiguousColor::BLACK,
+            color: SomeColor::BLACK,
             line_break_mode: LineBreakMode::default(),
             align: TextAlignment::Leading,
             valign: VerticalAlignment::Center,
@@ -109,7 +109,7 @@ impl AttributedStringBuilder {
     }
 
     #[inline]
-    pub fn color(mut self, color: AmbiguousColor) -> Self {
+    pub fn color(mut self, color: SomeColor) -> Self {
         self.color = color;
         self
     }
@@ -290,7 +290,7 @@ impl TextProcessing {
         s: &str,
         font: FontDescriptor,
         origin: Point,
-        color: AmbiguousColor,
+        color: SomeColor,
     ) {
         Self::draw_text(
             to,
@@ -317,7 +317,7 @@ impl TextProcessing {
         s: &str,
         font: FontDescriptor,
         rect: Rect,
-        color: AmbiguousColor,
+        color: SomeColor,
         max_lines: usize,
         line_break: LineBreakMode,
         align: TextAlignment,

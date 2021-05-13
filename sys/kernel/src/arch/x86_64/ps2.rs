@@ -2,7 +2,7 @@
 
 use crate::arch::apic::*;
 use crate::io::hid::*;
-use crate::sync::spinlock::*;
+use crate::sync::spinlock::SpinLoopWait;
 use crate::task::scheduler::*;
 use crate::*;
 use bitflags::*;

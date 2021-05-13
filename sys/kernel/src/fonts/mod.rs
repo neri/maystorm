@@ -1,2 +1,2 @@
-pub mod font;
+mod font;
 pub use font::*;

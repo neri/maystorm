@@ -367,8 +367,8 @@ impl Hoe {
             .ok_or(())
     }
 
-    fn get_color(index: u8) -> AmbiguousColor {
-        AmbiguousColor::from_argb(Self::PALETTE[index as usize])
+    fn get_color(index: u8) -> SomeColor {
+        SomeColor::from_argb(Self::PALETTE[index as usize])
     }
 
     fn alloc_window(&mut self, title: &str, width: u32, height: u32, buffer: u32) -> u32 {

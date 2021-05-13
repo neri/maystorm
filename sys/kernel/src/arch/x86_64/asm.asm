@@ -44,12 +44,11 @@ _base:
     ; fn asm_handle_exception(_: InterruptVector) -> usize;
     global asm_handle_exception
 asm_handle_exception:
-    mov al, dil
-    cmp al, 0x40
+    cmp dil, 0x40
     jz .hoe
-    cmp al, 15
+    cmp dil, 15
     ja .no_exception
-    movzx ecx, al
+    movzx ecx, dil
     lea rdx, [rel _exception_table]
     mov eax, [rdx + rcx * 4]
     or eax, eax
@@ -63,6 +62,7 @@ asm_handle_exception:
 .hoe:
     lea rax, [rel _asm_int_40]
     ret
+
 
 _asm_int_00: ; #DE Divide Error
     push BYTE 0

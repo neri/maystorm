@@ -1678,7 +1678,7 @@ pub enum ConstBitmap<'a> {
 }
 
 impl Drawable for ConstBitmap<'_> {
-    type ColorType = AmbiguousColor;
+    type ColorType = SomeColor;
 
     #[inline]
     fn width(&self) -> usize {
@@ -1737,7 +1737,7 @@ pub enum Bitmap<'a> {
 }
 
 impl Drawable for Bitmap<'_> {
-    type ColorType = AmbiguousColor;
+    type ColorType = SomeColor;
 
     #[inline]
     fn width(&self) -> usize {
@@ -1940,7 +1940,7 @@ pub enum OwnedBitmap<'a> {
 }
 
 impl Drawable for OwnedBitmap<'_> {
-    type ColorType = AmbiguousColor;
+    type ColorType = SomeColor;
 
     #[inline]
     fn width(&self) -> usize {
@@ -1992,7 +1992,7 @@ pub enum BoxedBitmap<'a> {
 }
 
 impl Drawable for BoxedBitmap<'_> {
-    type ColorType = AmbiguousColor;
+    type ColorType = SomeColor;
 
     #[inline]
     fn width(&self) -> usize {
@@ -2015,7 +2015,7 @@ impl<'a> BoxedBitmap<'a> {
     pub fn same_format<'b, T: AsRef<ConstBitmap<'b>>>(
         template: &T,
         size: Size,
-        bg_color: AmbiguousColor,
+        bg_color: SomeColor,
     ) -> BoxedBitmap<'a> {
         match template.as_ref() {
             ConstBitmap::Indexed(_) => BoxedBitmap8::new(size, bg_color.into()).into(),

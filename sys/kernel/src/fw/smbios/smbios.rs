@@ -18,6 +18,7 @@ impl SMBIOS {
         Box::new(Self { base, n_structures })
     }
 
+    /// Returns the system manufacturer name, if available
     #[inline]
     pub fn manufacturer_name<'a>(&'a self) -> Option<&'a str> {
         self.find(HeaderType::SYSTEM_INFO).and_then(|h| {
@@ -26,6 +27,7 @@ impl SMBIOS {
         })
     }
 
+    /// Returns the system model name, if available
     #[inline]
     pub fn model_name<'a>(&'a self) -> Option<&'a str> {
         self.find(HeaderType::SYSTEM_INFO).and_then(|h| {
@@ -34,6 +36,7 @@ impl SMBIOS {
         })
     }
 
+    /// Returns an iterator that iterates through the SMBIOS structure
     #[inline]
     pub fn iter(&self) -> impl Iterator<Item = &'static SmBiosHeader> {
         SmBiosStructWalker {
@@ -44,6 +47,7 @@ impl SMBIOS {
         }
     }
 
+    /// Finds a structure with the specified header type.
     #[inline]
     pub fn find(&self, header_type: HeaderType) -> Option<&'static SmBiosHeader> {
         self.iter().find(|v| v.header_type() == header_type)
@@ -55,8 +59,51 @@ impl SMBIOS {
 pub struct HeaderType(pub u8);
 
 impl HeaderType {
-    pub const BIOS_INFO: Self = Self(0x00);
-    pub const SYSTEM_INFO: Self = Self(0x01);
+    pub const BIOS_INFO: Self = Self(0);
+    pub const SYSTEM_INFO: Self = Self(1);
+    pub const BASEBOARD_INFO: Self = Self(2);
+    pub const SYSTEM_ENCLOSURE: Self = Self(3);
+    pub const PROCESSOR_INFO: Self = Self(4);
+    pub const MEMORY_CONTROLLER_INFO: Self = Self(5);
+    pub const MEMORY_MODULE_INFO: Self = Self(6);
+    pub const CACHE_INFO: Self = Self(7);
+    pub const PORT_CONNECTOR_INFO: Self = Self(8);
+    pub const SYSTEM_SLOTS: Self = Self(9);
+    pub const ONBOARD_DEVICE_INFO: Self = Self(10);
+    pub const OEM_STRINGS: Self = Self(11);
+    pub const SYSTEM_CONFIGURATION_OPTIONS: Self = Self(12);
+    pub const BIOS_LANGUAGE_INFO: Self = Self(13);
+    pub const GROUP_ASSOCIATIONS: Self = Self(14);
+    pub const SYSTEM_EVENT_LOG: Self = Self(15);
+    pub const PHYSICAL_MEMORY_ARRAY: Self = Self(16);
+    pub const MEMORY_DEVICE: Self = Self(17);
+    pub const _32BIT_MEMORY_ERROR_INFO: Self = Self(18);
+    pub const MEMORY_ARRAY_MAPPED_ADDRESS: Self = Self(19);
+    pub const MEMORY_DEVICE_MAPPED_ADDRESS: Self = Self(20);
+    pub const BUILT_IN_POINTING_DEVICE: Self = Self(21);
+    pub const PORTABLE_BATTERY: Self = Self(22);
+    pub const SYSTEM_RESET: Self = Self(23);
+    pub const HARDWARE_SECURITY: Self = Self(24);
+    pub const SYSTEM_POWER_CONTROLS: Self = Self(25);
+    pub const VOLTAGE_PROBE: Self = Self(26);
+    pub const COOLING_DEVICE: Self = Self(27);
+    pub const TEMPERATURE_PROBE: Self = Self(28);
+    pub const ELECTRICAL_CURRENT_PROBE: Self = Self(29);
+    pub const OUT_OF_BAND_REMOTE_ACCESS: Self = Self(30);
+    pub const BOOT_INTEGRITY_SERVICE: Self = Self(31);
+    pub const SYSTEM_BOOT_INFO: Self = Self(32);
+    pub const _64BIT_MEMORY_ERROR_INFO: Self = Self(33);
+    pub const MANAGEMENT_DEVICE: Self = Self(34);
+    pub const MANAGEMENT_DEVICE_COMPONENT: Self = Self(35);
+    pub const MANAGEMENT_DEVICE_THRESHOLD_DATA: Self = Self(36);
+    pub const MEMORY_CHANNEL: Self = Self(37);
+    pub const IPMI_DEVICE_INFO: Self = Self(38);
+    pub const SYSTEM_POWER_SUPPLY: Self = Self(39);
+    pub const ADDITIONAL_INFO: Self = Self(40);
+    pub const ONBOARD_DEVICES_EXTENDED_INFO: Self = Self(41);
+    pub const MANAGEMENT_CONTROLLER_HOST_INTERFACE: Self = Self(42);
+    pub const TPM_DEVICE: Self = Self(43);
+    pub const PROCESSOR_ADDITIONAL_INFO: Self = Self(44);
 }
 
 #[repr(C)]
@@ -167,7 +214,13 @@ impl SmBiosHeader {
     pub fn struct_size(&self) -> usize {
         let mut iter = self.strings();
         while iter.next().is_some() {}
-        self.header_size() + iter.offset + 1
+        if iter.offset > 0 {
+            // There is a NULL after some strings
+            self.header_size() + iter.offset + 1
+        } else {
+            // There is no strings and a double NULL
+            self.header_size() + 2
+        }
     }
 }
 

@@ -437,7 +437,7 @@ impl Cpu {
             cli
             pop {0}
             ", lateout(reg) rax);
-        let has_to_restore = Rflags::from_bits_unchecked(rax).contains(Rflags::IF);
+        let has_to_restore = Rflags::from_bits_truncate(rax).contains(Rflags::IF);
 
         let result = f();
 
@@ -526,7 +526,7 @@ pub struct GlobalDescriptorTable {
 impl GlobalDescriptorTable {
     const NUM_ITEMS: usize = 8;
 
-    pub fn new() -> Box<Self> {
+    unsafe fn new() -> Box<Self> {
         let mut gdt = Box::new(GlobalDescriptorTable {
             tss: TaskStateSegment::new(),
             table: [DescriptorEntry::null(); Self::NUM_ITEMS],
@@ -563,13 +563,13 @@ impl GlobalDescriptorTable {
     }
 
     #[inline]
-    fn item(&self, selector: Selector) -> Option<&DescriptorEntry> {
+    pub unsafe fn item(&self, selector: Selector) -> Option<&DescriptorEntry> {
         let index = selector.index();
         self.table.get(index)
     }
 
     #[inline]
-    fn item_mut(&mut self, selector: Selector) -> Option<&mut DescriptorEntry> {
+    pub unsafe fn item_mut(&mut self, selector: Selector) -> Option<&mut DescriptorEntry> {
         let index = selector.index();
         self.table.get_mut(index)
     }
@@ -826,15 +826,18 @@ bitflags! {
     }
 }
 
+/// Type of x86 segment limit
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub struct Limit(pub u16);
 
+/// Type of x86 segment selector
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Selector(pub u16);
 
 impl Selector {
+    /// The NULL selector that does not contain anything
     pub const NULL: Selector = Selector(0);
     pub const KERNEL_CODE: Selector = Selector::new(1, PrivilegeLevel::Kernel);
     pub const KERNEL_DATA: Selector = Selector::new(2, PrivilegeLevel::Kernel);
@@ -843,16 +846,19 @@ impl Selector {
     pub const LEGACY_DATA: Selector = Selector::new(5, PrivilegeLevel::User);
     pub const SYSTEM_TSS: Selector = Selector::new(6, PrivilegeLevel::Kernel);
 
+    /// Make a new instance of the selector from the specified index and RPL
     #[inline]
     pub const fn new(index: usize, rpl: PrivilegeLevel) -> Self {
         Selector((index << 3) as u16 | rpl as u16)
     }
 
+    /// Returns the requested privilege level in the selector
     #[inline]
     pub const fn rpl(self) -> PrivilegeLevel {
         PrivilegeLevel::from_usize(self.0 as usize)
     }
 
+    /// Returns the index field in the selector
     #[inline]
     pub const fn index(self) -> usize {
         (self.0 >> 3) as usize
@@ -959,17 +965,17 @@ impl From<ExceptionType> for InterruptVector {
 
 #[repr(C, packed)]
 #[derive(Default)]
-pub struct TaskStateSegment {
+struct TaskStateSegment {
     _reserved_1: u32,
-    pub stack_pointer: [u64; 3],
+    stack_pointer: [u64; 3],
     _reserved_2: [u32; 2],
-    pub ist: [u64; 7],
+    ist: [u64; 7],
     _reserved_3: [u32; 2],
-    pub iomap_base: u16,
+    iomap_base: u16,
 }
 
 impl TaskStateSegment {
-    pub const fn new() -> Self {
+    const fn new() -> Self {
         Self {
             _reserved_1: 0,
             stack_pointer: [0; 3],
@@ -981,7 +987,7 @@ impl TaskStateSegment {
     }
 
     #[inline]
-    pub const fn limit(&self) -> Limit {
+    const fn limit(&self) -> Limit {
         Limit(0x67)
     }
 }
@@ -1266,16 +1272,16 @@ pub enum Msr {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub union MsrResult {
-    pub qword: u64,
-    pub tuple: EaxEdx,
+union MsrResult {
+    qword: u64,
+    tuple: AccumulatorPair,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
-pub struct EaxEdx {
-    pub eax: u32,
-    pub edx: u32,
+struct AccumulatorPair {
+    eax: u32,
+    edx: u32,
 }
 
 impl Msr {
@@ -1291,7 +1297,7 @@ impl Msr {
         let mut edx: u32;
         asm!("rdmsr", lateout("eax") eax, lateout("edx") edx, in("ecx") self as u32, options(nomem, nostack));
         MsrResult {
-            tuple: EaxEdx { eax, edx },
+            tuple: AccumulatorPair { eax, edx },
         }
         .qword
     }

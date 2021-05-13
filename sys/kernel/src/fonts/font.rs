@@ -175,13 +175,7 @@ impl FontDescriptor {
     }
 
     #[inline]
-    pub fn draw_char(
-        &self,
-        character: char,
-        bitmap: &mut Bitmap,
-        origin: Point,
-        color: AmbiguousColor,
-    ) {
+    pub fn draw_char(&self, character: char, bitmap: &mut Bitmap, origin: Point, color: SomeColor) {
         self.driver
             .draw_char(character, bitmap, origin, self.point(), color)
     }
@@ -202,7 +196,7 @@ pub trait FontDriver {
         bitmap: &mut Bitmap,
         origin: Point,
         height: isize,
-        color: AmbiguousColor,
+        color: SomeColor,
     );
 }
 
@@ -280,7 +274,7 @@ impl FontDriver for FixedFontDriver<'_> {
         bitmap: &mut Bitmap,
         origin: Point,
         _height: isize,
-        color: AmbiguousColor,
+        color: SomeColor,
     ) {
         if let Some(font) = self.glyph_for(character) {
             let origin = Point::new(origin.x, origin.y + self.leading);
@@ -337,7 +331,7 @@ impl<'a> HersheyFont<'a> {
         origin: Point,
         width: isize,
         height: isize,
-        color: AmbiguousColor,
+        color: SomeColor,
     ) {
         if data.len() >= 12 {
             FontManager::shared().lock.synchronized(|| {
@@ -414,16 +408,16 @@ impl<'a> HersheyFont<'a> {
                         width * height / Self::POINT,
                         self.line_height * height / Self::POINT,
                     );
-                    bitmap.draw_rect(rect, AmbiguousColor::from_rgb(0xFFCCFF));
+                    bitmap.draw_rect(rect, SomeColor::from_rgb(0xFFCCFF));
                     bitmap.draw_hline(
                         Point::new(origin.x, origin.y + height - 1),
                         width * height / Self::POINT,
-                        AmbiguousColor::from_rgb(0xFFFF33),
+                        SomeColor::from_rgb(0xFFFF33),
                     );
                     bitmap.draw_hline(
                         Point::new(origin.x, origin.y + height * 3 / 4),
                         width * height / Self::POINT,
-                        AmbiguousColor::from_rgb(0xFF3333),
+                        SomeColor::from_rgb(0xFF3333),
                     );
                 }
 
@@ -519,7 +513,7 @@ impl FontDriver for HersheyFont<'_> {
         bitmap: &mut Bitmap,
         origin: Point,
         height: isize,
-        color: AmbiguousColor,
+        color: SomeColor,
     ) {
         let (base, last, width) = match self.glyph_for(character) {
             Some(info) => info,

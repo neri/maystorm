@@ -9,6 +9,7 @@ use megstd::drawing::*;
 
 const INVALID_UNICHAR: char = '\u{FEFF}';
 
+/// Keyboard usage as defined by the HID specification.
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, Default, PartialEq, PartialOrd, Eq, Ord)]
 pub struct Usage(pub u8);
@@ -32,6 +33,7 @@ impl Usage {
 }
 
 bitflags! {
+    /// Modifier keys as defined by the HID specification.
     pub struct Modifier: u8 {
         const LCTRL = 0b0000_0001;
         const LSHIFT = 0b0000_0010;
@@ -118,6 +120,7 @@ impl KeyboardState {
 pub struct KeyEvent(NonZeroU32);
 
 impl KeyEvent {
+    #[inline]
     pub const fn new(usage: Usage, modifier: Modifier, flags: KeyEventFlags) -> Self {
         unsafe {
             Self(NonZeroU32::new_unchecked(
@@ -126,22 +129,28 @@ impl KeyEvent {
         }
     }
 
+    #[inline]
     pub fn into_char(self) -> char {
         HidManager::key_event_to_char(self)
     }
 
+    #[inline]
     pub const fn usage(self) -> Usage {
         Usage((self.0.get() & 0xFF) as u8)
     }
 
+    #[inline]
     pub const fn modifier(self) -> Modifier {
         unsafe { Modifier::from_bits_unchecked(((self.0.get() >> 16) & 0xFF) as u8) }
     }
 
+    #[inline]
     pub const fn flags(self) -> KeyEventFlags {
         unsafe { KeyEventFlags::from_bits_unchecked(((self.0.get() >> 24) & 0xFF) as u8) }
     }
 
+    /// Returns the data for which a valid key was pressed. Otherwise, it is None.
+    #[inline]
     pub fn key_data(self) -> Option<Self> {
         if self.usage() != Usage::NONE && !self.flags().contains(KeyEventFlags::BREAK) {
             Some(self)
@@ -150,12 +159,14 @@ impl KeyEvent {
         }
     }
 
+    #[inline]
     pub fn post(self) {
         WindowManager::post_key_event(self);
     }
 }
 
 impl Into<char> for KeyEvent {
+    #[inline]
     fn into(self) -> char {
         self.into_char()
     }
@@ -179,6 +190,8 @@ impl<T> MouseReport<T>
 where
     T: Into<isize> + Copy,
 {
+    /// Returns the mouse report in a canonical format.
+    #[inline]
     pub fn normalize(self) -> MouseReport<isize> {
         MouseReport {
             buttons: self.buttons,
@@ -189,6 +202,7 @@ where
 }
 
 bitflags! {
+    /// Mouse buttons as defined by the HID specification.
     pub struct MouseButton: u8 {
         const LEFT      = 0b0000_0001;
         const RIGHT     = 0b0000_0010;
@@ -216,6 +230,7 @@ pub struct MouseState {
 }
 
 impl MouseState {
+    #[inline]
     pub const fn empty() -> Self {
         Self {
             current_buttons: MouseButton::empty(),
@@ -225,6 +240,7 @@ impl MouseState {
         }
     }
 
+    #[inline]
     pub fn process_mouse_report<T>(&mut self, report: MouseReport<T>)
     where
         T: Into<isize> + Copy,
@@ -246,6 +262,7 @@ pub struct MouseEvent {
 }
 
 impl MouseEvent {
+    #[inline]
     pub const fn new(point: Point, buttons: MouseButton, event_buttons: MouseButton) -> Self {
         Self {
             x: point.x as i16,
@@ -255,6 +272,7 @@ impl MouseEvent {
         }
     }
 
+    #[inline]
     pub const fn point(&self) -> Point {
         Point {
             x: self.x as isize,
@@ -262,15 +280,20 @@ impl MouseEvent {
         }
     }
 
+    #[inline]
     pub const fn buttons(&self) -> MouseButton {
         self.buttons
     }
 
+    #[inline]
     pub const fn event_buttons(&self) -> MouseButton {
         self.event_buttons
     }
 }
 
+/// HidManager relays between human interface devices and the window event subsystem.
+///
+/// Keyboard scancodes will be converted to the Usage specified by the USB-HID specification on all platforms.
 pub struct HidManager {
     _phantom: (),
 }
@@ -284,15 +307,18 @@ impl HidManager {
         }
     }
 
-    fn new() -> Self {
+    #[inline]
+    const fn new() -> Self {
         HidManager { _phantom: () }
     }
 
+    #[inline]
     #[allow(dead_code)]
     fn shared() -> &'static HidManager {
         unsafe { HID_MANAGER.as_ref().unwrap() }
     }
 
+    #[inline]
     fn key_event_to_char(event: KeyEvent) -> char {
         if event.flags().contains(KeyEventFlags::BREAK) || event.usage() == Usage::NONE {
             '\0'

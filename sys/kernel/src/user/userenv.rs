@@ -16,7 +16,7 @@ use megstd::drawing::*;
 use megstd::string::*;
 use util::text::{AttributedString, VerticalAlignment};
 
-const DESKTOP_COLOR: AmbiguousColor = AmbiguousColor::from_argb(0x802196F3);
+const DESKTOP_COLOR: SomeColor = SomeColor::from_argb(0x802196F3);
 
 pub struct UserEnv {
     _phantom: (),
@@ -57,8 +57,8 @@ async fn shell_launcher(f: fn()) {
 #[allow(dead_code)]
 async fn status_bar_main() {
     const STATUS_BAR_HEIGHT: isize = 24;
-    let bg_color = AmbiguousColor::from_argb(0xC0EEEEEE);
-    let fg_color = AmbiguousColor::BLACK;
+    let bg_color = SomeColor::from_argb(0xC0EEEEEE);
+    let fg_color = SomeColor::BLACK;
 
     let screen_bounds = WindowManager::main_screen_bounds();
     let window = WindowBuilder::new("Status Bar")
@@ -187,11 +187,11 @@ fn format_bytes(sb: &mut dyn Write, val: usize) -> core::fmt::Result {
 async fn activity_monitor_main() {
     let bg_alpha = 0xC0;
     let bg_color32 = TrueColor::from(IndexedColor::BLACK);
-    let bg_color = AmbiguousColor::Argb32(bg_color32.set_opacity(bg_alpha));
-    let fg_color = AmbiguousColor::from(IndexedColor::YELLOW);
-    let graph_sub_color = AmbiguousColor::from(IndexedColor::LIGHT_GREEN);
-    let graph_main_color = AmbiguousColor::from(IndexedColor::YELLOW);
-    let graph_border_color = AmbiguousColor::from(IndexedColor::LIGHT_GRAY);
+    let bg_color = SomeColor::Argb32(bg_color32.set_opacity(bg_alpha));
+    let fg_color = SomeColor::from(IndexedColor::YELLOW);
+    let graph_sub_color = SomeColor::from(IndexedColor::LIGHT_GREEN);
+    let graph_main_color = SomeColor::from(IndexedColor::YELLOW);
+    let graph_border_color = SomeColor::from(IndexedColor::LIGHT_GRAY);
     let margin = EdgeInsets::new(4, 20, 4, 4);
 
     let screen_bounds = WindowManager::user_screen_bounds();
@@ -218,9 +218,8 @@ async fn activity_monitor_main() {
                 let r = i as usize;
                 let r = r * r;
                 let origin = Point::new(i, 0);
-                let color = AmbiguousColor::from(
-                    bg_color32.set_opacity((bg_alpha as usize * r / 256) as u8),
-                );
+                let color =
+                    SomeColor::from(bg_color32.set_opacity((bg_alpha as usize * r / 256) as u8));
                 bitmap.draw_vline(origin, bitmap.height() as isize, color);
             }
         })

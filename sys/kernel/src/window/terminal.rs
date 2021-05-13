@@ -62,8 +62,8 @@ pub struct Terminal {
     x: usize,
     y: usize,
     attribute: u8,
-    fg_color: AmbiguousColor,
-    bg_color: AmbiguousColor,
+    fg_color: SomeColor,
+    bg_color: SomeColor,
     is_cursor_enabled: bool,
 }
 
@@ -112,10 +112,10 @@ impl Terminal {
         }
     }
 
-    fn split_attr(val: u8) -> (AmbiguousColor, AmbiguousColor) {
+    fn split_attr(val: u8) -> (SomeColor, SomeColor) {
         (
-            AmbiguousColor::Indexed(IndexedColor(val & 0x0F)),
-            AmbiguousColor::from(TrueColor::from(IndexedColor(val >> 4)).set_opacity(BG_ALPHA)),
+            SomeColor::Indexed(IndexedColor(val & 0x0F)),
+            SomeColor::from(TrueColor::from(IndexedColor(val >> 4)).set_opacity(BG_ALPHA)),
         )
     }
 

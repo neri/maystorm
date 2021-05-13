@@ -912,14 +912,21 @@ impl TimerEvent {
     }
 }
 
+/// Thread Priority
 #[repr(u8)]
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq)]
 pub enum Priority {
+    /// This is the lowest priority at which the processor will be idle when all other threads are waiting. This will never be scheduled.
     Idle = 0,
+    /// Lower than normal proirity
     Low,
+    /// This is the normal priority that is scheduled in a round-robin fashion.
+    /// When the allocated quanta are consumed, they are preempted.
     Normal,
+    /// Higher than normal priority
     High,
+    /// Currently, the highest priority and will not be preempted.
     Realtime,
 }
 
@@ -1372,6 +1379,7 @@ impl ThreadQueue {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
 pub enum Irql {
     Passive = 0,
+    Apc,
     Dispatch,
     DIrql,
     IPI,
@@ -1406,3 +1414,10 @@ impl Irql {
         })
     }
 }
+
+// #[derive(Debug)]
+// #[allow(non_camel_case_types)]
+// enum IrqlError {
+//     IRQL_NOT_GREATER_OR_EQUAL(Irql, Irql),
+//     IRQL_NOT_LESS_OR_EQUAL(Irql, Irql),
+// }

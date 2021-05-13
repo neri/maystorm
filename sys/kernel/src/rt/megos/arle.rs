@@ -185,8 +185,8 @@ impl ArleRuntime {
                     match bitmap_strategy {
                         BitmapStrategy::NonBitmap
                         | BitmapStrategy::Native
-                        | BitmapStrategy::Compact => AmbiguousColor::DEFAULT_KEY,
-                        BitmapStrategy::Expressive => AmbiguousColor::TRANSPARENT,
+                        | BitmapStrategy::Compact => SomeColor::DEFAULT_KEY,
+                        BitmapStrategy::Expressive => SomeColor::TRANSPARENT,
                     }
                 } else {
                     bg_color.unwrap_or(WindowManager::DEFAULT_BGCOLOR)
@@ -509,7 +509,7 @@ impl ParamsDecoder<'_> {
     }
 
     #[inline]
-    fn get_color(&mut self) -> Result<AmbiguousColor, WasmRuntimeError> {
+    fn get_color(&mut self) -> Result<SomeColor, WasmRuntimeError> {
         self.get_u32().map(|v| IndexedColor::from(v as u8).into())
     }
 
@@ -628,7 +628,7 @@ impl OsBitmap1<'_> {
         }
     }
 
-    fn blt(&self, to: &mut Bitmap, origin: Point, color: AmbiguousColor, mode: usize) {
+    fn blt(&self, to: &mut Bitmap, origin: Point, color: SomeColor, mode: usize) {
         // TODO: clipping
         let scale = mode as isize;
         let stride = self.stride;

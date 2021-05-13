@@ -28,10 +28,10 @@ const WINDOW_BORDER_SHADOW_PADDING: isize = 8;
 const WINDOW_TITLE_HEIGHT: isize = 24;
 
 // const BARRIER_COLOR: TrueColor = TrueColor::from_argb(0x80000000);
-const WINDOW_ACTIVE_TITLE_BG_COLOR: AmbiguousColor = AmbiguousColor::from_argb(0xE0E0E0E0);
-const WINDOW_ACTIVE_TITLE_FG_COLOR: AmbiguousColor = AmbiguousColor::from_argb(0xFF212121);
-const WINDOW_INACTIVE_TITLE_BG_COLOR: AmbiguousColor = AmbiguousColor::from_argb(0xFFEEEEEE);
-const WINDOW_INACTIVE_TITLE_FG_COLOR: AmbiguousColor = AmbiguousColor::from_argb(0xFF9E9E9E);
+const WINDOW_ACTIVE_TITLE_BG_COLOR: SomeColor = SomeColor::from_argb(0xE0E0E0E0);
+const WINDOW_ACTIVE_TITLE_FG_COLOR: SomeColor = SomeColor::from_argb(0xFF212121);
+const WINDOW_INACTIVE_TITLE_BG_COLOR: SomeColor = SomeColor::from_argb(0xFFEEEEEE);
+const WINDOW_INACTIVE_TITLE_FG_COLOR: SomeColor = SomeColor::from_argb(0xFF9E9E9E);
 
 // Mouse Pointer
 const MOUSE_POINTER_WIDTH: usize = 12;
@@ -129,7 +129,7 @@ impl WindowManager<'static> {
                 .style(WindowStyle::NAKED | WindowStyle::OPAQUE)
                 .level(WindowLevel::ROOT)
                 .frame(Rect::from(main_screen.size()))
-                .bg_color(AmbiguousColor::BLACK)
+                .bg_color(SomeColor::BLACK)
                 .without_message_queue()
                 .without_bitmap()
                 .build_inner();
@@ -246,7 +246,7 @@ impl WindowManager<'static> {
 }
 
 impl WindowManager<'_> {
-    pub const DEFAULT_BGCOLOR: AmbiguousColor = AmbiguousColor::WHITE;
+    pub const DEFAULT_BGCOLOR: SomeColor = SomeColor::WHITE;
 
     #[inline]
     #[track_caller]
@@ -666,7 +666,7 @@ impl WindowManager<'_> {
         }
     }
 
-    pub fn set_desktop_color(color: AmbiguousColor) {
+    pub fn set_desktop_color(color: SomeColor) {
         let desktop = Self::shared().root;
         desktop.update(|window| window.bitmap = None);
         desktop.set_bg_color(color);
@@ -752,7 +752,7 @@ struct RawWindow<'a> {
     content_insets: EdgeInsets,
 
     // Appearances
-    bg_color: AmbiguousColor,
+    bg_color: SomeColor,
     bitmap: Option<UnsafeCell<BoxedBitmap<'a>>>,
 
     /// Window Title
@@ -964,7 +964,7 @@ impl RawWindow<'_> {
         true
     }
 
-    fn set_bg_color(&mut self, color: AmbiguousColor) {
+    fn set_bg_color(&mut self, color: SomeColor) {
         self.bg_color = color;
         if let Some(mut bitmap) = self.bitmap() {
             bitmap.fill_rect(bitmap.bounds(), color.into());
@@ -1188,7 +1188,7 @@ pub struct WindowBuilder {
     frame: Rect,
     style: WindowStyle,
     level: WindowLevel,
-    bg_color: AmbiguousColor,
+    bg_color: SomeColor,
     title: [u8; WINDOW_TITLE_LENGTH],
     queue_size: usize,
     bitmap_strategy: BitmapStrategy,
@@ -1292,13 +1292,13 @@ impl WindowBuilder {
     }
 
     #[inline]
-    pub fn style(mut self, style: WindowStyle) -> Self {
+    pub const fn style(mut self, style: WindowStyle) -> Self {
         self.style = style;
         self
     }
 
     #[inline]
-    pub fn style_add(mut self, style: WindowStyle) -> Self {
+    pub const fn style_add(mut self, style: WindowStyle) -> Self {
         self.style |= style;
         self
     }
@@ -1340,7 +1340,7 @@ impl WindowBuilder {
     }
 
     #[inline]
-    pub const fn bg_color(mut self, bg_color: AmbiguousColor) -> Self {
+    pub const fn bg_color(mut self, bg_color: SomeColor) -> Self {
         self.bg_color = bg_color;
         self
     }
@@ -1445,14 +1445,14 @@ impl WindowHandle {
         self.as_ref().title()
     }
 
-    pub fn set_bg_color(&self, color: AmbiguousColor) {
+    pub fn set_bg_color(&self, color: SomeColor) {
         self.update(|window| {
             window.set_bg_color(color);
         });
     }
 
     #[inline]
-    pub fn bg_color(&self) -> AmbiguousColor {
+    pub fn bg_color(&self) -> SomeColor {
         self.as_ref().bg_color
     }
 

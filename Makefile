@@ -62,3 +62,6 @@ apps:
 
 test:
 	cargo test --manifest-path lib/wasm/Cargo.toml
+
+doc:
+	(cd sys; cargo doc --target $(KRNL_ARCH).json)
