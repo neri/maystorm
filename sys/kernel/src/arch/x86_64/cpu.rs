@@ -543,22 +543,22 @@ impl GlobalDescriptorTable {
         gdt.table[tss_index] = tss_pair.low;
         gdt.table[tss_index + 1] = tss_pair.high;
 
-        unsafe {
-            gdt.reload();
-            asm!("
-                mov {0}, rsp
-                push {1:r}
-                push {0}
-                pushfq
-                push {2:r}
-                .byte 0xE8, 2, 0, 0, 0, 0xEB, 0x02, 0x48, 0xCF
-                mov ds, {1:e}
-                mov es, {1:e}
-                mov fs, {1:e}
-                mov gs, {1:e}
-                ", out(reg) _, in(reg) Selector::KERNEL_DATA.0, in(reg) Selector::KERNEL_CODE.0);
-            asm!("ltr {0:x}", in(reg) Selector::SYSTEM_TSS.0);
-        }
+        gdt.reload();
+        asm!("
+            mov {0}, rsp
+            push {1:r}
+            push {0}
+            pushfq
+            push {2:r}
+            .byte 0xE8, 2, 0, 0, 0, 0xEB, 0x02, 0x48, 0xCF
+            mov ds, {1:e}
+            mov es, {1:e}
+            mov fs, {1:e}
+            mov gs, {1:e}
+            ", out(reg) _, in(reg) Selector::KERNEL_DATA.0, in(reg) Selector::KERNEL_CODE.0);
+
+        asm!("ltr {0:x}", in(reg) Selector::SYSTEM_TSS.0);
+
         gdt
     }
 
@@ -865,20 +865,27 @@ impl Selector {
     }
 }
 
+/// DPL, CPL, RPL and IOPL
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum PrivilegeLevel {
+    /// Ring 0, Kernel mode
     Kernel = 0,
+    /// Ring 1, Useless in 64bit mode
     System1,
+    /// Ring 2, Useless in 64bit mode
     System2,
+    /// Ring 3, User mode
     User,
 }
 
 impl PrivilegeLevel {
+    #[inline]
     pub const fn as_descriptor_entry(self) -> u64 {
         (self as u64) << 45
     }
 
+    #[inline]
     pub const fn from_usize(value: usize) -> Self {
         match value & 3 {
             0 => PrivilegeLevel::Kernel,
@@ -890,6 +897,7 @@ impl PrivilegeLevel {
 }
 
 impl From<usize> for PrivilegeLevel {
+    #[inline]
     fn from(value: usize) -> Self {
         Self::from_usize(value)
     }
@@ -906,6 +914,7 @@ pub enum DescriptorType {
 }
 
 impl DescriptorType {
+    #[inline]
     pub const fn as_descriptor_entry(self) -> u64 {
         let ty = self as u64;
         ty << 40
@@ -952,12 +961,14 @@ pub enum ExceptionType {
 }
 
 impl ExceptionType {
+    #[inline]
     pub const fn as_vec(self) -> InterruptVector {
         InterruptVector(self as u8)
     }
 }
 
 impl From<ExceptionType> for InterruptVector {
+    #[inline]
     fn from(ex: ExceptionType) -> Self {
         InterruptVector(ex as u8)
     }
@@ -975,6 +986,7 @@ struct TaskStateSegment {
 }
 
 impl TaskStateSegment {
+    #[inline]
     const fn new() -> Self {
         Self {
             _reserved_1: 0,
@@ -1035,9 +1047,9 @@ impl TryFrom<DescriptorEntry> for DefaultSize {
 pub struct DescriptorEntry(pub u64);
 
 impl DescriptorEntry {
-    const PRESENT: u64 = 0x8000_0000_0000;
-    const GRANULARITY: u64 = 0x0080_0000_0000_0000;
-    const BIG_DATA: u64 = 0x0040_0000_0000_0000;
+    pub const PRESENT: u64 = 0x8000_0000_0000;
+    pub const GRANULARITY: u64 = 0x0080_0000_0000_0000;
+    pub const BIG_DATA: u64 = 0x0040_0000_0000_0000;
 
     #[inline]
     pub const fn null() -> Self {

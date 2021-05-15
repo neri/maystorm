@@ -94,7 +94,7 @@ pub struct System {
     acpi: Option<Box<acpi::AcpiTables<MyAcpiHandler>>>,
 
     /// An instance of SMBIOS
-    smbios: Option<Box<fw::smbios::SMBIOS>>,
+    smbios: Option<Box<fw::smbios::SmBios>>,
 
     // screens
     main_screen: Option<Bitmap32<'static>>,
@@ -148,7 +148,7 @@ impl System {
 
         if info.smbios != 0 {
             let device = &mut shared.current_device;
-            let smbios = fw::smbios::SMBIOS::init(info.smbios);
+            let smbios = fw::smbios::SmBios::init(info.smbios);
             device.manufacturer_name = smbios.manufacturer_name().map(|v| v.to_string());
             device.model_name = smbios.model_name().map(|v| v.to_string());
             shared.smbios = Some(smbios);
@@ -276,8 +276,8 @@ impl System {
     }
 
     #[inline]
-    pub fn smbios() -> Option<&'static Box<fw::smbios::SMBIOS>> {
-        Self::shared().smbios.as_ref()
+    pub fn smbios<'a>() -> Option<&'a fw::smbios::SmBios> {
+        Self::shared().smbios.as_ref().map(|v| v.as_ref())
     }
 
     #[inline]
@@ -377,6 +377,7 @@ impl DeviceInfo {
 
 //-//-//-//-//
 
+#[doc(hidden)]
 #[derive(Clone)]
 pub struct MyAcpiHandler {}
 

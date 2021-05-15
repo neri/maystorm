@@ -4,12 +4,13 @@ use crate::arch::page::{PageManager, PhysicalAddress};
 use alloc::boxed::Box;
 use core::{mem::transmute, ptr::addr_of, slice, str};
 
-pub struct SMBIOS {
+/// System Management BIOS Entry Point
+pub struct SmBios {
     base: usize,
     n_structures: usize,
 }
 
-impl SMBIOS {
+impl SmBios {
     #[inline]
     pub(crate) unsafe fn init(entry: PhysicalAddress) -> Box<Self> {
         let ep: &SmBiosEntryV1 = transmute(entry as usize);

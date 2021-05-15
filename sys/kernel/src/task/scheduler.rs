@@ -664,9 +664,9 @@ impl ProcessId {
 }
 
 pub struct SpawnOption {
-    pub priority: Priority,
-    pub raise_pid: bool,
-    pub personality: Option<Box<dyn Personality>>,
+    priority: Priority,
+    raise_pid: bool,
+    personality: Option<Box<dyn Personality>>,
 }
 
 impl SpawnOption {

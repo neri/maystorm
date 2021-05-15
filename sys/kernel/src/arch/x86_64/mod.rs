@@ -1,11 +1,16 @@
 #[macro_use]
 pub mod cpu;
 
+#[doc(hidden)]
 pub mod apic;
+#[doc(hidden)]
 pub mod comport;
+#[doc(hidden)]
 pub mod hpet;
 pub mod page;
+#[doc(hidden)]
 pub mod ps2;
+#[doc(hidden)]
 pub mod rtc;
 
 use crate::dev::uart::*;

@@ -1298,7 +1298,7 @@ impl WindowBuilder {
     }
 
     #[inline]
-    pub const fn style_add(mut self, style: WindowStyle) -> Self {
+    pub fn style_add(mut self, style: WindowStyle) -> Self {
         self.style |= style;
         self
     }
