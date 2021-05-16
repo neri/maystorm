@@ -22,7 +22,7 @@ use megstd::string::*;
 
 extern crate alloc;
 
-/// Entry Point of The Kernel
+/// Kernel entry point
 #[no_mangle]
 unsafe fn _start(info: &BootInfo) -> ! {
     system::System::init(info, Shell::start);
@@ -50,7 +50,7 @@ impl Shell {
         unsafe { &mut MAIN }
     }
 
-    // Shell's Entry point
+    // Shell entry point
     fn start() {
         let shared = Self::shared();
         for ext in RuntimeEnvironment::supported_extensions() {

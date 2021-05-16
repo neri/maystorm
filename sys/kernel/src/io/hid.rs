@@ -1,4 +1,4 @@
-// Human Interface Device Manager
+//! Human Interface Device Manager
 
 use crate::window::*;
 use crate::*;
@@ -17,19 +17,101 @@ pub struct Usage(pub u8);
 #[allow(dead_code)]
 impl Usage {
     pub const NONE: Usage = Usage(0);
-    pub const ALPHABET_A: Usage = Usage(0x04);
-    pub const ALPHABET_Z: Usage = Usage(0x1D);
+    pub const ERR_ROLL_OVER: Usage = Usage(1);
+    pub const ERR_POST_FAIL: Usage = Usage(2);
+    pub const ERR_UNDEFINED: Usage = Usage(3);
+    pub const ALPHABET_MIN: Usage = Usage(0x04);
+    pub const ALPHABET_MAX: Usage = Usage(0x1D);
     pub const NUMBER_MIN: Usage = Usage(0x1E);
     pub const NUMBER_MAX: Usage = Usage(0x27);
     pub const NON_ALPHABET_MIN: Usage = Usage(0x28);
     pub const NON_ALPHABET_MAX: Usage = Usage(0x38);
-    pub const DELETE: Usage = Usage(0x4C);
     pub const NUMPAD_MIN: Usage = Usage(0x54);
     pub const NUMPAD_MAX: Usage = Usage(0x63);
-    pub const INTERNATIONAL_1: Usage = Usage(0x87);
-    pub const INTERNATIONAL_3: Usage = Usage(0x89);
     pub const MOD_MIN: Usage = Usage(0xE0);
     pub const MOD_MAX: Usage = Usage(0xE7);
+
+    pub const KEY_A: Usage = Usage(0x04);
+    pub const KEY_B: Usage = Usage(0x05);
+    pub const KEY_C: Usage = Usage(0x06);
+    pub const KEY_D: Usage = Usage(0x07);
+    pub const KEY_E: Usage = Usage(0x08);
+    pub const KEY_F: Usage = Usage(0x09);
+    pub const KEY_G: Usage = Usage(0x0A);
+    pub const KEY_H: Usage = Usage(0x0B);
+    pub const KEY_I: Usage = Usage(0x0C);
+    pub const KEY_J: Usage = Usage(0x0D);
+    pub const KEY_K: Usage = Usage(0x0E);
+    pub const KEY_L: Usage = Usage(0x0F);
+    pub const KEY_M: Usage = Usage(0x10);
+    pub const KEY_N: Usage = Usage(0x11);
+    pub const KEY_O: Usage = Usage(0x12);
+    pub const KEY_P: Usage = Usage(0x13);
+    pub const KEY_Q: Usage = Usage(0x14);
+    pub const KEY_R: Usage = Usage(0x15);
+    pub const KEY_S: Usage = Usage(0x16);
+    pub const KEY_T: Usage = Usage(0x17);
+    pub const KEY_U: Usage = Usage(0x18);
+    pub const KEY_V: Usage = Usage(0x19);
+    pub const KEY_W: Usage = Usage(0x1A);
+    pub const KEY_X: Usage = Usage(0x1B);
+    pub const KEY_Y: Usage = Usage(0x1C);
+    pub const KEY_Z: Usage = Usage(0x1D);
+    pub const KEY_1: Usage = Usage(0x1E);
+    pub const KEY_2: Usage = Usage(0x1F);
+    pub const KEY_3: Usage = Usage(0x20);
+    pub const KEY_4: Usage = Usage(0x21);
+    pub const KEY_5: Usage = Usage(0x22);
+    pub const KEY_6: Usage = Usage(0x23);
+    pub const KEY_7: Usage = Usage(0x24);
+    pub const KEY_8: Usage = Usage(0x25);
+    pub const KEY_9: Usage = Usage(0x26);
+    pub const KEY_0: Usage = Usage(0x27);
+    pub const KEY_ENTER: Usage = Usage(0x28);
+    pub const KEY_ESCAPE: Usage = Usage(0x29);
+    pub const KEY_BASKSPACE: Usage = Usage(0x2A);
+    pub const KEY_TAB: Usage = Usage(0x2B);
+    pub const KEY_SPACE: Usage = Usage(0x2C);
+
+    pub const KEY_F1: Usage = Usage(0x3A);
+    pub const KEY_F2: Usage = Usage(0x3B);
+    pub const KEY_F3: Usage = Usage(0x3C);
+    pub const KEY_F4: Usage = Usage(0x3D);
+    pub const KEY_F5: Usage = Usage(0x3E);
+    pub const KEY_F6: Usage = Usage(0x3F);
+    pub const KEY_F7: Usage = Usage(0x40);
+    pub const KEY_F8: Usage = Usage(0x41);
+    pub const KEY_F9: Usage = Usage(0x42);
+    pub const KEY_F10: Usage = Usage(0x43);
+    pub const KEY_F11: Usage = Usage(0x44);
+    pub const KEY_F12: Usage = Usage(0x45);
+    pub const DELETE: Usage = Usage(0x4C);
+    pub const KEY_RIGHT_ARROW: Usage = Usage(0x4F);
+    pub const KEY_LEFT_ARROW: Usage = Usage(0x50);
+    pub const KEY_DOWN_ARROW: Usage = Usage(0x51);
+    pub const KEY_UP_ARROW: Usage = Usage(0x52);
+    pub const KEY_NUM_LOCK: Usage = Usage(0x53);
+
+    pub const NUMPAD_1: Usage = Usage(0x59);
+    pub const NUMPAD_2: Usage = Usage(0x5A);
+    pub const NUMPAD_3: Usage = Usage(0x5B);
+    pub const NUMPAD_4: Usage = Usage(0x5C);
+    pub const NUMPAD_5: Usage = Usage(0x5D);
+    pub const NUMPAD_6: Usage = Usage(0x5E);
+    pub const NUMPAD_7: Usage = Usage(0x5F);
+    pub const NUMPAD_8: Usage = Usage(0x60);
+    pub const NUMPAD_9: Usage = Usage(0x61);
+    pub const NUMPAD_0: Usage = Usage(0x62);
+
+    pub const INTERNATIONAL_1: Usage = Usage(0x87);
+    pub const INTERNATIONAL_2: Usage = Usage(0x88);
+    pub const INTERNATIONAL_3: Usage = Usage(0x89);
+    pub const INTERNATIONAL_4: Usage = Usage(0x8A);
+    pub const INTERNATIONAL_5: Usage = Usage(0x8B);
+    pub const INTERNATIONAL_6: Usage = Usage(0x8C);
+    pub const INTERNATIONAL_7: Usage = Usage(0x8D);
+    pub const INTERNATIONAL_8: Usage = Usage(0x8E);
+    pub const INTERNATIONAL_9: Usage = Usage(0x8F);
 }
 
 bitflags! {
@@ -330,8 +412,8 @@ impl HidManager {
     fn usage_to_char_109(usage: Usage, modifier: Modifier) -> char {
         let mut uni: char = INVALID_UNICHAR;
 
-        if usage >= Usage::ALPHABET_A && usage <= Usage::ALPHABET_Z {
-            uni = (usage.0 - Usage::ALPHABET_A.0 + 0x61) as char;
+        if usage >= Usage::ALPHABET_MIN && usage <= Usage::ALPHABET_MAX {
+            uni = (usage.0 - Usage::KEY_A.0 + 0x61) as char;
         } else if usage >= Usage::NUMBER_MIN && usage <= Usage::NON_ALPHABET_MAX {
             uni = USAGE_TO_CHAR_NON_ALPLABET_109[(usage.0 - Usage::NUMBER_MIN.0) as usize];
             if uni > ' ' && uni < '\x40' && uni != '0' && modifier.has_shift() {

@@ -40,7 +40,6 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
 
     // Load values from CONFIG
     info.cmdline = config.cmdline().as_ptr() as usize as u64;
-    info.kernel_base = config.base_address().as_u64();
     if config.is_headless() {
         info.flags.insert(BootFlags::HEADLESS);
     }
@@ -102,6 +101,8 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
         writeln!(st.stdout(), "Error: BAD KERNEL SIGNATURE FOUND").unwrap();
         return Status::UNSUPPORTED;
     }
+    let bounds = kernel.image_bounds();
+    info.kernel_base = bounds.0.as_u64();
 
     // Load initrd
     match get_file(handle, &bs, config.initrd_path()) {

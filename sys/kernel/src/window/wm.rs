@@ -75,25 +75,31 @@ static mut WM: Option<Box<WindowManager<'static>>> = None;
 
 pub struct WindowManager<'a> {
     lock: Spinlock,
-    sem_redraw: Semaphore,
+
+    sem_event: Semaphore,
     attributes: AtomicBitflags<WindowManagerAttributes>,
+    system_event: ArrayQueue<WindowSystemEvent>,
+
     pointer_x: AtomicIsize,
     pointer_y: AtomicIsize,
     buttons: AtomicUsize,
     buttons_down: AtomicUsize,
     buttons_up: AtomicUsize,
+
     main_screen: Bitmap32<'a>,
     off_screen: BoxedBitmap32<'a>,
     screen_insets: EdgeInsets,
+
     resources: Resources<'a>,
+
     window_pool: Mutex<BTreeMap<WindowHandle, Arc<UnsafeCell<Box<RawWindow<'a>>>>>>,
+
     root: WindowHandle,
     pointer: WindowHandle,
     active: Option<WindowHandle>,
     captured: Option<WindowHandle>,
     captured_origin: Point,
     entered: Option<WindowHandle>,
-    system_event: ArrayQueue<WindowSystemEvent>,
 }
 
 #[allow(dead_code)]
@@ -165,7 +171,7 @@ impl WindowManager<'static> {
         unsafe {
             WM = Some(Box::new(WindowManager {
                 lock: Spinlock::default(),
-                sem_redraw: Semaphore::new(0),
+                sem_event: Semaphore::new(0),
                 attributes: AtomicBitflags::EMPTY,
                 pointer_x,
                 pointer_y,
@@ -260,7 +266,7 @@ impl WindowManager<'_> {
         let shared = WindowManager::shared_mut();
 
         loop {
-            shared.sem_redraw.wait();
+            shared.sem_event.wait();
 
             if shared
                 .attributes
@@ -399,7 +405,7 @@ impl WindowManager<'_> {
         let shared = Self::shared();
         let r = shared.system_event.push(event);
         shared.attributes.insert(WindowManagerAttributes::EVENT);
-        shared.sem_redraw.signal();
+        shared.sem_event.signal();
         r
     }
 
@@ -653,7 +659,7 @@ impl WindowManager<'_> {
             shared
                 .attributes
                 .insert(WindowManagerAttributes::MOUSE_MOVE);
-            shared.sem_redraw.signal();
+            shared.sem_event.signal();
         }
     }
 
@@ -1086,7 +1092,7 @@ impl RawWindow<'_> {
                 shared
                     .attributes
                     .insert(WindowManagerAttributes::NEEDS_REDRAW);
-                shared.sem_redraw.signal();
+                shared.sem_event.signal();
             }
         }
     }

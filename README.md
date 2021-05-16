@@ -23,15 +23,17 @@ My first hobby OS written in Rust, one version of which is about 20,000 lines of
 
 * Rust nightly
 * nasm
+* llvm (ld.lld)
 * qemu + ovmf (optional)
 
 ### how to build
 
-```
-$ make
-```
+1. Install llvm
+2. Install rust (nightly)
+3. `make apps`
+4. `make install`
 
-### how to run
+### how to run on qemu
 
 ```
 $ make run

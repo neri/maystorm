@@ -16,9 +16,6 @@ pub struct BootSettings {
     #[serde(default = "default_cmdline")]
     cmdline: &'static str,
 
-    #[serde(default = "default_base_address")]
-    base_address: u64,
-
     #[serde(default)]
     aslr: bool,
 
@@ -39,10 +36,6 @@ fn default_initrd() -> &'static str {
 
 fn default_cmdline() -> &'static str {
     ""
-}
-
-fn default_base_address() -> u64 {
-    0xFFFF_FFFF_8000_0000
 }
 
 impl Default for BootSettings {
@@ -70,10 +63,6 @@ impl BootSettings {
 
     pub const fn cmdline<'a>(&self) -> &'a str {
         self.cmdline
-    }
-
-    pub const fn base_address(&self) -> VirtualAddress {
-        VirtualAddress(self.base_address)
     }
 
     pub const fn is_headless(&self) -> bool {

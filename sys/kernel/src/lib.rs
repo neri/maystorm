@@ -7,7 +7,6 @@
 #![feature(cfg_target_has_atomic)]
 #![feature(const_fn_trait_bound)]
 #![feature(const_fn_transmute)]
-#![feature(const_fn)]
 #![feature(const_mut_refs)]
 #![feature(core_intrinsics)]
 #![feature(global_asm)]

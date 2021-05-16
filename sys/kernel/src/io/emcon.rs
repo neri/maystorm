@@ -1,4 +1,4 @@
-// Emergency debugging console
+//! Emergency debugging console
 
 use super::{
     null::Null,

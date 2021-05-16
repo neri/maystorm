@@ -1,4 +1,4 @@
-// TeleTypewriter
+//! TeleTypewriter
 
 use alloc::boxed::Box;
 use alloc::string::String;

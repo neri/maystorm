@@ -1,4 +1,4 @@
-// Null Device
+//! Null Device
 
 use super::tty::*;
 use alloc::boxed::Box;
