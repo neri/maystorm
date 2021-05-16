@@ -2,7 +2,7 @@
 
 use crate::{
     fonts::*, io::hid::*, sync::atomicflags::*, sync::semaphore::*, sync::spinlock::Spinlock,
-    task::scheduler::*, util::text::*, *,
+    sync::Mutex, task::scheduler::*, util::text::*, *,
 };
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc};
 use bitflags::*;
@@ -10,7 +10,6 @@ use core::{
     cell::UnsafeCell,
     cmp,
     future::Future,
-    isize,
     num::*,
     pin::Pin,
     sync::atomic::*,
@@ -20,6 +19,8 @@ use core::{
 use crossbeam_queue::ArrayQueue;
 use futures_util::task::AtomicWaker;
 use megstd::drawing::*;
+
+const WINDOW_SYSTEM_EVENT_QUEUE_SIZE: usize = 100;
 
 const WINDOW_TITLE_LENGTH: usize = 32;
 
@@ -85,14 +86,14 @@ pub struct WindowManager<'a> {
     off_screen: BoxedBitmap32<'a>,
     screen_insets: EdgeInsets,
     resources: Resources<'a>,
-    window_pool: BTreeMap<WindowHandle, Arc<UnsafeCell<Box<RawWindow<'a>>>>>,
-    pool_lock: Spinlock,
+    window_pool: Mutex<BTreeMap<WindowHandle, Arc<UnsafeCell<Box<RawWindow<'a>>>>>>,
     root: WindowHandle,
     pointer: WindowHandle,
     active: Option<WindowHandle>,
     captured: Option<WindowHandle>,
     captured_origin: Point,
     entered: Option<WindowHandle>,
+    system_event: ArrayQueue<WindowSystemEvent>,
 }
 
 #[allow(dead_code)]
@@ -131,7 +132,7 @@ impl WindowManager<'static> {
                 .frame(Rect::from(main_screen.size()))
                 .bg_color(SomeColor::BLACK)
                 .without_message_queue()
-                .without_bitmap()
+                .bitmap_strategy(BitmapStrategy::NonBitmap)
                 .build_inner();
 
             let handle = window.handle;
@@ -179,65 +180,54 @@ impl WindowManager<'static> {
                     title_font: FontManager::title_font(),
                     label_font: FontManager::ui_font(),
                 },
-                window_pool,
-                pool_lock: Spinlock::default(),
+                window_pool: Mutex::new(window_pool),
                 root,
                 pointer,
                 active: None,
                 captured: None,
                 captured_origin: Point::default(),
                 entered: None,
+                system_event: ArrayQueue::new(WINDOW_SYSTEM_EVENT_QUEUE_SIZE),
             }));
         }
 
         SpawnOption::with_priority(Priority::High).spawn(Self::window_thread, 0, "Window Manager");
     }
 
-    #[inline]
-    fn synchronized_pool<F, R>(f: F) -> R
-    where
-        F: FnOnce() -> R,
-    {
-        let shared = unsafe { WM.as_ref().unwrap() };
-        shared.pool_lock.synchronized(f)
-    }
-
+    #[track_caller]
     fn add(window: Box<RawWindow<'static>>) {
-        WindowManager::synchronized_pool(|| {
-            let shared = WindowManager::shared_mut();
-            let handle = window.handle;
-            shared
-                .window_pool
-                .insert(handle, Arc::new(UnsafeCell::new(window)));
-        })
+        let handle = window.handle;
+        WindowManager::shared_mut()
+            .window_pool
+            .lock()
+            .unwrap()
+            .insert(handle, Arc::new(UnsafeCell::new(window)));
     }
 
     #[allow(dead_code)]
     fn remove(_window: &WindowHandle) {
         // TODO:
-        // WindowManager::synchronized_pool(|| {
-        //     let shared = Self::shared();
-        //     shared.pool.remove(window);
-        // })
     }
 
     #[inline]
     fn get<'a>(&self, key: &WindowHandle) -> Option<&'a Box<RawWindow<'static>>> {
-        WindowManager::synchronized_pool(|| {
-            self.window_pool
+        match WindowManager::shared().window_pool.lock() {
+            Ok(v) => v
                 .get(key)
                 .map(|v| v.clone().get())
-                .map(|v| unsafe { &(*v) })
-        })
+                .map(|v| unsafe { &(*v) }),
+            Err(_) => None,
+        }
     }
 
     fn get_mut<F, R>(&mut self, key: &WindowHandle, f: F) -> Option<R>
     where
         F: FnOnce(&mut RawWindow) -> R,
     {
-        let window = WindowManager::synchronized_pool(move || {
-            self.window_pool.get_mut(key).map(|v| v.clone())
-        });
+        let window = match WindowManager::shared_mut().window_pool.lock() {
+            Ok(mut v) => v.get_mut(key).map(|v| v.clone()),
+            Err(_) => None,
+        };
         window.map(|window| unsafe {
             let window = window.get();
             f(&mut *window)
@@ -278,6 +268,16 @@ impl WindowManager<'_> {
             {
                 let desktop = shared.root;
                 desktop.as_ref().draw_to_screen(desktop.frame());
+            }
+            if shared
+                .attributes
+                .test_and_clear(WindowManagerAttributes::EVENT)
+            {
+                while let Some(event) = shared.system_event.pop() {
+                    match event {
+                        WindowSystemEvent::Key(w, e) => w.post(WindowMessage::Key(e)).unwrap(),
+                    }
+                }
             }
             if shared
                 .attributes
@@ -395,6 +395,14 @@ impl WindowManager<'_> {
         }
     }
 
+    fn post_system_event(event: WindowSystemEvent) -> Result<(), WindowSystemEvent> {
+        let shared = Self::shared();
+        let r = shared.system_event.push(event);
+        shared.attributes.insert(WindowManagerAttributes::EVENT);
+        shared.sem_redraw.signal();
+        r
+    }
+
     fn make_mouse_events(
         target: WindowHandle,
         position: Point,
@@ -448,6 +456,7 @@ impl WindowManager<'_> {
         shared.lock.synchronized(f)
     }
 
+    #[inline]
     fn next_window_handle() -> WindowHandle {
         static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
         WindowHandle::new(NEXT_ID.fetch_add(1, Ordering::SeqCst)).unwrap()
@@ -657,12 +666,12 @@ impl WindowManager<'_> {
             && event.modifier().has_ctrl()
             && event.modifier().has_alt()
         {
-            // TODO:
+            // ctrl alt del
             unsafe {
                 System::reset();
             }
         } else if let Some(window) = shared.active {
-            let _ = window.post(WindowMessage::Key(event));
+            let _ = Self::post_system_event(WindowSystemEvent::Key(window, event));
         }
     }
 
@@ -725,7 +734,8 @@ bitflags! {
     struct WindowManagerAttributes: usize {
         const MOUSE_MOVE    = 0b0000_0001;
         const NEEDS_REDRAW  = 0b0000_0010;
-        const MOVING        = 0b0000_0100;
+        const EVENT         = 0b0000_0100;
+        const MOVING        = 0b0000_1000;
     }
 }
 
@@ -1175,12 +1185,19 @@ impl<'a> RawWindow<'a> {
 pub struct WindowLevel(pub u8);
 
 impl WindowLevel {
+    /// Root window (desktop)
     pub const ROOT: WindowLevel = WindowLevel(0);
+    /// Items on the desktop
     pub const DESKTOP_ITEMS: WindowLevel = WindowLevel(1);
+    /// Normal window
     pub const NORMAL: WindowLevel = WindowLevel(32);
+    /// Floating window
     pub const FLOATING: WindowLevel = WindowLevel(64);
+    /// Popup barrier
     pub const POPUP_BARRIER: WindowLevel = WindowLevel(96);
+    /// Popup window
     pub const POPUP: WindowLevel = WindowLevel(97);
+    /// The mouse pointer, which is also the foremost window.
     pub const POINTER: WindowLevel = WindowLevel(127);
 }
 
@@ -1195,6 +1212,7 @@ pub struct WindowBuilder {
 }
 
 impl WindowBuilder {
+    #[inline]
     pub fn new(title: &str) -> Self {
         let window = Self {
             frame: Rect::new(isize::MIN, isize::MIN, 300, 300),
@@ -1298,8 +1316,8 @@ impl WindowBuilder {
     }
 
     #[inline]
-    pub fn style_add(mut self, style: WindowStyle) -> Self {
-        self.style |= style;
+    pub const fn style_add(mut self, style: WindowStyle) -> Self {
+        self.style.bits |= style.bits();
         self
     }
 
@@ -1354,12 +1372,6 @@ impl WindowBuilder {
     #[inline]
     pub const fn without_message_queue(mut self) -> Self {
         self.queue_size = 0;
-        self
-    }
-
-    #[inline]
-    pub const fn without_bitmap(mut self) -> Self {
-        self.bitmap_strategy = BitmapStrategy::NonBitmap;
         self
     }
 
@@ -1515,7 +1527,6 @@ impl WindowHandle {
     #[inline]
     pub fn close(&self) {
         self.hide();
-        // TODO: remove window
         WindowManager::remove(self);
     }
 
@@ -1741,14 +1752,14 @@ pub enum WindowMessage {
     Close,
     /// Needs to be redrawn
     Draw,
-    /// Active
+    // Active
     Activated,
     Deactivated,
     /// Raw keyboard event
     Key(KeyEvent),
     /// Unicode converted keyboard event
     Char(char),
-    /// mouse events
+    // mouse events
     MouseMove(MouseEvent),
     MouseDown(MouseEvent),
     MouseUp(MouseEvent),
@@ -1758,4 +1769,9 @@ pub enum WindowMessage {
     Timer(usize),
     /// User Defined
     User(usize),
+}
+
+pub enum WindowSystemEvent {
+    /// Raw Keyboard event
+    Key(WindowHandle, KeyEvent),
 }

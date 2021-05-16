@@ -1,4 +1,4 @@
-// User Environment Manager
+// User Environment
 
 use crate::fonts::*;
 use crate::fs::*;
@@ -16,7 +16,7 @@ use megstd::drawing::*;
 use megstd::string::*;
 use util::text::{AttributedString, VerticalAlignment};
 
-const DESKTOP_COLOR: SomeColor = SomeColor::from_argb(0x802196F3);
+const DESKTOP_COLOR: SomeColor = SomeColor::from_argb(0xFF2196F3);
 
 pub struct UserEnv {
     _phantom: (),
@@ -90,10 +90,8 @@ async fn status_bar_main() {
     while let Some(message) = window.get_message().await {
         match message {
             WindowMessage::Timer(_) => {
-                window.set_needs_display();
                 window.create_timer(0, interval);
-            }
-            WindowMessage::Draw => {
+
                 sb.clear();
 
                 let time = System::system_time();
@@ -126,11 +124,13 @@ async fn status_bar_main() {
                     font.line_height(),
                 );
                 window
-                    .draw(|bitmap| {
-                        bitmap.fill_rect(rect, bg_color);
-                        ats.draw_text(bitmap, rect, 1);
+                    .draw_in_rect(rect, |bitmap| {
+                        bitmap.fill_rect(bitmap.bounds(), bg_color);
+                        ats.draw_text(bitmap, bitmap.bounds(), 1);
                     })
                     .unwrap();
+
+                window.set_needs_display();
             }
             WindowMessage::MouseDown(_) => {
                 if let Some(activity) = unsafe { ACTIVITY_WINDOW } {
@@ -382,9 +382,6 @@ async fn activity_monitor_main() {
                 time0 = time1;
                 window.set_needs_display();
                 window.create_timer(0, interval);
-            }
-            WindowMessage::Draw => {
-                window.draw(|_| {}).unwrap();
             }
             WindowMessage::User(flag) => {
                 let become_active = flag != 0;

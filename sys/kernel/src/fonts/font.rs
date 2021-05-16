@@ -7,15 +7,16 @@ use alloc::collections::BTreeMap;
 use alloc::vec::*;
 use megstd::drawing::*;
 
-// include!("megbtan.rs");
-include!("megh0816.rs");
-const SYSTEM_FONT: FixedFontDriver = FixedFontDriver::new(8, 16, &FONT_MEGH0816_DATA);
-
-include!("megh0710.rs");
-const TERMINAL_FONT: FixedFontDriver = FixedFontDriver::new(7, 10, &FONT_MEGH0710_DATA);
-
-include!("megh0608.rs");
-const SMALL_FONT: FixedFontDriver = FixedFontDriver::new(6, 8, &FONT_MEGH0608_DATA);
+#[allow(dead_code)]
+mod embedded {
+    // include!("megbtan.rs");
+    include!("megh0816.rs");
+    include!("megh0710.rs");
+    include!("megh0608.rs");
+}
+const SYSTEM_FONT: FixedFontDriver = FixedFontDriver::new(8, 16, &embedded::FONT_MEGH0816_DATA);
+const TERMINAL_FONT: FixedFontDriver = FixedFontDriver::new(7, 10, &embedded::FONT_MEGH0710_DATA);
+const SMALL_FONT: FixedFontDriver = FixedFontDriver::new(6, 8, &embedded::FONT_MEGH0608_DATA);
 
 static mut FONT_MANAGER: FontManager = FontManager::new();
 
@@ -87,11 +88,6 @@ impl FontManager {
     #[inline]
     pub const fn fixed_system_font() -> &'static FixedFontDriver<'static> {
         &SYSTEM_FONT
-    }
-
-    #[inline]
-    pub const fn fixed_small_font() -> &'static FixedFontDriver<'static> {
-        &SMALL_FONT
     }
 
     #[inline]

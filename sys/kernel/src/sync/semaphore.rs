@@ -20,15 +20,25 @@ impl Semaphore {
     }
 
     #[inline]
-    pub fn try_to(&self) -> bool {
+    pub fn try_lock(&self) -> bool {
         Cpu::interlocked_fetch_update(&self.value, |v| if v >= 1 { Some(v - 1) } else { None })
             .is_ok()
+    }
+
+    #[inline]
+    pub fn lock(&self) {
+        self.wait()
+    }
+
+    #[inline]
+    pub fn unlock(&self) {
+        self.signal()
     }
 
     pub fn wait(&self) {
         const MAX_DELTA: u64 = 7;
         loop {
-            if self.try_to() {
+            if self.try_lock() {
                 return;
             } else {
                 let mut delta: u64 = 0;
@@ -38,7 +48,7 @@ impl Semaphore {
                         .0
                     {
                         Scheduler::sleep();
-                        if self.try_to() {
+                        if self.try_lock() {
                             return;
                         }
                         break;

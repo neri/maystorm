@@ -12,6 +12,7 @@
 #![feature(core_intrinsics)]
 #![feature(global_asm)]
 #![feature(lang_items)]
+#![feature(negative_impls)]
 #![feature(new_uninit)]
 #![feature(option_result_contains)]
 #![feature(panic_info_message)]

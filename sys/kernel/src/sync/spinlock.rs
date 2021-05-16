@@ -17,7 +17,7 @@ impl Spinlock {
     }
 
     #[inline]
-    pub fn try_to_lock(&self) -> Result<(), ()> {
+    pub fn try_lock(&self) -> Result<(), ()> {
         match self
             .value
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
