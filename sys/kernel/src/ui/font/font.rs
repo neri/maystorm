@@ -51,25 +51,25 @@ impl FontManager {
 
         let font = Box::new(HersheyFont::new(
             0,
-            include_bytes!("../../../../ext/hershey/futural.jhf"),
+            include_bytes!("../../../../../ext/hershey/futural.jhf"),
         ));
         fonts.insert(FontFamily::SystemUI, font);
 
         let font = Box::new(HersheyFont::new(
             4,
-            include_bytes!("../../../../ext/hershey/cursive.jhf"),
+            include_bytes!("../../../../../ext/hershey/cursive.jhf"),
         ));
         fonts.insert(FontFamily::Cursive, font);
 
         let font = Box::new(HersheyFont::new(
             0,
-            include_bytes!("../../../../ext/hershey/futuram.jhf"),
+            include_bytes!("../../../../../ext/hershey/futuram.jhf"),
         ));
         fonts.insert(FontFamily::SansSerif, font);
 
         let font = Box::new(HersheyFont::new(
             0,
-            include_bytes!("../../../../ext/hershey/timesr.jhf"),
+            include_bytes!("../../../../../ext/hershey/timesr.jhf"),
         ));
         fonts.insert(FontFamily::Serif, font);
 

@@ -3,7 +3,7 @@
 use super::*;
 use crate::fs::*;
 use crate::mem::MemoryManager;
-use crate::window::*;
+use crate::ui::window::*;
 use crate::*;
 use alloc::boxed::Box;
 use core::time::Duration;
@@ -13,6 +13,7 @@ use megstd::drawing::*;
 
 include!("hankaku.rs");
 
+/// Haribote-OS Emulator
 pub struct Hoe {
     context: LegacyAppContext,
     cmdline: String,

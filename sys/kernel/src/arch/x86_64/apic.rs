@@ -10,6 +10,7 @@ use crate::{
 };
 use ::alloc::{boxed::Box, vec::*};
 use acpi::platform::ProcessorState;
+use bootprot::BootFlags;
 use core::{alloc::Layout, ffi::c_void, mem::transmute, sync::atomic::*, time::Duration};
 use seq_macro::seq;
 
@@ -186,52 +187,54 @@ impl Apic {
         );
 
         // preparing SMP
-        let sipi_vec = InterruptVector(MemoryManager::static_alloc_real().unwrap().get());
-        let pi = System::acpi_platform().processor_info.unwrap();
-        let max_cpu = core::cmp::min(
-            1 + pi
-                .application_processors
-                .iter()
-                .filter(|v| v.state != ProcessorState::Disabled)
-                .count(),
-            MAX_CPU,
-        );
-        let stack_chunk_size = STACK_CHUNK_SIZE;
-        let stack_base = MemoryManager::zalloc(Layout::from_size_align_unchecked(
-            max_cpu * stack_chunk_size,
-            1,
-        ))
-        .unwrap()
-        .get() as *mut c_void;
-        asm_apic_setup_sipi(sipi_vec, max_cpu, stack_chunk_size, stack_base);
+        if !System::boot_flags().contains(BootFlags::FORCE_SINGLE) {
+            let sipi_vec = InterruptVector(MemoryManager::static_alloc_real().unwrap().get());
+            let pi = System::acpi_platform().processor_info.unwrap();
+            let max_cpu = core::cmp::min(
+                1 + pi
+                    .application_processors
+                    .iter()
+                    .filter(|v| v.state != ProcessorState::Disabled)
+                    .count(),
+                MAX_CPU,
+            );
+            let stack_chunk_size = STACK_CHUNK_SIZE;
+            let stack_base = MemoryManager::zalloc(Layout::from_size_align_unchecked(
+                max_cpu * stack_chunk_size,
+                1,
+            ))
+            .unwrap()
+            .get() as *mut c_void;
+            asm_apic_setup_sipi(sipi_vec, max_cpu, stack_chunk_size, stack_base);
 
-        // start SMP
-        LocalApic::broadcast_init();
-        Timer::new(Duration::from_millis(10)).repeat_until(|| Cpu::halt());
-        LocalApic::broadcast_startup(sipi_vec);
-        let deadline = Timer::new(Duration::from_millis(200));
-        while deadline.until() {
-            Timer::new(Duration::from_millis(5)).repeat_until(|| Cpu::halt());
-            if System::current_device().num_of_active_cpus() == max_cpu {
-                break;
+            // start SMP
+            LocalApic::broadcast_init();
+            Timer::new(Duration::from_millis(10)).repeat_until(|| Cpu::halt());
+            LocalApic::broadcast_startup(sipi_vec);
+            let deadline = Timer::new(Duration::from_millis(200));
+            while deadline.until() {
+                Timer::new(Duration::from_millis(5)).repeat_until(|| Cpu::halt());
+                if System::current_device().num_of_active_cpus() == max_cpu {
+                    break;
+                }
             }
-        }
-        if System::current_device().num_of_active_cpus() != max_cpu {
-            panic!("SMP: Some of application processors are not responding");
-        }
+            if System::current_device().num_of_active_cpus() != max_cpu {
+                panic!("SMP: Some of application processors are not responding");
+            }
 
-        // Since each processor that receives an IPI starts initializing asynchronously,
-        // the physical processor ID and the logical ID assigned by the OS will not match.
-        // Therefore, sorting is required here.
-        System::sort_cpus(|a, b| a.cpu_id().0.cmp(&b.cpu_id().0));
+            // Since each processor that receives an IPI starts initializing asynchronously,
+            // the physical processor ID and the logical ID assigned by the OS will not match.
+            // Therefore, sorting is required here.
+            System::sort_cpus(|a, b| a.cpu_id().0.cmp(&b.cpu_id().0));
 
-        for index in 0..System::current_device().num_of_active_cpus() {
-            let cpu = System::cpu(index);
-            CURRENT_PROCESSOR_INDEXES[cpu.cpu_id().0 as usize] = cpu.cpu_index.0 as u8;
+            for index in 0..System::current_device().num_of_active_cpus() {
+                let cpu = System::cpu(index);
+                CURRENT_PROCESSOR_INDEXES[cpu.cpu_id().0 as usize] = cpu.cpu_index.0 as u8;
+            }
+
+            AP_STALLED.store(false, Ordering::SeqCst);
+            System::cpu_mut(0).set_tsc_base(Cpu::rdtsc());
         }
-
-        AP_STALLED.store(false, Ordering::SeqCst);
-        System::cpu_mut(0).set_tsc_base(Cpu::rdtsc());
 
         // asm!("
         //     mov eax, 0xCCCCCCCC

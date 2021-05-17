@@ -1,8 +1,9 @@
-// A Window System
+//! A Window System
 
+use super::font::*;
 use crate::{
-    fonts::*, io::hid::*, sync::atomicflags::*, sync::semaphore::*, sync::spinlock::Spinlock,
-    sync::Mutex, task::scheduler::*, util::text::*, *,
+    io::hid::*, sync::atomicflags::*, sync::semaphore::*, sync::spinlock::Spinlock, sync::Mutex,
+    task::scheduler::*, util::text::*, *,
 };
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc};
 use bitflags::*;

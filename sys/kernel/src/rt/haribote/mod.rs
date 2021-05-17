@@ -1,9 +1,10 @@
-// Haribote-OS Emulator
-pub mod hoe;
+//! Haribote-OS Emulator
 
 use super::*;
 use alloc::boxed::Box;
-use hoe::*;
+
+mod hoe;
+pub use hoe::*;
 
 pub(super) struct HrbRecognizer {
     _phantom: (),

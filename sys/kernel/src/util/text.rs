@@ -1,6 +1,6 @@
 // Text Drawing
 
-use crate::fonts::*;
+use crate::ui::font::*;
 use alloc::vec::Vec;
 use core::num::NonZeroUsize;
 use megstd::drawing::*;

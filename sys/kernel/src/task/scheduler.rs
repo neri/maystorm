@@ -8,7 +8,7 @@ use crate::{
     sync::semaphore::*,
     sync::spinlock::*,
     system::*,
-    window::{WindowHandle, WindowMessage},
+    ui::window::{WindowHandle, WindowMessage},
     *,
 };
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc, vec::*};

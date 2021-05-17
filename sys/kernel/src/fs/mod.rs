@@ -1,4 +1,4 @@
-// File System
+//! Filesystem supports
 
 mod filesys;
 pub use filesys::*;

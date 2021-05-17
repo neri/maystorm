@@ -1,3 +1,5 @@
+//! Memory manager
+
 pub mod alloc;
 pub mod mmio;
 pub mod slab;

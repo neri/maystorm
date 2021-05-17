@@ -1,4 +1,5 @@
-// Tasks
+//! Task scheduler
+
 pub mod executor;
 pub mod scheduler;
 

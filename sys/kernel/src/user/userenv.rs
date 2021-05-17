@@ -1,14 +1,14 @@
 // User Environment
 
-use crate::fonts::*;
 use crate::fs::*;
 use crate::mem::*;
 use crate::system::*;
 use crate::task::scheduler::*;
 use crate::task::*;
-use crate::window::*;
+use crate::ui::font::*;
+use crate::ui::window::*;
 use crate::*;
-use crate::{arch::cpu::*, window::terminal::Terminal};
+use crate::{arch::cpu::*, ui::terminal::Terminal};
 use ::alloc::vec::*;
 use core::fmt::Write;
 use core::time::Duration;

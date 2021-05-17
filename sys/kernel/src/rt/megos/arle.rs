@@ -1,7 +1,7 @@
 // MEG-OS Arlequin Subsystem
 
 use super::*;
-use crate::{io::hid::*, util::text::*};
+use crate::{io::hid::*, ui::window::*, util::text::*};
 use alloc::collections::BTreeMap;
 use byteorder::*;
 use core::{intrinsics::transmute, num::NonZeroU32, sync::atomic::*, time::Duration};

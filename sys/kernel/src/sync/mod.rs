@@ -1,3 +1,5 @@
+//! Classes to synchronize
+
 pub mod atomic;
 pub mod atomicflags;
 pub mod semaphore;

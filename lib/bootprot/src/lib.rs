@@ -31,6 +31,7 @@ bitflags! {
         const PORTRAIT      = 0b0000_0000_0000_0001;
         const HEADLESS      = 0b0000_0000_0000_0010;
         const DEBUG_MODE    = 0b0000_0000_0000_0100;
+        const FORCE_SINGLE  = 0b0000_0000_0000_1000;
     }
 }
 

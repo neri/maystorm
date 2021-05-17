@@ -1,6 +1,6 @@
 // MEG-OS Terminal
 
-use crate::{fonts::*, io::tty::*, window::*, *};
+use crate::{io::tty::*, ui::font::*, ui::window::*, *};
 use alloc::boxed::Box;
 use core::{
     fmt::Write,

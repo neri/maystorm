@@ -235,6 +235,7 @@ impl PciDevice {
     }
 }
 
+/// PCI Base Address Register
 #[derive(Debug, Clone, Copy)]
 pub struct PciBar(u64);
 

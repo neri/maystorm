@@ -1,4 +1,5 @@
-// MEG-OS standard library
+//! MEG-OS standard library like std
+
 #![no_std]
 #![feature(const_fn_transmute)]
 

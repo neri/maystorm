@@ -1,4 +1,4 @@
-// Runtime Environment Supports
+//! Runtime Environment and Personalities
 
 pub mod haribote;
 pub mod megos;
@@ -79,7 +79,7 @@ pub trait Personality {
 pub enum PersonalityContext<'a> {
     Native,
     Arlequin(&'a mut megos::ArleRuntime),
-    Hoe(&'a mut haribote::hoe::Hoe),
+    Hoe(&'a mut haribote::Hoe),
 }
 
 pub trait BinaryRecognizer {

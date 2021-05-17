@@ -1,6 +1,6 @@
 //! Human Interface Device Manager
 
-use crate::window::*;
+use crate::ui::window::*;
 use crate::*;
 use alloc::boxed::Box;
 use bitflags::*;

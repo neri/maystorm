@@ -4,8 +4,8 @@ use super::{
     null::Null,
     tty::{Tty, TtyRead, TtyReadResult, TtyWrite},
 };
-use crate::fonts::*;
 use crate::system::*;
+use crate::ui::font::*;
 use alloc::boxed::Box;
 use core::fmt;
 use core::future::Future;

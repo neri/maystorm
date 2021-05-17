@@ -40,6 +40,9 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
 
     // Load values from CONFIG
     info.cmdline = config.cmdline().as_ptr() as usize as u64;
+    if config.force_single() {
+        info.flags |= BootFlags::FORCE_SINGLE;
+    }
     if config.is_headless() {
         info.flags.insert(BootFlags::HEADLESS);
     }

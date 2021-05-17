@@ -1,34 +1,33 @@
-// A Computer System
+//! A Computer System
 
 use crate::{
     arch::cpu::*,
     arch::page::{PageManager, PhysicalAddress},
-    fonts::*,
     io::emcon::*,
     io::tty::Tty,
     task::scheduler::*,
+    ui::font::FontManager,
     *,
 };
 use alloc::{boxed::Box, string::*, vec::Vec};
 use bootprot::BootInfo;
 use core::{fmt, ptr::*, sync::atomic::*};
-use megstd::drawing::*;
-use megstd::time::SystemTime;
+use megstd::{drawing::*, time::SystemTime};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Version {
+pub struct Version<'a> {
     versions: u32,
-    rel: &'static str,
+    rel: &'a str,
 }
 
-impl Version {
+impl Version<'_> {
     const SYSTEM_NAME: &'static str = "An Operating Environment codename Maystorm";
     const SYSTEM_SHORT_NAME: &'static str = "maystorm";
     const RELEASE: &'static str = "";
-    const VERSION: Version = Version::new(0, 21, 0, Self::RELEASE);
+    const VERSION: Version<'static> = Version::new(0, 21, 0, Self::RELEASE);
 
     #[inline]
-    const fn new(maj: u8, min: u8, patch: u16, rel: &'static str) -> Self {
+    pub const fn new<'a>(maj: u8, min: u8, patch: u16, rel: &'a str) -> Version<'a> {
         let versions = ((maj as u32) << 24) | ((min as u32) << 16) | (patch as u32);
         Version { versions, rel }
     }
@@ -52,19 +51,24 @@ impl Version {
     pub const fn patch(&self) -> usize {
         (self.versions & 0xFFFF) as usize
     }
+
+    #[inline]
+    pub const fn rel(&self) -> &str {
+        &self.rel
+    }
 }
 
-impl fmt::Display for Version {
+impl fmt::Display for Version<'_> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.rel.len() > 0 {
+        if self.rel().len() > 0 {
             write!(
                 f,
                 "{}.{}.{}-{}",
                 self.maj(),
                 self.min(),
                 self.patch(),
-                self.rel
+                self.rel(),
             )
         } else {
             write!(f, "{}.{}.{}", self.maj(), self.min(), self.patch())
@@ -174,8 +178,8 @@ impl System {
             rt::RuntimeEnvironment::init();
 
             if let Some(main_screen) = shared.main_screen.as_mut() {
-                fonts::FontManager::init();
-                window::WindowManager::init(main_screen.clone());
+                FontManager::init();
+                ui::window::WindowManager::init(main_screen.clone());
             }
 
             io::hid::HidManager::init();
@@ -206,8 +210,13 @@ impl System {
 
     /// Returns the version of current system.
     #[inline]
-    pub const fn version() -> &'static Version {
+    pub const fn version<'a>() -> &'a Version<'a> {
         &Version::VERSION
+    }
+
+    #[inline]
+    pub fn boot_flags() -> BootFlags {
+        Self::shared().boot_flags
     }
 
     /// Returns the current system time.

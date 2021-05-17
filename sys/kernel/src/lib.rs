@@ -21,7 +21,6 @@
 pub mod arch;
 pub mod bus;
 pub mod dev;
-pub mod fonts;
 pub mod fs;
 pub mod fw;
 pub mod io;
@@ -30,9 +29,9 @@ pub mod rt;
 pub mod sync;
 pub mod system;
 pub mod task;
+pub mod ui;
 pub mod user;
 pub mod util;
-pub mod window;
 
 use crate::arch::cpu::Cpu;
 use crate::system::System;
