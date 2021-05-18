@@ -1,4 +1,4 @@
-.PHONY: love all clean install iso run runs test apps
+.PHONY: love all clean install iso run runs test apps doc
 
 EFI_ARCH	= x86_64-unknown-uefi
 KRNL_ARCH	= x86_64-unknown-none
@@ -11,7 +11,7 @@ KERNEL_BIN	= $(EFI_VENDOR)/kernel.bin
 BOOT_EFI1	= $(EFI_BOOT)/boot$(EFI_SUFFIX).efi
 BOOT_EFI2	= $(EFI_VENDOR)/boot$(EFI_SUFFIX).efi
 INITRD_IMG	= $(EFI_VENDOR)/initrd.img
-TARGET_KERNEL	= sys/target/$(KRNL_ARCH)/release/kernel
+TARGET_KERNEL	= system/target/$(KRNL_ARCH)/release/kernel
 TARGET_BOOT_EFI	= boot/target/$(EFI_ARCH)/release/boot-efi.efi
 TARGET_ISO	= var/megos.iso
 TARGETS		= $(TARGET_KERNEL) $(TARGET_BOOT_EFI)
@@ -21,13 +21,13 @@ INITRD_FILES	= $(MISC)initrd/* apps/target/wasm32-unknown-unknown/release/*.wasm
 all: $(TARGETS)
 
 clean:
-	-rm -rf sys/target apps/target boot/target tools/target
+	-rm -rf system/target apps/target boot/target tools/target
 
 # $(RUST_ARCH).json:
 # 	rustc +nightly -Z unstable-options --print target-spec-json --target $(RUST_ARCH) | sed -e 's/-sse,+/+sse,-/' > $@
 
-$(TARGET_KERNEL): sys/kernel/* sys/kernel/**/* sys/kernel/**/**/* sys/kernel/**/**/**/* sys/kernel/**/**/**/**/* lib/**/src/*.rs lib/**/src/**/*.rs
-	(cd sys; cargo build -Zbuild-std --release --target $(KRNL_ARCH).json)
+$(TARGET_KERNEL): system/kernel/* system/kernel/**/* system/kernel/**/**/* system/kernel/**/**/**/* system/kernel/**/**/**/**/* lib/**/src/*.rs lib/**/src/**/*.rs
+	(cd system; cargo build -Zbuild-std --release --target $(KRNL_ARCH).json)
 
 $(TARGET_BOOT_EFI): boot/boot-efi/* boot/boot-efi/src/* boot/boot-efi/src/**/* lib/**/src/*.rs lib/**/src/**/*.rs
 	(cd boot; cargo build -Zbuild-std --release --target $(EFI_ARCH).json)
@@ -64,4 +64,5 @@ test:
 	cargo test --manifest-path lib/wasm/Cargo.toml
 
 doc:
-	(cd sys; cargo doc --target $(KRNL_ARCH).json)
+	(cd system; cargo doc --no-deps --release --target $(KRNL_ARCH).json \
+	-p kernel -p megstd -p bootprot -p megosabi)

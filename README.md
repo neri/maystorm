@@ -33,6 +33,13 @@ My first hobby OS written in Rust, one version of which is about 20,000 lines of
 3. `make apps`
 4. `make install`
 
+If you get an error that the linker cannot be found, configure your linker in `~/.cargo/config.toml` or something similar.
+
+```
+[target.x86_64-unknown-none]
+linker = "/opt/homebrew/opt/llvm/bin/ld.lld"
+```
+
 ### how to run on qemu
 
 ```

@@ -2,7 +2,7 @@
 authors = ["Nerry <108566+neri@users.noreply.github.com>"]
 edition = "2018"
 name = "kernel"
-version = "0.21.0"
+version = "0.1.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
