@@ -1,0 +1,37 @@
+name: Rust
+
+on:
+  push:
+    branches: [ canary ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rustdoc:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        profile: minimal
+        override: true
+        components: rustfmt, rust-src
+
+    - name: Build Documentation
+      working-directory: /system
+      run: cargo doc --no-deps --target x86_64-unknown-none.json
+
+    - name: Deploy Docs
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_branch: gh-pages
+        publish_dir: ./target/doc
+        force_orphan: true
+        
