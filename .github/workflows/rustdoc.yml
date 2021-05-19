@@ -25,7 +25,9 @@ jobs:
 
     - name: Build Documentation
       working-directory: /system
-      run: cargo doc --no-deps --target x86_64-unknown-none.json
+      run: |
+        cd system
+        cargo doc --no-deps --target x86_64-unknown-none.json
 
     - name: Deploy Docs
       uses: peaceiris/actions-gh-pages@v3
