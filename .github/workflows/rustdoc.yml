@@ -24,7 +24,6 @@ jobs:
         components: rustfmt, rust-src
 
     - name: Build Documentation
-      working-directory: /system
       run: |
         cd system
         cargo doc --no-deps --target x86_64-unknown-none.json
