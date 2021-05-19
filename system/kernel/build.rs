@@ -5,27 +5,36 @@ use std::process::Command;
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
 
-    let target_arch: String = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    env::var("RUSTDOC").unwrap();
 
-    match &*target_arch {
-        "x86_64" => {
-            Command::new("nasm")
-                // .args(&["-f", "win64", "src/arch/x86_64/asm.asm", "-o"])
-                .args(&["-f", "elf64", "src/arch/x86_64/asm.asm", "-o"])
-                .arg(&format!("{}/asm.o", out_dir))
-                .status()
-                .unwrap();
+    match env::var("PROFILE").unwrap().as_str() {
+        "debug" => {
+            // TODO:
+        }
+        "release" => {
+            let target_arch: String = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
 
-            Command::new("ar")
-                .args(&["crus", "libkernel.a", "asm.o"])
-                .current_dir(&Path::new(&out_dir))
-                .status()
-                .unwrap();
+            match &*target_arch {
+                "x86_64" => {
+                    Command::new("nasm")
+                        .args(&["-f", "elf64", "src/arch/x86_64/asm.asm", "-o"])
+                        .arg(&format!("{}/asm.o", out_dir))
+                        .status()
+                        .unwrap();
+
+                    Command::new("ar")
+                        .args(&["crus", "libkernel.a", "asm.o"])
+                        .current_dir(&Path::new(&out_dir))
+                        .status()
+                        .unwrap();
+                }
+                _ => {
+                    println!("cargo:warning=TARGET_ARCH {} IS NOT SUPPORTED", target_arch);
+                    std::process::exit(1);
+                }
+            }
         }
-        _ => {
-            println!("cargo:warning=TARGET_ARCH {} IS NOT SUPPORTED", target_arch);
-            std::process::exit(1);
-        }
+        _ => unreachable!(),
     }
 
     println!("cargo:rustc-link-search=native={}", out_dir);

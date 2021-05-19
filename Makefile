@@ -64,5 +64,5 @@ test:
 	cargo test --manifest-path lib/wasm/Cargo.toml
 
 doc:
-	(cd system; cargo doc --no-deps --release --target $(KRNL_ARCH).json \
+	(cd system; cargo doc --no-deps --target $(KRNL_ARCH).json \
 	-p kernel -p megstd -p bootprot -p megosabi)
