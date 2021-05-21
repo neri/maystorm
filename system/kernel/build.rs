@@ -5,8 +5,6 @@ use std::process::Command;
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
 
-    env::var("RUSTDOC").unwrap();
-
     match env::var("PROFILE").unwrap().as_str() {
         "debug" => {
             // TODO:

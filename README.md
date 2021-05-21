@@ -6,14 +6,12 @@ My first hobby OS written in Rust, one version of which is about 20,000 lines of
 
 * A hobby OS written in Rust
 * Not a POSIX clone system
-* 64bit OS booting with UEFI
-* Multi-core support for up to 64 cores
 * Support for WebAssembly
 
 ## Requirements
 
 * 64bit UEFI 2.X / ACPI 2.X
-* x64 processor with up to 64 cores, required features: NX RDTSCP RDRAND
+* x64 processor with up to 64 cores
 * ??? MB of system memory
 * 800x600 pixels screen
 * PS/2 keyboard and mouse

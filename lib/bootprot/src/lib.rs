@@ -1,7 +1,9 @@
-// MEG-OS Boot Info
+//! MEG-OS Boot Procotol
+
 #![no_std]
 
 use bitflags::*;
+use core::fmt;
 
 #[repr(C)]
 #[derive(Default)]
@@ -24,6 +26,42 @@ pub struct BootInfo {
     pub initrd_size: u32,
     pub mmap_base: u32,
     pub mmap_len: u32,
+    pub platform: Platform,
+}
+
+#[non_exhaustive]
+#[repr(u8)]
+#[derive(Debug, Clone, Copy)]
+pub enum Platform {
+    Unknown = 0,
+    /// NEC PC-98 Series Computer
+    Nec98 = 1,
+    /// IBM PC Compatible
+    PcCompatible = 2,
+    /// Fujitsu FM TOWNS
+    FmTowns = 3,
+    /// UEFI
+    UEFI = 4,
+}
+
+impl Default for Platform {
+    #[inline]
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+
+impl fmt::Display for Platform {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::PcCompatible => write!(f, "PC Compatible"),
+            Self::Nec98 => write!(f, "PC-98"),
+            Self::FmTowns => write!(f, "FM TOWNS"),
+            Self::UEFI => write!(f, "UEFI"),
+            _ => write!(f, "Unknown"),
+        }
+    }
 }
 
 bitflags! {
@@ -36,6 +74,7 @@ bitflags! {
 }
 
 impl Default for BootFlags {
+    #[inline]
     fn default() -> Self {
         Self::empty()
     }

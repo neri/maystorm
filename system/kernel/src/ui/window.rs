@@ -282,7 +282,9 @@ impl WindowManager<'_> {
             {
                 while let Some(event) = shared.system_event.pop() {
                     match event {
-                        WindowSystemEvent::Key(w, e) => w.post(WindowMessage::Key(e)).unwrap(),
+                        WindowSystemEvent::Key(w, e) => {
+                            let _ = w.post(WindowMessage::Key(e));
+                        }
                     }
                 }
             }

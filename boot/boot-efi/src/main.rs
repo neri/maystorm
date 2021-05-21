@@ -14,6 +14,7 @@ use uefi::prelude::*;
 fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
     let mut info = BootInfo::default();
     let bs = st.boot_services();
+    info.platform = Platform::UEFI;
 
     // Load CONFIG
     let config = match get_file(handle, &bs, BootSettings::DEFAULT_CONFIG_PATH) {
