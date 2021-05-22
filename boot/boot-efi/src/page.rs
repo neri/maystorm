@@ -225,11 +225,7 @@ impl PageManager {
         // vram (temp)
         let vram_base = info.vram_base;
         let vram_size = Self::pages(
-            if info.flags.contains(BootFlags::PORTRAIT) {
-                info.vram_stride as u64 * info.screen_width as u64 * 4
-            } else {
-                info.vram_stride as u64 * info.screen_height as u64 * 4
-            },
+            info.vram_stride as u64 * info.screen_height as u64 * 4,
             PageTableEntry::LARGE_PAGE_SIZE,
         ) as u64;
         let offset = vram_base / PageTableEntry::LARGE_PAGE_SIZE;
@@ -250,12 +246,6 @@ impl PageManager {
         } else {
             (val >> 30, 'G')
         }
-    }
-
-    pub unsafe fn finalize(info: &mut BootInfo) {
-        let shared = Self::shared();
-        info.static_start = shared.static_start as u32;
-        info.free_memory = shared.static_free as u32;
     }
 
     fn shared() -> &'static mut Self {

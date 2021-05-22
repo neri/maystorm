@@ -11,9 +11,12 @@ use core::{alloc::Layout, ptr::*};
 use core::{slice, str};
 use megstd::drawing::*;
 
-include!("hankaku.rs");
+#[allow(dead_code)]
+mod fonts {
+    include!("hankaku.rs");
+}
 
-/// Haribote-OS Emulator
+/// Contextual structure of the Haribote-OS Emulator subsystem
 pub struct Hoe {
     context: LegacyAppContext,
     cmdline: String,
@@ -22,6 +25,19 @@ pub struct Hoe {
     files: Vec<HoeFile>,
     malloc_start: u32,
     malloc_free: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Default)]
+pub struct HoeSyscallRegs {
+    pub eax: u32,
+    pub ecx: u32,
+    pub edx: u32,
+    pub ebx: u32,
+    pub esi: u32,
+    pub edi: u32,
+    pub ebp: u32,
+    _padding7: u32,
 }
 
 impl Hoe {
@@ -89,7 +105,7 @@ impl Hoe {
         self.abort();
     }
 
-    /// Haribote-OS System Call
+    /// Perform Haribote-OS System Call
     pub fn syscall(&mut self, regs: &mut HoeSyscallRegs) {
         match regs.edx {
             1 => {
@@ -280,7 +296,7 @@ impl Hoe {
             // }
             // 32 => {
             //     // void api_semiFlat(void);
-            //     // Because this API violates our security policy.
+            //     // This API is unsupported because it violates our security policy.
             // }
             33 => {
                 // extended API 33
@@ -306,6 +322,7 @@ impl Hoe {
         }
     }
 
+    /// Returns a safe pointer on the application data segment.
     fn safe_ptr(&self, offset: u32, size: u32) -> Option<usize> {
         if offset > 0 && (offset as u64 + size as u64) < self.context.size_of_data as u64 {
             Some((self.context.base_of_data + offset) as usize)
@@ -314,7 +331,7 @@ impl Hoe {
         }
     }
 
-    /// Load an ASCIZ string from the application's data segment
+    /// Load an ASCIZ string from the application data segment
     fn load_cstring<'a>(&self, offset: u32) -> Option<&'a str> {
         if offset > 0 {
             unsafe {
@@ -341,14 +358,14 @@ impl Hoe {
         }
     }
 
-    /// Load a string from the application's data segment
+    /// Load a string from the application data segment
     fn load_string<'a>(&self, offset: u32, len: u32) -> Option<&'a str> {
         self.safe_ptr(offset, len).map(|ptr| unsafe {
             str::from_utf8_unchecked(slice::from_raw_parts(ptr as *const u8, len as usize))
         })
     }
 
-    /// Store a string in the application's data segment
+    /// Store a string into the application data segment
     fn store_string(&self, offset: u32, size: u32, s: &str) -> Result<u32, ()> {
         self.safe_ptr(offset, size)
             .map(|ptr| {
@@ -462,7 +479,7 @@ impl HrbExecutable {
     const MINIMAL_BIN_SIZE: usize = 0x24;
 }
 
-pub(crate) struct HrbBinaryLoader {
+pub struct HrbBinaryLoader {
     lio: LoadedImageOption,
     ctx: LegacyAppContext,
 }
@@ -720,7 +737,7 @@ impl HoeWindow {
             let stride = self.width as usize;
             let font_stride = 16;
             let font_offset = (ch as usize - 0x20) * font_stride;
-            let glyph = &FONT_HANKAKU_DATA[font_offset..font_offset + font_stride];
+            let glyph = &fonts::FONT_HANKAKU_DATA[font_offset..font_offset + font_stride];
             for y in 0..16 {
                 let data = glyph[y as usize];
                 let cursor = origin.x as usize + (origin.y as usize + y) * stride;

@@ -4,13 +4,11 @@ mod arle;
 pub use arle::*;
 
 use super::*;
-use crate::*;
 use alloc::boxed::Box;
-use alloc::string::String;
-use arle::ArleBinaryLoader;
 use wasm::*;
 
-pub(super) struct WasmRecognizer {
+/// Recognize .wasm file
+pub struct WasmRecognizer {
     _phantom: (),
 }
 

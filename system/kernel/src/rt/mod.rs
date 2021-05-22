@@ -72,17 +72,23 @@ impl RuntimeEnvironment {
 pub trait Personality {
     /// Gets the current personality context
     fn context(&mut self) -> PersonalityContext;
-
+    /// Called to clean up resources before the process ends.
     fn on_exit(&mut self);
 }
 
+#[non_exhaustive]
+/// Contains a reference to the context of the current personality
 pub enum PersonalityContext<'a> {
+    /// Kernel native process
     Native,
+    /// MEG-OS Arlequin subsystem
     Arlequin(&'a mut megos::ArleRuntime),
+    /// Haribote OS Emulation subsystem
     Hoe(&'a mut haribote::Hoe),
 }
 
 pub trait BinaryRecognizer {
+    /// Recognizes the binary format and returns the corresponding binary loader.
     fn recognize(&self, blob: &[u8]) -> Option<Box<dyn BinaryLoader>>;
 }
 
@@ -100,14 +106,23 @@ pub struct LoadedImageOption {
     pub argv: Vec<String>,
 }
 
+/// Contextual data for legacy applications
 #[derive(Debug, Default, Copy, Clone)]
 pub struct LegacyAppContext {
+    /// Base address of the application image
     pub image_base: u32,
+    /// Size of the application image
     pub image_size: u32,
+    /// Base address of the code segment
     pub base_of_code: u32,
+    /// Size of the code segment
     pub size_of_code: u32,
+    /// Base address of the data segment
     pub base_of_data: u32,
+    /// Size of the data segment
     pub size_of_data: u32,
+    /// Application entry point
     pub start: u32,
+    /// Initial stack pointer
     pub stack_pointer: u32,
 }

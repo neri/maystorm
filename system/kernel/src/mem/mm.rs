@@ -138,7 +138,7 @@ impl MemoryManager {
     }
 
     /// Allocate pages
-    pub(crate) unsafe fn pg_alloc(layout: Layout) -> Option<NonZeroUsize> {
+    pub unsafe fn pg_alloc(layout: Layout) -> Option<NonZeroUsize> {
         let shared = Self::shared();
 
         let align_m1 = Self::PAGE_SIZE_MIN - 1;

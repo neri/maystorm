@@ -2,7 +2,7 @@
 // Copyright(c) 2021 The MEG-OS Project
 
 use mkfdfs::fat::*;
-use std::{env, num::NonZeroU32, usize};
+use std::{env, num::NonZeroU32, ptr::addr_of, usize};
 use std::{fs::File, process};
 use std::{io::Read, path::Path};
 use std::{io::Write, mem::size_of};
@@ -88,20 +88,19 @@ fn main() {
     let mut vd = VirtualDisk::new(&boot_sector, fs.sector_size, fs.total_sectors);
     fs.append_root_dir(root_dir.as_slice());
 
-    unsafe {
-        println!(
-            "CREATING image: {} KB [CHR {} {} {}] {} b/sec {} b/rec total {}",
-            (fs.total_sectors * fs.sector_size) / 1024,
-            fs.total_sectors
-                / (boot_sector.ebpb.bpb.n_heads as usize
-                    * boot_sector.ebpb.bpb.sectors_per_track as usize),
-            boot_sector.ebpb.bpb.n_heads,
-            boot_sector.ebpb.bpb.sectors_per_track,
-            fs.sector_size,
-            fs.record_size,
-            fs.total_records
-        );
-    }
+    let n_heads = unsafe { addr_of!(boot_sector.ebpb.bpb.n_heads).read_unaligned() as usize };
+    let sectors_per_track =
+        unsafe { addr_of!(boot_sector.ebpb.bpb.sectors_per_track).read_unaligned() as usize };
+    println!(
+        "CREATING image: {} KB [CHR {} {} {}] {} b/sec {} b/rec total {}",
+        (fs.total_sectors * fs.sector_size) / 1024,
+        fs.total_sectors / (n_heads * sectors_per_track),
+        n_heads,
+        sectors_per_track,
+        fs.sector_size,
+        fs.record_size,
+        fs.total_records
+    );
 
     for arg in args {
         let path = Path::new(&arg);
