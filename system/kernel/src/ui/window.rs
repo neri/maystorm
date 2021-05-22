@@ -618,7 +618,7 @@ impl WindowManager<'_> {
         }
     }
 
-    pub(crate) fn post_mouse_event(mouse_state: &mut MouseState) {
+    pub fn post_mouse_event(mouse_state: &mut MouseState) {
         let shared = match Self::shared_opt() {
             Some(v) => v,
             None => return,
@@ -666,7 +666,7 @@ impl WindowManager<'_> {
         }
     }
 
-    pub(crate) fn post_key_event(event: KeyEvent) {
+    pub fn post_key_event(event: KeyEvent) {
         let shared = match Self::shared_opt() {
             Some(v) => v,
             None => return,

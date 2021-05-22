@@ -130,7 +130,7 @@ impl System {
         }
     }
 
-    /// Init the system
+    /// Initialize the system
     pub unsafe fn init(info: &BootInfo, f: fn() -> ()) -> ! {
         let shared = &mut SYSTEM;
         shared.boot_flags = info.flags;
@@ -165,6 +165,7 @@ impl System {
         Scheduler::start(Self::late_init, f as usize);
     }
 
+    /// The second half of the system initialization
     fn late_init(args: usize) {
         let shared = Self::shared();
         unsafe {
@@ -233,9 +234,9 @@ impl System {
 
     /// Add SMP-initialized CPU cores to the list of enabled cores.
     ///
-    /// SAFETY: THREAD UNSAFE. DO NOT CALL IT EXCEPT FOR SMP INITIALIZATION.
+    /// SAFETY: THREAD UNSAFE. Do not call this function except when initializing SMP.
     #[inline]
-    pub(crate) unsafe fn activate_cpu(new_cpu: Box<Cpu>) {
+    pub unsafe fn activate_cpu(new_cpu: Box<Cpu>) {
         let shared = Self::shared();
         let device = &shared.current_device;
         if new_cpu.processor_type() == ProcessorCoreType::Main {
@@ -245,6 +246,7 @@ impl System {
         shared.cpus.push(new_cpu);
     }
 
+    /// Returns an instance of the current processor.
     #[inline]
     #[track_caller]
     pub unsafe fn current_processor<'a>() -> &'a Cpu {
@@ -256,19 +258,21 @@ impl System {
 
     #[inline]
     #[track_caller]
-    pub(crate) fn cpu<'a>(index: usize) -> &'a Cpu {
+    pub fn cpu<'a>(index: usize) -> &'a Cpu {
         Self::shared().cpus.get(index).as_ref().unwrap()
     }
 
     #[inline]
     #[track_caller]
-    pub(crate) unsafe fn cpu_mut<'a>(index: usize) -> &'a mut Cpu {
+    pub unsafe fn cpu_mut<'a>(index: usize) -> &'a mut Cpu {
         Self::shared().cpus.get_mut(index).unwrap()
     }
 
-    /// SAFETY: THREAD UNSAFE. DO NOT CALL IT EXCEPT FOR SMP INITIALIZATION.
+    /// Sorts the list of CPUs by processor ID.
+    ///
+    /// SAFETY: THREAD UNSAFE. Do not call this function except when initializing SMP.
     #[inline]
-    pub(crate) unsafe fn sort_cpus<F>(compare: F)
+    pub unsafe fn sort_cpus<F>(compare: F)
     where
         F: FnMut(&Box<Cpu>, &Box<Cpu>) -> core::cmp::Ordering,
     {
@@ -300,12 +304,10 @@ impl System {
         Self::acpi().platform_info().unwrap()
     }
 
-    /// SAFETY: IT DESTROYS EVERYTHING.
     pub unsafe fn reset() -> ! {
         Cpu::reset();
     }
 
-    /// SAFETY: IT DESTROYS EVERYTHING.
     pub unsafe fn shutdown() -> ! {
         todo!();
     }

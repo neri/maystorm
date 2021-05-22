@@ -100,7 +100,7 @@ impl Cpu {
     }
 
     #[inline]
-    pub(super) unsafe fn set_tsc_base(&mut self, value: u64) {
+    pub unsafe fn set_tsc_base(&mut self, value: u64) {
         self.tsc_base = value;
     }
 
@@ -109,6 +109,8 @@ impl Cpu {
         unsafe { &mut SHARED_CPU }
     }
 
+    /// Returns whether or not the specified CPUID feature is supported.
+    #[inline]
     pub fn has_feature(feature: Feature) -> bool {
         unsafe {
             match feature {
@@ -222,7 +224,7 @@ impl Cpu {
     }
 
     #[inline]
-    pub(crate) unsafe fn halt() {
+    pub unsafe fn halt() {
         asm!("hlt", options(nomem, nostack));
     }
 
@@ -237,7 +239,7 @@ impl Cpu {
     }
 
     #[inline]
-    pub(crate) unsafe fn stop() -> ! {
+    pub unsafe fn stop() -> ! {
         loop {
             Self::disable_interrupt();
             Self::halt();
@@ -251,7 +253,7 @@ impl Cpu {
         }
     }
 
-    pub(crate) unsafe fn reset() -> ! {
+    pub unsafe fn reset() -> ! {
         let _ = Scheduler::freeze(true);
 
         Self::out8(0x0CF9, 0x06);
@@ -298,7 +300,7 @@ impl Cpu {
 
     #[inline]
     #[allow(dead_code)]
-    pub(crate) unsafe fn register_msi(f: fn() -> ()) -> Result<(u64, u16), ()> {
+    pub unsafe fn register_msi(f: fn() -> ()) -> Result<(u64, u16), ()> {
         Apic::register_msi(f)
     }
 
@@ -384,6 +386,7 @@ impl Cpu {
         tsc_raw - System::cpu(index as usize).tsc_base
     }
 
+    /// Launch the 32-bit legacy mode application.
     pub unsafe fn invoke_legacy(ctx: &LegacyAppContext) -> ! {
         Cpu::disable_interrupt();
 

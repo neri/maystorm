@@ -10,12 +10,22 @@ My first hobby OS written in Rust, one version of which is about 20,000 lines of
 
 ## Requirements
 
-* 64bit UEFI 2.X / ACPI 2.X
+### UEFI PC Platform
+
+* 64bit UEFI v2.X+ / ACPI v2.X+
 * x64 processor with up to 64 cores
 * ??? MB of system memory
-* 800x600 pixels screen
-* PS/2 keyboard and mouse
-* HPET
+* 600 x 600 pixel resolution
+* SMBIOS v2.X+ (optional)
+
+### Legacy Platform
+
+* IBM PC compatible / 日本電気 PC-9800 ｼﾘｰｽﾞ ﾊﾟｰｿﾅﾙ ｺﾝﾋﾟｭｰﾀ / 富士通 FM TOWNS
+* 486SX or later
+* 3.6MB? or a lot more memory
+* VGA or better video adapter
+  * 640 x 480 pixel resolution
+  * 256 color mode
 
 ## Build Environment
 

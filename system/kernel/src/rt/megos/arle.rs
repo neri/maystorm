@@ -1,6 +1,7 @@
 // MEG-OS Arlequin Subsystem
 
 use super::*;
+use crate::*;
 use crate::{io::hid::*, ui::window::*, util::text::*};
 use alloc::collections::BTreeMap;
 use byteorder::*;
@@ -10,7 +11,7 @@ use megstd::rand::*;
 use num_traits::FromPrimitive;
 use wasm::{wasmintr::*, *};
 
-pub(super) struct ArleBinaryLoader {
+pub struct ArleBinaryLoader {
     loader: WasmLoader,
     lio: LoadedImageOption,
 }
@@ -66,7 +67,7 @@ impl BinaryLoader for ArleBinaryLoader {
     }
 }
 
-/// Arlequin subsystem
+/// Contextual structure of the MEG-OS Arlequin subsystem
 #[allow(dead_code)]
 pub struct ArleRuntime {
     // uuid: Uuid,

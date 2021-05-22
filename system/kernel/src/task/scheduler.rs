@@ -53,9 +53,13 @@ pub struct Scheduler {
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub enum SchedulerState {
+    /// The scheduler has not started yet.
     Disabled = 0,
+    /// The scheduler is running on minimal power.
     Saving,
+    /// The scheduler is running.
     Running,
+    /// The scheduler is running on maximum power.
     FullThrottle,
     MAX,
 }
@@ -120,6 +124,30 @@ impl Scheduler {
         unsafe { SCHEDULER.as_mut().unwrap() }
     }
 
+    /// Returns whether or not the thread scheduler is running.
+    pub fn is_enabled() -> bool {
+        unsafe { &SCHEDULER }.is_some() && SCHEDULER_ENABLED.load(Ordering::SeqCst)
+    }
+
+    /// Returns the current state of the scheduler.
+    pub fn current_state() -> SchedulerState {
+        if Self::is_enabled() {
+            Self::shared().state
+        } else {
+            SchedulerState::Disabled
+        }
+    }
+
+    /// All threads will stop.
+    pub unsafe fn freeze(force: bool) -> Result<(), ()> {
+        let sch = Self::shared();
+        sch.is_frozen.store(true, Ordering::SeqCst);
+        if force {
+            // TODO:
+        }
+        Ok(())
+    }
+
     /// Get the current process if possible
     #[inline]
     pub fn current_pid() -> Option<ProcessId> {
@@ -149,7 +177,7 @@ impl Scheduler {
     }
 
     /// Perform the preemption
-    pub(crate) unsafe fn reschedule() {
+    pub unsafe fn reschedule() {
         if !Self::is_enabled() {
             return;
         }
@@ -411,30 +439,6 @@ impl Scheduler {
         shared.usage_total.load(Ordering::Relaxed)
     }
 
-    /// Returns the current state of the scheduler.
-    pub fn current_state() -> SchedulerState {
-        if Self::is_enabled() {
-            Self::shared().state
-        } else {
-            SchedulerState::Disabled
-        }
-    }
-
-    /// Returns whether or not the thread scheduler is working.
-    pub fn is_enabled() -> bool {
-        unsafe { &SCHEDULER }.is_some() && SCHEDULER_ENABLED.load(Ordering::SeqCst)
-    }
-
-    /// All threads will stop.
-    pub(crate) unsafe fn freeze(force: bool) -> Result<(), ()> {
-        let sch = Self::shared();
-        sch.is_frozen.store(true, Ordering::SeqCst);
-        if force {
-            // TODO:
-        }
-        Ok(())
-    }
-
     fn spawn_f(
         start: ThreadStart,
         args: usize,
@@ -657,7 +661,7 @@ pub struct ProcessId(pub usize);
 
 impl ProcessId {
     #[inline]
-    pub(crate) fn next() -> ProcessId {
+    pub fn next() -> ProcessId {
         static NEXT_PID: AtomicUsize = AtomicUsize::new(1);
         ProcessId(NEXT_PID.fetch_add(1, Ordering::SeqCst))
     }
@@ -780,7 +784,7 @@ impl Timer {
     }
 
     #[inline]
-    pub(crate) unsafe fn set_timer(source: Box<dyn TimerSource>) {
+    pub unsafe fn set_timer(source: Box<dyn TimerSource>) {
         TIMER_SOURCE = Some(source);
     }
 

@@ -1,4 +1,4 @@
-.PHONY: love all clean install iso run runs test apps doc
+.PHONY: love all clean install iso run runs test apps doc kernel boot
 
 EFI_ARCH	= x86_64-unknown-uefi
 KRNL_ARCH	= x86_64-unknown-none
@@ -14,7 +14,7 @@ INITRD_IMG	= $(EFI_VENDOR)/initrd.img
 TARGET_KERNEL	= system/target/$(KRNL_ARCH)/release/kernel
 TARGET_BOOT_EFI	= boot/target/$(EFI_ARCH)/release/boot-efi.efi
 TARGET_ISO	= var/megos.iso
-TARGETS		= $(TARGET_KERNEL) $(TARGET_BOOT_EFI)
+TARGETS		= kernel boot
 OVMF		= var/ovmfx64.fd
 INITRD_FILES	= $(MISC)initrd/* apps/target/wasm32-unknown-unknown/release/*.wasm
 
@@ -25,12 +25,6 @@ clean:
 
 # $(RUST_ARCH).json:
 # 	rustc +nightly -Z unstable-options --print target-spec-json --target $(RUST_ARCH) | sed -e 's/-sse,+/+sse,-/' > $@
-
-$(TARGET_KERNEL): system/kernel/* system/kernel/**/* system/kernel/**/**/* system/kernel/**/**/**/* system/kernel/**/**/**/**/* lib/**/src/*.rs lib/**/src/**/*.rs
-	(cd system; cargo build -Zbuild-std --release --target $(KRNL_ARCH).json)
-
-$(TARGET_BOOT_EFI): boot/boot-efi/* boot/boot-efi/src/* boot/boot-efi/src/**/* lib/**/src/*.rs lib/**/src/**/*.rs
-	(cd boot; cargo build -Zbuild-std --release --target $(EFI_ARCH).json)
 
 $(EFI_BOOT):
 	mkdir -p $(EFI_BOOT)
@@ -44,18 +38,20 @@ run: install $(OVMF)
 runs: install $(OVMF)
 	qemu-system-x86_64 -cpu max -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -rtc base=localtime,clock=host -monitor stdio -device nec-usb-xhci,id=xhci
 
-install: $(KERNEL_BIN) $(BOOT_EFI1) tools/mkinitrd/src/*.rs $(INITRD_FILES) apps
+boot:
+	(cd boot; cargo build -Zbuild-std --release --target $(EFI_ARCH).json)
+
+kernel:
+	(cd system; cargo build -Zbuild-std --release --target $(KRNL_ARCH).json)
+
+install: $(EFI_VENDOR) $(EFI_BOOT) kernel boot $(BOOT_EFI1) tools/mkinitrd/src/*.rs $(INITRD_FILES) apps
+	cp $(TARGET_BOOT_EFI) $(BOOT_EFI1)
+	cp $(TARGET_BOOT_EFI) $(BOOT_EFI2)
+	cp $(TARGET_KERNEL) $(KERNEL_BIN)
 	cargo run --manifest-path ./tools/mkinitrd/Cargo.toml -- $(INITRD_IMG) $(INITRD_FILES)
 
 iso: install
 	mkisofs -r -J -o $(TARGET_ISO) $(MNT)
-
-$(KERNEL_BIN): $(TARGET_KERNEL) $(EFI_VENDOR)
-	cp $< $@
-
-$(BOOT_EFI1): $(TARGET_BOOT_EFI) $(EFI_BOOT) $(EFI_VENDOR)
-	cp $< $@
-	cp $< $(BOOT_EFI2)
 
 apps:
 	cd apps; cargo build --target wasm32-unknown-unknown --release

@@ -15,6 +15,7 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
     let mut info = BootInfo::default();
     let bs = st.boot_services();
     info.platform = Platform::UEFI;
+    info.color_mode = ColorMode::Argb32;
 
     // Load CONFIG
     let config = match get_file(handle, &bs, BootSettings::DEFAULT_CONFIG_PATH) {
@@ -158,7 +159,6 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
 
     // println!("Now starting MEG-OS...");
     unsafe {
-        PageManager::finalize(&mut info);
         Invocation::invoke_kernel(&info, entry, new_sp);
     }
 }
