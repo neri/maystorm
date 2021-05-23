@@ -104,7 +104,7 @@ pub struct PciDevice {
     device_id: PciDeviceId,
     subsys_vendor_id: PciVendorId,
     subsys_device_id: PciDeviceId,
-    class_code: u32,
+    class_code: PciClass,
     bars: Box<[PciBar]>,
     functions: Box<[PciDevice]>,
     capabilities: Box<[(PciCapabilityId, u8)]>,
@@ -123,7 +123,7 @@ impl PciDevice {
         let subsys = cpu.read_pci(base.register(0x0B));
         let subsys_vendor_id = PciVendorId(subsys as u16);
         let subsys_device_id = PciDeviceId((subsys >> 16) as u16);
-        let class_code = cpu.read_pci(base.register(0x02)) >> 8;
+        let class_code = PciClass::from_pci(cpu.read_pci(base.register(0x02)));
         let header_type = ((cpu.read_pci(base.register(3)) >> 16) & 0xFF) as u8;
         let has_multi_func = (header_type & 0x80) != 0;
         let header_type = header_type & 0x7F;
@@ -214,7 +214,7 @@ impl PciDevice {
     }
 
     #[inline]
-    pub const fn class_code(&self) -> u32 {
+    pub const fn class_code(&self) -> PciClass {
         self.class_code
     }
 
@@ -240,13 +240,15 @@ impl PciDevice {
 pub struct PciBar(u64);
 
 impl PciBar {
+    /// Internal data mask
     const VALID_BASE_MASK: u64 = 0x00FF_FFFF_FFFF_FFFF;
 
     #[inline]
-    pub const fn from_raw(raw: u64) -> Self {
+    const fn from_raw(raw: u64) -> Self {
         Self(raw)
     }
 
+    /// Parse bar
     unsafe fn parse(cpu: &Cpu, base: PciConfigAddressSpace, index: usize) -> Option<PciBar> {
         without_interrupts!({
             let reg = base.register(index as u8);
@@ -255,7 +257,8 @@ impl PciBar {
                 return None;
             }
             let org = PciBar::from_raw(raw as u64);
-            match org.bar_type() {
+
+            let result = match org.bar_type() {
                 PciBarType::SeparatedIo | PciBarType::Mmio32 => {
                     let bias = org.bar_type().mask_bias() as u32;
                     cpu.write_pci(reg, u32::MAX);
@@ -279,7 +282,9 @@ impl PciBar {
                     )
                 }
                 PciBarType::Mmio1MB | PciBarType::Reserved => None,
-            }
+            };
+
+            result
         })
     }
 
@@ -329,7 +334,6 @@ impl PciBar {
     }
 }
 
-#[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PciBarType {
     /// Separated I/O
@@ -380,5 +384,90 @@ impl PciCapabilityId {
 impl From<u8> for PciCapabilityId {
     fn from(raw: u8) -> Self {
         Self(raw)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PciClass(u32);
+
+impl PciClass {
+    /// Makes an instance from the PCI class code register (0x02)
+    #[inline]
+    pub const fn from_pci(data: u32) -> Self {
+        Self((data & 0xFF_FF_FF_00) | PciClassType::Interface as u32)
+    }
+
+    /// Makes an instance from class code.
+    #[inline]
+    pub const fn code(code: u8) -> Self {
+        Self(((code as u32) << 24) | PciClassType::ClassCode as u32)
+    }
+
+    /// Chains subclasses to the class code.
+    #[inline]
+    pub const fn sub(self, sub: u8) -> Self {
+        Self(self.0 & 0xFF_00_00_00 | ((sub as u32) << 16) | PciClassType::Subclass as u32)
+    }
+
+    /// Chains the programming interface to the class code and subclasses.
+    #[inline]
+    pub const fn interface(self, interface: u8) -> Self {
+        Self(self.0 & 0xFF_FF_00_00 | ((interface as u32) << 8) | PciClassType::Interface as u32)
+    }
+
+    #[inline]
+    const fn class_type(&self) -> PciClassType {
+        PciClassType::from_raw(self.0 & 0xFF)
+    }
+
+    // #[inline]
+    // pub const fn data(&self) -> u32 {
+    //     self.0 & self.class_type().mask()
+    // }
+
+    /// Returns whether or not this instance matches the specified class code, subclass, or programming interface.
+    #[inline]
+    pub const fn matches(&self, other: &Self) -> bool {
+        match other.class_type() {
+            PciClassType::Unknown => false,
+            _ => {
+                if self.class_type().mask() < other.class_type().mask() {
+                    false
+                } else {
+                    let mask = other.class_type().mask();
+                    (self.0 & mask) == (other.0 & mask)
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum PciClassType {
+    Unknown = 0,
+    ClassCode = 1,
+    Subclass = 2,
+    Interface = 3,
+}
+
+impl PciClassType {
+    #[inline]
+    pub const fn mask(&self) -> u32 {
+        match *self {
+            PciClassType::Unknown => 0,
+            PciClassType::ClassCode => 0xFF_00_00_00,
+            PciClassType::Subclass => 0xFF_FF_00_00,
+            PciClassType::Interface => 0xFF_FF_FF_00,
+        }
+    }
+
+    #[inline]
+    pub const fn from_raw(raw: u32) -> Self {
+        match raw {
+            1 => Self::ClassCode,
+            2 => Self::Subclass,
+            3 => Self::Interface,
+            _ => Self::Unknown,
+        }
     }
 }

@@ -10,7 +10,6 @@ use alloc::string::*;
 use alloc::vec::*;
 use bootprot::*;
 use core::fmt::Write;
-use kernel::arch::cpu::*;
 use kernel::fs::*;
 use kernel::mem::*;
 use kernel::rt::*;
@@ -18,6 +17,7 @@ use kernel::system::*;
 use kernel::task::scheduler::*;
 use kernel::task::Task;
 use kernel::*;
+use kernel::{arch::cpu::*, bus::pci::PciClass};
 use megstd::string::*;
 
 extern crate alloc;
@@ -401,65 +401,86 @@ impl Shell {
         0
     }
 
-    fn find_class_string(class_code: u32) -> &'static str {
-        const CLASS: u32 = 0xFF_00_00;
-        const SUB_CLASS: u32 = 0xFF_FF_00;
-        const INTERFACE: u32 = u32::MAX;
+    fn find_class_string(cc: PciClass) -> &'static str {
+        #[rustfmt::skip]
         let entries = [
-            (0x00_00_00, SUB_CLASS, "Non-VGA-Compatible devices"),
-            (0x00_01_00, SUB_CLASS, "VGA-Compatible Device"),
-            (0x01_00_00, SUB_CLASS, "SCSI Bus Controller"),
-            (0x01_01_00, SUB_CLASS, "IDE Controller"),
-            (0x01_05_00, SUB_CLASS, "ATA Controller"),
-            (0x01_06_01, INTERFACE, "AHCI 1.0"),
-            (0x01_06_00, SUB_CLASS, "Serial ATA"),
-            (0x01_07_00, INTERFACE, "SAS"),
-            (0x01_07_00, SUB_CLASS, "Serial Attached SCSI"),
-            (0x01_08_01, INTERFACE, "NVMHCI"),
-            (0x01_08_02, INTERFACE, "NVM Express"),
-            (0x01_08_00, SUB_CLASS, "Non-Volatile Memory Controller"),
-            (0x01_00_00, CLASS, "Mass Storage Controller"),
-            (0x02_00_00, SUB_CLASS, "Ethernet Controller"),
-            (0x02_00_00, CLASS, "Network Controller"),
-            (0x03_00_00, CLASS, "Display Controller"),
-            (0x04_00_00, SUB_CLASS, "Multimedia Video Controller"),
-            (0x04_01_00, SUB_CLASS, "Multimedia Audio Controller"),
-            (0x04_03_00, SUB_CLASS, "Audio Device"),
-            (0x04_00_00, CLASS, "Multimedia Controller"),
-            (0x05_00_00, CLASS, "Memory Controller"),
-            (0x06_00_00, SUB_CLASS, "Host Bridge"),
-            (0x06_01_00, SUB_CLASS, "ISA Bridge"),
-            (0x06_04_00, SUB_CLASS, "PCI-to-PCI Bridge"),
-            (0x06_09_00, SUB_CLASS, "PCI-to-PCI Bridge"),
-            (0x06_00_00, CLASS, "Bridge Device"),
-            (0x07_00_00, SUB_CLASS, "Serial Controller"),
-            (0x07_01_00, SUB_CLASS, "Parallel Controller"),
-            (0x07_00_00, CLASS, "Simple Communication Controller"),
-            (0x08_00_00, CLASS, "Base System Peripheral"),
-            (0x09_00_00, CLASS, "Input Device Controller"),
-            (0x0A_00_00, CLASS, "Docking Station"),
-            (0x0B_00_00, CLASS, "Processor"),
-            (0x0C_03_00, INTERFACE, "UHCI Controller"),
-            (0x0C_03_10, INTERFACE, "OHCI Controller"),
-            (0x0C_03_20, INTERFACE, "EHCI Controller"),
-            (0x0C_03_30, INTERFACE, "XHCI Controller"),
-            (0x0C_03_40, INTERFACE, "USB4 Host Controller"),
-            (0x0C_03_00, SUB_CLASS, "USB Controller"),
-            (0x0C_05_00, SUB_CLASS, "SMBus"),
-            (0x0C_00_00, CLASS, "Serial Bus Controller"),
-            (0x0D_00_00, CLASS, "Wireless Controller"),
-            (0x0E_00_00, CLASS, "Intelligent Controller"),
-            (0x0F_00_00, CLASS, "Satellite Communication Controller"),
-            (0x10_00_00, CLASS, "Encryption Controller"),
-            (0x11_00_00, CLASS, "Signal Processing Controller"),
-            (0x12_00_00, CLASS, "Processing Accelerator"),
-            (0x13_00_00, CLASS, "Non-Essential Instrumentation"),
-            (0x40_00_00, CLASS, "Co-Processor"),
-            (0xFF_00_00, CLASS, "(Vendor specific)"),
+            (PciClass::code(0x00).sub(0x00), "Non-VGA-Compatible devices"),
+            (PciClass::code(0x00).sub(0x01), "VGA-Compatible Device"),
+            (PciClass::code(0x01).sub(0x00), "SCSI Bus Controller"),
+            (PciClass::code(0x01).sub(0x01), "IDE Controller"),
+            (PciClass::code(0x01).sub(0x04), "Raid Controller"),
+            (PciClass::code(0x01).sub(0x05), "ATA Controller"),
+            (PciClass::code(0x01).sub(0x06).interface(0x01), "AHCI 1.0"),
+            (PciClass::code(0x01).sub(0x06), "Serial ATA"),
+            (PciClass::code(0x01).sub(0x07).interface(0x00), "SAS"),
+            (PciClass::code(0x01).sub(0x07), "Serial Attached SCSI"),
+            (PciClass::code(0x01).sub(0x08).interface(0x01), "NVMHCI"),
+            (PciClass::code(0x01).sub(0x08).interface(0x02), "NVM Express"),
+            (PciClass::code(0x01).sub(0x08), "Non-Volatile Memory Controller"),
+            (PciClass::code(0x01), "Mass Storage Controller"),
+            (PciClass::code(0x02).sub(0x00), "Ethernet Controller"),
+            (PciClass::code(0x02), "Network Controller"),
+            (PciClass::code(0x03).sub(0x00), "VGA Compatible Controller"),
+            (PciClass::code(0x03), "Display Controller"),
+            (PciClass::code(0x04).sub(0x00), "Multimedia Video Controller"),
+            (PciClass::code(0x04).sub(0x01), "Multimedia Audio Controller"),
+            (PciClass::code(0x04).sub(0x02), "Computer Telephony Device"),
+            (PciClass::code(0x04).sub(0x03), "Audio Device"),
+            (PciClass::code(0x04), "Multimedia Controller"),
+            (PciClass::code(0x05).sub(0x00), "RAM Controller"),
+            (PciClass::code(0x05).sub(0x01), "Flash Controller"),
+            (PciClass::code(0x05), "Memory Controller"),
+            (PciClass::code(0x06).sub(0x00), "Host Bridge"),
+            (PciClass::code(0x06).sub(0x01), "ISA Bridge"),
+            (PciClass::code(0x06).sub(0x02), "EISA Bridge"),
+            (PciClass::code(0x06).sub(0x03), "MCA Bridge"),
+            (PciClass::code(0x06).sub(0x04).interface(0x00), "PCI-to-PCI Bridge (Normal Decode)"),
+            (PciClass::code(0x06).sub(0x04).interface(0x01), "PCI-to-PCI Bridge (Subtractive Decode)"),
+            (PciClass::code(0x06).sub(0x05), "PCMCIA Bridge"),
+            (PciClass::code(0x06).sub(0x06), "NuBus Bridge"),
+            (PciClass::code(0x06).sub(0x07), "CardBus Bridge"),
+            (PciClass::code(0x06).sub(0x08), "RACEway Bridge"),
+            (PciClass::code(0x06).sub(0x09), "PCI-to-PCI Bridge"),
+            (PciClass::code(0x06).sub(0x0A), "InfiniBand-to-PCI Host Bridge"),
+            (PciClass::code(0x06), "Bridge Device"),
+            (PciClass::code(0x07).sub(0x00), "Serial Controller"),
+            (PciClass::code(0x07).sub(0x01), "Parallel Controller"),
+            (PciClass::code(0x07).sub(0x03), "Modem"),
+            (PciClass::code(0x07).sub(0x04), "IEEE 488.1/2 (GPIB) Controller"),
+            (PciClass::code(0x07).sub(0x05), "Smart Card"),
+            (PciClass::code(0x07), "Simple Communication Controller"),
+            (PciClass::code(0x08).sub(0x05), "SD Host controller"),
+            (PciClass::code(0x08).sub(0x06), "IOMMU"),
+            (PciClass::code(0x08), "Base System Peripheral"),
+            (PciClass::code(0x09), "Input Device Controller"),
+            (PciClass::code(0x0A), "Docking Station"),
+            (PciClass::code(0x0B), "Processor"),
+            (PciClass::code(0x0C).sub(0x03).interface(0x00), "UHCI Controller"),
+            (PciClass::code(0x0C).sub(0x03).interface(0x10), "OHCI Controller"),
+            (PciClass::code(0x0C).sub(0x03).interface(0x20), "EHCI Controller"),
+            (PciClass::code(0x0C).sub(0x03).interface(0x30), "XHCI Controller"),
+            (PciClass::code(0x0C).sub(0x03).interface(0x40), "USB4 Host Controller"),
+            (PciClass::code(0x0C).sub(0x03), "USB Controller"),
+            (PciClass::code(0x0C).sub(0x04), "Fibre Channel"),
+            (PciClass::code(0x0C).sub(0x05), "SMBus"),
+            (PciClass::code(0x0C).sub(0x06), "InfiniBand"),
+            (PciClass::code(0x0C).sub(0x03), "USB Controller"),
+            (PciClass::code(0x0C), "Serial Bus Controller"),
+            (PciClass::code(0x0D).sub(0x11), "Bluetooth Controller"),
+            (PciClass::code(0x0D), "Wireless Controller"),
+            (PciClass::code(0x0E), "Intelligent Controller"),
+            (PciClass::code(0x0F), "Satellite Communication Controller"),
+            (PciClass::code(0x10), "Encryption Controller"),
+            (PciClass::code(0x11), "Signal Processing Controller"),
+            (PciClass::code(0x12), "Processing Accelerator"),
+            (PciClass::code(0x13), "Encryption Controller"),
+            (PciClass::code(0x14), "Non-Essential Instrumentation"),
+            (PciClass::code(0x40), "Co-Processor"),
+            (PciClass::code(0xFF), "(Vendor specific)"),
         ];
         for entry in &entries {
-            if (class_code & entry.1) == entry.0 {
-                return entry.2;
+            if cc.matches(&entry.0) {
+                return entry.1;
             }
         }
         "(Unknown Device)"
