@@ -461,7 +461,7 @@ macro_rules! without_interrupts {
 
 impl PciImpl for Cpu {
     #[inline]
-    unsafe fn read_pci(&self, addr: PciConfigAddressSpace) -> u32 {
+    unsafe fn read_pci(&self, addr: PciConfigAddress) -> u32 {
         without_interrupts!({
             Cpu::out32(0xCF8, addr.into());
             Cpu::in32(0xCFC)
@@ -469,7 +469,7 @@ impl PciImpl for Cpu {
     }
 
     #[inline]
-    unsafe fn write_pci(&self, addr: PciConfigAddressSpace, value: u32) {
+    unsafe fn write_pci(&self, addr: PciConfigAddress, value: u32) {
         without_interrupts!({
             Cpu::out32(0xCF8, addr.into());
             Cpu::out32(0xCFC, value);
@@ -477,7 +477,7 @@ impl PciImpl for Cpu {
     }
 }
 
-impl Into<u32> for PciConfigAddressSpace {
+impl Into<u32> for PciConfigAddress {
     fn into(self) -> u32 {
         0x8000_0000
             | ((self.bus as u32) << 16)

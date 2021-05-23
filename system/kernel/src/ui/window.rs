@@ -11,6 +11,7 @@ use core::{
     cell::UnsafeCell,
     cmp,
     future::Future,
+    mem::swap,
     num::*,
     pin::Pin,
     sync::atomic::*,
@@ -88,6 +89,7 @@ pub struct WindowManager<'a> {
     buttons_up: AtomicUsize,
 
     main_screen: Bitmap32<'a>,
+    screen_size: Size,
     off_screen: BoxedBitmap32<'a>,
     screen_insets: EdgeInsets,
 
@@ -112,9 +114,17 @@ struct Resources<'a> {
 
 impl WindowManager<'static> {
     pub(crate) fn init(main_screen: Bitmap32<'static>) {
-        let pointer_x = AtomicIsize::new(main_screen.width() as isize / 2);
-        let pointer_y = AtomicIsize::new(main_screen.height() as isize / 2);
-        let off_screen = BoxedBitmap32::new(main_screen.size(), TrueColor::TRANSPARENT);
+        let attributes = AtomicBitflags::EMPTY;
+
+        let mut screen_size = main_screen.size();
+        if screen_size.width < screen_size.height {
+            attributes.insert(WindowManagerAttributes::PORTRAIT);
+            swap(&mut screen_size.width, &mut screen_size.height);
+        }
+
+        let pointer_x = screen_size.width() / 2;
+        let pointer_y = screen_size.height() / 2;
+        let off_screen = BoxedBitmap32::new(screen_size, TrueColor::TRANSPARENT);
         let mut window_pool = BTreeMap::new();
 
         let corner_shadow = {
@@ -136,7 +146,7 @@ impl WindowManager<'static> {
             let window = WindowBuilder::new("Root")
                 .style(WindowStyle::NAKED | WindowStyle::OPAQUE)
                 .level(WindowLevel::ROOT)
-                .frame(Rect::from(main_screen.size()))
+                .frame(Rect::from(screen_size))
                 .bg_color(SomeColor::BLACK)
                 .without_message_queue()
                 .bitmap_strategy(BitmapStrategy::NonBitmap)
@@ -153,6 +163,7 @@ impl WindowManager<'static> {
             let window = WindowBuilder::new("Root")
                 .style(WindowStyle::NAKED)
                 .level(WindowLevel::POINTER)
+                .origin(Point::new(pointer_x, pointer_y))
                 .size(pointer_size)
                 .without_message_queue()
                 .build_inner();
@@ -173,13 +184,14 @@ impl WindowManager<'static> {
             WM = Some(Box::new(WindowManager {
                 lock: Spinlock::default(),
                 sem_event: Semaphore::new(0),
-                attributes: AtomicBitflags::EMPTY,
-                pointer_x,
-                pointer_y,
+                attributes,
+                pointer_x: AtomicIsize::new(pointer_x),
+                pointer_y: AtomicIsize::new(pointer_y),
                 buttons: AtomicUsize::new(0),
                 buttons_down: AtomicUsize::new(0),
                 buttons_up: AtomicUsize::new(0),
                 main_screen,
+                screen_size,
                 off_screen,
                 screen_insets: EdgeInsets::default(),
                 resources: Resources {
@@ -527,13 +539,13 @@ impl WindowManager<'_> {
     #[inline]
     pub fn main_screen_bounds() -> Rect {
         let shared = Self::shared();
-        shared.main_screen.bounds()
+        shared.screen_size.into()
     }
 
     #[inline]
     pub fn user_screen_bounds() -> Rect {
         match WindowManager::shared_opt() {
-            Some(shared) => shared.main_screen.bounds().insets_by(shared.screen_insets),
+            Some(shared) => Rect::from(shared.screen_size).insets_by(shared.screen_insets),
             None => System::main_screen().size().into(),
         }
     }
@@ -623,7 +635,7 @@ impl WindowManager<'_> {
             Some(v) => v,
             None => return,
         };
-        let screen_bounds = shared.main_screen.bounds();
+        let screen_bounds: Rect = shared.screen_size.into();
 
         let mut pointer = Point::new(0, 0);
         core::mem::swap(&mut mouse_state.x, &mut pointer.x);
@@ -741,10 +753,11 @@ impl WindowManager<'_> {
 
 bitflags! {
     struct WindowManagerAttributes: usize {
-        const MOUSE_MOVE    = 0b0000_0001;
-        const NEEDS_REDRAW  = 0b0000_0010;
-        const EVENT         = 0b0000_0100;
-        const MOVING        = 0b0000_1000;
+        const PORTRAIT      = 0b0000_0001;
+        const EVENT         = 0b0000_0010;
+        const MOUSE_MOVE    = 0b0000_0100;
+        const NEEDS_REDRAW  = 0b0000_1000;
+        const MOVING        = 0b0001_0000;
     }
 }
 
@@ -904,7 +917,14 @@ impl RawWindow<'_> {
         let main_screen = &mut shared.main_screen;
         let off_screen = shared.off_screen.inner();
         if self.draw_into(off_screen, frame) {
-            main_screen.blt(off_screen, frame.origin, frame);
+            if shared
+                .attributes
+                .contains(WindowManagerAttributes::PORTRAIT)
+            {
+                main_screen.blt_affine(off_screen, frame.origin, frame);
+            } else {
+                main_screen.blt(off_screen, frame.origin, frame);
+            }
         }
     }
 

@@ -7,14 +7,14 @@ use alloc::{boxed::Box, vec::Vec};
 // use num_traits::FromPrimitive;
 
 #[derive(Debug, Copy, Clone, Default, Ord, PartialOrd, Eq, PartialEq)]
-pub struct PciConfigAddressSpace {
+pub struct PciConfigAddress {
     pub bus: u8,
     pub dev: u8,
     pub fun: u8,
     pub register: u8,
 }
 
-impl PciConfigAddressSpace {
+impl PciConfigAddress {
     #[inline]
     pub const fn bus(bus: u8) -> Self {
         Self {
@@ -45,9 +45,9 @@ impl PciConfigAddressSpace {
 }
 
 pub(crate) trait PciImpl {
-    unsafe fn read_pci(&self, addr: PciConfigAddressSpace) -> u32;
+    unsafe fn read_pci(&self, addr: PciConfigAddress) -> u32;
 
-    unsafe fn write_pci(&self, addr: PciConfigAddressSpace, value: u32);
+    unsafe fn write_pci(&self, addr: PciConfigAddress, value: u32);
 }
 
 static mut PCI: Pci = Pci::new();
@@ -99,7 +99,7 @@ pub struct PciDeviceId(pub u16);
 #[repr(C)]
 #[derive(Debug)]
 pub struct PciDevice {
-    addr: PciConfigAddressSpace,
+    addr: PciConfigAddress,
     vendor_id: PciVendorId,
     device_id: PciDeviceId,
     subsys_vendor_id: PciVendorId,
@@ -112,7 +112,7 @@ pub struct PciDevice {
 
 impl PciDevice {
     unsafe fn from_address(cpu: &Cpu, bus: u8, dev: u8, fun: u8) -> Option<Self> {
-        let base = PciConfigAddressSpace::bus(bus).dev(dev).fun(fun);
+        let base = PciConfigAddress::bus(bus).dev(dev).fun(fun);
         let dev_ven = cpu.read_pci(base);
         let vendor_id = PciVendorId(dev_ven as u16);
         if vendor_id == PciVendorId::INVALID {
@@ -189,7 +189,7 @@ impl PciDevice {
     }
 
     #[inline]
-    pub const fn address(&self) -> PciConfigAddressSpace {
+    pub const fn address(&self) -> PciConfigAddress {
         self.addr
     }
 
@@ -249,7 +249,7 @@ impl PciBar {
     }
 
     /// Parse bar
-    unsafe fn parse(cpu: &Cpu, base: PciConfigAddressSpace, index: usize) -> Option<PciBar> {
+    unsafe fn parse(cpu: &Cpu, base: PciConfigAddress, index: usize) -> Option<PciBar> {
         without_interrupts!({
             let reg = base.register(index as u8);
             let raw = cpu.read_pci(reg);

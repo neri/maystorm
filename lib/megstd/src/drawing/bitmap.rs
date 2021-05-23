@@ -1431,6 +1431,79 @@ impl<'a> Bitmap32<'a> {
             TrueColor::from_argb(palette[c.0 as usize])
         });
     }
+
+    /// expr
+    pub fn blt_affine<'b, T: AsRef<ConstBitmap32<'b>>>(
+        &mut self,
+        src: &T,
+        origin: Point,
+        rect: Rect,
+    ) {
+        let src = src.as_ref();
+        let mut dx = origin.x;
+        let mut dy = origin.y;
+        let mut sx = rect.origin.x;
+        let mut sy = rect.origin.y;
+        let mut width = rect.width();
+        let mut height = rect.height();
+
+        if dx < 0 {
+            sx -= dx;
+            width += dx;
+            dx = 0;
+        }
+        if dy < 0 {
+            sy -= dy;
+            height += dy;
+            dy = 0;
+        }
+        let sw = src.width() as isize;
+        let sh = src.height() as isize;
+        if width > sx + sw {
+            width = sw - sx;
+        }
+        if height > sy + sh {
+            height = sh - sy;
+        }
+        let r = dx + width;
+        let b = dy + height;
+        let dw = self.height() as isize;
+        let dh = self.width() as isize;
+        if r >= dw {
+            width = dw - dx;
+        }
+        if b >= dh {
+            height = dh - dy;
+        }
+        if width <= 0 || height <= 0 {
+            return;
+        }
+
+        let width = width as usize;
+        let height = height as usize;
+
+        let ds = self.stride();
+        let ss = src.stride();
+        let temp = dx;
+        dx = dh as isize - dy;
+        dy = temp;
+        let mut p = dx as usize + dy as usize * ds - height as usize;
+        let q0 = sx as usize + (sy as usize + height - 1) * ss;
+        let stride_p = ds - height;
+        let stride_q = ss;
+        let dest_fb = self.slice_mut();
+        let src_fb = src.slice();
+
+        for x in 0..width {
+            let mut q = q0 + x;
+            for _ in 0..height {
+                dest_fb[p] = src_fb[q];
+                p += 1;
+                q -= stride_q;
+            }
+            p += stride_p;
+        }
+    }
 }
 
 impl Bitmap32<'_> {

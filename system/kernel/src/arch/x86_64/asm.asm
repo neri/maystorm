@@ -237,10 +237,10 @@ asm_sch_switch_context:
     xor edx, edx
     xor esi, esi
     xor edi, edi
-    xor r8d, r8d
-    xor r9d, r9d
-    xor r10d, r10d
-    xor r11d, r11d
+    xor r8, r8
+    xor r9, r9
+    xor r10, r10
+    xor r11, r11
 
     ret
 
