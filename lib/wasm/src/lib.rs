@@ -1,5 +1,6 @@
 // Wasm-O
 #![no_std]
+#![feature(const_raw_ptr_deref)]
 #![feature(try_reserve)]
 
 mod wasm;

@@ -15,6 +15,7 @@ use core::{
     slice, str,
 };
 
+/// WebAssembly loader
 pub struct WasmLoader {
     module: WasmModule,
 }
@@ -63,21 +64,20 @@ impl WasmLoader {
         F: FnMut(&str, &str, &WasmType) -> Result<WasmDynFunc, WasmDecodeError> + Copy,
     {
         let mut blob = Leb128Stream::from_slice(&blob[8..]);
-        while let Some(mut section) = blob.next_section()? {
+        while let Some(section) = blob.next_section()? {
             match section.section_type {
                 WasmSectionType::Custom => Ok(()),
-                WasmSectionType::Type => self.parse_sec_type(&mut section),
-                WasmSectionType::Import => self.parse_sec_import(&mut section, resolver),
-                WasmSectionType::Table => self.parse_sec_table(&mut section),
-                WasmSectionType::Memory => self.parse_sec_memory(&mut section),
-                WasmSectionType::Element => self.parse_sec_elem(&mut section),
-                WasmSectionType::Function => self.parse_sec_func(&mut section),
-                WasmSectionType::Export => self.parse_sec_export(&mut section),
-                WasmSectionType::Code => self.parse_sec_code(&mut section),
-                WasmSectionType::Data => self.parse_sec_data(&mut section),
-                WasmSectionType::Start => self.parse_sec_start(&mut section),
-                WasmSectionType::Global => self.parse_sec_global(&mut section),
-                // _ => Err(WasmDecodeError::UnexpectedToken),
+                WasmSectionType::Type => self.parse_sec_type(section),
+                WasmSectionType::Import => self.parse_sec_import(section, resolver),
+                WasmSectionType::Table => self.parse_sec_table(section),
+                WasmSectionType::Memory => self.parse_sec_memory(section),
+                WasmSectionType::Element => self.parse_sec_elem(section),
+                WasmSectionType::Function => self.parse_sec_func(section),
+                WasmSectionType::Export => self.parse_sec_export(section),
+                WasmSectionType::Code => self.parse_sec_code(section),
+                WasmSectionType::Data => self.parse_sec_data(section),
+                WasmSectionType::Start => self.parse_sec_start(section),
+                WasmSectionType::Global => self.parse_sec_global(section),
             }?;
         }
 
@@ -92,18 +92,20 @@ impl WasmLoader {
         Ok(())
     }
 
+    /// Returns a module
     #[inline]
     pub const fn module(&self) -> &WasmModule {
         &self.module
     }
 
+    /// Consumes self and returns a module.
     #[inline]
     pub fn into_module(self) -> WasmModule {
         self.module
     }
 
     /// Parse "type" section
-    fn parse_sec_type(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
+    fn parse_sec_type(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeError> {
         let n_items = section.stream.read_unsigned()? as usize;
         for _ in 0..n_items {
             let ft = WasmType::from_stream(&mut section.stream)?;
@@ -115,7 +117,7 @@ impl WasmLoader {
     /// Parse "import" section
     fn parse_sec_import<F>(
         &mut self,
-        section: &mut WasmSection,
+        mut section: WasmSection,
         mut resolver: F,
     ) -> Result<(), WasmDecodeError>
     where
@@ -152,7 +154,7 @@ impl WasmLoader {
     }
 
     /// Parse "func" section
-    fn parse_sec_func(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
+    fn parse_sec_func(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeError> {
         let n_items = section.stream.read_unsigned()? as usize;
         let base_index = self.module.imports.len();
         for index in 0..n_items {
@@ -172,7 +174,7 @@ impl WasmLoader {
     }
 
     /// Parse "export" section
-    fn parse_sec_export(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
+    fn parse_sec_export(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeError> {
         let n_items = section.stream.read_unsigned()? as usize;
         for i in 0..n_items {
             let export = WasmExport::from_stream(&mut section.stream)?;
@@ -188,7 +190,7 @@ impl WasmLoader {
     }
 
     /// Parse "memory" section
-    fn parse_sec_memory(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
+    fn parse_sec_memory(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeError> {
         let n_items = section.stream.read_unsigned()?;
         for _ in 0..n_items {
             let limit = WasmLimit::from_stream(&mut section.stream)?;
@@ -198,7 +200,7 @@ impl WasmLoader {
     }
 
     /// Parse "table" section
-    fn parse_sec_table(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
+    fn parse_sec_table(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeError> {
         let n_items = section.stream.read_unsigned()?;
         for _ in 0..n_items {
             let table = WasmTable::from_stream(&mut section.stream)?;
@@ -208,7 +210,7 @@ impl WasmLoader {
     }
 
     /// Parse "elem" section
-    fn parse_sec_elem(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
+    fn parse_sec_elem(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeError> {
         let n_items = section.stream.read_unsigned()?;
         for _ in 0..n_items {
             let tabidx = section.stream.read_unsigned()? as usize;
@@ -228,7 +230,7 @@ impl WasmLoader {
     }
 
     /// Parse "code" section
-    fn parse_sec_code(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
+    fn parse_sec_code(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeError> {
         let n_items = section.stream.read_unsigned()? as usize;
         for i in 0..n_items {
             let index = i + self.module.n_ext_func;
@@ -250,7 +252,7 @@ impl WasmLoader {
     }
 
     /// Parse "data" section
-    fn parse_sec_data(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
+    fn parse_sec_data(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeError> {
         let n_items = section.stream.read_unsigned()?;
         for _ in 0..n_items {
             let memidx = section.stream.read_unsigned()? as usize;
@@ -267,14 +269,14 @@ impl WasmLoader {
     }
 
     /// Parse "start" section
-    fn parse_sec_start(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
+    fn parse_sec_start(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeError> {
         let index = section.stream.read_unsigned()? as usize;
         self.module.start = Some(index);
         Ok(())
     }
 
     /// Parse "global" section
-    fn parse_sec_global(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
+    fn parse_sec_global(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeError> {
         let n_items = section.stream.read_unsigned()? as usize;
         for _ in 0..n_items {
             let val_type = section
@@ -288,11 +290,7 @@ impl WasmLoader {
                 return Err(WasmDecodeError::InvalidGlobal);
             }
 
-            let global = WasmGlobal {
-                val_type,
-                is_mutable,
-                value: RefCell::new(value),
-            };
+            let global = WasmGlobal::new(value, is_mutable);
             self.module.globals.push(global);
         }
         Ok(())
@@ -304,19 +302,19 @@ impl WasmLoader {
             .map(|v| v as usize)
     }
 
-    fn eval_expr(&self, stream: &mut Leb128Stream) -> Result<WasmValue, WasmDecodeError> {
+    fn eval_expr(&self, stream: &mut Leb128Stream) -> Result<WasmNonNullValue, WasmDecodeError> {
         stream
             .read_byte()
             .and_then(|opc| match WasmOpcode::from_u8(opc) {
                 WasmOpcode::I32Const => stream.read_signed().and_then(|r| {
                     match stream.read_byte().map(|v| WasmOpcode::from_u8(v)) {
-                        Ok(WasmOpcode::End) => Ok(WasmValue::I32(r as i32)),
+                        Ok(WasmOpcode::End) => Ok(WasmNonNullValue::I32(r as i32)),
                         _ => Err(WasmDecodeError::UnexpectedToken),
                     }
                 }),
                 WasmOpcode::I64Const => stream.read_signed().and_then(|r| {
                     match stream.read_byte().map(|v| WasmOpcode::from_u8(v)) {
-                        Ok(WasmOpcode::End) => Ok(WasmValue::I64(r)),
+                        Ok(WasmOpcode::End) => Ok(WasmNonNullValue::I64(r)),
                         _ => Err(WasmDecodeError::UnexpectedToken),
                     }
                 }),
@@ -325,6 +323,7 @@ impl WasmLoader {
     }
 }
 
+/// WebAssembly module
 pub struct WasmModule {
     types: Vec<WasmType>,
     imports: Vec<WasmImport>,
@@ -440,6 +439,7 @@ impl WasmModule {
     }
 }
 
+/// Stream encoded with LEB128
 pub struct Leb128Stream<'a> {
     blob: &'a [u8],
     position: usize,
@@ -616,11 +616,13 @@ impl WasmMemArg {
     }
 }
 
+/// WebAssembly section stream
 struct WasmSection<'a> {
     section_type: WasmSectionType,
     stream: Leb128Stream<'a>,
 }
 
+/// WebAssembly section types
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialOrd, PartialEq)]
 enum WasmSectionType {
@@ -639,6 +641,7 @@ enum WasmSectionType {
 }
 
 impl From<u8> for WasmSectionType {
+    #[inline]
     fn from(v: u8) -> Self {
         match v {
             1 => WasmSectionType::Type,
@@ -657,6 +660,7 @@ impl From<u8> for WasmSectionType {
     }
 }
 
+/// WebAssembly primitive types
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum WasmValType {
@@ -693,6 +697,7 @@ impl fmt::Display for WasmValType {
     }
 }
 
+/// WebAssembly block types
 #[repr(isize)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WasmBlockType {
@@ -726,6 +731,7 @@ impl WasmBlockType {
     }
 }
 
+/// WebAssembly memory limit
 #[derive(Debug, Copy, Clone)]
 pub struct WasmLimit {
     min: u32,
@@ -751,6 +757,7 @@ impl WasmLimit {
     }
 }
 
+/// WebAssembly memory object
 #[allow(dead_code)]
 pub struct WasmMemory {
     limit: WasmLimit,
@@ -941,6 +948,7 @@ impl WasmMemory {
     }
 }
 
+/// WebAssembly table object
 pub struct WasmTable {
     limit: WasmLimit,
     table: Vec<usize>,
@@ -973,6 +981,7 @@ impl WasmTable {
     }
 }
 
+/// WebAssembly function object
 pub struct WasmFunction {
     index: usize,
     type_index: usize,
@@ -1055,6 +1064,7 @@ pub enum WasmFunctionOrigin {
     Import(usize),
 }
 
+/// WebAssembly type object
 #[derive(Debug, Clone)]
 pub struct WasmType {
     param_types: Box<[WasmValType]>,
@@ -1121,6 +1131,7 @@ impl fmt::Display for WasmType {
     }
 }
 
+/// WebAssembly import object
 #[derive(Debug, Clone)]
 pub struct WasmImport {
     mod_name: String,
@@ -1181,6 +1192,7 @@ impl WasmImportIndex {
     }
 }
 
+/// WebAssembly export object
 pub struct WasmExport {
     name: String,
     index: WasmExportIndex,
@@ -1295,30 +1307,6 @@ impl WasmFunctionBody {
     }
 }
 
-#[allow(dead_code)]
-pub struct WasmGlobal {
-    val_type: WasmValType,
-    is_mutable: bool,
-    value: RefCell<WasmValue>,
-}
-
-impl WasmGlobal {
-    #[inline]
-    pub const fn val_type(&self) -> WasmValType {
-        self.val_type
-    }
-
-    #[inline]
-    pub const fn is_mutable(&self) -> bool {
-        self.is_mutable
-    }
-
-    #[inline]
-    pub const fn value(&self) -> &RefCell<WasmValue> {
-        &self.value
-    }
-}
-
 #[derive(Debug, Copy, Clone)]
 pub enum WasmDecodeError {
     UnexpectedEof,
@@ -1358,6 +1346,7 @@ pub enum WasmRuntimeError {
     WriteProtected,
 }
 
+/// WebAssembly primitive values including Empty
 #[derive(Debug, Copy, Clone)]
 pub enum WasmValue {
     Empty,
@@ -1379,13 +1368,13 @@ impl WasmValue {
     }
 
     #[inline]
-    pub fn is_valid_type(&self, val_type: WasmValType) -> bool {
-        match *self {
-            WasmValue::Empty => false,
-            WasmValue::I32(_) => val_type == WasmValType::I32,
-            WasmValue::I64(_) => val_type == WasmValType::I64,
-            WasmValue::F32(_) => val_type == WasmValType::F32,
-            WasmValue::F64(_) => val_type == WasmValType::F64,
+    pub const fn is_valid_type(&self, val_type: WasmValType) -> bool {
+        match (*self, val_type) {
+            (Self::I32(_), WasmValType::I32) => true,
+            (Self::I64(_), WasmValType::I64) => true,
+            (Self::F32(_), WasmValType::F32) => true,
+            (Self::F64(_), WasmValType::F64) => true,
+            _ => false,
         }
     }
 
@@ -1513,6 +1502,156 @@ impl fmt::Display for WasmValue {
     }
 }
 
+/// WebAssembly primitive values without Empty
+#[derive(Debug, Copy, Clone)]
+pub enum WasmNonNullValue {
+    I32(i32),
+    I64(i64),
+    F32(f32),
+    F64(f64),
+}
+
+impl WasmNonNullValue {
+    #[inline]
+    pub const fn default_for(val_type: WasmValType) -> Self {
+        match val_type {
+            WasmValType::I32 => Self::I32(0),
+            WasmValType::I64 => Self::I64(0),
+            WasmValType::F32 => Self::F32(0.0),
+            WasmValType::F64 => Self::F64(0.0),
+        }
+    }
+
+    #[inline]
+    pub const fn new(val: WasmValue) -> Option<Self> {
+        match val {
+            WasmValue::Empty => None,
+            WasmValue::I32(v) => Some(Self::I32(v)),
+            WasmValue::I64(v) => Some(Self::I64(v)),
+            WasmValue::F32(v) => Some(Self::F32(v)),
+            WasmValue::F64(v) => Some(Self::F64(v)),
+        }
+    }
+
+    #[inline]
+    pub const fn into_value(&self) -> WasmValue {
+        match *self {
+            Self::I32(v) => WasmValue::I32(v),
+            Self::I64(v) => WasmValue::I64(v),
+            Self::F32(v) => WasmValue::F32(v),
+            Self::F64(v) => WasmValue::F64(v),
+        }
+    }
+
+    #[inline]
+    pub const fn val_type(&self) -> WasmValType {
+        match *self {
+            Self::I32(_) => WasmValType::I32,
+            Self::I64(_) => WasmValType::I64,
+            Self::F32(_) => WasmValType::F32,
+            Self::F64(_) => WasmValType::F64,
+        }
+    }
+
+    #[inline]
+    pub const fn is_valid_type(&self, val_type: WasmValType) -> bool {
+        match (*self, val_type) {
+            (Self::I32(_), WasmValType::I32) => true,
+            (Self::I64(_), WasmValType::I64) => true,
+            (Self::F32(_), WasmValType::F32) => true,
+            (Self::F64(_), WasmValType::F64) => true,
+            _ => false,
+        }
+    }
+
+    #[inline]
+    pub const fn get_i32(self) -> Result<i32, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => Ok(a),
+            _ => return Err(WasmRuntimeError::TypeMismatch),
+        }
+    }
+
+    #[inline]
+    pub const fn get_u32(self) -> Result<u32, WasmRuntimeError> {
+        match self {
+            Self::I32(a) => Ok(a as u32),
+            _ => return Err(WasmRuntimeError::TypeMismatch),
+        }
+    }
+
+    #[inline]
+    pub const fn get_i64(self) -> Result<i64, WasmRuntimeError> {
+        match self {
+            Self::I64(a) => Ok(a),
+            _ => return Err(WasmRuntimeError::TypeMismatch),
+        }
+    }
+
+    #[inline]
+    pub const fn get_u64(self) -> Result<u64, WasmRuntimeError> {
+        match self {
+            Self::I64(a) => Ok(a as u64),
+            _ => return Err(WasmRuntimeError::TypeMismatch),
+        }
+    }
+}
+
+impl From<WasmNonNullValue> for WasmValue {
+    #[inline]
+    fn from(v: WasmNonNullValue) -> Self {
+        v.into_value()
+    }
+}
+
+impl TryFrom<WasmValue> for WasmNonNullValue {
+    type Error = ();
+    #[inline]
+    fn try_from(value: WasmValue) -> Result<Self, Self::Error> {
+        Self::new(value).ok_or(())
+    }
+}
+
+/// WebAssembly global variables
+pub struct WasmGlobal {
+    value: UnsafeCell<WasmNonNullValue>,
+    is_mutable: bool,
+}
+
+impl WasmGlobal {
+    #[inline]
+    pub const fn new(val: WasmNonNullValue, is_mutable: bool) -> Self {
+        Self {
+            value: UnsafeCell::new(val),
+            is_mutable,
+        }
+    }
+
+    #[inline]
+    pub const fn val_type(&self) -> WasmValType {
+        self.value().val_type()
+    }
+
+    #[inline]
+    pub const fn is_mutable(&self) -> bool {
+        self.is_mutable
+    }
+
+    #[inline]
+    pub const fn value(&self) -> &WasmNonNullValue {
+        unsafe { &*self.value.get() }
+    }
+
+    #[inline]
+    pub fn set<F>(&self, f: F)
+    where
+        F: FnOnce(&mut WasmNonNullValue),
+    {
+        let var = unsafe { &mut *self.value.get() };
+        f(var);
+    }
+}
+
 pub struct WasmCodeBlock<'a> {
     code: Leb128Stream<'a>,
     info: &'a WasmBlockInfo,
@@ -1577,6 +1716,7 @@ impl<'a> WasmCodeBlock<'a> {
     }
 }
 
+/// WebAssembly code verifier
 #[derive(Debug)]
 pub struct WasmBlockInfo {
     func_index: usize,
@@ -1966,7 +2106,7 @@ impl WasmBlockInfo {
                         value_stack.len(),
                         global_ref as u64,
                     ));
-                    value_stack.push(global.val_type);
+                    value_stack.push(global.val_type());
                 }
                 WasmOpcode::GlobalSet => {
                     let global_ref = code_block.read_unsigned()? as usize;
@@ -1977,7 +2117,7 @@ impl WasmBlockInfo {
                         return Err(WasmDecodeError::InvalidGlobal);
                     }
                     let stack = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
-                    if stack != global.val_type {
+                    if stack != global.val_type() {
                         return Err(WasmDecodeError::TypeMismatch);
                     }
                     int_codes.push(WasmImc::new(

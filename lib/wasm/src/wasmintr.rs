@@ -79,7 +79,7 @@ impl From<WasmIntMnemonic> for WasmImc {
 pub struct WasmInterpreter<'a> {
     module: &'a WasmModule,
     func_index: usize,
-    last_postion: usize,
+    // last_postion: usize,
     last_code: WasmImc,
 }
 
@@ -89,7 +89,7 @@ impl<'a> WasmInterpreter<'a> {
         Self {
             module,
             func_index: 0,
-            last_postion: 0,
+            // last_postion: 0,
             last_code: WasmImc::from_mnemonic(WasmIntMnemonic::Unreachable),
         }
     }
@@ -240,30 +240,24 @@ impl WasmInterpreter<'_> {
                     let global = self
                         .module
                         .global(code.param1() as usize)
-                        .ok_or(WasmRuntimeError::InternalInconsistency)?
-                        .value()
-                        .try_borrow()
-                        .map_err(|_| WasmRuntimeError::InternalInconsistency)?;
+                        .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let ref_a = value_stack
                         .get_mut(code.stack_level())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
 
-                    *ref_a = WasmStackValue::from(*global);
+                    *ref_a = WasmValue::from(*global.value()).into();
                 }
                 WasmIntMnemonic::GlobalSet => {
                     let global = self
                         .module
                         .global(code.param1() as usize)
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    let mut var = global
-                        .value()
-                        .try_borrow_mut()
-                        .map_err(|_| WasmRuntimeError::InternalInconsistency)?;
+
                     let ref_a = value_stack
                         .get(code.stack_level())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
 
-                    *var = ref_a.into_value(global.val_type())
+                    global.set(|v| *v = ref_a.into_value(global.val_type()));
                 }
 
                 WasmIntMnemonic::I32Load => {
@@ -1923,5 +1917,32 @@ mod tests {
 
         let result = runnable.invoke(&[20.into()]).unwrap().get_i32().unwrap();
         assert_eq!(result, 6765);
+    }
+
+    #[test]
+    fn global() {
+        let slice = [
+            0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x06, 0x01, 0x60, 0x01, 0x7f,
+            0x01, 0x7f, 0x03, 0x02, 0x01, 0x00, 0x05, 0x03, 0x01, 0x00, 0x01, 0x06, 0x07, 0x01,
+            0x7f, 0x01, 0x41, 0xfb, 0x00, 0x0b, 0x0a, 0x0d, 0x01, 0x0b, 0x00, 0x23, 0x00, 0x20,
+            0x00, 0x6a, 0x24, 0x00, 0x23, 0x00, 0x0b,
+        ];
+
+        let module =
+            WasmLoader::instantiate(&slice, |_, _, _| Err(WasmDecodeError::DynamicLinkError))
+                .unwrap();
+        let runnable = module.func_by_index(0).unwrap();
+
+        assert_eq!(module.global(0).unwrap().value().get_i32().unwrap(), 123);
+
+        let result = runnable.invoke(&[456.into()]).unwrap().get_i32().unwrap();
+        assert_eq!(result, 579);
+
+        assert_eq!(module.global(0).unwrap().value().get_i32().unwrap(), 579);
+
+        let result = runnable.invoke(&[789.into()]).unwrap().get_i32().unwrap();
+        assert_eq!(result, 1368);
+
+        assert_eq!(module.global(0).unwrap().value().get_i32().unwrap(), 1368);
     }
 }
