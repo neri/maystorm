@@ -42,12 +42,11 @@ fn _start() {
             }
         }) as u64;
         let steps: u64 = BENCH_STEPS * BENCH_COUNT1;
-        if steps < time {
-            let bogomips = (steps * 1_000_000).checked_div(time).unwrap_or(0);
-            println!("result: {} bogomips", bogomips as usize);
+        let (bogomips, multi) = if steps < time {
+            ((steps * 1_000_000).checked_div(time).unwrap_or(0), 1)
         } else {
             let mut mips_temp: usize = 0;
-            let multi = (1 + time / steps) * 10;
+            let multi = steps / time;
             let count = BENCH_COUNT1 * multi;
             let time = os_bench(|| {
                 for _ in 0..count {
@@ -62,8 +61,11 @@ fn _start() {
                 }
             }) as u64;
             let steps: u64 = BENCH_STEPS * count;
-            let bogomips = (steps * 1_000_000).checked_div(time).unwrap_or(0);
-            println!("result: {} bogomips {}", bogomips as usize, multi as usize);
-        }
+            ((steps * 1_000_000).checked_div(time).unwrap_or(0), multi)
+        };
+        let bogokips = bogomips.checked_div(1000).unwrap_or(0) as u32;
+        let kips = bogokips.checked_rem(1000).unwrap_or(0);
+        let mips = bogokips.checked_div(1000).unwrap_or(0);
+        println!("result: {}.{:03} bogomips (x{})", mips, kips, multi);
     }
 }

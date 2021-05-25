@@ -182,10 +182,10 @@ impl WasmStackValue {
     }
 
     #[inline]
-    pub fn into_value(&self, val_type: WasmValType) -> WasmNonNullValue {
+    pub fn into_value(&self, val_type: WasmValType) -> WasmValue {
         match val_type {
-            WasmValType::I32 => WasmNonNullValue::I32(self.get_i32()),
-            WasmValType::I64 => WasmNonNullValue::I64(self.get_i64()),
+            WasmValType::I32 => WasmValue::I32(self.get_i32()),
+            WasmValType::I64 => WasmValue::I64(self.get_i64()),
             // WasmValType::F32 => {}
             // WasmValType::F64 => {}
             _ => todo!(),
@@ -239,7 +239,6 @@ impl From<WasmValue> for WasmStackValue {
     #[inline]
     fn from(v: WasmValue) -> Self {
         match v {
-            WasmValue::Empty => Self::from_i64(0),
             WasmValue::I32(v) => Self::from_i64(v as i64),
             WasmValue::I64(v) => Self::from_i64(v),
             _ => todo!(),

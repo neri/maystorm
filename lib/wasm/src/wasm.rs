@@ -302,19 +302,19 @@ impl WasmLoader {
             .map(|v| v as usize)
     }
 
-    fn eval_expr(&self, stream: &mut Leb128Stream) -> Result<WasmNonNullValue, WasmDecodeError> {
+    fn eval_expr(&self, stream: &mut Leb128Stream) -> Result<WasmValue, WasmDecodeError> {
         stream
             .read_byte()
             .and_then(|opc| match WasmOpcode::from_u8(opc) {
                 WasmOpcode::I32Const => stream.read_signed().and_then(|r| {
                     match stream.read_byte().map(|v| WasmOpcode::from_u8(v)) {
-                        Ok(WasmOpcode::End) => Ok(WasmNonNullValue::I32(r as i32)),
+                        Ok(WasmOpcode::End) => Ok(WasmValue::I32(r as i32)),
                         _ => Err(WasmDecodeError::UnexpectedToken),
                     }
                 }),
                 WasmOpcode::I64Const => stream.read_signed().and_then(|r| {
                     match stream.read_byte().map(|v| WasmOpcode::from_u8(v)) {
-                        Ok(WasmOpcode::End) => Ok(WasmNonNullValue::I64(r)),
+                        Ok(WasmOpcode::End) => Ok(WasmValue::I64(r)),
                         _ => Err(WasmDecodeError::UnexpectedToken),
                     }
                 }),
@@ -1346,10 +1346,9 @@ pub enum WasmRuntimeError {
     WriteProtected,
 }
 
-/// WebAssembly primitive values including Empty
+/// WebAssembly primitive values
 #[derive(Debug, Copy, Clone)]
 pub enum WasmValue {
-    Empty,
     I32(i32),
     I64(i64),
     F32(f32),
@@ -1368,20 +1367,22 @@ impl WasmValue {
     }
 
     #[inline]
+    pub const fn val_type(&self) -> WasmValType {
+        match self {
+            WasmValue::I32(_) => WasmValType::I32,
+            WasmValue::I64(_) => WasmValType::I64,
+            WasmValue::F32(_) => WasmValType::F32,
+            WasmValue::F64(_) => WasmValType::F64,
+        }
+    }
+
+    #[inline]
     pub const fn is_valid_type(&self, val_type: WasmValType) -> bool {
         match (*self, val_type) {
             (Self::I32(_), WasmValType::I32) => true,
             (Self::I64(_), WasmValType::I64) => true,
             (Self::F32(_), WasmValType::F32) => true,
             (Self::F64(_), WasmValType::F64) => true,
-            _ => false,
-        }
-    }
-
-    #[inline]
-    pub const fn is_empty(&self) -> bool {
-        match *self {
-            Self::Empty => true,
             _ => false,
         }
     }
@@ -1493,7 +1494,6 @@ impl From<bool> for WasmValue {
 impl fmt::Display for WasmValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::Empty => write!(f, "()"),
             Self::I32(v) => write!(f, "{}", v),
             Self::I64(v) => write!(f, "{}", v),
             Self::F32(_) => write!(f, "(#!F32)"),
@@ -1502,125 +1502,15 @@ impl fmt::Display for WasmValue {
     }
 }
 
-/// WebAssembly primitive values without Empty
-#[derive(Debug, Copy, Clone)]
-pub enum WasmNonNullValue {
-    I32(i32),
-    I64(i64),
-    F32(f32),
-    F64(f64),
-}
-
-impl WasmNonNullValue {
-    #[inline]
-    pub const fn default_for(val_type: WasmValType) -> Self {
-        match val_type {
-            WasmValType::I32 => Self::I32(0),
-            WasmValType::I64 => Self::I64(0),
-            WasmValType::F32 => Self::F32(0.0),
-            WasmValType::F64 => Self::F64(0.0),
-        }
-    }
-
-    #[inline]
-    pub const fn new(val: WasmValue) -> Option<Self> {
-        match val {
-            WasmValue::Empty => None,
-            WasmValue::I32(v) => Some(Self::I32(v)),
-            WasmValue::I64(v) => Some(Self::I64(v)),
-            WasmValue::F32(v) => Some(Self::F32(v)),
-            WasmValue::F64(v) => Some(Self::F64(v)),
-        }
-    }
-
-    #[inline]
-    pub const fn into_value(&self) -> WasmValue {
-        match *self {
-            Self::I32(v) => WasmValue::I32(v),
-            Self::I64(v) => WasmValue::I64(v),
-            Self::F32(v) => WasmValue::F32(v),
-            Self::F64(v) => WasmValue::F64(v),
-        }
-    }
-
-    #[inline]
-    pub const fn val_type(&self) -> WasmValType {
-        match *self {
-            Self::I32(_) => WasmValType::I32,
-            Self::I64(_) => WasmValType::I64,
-            Self::F32(_) => WasmValType::F32,
-            Self::F64(_) => WasmValType::F64,
-        }
-    }
-
-    #[inline]
-    pub const fn is_valid_type(&self, val_type: WasmValType) -> bool {
-        match (*self, val_type) {
-            (Self::I32(_), WasmValType::I32) => true,
-            (Self::I64(_), WasmValType::I64) => true,
-            (Self::F32(_), WasmValType::F32) => true,
-            (Self::F64(_), WasmValType::F64) => true,
-            _ => false,
-        }
-    }
-
-    #[inline]
-    pub const fn get_i32(self) -> Result<i32, WasmRuntimeError> {
-        match self {
-            Self::I32(a) => Ok(a),
-            _ => return Err(WasmRuntimeError::TypeMismatch),
-        }
-    }
-
-    #[inline]
-    pub const fn get_u32(self) -> Result<u32, WasmRuntimeError> {
-        match self {
-            Self::I32(a) => Ok(a as u32),
-            _ => return Err(WasmRuntimeError::TypeMismatch),
-        }
-    }
-
-    #[inline]
-    pub const fn get_i64(self) -> Result<i64, WasmRuntimeError> {
-        match self {
-            Self::I64(a) => Ok(a),
-            _ => return Err(WasmRuntimeError::TypeMismatch),
-        }
-    }
-
-    #[inline]
-    pub const fn get_u64(self) -> Result<u64, WasmRuntimeError> {
-        match self {
-            Self::I64(a) => Ok(a as u64),
-            _ => return Err(WasmRuntimeError::TypeMismatch),
-        }
-    }
-}
-
-impl From<WasmNonNullValue> for WasmValue {
-    #[inline]
-    fn from(v: WasmNonNullValue) -> Self {
-        v.into_value()
-    }
-}
-
-impl TryFrom<WasmValue> for WasmNonNullValue {
-    type Error = ();
-    #[inline]
-    fn try_from(value: WasmValue) -> Result<Self, Self::Error> {
-        Self::new(value).ok_or(())
-    }
-}
-
 /// WebAssembly global variables
 pub struct WasmGlobal {
-    value: UnsafeCell<WasmNonNullValue>,
+    value: UnsafeCell<WasmValue>,
     is_mutable: bool,
 }
 
 impl WasmGlobal {
     #[inline]
-    pub const fn new(val: WasmNonNullValue, is_mutable: bool) -> Self {
+    pub const fn new(val: WasmValue, is_mutable: bool) -> Self {
         Self {
             value: UnsafeCell::new(val),
             is_mutable,
@@ -1638,14 +1528,14 @@ impl WasmGlobal {
     }
 
     #[inline]
-    pub const fn value(&self) -> &WasmNonNullValue {
+    pub const fn value(&self) -> &WasmValue {
         unsafe { &*self.value.get() }
     }
 
     #[inline]
     pub fn set<F>(&self, f: F)
     where
-        F: FnOnce(&mut WasmNonNullValue),
+        F: FnOnce(&mut WasmValue),
     {
         let var = unsafe { &mut *self.value.get() };
         f(var);
@@ -1716,14 +1606,12 @@ impl<'a> WasmCodeBlock<'a> {
     }
 }
 
-/// WebAssembly code verifier
+/// WebAssembly code analyzer
 #[derive(Debug)]
 pub struct WasmBlockInfo {
     func_index: usize,
     max_stack: usize,
-    max_block_level: usize,
     flags: WasmBlockFlag,
-    // blocks: BTreeMap<usize, WasmBlockContext>,
     int_codes: Box<[WasmImc]>,
     ext_params: Box<[usize]>,
 }
@@ -1740,21 +1628,19 @@ impl WasmBlockInfo {
         self.func_index
     }
 
+    /// Returns the maximum size of the value stack.
     #[inline]
-    pub const fn max_stack(&self) -> usize {
+    pub const fn max_value_stack(&self) -> usize {
         self.max_stack
     }
 
-    #[inline]
-    pub const fn max_block_level(&self) -> usize {
-        self.max_block_level
-    }
-
+    /// Returns whether or not this function block does not call any other functions.
     #[inline]
     pub fn is_leaf(&self) -> bool {
         self.flags.contains(WasmBlockFlag::LEAF_FUNCTION)
     }
 
+    /// Returns the parsed intermediate code block.
     #[inline]
     pub fn intermediate_codes<'a>(&'a self) -> &'a [WasmImc] {
         self.int_codes.as_ref()
@@ -1765,7 +1651,7 @@ impl WasmBlockInfo {
         self.ext_params.as_ref()
     }
 
-    /// Analyze block info
+    /// Analyzes and verifies the code of function blocks.
     pub fn analyze(
         func_index: usize,
         code_block: &mut Leb128Stream,
@@ -3716,7 +3602,6 @@ impl WasmBlockInfo {
         Ok(Self {
             func_index,
             max_stack,
-            max_block_level,
             flags,
             int_codes: int_codes.into_boxed_slice(),
             ext_params: ext_params.into_boxed_slice(),
@@ -3724,6 +3609,7 @@ impl WasmBlockInfo {
     }
 }
 
+/// Type of block instruction (e.g., block, loop, if).
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum BlockInstType {
     Block,
@@ -3732,7 +3618,7 @@ pub enum BlockInstType {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct WasmBlockContext {
+struct WasmBlockContext {
     pub inst_type: BlockInstType,
     pub block_type: WasmBlockType,
     pub stack_level: usize,
