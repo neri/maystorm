@@ -4,6 +4,11 @@
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WasmIntMnemonic {
+    /// Undefined
+    Undefined,
+    /// Unreachable
+    Unreachable,
+
     /// No operation, Do nothing
     Nop,
     /// branch
@@ -21,10 +26,6 @@ pub enum WasmIntMnemonic {
     Block,
     End,
 
-    /// Undefined
-    Undefined,
-    /// Unreachable
-    Unreachable,
     /// return from function
     Return,
     /// call function

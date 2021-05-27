@@ -1,371 +1,370 @@
 // Wasm Bytecode Table (AUTO GENERATED)
-use core::convert::TryFrom;
 
 #[non_exhaustive]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WasmOpcode {
-    /// 00 (mvp) unreachable
+    /// `00 unreachable` (mvp)
     Unreachable = 0x00,
-    /// 01 (mvp) nop
+    /// `01 nop` (mvp)
     Nop = 0x01,
-    /// 02 (mvp) block block_type; expr; end
+    /// `02 block block_type; expr; end` (mvp)
     Block = 0x02,
-    /// 03 (mvp) loop block_type; expr; end
+    /// `03 loop block_type; expr; end` (mvp)
     Loop = 0x03,
-    /// 04 (mvp) if block_type; expr; else; expr; end
+    /// `04 if block_type; expr; else; expr; end` (mvp)
     If = 0x04,
-    /// 05 (mvp) else expr; end
+    /// `05 else expr; end` (mvp)
     Else = 0x05,
-    /// 0B (mvp) end
+    /// `0B end` (mvp)
     End = 0x0B,
-    /// 0C (mvp) br labelidx
+    /// `0C br labelidx` (mvp)
     Br = 0x0C,
-    /// 0D (mvp) br_if labelidx
+    /// `0D br_if labelidx` (mvp)
     BrIf = 0x0D,
-    /// 0E (mvp) br_table vec(labelidx) labelidx
+    /// `0E br_table vec(labelidx) labelidx` (mvp)
     BrTable = 0x0E,
-    /// 0F (mvp) return
+    /// `0F return` (mvp)
     Return = 0x0F,
-    /// 10 (mvp) call funcidx
+    /// `10 call funcidx` (mvp)
     Call = 0x10,
-    /// 11 (mvp) call_indirect typeidx 0x00
+    /// `11 call_indirect typeidx 0x00` (mvp)
     CallIndirect = 0x11,
-    /// 12 (tail_call) return_call funcidx
+    /// `12 return_call funcidx` (tail_call)
     ReturnCall = 0x12,
-    /// 13 (tail_call) return_call_indirect typeidx 0x00
+    /// `13 return_call_indirect typeidx 0x00` (tail_call)
     ReturnCallIndirect = 0x13,
-    /// 1A (mvp) drop
+    /// `1A drop` (mvp)
     Drop = 0x1A,
-    /// 1B (mvp) select
+    /// `1B select` (mvp)
     Select = 0x1B,
-    /// 20 (mvp) local.get localidx
+    /// `20 local.get localidx` (mvp)
     LocalGet = 0x20,
-    /// 21 (mvp) local.set localidx
+    /// `21 local.set localidx` (mvp)
     LocalSet = 0x21,
-    /// 22 (mvp) local.tee localidx
+    /// `22 local.tee localidx` (mvp)
     LocalTee = 0x22,
-    /// 23 (mvp) global.get globalidx
+    /// `23 global.get globalidx` (mvp)
     GlobalGet = 0x23,
-    /// 24 (mvp) global.set globalidx
+    /// `24 global.set globalidx` (mvp)
     GlobalSet = 0x24,
-    /// 28 (mvp) i32.load align offset
+    /// `28 i32.load align offset` (mvp)
     I32Load = 0x28,
-    /// 29 (mvp_i64) i64.load align offset
+    /// `29 i64.load align offset` (mvp_i64)
     I64Load = 0x29,
-    /// 2A (mvp_f32) f32.load align offset
+    /// `2A f32.load align offset` (mvp_f32)
     F32Load = 0x2A,
-    /// 2B (mvp_f64) f64.load align offset
+    /// `2B f64.load align offset` (mvp_f64)
     F64Load = 0x2B,
-    /// 2C (mvp) i32.load8_s align offset
+    /// `2C i32.load8_s align offset` (mvp)
     I32Load8S = 0x2C,
-    /// 2D (mvp) i32.load8_u align offset
+    /// `2D i32.load8_u align offset` (mvp)
     I32Load8U = 0x2D,
-    /// 2E (mvp) i32.load16_s align offset
+    /// `2E i32.load16_s align offset` (mvp)
     I32Load16S = 0x2E,
-    /// 2F (mvp) i32.load16_u align offset
+    /// `2F i32.load16_u align offset` (mvp)
     I32Load16U = 0x2F,
-    /// 30 (mvp_i64) i64.load8_s align offset
+    /// `30 i64.load8_s align offset` (mvp_i64)
     I64Load8S = 0x30,
-    /// 31 (mvp_i64) i64.load8_u align offset
+    /// `31 i64.load8_u align offset` (mvp_i64)
     I64Load8U = 0x31,
-    /// 32 (mvp_i64) i64.load16_s align offset
+    /// `32 i64.load16_s align offset` (mvp_i64)
     I64Load16S = 0x32,
-    /// 33 (mvp_i64) i64.load16_u align offset
+    /// `33 i64.load16_u align offset` (mvp_i64)
     I64Load16U = 0x33,
-    /// 34 (mvp_i64) i64.load32_s align offset
+    /// `34 i64.load32_s align offset` (mvp_i64)
     I64Load32S = 0x34,
-    /// 35 (mvp_i64) i64.load32_u align offset
+    /// `35 i64.load32_u align offset` (mvp_i64)
     I64Load32U = 0x35,
-    /// 36 (mvp) i32.store align offset
+    /// `36 i32.store align offset` (mvp)
     I32Store = 0x36,
-    /// 37 (mvp_i64) i64.store align offset
+    /// `37 i64.store align offset` (mvp_i64)
     I64Store = 0x37,
-    /// 38 (mvp_f32) f32.store align offset
+    /// `38 f32.store align offset` (mvp_f32)
     F32Store = 0x38,
-    /// 39 (mvp_f64) f64.store align offset
+    /// `39 f64.store align offset` (mvp_f64)
     F64Store = 0x39,
-    /// 3A (mvp) i32.store8 align offset
+    /// `3A i32.store8 align offset` (mvp)
     I32Store8 = 0x3A,
-    /// 3B (mvp) i32.store16 align offset
+    /// `3B i32.store16 align offset` (mvp)
     I32Store16 = 0x3B,
-    /// 3C (mvp_i64) i64.store8 align offset
+    /// `3C i64.store8 align offset` (mvp_i64)
     I64Store8 = 0x3C,
-    /// 3D (mvp_i64) i64.store16 align offset
+    /// `3D i64.store16 align offset` (mvp_i64)
     I64Store16 = 0x3D,
-    /// 3E (mvp_i64) i64.store32 align offset
+    /// `3E i64.store32 align offset` (mvp_i64)
     I64Store32 = 0x3E,
-    /// 3F (mvp) memory.size 0x00
+    /// `3F memory.size 0x00` (mvp)
     MemorySize = 0x3F,
-    /// 40 (mvp) memory.grow 0x00
+    /// `40 memory.grow 0x00` (mvp)
     MemoryGrow = 0x40,
-    /// 41 (mvp) i32.const n
+    /// `41 i32.const n` (mvp)
     I32Const = 0x41,
-    /// 42 (mvp_i64) i64.const n
+    /// `42 i64.const n` (mvp_i64)
     I64Const = 0x42,
-    /// 43 (mvp_f32) f32.const z
+    /// `43 f32.const z` (mvp_f32)
     F32Const = 0x43,
-    /// 44 (mvp_f64) f64.const z
+    /// `44 f64.const z` (mvp_f64)
     F64Const = 0x44,
-    /// 45 (mvp) i32.eqz
+    /// `45 i32.eqz` (mvp)
     I32Eqz = 0x45,
-    /// 46 (mvp) i32.eq
+    /// `46 i32.eq` (mvp)
     I32Eq = 0x46,
-    /// 47 (mvp) i32.ne
+    /// `47 i32.ne` (mvp)
     I32Ne = 0x47,
-    /// 48 (mvp) i32.lt_s
+    /// `48 i32.lt_s` (mvp)
     I32LtS = 0x48,
-    /// 49 (mvp) i32.lt_u
+    /// `49 i32.lt_u` (mvp)
     I32LtU = 0x49,
-    /// 4A (mvp) i32.gt_s
+    /// `4A i32.gt_s` (mvp)
     I32GtS = 0x4A,
-    /// 4B (mvp) i32.gt_u
+    /// `4B i32.gt_u` (mvp)
     I32GtU = 0x4B,
-    /// 4C (mvp) i32.le_s
+    /// `4C i32.le_s` (mvp)
     I32LeS = 0x4C,
-    /// 4D (mvp) i32.le_u
+    /// `4D i32.le_u` (mvp)
     I32LeU = 0x4D,
-    /// 4E (mvp) i32.ge_s
+    /// `4E i32.ge_s` (mvp)
     I32GeS = 0x4E,
-    /// 4F (mvp) i32.ge_u
+    /// `4F i32.ge_u` (mvp)
     I32GeU = 0x4F,
-    /// 50 (mvp_i64) i64.eqz
+    /// `50 i64.eqz` (mvp_i64)
     I64Eqz = 0x50,
-    /// 51 (mvp_i64) i64.eq
+    /// `51 i64.eq` (mvp_i64)
     I64Eq = 0x51,
-    /// 52 (mvp_i64) i64.ne
+    /// `52 i64.ne` (mvp_i64)
     I64Ne = 0x52,
-    /// 53 (mvp_i64) i64.lt_s
+    /// `53 i64.lt_s` (mvp_i64)
     I64LtS = 0x53,
-    /// 54 (mvp_i64) i64.lt_u
+    /// `54 i64.lt_u` (mvp_i64)
     I64LtU = 0x54,
-    /// 55 (mvp_i64) i64.gt_s
+    /// `55 i64.gt_s` (mvp_i64)
     I64GtS = 0x55,
-    /// 56 (mvp_i64) i64.gt_u
+    /// `56 i64.gt_u` (mvp_i64)
     I64GtU = 0x56,
-    /// 57 (mvp_i64) i64.le_s
+    /// `57 i64.le_s` (mvp_i64)
     I64LeS = 0x57,
-    /// 58 (mvp_i64) i64.le_u
+    /// `58 i64.le_u` (mvp_i64)
     I64LeU = 0x58,
-    /// 59 (mvp_i64) i64.ge_s
+    /// `59 i64.ge_s` (mvp_i64)
     I64GeS = 0x59,
-    /// 5A (mvp_i64) i64.ge_u
+    /// `5A i64.ge_u` (mvp_i64)
     I64GeU = 0x5A,
-    /// 5B (mvp_f32) f32.eq
+    /// `5B f32.eq` (mvp_f32)
     F32Eq = 0x5B,
-    /// 5C (mvp_f32) f32.ne
+    /// `5C f32.ne` (mvp_f32)
     F32Ne = 0x5C,
-    /// 5D (mvp_f32) f32.lt
+    /// `5D f32.lt` (mvp_f32)
     F32Lt = 0x5D,
-    /// 5E (mvp_f32) f32.gt
+    /// `5E f32.gt` (mvp_f32)
     F32Gt = 0x5E,
-    /// 5F (mvp_f32) f32.le
+    /// `5F f32.le` (mvp_f32)
     F32Le = 0x5F,
-    /// 60 (mvp_f32) f32.ge
+    /// `60 f32.ge` (mvp_f32)
     F32Ge = 0x60,
-    /// 61 (mvp_f64) f64.eq
+    /// `61 f64.eq` (mvp_f64)
     F64Eq = 0x61,
-    /// 62 (mvp_f64) f64.ne
+    /// `62 f64.ne` (mvp_f64)
     F64Ne = 0x62,
-    /// 63 (mvp_f64) f64.lt
+    /// `63 f64.lt` (mvp_f64)
     F64Lt = 0x63,
-    /// 64 (mvp_f64) f64.gt
+    /// `64 f64.gt` (mvp_f64)
     F64Gt = 0x64,
-    /// 65 (mvp_f64) f64.le
+    /// `65 f64.le` (mvp_f64)
     F64Le = 0x65,
-    /// 66 (mvp_f64) f64.ge
+    /// `66 f64.ge` (mvp_f64)
     F64Ge = 0x66,
-    /// 67 (mvp) i32.clz
+    /// `67 i32.clz` (mvp)
     I32Clz = 0x67,
-    /// 68 (mvp) i32.ctz
+    /// `68 i32.ctz` (mvp)
     I32Ctz = 0x68,
-    /// 69 (mvp) i32.popcnt
+    /// `69 i32.popcnt` (mvp)
     I32Popcnt = 0x69,
-    /// 6A (mvp) i32.add
+    /// `6A i32.add` (mvp)
     I32Add = 0x6A,
-    /// 6B (mvp) i32.sub
+    /// `6B i32.sub` (mvp)
     I32Sub = 0x6B,
-    /// 6C (mvp) i32.mul
+    /// `6C i32.mul` (mvp)
     I32Mul = 0x6C,
-    /// 6D (mvp) i32.div_s
+    /// `6D i32.div_s` (mvp)
     I32DivS = 0x6D,
-    /// 6E (mvp) i32.div_u
+    /// `6E i32.div_u` (mvp)
     I32DivU = 0x6E,
-    /// 6F (mvp) i32.rem_s
+    /// `6F i32.rem_s` (mvp)
     I32RemS = 0x6F,
-    /// 70 (mvp) i32.rem_u
+    /// `70 i32.rem_u` (mvp)
     I32RemU = 0x70,
-    /// 71 (mvp) i32.and
+    /// `71 i32.and` (mvp)
     I32And = 0x71,
-    /// 72 (mvp) i32.or
+    /// `72 i32.or` (mvp)
     I32Or = 0x72,
-    /// 73 (mvp) i32.xor
+    /// `73 i32.xor` (mvp)
     I32Xor = 0x73,
-    /// 74 (mvp) i32.shl
+    /// `74 i32.shl` (mvp)
     I32Shl = 0x74,
-    /// 75 (mvp) i32.shr_s
+    /// `75 i32.shr_s` (mvp)
     I32ShrS = 0x75,
-    /// 76 (mvp) i32.shr_u
+    /// `76 i32.shr_u` (mvp)
     I32ShrU = 0x76,
-    /// 77 (mvp) i32.rotl
+    /// `77 i32.rotl` (mvp)
     I32Rotl = 0x77,
-    /// 78 (mvp) i32.rotr
+    /// `78 i32.rotr` (mvp)
     I32Rotr = 0x78,
-    /// 79 (mvp_i64) i64.clz
+    /// `79 i64.clz` (mvp_i64)
     I64Clz = 0x79,
-    /// 7A (mvp_i64) i64.ctz
+    /// `7A i64.ctz` (mvp_i64)
     I64Ctz = 0x7A,
-    /// 7B (mvp_i64) i64.popcnt
+    /// `7B i64.popcnt` (mvp_i64)
     I64Popcnt = 0x7B,
-    /// 7C (mvp_i64) i64.add
+    /// `7C i64.add` (mvp_i64)
     I64Add = 0x7C,
-    /// 7D (mvp_i64) i64.sub
+    /// `7D i64.sub` (mvp_i64)
     I64Sub = 0x7D,
-    /// 7E (mvp_i64) i64.mul
+    /// `7E i64.mul` (mvp_i64)
     I64Mul = 0x7E,
-    /// 7F (mvp_i64) i64.div_s
+    /// `7F i64.div_s` (mvp_i64)
     I64DivS = 0x7F,
-    /// 80 (mvp_i64) i64.div_u
+    /// `80 i64.div_u` (mvp_i64)
     I64DivU = 0x80,
-    /// 81 (mvp_i64) i64.rem_s
+    /// `81 i64.rem_s` (mvp_i64)
     I64RemS = 0x81,
-    /// 82 (mvp_i64) i64.rem_u
+    /// `82 i64.rem_u` (mvp_i64)
     I64RemU = 0x82,
-    /// 83 (mvp_i64) i64.and
+    /// `83 i64.and` (mvp_i64)
     I64And = 0x83,
-    /// 84 (mvp_i64) i64.or
+    /// `84 i64.or` (mvp_i64)
     I64Or = 0x84,
-    /// 85 (mvp_i64) i64.xor
+    /// `85 i64.xor` (mvp_i64)
     I64Xor = 0x85,
-    /// 86 (mvp_i64) i64.shl
+    /// `86 i64.shl` (mvp_i64)
     I64Shl = 0x86,
-    /// 87 (mvp_i64) i64.shr_s
+    /// `87 i64.shr_s` (mvp_i64)
     I64ShrS = 0x87,
-    /// 88 (mvp_i64) i64.shr_u
+    /// `88 i64.shr_u` (mvp_i64)
     I64ShrU = 0x88,
-    /// 89 (mvp_i64) i64.rotl
+    /// `89 i64.rotl` (mvp_i64)
     I64Rotl = 0x89,
-    /// 8A (mvp_i64) i64.rotr
+    /// `8A i64.rotr` (mvp_i64)
     I64Rotr = 0x8A,
-    /// 8B (mvp_f32) f32.abs
+    /// `8B f32.abs` (mvp_f32)
     F32Abs = 0x8B,
-    /// 8C (mvp_f32) f32.neg
+    /// `8C f32.neg` (mvp_f32)
     F32Neg = 0x8C,
-    /// 8D (mvp_f32) f32.ceil
+    /// `8D f32.ceil` (mvp_f32)
     F32Ceil = 0x8D,
-    /// 8E (mvp_f32) f32.floor
+    /// `8E f32.floor` (mvp_f32)
     F32Floor = 0x8E,
-    /// 8F (mvp_f32) f32.trunc
+    /// `8F f32.trunc` (mvp_f32)
     F32Trunc = 0x8F,
-    /// 90 (mvp_f32) f32.nearest
+    /// `90 f32.nearest` (mvp_f32)
     F32Nearest = 0x90,
-    /// 91 (mvp_f32) f32.sqrt
+    /// `91 f32.sqrt` (mvp_f32)
     F32Sqrt = 0x91,
-    /// 92 (mvp_f32) f32.add
+    /// `92 f32.add` (mvp_f32)
     F32Add = 0x92,
-    /// 93 (mvp_f32) f32.sub
+    /// `93 f32.sub` (mvp_f32)
     F32Sub = 0x93,
-    /// 94 (mvp_f32) f32.mul
+    /// `94 f32.mul` (mvp_f32)
     F32Mul = 0x94,
-    /// 95 (mvp_f32) f32.div
+    /// `95 f32.div` (mvp_f32)
     F32Div = 0x95,
-    /// 96 (mvp_f32) f32.min
+    /// `96 f32.min` (mvp_f32)
     F32Min = 0x96,
-    /// 97 (mvp_f32) f32.max
+    /// `97 f32.max` (mvp_f32)
     F32Max = 0x97,
-    /// 98 (mvp_f32) f32.copysign
+    /// `98 f32.copysign` (mvp_f32)
     F32Copysign = 0x98,
-    /// 99 (mvp_f64) f64.abs
+    /// `99 f64.abs` (mvp_f64)
     F64Abs = 0x99,
-    /// 9A (mvp_f64) f64.neg
+    /// `9A f64.neg` (mvp_f64)
     F64Neg = 0x9A,
-    /// 9B (mvp_f64) f64.ceil
+    /// `9B f64.ceil` (mvp_f64)
     F64Ceil = 0x9B,
-    /// 9C (mvp_f64) f64.floor
+    /// `9C f64.floor` (mvp_f64)
     F64Floor = 0x9C,
-    /// 9D (mvp_f64) f64.trunc
+    /// `9D f64.trunc` (mvp_f64)
     F64Trunc = 0x9D,
-    /// 9E (mvp_f64) f64.nearest
+    /// `9E f64.nearest` (mvp_f64)
     F64Nearest = 0x9E,
-    /// 9F (mvp_f64) f64.sqrt
+    /// `9F f64.sqrt` (mvp_f64)
     F64Sqrt = 0x9F,
-    /// A0 (mvp_f64) f64.add
+    /// `A0 f64.add` (mvp_f64)
     F64Add = 0xA0,
-    /// A1 (mvp_f64) f64.sub
+    /// `A1 f64.sub` (mvp_f64)
     F64Sub = 0xA1,
-    /// A2 (mvp_f64) f64.mul
+    /// `A2 f64.mul` (mvp_f64)
     F64Mul = 0xA2,
-    /// A3 (mvp_f64) f64.div
+    /// `A3 f64.div` (mvp_f64)
     F64Div = 0xA3,
-    /// A4 (mvp_f64) f64.min
+    /// `A4 f64.min` (mvp_f64)
     F64Min = 0xA4,
-    /// A5 (mvp_f64) f64.max
+    /// `A5 f64.max` (mvp_f64)
     F64Max = 0xA5,
-    /// A6 (mvp_f64) f64.copysign
+    /// `A6 f64.copysign` (mvp_f64)
     F64Copysign = 0xA6,
-    /// A7 (mvp_i64) i32.wrap_i64
+    /// `A7 i32.wrap_i64` (mvp_i64)
     I32WrapI64 = 0xA7,
-    /// A8 (mvp_f32) i32.trunc_f32_s
+    /// `A8 i32.trunc_f32_s` (mvp_f32)
     I32TruncF32S = 0xA8,
-    /// A9 (mvp_f32) i32.trunc_f32_u
+    /// `A9 i32.trunc_f32_u` (mvp_f32)
     I32TruncF32U = 0xA9,
-    /// AA (mvp_f32) i32.trunc_f64_s
+    /// `AA i32.trunc_f64_s` (mvp_f32)
     I32TruncF64S = 0xAA,
-    /// AB (mvp_f32) i32.trunc_f64_u
+    /// `AB i32.trunc_f64_u` (mvp_f32)
     I32TruncF64U = 0xAB,
-    /// AC (mvp_i64) i64.extend_i32_s
+    /// `AC i64.extend_i32_s` (mvp_i64)
     I64ExtendI32S = 0xAC,
-    /// AD (mvp_i64) i64.extend_i32_u
+    /// `AD i64.extend_i32_u` (mvp_i64)
     I64ExtendI32U = 0xAD,
-    /// AE (mvp_f32) i64.trunc_f32_s
+    /// `AE i64.trunc_f32_s` (mvp_f32)
     I64TruncF32S = 0xAE,
-    /// AF (mvp_f32) i64.trunc_f32_u
+    /// `AF i64.trunc_f32_u` (mvp_f32)
     I64TruncF32U = 0xAF,
-    /// B0 (mvp_f64) i64.trunc_f64_s
+    /// `B0 i64.trunc_f64_s` (mvp_f64)
     I64TruncF64S = 0xB0,
-    /// B1 (mvp_f64) i64.trunc_f64_u
+    /// `B1 i64.trunc_f64_u` (mvp_f64)
     I64TruncF64U = 0xB1,
-    /// B2 (mvp_f32) f32.convert_i32_s
+    /// `B2 f32.convert_i32_s` (mvp_f32)
     F32ConvertI32S = 0xB2,
-    /// B3 (mvp_f32) f32.convert_i32_u
+    /// `B3 f32.convert_i32_u` (mvp_f32)
     F32ConvertI32U = 0xB3,
-    /// B4 (mvp_f32) f32.convert_i64_s
+    /// `B4 f32.convert_i64_s` (mvp_f32)
     F32ConvertI64S = 0xB4,
-    /// B5 (mvp_f32) f32.convert_i64_u
+    /// `B5 f32.convert_i64_u` (mvp_f32)
     F32ConvertI64U = 0xB5,
-    /// B6 (mvp_f64) f32.demote_f64
+    /// `B6 f32.demote_f64` (mvp_f64)
     F32DemoteF64 = 0xB6,
-    /// B7 (mvp_f64) f64.convert_i32_s
+    /// `B7 f64.convert_i32_s` (mvp_f64)
     F64ConvertI32S = 0xB7,
-    /// B8 (mvp_f64) f64.convert_i32_u
+    /// `B8 f64.convert_i32_u` (mvp_f64)
     F64ConvertI32U = 0xB8,
-    /// B9 (mvp_f64) f64.convert_i64_s
+    /// `B9 f64.convert_i64_s` (mvp_f64)
     F64ConvertI64S = 0xB9,
-    /// BA (mvp_f64) f64.convert_i64_u
+    /// `BA f64.convert_i64_u` (mvp_f64)
     F64ConvertI64U = 0xBA,
-    /// BB (mvp_f64) f64.promote_f32
+    /// `BB f64.promote_f32` (mvp_f64)
     F64PromoteF32 = 0xBB,
-    /// BC (mvp_f32) i32.reinterpret_f32
+    /// `BC i32.reinterpret_f32` (mvp_f32)
     I32ReinterpretF32 = 0xBC,
-    /// BD (mvp_f64) i64.reinterpret_f64
+    /// `BD i64.reinterpret_f64` (mvp_f64)
     I64ReinterpretF64 = 0xBD,
-    /// BE (mvp_f32) f32.reinterpret_i32
+    /// `BE f32.reinterpret_i32` (mvp_f32)
     F32ReinterpretI32 = 0xBE,
-    /// BF (mvp_f64) f64.reinterpret_i64
+    /// `BF f64.reinterpret_i64` (mvp_f64)
     F64ReinterpretI64 = 0xBF,
-    /// C0 (sign_extend) i32.extend8_s
+    /// `C0 i32.extend8_s` (sign_extend)
     I32Extend8S = 0xC0,
-    /// C1 (sign_extend) i32.extend16_s
+    /// `C1 i32.extend16_s` (sign_extend)
     I32Extend16S = 0xC1,
-    /// C2 (sign_extend) i64.extend8_s
+    /// `C2 i64.extend8_s` (sign_extend)
     I64Extend8S = 0xC2,
-    /// C3 (sign_extend) i64.extend16_s
+    /// `C3 i64.extend16_s` (sign_extend)
     I64Extend16S = 0xC3,
-    /// C4 (sign_extend) i64.extend32_s
+    /// `C4 i64.extend32_s` (sign_extend)
     I64Extend32S = 0xC4,
 }
 
 #[non_exhaustive]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WasmOperandType {
     Implied,
     Block,
@@ -386,7 +385,7 @@ pub enum WasmOperandType {
 }
 
 #[non_exhaustive]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WasmProposalType {
     Mvp,
     TailCall,
@@ -397,11 +396,192 @@ pub enum WasmProposalType {
 }
 
 impl WasmOpcode {
-    pub fn from_u8(value: u8) -> Self {
-        Self::try_from(value).unwrap_or(Self::Unreachable)
+    pub const fn new(value: u8) -> Option<Self> {
+        match value {
+            0x00 => Some(Self::Unreachable),
+            0x01 => Some(Self::Nop),
+            0x02 => Some(Self::Block),
+            0x03 => Some(Self::Loop),
+            0x04 => Some(Self::If),
+            0x05 => Some(Self::Else),
+            0x0B => Some(Self::End),
+            0x0C => Some(Self::Br),
+            0x0D => Some(Self::BrIf),
+            0x0E => Some(Self::BrTable),
+            0x0F => Some(Self::Return),
+            0x10 => Some(Self::Call),
+            0x11 => Some(Self::CallIndirect),
+            0x12 => Some(Self::ReturnCall),
+            0x13 => Some(Self::ReturnCallIndirect),
+            0x1A => Some(Self::Drop),
+            0x1B => Some(Self::Select),
+            0x20 => Some(Self::LocalGet),
+            0x21 => Some(Self::LocalSet),
+            0x22 => Some(Self::LocalTee),
+            0x23 => Some(Self::GlobalGet),
+            0x24 => Some(Self::GlobalSet),
+            0x28 => Some(Self::I32Load),
+            0x29 => Some(Self::I64Load),
+            0x2A => Some(Self::F32Load),
+            0x2B => Some(Self::F64Load),
+            0x2C => Some(Self::I32Load8S),
+            0x2D => Some(Self::I32Load8U),
+            0x2E => Some(Self::I32Load16S),
+            0x2F => Some(Self::I32Load16U),
+            0x30 => Some(Self::I64Load8S),
+            0x31 => Some(Self::I64Load8U),
+            0x32 => Some(Self::I64Load16S),
+            0x33 => Some(Self::I64Load16U),
+            0x34 => Some(Self::I64Load32S),
+            0x35 => Some(Self::I64Load32U),
+            0x36 => Some(Self::I32Store),
+            0x37 => Some(Self::I64Store),
+            0x38 => Some(Self::F32Store),
+            0x39 => Some(Self::F64Store),
+            0x3A => Some(Self::I32Store8),
+            0x3B => Some(Self::I32Store16),
+            0x3C => Some(Self::I64Store8),
+            0x3D => Some(Self::I64Store16),
+            0x3E => Some(Self::I64Store32),
+            0x3F => Some(Self::MemorySize),
+            0x40 => Some(Self::MemoryGrow),
+            0x41 => Some(Self::I32Const),
+            0x42 => Some(Self::I64Const),
+            0x43 => Some(Self::F32Const),
+            0x44 => Some(Self::F64Const),
+            0x45 => Some(Self::I32Eqz),
+            0x46 => Some(Self::I32Eq),
+            0x47 => Some(Self::I32Ne),
+            0x48 => Some(Self::I32LtS),
+            0x49 => Some(Self::I32LtU),
+            0x4A => Some(Self::I32GtS),
+            0x4B => Some(Self::I32GtU),
+            0x4C => Some(Self::I32LeS),
+            0x4D => Some(Self::I32LeU),
+            0x4E => Some(Self::I32GeS),
+            0x4F => Some(Self::I32GeU),
+            0x50 => Some(Self::I64Eqz),
+            0x51 => Some(Self::I64Eq),
+            0x52 => Some(Self::I64Ne),
+            0x53 => Some(Self::I64LtS),
+            0x54 => Some(Self::I64LtU),
+            0x55 => Some(Self::I64GtS),
+            0x56 => Some(Self::I64GtU),
+            0x57 => Some(Self::I64LeS),
+            0x58 => Some(Self::I64LeU),
+            0x59 => Some(Self::I64GeS),
+            0x5A => Some(Self::I64GeU),
+            0x5B => Some(Self::F32Eq),
+            0x5C => Some(Self::F32Ne),
+            0x5D => Some(Self::F32Lt),
+            0x5E => Some(Self::F32Gt),
+            0x5F => Some(Self::F32Le),
+            0x60 => Some(Self::F32Ge),
+            0x61 => Some(Self::F64Eq),
+            0x62 => Some(Self::F64Ne),
+            0x63 => Some(Self::F64Lt),
+            0x64 => Some(Self::F64Gt),
+            0x65 => Some(Self::F64Le),
+            0x66 => Some(Self::F64Ge),
+            0x67 => Some(Self::I32Clz),
+            0x68 => Some(Self::I32Ctz),
+            0x69 => Some(Self::I32Popcnt),
+            0x6A => Some(Self::I32Add),
+            0x6B => Some(Self::I32Sub),
+            0x6C => Some(Self::I32Mul),
+            0x6D => Some(Self::I32DivS),
+            0x6E => Some(Self::I32DivU),
+            0x6F => Some(Self::I32RemS),
+            0x70 => Some(Self::I32RemU),
+            0x71 => Some(Self::I32And),
+            0x72 => Some(Self::I32Or),
+            0x73 => Some(Self::I32Xor),
+            0x74 => Some(Self::I32Shl),
+            0x75 => Some(Self::I32ShrS),
+            0x76 => Some(Self::I32ShrU),
+            0x77 => Some(Self::I32Rotl),
+            0x78 => Some(Self::I32Rotr),
+            0x79 => Some(Self::I64Clz),
+            0x7A => Some(Self::I64Ctz),
+            0x7B => Some(Self::I64Popcnt),
+            0x7C => Some(Self::I64Add),
+            0x7D => Some(Self::I64Sub),
+            0x7E => Some(Self::I64Mul),
+            0x7F => Some(Self::I64DivS),
+            0x80 => Some(Self::I64DivU),
+            0x81 => Some(Self::I64RemS),
+            0x82 => Some(Self::I64RemU),
+            0x83 => Some(Self::I64And),
+            0x84 => Some(Self::I64Or),
+            0x85 => Some(Self::I64Xor),
+            0x86 => Some(Self::I64Shl),
+            0x87 => Some(Self::I64ShrS),
+            0x88 => Some(Self::I64ShrU),
+            0x89 => Some(Self::I64Rotl),
+            0x8A => Some(Self::I64Rotr),
+            0x8B => Some(Self::F32Abs),
+            0x8C => Some(Self::F32Neg),
+            0x8D => Some(Self::F32Ceil),
+            0x8E => Some(Self::F32Floor),
+            0x8F => Some(Self::F32Trunc),
+            0x90 => Some(Self::F32Nearest),
+            0x91 => Some(Self::F32Sqrt),
+            0x92 => Some(Self::F32Add),
+            0x93 => Some(Self::F32Sub),
+            0x94 => Some(Self::F32Mul),
+            0x95 => Some(Self::F32Div),
+            0x96 => Some(Self::F32Min),
+            0x97 => Some(Self::F32Max),
+            0x98 => Some(Self::F32Copysign),
+            0x99 => Some(Self::F64Abs),
+            0x9A => Some(Self::F64Neg),
+            0x9B => Some(Self::F64Ceil),
+            0x9C => Some(Self::F64Floor),
+            0x9D => Some(Self::F64Trunc),
+            0x9E => Some(Self::F64Nearest),
+            0x9F => Some(Self::F64Sqrt),
+            0xA0 => Some(Self::F64Add),
+            0xA1 => Some(Self::F64Sub),
+            0xA2 => Some(Self::F64Mul),
+            0xA3 => Some(Self::F64Div),
+            0xA4 => Some(Self::F64Min),
+            0xA5 => Some(Self::F64Max),
+            0xA6 => Some(Self::F64Copysign),
+            0xA7 => Some(Self::I32WrapI64),
+            0xA8 => Some(Self::I32TruncF32S),
+            0xA9 => Some(Self::I32TruncF32U),
+            0xAA => Some(Self::I32TruncF64S),
+            0xAB => Some(Self::I32TruncF64U),
+            0xAC => Some(Self::I64ExtendI32S),
+            0xAD => Some(Self::I64ExtendI32U),
+            0xAE => Some(Self::I64TruncF32S),
+            0xAF => Some(Self::I64TruncF32U),
+            0xB0 => Some(Self::I64TruncF64S),
+            0xB1 => Some(Self::I64TruncF64U),
+            0xB2 => Some(Self::F32ConvertI32S),
+            0xB3 => Some(Self::F32ConvertI32U),
+            0xB4 => Some(Self::F32ConvertI64S),
+            0xB5 => Some(Self::F32ConvertI64U),
+            0xB6 => Some(Self::F32DemoteF64),
+            0xB7 => Some(Self::F64ConvertI32S),
+            0xB8 => Some(Self::F64ConvertI32U),
+            0xB9 => Some(Self::F64ConvertI64S),
+            0xBA => Some(Self::F64ConvertI64U),
+            0xBB => Some(Self::F64PromoteF32),
+            0xBC => Some(Self::I32ReinterpretF32),
+            0xBD => Some(Self::I64ReinterpretF64),
+            0xBE => Some(Self::F32ReinterpretI32),
+            0xBF => Some(Self::F64ReinterpretI64),
+            0xC0 => Some(Self::I32Extend8S),
+            0xC1 => Some(Self::I32Extend16S),
+            0xC2 => Some(Self::I64Extend8S),
+            0xC3 => Some(Self::I64Extend16S),
+            0xC4 => Some(Self::I64Extend32S),
+            _ => None,
+        }
     }
 
-    pub fn to_str(&self) -> &str {
+    pub const fn to_str(&self) -> &str {
         match *self {
             Self::Unreachable => "unreachable",
             Self::Nop => "nop",
@@ -585,7 +765,7 @@ impl WasmOpcode {
         }
     }
 
-    pub fn operand_type(&self) -> WasmOperandType {
+    pub const fn operand_type(&self) -> WasmOperandType {
         match *self {
             Self::Block => WasmOperandType::Block,
             Self::Loop => WasmOperandType::Block,
@@ -637,7 +817,7 @@ impl WasmOpcode {
         }
     }
 
-    pub fn proposal_type(&self) -> WasmProposalType {
+    pub const fn proposal_type(&self) -> WasmProposalType {
         match *self {
             Self::ReturnCall => WasmProposalType::TailCall,
             Self::ReturnCallIndirect => WasmProposalType::TailCall,
@@ -759,195 +939,6 @@ impl WasmOpcode {
             Self::I64Extend16S => WasmProposalType::SignExtend,
             Self::I64Extend32S => WasmProposalType::SignExtend,
             _ => WasmProposalType::Mvp,
-        }
-    }
-}
-
-impl TryFrom<u8> for WasmOpcode {
-    type Error = ();
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0x00 => Ok(Self::Unreachable),
-            0x01 => Ok(Self::Nop),
-            0x02 => Ok(Self::Block),
-            0x03 => Ok(Self::Loop),
-            0x04 => Ok(Self::If),
-            0x05 => Ok(Self::Else),
-            0x0B => Ok(Self::End),
-            0x0C => Ok(Self::Br),
-            0x0D => Ok(Self::BrIf),
-            0x0E => Ok(Self::BrTable),
-            0x0F => Ok(Self::Return),
-            0x10 => Ok(Self::Call),
-            0x11 => Ok(Self::CallIndirect),
-            0x12 => Ok(Self::ReturnCall),
-            0x13 => Ok(Self::ReturnCallIndirect),
-            0x1A => Ok(Self::Drop),
-            0x1B => Ok(Self::Select),
-            0x20 => Ok(Self::LocalGet),
-            0x21 => Ok(Self::LocalSet),
-            0x22 => Ok(Self::LocalTee),
-            0x23 => Ok(Self::GlobalGet),
-            0x24 => Ok(Self::GlobalSet),
-            0x28 => Ok(Self::I32Load),
-            0x29 => Ok(Self::I64Load),
-            0x2A => Ok(Self::F32Load),
-            0x2B => Ok(Self::F64Load),
-            0x2C => Ok(Self::I32Load8S),
-            0x2D => Ok(Self::I32Load8U),
-            0x2E => Ok(Self::I32Load16S),
-            0x2F => Ok(Self::I32Load16U),
-            0x30 => Ok(Self::I64Load8S),
-            0x31 => Ok(Self::I64Load8U),
-            0x32 => Ok(Self::I64Load16S),
-            0x33 => Ok(Self::I64Load16U),
-            0x34 => Ok(Self::I64Load32S),
-            0x35 => Ok(Self::I64Load32U),
-            0x36 => Ok(Self::I32Store),
-            0x37 => Ok(Self::I64Store),
-            0x38 => Ok(Self::F32Store),
-            0x39 => Ok(Self::F64Store),
-            0x3A => Ok(Self::I32Store8),
-            0x3B => Ok(Self::I32Store16),
-            0x3C => Ok(Self::I64Store8),
-            0x3D => Ok(Self::I64Store16),
-            0x3E => Ok(Self::I64Store32),
-            0x3F => Ok(Self::MemorySize),
-            0x40 => Ok(Self::MemoryGrow),
-            0x41 => Ok(Self::I32Const),
-            0x42 => Ok(Self::I64Const),
-            0x43 => Ok(Self::F32Const),
-            0x44 => Ok(Self::F64Const),
-            0x45 => Ok(Self::I32Eqz),
-            0x46 => Ok(Self::I32Eq),
-            0x47 => Ok(Self::I32Ne),
-            0x48 => Ok(Self::I32LtS),
-            0x49 => Ok(Self::I32LtU),
-            0x4A => Ok(Self::I32GtS),
-            0x4B => Ok(Self::I32GtU),
-            0x4C => Ok(Self::I32LeS),
-            0x4D => Ok(Self::I32LeU),
-            0x4E => Ok(Self::I32GeS),
-            0x4F => Ok(Self::I32GeU),
-            0x50 => Ok(Self::I64Eqz),
-            0x51 => Ok(Self::I64Eq),
-            0x52 => Ok(Self::I64Ne),
-            0x53 => Ok(Self::I64LtS),
-            0x54 => Ok(Self::I64LtU),
-            0x55 => Ok(Self::I64GtS),
-            0x56 => Ok(Self::I64GtU),
-            0x57 => Ok(Self::I64LeS),
-            0x58 => Ok(Self::I64LeU),
-            0x59 => Ok(Self::I64GeS),
-            0x5A => Ok(Self::I64GeU),
-            0x5B => Ok(Self::F32Eq),
-            0x5C => Ok(Self::F32Ne),
-            0x5D => Ok(Self::F32Lt),
-            0x5E => Ok(Self::F32Gt),
-            0x5F => Ok(Self::F32Le),
-            0x60 => Ok(Self::F32Ge),
-            0x61 => Ok(Self::F64Eq),
-            0x62 => Ok(Self::F64Ne),
-            0x63 => Ok(Self::F64Lt),
-            0x64 => Ok(Self::F64Gt),
-            0x65 => Ok(Self::F64Le),
-            0x66 => Ok(Self::F64Ge),
-            0x67 => Ok(Self::I32Clz),
-            0x68 => Ok(Self::I32Ctz),
-            0x69 => Ok(Self::I32Popcnt),
-            0x6A => Ok(Self::I32Add),
-            0x6B => Ok(Self::I32Sub),
-            0x6C => Ok(Self::I32Mul),
-            0x6D => Ok(Self::I32DivS),
-            0x6E => Ok(Self::I32DivU),
-            0x6F => Ok(Self::I32RemS),
-            0x70 => Ok(Self::I32RemU),
-            0x71 => Ok(Self::I32And),
-            0x72 => Ok(Self::I32Or),
-            0x73 => Ok(Self::I32Xor),
-            0x74 => Ok(Self::I32Shl),
-            0x75 => Ok(Self::I32ShrS),
-            0x76 => Ok(Self::I32ShrU),
-            0x77 => Ok(Self::I32Rotl),
-            0x78 => Ok(Self::I32Rotr),
-            0x79 => Ok(Self::I64Clz),
-            0x7A => Ok(Self::I64Ctz),
-            0x7B => Ok(Self::I64Popcnt),
-            0x7C => Ok(Self::I64Add),
-            0x7D => Ok(Self::I64Sub),
-            0x7E => Ok(Self::I64Mul),
-            0x7F => Ok(Self::I64DivS),
-            0x80 => Ok(Self::I64DivU),
-            0x81 => Ok(Self::I64RemS),
-            0x82 => Ok(Self::I64RemU),
-            0x83 => Ok(Self::I64And),
-            0x84 => Ok(Self::I64Or),
-            0x85 => Ok(Self::I64Xor),
-            0x86 => Ok(Self::I64Shl),
-            0x87 => Ok(Self::I64ShrS),
-            0x88 => Ok(Self::I64ShrU),
-            0x89 => Ok(Self::I64Rotl),
-            0x8A => Ok(Self::I64Rotr),
-            0x8B => Ok(Self::F32Abs),
-            0x8C => Ok(Self::F32Neg),
-            0x8D => Ok(Self::F32Ceil),
-            0x8E => Ok(Self::F32Floor),
-            0x8F => Ok(Self::F32Trunc),
-            0x90 => Ok(Self::F32Nearest),
-            0x91 => Ok(Self::F32Sqrt),
-            0x92 => Ok(Self::F32Add),
-            0x93 => Ok(Self::F32Sub),
-            0x94 => Ok(Self::F32Mul),
-            0x95 => Ok(Self::F32Div),
-            0x96 => Ok(Self::F32Min),
-            0x97 => Ok(Self::F32Max),
-            0x98 => Ok(Self::F32Copysign),
-            0x99 => Ok(Self::F64Abs),
-            0x9A => Ok(Self::F64Neg),
-            0x9B => Ok(Self::F64Ceil),
-            0x9C => Ok(Self::F64Floor),
-            0x9D => Ok(Self::F64Trunc),
-            0x9E => Ok(Self::F64Nearest),
-            0x9F => Ok(Self::F64Sqrt),
-            0xA0 => Ok(Self::F64Add),
-            0xA1 => Ok(Self::F64Sub),
-            0xA2 => Ok(Self::F64Mul),
-            0xA3 => Ok(Self::F64Div),
-            0xA4 => Ok(Self::F64Min),
-            0xA5 => Ok(Self::F64Max),
-            0xA6 => Ok(Self::F64Copysign),
-            0xA7 => Ok(Self::I32WrapI64),
-            0xA8 => Ok(Self::I32TruncF32S),
-            0xA9 => Ok(Self::I32TruncF32U),
-            0xAA => Ok(Self::I32TruncF64S),
-            0xAB => Ok(Self::I32TruncF64U),
-            0xAC => Ok(Self::I64ExtendI32S),
-            0xAD => Ok(Self::I64ExtendI32U),
-            0xAE => Ok(Self::I64TruncF32S),
-            0xAF => Ok(Self::I64TruncF32U),
-            0xB0 => Ok(Self::I64TruncF64S),
-            0xB1 => Ok(Self::I64TruncF64U),
-            0xB2 => Ok(Self::F32ConvertI32S),
-            0xB3 => Ok(Self::F32ConvertI32U),
-            0xB4 => Ok(Self::F32ConvertI64S),
-            0xB5 => Ok(Self::F32ConvertI64U),
-            0xB6 => Ok(Self::F32DemoteF64),
-            0xB7 => Ok(Self::F64ConvertI32S),
-            0xB8 => Ok(Self::F64ConvertI32U),
-            0xB9 => Ok(Self::F64ConvertI64S),
-            0xBA => Ok(Self::F64ConvertI64U),
-            0xBB => Ok(Self::F64PromoteF32),
-            0xBC => Ok(Self::I32ReinterpretF32),
-            0xBD => Ok(Self::I64ReinterpretF64),
-            0xBE => Ok(Self::F32ReinterpretI32),
-            0xBF => Ok(Self::F64ReinterpretI64),
-            0xC0 => Ok(Self::I32Extend8S),
-            0xC1 => Ok(Self::I32Extend16S),
-            0xC2 => Ok(Self::I64Extend8S),
-            0xC3 => Ok(Self::I64Extend16S),
-            0xC4 => Ok(Self::I64Extend32S),
-            _ => Err(()),
         }
     }
 }
