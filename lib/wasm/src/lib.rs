@@ -1,4 +1,5 @@
-// Wasm-O
+//! WebAssembly Runtime Library
+
 #![no_std]
 #![feature(const_raw_ptr_deref)]
 #![feature(try_reserve)]

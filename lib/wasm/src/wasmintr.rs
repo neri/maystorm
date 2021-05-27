@@ -1,4 +1,4 @@
-// Wasm Intermediate Code Interpreter
+//! WebAssembly Intermediate Code Interpreter
 
 use super::{intcode::*, stack::*, wasm::*};
 use crate::opcode::WasmOpcode;
@@ -105,7 +105,7 @@ impl WasmInterpreter<'_> {
     pub fn invoke(
         &mut self,
         func_index: usize,
-        info: &WasmBlockInfo,
+        code_block: &WasmCodeBlock,
         locals: &[WasmStackValue],
         result_types: &[WasmValType],
     ) -> Result<Option<WasmValue>, WasmRuntimeError> {
@@ -119,8 +119,7 @@ impl WasmInterpreter<'_> {
 
         self.func_index = func_index;
 
-        self.interpret(info, &mut locals, result_types, &mut stack)
-        // .map_err(|kind| self.error(kind, self.last_code))
+        self.interpret(code_block, &mut locals, result_types, &mut stack)
     }
 
     #[inline]
@@ -135,14 +134,14 @@ impl WasmInterpreter<'_> {
 
     fn interpret(
         &mut self,
-        info: &WasmBlockInfo,
+        code_block: &WasmCodeBlock,
         locals: &mut [WasmStackValue],
         result_types: &[WasmValType],
         stack: &mut SharedStack,
     ) -> Result<Option<WasmValue>, WasmRuntimeError> {
-        let mut codes = WasmIntermediateCodeBlock::from_codes(info.intermediate_codes());
+        let mut codes = WasmIntermediateCodeStream::from_codes(code_block.intermediate_codes());
 
-        let value_stack = stack.alloc(info.max_value_stack());
+        let value_stack = stack.alloc(code_block.max_value_stack());
         for value in value_stack.iter_mut() {
             *value = WasmStackValue::zero();
         }
@@ -174,7 +173,7 @@ impl WasmInterpreter<'_> {
                 }
                 WasmIntMnemonic::BrTable => {
                     let mut index = value_stack[code.stack_level()].get_u32() as usize;
-                    let ext_params = info.ext_params();
+                    let ext_params = code_block.ext_params();
                     let table_position = code.param1() as usize;
                     let table_len = ext_params[table_position] - 1;
                     if index >= table_len {
@@ -245,7 +244,7 @@ impl WasmInterpreter<'_> {
                     let global =
                         unsafe { self.module.globals().get_unchecked(code.param1() as usize) };
                     let ref_a = unsafe { value_stack.get_unchecked(code.stack_level()) };
-                    global.set(|v| *v = ref_a.into_value(global.val_type()));
+                    global.set(|v| *v = ref_a.get_by_type(global.val_type()));
                 }
 
                 WasmIntMnemonic::I32Load => {
@@ -440,7 +439,7 @@ impl WasmInterpreter<'_> {
                 WasmIntMnemonic::MemorySize => {
                     let memory = unsafe { self.module.memory_unchecked(0) };
                     let ref_a = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
-                    *ref_a = WasmStackValue::from(memory.size());
+                    *ref_a = WasmStackValue::from(memory.size() as u32);
                 }
                 WasmIntMnemonic::MemoryGrow => {
                     let memory = unsafe { self.module.memory_unchecked(0) };
@@ -947,7 +946,7 @@ impl WasmInterpreter<'_> {
 
         if let Some(body) = target.body() {
             stack.snapshot(|stack| {
-                let info = body.block_info();
+                let code_block = body.block_info();
                 let mut locals = stack.alloc_stack(param_len + body.local_types().len());
                 let stack_under = stack_pointer - param_len;
 
@@ -957,13 +956,16 @@ impl WasmInterpreter<'_> {
                 }
 
                 self.func_index = target.index();
-                let result = self.interpret(info, locals.as_mut_slice(), result_types, stack)?;
-                if let Some(result) = result {
-                    let var = unsafe { value_stack.get_unchecked_mut(stack_under) };
-                    *var = WasmStackValue::from(result);
-                }
-                self.func_index = current_function;
-                Ok(())
+
+                self.interpret(code_block, locals.as_mut_slice(), result_types, stack)
+                    .and_then(|v| {
+                        if let Some(result) = v {
+                            let var = unsafe { value_stack.get_unchecked_mut(stack_under) };
+                            *var = WasmStackValue::from(result);
+                        }
+                        self.func_index = current_function;
+                        Ok(())
+                    })
             })
         } else if let Some(dlink) = target.dlink() {
             stack.snapshot(|stack| {
@@ -995,24 +997,24 @@ impl WasmInterpreter<'_> {
                 Ok(())
             })
         } else {
-            return Err(self.error(WasmRuntimeErrorType::NoMethod, code));
+            Err(self.error(WasmRuntimeErrorType::NoMethod, code))
         }
     }
 }
 
-struct WasmIntermediateCodeBlock<'a> {
+struct WasmIntermediateCodeStream<'a> {
     codes: &'a [WasmImc],
     position: usize,
 }
 
-impl<'a> WasmIntermediateCodeBlock<'a> {
+impl<'a> WasmIntermediateCodeStream<'a> {
     #[inline]
     fn from_codes(codes: &'a [WasmImc]) -> Self {
         Self { codes, position: 0 }
     }
 }
 
-impl WasmIntermediateCodeBlock<'_> {
+impl WasmIntermediateCodeStream<'_> {
     #[inline]
     fn fetch(&mut self) -> Option<&WasmImc> {
         self.codes.get(self.position).map(|v| {
@@ -1134,7 +1136,7 @@ mod tests {
     use super::{WasmInterpreter, WasmInvocation};
     use crate::{
         wasm::{
-            Leb128Stream, WasmBlockInfo, WasmDecodeErrorType, WasmLoader, WasmModule, WasmValType,
+            Leb128Stream, WasmCodeBlock, WasmDecodeErrorType, WasmLoader, WasmModule, WasmValType,
         },
         WasmRuntimeErrorType,
     };
@@ -1147,7 +1149,7 @@ mod tests {
         let mut stream = Leb128Stream::from_slice(&slice);
         let module = WasmModule::new();
         let info =
-            WasmBlockInfo::analyze(0, &mut stream, &local_types, &result_types, &module).unwrap();
+            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
         let mut interp = WasmInterpreter::new(&module);
 
         let params = [1234.into(), 5678.into()];
@@ -1178,7 +1180,7 @@ mod tests {
         let mut stream = Leb128Stream::from_slice(&slice);
         let module = WasmModule::new();
         let info =
-            WasmBlockInfo::analyze(0, &mut stream, &local_types, &result_types, &module).unwrap();
+            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
         let mut interp = WasmInterpreter::new(&module);
 
         let params = [1234_5678.into()];
@@ -1209,7 +1211,7 @@ mod tests {
         let mut stream = Leb128Stream::from_slice(&slice);
         let module = WasmModule::new();
         let info =
-            WasmBlockInfo::analyze(0, &mut stream, &local_types, &result_types, &module).unwrap();
+            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
         let mut interp = WasmInterpreter::new(&module);
 
         let params = [1234.into(), 5678.into()];
@@ -1239,7 +1241,7 @@ mod tests {
         let mut stream = Leb128Stream::from_slice(&slice);
         let module = WasmModule::new();
         let info =
-            WasmBlockInfo::analyze(0, &mut stream, &local_types, &result_types, &module).unwrap();
+            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
         let mut interp = WasmInterpreter::new(&module);
 
         let params = [1234.into(), 5678.into()];
@@ -1269,7 +1271,7 @@ mod tests {
         let mut stream = Leb128Stream::from_slice(&slice);
         let module = WasmModule::new();
         let info =
-            WasmBlockInfo::analyze(0, &mut stream, &local_types, &result_types, &module).unwrap();
+            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
         let mut interp = WasmInterpreter::new(&module);
 
         let params = [7006652.into(), 5678.into()];
@@ -1321,7 +1323,7 @@ mod tests {
         let mut stream = Leb128Stream::from_slice(&slice);
         let module = WasmModule::new();
         let info =
-            WasmBlockInfo::analyze(0, &mut stream, &local_types, &result_types, &module).unwrap();
+            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
         let mut interp = WasmInterpreter::new(&module);
 
         let params = [7006652.into(), 5678.into()];
@@ -1364,7 +1366,7 @@ mod tests {
         let mut stream = Leb128Stream::from_slice(&slice);
         let module = WasmModule::new();
         let info =
-            WasmBlockInfo::analyze(0, &mut stream, &local_types, &result_types, &module).unwrap();
+            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
         let mut interp = WasmInterpreter::new(&module);
 
         let params = [123.into(), 456.into(), 789.into()];
@@ -1394,7 +1396,7 @@ mod tests {
         let mut stream = Leb128Stream::from_slice(&slice);
         let module = WasmModule::new();
         let info =
-            WasmBlockInfo::analyze(0, &mut stream, &local_types, &result_types, &module).unwrap();
+            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
         let mut interp = WasmInterpreter::new(&module);
 
         let params = [123.into(), 456.into()];
@@ -1451,7 +1453,7 @@ mod tests {
         let mut stream = Leb128Stream::from_slice(&slice);
         let module = WasmModule::new();
         let info =
-            WasmBlockInfo::analyze(0, &mut stream, &local_types, &result_types, &module).unwrap();
+            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
         let mut interp = WasmInterpreter::new(&module);
 
         let params = [123.into(), 456.into()];
@@ -1508,7 +1510,7 @@ mod tests {
         let mut stream = Leb128Stream::from_slice(&slice);
         let module = WasmModule::new();
         let info =
-            WasmBlockInfo::analyze(0, &mut stream, &local_types, &result_types, &module).unwrap();
+            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
         let mut interp = WasmInterpreter::new(&module);
 
         let params = [123.into(), 456.into()];
@@ -1569,7 +1571,7 @@ mod tests {
         let mut stream = Leb128Stream::from_slice(&slice);
         let module = WasmModule::new();
         let info =
-            WasmBlockInfo::analyze(0, &mut stream, &local_types, &result_types, &module).unwrap();
+            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
         let mut interp = WasmInterpreter::new(&module);
 
         let params = [0.into()];
@@ -1648,7 +1650,7 @@ mod tests {
         let mut stream = Leb128Stream::from_slice(&slice);
         let module = WasmModule::new();
         let info =
-            WasmBlockInfo::analyze(0, &mut stream, &local_types, &result_types, &module).unwrap();
+            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
         let mut interp = WasmInterpreter::new(&module);
 
         let params = [7.into(), 0.into()];

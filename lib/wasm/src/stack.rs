@@ -4,6 +4,9 @@ use crate::*;
 use alloc::vec::Vec;
 use core::{cell::UnsafeCell, mem::align_of, mem::size_of, slice};
 
+/// A shared data type for storing in the value stack in the WebAssembly interpreter.
+///
+/// The internal representation is `union`, so information about the type needs to be provided externally.
 #[derive(Copy, Clone)]
 pub union WasmStackValue {
     i32: i32,
@@ -12,8 +15,6 @@ pub union WasmStackValue {
     u64: u64,
     f32: f32,
     f64: f64,
-    usize: usize,
-    isize: isize,
 }
 
 impl WasmStackValue {
@@ -25,20 +26,10 @@ impl WasmStackValue {
     #[inline]
     pub const fn from_bool(v: bool) -> Self {
         if v {
-            Self::from_usize(1)
+            Self::from_i32(1)
         } else {
-            Self::from_usize(0)
+            Self::from_i32(0)
         }
-    }
-
-    #[inline]
-    pub const fn from_usize(v: usize) -> Self {
-        Self { usize: v }
-    }
-
-    #[inline]
-    pub const fn from_isize(v: isize) -> Self {
-        Self { isize: v }
     }
 
     #[inline]
@@ -98,24 +89,25 @@ impl WasmStackValue {
 
     #[inline]
     pub fn get_i8(&self) -> i8 {
-        unsafe { self.usize as i8 }
+        unsafe { self.u32 as i8 }
     }
 
     #[inline]
     pub fn get_u8(&self) -> u8 {
-        unsafe { self.usize as u8 }
+        unsafe { self.u32 as u8 }
     }
 
     #[inline]
     pub fn get_i16(&self) -> i16 {
-        unsafe { self.usize as i16 }
+        unsafe { self.u32 as i16 }
     }
 
     #[inline]
     pub fn get_u16(&self) -> u16 {
-        unsafe { self.usize as u16 }
+        unsafe { self.u32 as u16 }
     }
 
+    /// Retrieves the value held by the instance as a value of type `i32` and re-stores the value processed by the closure.
     #[inline]
     pub fn map_i32<F>(&mut self, f: F)
     where
@@ -125,6 +117,7 @@ impl WasmStackValue {
         self.i32 = f(val);
     }
 
+    /// Retrieves the value held by the instance as a value of type `u32` and re-stores the value processed by the closure.
     #[inline]
     pub fn map_u32<F>(&mut self, f: F)
     where
@@ -134,6 +127,7 @@ impl WasmStackValue {
         self.u32 = f(val);
     }
 
+    /// Retrieves the value held by the instance as a value of type `i64` and re-stores the value processed by the closure.
     #[inline]
     pub fn map_i64<F>(&mut self, f: F)
     where
@@ -143,6 +137,7 @@ impl WasmStackValue {
         self.i64 = f(val);
     }
 
+    /// Retrieves the value held by the instance as a value of type `u64` and re-stores the value processed by the closure.
     #[inline]
     pub fn map_u64<F>(&mut self, f: F)
     where
@@ -152,37 +147,9 @@ impl WasmStackValue {
         self.u64 = f(val);
     }
 
-    #[inline]
-    pub fn map_isize<F>(&mut self, f: F)
-    where
-        F: FnOnce(isize) -> isize,
-    {
-        let val = unsafe { self.isize };
-        self.isize = f(val);
-    }
-
-    #[inline]
-    pub fn map_usize<F>(&mut self, f: F)
-    where
-        F: FnOnce(usize) -> usize,
-    {
-        let val = unsafe { self.usize };
-        self.usize = f(val);
-    }
-
+    /// Converts the value held by the instance to the `WasmValue` type as a value of the specified type.
     #[inline]
     pub fn get_by_type(&self, val_type: WasmValType) -> WasmValue {
-        match val_type {
-            WasmValType::I32 => WasmValue::I32(self.get_i32()),
-            WasmValType::I64 => WasmValue::I64(self.get_i64()),
-            // WasmValType::F32 => {}
-            // WasmValType::F64 => {}
-            _ => todo!(),
-        }
-    }
-
-    #[inline]
-    pub fn into_value(&self, val_type: WasmValType) -> WasmValue {
         match val_type {
             WasmValType::I32 => WasmValue::I32(self.get_i32()),
             WasmValType::I64 => WasmValue::I64(self.get_i64()),
@@ -197,13 +164,6 @@ impl From<bool> for WasmStackValue {
     #[inline]
     fn from(v: bool) -> Self {
         Self::from_bool(v)
-    }
-}
-
-impl From<usize> for WasmStackValue {
-    #[inline]
-    fn from(v: usize) -> Self {
-        Self::from_usize(v)
     }
 }
 
