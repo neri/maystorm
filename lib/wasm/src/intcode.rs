@@ -1,6 +1,6 @@
-// Wasm Intermediate Mnemonic
+//! Intermediate code for Webassembly runtime
 
-/// Wasm Interpreter Intermediate Mnemonic
+/// Intermediate code for Webassembly runtime
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WasmIntMnemonic {
@@ -8,9 +8,9 @@ pub enum WasmIntMnemonic {
     Undefined,
     /// Unreachable
     Unreachable,
-
-    /// No operation, Do nothing
+    /// No operation, this mnemonic will be removed during the compaction phase.
     Nop,
+
     /// branch
     Br,
     /// branch if true
@@ -22,8 +22,9 @@ pub enum WasmIntMnemonic {
     /// branch table
     BrTable,
 
-    /// Block Marker
+    /// Block Marker, this mnemonic will be removed during the compaction phase.
     Block,
+    /// End of block marker, this mnemonic will be removed during the compaction phase.
     End,
 
     /// return from function

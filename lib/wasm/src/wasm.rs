@@ -1003,7 +1003,11 @@ impl WasmTable {
     }
 }
 
-/// WebAssembly function object
+/// A type that represents the type of WebAssembly function.
+///
+/// There are two types of functions in WebAssembly: those that are imported from external modules and those that have bytecode in the same module.
+///
+/// It appears as the third section (`0x03`) in the WebAssembly binary.
 pub struct WasmFunction {
     index: usize,
     type_index: usize,
@@ -1266,7 +1270,7 @@ impl WasmExportIndex {
 
 pub struct WasmFunctionBody {
     local_types: Box<[WasmValType]>,
-    block_info: WasmCodeBlock,
+    code_block: WasmCodeBlock,
 }
 
 impl WasmFunctionBody {
@@ -1291,7 +1295,7 @@ impl WasmFunctionBody {
             }
         }
 
-        let block_info = {
+        let code_block = {
             let mut running_local_types = Vec::with_capacity(param_types.len() + local_types.len());
             for param_type in param_types {
                 running_local_types.push(*param_type);
@@ -1310,7 +1314,7 @@ impl WasmFunctionBody {
 
         Ok(Self {
             local_types: local_types.into_boxed_slice(),
-            block_info,
+            code_block,
         })
     }
 
@@ -1320,8 +1324,8 @@ impl WasmFunctionBody {
     }
 
     #[inline]
-    pub const fn block_info(&self) -> &WasmCodeBlock {
-        &self.block_info
+    pub const fn code_block(&self) -> &WasmCodeBlock {
+        &self.code_block
     }
 }
 
@@ -1353,7 +1357,7 @@ pub enum WasmRuntimeErrorType {
     NoError,
     // InternalInconsistency,
     InvalidParameter,
-    InvalidBytecode,
+    NotSupprted,
     Unreachable,
     OutOfBounds,
     OutOfMemory,
@@ -3579,7 +3583,7 @@ impl WasmCodeBlock {
                 }
 
                 #[allow(unreachable_patterns)]
-                _ => return Err(WasmDecodeErrorType::UnreachableTrap),
+                _ => return Err(WasmDecodeErrorType::NotSupprted),
             }
         }
 
@@ -3784,81 +3788,5 @@ impl WasmRunnable<'_> {
     #[inline]
     pub const fn module(&self) -> &WasmModule {
         &self.module
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{Leb128Stream, WasmLoader};
-
-    #[test]
-    fn instantiate() {
-        let minimal = [0, 97, 115, 109, 1, 0, 0, 0];
-        WasmLoader::instantiate(&minimal, |_, _, _| unreachable!()).unwrap();
-    }
-
-    #[test]
-    #[should_panic(expected = "BadExecutable")]
-    fn instantiate_bad_exec1() {
-        let too_small = [0, 97, 115, 109, 1, 0, 0];
-        WasmLoader::instantiate(&too_small, |_, _, _| unreachable!()).unwrap();
-    }
-
-    #[test]
-    #[should_panic(expected = "BadExecutable")]
-    fn instantiate_bad_exec2() {
-        let too_small = [0, 97, 115, 109, 2, 0, 0, 0];
-        WasmLoader::instantiate(&too_small, |_, _, _| unreachable!()).unwrap();
-    }
-
-    #[test]
-    #[should_panic(expected = "UnexpectedEof")]
-    fn instantiate_unexpected_eof() {
-        let minimal_bad = [0, 97, 115, 109, 1, 0, 0, 0, 1];
-        WasmLoader::instantiate(&minimal_bad, |_, _, _| unreachable!()).unwrap();
-    }
-
-    #[test]
-    fn instantiate_fibonacci() {
-        let slice = [
-            0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x01, 0x06, 0x01, 0x60, 0x01, 0x7F,
-            0x01, 0x7F, 0x03, 0x02, 0x01, 0x00, 0x0A, 0x31, 0x01, 0x2F, 0x01, 0x01, 0x7F, 0x41,
-            0x00, 0x21, 0x01, 0x02, 0x40, 0x03, 0x40, 0x20, 0x00, 0x41, 0x02, 0x49, 0x0D, 0x01,
-            0x20, 0x00, 0x41, 0x7F, 0x6A, 0x10, 0x00, 0x20, 0x01, 0x6A, 0x21, 0x01, 0x20, 0x00,
-            0x41, 0x7E, 0x6A, 0x21, 0x00, 0x0C, 0x00, 0x0B, 0x0B, 0x20, 0x00, 0x20, 0x01, 0x6A,
-            0x0B,
-        ];
-        let module = WasmLoader::instantiate(&slice, |_, _, _| unreachable!()).unwrap();
-        let _ = module.func_by_index(0).unwrap();
-    }
-
-    #[test]
-    fn leb128() {
-        let data = [
-            0x7F, 0xFF, 0x00, 0xEF, 0xFD, 0xB6, 0xF5, 0x0D, 0xEF, 0xFD, 0xB6, 0xF5, 0x7D,
-        ];
-        let mut stream = Leb128Stream::from_slice(&data);
-
-        stream.reset();
-        assert_eq!(stream.position(), 0);
-        let test = stream.read_unsigned().unwrap();
-        assert_eq!(test, 127);
-        let test = stream.read_unsigned().unwrap();
-        assert_eq!(test, 127);
-        let test = stream.read_unsigned().unwrap();
-        assert_eq!(test, 0xdeadbeef);
-        let test = stream.read_unsigned().unwrap();
-        assert_eq!(test, 0x7deadbeef);
-
-        stream.reset();
-        assert_eq!(stream.position(), 0);
-        let test = stream.read_signed().unwrap();
-        assert_eq!(test, -1);
-        let test = stream.read_signed().unwrap();
-        assert_eq!(test, 127);
-        let test = stream.read_signed().unwrap();
-        assert_eq!(test, 0xdeadbeef);
-        let test = stream.read_signed().unwrap();
-        assert_eq!(test, -559038737);
     }
 }

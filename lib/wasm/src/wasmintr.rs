@@ -109,17 +109,17 @@ impl WasmInterpreter<'_> {
         locals: &[WasmStackValue],
         result_types: &[WasmValType],
     ) -> Result<Option<WasmValue>, WasmRuntimeError> {
-        let mut stack = SharedStack::with_capacity(0x10000);
+        let mut heap = StackHeap::with_capacity(0x10000);
 
         let mut locals = {
-            let output = stack.alloc(locals.len());
+            let output = heap.alloc(locals.len());
             output.copy_from_slice(locals);
             output
         };
 
         self.func_index = func_index;
 
-        self.interpret(code_block, &mut locals, result_types, &mut stack)
+        self.interpret(code_block, &mut locals, result_types, &mut heap)
     }
 
     #[inline]
@@ -137,18 +137,18 @@ impl WasmInterpreter<'_> {
         code_block: &WasmCodeBlock,
         locals: &mut [WasmStackValue],
         result_types: &[WasmValType],
-        stack: &mut SharedStack,
+        heap: &mut StackHeap,
     ) -> Result<Option<WasmValue>, WasmRuntimeError> {
         let mut codes = WasmIntermediateCodeStream::from_codes(code_block.intermediate_codes());
 
-        let value_stack = stack.alloc(code_block.max_value_stack());
+        let value_stack = heap.alloc(code_block.max_value_stack());
         for value in value_stack.iter_mut() {
             *value = WasmStackValue::zero();
         }
 
         let mut result_stack_level = 0;
 
-        let mut last_code = WasmImc::from_mnemonic(WasmIntMnemonic::Unreachable);
+        // let mut last_code = WasmImc::from_mnemonic(WasmIntMnemonic::Unreachable);
 
         while let Some(code) = codes.fetch() {
             match code.mnemonic() {
@@ -184,7 +184,7 @@ impl WasmInterpreter<'_> {
                 }
 
                 WasmIntMnemonic::Return => {
-                    last_code = *code;
+                    // last_code = *code;
                     result_stack_level = code.stack_level();
                     break;
                 }
@@ -195,7 +195,7 @@ impl WasmInterpreter<'_> {
                             .functions()
                             .get_unchecked(code.param1() as usize)
                     };
-                    self.call(func, code, value_stack, stack)?;
+                    self.call(func, code, value_stack, heap)?;
                 }
                 WasmIntMnemonic::CallIndirect => {
                     let type_index = code.param1() as usize;
@@ -208,7 +208,7 @@ impl WasmInterpreter<'_> {
                     if func.type_index() != type_index {
                         return Err(self.error(WasmRuntimeErrorType::TypeMismatch, code));
                     }
-                    self.call(func, code, value_stack, stack)?;
+                    self.call(func, code, value_stack, heap)?;
                 }
 
                 WasmIntMnemonic::Select => {
@@ -908,8 +908,7 @@ impl WasmInterpreter<'_> {
                     }
                 }
 
-                #[allow(unreachable_patterns)]
-                _ => return Err(self.error(WasmRuntimeErrorType::InvalidBytecode, code)),
+                _ => return Err(self.error(WasmRuntimeErrorType::NotSupprted, code)),
             }
         }
         if let Some(result_type) = result_types.first() {
@@ -919,7 +918,7 @@ impl WasmInterpreter<'_> {
                 WasmValType::I64 => Ok(Some(WasmValue::I64(val.get_i64()))),
                 // WasmValType::F32 => {}
                 // WasmValType::F64 => {}
-                _ => Err(self.error(WasmRuntimeErrorType::InvalidParameter, &last_code)),
+                _ => unreachable!(),
             }
         } else {
             Ok(None)
@@ -932,7 +931,7 @@ impl WasmInterpreter<'_> {
         target: &WasmFunction,
         code: &WasmImc,
         value_stack: &mut [WasmStackValue],
-        stack: &mut SharedStack,
+        heap: &mut StackHeap,
     ) -> Result<(), WasmRuntimeError> {
         let stack_pointer = code.stack_level();
         let current_function = self.func_index;
@@ -945,8 +944,8 @@ impl WasmInterpreter<'_> {
         // }
 
         if let Some(body) = target.body() {
-            stack.snapshot(|stack| {
-                let code_block = body.block_info();
+            heap.snapshot(|stack| {
+                let code_block = body.code_block();
                 let mut locals = stack.alloc_stack(param_len + body.local_types().len());
                 let stack_under = stack_pointer - param_len;
 
@@ -968,7 +967,7 @@ impl WasmInterpreter<'_> {
                     })
             })
         } else if let Some(dlink) = target.dlink() {
-            stack.snapshot(|stack| {
+            heap.snapshot(|stack| {
                 let mut locals = stack.alloc_stack(param_len);
                 let stack_under = stack_pointer - param_len;
                 let params = &value_stack[stack_under..stack_under + param_len];
@@ -1066,7 +1065,7 @@ impl WasmInvocation for WasmRunnable<'_> {
         let mut interp = WasmInterpreter::new(self.module());
         interp.invoke(
             function.index(),
-            body.block_info(),
+            body.code_block(),
             locals.as_slice(),
             result_types,
         )
@@ -1130,623 +1129,204 @@ impl fmt::Debug for WasmRuntimeError {
     }
 }
 
-#[cfg(test)]
-mod tests {
+/// A shared data type for storing in the value stack in the WebAssembly interpreter.
+///
+/// The internal representation is `union`, so information about the type needs to be provided externally.
+#[derive(Copy, Clone)]
+pub union WasmStackValue {
+    i32: i32,
+    u32: u32,
+    i64: i64,
+    u64: u64,
+    f32: f32,
+    f64: f64,
+}
 
-    use super::{WasmInterpreter, WasmInvocation};
-    use crate::{
-        wasm::{
-            Leb128Stream, WasmCodeBlock, WasmDecodeErrorType, WasmLoader, WasmModule, WasmValType,
-        },
-        WasmRuntimeErrorType,
-    };
-
-    #[test]
-    fn add() {
-        let slice = [0x20, 0, 0x20, 1, 0x6A, 0x0B];
-        let local_types = [WasmValType::I32, WasmValType::I32];
-        let result_types = [WasmValType::I32];
-        let mut stream = Leb128Stream::from_slice(&slice);
-        let module = WasmModule::new();
-        let info =
-            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
-        let mut interp = WasmInterpreter::new(&module);
-
-        let params = [1234.into(), 5678.into()];
-
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 6912);
-
-        let params = [0xDEADBEEFu32.into(), 0x55555555.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 0x34031444);
+impl WasmStackValue {
+    #[inline]
+    pub const fn zero() -> Self {
+        Self { u64: 0 }
     }
 
-    #[test]
-    fn fused_add() {
-        let slice = [0x20, 0, 0x41, 1, 0x6A, 0x0B];
-        let local_types = [WasmValType::I32, WasmValType::I32];
-        let result_types = [WasmValType::I32];
-        let mut stream = Leb128Stream::from_slice(&slice);
-        let module = WasmModule::new();
-        let info =
-            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
-        let mut interp = WasmInterpreter::new(&module);
-
-        let params = [1234_5678.into()];
-
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 12345679);
-
-        let params = [0xFFFF_FFFFu32.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 0);
+    #[inline]
+    pub const fn from_bool(v: bool) -> Self {
+        if v {
+            Self::from_i32(1)
+        } else {
+            Self::from_i32(0)
+        }
     }
 
-    #[test]
-    fn sub() {
-        let slice = [0x20, 0, 0x20, 1, 0x6B, 0x0B];
-        let local_types = [WasmValType::I32, WasmValType::I32];
-        let result_types = [WasmValType::I32];
-        let mut stream = Leb128Stream::from_slice(&slice);
-        let module = WasmModule::new();
-        let info =
-            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
-        let mut interp = WasmInterpreter::new(&module);
-
-        let params = [1234.into(), 5678.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, -4444);
-
-        let params = [0x55555555.into(), 0xDEADBEEFu32.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 0x76a79666);
+    #[inline]
+    pub const fn from_i32(v: i32) -> Self {
+        Self { i32: v }
     }
 
-    #[test]
-    fn mul() {
-        let slice = [0x20, 0, 0x20, 1, 0x6C, 0x0B];
-        let local_types = [WasmValType::I32, WasmValType::I32];
-        let result_types = [WasmValType::I32];
-        let mut stream = Leb128Stream::from_slice(&slice);
-        let module = WasmModule::new();
-        let info =
-            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
-        let mut interp = WasmInterpreter::new(&module);
-
-        let params = [1234.into(), 5678.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 7006652);
-
-        let params = [0x55555555.into(), 0xDEADBEEFu32.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 0x6070c05b);
+    #[inline]
+    pub const fn from_u32(v: u32) -> Self {
+        Self { u32: v }
     }
 
-    #[test]
-    fn div_s() {
-        let slice = [0x20, 0, 0x20, 1, 0x6D, 0x0B];
-        let local_types = [WasmValType::I32, WasmValType::I32];
-        let result_types = [WasmValType::I32];
-        let mut stream = Leb128Stream::from_slice(&slice);
-        let module = WasmModule::new();
-        let info =
-            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
-        let mut interp = WasmInterpreter::new(&module);
-
-        let params = [7006652.into(), 5678.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 1234);
-
-        let params = [42.into(), (-6).into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, -7);
-
-        let params = [(-42).into(), (6).into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, -7);
-
-        let params = [(-42).into(), (-6).into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 7);
-
-        let params = [1234.into(), 0.into()];
-        let result = interp.invoke(0, &info, &params, &result_types).unwrap_err();
-        assert_eq!(WasmRuntimeErrorType::DivideByZero, result.kind());
+    #[inline]
+    pub const fn from_i64(v: i64) -> Self {
+        Self { i64: v }
     }
 
-    #[test]
-    fn div_u() {
-        let slice = [0x20, 0, 0x20, 1, 0x6E, 0x0B];
-        let local_types = [WasmValType::I32, WasmValType::I32];
-        let result_types = [WasmValType::I32];
-        let mut stream = Leb128Stream::from_slice(&slice);
-        let module = WasmModule::new();
-        let info =
-            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
-        let mut interp = WasmInterpreter::new(&module);
-
-        let params = [7006652.into(), 5678.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 1234);
-
-        let params = [42.into(), (-6).into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 0);
-
-        let params = [(-42).into(), (6).into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 715827875);
-
-        let params = [1234.into(), 0.into()];
-        let result = interp.invoke(0, &info, &params, &result_types).unwrap_err();
-        assert_eq!(WasmRuntimeErrorType::DivideByZero, result.kind());
+    #[inline]
+    pub const fn from_u64(v: u64) -> Self {
+        Self { u64: v }
     }
 
-    #[test]
-    fn select() {
-        let slice = [0x20, 0, 0x20, 1, 0x20, 2, 0x1B, 0x0B];
-        let local_types = [WasmValType::I32, WasmValType::I32, WasmValType::I32];
-        let result_types = [WasmValType::I32];
-        let mut stream = Leb128Stream::from_slice(&slice);
-        let module = WasmModule::new();
-        let info =
-            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
-        let mut interp = WasmInterpreter::new(&module);
-
-        let params = [123.into(), 456.into(), 789.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 123);
-
-        let params = [123.into(), 456.into(), 0.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 456);
+    #[inline]
+    pub fn get_bool(&self) -> bool {
+        unsafe { self.i32 != 0 }
     }
 
-    #[test]
-    fn lts() {
-        let slice = [0x20, 0, 0x20, 1, 0x48, 0x0B];
-        let local_types = [WasmValType::I32, WasmValType::I32];
-        let result_types = [WasmValType::I32];
-        let mut stream = Leb128Stream::from_slice(&slice);
-        let module = WasmModule::new();
-        let info =
-            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
-        let mut interp = WasmInterpreter::new(&module);
-
-        let params = [123.into(), 456.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 1);
-
-        let params = [123.into(), 123.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 0);
-
-        let params = [456.into(), 123.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 0);
-
-        let params = [123.into(), (-456).into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 0);
-
-        let params = [456.into(), (-123).into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 0);
+    #[inline]
+    pub fn get_i32(&self) -> i32 {
+        unsafe { self.i32 }
     }
 
-    #[test]
-    fn ltu() {
-        let slice = [0x20, 0, 0x20, 1, 0x49, 0x0B];
-        let local_types = [WasmValType::I32, WasmValType::I32];
-        let result_types = [WasmValType::I32];
-        let mut stream = Leb128Stream::from_slice(&slice);
-        let module = WasmModule::new();
-        let info =
-            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
-        let mut interp = WasmInterpreter::new(&module);
-
-        let params = [123.into(), 456.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 1);
-
-        let params = [123.into(), 123.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 0);
-
-        let params = [456.into(), 123.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 0);
-
-        let params = [123.into(), (-456).into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 1);
-
-        let params = [456.into(), (-123).into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 1);
+    #[inline]
+    pub fn get_u32(&self) -> u32 {
+        unsafe { self.u32 }
     }
 
-    #[test]
-    fn les() {
-        let slice = [0x20, 0, 0x20, 1, 0x4C, 0x0B];
-        let local_types = [WasmValType::I32, WasmValType::I32];
-        let result_types = [WasmValType::I32];
-        let mut stream = Leb128Stream::from_slice(&slice);
-        let module = WasmModule::new();
-        let info =
-            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
-        let mut interp = WasmInterpreter::new(&module);
-
-        let params = [123.into(), 456.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 1);
-
-        let params = [123.into(), 123.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 1);
-
-        let params = [456.into(), 123.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 0);
-
-        let params = [123.into(), (-456).into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 0);
-
-        let params = [456.into(), (-123).into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 0);
+    #[inline]
+    pub fn get_i64(&self) -> i64 {
+        unsafe { self.i64 }
     }
 
-    #[test]
-    fn br_table() {
-        let slice = [
-            0x02, 0x40, 0x02, 0x40, 0x0b, 0x0b, 0x02, 0x40, 0x02, 0x40, 0x02, 0x40, 0x20, 0x00,
-            0x0e, 0x02, 0x00, 0x01, 0x02, 0x0b, 0x41, 0xfb, 0x00, 0x0f, 0x0b, 0x41, 0xc8, 0x03,
-            0x0f, 0x0b, 0x41, 0x95, 0x06, 0x0b,
-        ];
-        let local_types = [WasmValType::I32];
-        let result_types = [WasmValType::I32];
-        let mut stream = Leb128Stream::from_slice(&slice);
-        let module = WasmModule::new();
-        let info =
-            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
-        let mut interp = WasmInterpreter::new(&module);
-
-        let params = [0.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 123);
-
-        let params = [1.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 456);
-
-        let params = [2.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 789);
-
-        let params = [3.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 789);
-
-        let params = [4.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 789);
-
-        let params = [5.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 789);
-
-        let params = [(-1).into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 789);
+    #[inline]
+    pub fn get_u64(&self) -> u64 {
+        unsafe { self.u64 }
     }
 
-    #[test]
-    fn app_factorial() {
-        let slice = [
-            0x41, 0x01, 0x21, 0x01, 0x02, 0x40, 0x03, 0x40, 0x20, 0x00, 0x45, 0x0d, 0x01, 0x20,
-            0x01, 0x20, 0x00, 0x6c, 0x21, 0x01, 0x20, 0x00, 0x41, 0x01, 0x6b, 0x21, 0x00, 0x0c,
-            0x00, 0x0b, 0x0b, 0x20, 0x01, 0x0b,
-        ];
-        let local_types = [WasmValType::I32, WasmValType::I32];
-        let result_types = [WasmValType::I32];
-        let mut stream = Leb128Stream::from_slice(&slice);
-        let module = WasmModule::new();
-        let info =
-            WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
-        let mut interp = WasmInterpreter::new(&module);
-
-        let params = [7.into(), 0.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 5040);
-
-        let params = [10.into(), 0.into()];
-        let result = interp
-            .invoke(0, &info, &params, &result_types)
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 3628800);
+    #[inline]
+    pub fn get_f32(&self) -> f32 {
+        unsafe { self.f32 }
     }
 
-    #[test]
-    fn app_fibonacci() {
-        let slice = [
-            0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x01, 0x06, 0x01, 0x60, 0x01, 0x7F,
-            0x01, 0x7F, 0x03, 0x02, 0x01, 0x00, 0x0A, 0x31, 0x01, 0x2F, 0x01, 0x01, 0x7F, 0x41,
-            0x00, 0x21, 0x01, 0x02, 0x40, 0x03, 0x40, 0x20, 0x00, 0x41, 0x02, 0x49, 0x0D, 0x01,
-            0x20, 0x00, 0x41, 0x7F, 0x6A, 0x10, 0x00, 0x20, 0x01, 0x6A, 0x21, 0x01, 0x20, 0x00,
-            0x41, 0x7E, 0x6A, 0x21, 0x00, 0x0C, 0x00, 0x0B, 0x0B, 0x20, 0x00, 0x20, 0x01, 0x6A,
-            0x0B,
-        ];
-
-        let module =
-            WasmLoader::instantiate(&slice, |_, _, _| Err(WasmDecodeErrorType::DynamicLinkError))
-                .unwrap();
-        let runnable = module.func_by_index(0).unwrap();
-
-        let result = runnable
-            .invoke(&[5.into()])
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 5);
-
-        let result = runnable
-            .invoke(&[10.into()])
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 55);
-
-        let result = runnable
-            .invoke(&[20.into()])
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 6765);
+    #[inline]
+    pub fn get_f64(&self) -> f64 {
+        unsafe { self.f64 }
     }
 
-    #[test]
-    fn global() {
-        let slice = [
-            0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x06, 0x01, 0x60, 0x01, 0x7f,
-            0x01, 0x7f, 0x03, 0x02, 0x01, 0x00, 0x05, 0x03, 0x01, 0x00, 0x01, 0x06, 0x07, 0x01,
-            0x7f, 0x01, 0x41, 0xfb, 0x00, 0x0b, 0x0a, 0x0d, 0x01, 0x0b, 0x00, 0x23, 0x00, 0x20,
-            0x00, 0x6a, 0x24, 0x00, 0x23, 0x00, 0x0b,
-        ];
+    #[inline]
+    pub fn get_i8(&self) -> i8 {
+        unsafe { self.u32 as i8 }
+    }
 
-        let module =
-            WasmLoader::instantiate(&slice, |_, _, _| Err(WasmDecodeErrorType::DynamicLinkError))
-                .unwrap();
-        let runnable = module.func_by_index(0).unwrap();
+    #[inline]
+    pub fn get_u8(&self) -> u8 {
+        unsafe { self.u32 as u8 }
+    }
 
-        assert_eq!(module.global(0).unwrap().value().get_i32().unwrap(), 123);
+    #[inline]
+    pub fn get_i16(&self) -> i16 {
+        unsafe { self.u32 as i16 }
+    }
 
-        let result = runnable
-            .invoke(&[456.into()])
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 579);
+    #[inline]
+    pub fn get_u16(&self) -> u16 {
+        unsafe { self.u32 as u16 }
+    }
 
-        assert_eq!(module.global(0).unwrap().value().get_i32().unwrap(), 579);
+    /// Retrieves the value held by the instance as a value of type `i32` and re-stores the value processed by the closure.
+    #[inline]
+    pub fn map_i32<F>(&mut self, f: F)
+    where
+        F: FnOnce(i32) -> i32,
+    {
+        let val = unsafe { self.i32 };
+        self.i32 = f(val);
+    }
 
-        let result = runnable
-            .invoke(&[789.into()])
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 1368);
+    /// Retrieves the value held by the instance as a value of type `u32` and re-stores the value processed by the closure.
+    #[inline]
+    pub fn map_u32<F>(&mut self, f: F)
+    where
+        F: FnOnce(u32) -> u32,
+    {
+        let val = unsafe { self.u32 };
+        self.u32 = f(val);
+    }
 
-        assert_eq!(module.global(0).unwrap().value().get_i32().unwrap(), 1368);
+    /// Retrieves the value held by the instance as a value of type `i64` and re-stores the value processed by the closure.
+    #[inline]
+    pub fn map_i64<F>(&mut self, f: F)
+    where
+        F: FnOnce(i64) -> i64,
+    {
+        let val = unsafe { self.i64 };
+        self.i64 = f(val);
+    }
+
+    /// Retrieves the value held by the instance as a value of type `u64` and re-stores the value processed by the closure.
+    #[inline]
+    pub fn map_u64<F>(&mut self, f: F)
+    where
+        F: FnOnce(u64) -> u64,
+    {
+        let val = unsafe { self.u64 };
+        self.u64 = f(val);
+    }
+
+    /// Converts the value held by the instance to the `WasmValue` type as a value of the specified type.
+    #[inline]
+    pub fn get_by_type(&self, val_type: WasmValType) -> WasmValue {
+        match val_type {
+            WasmValType::I32 => WasmValue::I32(self.get_i32()),
+            WasmValType::I64 => WasmValue::I64(self.get_i64()),
+            // WasmValType::F32 => {}
+            // WasmValType::F64 => {}
+            _ => todo!(),
+        }
+    }
+}
+
+impl From<bool> for WasmStackValue {
+    #[inline]
+    fn from(v: bool) -> Self {
+        Self::from_bool(v)
+    }
+}
+
+impl From<u32> for WasmStackValue {
+    #[inline]
+    fn from(v: u32) -> Self {
+        Self::from_u32(v)
+    }
+}
+
+impl From<i32> for WasmStackValue {
+    #[inline]
+    fn from(v: i32) -> Self {
+        Self::from_i32(v)
+    }
+}
+
+impl From<u64> for WasmStackValue {
+    #[inline]
+    fn from(v: u64) -> Self {
+        Self::from_u64(v)
+    }
+}
+
+impl From<i64> for WasmStackValue {
+    #[inline]
+    fn from(v: i64) -> Self {
+        Self::from_i64(v)
+    }
+}
+
+impl From<WasmValue> for WasmStackValue {
+    #[inline]
+    fn from(v: WasmValue) -> Self {
+        match v {
+            WasmValue::I32(v) => Self::from_i64(v as i64),
+            WasmValue::I64(v) => Self::from_i64(v),
+            _ => todo!(),
+        }
     }
 }
