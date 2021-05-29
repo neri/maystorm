@@ -943,20 +943,19 @@ impl WasmInterpreter<'_> {
         //     return Err(self.error(WasmRuntimeError::InternalInconsistency, code));
         // }
 
-        if let Some(body) = target.body() {
-            heap.snapshot(|stack| {
-                let code_block = body.code_block();
-                let mut locals = stack.alloc_stack(param_len + body.local_types().len());
+        if let Some(code_block) = target.code_block() {
+            heap.snapshot(|heap| {
+                let mut locals = heap.alloc_stack(param_len + code_block.local_types().len());
                 let stack_under = stack_pointer - param_len;
 
                 locals.extend_from_slice(&value_stack[stack_under..stack_under + param_len]);
-                for _ in body.local_types() {
+                for _ in code_block.local_types() {
                     let _ = locals.push(WasmStackValue::zero());
                 }
 
                 self.func_index = target.index();
 
-                self.interpret(code_block, locals.as_mut_slice(), result_types, stack)
+                self.interpret(code_block, locals.as_mut_slice(), result_types, heap)
                     .and_then(|v| {
                         if let Some(result) = v {
                             let var = unsafe { value_stack.get_unchecked_mut(stack_under) };
@@ -967,8 +966,8 @@ impl WasmInterpreter<'_> {
                     })
             })
         } else if let Some(dlink) = target.dlink() {
-            heap.snapshot(|stack| {
-                let mut locals = stack.alloc_stack(param_len);
+            heap.snapshot(|heap| {
+                let mut locals = heap.alloc_stack(param_len);
                 let stack_under = stack_pointer - param_len;
                 let params = &value_stack[stack_under..stack_under + param_len];
                 for (index, val_type) in target.param_types().iter().enumerate() {
@@ -1041,12 +1040,12 @@ pub trait WasmInvocation {
 impl WasmInvocation for WasmRunnable<'_> {
     fn invoke(&self, params: &[WasmValue]) -> Result<Option<WasmValue>, WasmRuntimeError> {
         let function = self.function();
-        let body = function
-            .body()
+        let code_block = function
+            .code_block()
             .ok_or(WasmRuntimeError::from(WasmRuntimeErrorType::NoMethod))?;
 
         let mut locals =
-            Vec::with_capacity(function.param_types().len() + body.local_types().len());
+            Vec::with_capacity(function.param_types().len() + code_block.local_types().len());
         for (index, param_type) in function.param_types().iter().enumerate() {
             let param = params.get(index).ok_or(WasmRuntimeError::from(
                 WasmRuntimeErrorType::InvalidParameter,
@@ -1056,7 +1055,7 @@ impl WasmInvocation for WasmRunnable<'_> {
             }
             locals.push(WasmStackValue::from(param.clone()));
         }
-        for _ in body.local_types() {
+        for _ in code_block.local_types() {
             locals.push(WasmStackValue::zero());
         }
 
@@ -1065,7 +1064,7 @@ impl WasmInvocation for WasmRunnable<'_> {
         let mut interp = WasmInterpreter::new(self.module());
         interp.invoke(
             function.index(),
-            body.code_block(),
+            code_block,
             locals.as_slice(),
             result_types,
         )

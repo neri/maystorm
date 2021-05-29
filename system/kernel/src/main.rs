@@ -71,11 +71,13 @@ impl Shell {
             device.num_of_active_cpus(),
             device.total_memory_size() >> 20,
         );
-        println!(
-            "Manufacturer: {}",
-            device.manufacturer_name().unwrap_or("Unknown"),
-        );
-        println!("Model: {}", device.model_name().unwrap_or("Unknown"),);
+
+        let manufacturer_name = device.manufacturer_name();
+        let model_name = device.model_name();
+        if manufacturer_name.is_some() || model_name.is_some() {
+            println!("Manufacturer: {}", manufacturer_name.unwrap_or("Unknown"),);
+            println!("Model: {}", model_name.unwrap_or("Unknown"),);
+        }
 
         loop {
             print!("# ");

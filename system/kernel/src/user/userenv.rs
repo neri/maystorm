@@ -71,7 +71,7 @@ async fn status_bar_main() {
     window
         .draw(|bitmap| {
             let font = FontManager::title_font();
-            let ats = AttributedString::props()
+            let ats = AttributedString::new()
                 .font(font)
                 .color(fg_color)
                 .text(System::short_name());
@@ -108,7 +108,7 @@ async fn status_bar_main() {
                 } else {
                     write!(sb, "{:2}:{:02}", hour, min).unwrap();
                 }
-                let ats = AttributedString::props()
+                let ats = AttributedString::new()
                     .font(font)
                     .color(fg_color)
                     .text(sb.as_str());
@@ -188,23 +188,19 @@ async fn activity_monitor_main() {
     let bg_alpha = 0xC0;
     let bg_color32 = TrueColor::from(IndexedColor::BLACK);
     let bg_color = SomeColor::Argb32(bg_color32.set_opacity(bg_alpha));
-    let fg_color = SomeColor::from(IndexedColor::YELLOW);
+    let fg_color2 = SomeColor::DARK_GRAY;
+    let fg_color = SomeColor::YELLOW;
     let graph_sub_color = SomeColor::from(IndexedColor::LIGHT_GREEN);
     let graph_main_color = SomeColor::from(IndexedColor::YELLOW);
     let graph_border_color = SomeColor::from(IndexedColor::LIGHT_GRAY);
-    let margin = EdgeInsets::new(4, 20, 4, 4);
+    let margin = EdgeInsets::new(4, 4, 4, 4);
 
-    let screen_bounds = WindowManager::user_screen_bounds();
-    let width = 280;
+    // let screen_bounds = WindowManager::user_screen_bounds();
+    let width = 260;
+    let height = 200;
     let window = WindowBuilder::new("Activity Monitor")
-        .style(WindowStyle::NAKED)
-        // .level(WindowLevel::DESKTOP_ITEMS)
-        .frame(Rect::new(
-            screen_bounds.x() - width,
-            screen_bounds.y(),
-            width,
-            screen_bounds.height(),
-        ))
+        // .style_add(WindowStyle::NAKED)
+        .frame(Rect::new(-width - 16, -height - 16, width, height))
         .bg_color(bg_color)
         .build();
 
@@ -212,18 +208,18 @@ async fn activity_monitor_main() {
         ACTIVITY_WINDOW = Some(window);
     }
 
-    window
-        .draw(|bitmap| {
-            for i in 0..16 {
-                let r = i as usize;
-                let r = r * r;
-                let origin = Point::new(i, 0);
-                let color =
-                    SomeColor::from(bg_color32.set_opacity((bg_alpha as usize * r / 256) as u8));
-                bitmap.draw_vline(origin, bitmap.height() as isize, color);
-            }
-        })
-        .unwrap();
+    // window
+    //     .draw(|bitmap| {
+    //         for i in 0..16 {
+    //             let r = i as usize;
+    //             let r = r * r;
+    //             let origin = Point::new(i, 0);
+    //             let color =
+    //                 SomeColor::from(bg_color32.set_opacity((bg_alpha as usize * r / 256) as u8));
+    //             bitmap.draw_vline(origin, bitmap.height() as isize, color);
+    //         }
+    //     })
+    //     .unwrap();
 
     window.show();
 
@@ -365,10 +361,18 @@ async fn activity_monitor_main() {
                             .unwrap();
                             Scheduler::print_statistics(&mut sb, true);
 
-                            let rect = bitmap
+                            let mut rect = bitmap
                                 .bounds()
                                 .insets_by(EdgeInsets::new(38, spacing, 4, spacing));
-                            AttributedString::props()
+                            rect.origin += Point::new(1, 1);
+                            AttributedString::new()
+                                .font(font)
+                                .color(fg_color2)
+                                .valign(VerticalAlignment::Top)
+                                .text(sb.as_str())
+                                .draw_text(bitmap, rect, 0);
+                            rect.origin += Point::new(-1, -1);
+                            AttributedString::new()
                                 .font(font)
                                 .color(fg_color)
                                 .valign(VerticalAlignment::Top)

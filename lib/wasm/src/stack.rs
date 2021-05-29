@@ -3,7 +3,7 @@
 use alloc::vec::Vec;
 use core::{cell::UnsafeCell, mem::align_of, mem::size_of, slice};
 
-/// Fixed Size Stack
+/// Fixed size stack
 pub struct FixedStack<'a, T> {
     slice: &'a mut [T],
     stack_pointer: usize,

@@ -32,11 +32,11 @@ $(EFI_BOOT):
 $(EFI_VENDOR):
 	mkdir -p $(EFI_VENDOR)
 
-run: install $(OVMF)
-	qemu-system-x86_64 -cpu max -smp 4 -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -rtc base=localtime,clock=host -monitor stdio -device nec-usb-xhci,id=xhci
+run: 
+	qemu-system-x86_64 -machine q35 -cpu max -smp 4 -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -rtc base=localtime,clock=host -monitor stdio -device nec-usb-xhci,id=xhci
 
-runs: install $(OVMF)
-	qemu-system-x86_64 -cpu max -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -rtc base=localtime,clock=host -monitor stdio -device nec-usb-xhci,id=xhci
+runs:
+	qemu-system-x86_64 -machine q35 -cpu max -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -rtc base=localtime,clock=host -monitor stdio -device nec-usb-xhci,id=xhci
 
 boot:
 	(cd boot; cargo build -Zbuild-std --release --target $(EFI_ARCH).json)

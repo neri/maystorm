@@ -77,13 +77,13 @@ fn leb128() {
 
 #[test]
 fn add() {
-    let slice = [0x20, 0, 0x20, 1, 0x6A, 0x0B];
-    let local_types = [WasmValType::I32, WasmValType::I32];
+    let slice = [0, 0x20, 0, 0x20, 1, 0x6A, 0x0B];
+    let param_types = [WasmValType::I32, WasmValType::I32];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
     let params = [1234.into(), 5678.into()];
@@ -108,13 +108,13 @@ fn add() {
 
 #[test]
 fn fused_add() {
-    let slice = [0x20, 0, 0x41, 1, 0x6A, 0x0B];
-    let local_types = [WasmValType::I32, WasmValType::I32];
+    let slice = [0, 0x20, 0, 0x41, 1, 0x6A, 0x0B];
+    let param_types = [WasmValType::I32, WasmValType::I32];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
     let params = [1234_5678.into()];
@@ -139,13 +139,13 @@ fn fused_add() {
 
 #[test]
 fn sub() {
-    let slice = [0x20, 0, 0x20, 1, 0x6B, 0x0B];
-    let local_types = [WasmValType::I32, WasmValType::I32];
+    let slice = [0, 0x20, 0, 0x20, 1, 0x6B, 0x0B];
+    let param_types = [WasmValType::I32, WasmValType::I32];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
     let params = [1234.into(), 5678.into()];
@@ -169,13 +169,13 @@ fn sub() {
 
 #[test]
 fn mul() {
-    let slice = [0x20, 0, 0x20, 1, 0x6C, 0x0B];
-    let local_types = [WasmValType::I32, WasmValType::I32];
+    let slice = [0, 0x20, 0, 0x20, 1, 0x6C, 0x0B];
+    let param_types = [WasmValType::I32, WasmValType::I32];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
     let params = [1234.into(), 5678.into()];
@@ -199,13 +199,13 @@ fn mul() {
 
 #[test]
 fn div_s() {
-    let slice = [0x20, 0, 0x20, 1, 0x6D, 0x0B];
-    let local_types = [WasmValType::I32, WasmValType::I32];
+    let slice = [0, 0x20, 0, 0x20, 1, 0x6D, 0x0B];
+    let param_types = [WasmValType::I32, WasmValType::I32];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
     let params = [7006652.into(), 5678.into()];
@@ -251,13 +251,13 @@ fn div_s() {
 
 #[test]
 fn div_u() {
-    let slice = [0x20, 0, 0x20, 1, 0x6E, 0x0B];
-    let local_types = [WasmValType::I32, WasmValType::I32];
+    let slice = [0, 0x20, 0, 0x20, 1, 0x6E, 0x0B];
+    let param_types = [WasmValType::I32, WasmValType::I32];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
     let params = [7006652.into(), 5678.into()];
@@ -294,13 +294,13 @@ fn div_u() {
 
 #[test]
 fn select() {
-    let slice = [0x20, 0, 0x20, 1, 0x20, 2, 0x1B, 0x0B];
-    let local_types = [WasmValType::I32, WasmValType::I32, WasmValType::I32];
+    let slice = [0, 0x20, 0, 0x20, 1, 0x20, 2, 0x1B, 0x0B];
+    let param_types = [WasmValType::I32, WasmValType::I32, WasmValType::I32];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
     let params = [123.into(), 456.into(), 789.into()];
@@ -324,13 +324,13 @@ fn select() {
 
 #[test]
 fn lts() {
-    let slice = [0x20, 0, 0x20, 1, 0x48, 0x0B];
-    let local_types = [WasmValType::I32, WasmValType::I32];
+    let slice = [0, 0x20, 0, 0x20, 1, 0x48, 0x0B];
+    let param_types = [WasmValType::I32, WasmValType::I32];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
     let params = [123.into(), 456.into()];
@@ -381,13 +381,13 @@ fn lts() {
 
 #[test]
 fn ltu() {
-    let slice = [0x20, 0, 0x20, 1, 0x49, 0x0B];
-    let local_types = [WasmValType::I32, WasmValType::I32];
+    let slice = [0, 0x20, 0, 0x20, 1, 0x49, 0x0B];
+    let param_types = [WasmValType::I32, WasmValType::I32];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
     let params = [123.into(), 456.into()];
@@ -438,13 +438,13 @@ fn ltu() {
 
 #[test]
 fn les() {
-    let slice = [0x20, 0, 0x20, 1, 0x4C, 0x0B];
-    let local_types = [WasmValType::I32, WasmValType::I32];
+    let slice = [0, 0x20, 0, 0x20, 1, 0x4C, 0x0B];
+    let param_types = [WasmValType::I32, WasmValType::I32];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
     let params = [123.into(), 456.into()];
@@ -496,16 +496,16 @@ fn les() {
 #[test]
 fn br_table() {
     let slice = [
-        0x02, 0x40, 0x02, 0x40, 0x0b, 0x0b, 0x02, 0x40, 0x02, 0x40, 0x02, 0x40, 0x20, 0x00, 0x0e,
-        0x02, 0x00, 0x01, 0x02, 0x0b, 0x41, 0xfb, 0x00, 0x0f, 0x0b, 0x41, 0xc8, 0x03, 0x0f, 0x0b,
-        0x41, 0x95, 0x06, 0x0b,
+        0, 0x02, 0x40, 0x02, 0x40, 0x0b, 0x0b, 0x02, 0x40, 0x02, 0x40, 0x02, 0x40, 0x20, 0x00,
+        0x0e, 0x02, 0x00, 0x01, 0x02, 0x0b, 0x41, 0xfb, 0x00, 0x0f, 0x0b, 0x41, 0xc8, 0x03, 0x0f,
+        0x0b, 0x41, 0x95, 0x06, 0x0b,
     ];
-    let local_types = [WasmValType::I32];
+    let param_types = [WasmValType::I32];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
     let params = [0.into()];
@@ -574,17 +574,19 @@ fn br_table() {
 
 #[test]
 fn app_factorial() {
+    #[rustfmt::skip]
     let slice = [
+        1, 1, WasmValType::I32 as u8,
         0x41, 0x01, 0x21, 0x01, 0x02, 0x40, 0x03, 0x40, 0x20, 0x00, 0x45, 0x0d, 0x01, 0x20, 0x01,
         0x20, 0x00, 0x6c, 0x21, 0x01, 0x20, 0x00, 0x41, 0x01, 0x6b, 0x21, 0x00, 0x0c, 0x00, 0x0b,
-        0x0b, 0x20, 0x01, 0x0b,
+        0x0b, 0x20, 0x01, 0x0b, 
     ];
-    let local_types = [WasmValType::I32, WasmValType::I32];
+    let param_types = [WasmValType::I32];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &local_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
     let params = [7.into(), 0.into()];
@@ -615,7 +617,6 @@ fn app_fibonacci() {
         0x7F, 0x6A, 0x10, 0x00, 0x20, 0x01, 0x6A, 0x21, 0x01, 0x20, 0x00, 0x41, 0x7E, 0x6A, 0x21,
         0x00, 0x0C, 0x00, 0x0B, 0x0B, 0x20, 0x00, 0x20, 0x01, 0x6A, 0x0B,
     ];
-
     let module = WasmLoader::instantiate(&slice, |_, _, _| unreachable!()).unwrap();
     let runnable = module.func_by_index(0).unwrap();
 
@@ -652,7 +653,6 @@ fn global() {
         0x41, 0xfb, 0x00, 0x0b, 0x0a, 0x0d, 0x01, 0x0b, 0x00, 0x23, 0x00, 0x20, 0x00, 0x6a, 0x24,
         0x00, 0x23, 0x00, 0x0b,
     ];
-
     let module = WasmLoader::instantiate(&slice, |_, _, _| unreachable!()).unwrap();
     let runnable = module.func_by_index(0).unwrap();
 

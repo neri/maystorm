@@ -79,8 +79,6 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
         let stride = gop_info.stride();
         let (mut width, mut height) = gop_info.resolution();
 
-        debug::Console::init(info.vram_base as usize, width, height, stride);
-
         if width > stride {
             // GPD micro PC fake landscape mode
             swap(&mut width, &mut height);
@@ -89,6 +87,8 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
         info.vram_stride = stride as u16;
         info.screen_width = width as u16;
         info.screen_height = height as u16;
+
+        debug::Console::init(info.vram_base as usize, width, height, stride);
     } else if !info.flags.contains(BootFlags::HEADLESS) {
         writeln!(st.stdout(), "Error: GOP Not Found").unwrap();
         return Status::UNSUPPORTED;

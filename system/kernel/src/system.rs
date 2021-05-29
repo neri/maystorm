@@ -160,8 +160,6 @@ impl System {
 
         arch::Arch::init();
 
-        bus::pci::Pci::init();
-
         Scheduler::start(Self::late_init, f as usize);
     }
 
@@ -170,6 +168,8 @@ impl System {
         let shared = Self::shared();
         unsafe {
             mem::MemoryManager::late_init();
+
+            bus::pci::Pci::init();
 
             fs::FileManager::init(
                 PageManager::direct_map(shared.initrd_base as PhysicalAddress),

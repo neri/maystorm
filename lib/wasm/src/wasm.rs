@@ -238,14 +238,17 @@ impl WasmLoader {
                 .functions
                 .get(index)
                 .ok_or(WasmDecodeErrorType::InvalidParameter)?;
-            let body = WasmFunctionBody::from_stream(
+            let blob = section.stream.read_bytes().unwrap();
+            let mut stream = Leb128Stream::from_slice(blob);
+            let body = WasmCodeBlock::generate(
                 index,
-                &mut section.stream,
+                &mut stream,
                 func_def.param_types(),
                 func_def.result_types(),
                 module,
             )?;
-            self.module.functions[index].body = Some(body);
+
+            self.module.functions[index].code_block = Some(body);
         }
         Ok(())
     }
@@ -1013,7 +1016,7 @@ pub struct WasmFunction {
     type_index: usize,
     func_type: WasmType,
     origin: WasmFunctionOrigin,
-    body: Option<WasmFunctionBody>,
+    code_block: Option<WasmCodeBlock>,
     dlink: Option<WasmDynFunc>,
 }
 
@@ -1030,7 +1033,7 @@ impl WasmFunction {
             type_index,
             func_type: func_type.clone(),
             origin: WasmFunctionOrigin::Import(index),
-            body: None,
+            code_block: None,
             dlink: Some(dlink),
         }
     }
@@ -1042,7 +1045,7 @@ impl WasmFunction {
             type_index,
             func_type: func_type.clone(),
             origin: WasmFunctionOrigin::Internal,
-            body: None,
+            code_block: None,
             dlink: None,
         }
     }
@@ -1073,8 +1076,8 @@ impl WasmFunction {
     }
 
     #[inline]
-    pub const fn body(&self) -> Option<&WasmFunctionBody> {
-        self.body.as_ref()
+    pub const fn code_block(&self) -> Option<&WasmCodeBlock> {
+        self.code_block.as_ref()
     }
 
     #[inline]
@@ -1265,67 +1268,6 @@ impl WasmExportIndex {
             3 => stream.read_unsigned().map(|v| Self::Global(v as usize)),
             _ => Err(WasmDecodeErrorType::UnexpectedToken),
         })
-    }
-}
-
-pub struct WasmFunctionBody {
-    local_types: Box<[WasmValType]>,
-    code_block: WasmCodeBlock,
-}
-
-impl WasmFunctionBody {
-    fn from_stream(
-        func_index: usize,
-        stream: &mut Leb128Stream,
-        param_types: &[WasmValType],
-        result_types: &[WasmValType],
-        module: &WasmModule,
-    ) -> Result<Self, WasmDecodeErrorType> {
-        let blob = stream.read_bytes()?;
-        let mut stream = Leb128Stream::from_slice(blob);
-        let n_locals = stream.read_unsigned()? as usize;
-        let mut local_types = Vec::with_capacity(n_locals);
-        for _ in 0..n_locals {
-            let repeat = stream.read_unsigned()?;
-            let val = stream
-                .read_unsigned()
-                .and_then(|v| WasmValType::from_u64(v))?;
-            for _ in 0..repeat {
-                local_types.push(val);
-            }
-        }
-
-        let code_block = {
-            let mut running_local_types = Vec::with_capacity(param_types.len() + local_types.len());
-            for param_type in param_types {
-                running_local_types.push(*param_type);
-            }
-            running_local_types.extend_from_slice(local_types.as_slice());
-            let code_block = blob[stream.position..].to_vec().into_boxed_slice();
-            let mut stream = Leb128Stream::from_slice(&code_block);
-            WasmCodeBlock::generate(
-                func_index,
-                &mut stream,
-                &running_local_types,
-                result_types,
-                module,
-            )
-        }?;
-
-        Ok(Self {
-            local_types: local_types.into_boxed_slice(),
-            code_block,
-        })
-    }
-
-    #[inline]
-    pub const fn local_types(&self) -> &[WasmValType] {
-        &self.local_types
-    }
-
-    #[inline]
-    pub const fn code_block(&self) -> &WasmCodeBlock {
-        &self.code_block
     }
 }
 
@@ -1565,6 +1507,7 @@ impl WasmGlobal {
 /// WebAssembly code block
 pub struct WasmCodeBlock {
     func_index: usize,
+    local_types: Box<[WasmValType]>,
     max_stack: usize,
     flags: WasmBlockFlag,
     int_codes: Box<[WasmImc]>,
@@ -1583,6 +1526,11 @@ impl WasmCodeBlock {
         self.func_index
     }
 
+    #[inline]
+    pub const fn local_types(&self) -> &[WasmValType] {
+        &self.local_types
+    }
+
     /// Returns the maximum size of the value stack.
     #[inline]
     pub const fn max_value_stack(&self) -> usize {
@@ -1597,23 +1545,40 @@ impl WasmCodeBlock {
 
     /// Returns an intermediate code block.
     #[inline]
-    pub fn intermediate_codes<'a>(&'a self) -> &'a [WasmImc] {
-        self.int_codes.as_ref()
+    pub const fn intermediate_codes(&self) -> &[WasmImc] {
+        &self.int_codes
     }
 
     #[inline]
-    pub fn ext_params<'a>(&'a self) -> &'a [usize] {
-        self.ext_params.as_ref()
+    pub const fn ext_params(&self) -> &[usize] {
+        &self.ext_params
     }
 
     /// Analyzes the WebAssembly bytecode stream to generate intermediate code blocks.
     pub fn generate(
         func_index: usize,
         stream: &mut Leb128Stream,
-        local_types: &[WasmValType],
+        param_types: &[WasmValType],
         result_types: &[WasmValType],
         module: &WasmModule,
     ) -> Result<Self, WasmDecodeErrorType> {
+        let n_local_types = stream.read_unsigned()? as usize;
+        let mut local_types = Vec::with_capacity(n_local_types);
+        for _ in 0..n_local_types {
+            let repeat = stream.read_unsigned()?;
+            let val = stream
+                .read_unsigned()
+                .and_then(|v| WasmValType::from_u64(v))?;
+            for _ in 0..repeat {
+                local_types.push(val);
+            }
+        }
+        let mut local_var_types = Vec::with_capacity(param_types.len() + local_types.len());
+        for param_type in param_types {
+            local_var_types.push(*param_type);
+        }
+        local_var_types.extend_from_slice(local_types.as_slice());
+
         let mut blocks = Vec::new();
         let mut block_stack = Vec::new();
         let mut value_stack = Vec::new();
@@ -1907,7 +1872,7 @@ impl WasmCodeBlock {
 
                 WasmOpcode::LocalGet => {
                     let local_ref = stream.read_unsigned()? as usize;
-                    let val = *local_types
+                    let val = *local_var_types
                         .get(local_ref)
                         .ok_or(WasmDecodeErrorType::InvalidLocal)?;
                     int_codes.push(WasmImc::new(
@@ -1921,7 +1886,7 @@ impl WasmCodeBlock {
                 }
                 WasmOpcode::LocalSet => {
                     let local_ref = stream.read_unsigned()? as usize;
-                    let val = *local_types
+                    let val = *local_var_types
                         .get(local_ref)
                         .ok_or(WasmDecodeErrorType::InvalidLocal)?;
                     let stack = value_stack.pop().ok_or(WasmDecodeErrorType::OutOfStack)?;
@@ -1938,7 +1903,7 @@ impl WasmCodeBlock {
                 }
                 WasmOpcode::LocalTee => {
                     let local_ref = stream.read_unsigned()? as usize;
-                    let val = *local_types
+                    let val = *local_var_types
                         .get(local_ref)
                         .ok_or(WasmDecodeErrorType::InvalidLocal)?;
                     let stack = *value_stack.last().ok_or(WasmDecodeErrorType::OutOfStack)?;
@@ -3729,6 +3694,7 @@ impl WasmCodeBlock {
 
         Ok(Self {
             func_index,
+            local_types: local_var_types.into_boxed_slice(),
             max_stack,
             flags,
             int_codes: int_codes.into_boxed_slice(),

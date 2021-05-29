@@ -15,7 +15,7 @@ pub struct AttributedString<'a> {
 }
 
 impl AttributedString<'_> {
-    pub fn props() -> AttributedStringBuilder {
+    pub fn new() -> AttributedStringBuilder {
         AttributedStringBuilder::new()
     }
 

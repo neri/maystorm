@@ -1091,7 +1091,7 @@ impl RawWindow<'_> {
                 if let Some(text) = self.title() {
                     let font = shared.resources.title_font;
                     let rect = rect.insets_by(EdgeInsets::new(0, 8, 0, 8));
-                    AttributedString::props()
+                    AttributedString::new()
                         .font(font)
                         .color(if is_active {
                             WINDOW_ACTIVE_TITLE_FG_COLOR

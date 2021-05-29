@@ -241,7 +241,7 @@ impl ArleRuntime {
                     rect.size.width -= origin.x;
                     rect.size.height -= origin.y;
                     let _ = window.draw_in_rect(rect, |bitmap| {
-                        AttributedString::props()
+                        AttributedString::new()
                             .align(TextAlignment::Left)
                             .valign(VerticalAlignment::Top)
                             .color(color)
