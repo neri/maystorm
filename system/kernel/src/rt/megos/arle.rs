@@ -399,21 +399,21 @@ impl ArleRuntime {
         while let Some(message) = window.read_message() {
             self.process_message(window, message);
         }
-        self.read_key_buffer()
-            .and_then(|v| v.key_data().map(|v| v.into_char()))
+        self.read_key_buffer().map(|v| v.into_char())
     }
 
     fn read_key_buffer(&mut self) -> Option<KeyEvent> {
         if self.key_buffer.len() > 0 {
-            return Some(self.key_buffer.remove(0));
+            Some(self.key_buffer.remove(0))
+        } else {
+            None
         }
-        None
     }
 
     fn process_message(&mut self, window: WindowHandle, message: WindowMessage) {
         match message {
             WindowMessage::Key(event) => {
-                self.key_buffer.push(event);
+                event.key_data().map(|data| self.key_buffer.push(data));
             }
             _ => window.handle_default_message(message),
         }

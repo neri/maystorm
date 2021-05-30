@@ -30,8 +30,14 @@ impl Window {
     }
 
     #[inline]
-    pub const fn handle(&self) -> WindowHandle {
+    pub const unsafe fn handle(&self) -> WindowHandle {
         self.handle
+    }
+
+    #[inline]
+    pub fn begin_draw(&self) -> DrawingContext {
+        os_begin_draw(self.handle.0);
+        DrawingContext { ctx: self.handle.0 }
     }
 
     #[inline]
@@ -39,13 +45,8 @@ impl Window {
     where
         F: FnOnce(&DrawingContext) -> R,
     {
-        os_begin_draw(self.handle.0);
-        let context = DrawingContext {
-            inner: self.handle.0,
-        };
-        let r = f(&context);
-        os_end_draw(self.handle.0);
-        r
+        let context = self.begin_draw();
+        f(&context)
     }
 
     #[inline]
@@ -63,14 +64,19 @@ impl Window {
 }
 
 pub struct DrawingContext {
-    inner: usize,
+    ctx: usize,
 }
 
 impl DrawingContext {
     #[inline]
+    pub const unsafe fn context(&self) -> usize {
+        self.ctx
+    }
+
+    #[inline]
     pub fn draw_string(&self, s: &str, origin: Point, color: WindowColor) {
         os_win_draw_string(
-            self.inner,
+            self.ctx,
             origin.x as usize,
             origin.y as usize,
             s,
@@ -81,7 +87,7 @@ impl DrawingContext {
     #[inline]
     pub fn draw_line(&self, c1: Point, c2: Point, color: WindowColor) {
         os_win_draw_line(
-            self.inner,
+            self.ctx,
             c1.x as usize,
             c1.y as usize,
             c2.x as usize,
@@ -93,7 +99,7 @@ impl DrawingContext {
     #[inline]
     pub fn fill_rect(&self, rect: Rect, color: WindowColor) {
         os_win_fill_rect(
-            self.inner,
+            self.ctx,
             rect.x() as usize,
             rect.y() as usize,
             rect.width() as usize,
@@ -105,7 +111,7 @@ impl DrawingContext {
     #[inline]
     pub fn blt8<'a, T: AsRef<ConstBitmap8<'a>>>(&self, bitmap: &T, origin: Point) {
         os_blt8(
-            self.inner,
+            self.ctx,
             origin.x as usize,
             origin.y as usize,
             bitmap as *const _ as usize,
@@ -115,11 +121,18 @@ impl DrawingContext {
     #[inline]
     pub fn blt32<'a, T: AsRef<ConstBitmap32<'a>>>(&self, bitmap: &T, origin: Point) {
         os_blt32(
-            self.inner,
+            self.ctx,
             origin.x as usize,
             origin.y as usize,
             bitmap as *const _ as usize,
         )
+    }
+}
+
+impl Drop for DrawingContext {
+    #[inline]
+    fn drop(&mut self) {
+        os_end_draw(self.ctx);
     }
 }
 

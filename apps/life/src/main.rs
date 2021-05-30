@@ -36,7 +36,7 @@ fn _start() {
                 WindowColor::WHITE,
             );
             current.blt(
-                &window,
+                ctx,
                 Point::new(0, 0),
                 WindowColor::DARK_GRAY,
                 DRAW_SCALE as usize,
