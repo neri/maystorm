@@ -16,6 +16,7 @@
 #![feature(option_result_contains)]
 #![feature(panic_info_message)]
 #![feature(try_reserve)]
+#![feature(box_into_inner)]
 
 #[macro_use]
 pub mod arch;

@@ -57,7 +57,7 @@ impl BinaryLoader for ArleBinaryLoader {
                 let module = self.loader.into_module();
                 SpawnOption::new()
                     .personality(ArleRuntime::new(module))
-                    .spawn(Self::start, 0, self.lio.name.as_ref())
+                    .start_process(Self::start, 0, self.lio.name.as_ref())
             }
             Err(err) => {
                 println!("error: {:?}", err);

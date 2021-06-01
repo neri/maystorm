@@ -17,7 +17,7 @@ My first hobby OS written in Rust, one version of which is about 20,000 lines of
 * 64bit UEFI v2.X+ / ACPI v2.X+
 * x64 processor with up to 64 cores
 * ??? MB of system memory
-* 600 x 600 pixel resolution
+* 800 x 600 pixel resolution
 * SMBIOS v2.X+ (optional)
 
 ### Legacy Platform

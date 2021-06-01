@@ -379,9 +379,9 @@ impl Shell {
             let class_string = Self::find_class_string(device.class_code());
             println!(
                 "{:02x}:{:02x}.{} {:04x}:{:04x} {}",
-                addr.bus,
-                addr.dev,
-                addr.fun,
+                addr.get_bus(),
+                addr.get_dev(),
+                addr.get_fun(),
                 device.vendor_id().0,
                 device.device_id().0,
                 class_string,
@@ -392,7 +392,7 @@ impl Shell {
                     let class_string = Self::find_class_string(function.class_code());
                     println!(
                         "     .{} {:04x}:{:04x} {}",
-                        addr.fun,
+                        addr.get_fun(),
                         function.vendor_id().0,
                         function.device_id().0,
                         class_string,
@@ -481,7 +481,7 @@ impl Shell {
             (PciClass::code(0xFF), "(Vendor specific)"),
         ];
         for entry in &entries {
-            if cc.matches(&entry.0) {
+            if cc.matches(entry.0) {
                 return entry.1;
             }
         }

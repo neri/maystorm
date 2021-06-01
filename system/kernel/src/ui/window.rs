@@ -210,7 +210,11 @@ impl WindowManager<'static> {
             }));
         }
 
-        SpawnOption::with_priority(Priority::High).spawn(Self::window_thread, 0, "Window Manager");
+        SpawnOption::with_priority(Priority::High).start_process(
+            Self::window_thread,
+            0,
+            "Window Manager",
+        );
     }
 
     #[track_caller]

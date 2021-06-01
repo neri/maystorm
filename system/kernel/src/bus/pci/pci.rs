@@ -1,17 +1,17 @@
-// PCI: Peripheral Component Interconnect Bus
+//! Peripheral Component Interconnect Bus
 
 use crate::arch::cpu::*;
 use crate::system::System;
 use alloc::{boxed::Box, vec::Vec};
+use core::fmt;
 // use num_derive::FromPrimitive;
 // use num_traits::FromPrimitive;
 
-#[derive(Debug, Copy, Clone, Default, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Copy, Clone, Default, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PciConfigAddress {
-    pub bus: u8,
-    pub dev: u8,
-    pub fun: u8,
-    pub register: u8,
+    register: u8,
+    dev_fun: u8,
+    bus: u8,
 }
 
 impl PciConfigAddress {
@@ -19,21 +19,20 @@ impl PciConfigAddress {
     pub const fn bus(bus: u8) -> Self {
         Self {
             bus,
-            dev: 0,
-            fun: 0,
+            dev_fun: 0,
             register: 0,
         }
     }
 
     #[inline]
     pub const fn dev(mut self, dev: u8) -> Self {
-        self.dev = dev;
+        self.dev_fun = dev << 3;
         self
     }
 
     #[inline]
     pub const fn fun(mut self, fun: u8) -> Self {
-        self.fun = fun;
+        self.dev_fun = (self.dev_fun & 0xF8) | (fun);
         self
     }
 
@@ -41,6 +40,39 @@ impl PciConfigAddress {
     pub const fn register(mut self, register: u8) -> Self {
         self.register = register;
         self
+    }
+
+    #[inline]
+    pub const fn get_bus(&self) -> u8 {
+        self.bus
+    }
+
+    #[inline]
+    pub const fn get_dev(&self) -> u8 {
+        self.dev_fun >> 3
+    }
+
+    #[inline]
+    pub const fn get_fun(&self) -> u8 {
+        self.dev_fun & 7
+    }
+
+    #[inline]
+    pub const fn get_register(&self) -> u8 {
+        self.register
+    }
+}
+
+impl fmt::Debug for PciConfigAddress {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{:02x}:{:02x}.{}",
+            self.get_bus(),
+            self.get_dev(),
+            self.get_fun()
+        )
     }
 }
 
@@ -50,16 +82,26 @@ pub(crate) trait PciImpl {
     unsafe fn write_pci(&self, addr: PciConfigAddress, value: u32);
 }
 
+pub trait PciDriverRegistrar {
+    fn instantiate(&self, device: &PciDevice) -> Option<usize>;
+}
+
+pub trait PciDriver {
+    fn name<'a>(&self) -> &'a str;
+}
+
 static mut PCI: Pci = Pci::new();
 
 pub struct Pci {
     devices: Vec<PciDevice>,
+    registrars: Vec<Box<dyn PciDriverRegistrar>>,
 }
 
 impl Pci {
     const fn new() -> Self {
         Self {
             devices: Vec::new(),
+            registrars: Vec::new(),
         }
     }
 
@@ -70,6 +112,9 @@ impl Pci {
 
     pub(crate) unsafe fn init() {
         let shared = Self::shared();
+
+        // shared.registrars.push(super::xhci::XhciRegistrar::init());
+
         let cpu = System::current_processor();
         let bus = 0;
         for dev in 0..32 {
@@ -77,6 +122,15 @@ impl Pci {
                 shared.devices.push(device);
             }
         }
+
+        // for device in &shared.devices {
+        //     for registrar in &shared.registrars {
+        //         match registrar.instantiate(&device) {
+        //             Some(_) => {}
+        //             None => {}
+        //         }
+        //     }
+        // }
     }
 
     pub fn devices() -> &'static [PciDevice] {
@@ -420,14 +474,14 @@ impl PciClass {
         PciClassType::from_raw(self.0 & 0xFF)
     }
 
-    // #[inline]
-    // pub const fn data(&self) -> u32 {
-    //     self.0 & self.class_type().mask()
-    // }
+    #[inline]
+    pub const fn data(&self) -> u32 {
+        self.0 & self.class_type().mask()
+    }
 
     /// Returns whether or not this instance matches the specified class code, subclass, or programming interface.
     #[inline]
-    pub const fn matches(&self, other: &Self) -> bool {
+    pub const fn matches(&self, other: Self) -> bool {
         match other.class_type() {
             PciClassType::Unknown => false,
             _ => {

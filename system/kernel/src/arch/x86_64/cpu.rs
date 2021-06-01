@@ -478,12 +478,13 @@ impl PciImpl for Cpu {
 }
 
 impl Into<u32> for PciConfigAddress {
+    #[inline]
     fn into(self) -> u32 {
         0x8000_0000
-            | ((self.bus as u32) << 16)
-            | ((self.dev as u32) << 11)
-            | ((self.fun as u32) << 8)
-            | ((self.register as u32) << 2)
+            | ((self.get_bus() as u32) << 16)
+            | ((self.get_dev() as u32) << 11)
+            | ((self.get_fun() as u32) << 8)
+            | ((self.get_register() as u32) << 2)
     }
 }
 

@@ -101,13 +101,13 @@ impl Scheduler {
             sch.locals.push(LocalScheduler::new(ProcessorIndex(index)));
         }
 
-        SpawnOption::with_priority(Priority::Realtime).spawn(
+        SpawnOption::with_priority(Priority::Realtime).start_process(
             Self::scheduler_thread,
             0,
             "Scheduler",
         );
 
-        SpawnOption::with_priority(Priority::Normal).spawn(f, args, "System");
+        SpawnOption::with_priority(Priority::Normal).start_process(f, args, "System");
 
         SCHEDULER_ENABLED.store(true, Ordering::SeqCst);
 
@@ -348,7 +348,7 @@ impl Scheduler {
     fn scheduler_thread(_args: usize) {
         let shared = Self::shared();
 
-        SpawnOption::with_priority(Priority::Realtime).spawn_f(
+        SpawnOption::with_priority(Priority::Realtime).start(
             Self::statistics_thread,
             0,
             "Statistics",
@@ -439,7 +439,7 @@ impl Scheduler {
         shared.usage_total.load(Ordering::Relaxed)
     }
 
-    fn spawn_f(
+    fn spawn(
         start: ThreadStart,
         args: usize,
         name: &str,
@@ -698,15 +698,68 @@ impl SpawnOption {
         self
     }
 
+    /// Start the specified function in a new thread.
     #[inline]
-    pub fn spawn_f(self, start: fn(usize), args: usize, name: &str) -> Option<ThreadHandle> {
-        Scheduler::spawn_f(start, args, name, self)
+    pub fn start(self, start: fn(usize), args: usize, name: &str) -> Option<ThreadHandle> {
+        Scheduler::spawn(start, args, name, self)
     }
 
+    /// Start the specified function in a new process.
     #[inline]
-    pub fn spawn(mut self, start: fn(usize), args: usize, name: &str) -> Option<ThreadHandle> {
+    pub fn start_process(
+        mut self,
+        start: fn(usize),
+        args: usize,
+        name: &str,
+    ) -> Option<ThreadHandle> {
         self.raise_pid = true;
-        Scheduler::spawn_f(start, args, name, self)
+        Scheduler::spawn(start, args, name, self)
+    }
+
+    /// Start the closure in a new thread.
+    #[inline]
+    pub fn spawn<F>(self, start: F, name: &str) -> Option<ThreadHandle>
+    where
+        F: FnOnce(),
+        F: Send + 'static,
+    {
+        FnSpawner::spawn(start, name, self)
+    }
+}
+
+/// Wrapper object to spawn the closure
+struct FnSpawner<F>
+where
+    F: FnOnce(),
+{
+    start: F,
+}
+
+impl<F> FnSpawner<F>
+where
+    F: FnOnce(),
+{
+    fn spawn(start: F, name: &str, options: SpawnOption) -> Option<ThreadHandle> {
+        let boxed = Arc::new(Box::new(Self { start }));
+        unsafe {
+            let ptr = Arc::into_raw(boxed);
+            Arc::increment_strong_count(ptr);
+            Scheduler::spawn(Self::start_thread, ptr as usize, name, options)
+        }
+    }
+
+    fn start_thread(p: usize) {
+        unsafe {
+            let ptr = p as *const Box<Self>;
+            let p = Arc::from_raw(ptr);
+            Arc::decrement_strong_count(ptr);
+            let p = match Arc::try_unwrap(p) {
+                Ok(p) => p,
+                Err(_) => todo!(),
+            };
+            let p = Box::into_inner(p);
+            (p.start)();
+        };
     }
 }
 

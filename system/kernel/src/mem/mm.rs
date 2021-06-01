@@ -82,7 +82,7 @@ impl MemoryManager {
 
     pub(crate) unsafe fn late_init() {
         PageManager::init_late();
-        SpawnOption::with_priority(Priority::Realtime).spawn(Self::page_thread, 0, "Page Manager");
+        SpawnOption::with_priority(Priority::Realtime).start(Self::page_thread, 0, "Page Manager");
     }
 
     #[allow(dead_code)]

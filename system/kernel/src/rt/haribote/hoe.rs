@@ -564,7 +564,7 @@ impl BinaryLoader for HrbBinaryLoader {
         let cmdline = self.lio.argv.join(" ");
         SpawnOption::new()
             .personality(Hoe::new(self.ctx, cmdline))
-            .spawn(Self::start, 0, self.lio.name.as_ref())
+            .start_process(Self::start, 0, self.lio.name.as_ref())
     }
 }
 

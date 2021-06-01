@@ -137,6 +137,8 @@ impl App<'_> {
                     let y = (board.y + oy).checked_div(board.z).unwrap_or(0) + BITMAP_HEIGHT / 2;
                     let width = board.width;
                     let height = board.height;
+                    // self.bitmap
+                    //     .blend_rect(Rect::new(x, y, width, height), board.color);
                     let color = board.color.argb();
                     os_blend_rect(
                         &self.bitmap as *const _ as usize,

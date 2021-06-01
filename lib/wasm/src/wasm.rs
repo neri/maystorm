@@ -1,10 +1,7 @@
 //! WebAssembly Runtime Library
 
-use super::opcode::*;
-use crate::intcode::*;
-use crate::wasmintr::*;
-use crate::*;
-use alloc::{boxed::Box, string::*, sync::Arc, vec::Vec};
+use crate::{intcode::*, opcode::*, wasmintr::*, *};
+use alloc::{boxed::Box, string::*, vec::Vec};
 use bitflags::*;
 use byteorder::*;
 use core::{
@@ -776,26 +773,35 @@ impl WasmLimit {
             _ => Err(WasmDecodeErrorType::UnexpectedToken),
         }
     }
+
+    #[inline]
+    pub const fn min(&self) -> u32 {
+        self.min
+    }
+
+    #[inline]
+    pub const fn max(&self) -> u32 {
+        self.max
+    }
 }
 
 /// WebAssembly memory object
-#[allow(dead_code)]
 pub struct WasmMemory {
     limit: WasmLimit,
-    memory: Arc<UnsafeCell<Vec<u8>>>,
+    memory: UnsafeCell<Vec<u8>>,
 }
 
 impl WasmMemory {
     const PAGE_SIZE: usize = 0x10000;
 
     #[inline]
-    fn new(limit: WasmLimit) -> Self {
+    pub fn new(limit: WasmLimit) -> Self {
         let size = limit.min as usize * Self::PAGE_SIZE;
         let mut memory = Vec::with_capacity(size);
         memory.resize(size, 0);
         Self {
             limit,
-            memory: Arc::new(UnsafeCell::new(memory)),
+            memory: UnsafeCell::new(memory),
         }
     }
 
@@ -815,9 +821,6 @@ impl WasmMemory {
     }
 
     pub fn grow(&self, delta: usize) -> isize {
-        if Arc::strong_count(&self.memory) > 1 {
-            return -1;
-        }
         let memory = unsafe { self.memory.get().as_mut().unwrap() };
         let old_size = memory.len();
         let additional = delta * Self::PAGE_SIZE;
@@ -869,7 +872,7 @@ impl WasmMemory {
 
     /// Write slice to memory
     #[inline]
-    pub fn write_bytes(&mut self, offset: usize, src: &[u8]) -> Result<(), WasmRuntimeErrorType> {
+    pub fn write_bytes(&self, offset: usize, src: &[u8]) -> Result<(), WasmRuntimeErrorType> {
         let memory = self.memory_mut();
         let size = src.len();
         let limit = memory.len();

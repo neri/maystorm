@@ -51,7 +51,7 @@ async fn shell_launcher(f: fn()) {
         let terminal = Terminal::new(80, 24);
         System::set_stdout(Box::new(terminal));
     }
-    SpawnOption::new().spawn(unsafe { core::mem::transmute(f) }, 0, "shell");
+    SpawnOption::new().start_process(unsafe { core::mem::transmute(f) }, 0, "shell");
 }
 
 #[allow(dead_code)]
