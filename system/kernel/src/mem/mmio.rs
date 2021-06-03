@@ -1,6 +1,6 @@
 // Memory Mapped I/O Registers
 
-use crate::arch::page::PhysicalAddress;
+use crate::{arch::page::PhysicalAddress, bus::pci::PciBar};
 
 use super::*;
 use core::{
@@ -22,6 +22,11 @@ impl Mmio {
             base: va.get(),
             size,
         })
+    }
+
+    #[inline]
+    pub unsafe fn from_bar(bar: PciBar) -> Option<Self> {
+        Self::from_phys(bar.base(), bar.size())
     }
 
     #[inline]

@@ -150,6 +150,8 @@ impl WasmInterpreter<'_> {
 
         // let mut last_code = WasmImc::from_mnemonic(WasmIntMnemonic::Unreachable);
 
+        let memory = unsafe { self.module.memory_unchecked(0) };
+
         while let Some(code) = codes.fetch() {
             match code.mnemonic() {
                 WasmIntMnemonic::Unreachable => {
@@ -248,7 +250,6 @@ impl WasmInterpreter<'_> {
                 }
 
                 WasmIntMnemonic::I32Load => {
-                    let memory = unsafe { self.module.memory_unchecked(0) };
                     let var = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
                     let offset = code.param1() as usize + var.get_u32() as usize;
                     *var = match memory.read_u32(offset).map(|v| WasmStackValue::from(v)) {
@@ -257,7 +258,6 @@ impl WasmInterpreter<'_> {
                     };
                 }
                 WasmIntMnemonic::I32Load8S => {
-                    let memory = unsafe { self.module.memory_unchecked(0) };
                     let var = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
                     let offset = code.param1() as usize + var.get_u32() as usize;
                     *var = match memory
@@ -269,7 +269,6 @@ impl WasmInterpreter<'_> {
                     };
                 }
                 WasmIntMnemonic::I32Load8U => {
-                    let memory = unsafe { self.module.memory_unchecked(0) };
                     let var = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
                     let offset = code.param1() as usize + var.get_u32() as usize;
                     *var = match memory
@@ -281,7 +280,6 @@ impl WasmInterpreter<'_> {
                     };
                 }
                 WasmIntMnemonic::I32Load16S => {
-                    let memory = unsafe { self.module.memory_unchecked(0) };
                     let var = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
                     let offset = code.param1() as usize + var.get_u32() as usize;
                     *var = match memory
@@ -293,7 +291,6 @@ impl WasmInterpreter<'_> {
                     };
                 }
                 WasmIntMnemonic::I32Load16U => {
-                    let memory = unsafe { self.module.memory_unchecked(0) };
                     let var = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
                     let offset = code.param1() as usize + var.get_u32() as usize;
                     *var = match memory
@@ -306,7 +303,6 @@ impl WasmInterpreter<'_> {
                 }
 
                 WasmIntMnemonic::I64Load => {
-                    let memory = unsafe { self.module.memory_unchecked(0) };
                     let var = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
                     let offset = code.param1() as usize + var.get_u32() as usize;
                     *var = match memory.read_u64(offset).map(|v| WasmStackValue::from(v)) {
@@ -315,7 +311,6 @@ impl WasmInterpreter<'_> {
                     };
                 }
                 WasmIntMnemonic::I64Load8S => {
-                    let memory = unsafe { self.module.memory_unchecked(0) };
                     let var = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
                     let offset = code.param1() as usize + var.get_u32() as usize;
                     *var = match memory
@@ -327,7 +322,6 @@ impl WasmInterpreter<'_> {
                     };
                 }
                 WasmIntMnemonic::I64Load8U => {
-                    let memory = unsafe { self.module.memory_unchecked(0) };
                     let var = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
                     let offset = code.param1() as usize + var.get_u32() as usize;
                     *var = match memory
@@ -339,7 +333,6 @@ impl WasmInterpreter<'_> {
                     };
                 }
                 WasmIntMnemonic::I64Load16S => {
-                    let memory = unsafe { self.module.memory_unchecked(0) };
                     let var = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
                     let offset = code.param1() as usize + var.get_u32() as usize;
                     *var = match memory
@@ -351,7 +344,6 @@ impl WasmInterpreter<'_> {
                     };
                 }
                 WasmIntMnemonic::I64Load16U => {
-                    let memory = unsafe { self.module.memory_unchecked(0) };
                     let var = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
                     let offset = code.param1() as usize + var.get_u32() as usize;
                     *var = match memory
@@ -363,7 +355,6 @@ impl WasmInterpreter<'_> {
                     };
                 }
                 WasmIntMnemonic::I64Load32S => {
-                    let memory = unsafe { self.module.memory_unchecked(0) };
                     let var = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
                     let offset = code.param1() as usize + var.get_u32() as usize;
                     *var = match memory
@@ -375,7 +366,6 @@ impl WasmInterpreter<'_> {
                     };
                 }
                 WasmIntMnemonic::I64Load32U => {
-                    let memory = unsafe { self.module.memory_unchecked(0) };
                     let var = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
                     let offset = code.param1() as usize + var.get_u32() as usize;
                     *var = match memory
@@ -388,7 +378,6 @@ impl WasmInterpreter<'_> {
                 }
 
                 WasmIntMnemonic::I64Store32 | WasmIntMnemonic::I32Store => {
-                    let memory = unsafe { self.module.memory_unchecked(0) };
                     let stack_level = code.stack_level();
                     let index =
                         unsafe { value_stack.get_unchecked(stack_level).get_u32() as usize };
@@ -400,7 +389,6 @@ impl WasmInterpreter<'_> {
                     }
                 }
                 WasmIntMnemonic::I64Store8 | WasmIntMnemonic::I32Store8 => {
-                    let memory = unsafe { self.module.memory_unchecked(0) };
                     let stack_level = code.stack_level();
                     let index =
                         unsafe { value_stack.get_unchecked(stack_level).get_u32() as usize };
@@ -412,7 +400,6 @@ impl WasmInterpreter<'_> {
                     }
                 }
                 WasmIntMnemonic::I64Store16 | WasmIntMnemonic::I32Store16 => {
-                    let memory = unsafe { self.module.memory_unchecked(0) };
                     let stack_level = code.stack_level();
                     let index =
                         unsafe { value_stack.get_unchecked(stack_level).get_u32() as usize };
@@ -424,7 +411,6 @@ impl WasmInterpreter<'_> {
                     }
                 }
                 WasmIntMnemonic::I64Store => {
-                    let memory = unsafe { self.module.memory_unchecked(0) };
                     let stack_level = code.stack_level();
                     let index =
                         unsafe { value_stack.get_unchecked(stack_level).get_u32() as usize };
@@ -437,12 +423,10 @@ impl WasmInterpreter<'_> {
                 }
 
                 WasmIntMnemonic::MemorySize => {
-                    let memory = unsafe { self.module.memory_unchecked(0) };
                     let ref_a = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
                     *ref_a = WasmStackValue::from(memory.size() as u32);
                 }
                 WasmIntMnemonic::MemoryGrow => {
-                    let memory = unsafe { self.module.memory_unchecked(0) };
                     let ref_a = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
                     *ref_a = WasmStackValue::from(memory.grow(ref_a.get_u32() as usize) as u32);
                 }

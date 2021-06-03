@@ -731,6 +731,7 @@ impl SpawnOption {
 struct FnSpawner<F>
 where
     F: FnOnce(),
+    F: Send + 'static,
 {
     start: F,
 }
@@ -738,6 +739,7 @@ where
 impl<F> FnSpawner<F>
 where
     F: FnOnce(),
+    F: Send + 'static,
 {
     fn spawn(start: F, name: &str, options: SpawnOption) -> Option<ThreadHandle> {
         let boxed = Arc::new(Box::new(Self { start }));
