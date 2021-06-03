@@ -1,10 +1,12 @@
-// Mutual exclusion
+//! A mutual exclusion primitive like std::sync::Mutex
 
 use super::semaphore::Semaphore;
 use super::*;
 use core::{
     cell::UnsafeCell,
+    mem,
     ops::{Deref, DerefMut},
+    ptr,
 };
 
 /// A mutual exclusion primitive like std::sync::Mutex
@@ -45,6 +47,25 @@ impl<T: ?Sized> Mutex<T> {
             unsafe { Ok(MutexGuard::new(self)?) }
         } else {
             Err(TryLockError::WouldBlock)
+        }
+    }
+
+    #[inline]
+    pub fn into_inner(self) -> LockResult<T>
+    where
+        T: Sized,
+    {
+        unsafe {
+            let (inner, data) = {
+                let Mutex {
+                    ref inner,
+                    ref data,
+                } = self;
+                (ptr::read(inner), ptr::read(data))
+            };
+            mem::forget(self);
+            drop(inner);
+            Ok(data.into_inner())
         }
     }
 }

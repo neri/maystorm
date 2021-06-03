@@ -5,8 +5,8 @@ use crate::{
     arch::cpu::*,
     rt::Personality,
     sync::atomicflags::*,
-    sync::semaphore::*,
     sync::spinlock::*,
+    sync::{semaphore::*, Mutex},
     system::*,
     ui::window::{WindowHandle, WindowMessage},
     *,
@@ -219,22 +219,6 @@ impl Scheduler {
             } {
                 LocalScheduler::switch_context(local, next);
             }
-        }
-    }
-
-    pub fn wait_for(object: Option<&SignallingObject>, duration: Duration) {
-        unsafe {
-            without_interrupts!({
-                let current = Self::current_thread().unwrap();
-                if let Some(object) = object {
-                    let _ = object.set(current);
-                }
-                if duration.as_nanos() > 0 {
-                    Timer::sleep(duration);
-                } else {
-                    Scheduler::sleep();
-                }
-            });
         }
     }
 
@@ -667,6 +651,7 @@ impl ProcessId {
     }
 }
 
+/// Build an option to start a new thread or process.
 pub struct SpawnOption {
     priority: Priority,
     raise_pid: bool,
@@ -717,37 +702,50 @@ impl SpawnOption {
     }
 
     /// Start the closure in a new thread.
+    ///
+    /// The parameters passed follow the move semantics of Rust's closure.
     #[inline]
-    pub fn spawn<F>(self, start: F, name: &str) -> Option<ThreadHandle>
+    pub fn spawn<F, T>(self, start: F, name: &str) -> JoinHandle<T>
     where
-        F: FnOnce(),
+        F: FnOnce() -> T,
         F: Send + 'static,
+        T: Send + 'static,
     {
         FnSpawner::spawn(start, name, self)
     }
 }
 
 /// Wrapper object to spawn the closure
-struct FnSpawner<F>
+struct FnSpawner<F, T>
 where
-    F: FnOnce(),
+    F: FnOnce() -> T,
     F: Send + 'static,
+    T: Send + 'static,
 {
     start: F,
+    mutex: Arc<Mutex<Option<T>>>,
 }
 
-impl<F> FnSpawner<F>
+impl<F, T> FnSpawner<F, T>
 where
-    F: FnOnce(),
+    F: FnOnce() -> T,
     F: Send + 'static,
+    T: Send + 'static,
 {
-    fn spawn(start: F, name: &str, options: SpawnOption) -> Option<ThreadHandle> {
-        let boxed = Arc::new(Box::new(Self { start }));
-        unsafe {
+    fn spawn(start: F, name: &str, options: SpawnOption) -> JoinHandle<T> {
+        let mutex = Arc::new(Mutex::new(None));
+        let boxed = Arc::new(Box::new(Self {
+            start,
+            mutex: Arc::clone(&mutex),
+        }));
+        let thread = unsafe {
             let ptr = Arc::into_raw(boxed);
             Arc::increment_strong_count(ptr);
             Scheduler::spawn(Self::start_thread, ptr as usize, name, options)
         }
+        .unwrap();
+
+        JoinHandle { thread, mutex }
     }
 
     fn start_thread(p: usize) {
@@ -757,11 +755,34 @@ where
             Arc::decrement_strong_count(ptr);
             let p = match Arc::try_unwrap(p) {
                 Ok(p) => p,
-                Err(_) => todo!(),
+                Err(_) => unreachable!(),
             };
             let p = Box::into_inner(p);
-            (p.start)();
+            let r = (p.start)();
+            *p.mutex.lock().unwrap() = Some(r);
         };
+        Scheduler::exit();
+    }
+}
+
+pub struct JoinHandle<T> {
+    thread: ThreadHandle,
+    mutex: Arc<Mutex<Option<T>>>,
+}
+
+impl<T> JoinHandle<T> {
+    // pub fn thread(&self) -> &Thread
+
+    pub fn join(self) -> Result<T, ()> {
+        self.thread.join();
+
+        match Arc::try_unwrap(self.mutex) {
+            Ok(v) => {
+                let t = v.into_inner().unwrap();
+                t.ok_or(())
+            }
+            Err(_) => unreachable!(),
+        }
     }
 }
 
@@ -1359,60 +1380,6 @@ impl RawThread {
 //         println!("DROP THREAD {}", self.handle.0.get());
 //     }
 // }
-
-#[derive(Debug)]
-pub struct SignallingObject(AtomicUsize);
-
-impl SignallingObject {
-    const NONE: usize = 0;
-
-    pub fn new() -> Self {
-        Self(AtomicUsize::new(
-            Scheduler::current_thread().unwrap().as_usize(),
-        ))
-    }
-
-    pub fn set(&self, value: ThreadHandle) -> Result<(), ()> {
-        let value = value.as_usize();
-        match self
-            .0
-            .compare_exchange(Self::NONE, value, Ordering::SeqCst, Ordering::Relaxed)
-        {
-            Ok(_) => Ok(()),
-            Err(_) => Err(()),
-        }
-    }
-
-    pub fn load(&self) -> Option<ThreadHandle> {
-        ThreadHandle::new(self.0.load(Ordering::SeqCst))
-    }
-
-    pub fn unbox(&self) -> Option<ThreadHandle> {
-        ThreadHandle::new(self.0.swap(Self::NONE, Ordering::SeqCst))
-    }
-
-    pub fn wait(&self, duration: Duration) {
-        Scheduler::wait_for(Some(self), duration)
-    }
-
-    pub fn signal(&self) {
-        if let Some(thread) = self.unbox() {
-            thread.wake()
-        }
-    }
-}
-
-impl From<usize> for SignallingObject {
-    fn from(value: usize) -> Self {
-        Self(AtomicUsize::new(value))
-    }
-}
-
-impl From<SignallingObject> for usize {
-    fn from(value: SignallingObject) -> usize {
-        value.0.load(Ordering::Acquire)
-    }
-}
 
 struct ThreadQueue(ArrayQueue<NonZeroUsize>);
 
