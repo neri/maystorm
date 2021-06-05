@@ -154,16 +154,6 @@ impl MemoryManager {
         None
     }
 
-    /// Allocate kernel memory (DEPRECATED)
-    #[deprecated]
-    pub unsafe fn zalloc_legacy(size: usize) -> Option<NonZeroUsize> {
-        let shared = Self::shared();
-        match Layout::from_size_align(size, shared.page_size_min()) {
-            Ok(layout) => Self::zalloc(layout),
-            Err(_) => None,
-        }
-    }
-
     /// Allocate kernel memory
     pub unsafe fn zalloc(layout: Layout) -> Option<NonZeroUsize> {
         let shared = Self::shared();

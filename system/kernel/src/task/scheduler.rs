@@ -33,7 +33,6 @@ pub struct Scheduler {
     queue_realtime: ThreadQueue,
     queue_higher: ThreadQueue,
     queue_normal: ThreadQueue,
-    queue_lower: ThreadQueue,
 
     locals: Vec<Box<LocalScheduler>>,
 
@@ -67,13 +66,12 @@ pub enum SchedulerState {
 impl Scheduler {
     /// Start scheduler and sleep forever
     pub(crate) fn start(f: fn(usize) -> (), args: usize) -> ! {
-        const SIZE_OF_SUB_QUEUE: usize = 64;
-        const SIZE_OF_MAIN_QUEUE: usize = 256;
+        const SIZE_OF_SUB_QUEUE: usize = 63;
+        const SIZE_OF_MAIN_QUEUE: usize = 255;
 
         let queue_realtime = ThreadQueue::with_capacity(SIZE_OF_SUB_QUEUE);
         let queue_higher = ThreadQueue::with_capacity(SIZE_OF_SUB_QUEUE);
         let queue_normal = ThreadQueue::with_capacity(SIZE_OF_MAIN_QUEUE);
-        let queue_lower = ThreadQueue::with_capacity(SIZE_OF_SUB_QUEUE);
         let pool = ThreadPool::default();
 
         let locals = Vec::new();
@@ -83,7 +81,6 @@ impl Scheduler {
                 queue_realtime,
                 queue_higher,
                 queue_normal,
-                queue_lower,
                 locals,
                 pool,
                 usage: AtomicUsize::new(0),
@@ -204,19 +201,8 @@ impl Scheduler {
             .flatten()
         {
             LocalScheduler::switch_context(local, next);
-        } else if let Some(next) = (priority < Priority::Low)
-            .then(|| shared.queue_lower.dequeue())
-            .flatten()
-        {
-            LocalScheduler::switch_context(local, next);
         } else if current.update(|current| current.quantum.consume()) {
-            if let Some(next) = match priority {
-                Priority::Idle => None,
-                Priority::Low => shared.queue_lower.dequeue(),
-                Priority::Normal => shared.queue_normal.dequeue(),
-                Priority::High => shared.queue_higher.dequeue(),
-                Priority::Realtime => unreachable!(),
-            } {
+            if let Some(next) = Scheduler::next(local) {
                 LocalScheduler::switch_context(local, next);
             }
         }
@@ -229,7 +215,7 @@ impl Scheduler {
                 let current = local.current_thread();
                 current.update_statistics();
                 current.as_ref().attribute.insert(ThreadAttributes::ASLEEP);
-                LocalScheduler::switch_context(local, Scheduler::next(local));
+                LocalScheduler::switch_context(local, Scheduler::next(local).unwrap_or(local.idle));
             });
         }
     }
@@ -239,7 +225,7 @@ impl Scheduler {
             without_interrupts!({
                 let local = Self::local_scheduler().unwrap();
                 local.current_thread().update_statistics();
-                LocalScheduler::switch_context(local, Scheduler::next(local));
+                LocalScheduler::switch_context(local, Scheduler::next(local).unwrap_or(local.idle));
             });
         }
     }
@@ -254,31 +240,29 @@ impl Scheduler {
     }
 
     /// Get the next executable thread from the thread queue
-    fn next(scheduler: &LocalScheduler) -> ThreadHandle {
+    fn next(scheduler: &LocalScheduler) -> Option<ThreadHandle> {
         // let index = scheduler.index;
         let shared = Self::shared();
         if shared.is_frozen.load(Ordering::SeqCst) {
-            return scheduler.idle;
+            return None;
         }
         if let Some(next) = shared.queue_realtime.dequeue() {
-            next
+            Some(next)
         } else if let Some(next) = shared.queue_higher.dequeue() {
-            next
+            Some(next)
         } else if let Some(next) = shared.queue_normal.dequeue() {
-            next
-        } else if let Some(next) = shared.queue_lower.dequeue() {
-            next
+            Some(next)
         } else {
-            scheduler.idle
+            None
         }
     }
 
     fn enqueue(&mut self, handle: ThreadHandle) {
         match handle.as_ref().priority {
             Priority::Realtime => self.queue_realtime.enqueue(handle).unwrap(),
-            Priority::High => self.queue_higher.enqueue(handle).unwrap(),
-            Priority::Normal => self.queue_normal.enqueue(handle).unwrap(),
-            Priority::Low => self.queue_lower.enqueue(handle).unwrap(),
+            Priority::High | Priority::Normal | Priority::Low => {
+                self.queue_normal.enqueue(handle).unwrap()
+            }
             _ => unreachable!(),
         }
     }
@@ -1381,22 +1365,90 @@ impl RawThread {
 //     }
 // }
 
-struct ThreadQueue(ArrayQueue<NonZeroUsize>);
+// struct ThreadQueue(ArrayQueue<NonZeroUsize>);
+
+// impl ThreadQueue {
+//     #[inline]
+//     fn with_capacity(capacity: usize) -> Self {
+//         Self(ArrayQueue::new(capacity))
+//     }
+
+//     #[inline]
+//     fn dequeue(&self) -> Option<ThreadHandle> {
+//         self.0.pop().map(|v| ThreadHandle(v))
+//     }
+
+//     #[inline]
+//     fn enqueue(&self, data: ThreadHandle) -> Result<(), ()> {
+//         self.0.push(data.0).map_err(|_| ())
+//     }
+// }
+
+struct ThreadQueue {
+    lock: Spinlock,
+    mask: usize,
+    head: AtomicUsize,
+    tail: AtomicUsize,
+    slice: UnsafeCell<Box<[usize]>>,
+}
 
 impl ThreadQueue {
     #[inline]
     fn with_capacity(capacity: usize) -> Self {
-        Self(ArrayQueue::new(capacity))
+        let cap = (capacity + 1).next_power_of_two();
+        let mask = cap - 1;
+        let mut vec = Vec::with_capacity(cap);
+        vec.resize(cap, 0);
+        Self {
+            lock: Spinlock::new(),
+            head: AtomicUsize::new(0),
+            tail: AtomicUsize::new(0),
+            mask,
+            slice: UnsafeCell::new(vec.into_boxed_slice()),
+        }
     }
 
     #[inline]
     fn dequeue(&self) -> Option<ThreadHandle> {
-        self.0.pop().map(|v| ThreadHandle(v))
+        unsafe {
+            without_interrupts! {
+                self.lock.synchronized(|| {
+                    let mask = self.mask;
+                    let head = mask & self.head.load(Ordering::Relaxed);
+                    let tail = mask & self.tail.load(Ordering::Relaxed);
+                    (head != tail)
+                        .then(|| {
+                            self.head.fetch_add(1, Ordering::SeqCst);
+                            let slice = &*self.slice.get();
+                            let a = slice.get_unchecked(head);
+                            NonZeroUsize::new(*a).map(|v| ThreadHandle(v))
+                        })
+                        .flatten()
+                })
+            }
+        }
     }
 
     #[inline]
     fn enqueue(&self, data: ThreadHandle) -> Result<(), ()> {
-        self.0.push(data.0).map_err(|_| ())
+        unsafe {
+            without_interrupts! {
+                self.lock.synchronized(|| {
+                    let mask = self.mask;
+                    let head = mask & self.head.load(Ordering::Relaxed);
+                    let tail = mask & self.tail.load(Ordering::Relaxed);
+                    let new_tail = mask & (tail + 1);
+                    (head != new_tail)
+                        .then(|| {
+                            self.tail.fetch_add(1, Ordering::SeqCst);
+                            let slice = &mut *self.slice.get();
+                            let a = slice.get_unchecked_mut(tail);
+                            *a = data.as_usize();
+                        })
+                        .ok_or(())
+                })
+            }
+        }
     }
 }
 
