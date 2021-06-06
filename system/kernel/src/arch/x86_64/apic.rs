@@ -186,6 +186,12 @@ impl Apic {
             PrivilegeLevel::Kernel,
         );
 
+        InterruptDescriptorTable::register(
+            InterruptVector::IPI_SCHEDULE,
+            ipi_schedule_handler as usize,
+            PrivilegeLevel::Kernel,
+        );
+
         // preparing SMP
         if !System::boot_flags().contains(BootFlags::FORCE_SINGLE) {
             let sipi_vec = InterruptVector(MemoryManager::static_alloc_real().unwrap().get());
@@ -327,7 +333,7 @@ impl Apic {
     #[inline]
     #[must_use]
     pub unsafe fn broadcast_invalidate_tlb() -> bool {
-        without_interrupts!({
+        Irql::IPI.raise(|| {
             let max_cpu = System::current_device().num_of_active_cpus();
             if max_cpu < 2 {
                 return true;
@@ -349,6 +355,15 @@ impl Apic {
             }
 
             APIC.tlb_flush_bitmap.load(Ordering::Relaxed) == 0
+        })
+    }
+
+    #[inline]
+    pub unsafe fn broadcast_schedule() -> bool {
+        without_interrupts!({
+            LocalApic::broadcast_ipi(InterruptVector::IPI_SCHEDULE);
+
+            true
         })
     }
 
@@ -377,6 +392,11 @@ seq!(N in 1..64 {
 });
 
 unsafe extern "x86-interrupt" fn timer_handler() {
+    LocalApic::eoi();
+    Scheduler::reschedule();
+}
+
+unsafe extern "x86-interrupt" fn ipi_schedule_handler() {
     LocalApic::eoi();
     Scheduler::reschedule();
 }

@@ -4,9 +4,7 @@ use super::{executor::Executor, *};
 use crate::{
     arch::cpu::*,
     rt::Personality,
-    sync::atomicflags::*,
-    sync::spinlock::*,
-    sync::{semaphore::*, Mutex},
+    sync::{atomicflags::*, semaphore::*, spinlock::*, Mutex},
     system::*,
     ui::window::{WindowHandle, WindowMessage},
     *,
@@ -140,7 +138,7 @@ impl Scheduler {
         let sch = Self::shared();
         sch.is_frozen.store(true, Ordering::SeqCst);
         if force {
-            // TODO:
+            let _ = Cpu::broadcast_schedule();
         }
         Ok(())
     }
@@ -241,12 +239,10 @@ impl Scheduler {
 
     /// Get the next executable thread from the thread queue
     fn next(scheduler: &LocalScheduler) -> Option<ThreadHandle> {
-        // let index = scheduler.index;
         let shared = Self::shared();
         if shared.is_frozen.load(Ordering::SeqCst) {
-            return None;
-        }
-        if let Some(next) = shared.queue_realtime.dequeue() {
+            Some(scheduler.idle)
+        } else if let Some(next) = shared.queue_realtime.dequeue() {
             Some(next)
         } else if let Some(next) = shared.queue_higher.dequeue() {
             Some(next)

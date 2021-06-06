@@ -217,6 +217,14 @@ impl Cpu {
     }
 
     #[inline]
+    pub(crate) unsafe fn broadcast_schedule() -> Result<(), ()> {
+        match Apic::broadcast_schedule() {
+            true => Ok(()),
+            false => Err(()),
+        }
+    }
+
+    #[inline]
     pub fn spin_loop_hint() {
         unsafe {
             asm!("pause", options(nomem, nostack));
@@ -929,6 +937,7 @@ pub struct InterruptVector(pub u8);
 
 impl InterruptVector {
     pub const IPI_INVALIDATE_TLB: Self = Self(0xEE);
+    pub const IPI_SCHEDULE: Self = Self(0xFC);
 }
 
 #[repr(u8)]
