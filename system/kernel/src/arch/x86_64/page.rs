@@ -261,6 +261,7 @@ impl From<MProtect> for PageAttributes {
     }
 }
 
+#[repr(transparent)]
 #[derive(Debug, Copy, Clone, Default, PartialEq, PartialOrd)]
 pub(super) struct PageTableEntry(PageTableRepr);
 

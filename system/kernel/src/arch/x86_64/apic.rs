@@ -479,6 +479,7 @@ impl From<Irq> for InterruptVector {
 }
 
 /// Message Signaled Interrupts
+#[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Default)]
 pub struct Msi(pub isize);
 

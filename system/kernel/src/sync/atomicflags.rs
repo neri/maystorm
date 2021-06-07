@@ -12,7 +12,10 @@ where
     _phantom: PhantomData<T>,
 }
 
-impl<T: Into<usize>> AtomicBitflags<T> {
+impl<T> AtomicBitflags<T>
+where
+    T: Into<usize>,
+{
     pub const EMPTY: Self = Self::empty();
 
     #[inline]
@@ -24,7 +27,7 @@ impl<T: Into<usize>> AtomicBitflags<T> {
     }
 
     #[inline]
-    pub const fn from_bits(bits: usize) -> AtomicBitflags<T> {
+    pub const unsafe fn from_bits_unchecked(bits: usize) -> AtomicBitflags<T> {
         Self {
             repr: AtomicUsize::new(bits),
             _phantom: PhantomData,
@@ -33,7 +36,7 @@ impl<T: Into<usize>> AtomicBitflags<T> {
 
     #[inline]
     pub fn new(value: T) -> AtomicBitflags<T> {
-        Self::from_bits(value.into())
+        unsafe { Self::from_bits_unchecked(value.into()) }
     }
 
     #[inline]
@@ -82,5 +85,15 @@ impl<T: Into<usize>> AtomicBitflags<T> {
     #[inline]
     pub fn test_and_clear(&self, bits: T) -> bool {
         Cpu::interlocked_test_and_clear(&self.repr, bits.into().trailing_zeros() as usize)
+    }
+}
+
+impl<T> Default for AtomicBitflags<T>
+where
+    T: Into<usize> + Default,
+{
+    #[inline]
+    fn default() -> Self {
+        Self::new(T::default())
     }
 }

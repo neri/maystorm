@@ -1429,6 +1429,7 @@ impl Default for BitmapStrategy {
     }
 }
 
+#[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct WindowHandle(pub NonZeroUsize);
 

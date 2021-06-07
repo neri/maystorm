@@ -10,6 +10,7 @@ use megstd::drawing::*;
 const INVALID_UNICHAR: char = '\u{FEFF}';
 
 /// Keyboard usage as defined by the HID specification.
+#[repr(transparent)]
 #[derive(Debug, Copy, Clone, Default, PartialEq, PartialOrd, Eq, Ord)]
 pub struct Usage(pub u8);
 
@@ -197,6 +198,7 @@ impl KeyboardState {
     }
 }
 
+#[repr(transparent)]
 #[derive(Debug, Copy, Clone)]
 pub struct KeyEvent(NonZeroU32);
 

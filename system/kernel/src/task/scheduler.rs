@@ -620,6 +620,7 @@ pub unsafe extern "C" fn sch_setup_new_thread() {
     lsch.lower_irql(Irql::Passive);
 }
 
+#[repr(transparent)]
 #[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct ProcessId(pub usize);
 
@@ -1110,6 +1111,7 @@ impl ThreadPool {
     }
 }
 
+#[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord)]
 pub struct ThreadHandle(NonZeroUsize);
 
@@ -1361,6 +1363,7 @@ impl RawThread {
 //     }
 // }
 
+// #[repr(transparent)]
 // struct ThreadQueue(ArrayQueue<NonZeroUsize>);
 
 // impl ThreadQueue {

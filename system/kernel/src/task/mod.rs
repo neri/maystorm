@@ -27,6 +27,7 @@ impl Task {
     }
 }
 
+#[repr(transparent)]
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 struct TaskId(u64);
 

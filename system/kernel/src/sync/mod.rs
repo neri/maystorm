@@ -1,6 +1,5 @@
 //! Classes to synchronize
 
-pub mod atomic;
 pub mod atomicflags;
 pub mod semaphore;
 pub mod spinlock;
@@ -13,8 +12,7 @@ use core::fmt;
 pub type LockResult<Guard> = Result<Guard, PoisonError<Guard>>;
 pub type TryLockResult<Guard> = Result<Guard, TryLockError<Guard>>;
 
-/// NOT IMPLEMENTED
-#[allow(dead_code)]
+/// NOT YET IMPLEMENTED
 pub struct PoisonError<T> {
     guard: T,
 }
