@@ -11,14 +11,15 @@ version = "0.1.0"
 [dependencies]
 acpi = {git = "https://github.com/rust-osdev/acpi"}
 # aml = {git = "https://github.com/rust-osdev/acpi"}
-bitflags = "1"
-bootprot = {path = "../../lib/bootprot"}
+bitflags = {version = "1"}
 byteorder = {version = "1", default-features = false}
 crossbeam-queue = {version = "0.3", default-features = false, features = ["alloc"]}
 futures-util = {default-features = false, features = ["alloc"], version = "0.3"}
-megosabi = {path = "../../lib/megosabi"}
-megstd = {path = "../../lib/megstd"}
 num-derive = {version = "0.2", default-features = false}
 num-traits = {version = "0.2", default-features = false}
-seq-macro = "0.2"
+seq-macro = {version = "0.2"}
+
+bootprot = {path = "../../lib/bootprot"}
+megosabi = {path = "../../lib/megosabi"}
+megstd = {path = "../../lib/megstd"}
 wasm = {path = "../../lib/wasm"}

@@ -44,7 +44,7 @@ boot:
 kernel:
 	(cd system; cargo build -Zbuild-std --release --target $(KRNL_ARCH).json)
 
-install: $(EFI_VENDOR) $(EFI_BOOT) kernel boot $(BOOT_EFI1) tools/mkinitrd/src/*.rs $(INITRD_FILES) apps
+install: $(EFI_VENDOR) $(EFI_BOOT) kernel boot tools/mkinitrd/src/*.rs $(INITRD_FILES) apps
 	cp $(TARGET_BOOT_EFI) $(BOOT_EFI1)
 	cp $(TARGET_BOOT_EFI) $(BOOT_EFI2)
 	cp $(TARGET_KERNEL) $(KERNEL_BIN)

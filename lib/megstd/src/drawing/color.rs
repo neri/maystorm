@@ -106,11 +106,9 @@ impl From<IndexedColor> for TrueColor {
     }
 }
 
-#[repr(C)]
+#[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct TrueColor {
-    argb: u32,
-}
+pub struct TrueColor(u32);
 
 impl ColorTrait for TrueColor {}
 
@@ -120,21 +118,17 @@ impl TrueColor {
 
     #[inline]
     pub const fn from_rgb(rgb: u32) -> Self {
-        Self {
-            argb: rgb | 0xFF000000,
-        }
+        Self(rgb | 0xFF000000)
     }
 
     #[inline]
     pub const fn from_argb(argb: u32) -> Self {
-        Self { argb }
+        Self(argb)
     }
 
     #[inline]
     pub const fn gray(white: u8, alpha: u8) -> Self {
-        Self {
-            argb: white as u32 * 0x00_01_01_01 + alpha as u32 * 0x01_00_00_00,
-        }
+        Self(white as u32 * 0x00_01_01_01 + alpha as u32 * 0x01_00_00_00)
     }
 
     #[inline]
@@ -144,12 +138,12 @@ impl TrueColor {
 
     #[inline]
     pub const fn rgb(self) -> u32 {
-        self.argb & 0x00FFFFFF
+        self.0 & 0x00FFFFFF
     }
 
     #[inline]
     pub const fn argb(self) -> u32 {
-        self.argb
+        self.0
     }
 
     #[inline]
@@ -160,14 +154,14 @@ impl TrueColor {
 
     #[inline]
     pub const fn opacity(self) -> u8 {
-        (self.argb >> 24) as u8
+        (self.0 >> 24) as u8
     }
 
     #[inline]
     pub fn set_opacity(mut self, alpha: u8) -> Self {
         let mut components = self.components();
         components.a = alpha;
-        self.argb = components.into();
+        self.0 = components.into();
         self
     }
 

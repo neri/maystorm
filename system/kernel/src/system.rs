@@ -21,7 +21,7 @@ pub struct Version<'a> {
 }
 
 impl Version<'_> {
-    const SYSTEM_NAME: &'static str = "An Operating Environment codename Maystorm";
+    const SYSTEM_NAME: &'static str = "codename Maystorm";
     const SYSTEM_SHORT_NAME: &'static str = "maystorm";
     const RELEASE: &'static str = "";
     const VERSION: Version<'static> = Version::new(0, 21, 0, Self::RELEASE);

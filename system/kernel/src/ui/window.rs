@@ -31,7 +31,7 @@ const WINDOW_BORDER_SHADOW_PADDING: isize = 8;
 const WINDOW_TITLE_HEIGHT: isize = 24;
 
 // const BARRIER_COLOR: TrueColor = TrueColor::from_argb(0x80000000);
-const WINDOW_ACTIVE_TITLE_BG_COLOR: SomeColor = SomeColor::from_argb(0xE0E0E0E0);
+const WINDOW_ACTIVE_TITLE_BG_COLOR: SomeColor = SomeColor::from_argb(0xE0BBDEFB);
 const WINDOW_ACTIVE_TITLE_FG_COLOR: SomeColor = SomeColor::from_argb(0xFF212121);
 const WINDOW_INACTIVE_TITLE_BG_COLOR: SomeColor = SomeColor::from_argb(0xFFEEEEEE);
 const WINDOW_INACTIVE_TITLE_FG_COLOR: SomeColor = SomeColor::from_argb(0xFF9E9E9E);
