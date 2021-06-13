@@ -2,7 +2,7 @@
 
 My first hobby OS written in Rust, one version of which is about 20,000 lines of code and supports multitasking, windows, WebAssembly runtime, and simple applications.
 
-* [Documentation](https://meg-os.github.io/maystorm)
+* [Documentation](https://meg-os.github.io/maystorm/kernel/)
 
 ## Feature
 
