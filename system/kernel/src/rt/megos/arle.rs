@@ -51,7 +51,7 @@ impl BinaryLoader for ArleBinaryLoader {
             .map_err(|_| ())
     }
 
-    fn invoke_start(self: Box<Self>) -> Option<ThreadHandle> {
+    fn invoke_start(self: Box<Self>) -> Option<ProcessId> {
         match self.loader.module().func(ArleRuntime::ENTRY_FUNC_NAME) {
             Ok(_) => {
                 let module = self.loader.into_module();

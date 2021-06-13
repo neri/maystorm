@@ -1,8 +1,7 @@
 // Memory Mapped I/O Registers
 
-use crate::{arch::page::PhysicalAddress, bus::pci::PciBar};
-
 use super::*;
+use crate::{arch::page::PhysicalAddress, bus::pci::PciBar};
 use core::{
     mem::{size_of, transmute},
     num::NonZeroUsize,

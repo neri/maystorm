@@ -84,6 +84,7 @@ impl<T: ?Sized + Default> Default for Mutex<T> {
     }
 }
 
+#[must_use = "if unused the Mutex will immediately unlock"]
 pub struct MutexGuard<'a, T: ?Sized + 'a> {
     lock: &'a Mutex<T>,
 }

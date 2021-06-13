@@ -97,7 +97,7 @@ pub trait BinaryLoader {
 
     fn load(&mut self, blob: &[u8]) -> Result<(), ()>;
 
-    fn invoke_start(self: Box<Self>) -> Option<ThreadHandle>;
+    fn invoke_start(self: Box<Self>) -> Option<ProcessId>;
 }
 
 #[derive(Debug, Default)]

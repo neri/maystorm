@@ -1,4 +1,4 @@
-// Thread Scheduler
+//! Scheduler
 
 use super::{executor::Executor, *};
 use crate::{
@@ -34,7 +34,8 @@ pub struct Scheduler {
 
     locals: Vec<Box<LocalScheduler>>,
 
-    pool: ThreadPool,
+    process_pool: ProcessPool,
+    thread_pool: ThreadPool,
 
     usage: AtomicUsize,
     usage_total: AtomicUsize,
@@ -70,17 +71,15 @@ impl Scheduler {
         let queue_realtime = ThreadQueue::with_capacity(SIZE_OF_SUB_QUEUE);
         let queue_higher = ThreadQueue::with_capacity(SIZE_OF_SUB_QUEUE);
         let queue_normal = ThreadQueue::with_capacity(SIZE_OF_MAIN_QUEUE);
-        let pool = ThreadPool::default();
-
-        let locals = Vec::new();
 
         unsafe {
             SCHEDULER = Some(Box::new(Self {
                 queue_realtime,
                 queue_higher,
                 queue_normal,
-                locals,
-                pool,
+                locals: Vec::new(),
+                process_pool: ProcessPool::default(),
+                thread_pool: ThreadPool::default(),
                 usage: AtomicUsize::new(0),
                 usage_total: AtomicUsize::new(0),
                 is_frozen: AtomicBool::new(false),
@@ -91,18 +90,24 @@ impl Scheduler {
             }));
         }
 
+        ProcessPool::add(ProcessContextData::new(
+            ProcessId(0),
+            Priority::Idle,
+            "idle",
+        ));
+
         let sch = Self::shared();
         for index in 0..System::current_device().num_of_active_cpus() {
             sch.locals.push(LocalScheduler::new(ProcessorIndex(index)));
         }
+
+        SpawnOption::with_priority(Priority::Normal).start_process(f, args, "System");
 
         SpawnOption::with_priority(Priority::Realtime).start_process(
             Self::scheduler_thread,
             0,
             "Scheduler",
         );
-
-        SpawnOption::with_priority(Priority::Normal).start_process(f, args, "System");
 
         SCHEDULER_ENABLED.store(true, Ordering::SeqCst);
 
@@ -271,7 +276,7 @@ impl Scheduler {
         if thread.priority == Priority::Idle {
             return;
         } else if thread.attribute.contains(ThreadAttributes::ZOMBIE) {
-            ThreadPool::drop_thread(handle);
+            ThreadPool::remove(handle);
         } else if thread.attribute.test_and_clear(ThreadAttributes::AWAKE) {
             thread.attribute.remove(ThreadAttributes::ASLEEP);
             shared.enqueue(handle);
@@ -360,15 +365,27 @@ impl Scheduler {
             let actual1000 = actual as usize * 1000;
 
             let mut usage = 0;
-            for thread in shared.pool.data.values() {
+            for thread in shared.thread_pool.data.values() {
                 let thread = thread.clone();
                 let thread = unsafe { &mut (*thread.get()) };
+
                 let load0 = thread.load0.swap(0, Ordering::SeqCst);
                 let load = usize::min(load0 as usize * expect as usize / actual1000, 1000);
                 thread.load.store(load as u32, Ordering::SeqCst);
                 if thread.priority != Priority::Idle {
                     usage += load;
                 }
+
+                let process = thread.pid.get().unwrap();
+                process.cpu_time.fetch_add(load0 as usize, Ordering::SeqCst);
+                process.load0.fetch_add(load as u32, Ordering::SeqCst);
+            }
+
+            for process in shared.process_pool.data.values() {
+                let process = process.clone();
+                let process = unsafe { &mut (*process.get()) };
+                let load = process.load0.swap(0, Ordering::SeqCst);
+                process.load.store(load, Ordering::SeqCst);
             }
 
             let num_cpu = System::current_device().num_of_active_cpus();
@@ -403,25 +420,31 @@ impl Scheduler {
         shared.usage_total.load(Ordering::Relaxed)
     }
 
+    #[track_caller]
     fn spawn(
         start: ThreadStart,
         args: usize,
         name: &str,
         options: SpawnOption,
     ) -> Option<ThreadHandle> {
+        let current_pid = Self::current_pid().unwrap_or(ProcessId(0));
         let pid = if options.raise_pid {
-            ProcessId::next()
+            let child =
+                ProcessContextData::new(current_pid, options.priority.unwrap_or_default(), name);
+            let pid = child.pid;
+            ProcessPool::add(child);
+            pid
         } else {
-            Self::current_pid().unwrap_or(ProcessId(0))
+            current_pid
         };
-        let thread = RawThread::new(
-            pid,
-            options.priority,
-            name,
-            Some(start),
-            args,
-            options.personality,
-        );
+        let target_process = pid.get().unwrap();
+        let priority = match options.priority {
+            Some(v) => v,
+            None => target_process.priority,
+        };
+        target_process.n_threads.fetch_add(1, Ordering::SeqCst);
+        let thread =
+            ThreadContextData::new(pid, priority, name, Some(start), args, options.personality);
         Self::add(thread);
         Some(thread)
     }
@@ -454,7 +477,7 @@ impl Scheduler {
     pub fn get_idle_statistics(vec: &mut Vec<u32>) {
         let sch = Self::shared();
         vec.clear();
-        for thread in sch.pool.data.values() {
+        for thread in sch.thread_pool.data.values() {
             let thread = thread.clone();
             let thread = unsafe { &(*thread.get()) };
             if thread.priority != Priority::Idle {
@@ -464,27 +487,36 @@ impl Scheduler {
         }
     }
 
-    pub fn print_statistics(sb: &mut StringBuffer, exclude_idle: bool) {
+    pub fn print_statistics(sb: &mut StringBuffer, _exclude_idle: bool) {
+        let max_load = 1000 * System::current_device().num_of_active_cpus() as u32;
         let sch = Self::shared();
-        writeln!(sb, "PID PRI %CPU TIME     NAME").unwrap();
-        for thread in sch.pool.data.values() {
-            let thread = thread.clone();
-            let thread = unsafe { &(*thread.get()) };
-            if exclude_idle && thread.priority == Priority::Idle {
+        writeln!(sb, "PID P #TH %CPU TIME     NAME").unwrap();
+        for process in sch.process_pool.data.values() {
+            let process = process.clone();
+            let process = unsafe { &*process.get() };
+            if process.pid == ProcessId(0) {
                 continue;
             }
 
-            let load = u32::min(thread.load.load(Ordering::Relaxed), 999);
-            let load0 = load % 10;
-            let load1 = load / 10;
             write!(
                 sb,
-                "{:3} {} {} {:2}.{:1}",
-                thread.pid.0, thread.priority as usize, thread.attribute, load1, load0,
+                "{:3} {} {:3}",
+                process.pid.0,
+                process.priority as usize,
+                process.n_threads.load(Ordering::Relaxed),
             )
             .unwrap();
 
-            let time = thread.cpu_time.load(Ordering::Relaxed) / 10_000;
+            let load = u32::min(process.load.load(Ordering::Relaxed), max_load);
+            let load0 = load % 10;
+            let load1 = load / 10;
+            if load1 >= 100 {
+                write!(sb, " {:4}", load1,).unwrap();
+            } else {
+                write!(sb, " {:2}.{:1}", load1, load0,).unwrap();
+            }
+
+            let time = process.cpu_time.load(Ordering::Relaxed) / 10_000;
             let dsec = time % 100;
             let sec = time / 100 % 60;
             let min = time / 60_00 % 60;
@@ -495,9 +527,9 @@ impl Scheduler {
                 write!(sb, " {:02}:{:02}.{:02}", min, sec, dsec,).unwrap();
             }
 
-            match thread.name() {
+            match process.name() {
                 Some(name) => writeln!(sb, " {}", name,).unwrap(),
-                None => writeln!(sb, " ({})", thread.handle.as_usize(),).unwrap(),
+                None => (),
             }
         }
     }
@@ -516,8 +548,8 @@ struct LocalScheduler {
 impl LocalScheduler {
     fn new(index: ProcessorIndex) -> Box<Self> {
         let mut sb = Sb255::new();
-        write!(sb, "(Idle Core #{})", index.0).unwrap();
-        let idle = RawThread::new(ProcessId(0), Priority::Idle, sb.as_str(), None, 0, None);
+        write!(sb, "idle.{}", index.0).unwrap();
+        let idle = ThreadContextData::new(ProcessId(0), Priority::Idle, sb.as_str(), None, 0, None);
         Box::new(Self {
             index,
             idle,
@@ -620,21 +652,9 @@ pub unsafe extern "C" fn sch_setup_new_thread() {
     lsch.lower_irql(Irql::Passive);
 }
 
-#[repr(transparent)]
-#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
-pub struct ProcessId(pub usize);
-
-impl ProcessId {
-    #[inline]
-    pub fn next() -> ProcessId {
-        static NEXT_PID: AtomicUsize = AtomicUsize::new(1);
-        ProcessId(NEXT_PID.fetch_add(1, Ordering::SeqCst))
-    }
-}
-
 /// Build an option to start a new thread or process.
 pub struct SpawnOption {
-    priority: Priority,
+    priority: Option<Priority>,
     raise_pid: bool,
     personality: Option<Box<dyn Personality>>,
 }
@@ -643,7 +663,7 @@ impl SpawnOption {
     #[inline]
     pub const fn new() -> Self {
         Self {
-            priority: Priority::Normal,
+            priority: None,
             raise_pid: false,
             personality: None,
         }
@@ -652,7 +672,7 @@ impl SpawnOption {
     #[inline]
     pub const fn with_priority(priority: Priority) -> Self {
         Self {
-            priority,
+            priority: Some(priority),
             raise_pid: false,
             personality: None,
         }
@@ -672,14 +692,11 @@ impl SpawnOption {
 
     /// Start the specified function in a new process.
     #[inline]
-    pub fn start_process(
-        mut self,
-        start: fn(usize),
-        args: usize,
-        name: &str,
-    ) -> Option<ThreadHandle> {
+    pub fn start_process(mut self, start: fn(usize), args: usize, name: &str) -> Option<ProcessId> {
         self.raise_pid = true;
         Scheduler::spawn(start, args, name, self)
+            .and_then(|v| v.get())
+            .map(|v| v.pid)
     }
 
     /// Start the closure in a new thread.
@@ -1000,6 +1017,13 @@ impl Priority {
     }
 }
 
+impl Default for Priority {
+    #[inline]
+    fn default() -> Self {
+        Self::Normal
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 struct Quantum {
@@ -1043,8 +1067,76 @@ impl From<Priority> for Quantum {
 }
 
 #[derive(Default)]
+pub struct ProcessPool {
+    data: BTreeMap<ProcessId, Arc<UnsafeCell<Box<ProcessContextData>>>>,
+    lock: Spinlock,
+}
+
+impl ProcessPool {
+    #[inline]
+    #[track_caller]
+    fn synchronized<F, R>(f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        unsafe {
+            without_interrupts!({
+                let shared = Self::shared();
+                shared.lock.synchronized(f)
+            })
+        }
+    }
+
+    #[inline]
+    #[track_caller]
+    fn shared<'a>() -> &'a mut Self {
+        &mut Scheduler::shared().process_pool
+    }
+
+    fn add(process: Box<ProcessContextData>) {
+        Self::synchronized(|| {
+            let shared = Self::shared();
+            let key = process.pid;
+            shared.data.insert(key, Arc::new(UnsafeCell::new(process)));
+        });
+    }
+
+    #[inline]
+    fn remove(pid: ProcessId) {
+        Self::synchronized(|| {
+            let shared = Self::shared();
+            shared.data.remove(&pid);
+        });
+    }
+
+    #[inline]
+    unsafe fn unsafe_weak<'a>(&self, key: ProcessId) -> Option<&'a mut Box<ProcessContextData>> {
+        Self::synchronized(|| self.data.get(&key).map(|v| &mut *(&*Arc::as_ptr(v)).get()))
+    }
+
+    #[inline]
+    fn get<'a>(&self, key: ProcessId) -> Option<&'a Box<ProcessContextData>> {
+        Self::synchronized(|| self.data.get(&key).map(|v| v.clone().get()))
+            .map(|thread| unsafe { &(*thread) })
+    }
+
+    #[inline]
+    fn get_mut<F, R>(&mut self, key: ProcessId, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut ProcessContextData) -> R,
+    {
+        Self::synchronized(move || self.data.get_mut(&key).map(|v| v.clone())).map(
+            |process| unsafe {
+                let process = process.get();
+                f(&mut *process)
+            },
+        )
+    }
+}
+
+#[derive(Default)]
 struct ThreadPool {
-    data: BTreeMap<ThreadHandle, Arc<UnsafeCell<Box<RawThread>>>>,
+    data: BTreeMap<ThreadHandle, Arc<UnsafeCell<Box<ThreadContextData>>>>,
     lock: Spinlock,
 }
 
@@ -1066,10 +1158,10 @@ impl ThreadPool {
     #[inline]
     #[track_caller]
     fn shared<'a>() -> &'a mut Self {
-        &mut Scheduler::shared().pool
+        &mut Scheduler::shared().thread_pool
     }
 
-    fn add(thread: Box<RawThread>) {
+    fn add(thread: Box<ThreadContextData>) {
         Self::synchronized(|| {
             let shared = Self::shared();
             let handle = thread.handle;
@@ -1080,7 +1172,7 @@ impl ThreadPool {
     }
 
     #[inline]
-    fn drop_thread(handle: ThreadHandle) {
+    fn remove(handle: ThreadHandle) {
         Self::synchronized(|| {
             let shared = Self::shared();
             shared.data.remove(&handle);
@@ -1088,12 +1180,12 @@ impl ThreadPool {
     }
 
     #[inline]
-    unsafe fn unsafe_weak<'a>(&self, key: ThreadHandle) -> Option<&'a mut Box<RawThread>> {
+    unsafe fn unsafe_weak<'a>(&self, key: ThreadHandle) -> Option<&'a mut Box<ThreadContextData>> {
         Self::synchronized(|| self.data.get(&key).map(|v| &mut *(&*Arc::as_ptr(v)).get()))
     }
 
     #[inline]
-    fn get<'a>(&self, key: ThreadHandle) -> Option<&'a Box<RawThread>> {
+    fn get<'a>(&self, key: ThreadHandle) -> Option<&'a Box<ThreadContextData>> {
         Self::synchronized(|| self.data.get(&key).map(|v| v.clone().get()))
             .map(|thread| unsafe { &(*thread) })
     }
@@ -1101,13 +1193,112 @@ impl ThreadPool {
     #[inline]
     fn get_mut<F, R>(&mut self, key: ThreadHandle, f: F) -> Option<R>
     where
-        F: FnOnce(&mut RawThread) -> R,
+        F: FnOnce(&mut ThreadContextData) -> R,
     {
-        let thread = Self::synchronized(move || self.data.get_mut(&key).map(|v| v.clone()));
-        thread.map(|thread| unsafe {
-            let thread = thread.get();
-            f(&mut *thread)
-        })
+        Self::synchronized(move || self.data.get_mut(&key).map(|v| v.clone())).map(
+            |thread| unsafe {
+                let thread = thread.get();
+                f(&mut *thread)
+            },
+        )
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+pub struct ProcessId(pub usize);
+
+impl ProcessId {
+    #[inline]
+    fn get<'a>(&self) -> Option<&'a Box<ProcessContextData>> {
+        let shared = ProcessPool::shared();
+        shared.get(*self)
+    }
+
+    #[inline]
+    pub fn join(&self) {
+        self.get().map(|t| t.sem.wait());
+    }
+}
+
+struct ProcessContextData {
+    parent: ProcessId,
+    pid: ProcessId,
+    n_threads: AtomicUsize,
+    priority: Priority,
+    sem: Semaphore,
+
+    start_time: TimeSpec,
+    cpu_time: AtomicUsize,
+    load0: AtomicU32,
+    load: AtomicU32,
+
+    name: [u8; CONTEXT_LABEL_LENGTH],
+}
+
+const CONTEXT_LABEL_LENGTH: usize = 32;
+
+fn set_name_array(array: &mut [u8; CONTEXT_LABEL_LENGTH], name: &str) {
+    let mut i = 1;
+    for c in name.bytes() {
+        if i >= CONTEXT_LABEL_LENGTH {
+            break;
+        }
+        array[i] = c;
+        i += 1;
+    }
+    array[0] = i as u8 - 1;
+}
+
+impl ProcessContextData {
+    fn new(parent: ProcessId, priority: Priority, name: &str) -> Box<ProcessContextData> {
+        let pid = Self::next_pid();
+        let mut child = Self {
+            parent,
+            pid,
+            n_threads: AtomicUsize::new(0),
+            priority,
+            sem: Semaphore::new(0),
+            start_time: Timer::monotonic().into(),
+            cpu_time: AtomicUsize::new(0),
+            load0: AtomicU32::new(0),
+            load: AtomicU32::new(0),
+            name: [0u8; CONTEXT_LABEL_LENGTH],
+        };
+
+        set_name_array(&mut child.name, name);
+
+        Box::new(child)
+    }
+
+    #[inline]
+    fn next_pid() -> ProcessId {
+        static NEXT_PID: AtomicUsize = AtomicUsize::new(0);
+        ProcessId(NEXT_PID.fetch_add(1, Ordering::SeqCst))
+    }
+
+    fn set_name(&mut self, name: &str) {
+        set_name_array(&mut self.name, name);
+    }
+
+    fn name<'a>(&self) -> Option<&'a str> {
+        let len = self.name[0] as usize;
+        match len {
+            0 => None,
+            _ => core::str::from_utf8(unsafe { core::slice::from_raw_parts(&self.name[1], len) })
+                .ok(),
+        }
+    }
+
+    fn exit(&self) {
+        self.sem.signal();
+        ProcessPool::remove(self.pid);
+    }
+}
+
+impl Drop for ProcessContextData {
+    fn drop(&mut self) {
+        println!("drop {}", self.pid.0);
     }
 }
 
@@ -1145,27 +1336,27 @@ impl ThreadHandle {
     #[track_caller]
     fn update<F, R>(&self, f: F) -> R
     where
-        F: FnOnce(&mut RawThread) -> R,
+        F: FnOnce(&mut ThreadContextData) -> R,
     {
         let shared = ThreadPool::shared();
         shared.get_mut(*self, f).unwrap()
     }
 
     #[inline]
-    fn get<'a>(&self) -> Option<&'a Box<RawThread>> {
+    fn get<'a>(&self) -> Option<&'a Box<ThreadContextData>> {
         let shared = ThreadPool::shared();
         shared.get(*self)
     }
 
     #[inline]
     #[track_caller]
-    fn as_ref<'a>(&self) -> &'a RawThread {
+    fn as_ref<'a>(&self) -> &'a ThreadContextData {
         self.get().unwrap()
     }
 
     #[inline]
     #[track_caller]
-    unsafe fn unsafe_weak<'a>(&self) -> Option<&'a mut Box<RawThread>> {
+    unsafe fn unsafe_weak<'a>(&self) -> Option<&'a mut Box<ThreadContextData>> {
         let shared = ThreadPool::shared();
         shared.unsafe_weak(*self)
     }
@@ -1182,9 +1373,8 @@ impl ThreadHandle {
     }
 
     #[inline]
-    pub fn join(&self) -> usize {
-        self.get().map(|t| t.sem.wait());
-        0
+    pub fn join(&self) {
+        self.get().map(|thread| thread.sem.wait());
     }
 
     fn update_statistics(&self) {
@@ -1198,17 +1388,15 @@ impl ThreadHandle {
     }
 }
 
-const THREAD_NAME_LENGTH: usize = 32;
-
 type ThreadStart = fn(usize) -> ();
 
 #[allow(dead_code)]
-struct RawThread {
+struct ThreadContextData {
     /// Architectural context data
     context: CpuContextData,
     stack: Option<Box<[u8]>>,
 
-    /// IDs
+    // IDs
     pid: ProcessId,
     handle: ThreadHandle,
 
@@ -1228,8 +1416,8 @@ struct RawThread {
     // Executor
     executor: Option<Executor>,
 
-    /// Thread Name
-    name: [u8; THREAD_NAME_LENGTH],
+    // Thread Name
+    name: [u8; CONTEXT_LABEL_LENGTH],
 }
 
 bitflags! {
@@ -1271,7 +1459,7 @@ impl fmt::Display for AtomicBitflags<ThreadAttributes> {
 }
 
 #[allow(dead_code)]
-impl RawThread {
+impl ThreadContextData {
     fn new(
         pid: ProcessId,
         priority: Priority,
@@ -1282,8 +1470,8 @@ impl RawThread {
     ) -> ThreadHandle {
         let handle = ThreadHandle::next();
 
-        let mut name_array = [0; THREAD_NAME_LENGTH];
-        Self::set_name_array(&mut name_array, name);
+        let mut name_array = [0; CONTEXT_LABEL_LENGTH];
+        set_name_array(&mut name_array, name);
 
         let mut thread = Self {
             context: CpuContextData::new(),
@@ -1320,31 +1508,24 @@ impl RawThread {
     }
 
     fn exit(&mut self) -> ! {
+        Scheduler::yield_thread();
+
         self.sem.signal();
         self.personality.as_mut().map(|v| v.on_exit());
         self.personality = None;
 
-        // TODO:
-        Timer::sleep(Duration::from_secs(2));
+        let process = self.pid.get().unwrap();
+        if process.n_threads.fetch_sub(1, Ordering::SeqCst) == 1 {
+            process.exit();
+        }
+
         self.attribute.insert(ThreadAttributes::ZOMBIE);
         Scheduler::sleep();
         unreachable!();
     }
 
-    fn set_name_array(array: &mut [u8; THREAD_NAME_LENGTH], name: &str) {
-        let mut i = 1;
-        for c in name.bytes() {
-            if i >= THREAD_NAME_LENGTH {
-                break;
-            }
-            array[i] = c;
-            i += 1;
-        }
-        array[0] = i as u8 - 1;
-    }
-
     fn set_name(&mut self, name: &str) {
-        RawThread::set_name_array(&mut self.name, name);
+        set_name_array(&mut self.name, name);
     }
 
     fn name<'a>(&self) -> Option<&'a str> {

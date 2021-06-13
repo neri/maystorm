@@ -313,7 +313,7 @@ impl PciBar {
             let org = PciBar::from_raw(raw as u64);
 
             let result = match org.bar_type() {
-                PciBarType::SeparatedIo | PciBarType::Mmio32 => {
+                PciBarType::IsolatedIO | PciBarType::Mmio32 => {
                     let bias = org.bar_type().mask_bias() as u32;
                     cpu.write_pci(reg, u32::MAX);
                     let scale = (cpu.read_pci(reg) & bias).trailing_zeros() as usize;
@@ -344,7 +344,7 @@ impl PciBar {
 
     #[inline]
     pub const fn base(&self) -> u64 {
-        if self.is_separated_io() {
+        if self.is_isolated_io() {
             self.0 & 0xFFFF_FFFC
         } else {
             (self.0 & Self::VALID_BASE_MASK) & !0x0F
@@ -365,8 +365,8 @@ impl PciBar {
     #[inline]
     pub const fn bar_type(&self) -> PciBarType {
         use PciBarType::*;
-        if self.is_separated_io() {
-            SeparatedIo
+        if self.is_isolated_io() {
+            IsolatedIO
         } else {
             match self.0 & 0x06 {
                 0x00 => Mmio32,
@@ -377,21 +377,28 @@ impl PciBar {
         }
     }
 
+    /// Returns whether or not this BAR is an x86 isolated IO.
     #[inline]
-    pub const fn is_separated_io(&self) -> bool {
+    pub const fn is_isolated_io(&self) -> bool {
         (self.0 & 0x01) == 0x01
+    }
+
+    /// Returns whether or not this BAR is a memory-mapped IO.
+    #[inline]
+    pub const fn is_mmio(&self) -> bool {
+        !self.is_isolated_io()
     }
 
     #[inline]
     pub const fn is_prefetchable(&self) -> bool {
-        !self.is_separated_io() && (self.0 & 0x08) == 0x08
+        self.is_mmio() && (self.0 & 0x08) == 0x08
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PciBarType {
-    /// Separated I/O
-    SeparatedIo,
+    /// Isolated I/O
+    IsolatedIO,
     /// Any 32bit MMIO
     Mmio32,
     /// Under 1MB MMIO (obsoleted)
@@ -406,7 +413,7 @@ impl PciBarType {
     #[inline]
     pub const fn mask_bias(&self) -> u64 {
         match *self {
-            PciBarType::SeparatedIo => !0x03,
+            PciBarType::IsolatedIO => !0x03,
             PciBarType::Mmio32 | PciBarType::Mmio1MB | PciBarType::Mmio64 => !0x0F,
             PciBarType::Reserved => 0,
         }
@@ -441,6 +448,20 @@ impl From<u8> for PciCapabilityId {
     }
 }
 
+/// A type that defines the PCI class code and interface.
+///
+/// For example, the class code for XHCI (`0x0C_03_30`) is expressed as follows.
+/// ```
+/// let cc = PciClass::code(0x0C).sub(0x03).interface(0x30);
+/// ```
+///
+/// To see if one class code is included in another class code or interface, compare the following
+/// ```
+/// let mask = PciClass::code(0x03).sub(0x00);
+/// if cc.matches(mask) {
+///   // code here
+/// }
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub struct PciClass(u32);
 
@@ -475,7 +496,7 @@ impl PciClass {
     }
 
     #[inline]
-    pub const fn data(&self) -> u32 {
+    pub const fn raw_data(&self) -> u32 {
         self.0 & self.class_type().mask()
     }
 
