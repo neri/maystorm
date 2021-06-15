@@ -20,6 +20,7 @@ impl Usage {
     pub const ERR_ROLL_OVER: Usage = Usage(1);
     pub const ERR_POST_FAIL: Usage = Usage(2);
     pub const ERR_UNDEFINED: Usage = Usage(3);
+
     pub const ALPHABET_MIN: Usage = Usage(0x04);
     pub const ALPHABET_MAX: Usage = Usage(0x1D);
     pub const NUMBER_MIN: Usage = Usage(0x1E);
@@ -117,33 +118,36 @@ impl Usage {
 bitflags! {
     /// Modifier keys as defined by the HID specification.
     pub struct Modifier: u8 {
-        const LCTRL = 0b0000_0001;
-        const LSHIFT = 0b0000_0010;
-        const LALT = 0b0000_0100;
-        const LGUI = 0b0000_1000;
-        const RCTRL = 0b0001_0000;
-        const RSHIFT = 0b0010_0000;
-        const RALT = 0b0100_0000;
-        const RGUI = 0b1000_0000;
+        const LEFT_CTRL     = 0b0000_0001;
+        const LEFT_SHIFT    = 0b0000_0010;
+        const LEFT_ALT      = 0b0000_0100;
+        const LEFT_GUI      = 0b0000_1000;
+        const RIGHT_CTRL    = 0b0001_0000;
+        const RIGHT_SHIFT   = 0b0010_0000;
+        const RIGHT_ALT     = 0b0100_0000;
+        const RIGHT_GUI     = 0b1000_0000;
     }
 }
 
 impl Modifier {
     #[inline]
-    pub fn has_shift(self) -> bool {
-        (self.bits & (Self::LSHIFT.bits | Self::RSHIFT.bits)) != 0
+    pub const fn has_shift(self) -> bool {
+        self.contains(Self::LEFT_SHIFT) | self.contains(Self::RIGHT_SHIFT)
     }
+
     #[inline]
-    pub fn has_ctrl(self) -> bool {
-        (self.bits & (Self::LCTRL.bits | Self::RCTRL.bits)) != 0
+    pub const fn has_ctrl(self) -> bool {
+        self.contains(Self::LEFT_CTRL) | self.contains(Self::RIGHT_CTRL)
     }
+
     #[inline]
-    pub fn has_alt(self) -> bool {
-        (self.bits & (Self::LALT.bits | Self::RALT.bits)) != 0
+    pub const fn has_alt(self) -> bool {
+        self.contains(Self::LEFT_ALT) | self.contains(Self::RIGHT_ALT)
     }
 }
 
 impl Default for Modifier {
+    #[inline]
     fn default() -> Self {
         Self::empty()
     }

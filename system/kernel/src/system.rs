@@ -330,7 +330,10 @@ impl System {
 
     pub fn stdout<'a>() -> &'a mut dyn Tty {
         let shared = Self::shared();
-        shared.stdout.as_mut().unwrap().as_mut()
+        match shared.stdout.as_mut() {
+            Some(v) => v.as_mut(),
+            None => io::null::Null::null(),
+        }
     }
 }
 

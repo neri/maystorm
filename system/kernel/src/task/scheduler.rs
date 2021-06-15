@@ -189,6 +189,10 @@ impl Scheduler {
         if !Timer::from_usize(shared.next_timer.load(Ordering::SeqCst)).until() {
             shared.sem_timer.signal();
         }
+        if shared.is_frozen.load(Ordering::SeqCst) {
+            LocalScheduler::switch_context(local, local.idle);
+            return;
+        }
         if priority == Priority::Realtime {
             return;
         }
@@ -510,7 +514,7 @@ impl Scheduler {
             let load = u32::min(process.load.load(Ordering::Relaxed), max_load);
             let load0 = load % 10;
             let load1 = load / 10;
-            if load1 >= 100 {
+            if load1 >= 10 {
                 write!(sb, " {:4}", load1,).unwrap();
             } else {
                 write!(sb, " {:2}.{:1}", load1, load0,).unwrap();
@@ -620,6 +624,7 @@ impl LocalScheduler {
 
     #[inline]
     #[track_caller]
+    #[must_use]
     unsafe fn raise_irql(&self, new_irql: Irql) -> Irql {
         let old_irql = self.current_irql();
         if new_irql < old_irql {
@@ -1072,6 +1077,7 @@ pub struct ProcessPool {
     lock: Spinlock,
 }
 
+#[allow(dead_code)]
 impl ProcessPool {
     #[inline]
     #[track_caller]
@@ -1115,22 +1121,17 @@ impl ProcessPool {
     }
 
     #[inline]
+    #[must_use]
     fn get<'a>(&self, key: ProcessId) -> Option<&'a Box<ProcessContextData>> {
-        Self::synchronized(|| self.data.get(&key).map(|v| v.clone().get()))
-            .map(|thread| unsafe { &(*thread) })
+        Self::synchronized(|| self.data.get(&key).map(|process| process.clone().get()))
+            .map(|process| unsafe { &(*process) })
     }
 
     #[inline]
-    fn get_mut<F, R>(&mut self, key: ProcessId, f: F) -> Option<R>
-    where
-        F: FnOnce(&mut ProcessContextData) -> R,
-    {
-        Self::synchronized(move || self.data.get_mut(&key).map(|v| v.clone())).map(
-            |process| unsafe {
-                let process = process.get();
-                f(&mut *process)
-            },
-        )
+    #[must_use]
+    fn get_mut<'a>(&mut self, key: ProcessId) -> Option<&'a mut Box<ProcessContextData>> {
+        Self::synchronized(|| self.data.get_mut(&key).map(|process| process.clone().get()))
+            .map(|process| unsafe { &mut *(process) })
     }
 }
 
@@ -1185,6 +1186,7 @@ impl ThreadPool {
     }
 
     #[inline]
+    #[must_use]
     fn get<'a>(&self, key: ThreadHandle) -> Option<&'a Box<ThreadContextData>> {
         Self::synchronized(|| self.data.get(&key).map(|v| v.clone().get()))
             .map(|thread| unsafe { &(*thread) })
@@ -1210,6 +1212,7 @@ pub struct ProcessId(pub usize);
 
 impl ProcessId {
     #[inline]
+    #[must_use]
     fn get<'a>(&self) -> Option<&'a Box<ProcessContextData>> {
         let shared = ProcessPool::shared();
         shared.get(*self)
@@ -1219,8 +1222,14 @@ impl ProcessId {
     pub fn join(&self) {
         self.get().map(|t| t.sem.wait());
     }
+
+    #[inline]
+    pub fn name<'a>(&self) -> Option<&'a str> {
+        self.get().and_then(|v| v.name())
+    }
 }
 
+#[allow(dead_code)]
 struct ProcessContextData {
     parent: ProcessId,
     pid: ProcessId,
@@ -1266,7 +1275,7 @@ impl ProcessContextData {
             name: [0u8; CONTEXT_LABEL_LENGTH],
         };
 
-        set_name_array(&mut child.name, name);
+        child.set_name(name);
 
         Box::new(child)
     }
@@ -1293,12 +1302,6 @@ impl ProcessContextData {
     fn exit(&self) {
         self.sem.signal();
         ProcessPool::remove(self.pid);
-    }
-}
-
-impl Drop for ProcessContextData {
-    fn drop(&mut self) {
-        println!("drop {}", self.pid.0);
     }
 }
 
@@ -1538,9 +1541,15 @@ impl ThreadContextData {
     }
 }
 
-// impl Drop for RawThread {
+// impl Drop for ProcessContextData {
 //     fn drop(&mut self) {
-//         println!("DROP THREAD {}", self.handle.0.get());
+//         println!("drop_process {}", self.pid.0);
+//     }
+// }
+
+// impl Drop for ThreadContextData {
+//     fn drop(&mut self) {
+//         println!("drop_thread {}@{}", self.handle.0.get(), self.pid.0);
 //     }
 // }
 

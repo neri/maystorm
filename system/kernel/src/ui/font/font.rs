@@ -1,5 +1,7 @@
 // Font Driver
 
+use core::mem::swap;
+
 use crate::sync::spinlock::Spinlock;
 use crate::*;
 use alloc::boxed::Box;
@@ -330,71 +332,49 @@ impl<'a> HersheyFont<'a> {
         color: SomeColor,
     ) {
         if data.len() >= 12 {
+            let master_scale = 1;
             FontManager::shared().lock.synchronized(|| {
                 let shared = FontManager::shared();
-                shared.buffer.fill(u8::MAX);
+                shared.buffer.reset();
 
                 let n_pairs = (data[6] & 0x0F) * 10 + (data[7] & 0x0F);
                 let left = data[8] as isize - Self::MAGIC_52;
 
-                let center = Point::new(
+                let quality = 16;
+                let center1 = Point::new(
                     shared.buffer.size().width() / 2,
                     shared.buffer.size().height() / 2,
                 );
                 let mut cursor = 10;
-                let mut c0: Option<Point> = None;
-                let bounds =
-                    Rect::from(shared.buffer.size()).insets_by(EdgeInsets::padding_each(1));
+                let mut c1: Option<Point> = None;
+                // let delta = ;
+                let center2 = Point::new(center1.x * quality, center1.y * quality);
+                // let bounds =
+                //     Rect::from(shared.buffer.size()).insets_by(EdgeInsets::padding_each(1));
                 for _ in 1..n_pairs {
-                    let c1 = data[cursor] as isize;
-                    let c2 = data[cursor + 1] as isize;
-                    if c1 == Self::MAGIC_20 && c2 == Self::MAGIC_52 {
-                        c0 = None;
+                    let p1 = data[cursor] as isize;
+                    let p2 = data[cursor + 1] as isize;
+                    if p1 == Self::MAGIC_20 && p2 == Self::MAGIC_52 {
+                        c1 = None;
                     } else {
-                        let d1 = c1 - Self::MAGIC_52;
-                        let d2 = c2 - Self::MAGIC_52;
-                        let c1 = center
+                        let d1 = p1 - Self::MAGIC_52;
+                        let d2 = p2 - Self::MAGIC_52;
+                        let c2 = center2
                             + Point::new(
-                                d1 * 2 * height / Self::POINT,
-                                d2 * 2 * height / Self::POINT,
+                                d1 * quality * height / Self::POINT,
+                                d2 * quality * height / Self::POINT,
                             );
-                        if let Some(c0) = c0 {
-                            shared.buffer.draw_line(c0, c1, |bitmap, point| {
-                                if point.is_within(bounds) {
-                                    fn process_pixel(a: u8, b: u8) -> u8 {
-                                        ((a as usize * b as usize) >> 8) as u8
-                                    }
-                                    unsafe {
-                                        let level1 = u8::MAX - 51;
-                                        bitmap.set_pixel_unchecked(point, 0);
-                                        bitmap.process_pixel_unchecked(
-                                            point + Point::new(0, -1),
-                                            |v| process_pixel(v, level1),
-                                        );
-                                        bitmap.process_pixel_unchecked(
-                                            point + Point::new(-1, 0),
-                                            |v| process_pixel(v, level1),
-                                        );
-                                        bitmap.process_pixel_unchecked(
-                                            point + Point::new(1, 0),
-                                            |v| process_pixel(v, level1),
-                                        );
-                                        bitmap.process_pixel_unchecked(
-                                            point + Point::new(0, 1),
-                                            |v| process_pixel(v, level1),
-                                        );
-                                    }
-                                }
-                            });
+                        if let Some(c1) = c1 {
+                            draw_line(&mut shared.buffer, c1, c2, quality);
                         }
-                        c0 = Some(c1);
+                        c1 = Some(c2);
                     }
                     cursor += 2;
                 }
 
                 let act_w = width * height / Self::POINT;
-                let offset_x = center.x - (-left * 2) * height / Self::POINT;
-                let offset_y = center.y - height;
+                let offset_x = center1.x - (-left * master_scale) * height / Self::POINT;
+                let offset_y = center1.y - height * master_scale / 2;
 
                 // DEBUG
                 if false {
@@ -431,10 +411,10 @@ impl<'a> HersheyFont<'a> {
                                     bitmap.process_pixel_unchecked(point, |v| {
                                         let mut c = color.components();
                                         let alpha = buffer.get_pixel_unchecked(Point::new(
-                                            offset_x + x * 2,
-                                            offset_y + y * 2,
+                                            offset_x + x * master_scale,
+                                            offset_y + y * master_scale,
                                         ));
-                                        c.a = u8::MAX - alpha;
+                                        c.a = alpha; //u8::MAX - alpha;
                                         v.blend_draw(c.into())
                                     })
                                 }
@@ -477,6 +457,110 @@ impl<'a> HersheyFont<'a> {
             return Some(self.glyph_info[i]);
         }
         None
+    }
+}
+
+// Xiaolin Wu's line algorithm
+fn draw_line(bitmap: &mut OperationalBitmap, c1: Point, c2: Point, scale: isize) {
+    const FRAC_SIZE: isize = 4;
+    const ONE: isize = 1 << FRAC_SIZE;
+    const FRAC_MASK: isize = ONE - 1;
+    const FRAC_HALF: isize = ONE / 2;
+    const IPART_MASK: isize = !FRAC_MASK;
+
+    fn add_pixel(bitmap: &mut OperationalBitmap, point: Point, value: u8) {
+        if point.is_within(bitmap.bounds()) {
+            unsafe { bitmap.process_pixel_unchecked(point, |v| v.saturating_add(value)) }
+        }
+    }
+    fn plot(bitmap: &mut OperationalBitmap, x: isize, y: isize, level: isize) {
+        add_pixel(
+            bitmap,
+            Point::new(x >> FRAC_SIZE, y >> FRAC_SIZE),
+            (0xFF * level >> FRAC_SIZE) as u8,
+        );
+    }
+    fn ipart(v: isize) -> isize {
+        v & IPART_MASK
+    }
+    fn round(v: isize) -> isize {
+        ipart(v + FRAC_HALF)
+    }
+    fn fpart(v: isize) -> isize {
+        v & FRAC_MASK
+    }
+    fn rfpart(v: isize) -> isize {
+        FRAC_MASK - fpart(v)
+    }
+    fn mul(a: isize, b: isize) -> isize {
+        (a * b) >> FRAC_SIZE
+    }
+    fn div(a: isize, b: isize) -> isize {
+        (a << FRAC_SIZE) / b
+    }
+
+    let mut x1 = (c1.x() << FRAC_SIZE) / scale;
+    let mut x2 = (c2.x() << FRAC_SIZE) / scale;
+    let mut y1 = (c1.y() << FRAC_SIZE) / scale;
+    let mut y2 = (c2.y() << FRAC_SIZE) / scale;
+
+    let width = isize::max(x1, x2) - isize::min(x1, x2);
+    let height = isize::max(y1, y2) - isize::min(y1, y2);
+    let steep = height > width;
+
+    if steep {
+        swap(&mut x1, &mut y1);
+        swap(&mut x2, &mut y2);
+    }
+    if x1 > x2 {
+        swap(&mut x1, &mut x2);
+        swap(&mut y1, &mut y2);
+    }
+    let dx = x2 - x1;
+    let dy = y2 - y1;
+    let gradient = if dx == 0 { ONE } else { div(dy, dx) };
+
+    let xend = round(x1);
+    let yend = y1 + mul(gradient, xend - x1);
+    let xgap = rfpart(x1 + FRAC_HALF);
+    let xpxl1 = xend;
+    let ypxl1 = ipart(yend);
+    if steep {
+        plot(bitmap, ypxl1, xpxl1, mul(rfpart(yend), xgap));
+        plot(bitmap, ypxl1 + ONE, xpxl1, mul(fpart(yend), xgap));
+    } else {
+        plot(bitmap, xpxl1, ypxl1, mul(rfpart(yend), xgap));
+        plot(bitmap, xpxl1, ypxl1 + ONE, mul(fpart(yend), xgap));
+    }
+    let mut intery = yend + gradient;
+
+    let xend = round(x2);
+    let yend = y2 + mul(gradient, xend - x2);
+    let xgap = fpart(x2 + FRAC_HALF);
+    let xpxl2 = xend;
+    let ypxl2 = ipart(yend);
+    if steep {
+        plot(bitmap, ypxl2, xpxl2, mul(rfpart(yend), xgap));
+        plot(bitmap, ypxl2 + ONE, xpxl2, mul(fpart(yend), xgap));
+    } else {
+        plot(bitmap, xpxl2, ypxl2, mul(rfpart(yend), xgap));
+        plot(bitmap, xpxl2, ypxl2 + ONE, mul(fpart(yend), xgap));
+    }
+
+    if steep {
+        for i in (xpxl1 >> FRAC_SIZE) + 1..(xpxl2 >> FRAC_SIZE) {
+            let y = i << FRAC_SIZE;
+            plot(bitmap, intery, y, rfpart(intery));
+            plot(bitmap, intery + ONE, y, fpart(intery));
+            intery += gradient;
+        }
+    } else {
+        for i in (xpxl1 >> FRAC_SIZE) + 1..(xpxl2 >> FRAC_SIZE) {
+            let x = i << FRAC_SIZE;
+            plot(bitmap, x, intery, rfpart(intery));
+            plot(bitmap, x, intery + ONE, fpart(intery));
+            intery += gradient;
+        }
     }
 }
 

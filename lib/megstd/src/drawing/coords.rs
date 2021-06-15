@@ -298,6 +298,26 @@ impl Rect {
     }
 
     #[inline]
+    pub fn min_x(&self) -> isize {
+        isize::min(self.x(), self.x() + self.width())
+    }
+
+    #[inline]
+    pub fn max_x(&self) -> isize {
+        isize::max(self.x(), self.x() + self.width())
+    }
+
+    #[inline]
+    pub fn min_y(&self) -> isize {
+        isize::min(self.y(), self.y() + self.height())
+    }
+
+    #[inline]
+    pub fn max_y(&self) -> isize {
+        isize::max(self.y(), self.y() + self.height())
+    }
+
+    #[inline]
     pub fn insets_by(self, insets: EdgeInsets) -> Self {
         Rect {
             origin: Point {

@@ -68,6 +68,8 @@ static mut PANIC_GLOBAL_LOCK: sync::spinlock::Spinlock = sync::spinlock::Spinloc
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     unsafe {
+        Cpu::disable_interrupt();
+        let _ = task::scheduler::Scheduler::freeze(true);
         PANIC_GLOBAL_LOCK.synchronized(|| {
             if let Some(thread) = task::scheduler::Scheduler::current_thread() {
                 if let Some(name) = thread.name() {
@@ -77,9 +79,8 @@ fn panic(info: &PanicInfo) -> ! {
                 }
             }
             let _ = writeln!(System::em_console(), "{}", info);
-            let _ = task::scheduler::Scheduler::freeze(true);
         });
-        Cpu::stop();
+        Cpu::stop()
     }
 }
 

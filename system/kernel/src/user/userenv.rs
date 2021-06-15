@@ -39,6 +39,7 @@ impl UserEnv {
         }
 
         Scheduler::spawn_async(Task::new(status_bar_main()));
+        // Scheduler::spawn_async(Task::new(notification_main()));
         Scheduler::spawn_async(Task::new(activity_monitor_main()));
         Scheduler::spawn_async(Task::new(shell_launcher(f)));
         Scheduler::perform_tasks();
@@ -132,15 +133,15 @@ async fn status_bar_main() {
 
                 window.set_needs_display();
             }
-            WindowMessage::MouseDown(_) => {
-                if let Some(activity) = unsafe { ACTIVITY_WINDOW } {
-                    let _ = activity.post(WindowMessage::User(if activity.is_visible() {
-                        0
-                    } else {
-                        1
-                    }));
-                }
-            }
+            // WindowMessage::MouseDown(_) => {
+            //     if let Some(activity) = unsafe { ACTIVITY_WINDOW } {
+            //         let _ = activity.post(WindowMessage::User(if activity.is_visible() {
+            //             0
+            //         } else {
+            //             1
+            //         }));
+            //     }
+            // }
             _ => window.handle_default_message(message),
         }
     }
@@ -395,6 +396,54 @@ async fn activity_monitor_main() {
                     window.hide();
                 }
             }
+            _ => window.handle_default_message(message),
+        }
+    }
+}
+
+#[allow(dead_code)]
+async fn notification_main() {
+    let padding = 8;
+    let radius = 8;
+    let bg_color = SomeColor::from_argb(0x80000000);
+    let fg_color = SomeColor::WHITE;
+    let border_color = SomeColor::WHITE;
+    let window_width = 240;
+    let window_height = 80;
+    let screen_bounds = WindowManager::user_screen_bounds();
+
+    let window = WindowBuilder::new("notification")
+        .style(WindowStyle::NAKED | WindowStyle::FLOATING)
+        .frame(Rect::new(
+            screen_bounds.max_x() - window_width,
+            screen_bounds.min_y(),
+            window_width,
+            window_height,
+        ))
+        .bg_color(SomeColor::TRANSPARENT)
+        .build();
+
+    window
+        .draw(|bitmap| {
+            let rect = bitmap.bounds().insets_by(EdgeInsets::padding_each(padding));
+            bitmap.fill_round_rect(rect, radius, bg_color);
+            bitmap.draw_round_rect(rect, radius, border_color);
+
+            let rect2 = rect.insets_by(EdgeInsets::padding_each(padding));
+            let ats = AttributedString::new()
+                .font(FontDescriptor::new(FontFamily::SystemUI, 16).unwrap())
+                // .font(FontManager::title_font())
+                .color(fg_color)
+                .center()
+                .text("USB Device\nis connected.");
+            ats.draw_text(bitmap, rect2, 0);
+        })
+        .unwrap();
+
+    window.show();
+
+    while let Some(message) = window.get_message().await {
+        match message {
             _ => window.handle_default_message(message),
         }
     }
