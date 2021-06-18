@@ -9,6 +9,7 @@ use bitflags::*;
 use byteorder::*;
 use core::cell::UnsafeCell;
 use core::convert::TryFrom;
+use core::mem::swap;
 use core::mem::transmute;
 
 pub trait Blt<T: Drawable>: Drawable {
@@ -2140,32 +2141,38 @@ pub struct OperationalBitmap {
 impl Drawable for OperationalBitmap {
     type ColorType = u8;
 
+    #[inline]
     fn width(&self) -> usize {
         self.width
     }
 
+    #[inline]
     fn height(&self) -> usize {
         self.height
     }
 }
 
 impl RasterImage for OperationalBitmap {
+    #[inline]
     fn stride(&self) -> usize {
         self.width
     }
 
+    #[inline]
     fn slice(&self) -> &[Self::ColorType] {
         unsafe { &*self.vec.get() }
     }
 }
 
 impl MutableRasterImage for OperationalBitmap {
+    #[inline]
     fn slice_mut(&mut self) -> &mut [Self::ColorType] {
         self.vec.get_mut().as_mut_slice()
     }
 }
 
 impl OperationalBitmap {
+    #[inline]
     pub const fn new(size: Size) -> Self {
         let vec = Vec::new();
         Self {
@@ -2175,17 +2182,9 @@ impl OperationalBitmap {
         }
     }
 
+    #[inline]
     pub fn reset(&mut self) {
-        let count = self.stride() * self.height() as usize;
-        let vec = self.vec.get_mut();
-        if vec.capacity() >= count {
-            let slice = vec.as_mut_slice();
-            for i in 0..count {
-                slice[i] = 0;
-            }
-        } else {
-            vec.resize(count, 0);
-        }
+        self.fill(0);
     }
 
     pub fn fill(&mut self, color: u8) {
@@ -2201,11 +2200,122 @@ impl OperationalBitmap {
         }
     }
 
-    pub fn draw_line<F>(&mut self, c0: Point, c1: Point, mut f: F)
+    /// Draws a straight line at high speed using Bresenham's line algorithm.
+    #[inline]
+    pub fn draw_line<F>(&mut self, c1: Point, c2: Point, mut f: F)
     where
         F: FnMut(&mut OperationalBitmap, Point),
     {
-        c0.line_to(c1, |point| f(self, point));
+        c1.line_to(c2, |point| f(self, point));
+    }
+
+    /// Draws an anti-aliased line using Xiaolin Wu's algorithm.
+    pub fn draw_line_anti_aliasing<F>(&mut self, c1: Point, c2: Point, scale: isize, mut f: F)
+    where
+        F: FnMut(&mut OperationalBitmap, Point, u8),
+    {
+        const FRAC_SIZE: isize = 4;
+        const ONE: isize = 1 << FRAC_SIZE;
+        const FRAC_MASK: isize = ONE - 1;
+        const FRAC_HALF: isize = ONE / 2;
+        const IPART_MASK: isize = !FRAC_MASK;
+
+        let mut plot = |bitmap: &mut OperationalBitmap, x: isize, y: isize, level: isize| {
+            f(
+                bitmap,
+                Point::new(x >> FRAC_SIZE, y >> FRAC_SIZE),
+                (0xFF * level >> FRAC_SIZE) as u8,
+            );
+        };
+        #[inline]
+        fn ipart(v: isize) -> isize {
+            v & IPART_MASK
+        }
+        #[inline]
+        fn round(v: isize) -> isize {
+            ipart(v + FRAC_HALF)
+        }
+        #[inline]
+        fn fpart(v: isize) -> isize {
+            v & FRAC_MASK
+        }
+        #[inline]
+        fn rfpart(v: isize) -> isize {
+            FRAC_MASK - fpart(v)
+        }
+        #[inline]
+        fn mul(a: isize, b: isize) -> isize {
+            (a * b) >> FRAC_SIZE
+        }
+        #[inline]
+        fn div(a: isize, b: isize) -> Option<isize> {
+            (a << FRAC_SIZE).checked_div(b)
+        }
+
+        let mut x1 = (c1.x() << FRAC_SIZE) / scale;
+        let mut x2 = (c2.x() << FRAC_SIZE) / scale;
+        let mut y1 = (c1.y() << FRAC_SIZE) / scale;
+        let mut y2 = (c2.y() << FRAC_SIZE) / scale;
+
+        let width = isize::max(x1, x2) - isize::min(x1, x2);
+        let height = isize::max(y1, y2) - isize::min(y1, y2);
+        let steep = height > width;
+
+        if steep {
+            swap(&mut x1, &mut y1);
+            swap(&mut x2, &mut y2);
+        }
+        if x1 > x2 {
+            swap(&mut x1, &mut x2);
+            swap(&mut y1, &mut y2);
+        }
+        let dx = x2 - x1;
+        let dy = y2 - y1;
+        let gradient = div(dy, dx).unwrap_or(ONE);
+        //if dx == 0 { ONE } else { div(dy, dx) };
+
+        let xend = round(x1);
+        let yend = y1 + mul(gradient, xend - x1);
+        let xgap = rfpart(x1 + FRAC_HALF);
+        let xpxl1 = xend;
+        let ypxl1 = ipart(yend);
+        if steep {
+            plot(self, ypxl1, xpxl1, mul(rfpart(yend), xgap));
+            plot(self, ypxl1 + ONE, xpxl1, mul(fpart(yend), xgap));
+        } else {
+            plot(self, xpxl1, ypxl1, mul(rfpart(yend), xgap));
+            plot(self, xpxl1, ypxl1 + ONE, mul(fpart(yend), xgap));
+        }
+        let mut intery = yend + gradient;
+
+        let xend = round(x2);
+        let yend = y2 + mul(gradient, xend - x2);
+        let xgap = fpart(x2 + FRAC_HALF);
+        let xpxl2 = xend;
+        let ypxl2 = ipart(yend);
+        if steep {
+            plot(self, ypxl2, xpxl2, mul(rfpart(yend), xgap));
+            plot(self, ypxl2 + ONE, xpxl2, mul(fpart(yend), xgap));
+        } else {
+            plot(self, xpxl2, ypxl2, mul(rfpart(yend), xgap));
+            plot(self, xpxl2, ypxl2 + ONE, mul(fpart(yend), xgap));
+        }
+
+        if steep {
+            for i in (xpxl1 >> FRAC_SIZE) + 1..(xpxl2 >> FRAC_SIZE) {
+                let y = i << FRAC_SIZE;
+                plot(self, intery, y, rfpart(intery));
+                plot(self, intery + ONE, y, fpart(intery));
+                intery += gradient;
+            }
+        } else {
+            for i in (xpxl1 >> FRAC_SIZE) + 1..(xpxl2 >> FRAC_SIZE) {
+                let x = i << FRAC_SIZE;
+                plot(self, x, intery, rfpart(intery));
+                plot(self, x, intery + ONE, fpart(intery));
+                intery += gradient;
+            }
+        }
     }
 }
 

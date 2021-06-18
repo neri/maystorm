@@ -1,7 +1,5 @@
 // Font Driver
 
-use core::mem::swap;
-
 use crate::sync::spinlock::Spinlock;
 use crate::*;
 use alloc::boxed::Box;
@@ -71,7 +69,7 @@ impl FontManager {
 
         let font = Box::new(HersheyFont::new(
             0,
-            include_bytes!("../../../../../ext/hershey/timesr.jhf"),
+            include_bytes!("../../../../../ext/hershey/timesrb.jhf"),
         ));
         fonts.insert(FontFamily::Serif, font);
 
@@ -93,16 +91,19 @@ impl FontManager {
     }
 
     #[inline]
+    #[track_caller]
     pub fn system_font() -> FontDescriptor {
         FontDescriptor::new(FontFamily::FixedSystem, 0).unwrap()
     }
 
     #[inline]
+    #[track_caller]
     pub fn title_font() -> FontDescriptor {
         FontDescriptor::new(FontFamily::SansSerif, 16).unwrap_or(Self::system_font())
     }
 
     #[inline]
+    #[track_caller]
     pub fn ui_font() -> FontDescriptor {
         FontDescriptor::new(FontFamily::SystemUI, 16).unwrap_or(Self::system_font())
     }
@@ -365,7 +366,20 @@ impl<'a> HersheyFont<'a> {
                                 d2 * quality * height / Self::POINT,
                             );
                         if let Some(c1) = c1 {
-                            draw_line(&mut shared.buffer, c1, c2, quality);
+                            shared.buffer.draw_line_anti_aliasing(
+                                c1,
+                                c2,
+                                quality,
+                                |bitmap, point, value| {
+                                    if point.is_within(bitmap.bounds()) {
+                                        unsafe {
+                                            bitmap.process_pixel_unchecked(point, |v| {
+                                                v.saturating_add(value)
+                                            })
+                                        }
+                                    }
+                                },
+                            );
                         }
                         c1 = Some(c2);
                     }
@@ -457,110 +471,6 @@ impl<'a> HersheyFont<'a> {
             return Some(self.glyph_info[i]);
         }
         None
-    }
-}
-
-// Xiaolin Wu's line algorithm
-fn draw_line(bitmap: &mut OperationalBitmap, c1: Point, c2: Point, scale: isize) {
-    const FRAC_SIZE: isize = 4;
-    const ONE: isize = 1 << FRAC_SIZE;
-    const FRAC_MASK: isize = ONE - 1;
-    const FRAC_HALF: isize = ONE / 2;
-    const IPART_MASK: isize = !FRAC_MASK;
-
-    fn add_pixel(bitmap: &mut OperationalBitmap, point: Point, value: u8) {
-        if point.is_within(bitmap.bounds()) {
-            unsafe { bitmap.process_pixel_unchecked(point, |v| v.saturating_add(value)) }
-        }
-    }
-    fn plot(bitmap: &mut OperationalBitmap, x: isize, y: isize, level: isize) {
-        add_pixel(
-            bitmap,
-            Point::new(x >> FRAC_SIZE, y >> FRAC_SIZE),
-            (0xFF * level >> FRAC_SIZE) as u8,
-        );
-    }
-    fn ipart(v: isize) -> isize {
-        v & IPART_MASK
-    }
-    fn round(v: isize) -> isize {
-        ipart(v + FRAC_HALF)
-    }
-    fn fpart(v: isize) -> isize {
-        v & FRAC_MASK
-    }
-    fn rfpart(v: isize) -> isize {
-        FRAC_MASK - fpart(v)
-    }
-    fn mul(a: isize, b: isize) -> isize {
-        (a * b) >> FRAC_SIZE
-    }
-    fn div(a: isize, b: isize) -> isize {
-        (a << FRAC_SIZE) / b
-    }
-
-    let mut x1 = (c1.x() << FRAC_SIZE) / scale;
-    let mut x2 = (c2.x() << FRAC_SIZE) / scale;
-    let mut y1 = (c1.y() << FRAC_SIZE) / scale;
-    let mut y2 = (c2.y() << FRAC_SIZE) / scale;
-
-    let width = isize::max(x1, x2) - isize::min(x1, x2);
-    let height = isize::max(y1, y2) - isize::min(y1, y2);
-    let steep = height > width;
-
-    if steep {
-        swap(&mut x1, &mut y1);
-        swap(&mut x2, &mut y2);
-    }
-    if x1 > x2 {
-        swap(&mut x1, &mut x2);
-        swap(&mut y1, &mut y2);
-    }
-    let dx = x2 - x1;
-    let dy = y2 - y1;
-    let gradient = if dx == 0 { ONE } else { div(dy, dx) };
-
-    let xend = round(x1);
-    let yend = y1 + mul(gradient, xend - x1);
-    let xgap = rfpart(x1 + FRAC_HALF);
-    let xpxl1 = xend;
-    let ypxl1 = ipart(yend);
-    if steep {
-        plot(bitmap, ypxl1, xpxl1, mul(rfpart(yend), xgap));
-        plot(bitmap, ypxl1 + ONE, xpxl1, mul(fpart(yend), xgap));
-    } else {
-        plot(bitmap, xpxl1, ypxl1, mul(rfpart(yend), xgap));
-        plot(bitmap, xpxl1, ypxl1 + ONE, mul(fpart(yend), xgap));
-    }
-    let mut intery = yend + gradient;
-
-    let xend = round(x2);
-    let yend = y2 + mul(gradient, xend - x2);
-    let xgap = fpart(x2 + FRAC_HALF);
-    let xpxl2 = xend;
-    let ypxl2 = ipart(yend);
-    if steep {
-        plot(bitmap, ypxl2, xpxl2, mul(rfpart(yend), xgap));
-        plot(bitmap, ypxl2 + ONE, xpxl2, mul(fpart(yend), xgap));
-    } else {
-        plot(bitmap, xpxl2, ypxl2, mul(rfpart(yend), xgap));
-        plot(bitmap, xpxl2, ypxl2 + ONE, mul(fpart(yend), xgap));
-    }
-
-    if steep {
-        for i in (xpxl1 >> FRAC_SIZE) + 1..(xpxl2 >> FRAC_SIZE) {
-            let y = i << FRAC_SIZE;
-            plot(bitmap, intery, y, rfpart(intery));
-            plot(bitmap, intery + ONE, y, fpart(intery));
-            intery += gradient;
-        }
-    } else {
-        for i in (xpxl1 >> FRAC_SIZE) + 1..(xpxl2 >> FRAC_SIZE) {
-            let x = i << FRAC_SIZE;
-            plot(bitmap, x, intery, rfpart(intery));
-            plot(bitmap, x, intery + ONE, fpart(intery));
-            intery += gradient;
-        }
     }
 }
 

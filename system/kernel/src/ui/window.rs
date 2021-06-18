@@ -21,6 +21,7 @@ use core::{
 use crossbeam_queue::ArrayQueue;
 use futures_util::task::AtomicWaker;
 use megstd::drawing::*;
+use megstd::io::hid::*;
 
 const WINDOW_SYSTEM_EVENT_QUEUE_SIZE: usize = 100;
 

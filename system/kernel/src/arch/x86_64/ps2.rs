@@ -7,6 +7,7 @@ use crate::task::scheduler::*;
 use crate::*;
 use bitflags::*;
 use core::time::Duration;
+use megstd::io::hid::*;
 
 static mut PS2: Ps2 = Ps2::new();
 
