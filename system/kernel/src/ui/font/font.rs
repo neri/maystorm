@@ -1,6 +1,6 @@
 // Font Driver
 
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
@@ -22,16 +22,14 @@ static mut FONT_MANAGER: FontManager = FontManager::new();
 
 pub struct FontManager {
     fonts: Option<BTreeMap<FontFamily, Box<dyn FontDriver>>>,
-    lock: Spinlock,
-    buffer: OperationalBitmap,
+    buffer: Mutex<OperationalBitmap>,
 }
 
 impl FontManager {
     const fn new() -> Self {
         Self {
             fonts: None,
-            lock: Spinlock::new(),
-            buffer: OperationalBitmap::new(Size::new(96, 96)),
+            buffer: Mutex::new(OperationalBitmap::new(Size::new(96, 96))),
         }
     }
 
@@ -333,110 +331,95 @@ impl<'a> HersheyFont<'a> {
         color: SomeColor,
     ) {
         if data.len() >= 12 {
+            let mut buffer = FontManager::shared().buffer.lock().unwrap();
+            buffer.reset();
+
             let master_scale = 1;
-            FontManager::shared().lock.synchronized(|| {
-                let shared = FontManager::shared();
-                shared.buffer.reset();
+            let n_pairs = (data[6] & 0x0F) * 10 + (data[7] & 0x0F);
+            let left = data[8] as isize - Self::MAGIC_52;
 
-                let n_pairs = (data[6] & 0x0F) * 10 + (data[7] & 0x0F);
-                let left = data[8] as isize - Self::MAGIC_52;
-
-                let quality = 16;
-                let center1 = Point::new(
-                    shared.buffer.size().width() / 2,
-                    shared.buffer.size().height() / 2,
-                );
-                let mut cursor = 10;
-                let mut c1: Option<Point> = None;
-                // let delta = ;
-                let center2 = Point::new(center1.x * quality, center1.y * quality);
-                // let bounds =
-                //     Rect::from(shared.buffer.size()).insets_by(EdgeInsets::padding_each(1));
-                for _ in 1..n_pairs {
-                    let p1 = data[cursor] as isize;
-                    let p2 = data[cursor + 1] as isize;
-                    if p1 == Self::MAGIC_20 && p2 == Self::MAGIC_52 {
-                        c1 = None;
-                    } else {
-                        let d1 = p1 - Self::MAGIC_52;
-                        let d2 = p2 - Self::MAGIC_52;
-                        let c2 = center2
-                            + Point::new(
-                                d1 * quality * height / Self::POINT,
-                                d2 * quality * height / Self::POINT,
-                            );
-                        if let Some(c1) = c1 {
-                            shared.buffer.draw_line_anti_aliasing(
-                                c1,
-                                c2,
-                                quality,
-                                |bitmap, point, value| {
-                                    if point.is_within(bitmap.bounds()) {
-                                        unsafe {
-                                            bitmap.process_pixel_unchecked(point, |v| {
-                                                v.saturating_add(value)
-                                            })
-                                        }
-                                    }
-                                },
-                            );
-                        }
-                        c1 = Some(c2);
-                    }
-                    cursor += 2;
-                }
-
-                let act_w = width * height / Self::POINT;
-                let offset_x = center1.x - (-left * master_scale) * height / Self::POINT;
-                let offset_y = center1.y - height * master_scale / 2;
-
-                // DEBUG
-                if false {
-                    let rect = Rect::new(
-                        origin.x,
-                        origin.y,
-                        width * height / Self::POINT,
-                        self.line_height * height / Self::POINT,
-                    );
-                    bitmap.draw_rect(rect, SomeColor::from_rgb(0xFFCCFF));
-                    bitmap.draw_hline(
-                        Point::new(origin.x, origin.y + height - 1),
-                        width * height / Self::POINT,
-                        SomeColor::from_rgb(0xFFFF33),
-                    );
-                    bitmap.draw_hline(
-                        Point::new(origin.x, origin.y + height * 3 / 4),
-                        width * height / Self::POINT,
-                        SomeColor::from_rgb(0xFF3333),
-                    );
-                }
-
-                let buffer = &mut shared.buffer;
-                match bitmap {
-                    Bitmap::Indexed(_) => {
-                        // TODO:
-                    }
-                    Bitmap::Argb32(bitmap) => {
-                        let color = color.into_argb();
-                        for y in 0..=height {
-                            for x in 0..act_w {
-                                let point = origin + Point::new(x, y);
+            let quality = 16;
+            let center1 = Point::new(buffer.size().width() / 2, buffer.size().height() / 2);
+            let mut cursor = 10;
+            let mut c1: Option<Point> = None;
+            let center2 = Point::new(center1.x * quality, center1.y * quality);
+            for _ in 1..n_pairs {
+                let p1 = data[cursor] as isize;
+                let p2 = data[cursor + 1] as isize;
+                if p1 == Self::MAGIC_20 && p2 == Self::MAGIC_52 {
+                    c1 = None;
+                } else {
+                    let d1 = p1 - Self::MAGIC_52;
+                    let d2 = p2 - Self::MAGIC_52;
+                    let c2 = center2
+                        + Point::new(
+                            d1 * quality * height / Self::POINT,
+                            d2 * quality * height / Self::POINT,
+                        );
+                    if let Some(c1) = c1 {
+                        buffer.draw_line_anti_aliasing(c1, c2, quality, |bitmap, point, value| {
+                            if point.is_within(bitmap.bounds()) {
                                 unsafe {
-                                    bitmap.process_pixel_unchecked(point, |v| {
-                                        let mut c = color.components();
-                                        let alpha = buffer.get_pixel_unchecked(Point::new(
-                                            offset_x + x * master_scale,
-                                            offset_y + y * master_scale,
-                                        ));
-                                        c.a = alpha; //u8::MAX - alpha;
-                                        v.blend_draw(c.into())
-                                    })
+                                    bitmap
+                                        .process_pixel_unchecked(point, |v| v.saturating_add(value))
                                 }
+                            }
+                        });
+                    }
+                    c1 = Some(c2);
+                }
+                cursor += 2;
+            }
+
+            let act_w = width * height / Self::POINT;
+            let offset_x = center1.x - (-left * master_scale) * height / Self::POINT;
+            let offset_y = center1.y - height * master_scale / 2;
+
+            // DEBUG
+            if false {
+                let rect = Rect::new(
+                    origin.x,
+                    origin.y,
+                    width * height / Self::POINT,
+                    self.line_height * height / Self::POINT,
+                );
+                bitmap.draw_rect(rect, SomeColor::from_rgb(0xFFCCFF));
+                bitmap.draw_hline(
+                    Point::new(origin.x, origin.y + height - 1),
+                    width * height / Self::POINT,
+                    SomeColor::from_rgb(0xFFFF33),
+                );
+                bitmap.draw_hline(
+                    Point::new(origin.x, origin.y + height * 3 / 4),
+                    width * height / Self::POINT,
+                    SomeColor::from_rgb(0xFF3333),
+                );
+            }
+
+            match bitmap {
+                Bitmap::Indexed(_) => {
+                    // TODO:
+                }
+                Bitmap::Argb32(bitmap) => {
+                    let color = color.into_argb();
+                    for y in 0..=height {
+                        for x in 0..act_w {
+                            let point = origin + Point::new(x, y);
+                            unsafe {
+                                bitmap.process_pixel_unchecked(point, |v| {
+                                    let mut c = color.components();
+                                    let alpha = buffer.get_pixel_unchecked(Point::new(
+                                        offset_x + x * master_scale,
+                                        offset_y + y * master_scale,
+                                    ));
+                                    c.a = alpha; //u8::MAX - alpha;
+                                    v.blend_draw(c.into())
+                                })
                             }
                         }
                     }
                 }
-            })
+            }
         }
     }
 

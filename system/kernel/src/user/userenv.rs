@@ -191,9 +191,11 @@ async fn activity_monitor_main() {
     let bg_color = SomeColor::Argb32(bg_color32.set_opacity(bg_alpha));
     let fg_color2 = SomeColor::DARK_GRAY;
     let fg_color = SomeColor::YELLOW;
-    let graph_sub_color = SomeColor::from(IndexedColor::LIGHT_GREEN);
-    let graph_main_color = SomeColor::from(IndexedColor::YELLOW);
-    let graph_border_color = SomeColor::from(IndexedColor::LIGHT_GRAY);
+    let graph_border_color = SomeColor::LIGHT_GRAY;
+    let graph_sub_color = SomeColor::LIGHT_GREEN;
+    let graph_main_color1 = SomeColor::LIGHT_RED;
+    let graph_main_color2 = SomeColor::YELLOW;
+    let graph_main_color3 = SomeColor::LIGHT_GREEN;
     let margin = EdgeInsets::new(4, 4, 4, 4);
 
     // let screen_bounds = WindowManager::user_screen_bounds();
@@ -307,7 +309,7 @@ async fn activity_monitor_main() {
                                     );
                                     let c1 =
                                         Point::new(rect.x() + i as isize, rect.y() + 1 + value2);
-                                    bitmap.draw_line(c0, c1, graph_main_color);
+                                    bitmap.draw_line(c0, c1, graph_main_color2);
                                 }
                                 bitmap.draw_rect(rect, graph_border_color);
                             }
@@ -317,11 +319,19 @@ async fn activity_monitor_main() {
                                 let rect = Rect::new(cursor, padding, 8, 32);
                                 cursor += rect.width() + padding;
 
-                                let mut coords = Coordinates::from_rect(rect).unwrap();
-                                coords.top +=
-                                    (rect.height() - 1) * usage_temp[cpu_index] as isize / 1000;
+                                let value = usage_temp[cpu_index];
+                                let graph_color = if value < 250 {
+                                    graph_main_color1
+                                } else if value < 750 {
+                                    graph_main_color2
+                                } else {
+                                    graph_main_color3
+                                };
 
-                                bitmap.fill_rect(coords.into(), graph_main_color);
+                                let mut coords = Coordinates::from_rect(rect).unwrap();
+                                coords.top += (rect.height() - 1) * value as isize / 1000;
+
+                                bitmap.fill_rect(coords.into(), graph_color);
                                 bitmap.draw_rect(rect, graph_border_color);
                             }
 

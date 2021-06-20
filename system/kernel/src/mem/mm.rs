@@ -3,11 +3,7 @@
 // use crate::arch::page::*;
 use super::slab::*;
 use crate::{
-    arch::page::*,
-    sync::spinlock::Spinlock,
-    system::System,
-    task::scheduler::*,
-    {arch::cpu::Cpu, sync::semaphore::Semaphore},
+    arch::cpu::Cpu, arch::page::*, sync::semaphore::Semaphore, system::System, task::scheduler::*,
 };
 use alloc::boxed::Box;
 use bitflags::*;
@@ -28,7 +24,6 @@ static mut MM: MemoryManager = MemoryManager::new();
 pub struct MemoryManager {
     reserved_memory_size: usize,
     page_size_min: usize,
-    lock: Spinlock,
     dummy_size: AtomicUsize,
     n_free: AtomicUsize,
     pairs: [MemFreePair; Self::MAX_FREE_PAIRS],
@@ -44,7 +39,6 @@ impl MemoryManager {
         Self {
             reserved_memory_size: 0,
             page_size_min: 0x1000,
-            lock: Spinlock::new(),
             dummy_size: AtomicUsize::new(0),
             n_free: AtomicUsize::new(0),
             pairs: [MemFreePair::empty(); Self::MAX_FREE_PAIRS],
@@ -123,18 +117,16 @@ impl MemoryManager {
     #[inline]
     pub fn free_memory_size() -> usize {
         let shared = Self::shared();
-        shared.lock.synchronized(|| {
-            let mut total = shared.dummy_size.load(Ordering::Relaxed);
-            total += shared
-                .slab
-                .as_ref()
-                .map(|v| v.free_memory_size())
-                .unwrap_or(0);
-            total += shared.pairs[..shared.n_free.load(Ordering::Relaxed)]
-                .iter()
-                .fold(0, |v, i| v + i.size());
-            total
-        })
+        let mut total = shared.dummy_size.load(Ordering::Relaxed);
+        total += shared
+            .slab
+            .as_ref()
+            .map(|v| v.free_memory_size())
+            .unwrap_or(0);
+        total += shared.pairs[..shared.n_free.load(Ordering::Relaxed)]
+            .iter()
+            .fold(0, |v, i| v + i.size());
+        total
     }
 
     /// Allocate pages

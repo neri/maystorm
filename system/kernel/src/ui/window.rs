@@ -2,7 +2,7 @@
 
 use super::font::*;
 use crate::{
-    io::hid::*, sync::atomicflags::*, sync::semaphore::*, sync::spinlock::Spinlock, sync::Mutex,
+    io::hid::*, sync::atomicflags::*, sync::semaphore::*, sync::spinlock::Spinlock, sync::RwLock,
     task::scheduler::*, util::text::*, *,
 };
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc};
@@ -79,6 +79,8 @@ static mut WM: Option<Box<WindowManager<'static>>> = None;
 pub struct WindowManager<'a> {
     lock: Spinlock,
 
+    sem_draw: Semaphore,
+
     sem_event: Semaphore,
     attributes: AtomicBitflags<WindowManagerAttributes>,
     system_event: ArrayQueue<WindowSystemEvent>,
@@ -96,7 +98,7 @@ pub struct WindowManager<'a> {
 
     resources: Resources<'a>,
 
-    window_pool: Mutex<BTreeMap<WindowHandle, Arc<UnsafeCell<Box<RawWindow<'a>>>>>>,
+    window_pool: RwLock<BTreeMap<WindowHandle, Arc<UnsafeCell<Box<RawWindow<'a>>>>>>,
 
     root: WindowHandle,
     pointer: WindowHandle,
@@ -184,6 +186,7 @@ impl WindowManager<'static> {
         unsafe {
             WM = Some(Box::new(WindowManager {
                 lock: Spinlock::default(),
+                sem_draw: Semaphore::new(1),
                 sem_event: Semaphore::new(0),
                 attributes,
                 pointer_x: AtomicIsize::new(pointer_x),
@@ -200,7 +203,7 @@ impl WindowManager<'static> {
                     title_font: FontManager::title_font(),
                     label_font: FontManager::ui_font(),
                 },
-                window_pool: Mutex::new(window_pool),
+                window_pool: RwLock::new(window_pool),
                 root,
                 pointer,
                 active: None,
@@ -223,7 +226,7 @@ impl WindowManager<'static> {
         let handle = window.handle;
         WindowManager::shared_mut()
             .window_pool
-            .lock()
+            .write()
             .unwrap()
             .insert(handle, Arc::new(UnsafeCell::new(window)));
     }
@@ -235,7 +238,7 @@ impl WindowManager<'static> {
 
     #[inline]
     fn get<'a>(&self, key: &WindowHandle) -> Option<&'a Box<RawWindow<'static>>> {
-        match WindowManager::shared().window_pool.lock() {
+        match WindowManager::shared().window_pool.read() {
             Ok(v) => v
                 .get(key)
                 .map(|v| v.clone().get())
@@ -248,7 +251,7 @@ impl WindowManager<'static> {
     where
         F: FnOnce(&mut RawWindow) -> R,
     {
-        let window = match WindowManager::shared_mut().window_pool.lock() {
+        let window = match WindowManager::shared_mut().window_pool.write() {
             Ok(mut v) => v.get_mut(key).map(|v| v.clone()),
             Err(_) => None,
         };
@@ -643,8 +646,8 @@ impl WindowManager<'_> {
         let screen_bounds: Rect = shared.screen_size.into();
 
         let mut pointer = Point::new(0, 0);
-        core::mem::swap(&mut mouse_state.x, &mut pointer.x);
-        core::mem::swap(&mut mouse_state.y, &mut pointer.y);
+        swap(&mut mouse_state.x, &mut pointer.x);
+        swap(&mut mouse_state.y, &mut pointer.y);
         let button_changes = mouse_state.current_buttons ^ mouse_state.prev_buttons;
         let button_down = button_changes & mouse_state.current_buttons;
         let button_up = button_changes & mouse_state.prev_buttons;
@@ -945,6 +948,7 @@ impl RawWindow<'_> {
             WindowManager::shared().root
         };
 
+        WindowManager::shared().sem_draw.lock();
         loop {
             let window = cursor.as_ref();
             if let Ok(coords2) = Coordinates::from_rect(window.frame) {
@@ -1004,6 +1008,7 @@ impl RawWindow<'_> {
                 None => break,
             };
         }
+        WindowManager::shared().sem_draw.unlock();
 
         true
     }

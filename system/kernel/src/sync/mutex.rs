@@ -1,17 +1,15 @@
 //! A mutual exclusion primitive like std::sync::Mutex
 
-use super::semaphore::Semaphore;
+use super::semaphore::BinarySemaphore;
 use super::*;
 use core::{
     cell::UnsafeCell,
-    mem,
     ops::{Deref, DerefMut},
-    ptr,
 };
 
 /// A mutual exclusion primitive like std::sync::Mutex
 pub struct Mutex<T: ?Sized> {
-    inner: Semaphore,
+    inner: BinarySemaphore,
     data: UnsafeCell<T>,
 }
 
@@ -23,7 +21,7 @@ impl<T> Mutex<T> {
     #[inline]
     pub const fn new(data: T) -> Self {
         Self {
-            inner: Semaphore::new(1),
+            inner: BinarySemaphore::new(false),
             data: UnsafeCell::new(data),
         }
     }
@@ -55,18 +53,14 @@ impl<T: ?Sized> Mutex<T> {
     where
         T: Sized,
     {
-        unsafe {
-            let (inner, data) = {
-                let Mutex {
-                    ref inner,
-                    ref data,
-                } = self;
-                (ptr::read(inner), ptr::read(data))
-            };
-            mem::forget(self);
-            drop(inner);
-            Ok(data.into_inner())
-        }
+        // TODO: poison
+        Ok(self.data.into_inner())
+    }
+
+    #[inline]
+    pub fn get_mut(&mut self) -> LockResult<&mut T> {
+        // TODO: poison
+        Ok(self.data.get_mut())
     }
 }
 

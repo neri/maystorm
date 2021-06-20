@@ -4,7 +4,7 @@ use super::{executor::Executor, *};
 use crate::{
     arch::cpu::*,
     rt::Personality,
-    sync::{atomicflags::*, semaphore::*, spinlock::*, Mutex},
+    sync::{atomicflags::*, semaphore::*, spinlock::*, Mutex, RwLock},
     system::*,
     ui::window::{WindowHandle, WindowMessage},
     *,
@@ -34,7 +34,7 @@ pub struct Scheduler {
 
     locals: Vec<Box<LocalScheduler>>,
 
-    process_pool: ProcessPool,
+    process_pool: RwLock<BTreeMap<ProcessId, Arc<UnsafeCell<Box<ProcessContextData>>>>>,
     thread_pool: ThreadPool,
 
     usage: AtomicUsize,
@@ -78,7 +78,7 @@ impl Scheduler {
                 queue_higher,
                 queue_normal,
                 locals: Vec::new(),
-                process_pool: ProcessPool::default(),
+                process_pool: RwLock::default(),
                 thread_pool: ThreadPool::default(),
                 usage: AtomicUsize::new(0),
                 usage_total: AtomicUsize::new(0),
@@ -90,15 +90,21 @@ impl Scheduler {
             }));
         }
 
-        ProcessPool::add(ProcessContextData::new(
-            ProcessId(0),
-            Priority::Idle,
-            "idle",
-        ));
+        let shared = Self::shared();
 
-        let sch = Self::shared();
+        shared.process_pool.write().unwrap().insert(
+            ProcessId(0),
+            Arc::new(UnsafeCell::new(ProcessContextData::new(
+                ProcessId(0),
+                Priority::Idle,
+                "idle",
+            ))),
+        );
+
         for index in 0..System::current_device().num_of_active_cpus() {
-            sch.locals.push(LocalScheduler::new(ProcessorIndex(index)));
+            shared
+                .locals
+                .push(LocalScheduler::new(ProcessorIndex(index)));
         }
 
         SpawnOption::with_priority(Priority::Normal).start_process(f, args, "System");
@@ -385,7 +391,7 @@ impl Scheduler {
                 process.load0.fetch_add(load as u32, Ordering::SeqCst);
             }
 
-            for process in shared.process_pool.data.values() {
+            for process in shared.process_pool.read().unwrap().values() {
                 let process = process.clone();
                 let process = unsafe { &mut (*process.get()) };
                 let load = process.load0.swap(0, Ordering::SeqCst);
@@ -436,7 +442,11 @@ impl Scheduler {
             let child =
                 ProcessContextData::new(current_pid, options.priority.unwrap_or_default(), name);
             let pid = child.pid;
-            ProcessPool::add(child);
+            Self::shared()
+                .process_pool
+                .write()
+                .unwrap()
+                .insert(pid, Arc::new(UnsafeCell::new(child)));
             pid
         } else {
             current_pid
@@ -495,7 +505,7 @@ impl Scheduler {
         let max_load = 1000 * System::current_device().num_of_active_cpus() as u32;
         let sch = Self::shared();
         writeln!(sb, "PID P #TH %CPU TIME     NAME").unwrap();
-        for process in sch.process_pool.data.values() {
+        for process in sch.process_pool.read().unwrap().values() {
             let process = process.clone();
             let process = unsafe { &*process.get() };
             if process.pid == ProcessId(0) {
@@ -1072,70 +1082,6 @@ impl From<Priority> for Quantum {
 }
 
 #[derive(Default)]
-pub struct ProcessPool {
-    data: BTreeMap<ProcessId, Arc<UnsafeCell<Box<ProcessContextData>>>>,
-    lock: Spinlock,
-}
-
-#[allow(dead_code)]
-impl ProcessPool {
-    #[inline]
-    #[track_caller]
-    fn synchronized<F, R>(f: F) -> R
-    where
-        F: FnOnce() -> R,
-    {
-        unsafe {
-            without_interrupts!({
-                let shared = Self::shared();
-                shared.lock.synchronized(f)
-            })
-        }
-    }
-
-    #[inline]
-    #[track_caller]
-    fn shared<'a>() -> &'a mut Self {
-        &mut Scheduler::shared().process_pool
-    }
-
-    fn add(process: Box<ProcessContextData>) {
-        Self::synchronized(|| {
-            let shared = Self::shared();
-            let key = process.pid;
-            shared.data.insert(key, Arc::new(UnsafeCell::new(process)));
-        });
-    }
-
-    #[inline]
-    fn remove(pid: ProcessId) {
-        Self::synchronized(|| {
-            let shared = Self::shared();
-            shared.data.remove(&pid);
-        });
-    }
-
-    #[inline]
-    unsafe fn unsafe_weak<'a>(&self, key: ProcessId) -> Option<&'a mut Box<ProcessContextData>> {
-        Self::synchronized(|| self.data.get(&key).map(|v| &mut *(&*Arc::as_ptr(v)).get()))
-    }
-
-    #[inline]
-    #[must_use]
-    fn get<'a>(&self, key: ProcessId) -> Option<&'a Box<ProcessContextData>> {
-        Self::synchronized(|| self.data.get(&key).map(|process| process.clone().get()))
-            .map(|process| unsafe { &(*process) })
-    }
-
-    #[inline]
-    #[must_use]
-    fn get_mut<'a>(&mut self, key: ProcessId) -> Option<&'a mut Box<ProcessContextData>> {
-        Self::synchronized(|| self.data.get_mut(&key).map(|process| process.clone().get()))
-            .map(|process| unsafe { &mut *(process) })
-    }
-}
-
-#[derive(Default)]
 struct ThreadPool {
     data: BTreeMap<ThreadHandle, Arc<UnsafeCell<Box<ThreadContextData>>>>,
     lock: Spinlock,
@@ -1214,8 +1160,12 @@ impl ProcessId {
     #[inline]
     #[must_use]
     fn get<'a>(&self) -> Option<&'a Box<ProcessContextData>> {
-        let shared = ProcessPool::shared();
-        shared.get(*self)
+        Scheduler::shared()
+            .process_pool
+            .read()
+            .unwrap()
+            .get(self)
+            .map(|v| unsafe { &*(v.clone().get()) })
     }
 
     #[inline]
@@ -1301,7 +1251,11 @@ impl ProcessContextData {
 
     fn exit(&self) {
         self.sem.signal();
-        ProcessPool::remove(self.pid);
+        Scheduler::shared()
+            .process_pool
+            .write()
+            .unwrap()
+            .remove(&self.pid);
     }
 }
 

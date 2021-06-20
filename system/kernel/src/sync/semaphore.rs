@@ -1,13 +1,15 @@
 // Semaphore
 
+use super::signal::SignallingObject;
 use crate::arch::cpu::Cpu;
 use crate::task::scheduler::*;
 use core::sync::atomic::*;
 use core::time::Duration;
 
+/// counting semaphore
 pub struct Semaphore {
     value: AtomicUsize,
-    signal_object: AtomicUsize,
+    signal: SignallingObject,
 }
 
 impl Semaphore {
@@ -15,7 +17,7 @@ impl Semaphore {
     pub const fn new(value: usize) -> Self {
         Self {
             value: AtomicUsize::new(value),
-            signal_object: AtomicUsize::new(0),
+            signal: SignallingObject::new(None),
         }
     }
 
@@ -35,39 +37,15 @@ impl Semaphore {
         self.signal()
     }
 
+    #[inline]
     pub fn wait(&self) {
-        const MAX_DELTA: u64 = 7;
-        loop {
-            if self.try_lock() {
-                return;
-            } else {
-                let mut delta: u64 = 0;
-                loop {
-                    let current = Scheduler::current_thread().unwrap();
-                    if Cpu::interlocked_compare_and_swap(&self.signal_object, 0, current.as_usize())
-                        .0
-                    {
-                        Scheduler::sleep();
-                        if self.try_lock() {
-                            return;
-                        }
-                        break;
-                    } else {
-                        Timer::sleep(Duration::from_millis(1 << delta));
-                    }
-                    if delta < MAX_DELTA {
-                        delta += 1;
-                    }
-                }
-            }
-        }
+        self.signal.wait_for(|| self.try_lock());
     }
 
+    #[inline]
     pub fn signal(&self) {
         let _ = Cpu::interlocked_increment(&self.value);
-        if let Some(thread) = ThreadHandle::new(Cpu::interlocked_swap(&self.signal_object, 0)) {
-            thread.wake();
-        }
+        self.signal.signal();
     }
 
     #[inline]
@@ -79,5 +57,57 @@ impl Semaphore {
         let result = f();
         self.signal();
         result
+    }
+}
+
+/// binary semaphore
+pub struct BinarySemaphore {
+    value: AtomicBool,
+    signal: SignallingObject,
+}
+
+impl BinarySemaphore {
+    #[inline]
+    pub const fn new(value: bool) -> Self {
+        Self {
+            value: AtomicBool::new(value),
+            signal: SignallingObject::new(None),
+        }
+    }
+
+    #[inline]
+    pub fn try_lock(&self) -> bool {
+        self.value
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
+            .is_ok()
+    }
+
+    #[inline]
+    pub fn lock(&self) {
+        self.signal.wait_for(|| self.try_lock())
+    }
+
+    #[inline]
+    pub fn unlock(&self) {
+        self.value.store(false, Ordering::SeqCst);
+        self.signal.signal();
+    }
+
+    #[inline]
+    pub fn synchronized<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        self.lock();
+        let result = f();
+        self.unlock();
+        result
+    }
+}
+
+impl Default for BinarySemaphore {
+    #[inline]
+    fn default() -> Self {
+        Self::new(false)
     }
 }

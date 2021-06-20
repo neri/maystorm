@@ -2,10 +2,13 @@
 
 pub mod atomicflags;
 pub mod semaphore;
+pub mod signal;
 pub mod spinlock;
 
 mod mutex;
 pub use mutex::*;
+mod rwlock;
+pub use rwlock::*;
 
 use core::fmt;
 
@@ -13,6 +16,7 @@ pub type LockResult<Guard> = Result<Guard, PoisonError<Guard>>;
 pub type TryLockResult<Guard> = Result<Guard, TryLockError<Guard>>;
 
 /// NOT YET IMPLEMENTED
+#[allow(dead_code)]
 pub struct PoisonError<T> {
     guard: T,
 }
