@@ -2,7 +2,6 @@
 
 use super::signal::SignallingObject;
 use super::*;
-use crate::task::scheduler::Timer;
 use alloc::boxed::Box;
 use core::{
     cell::UnsafeCell,
@@ -10,7 +9,6 @@ use core::{
     ops::{Deref, DerefMut},
     ptr,
     sync::atomic::*,
-    time::Duration,
 };
 
 /// A reader-writer lock like std::sync::RwLock

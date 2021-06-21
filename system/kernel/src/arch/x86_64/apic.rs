@@ -60,9 +60,9 @@ pub unsafe extern "C" fn apic_start_ap() {
     let tsc = Cpu::rdtsc();
 
     for index in 0..System::current_device().num_of_active_cpus() {
-        let cpu = System::cpu(index);
+        let cpu = System::cpu(ProcessorIndex(index));
         if cpu.cpu_id() == apic_id {
-            System::cpu_mut(index).set_tsc_base(tsc);
+            System::cpu_mut(ProcessorIndex(index)).set_tsc_base(tsc);
             Msr::TscAux.write(index as u64);
             break;
         }
@@ -234,12 +234,12 @@ impl Apic {
             System::sort_cpus(|a, b| a.cpu_id().0.cmp(&b.cpu_id().0));
 
             for index in 0..System::current_device().num_of_active_cpus() {
-                let cpu = System::cpu(index);
+                let cpu = System::cpu(ProcessorIndex(index));
                 CURRENT_PROCESSOR_INDEXES[cpu.cpu_id().0 as usize] = cpu.cpu_index.0 as u8;
             }
 
             AP_STALLED.store(false, Ordering::SeqCst);
-            System::cpu_mut(0).set_tsc_base(Cpu::rdtsc());
+            System::cpu_mut(ProcessorIndex(0)).set_tsc_base(Cpu::rdtsc());
         }
 
         // asm!("

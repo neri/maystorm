@@ -4,7 +4,7 @@ use super::{executor::Executor, *};
 use crate::{
     arch::cpu::*,
     rt::Personality,
-    sync::{atomicflags::*, semaphore::*, spinlock::*, Mutex, RwLock},
+    sync::{atomicflags::*, semaphore::*, spinlock::*, LockResult, Mutex, RwLock, RwLockReadGuard},
     system::*,
     ui::window::{WindowHandle, WindowMessage},
     *,
@@ -19,8 +19,10 @@ use megstd::string::*;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
-// const THRESHOLD_SAVING: usize = 666;
-// const THRESHOLD_FULL_THROTTLE_MODE: usize = 750;
+const THRESHOLD_ENTER_SAVING: usize = 500;
+const THRESHOLD_LEAVE_SAVING: usize = 950;
+const THRESHOLD_ENTER_FULL: usize = 750;
+const THRESHOLD_LEAVE_FULL: usize = 999;
 
 static mut SCHEDULER: Option<Box<Scheduler>> = None;
 
@@ -34,7 +36,7 @@ pub struct Scheduler {
 
     locals: Vec<Box<LocalScheduler>>,
 
-    process_pool: RwLock<BTreeMap<ProcessId, Arc<UnsafeCell<Box<ProcessContextData>>>>>,
+    process_pool: ProcessPool,
     thread_pool: ThreadPool,
 
     usage: AtomicUsize,
@@ -59,7 +61,6 @@ pub enum SchedulerState {
     Running,
     /// The scheduler is running on maximum power.
     FullThrottle,
-    MAX,
 }
 
 impl Scheduler {
@@ -78,7 +79,7 @@ impl Scheduler {
                 queue_higher,
                 queue_normal,
                 locals: Vec::new(),
-                process_pool: RwLock::default(),
+                process_pool: ProcessPool::default(),
                 thread_pool: ThreadPool::default(),
                 usage: AtomicUsize::new(0),
                 usage_total: AtomicUsize::new(0),
@@ -92,14 +93,11 @@ impl Scheduler {
 
         let shared = Self::shared();
 
-        shared.process_pool.write().unwrap().insert(
+        shared.process_pool.add(ProcessContextData::new(
             ProcessId(0),
-            Arc::new(UnsafeCell::new(ProcessContextData::new(
-                ProcessId(0),
-                Priority::Idle,
-                "idle",
-            ))),
-        );
+            Priority::Idle,
+            "idle",
+        ));
 
         for index in 0..System::current_device().num_of_active_cpus() {
             shared
@@ -202,7 +200,9 @@ impl Scheduler {
         if priority == Priority::Realtime {
             return;
         }
-        if let Some(next) = shared.queue_realtime.dequeue() {
+        if Self::is_stalled_processor(local.index) {
+            LocalScheduler::switch_context(local, local.idle);
+        } else if let Some(next) = shared.queue_realtime.dequeue() {
             LocalScheduler::switch_context(local, next);
         } else if let Some(next) = (priority < Priority::High)
             .then(|| shared.queue_higher.dequeue())
@@ -252,10 +252,27 @@ impl Scheduler {
         }
     }
 
+    /// Returns whether the specified processor is stalled or not.
+    fn is_stalled_processor(index: ProcessorIndex) -> bool {
+        let shared = Self::shared();
+        let state = shared.state;
+        if shared.is_frozen.load(Ordering::SeqCst)
+            || (state == SchedulerState::Saving && index != ProcessorIndex(0))
+            || (state != SchedulerState::FullThrottle
+                && System::cpu(index).processor_type() == ProcessorCoreType::Sub)
+        {
+            true
+        } else {
+            false
+        }
+    }
+
     /// Get the next executable thread from the thread queue
     fn next(scheduler: &LocalScheduler) -> Option<ThreadHandle> {
         let shared = Self::shared();
-        if shared.is_frozen.load(Ordering::SeqCst) {
+        let index = scheduler.index;
+
+        if Self::is_stalled_processor(index) {
             Some(scheduler.idle)
         } else if let Some(next) = shared.queue_realtime.dequeue() {
             Some(next)
@@ -404,15 +421,31 @@ impl Scheduler {
             shared.usage_total.store(usage_total, Ordering::SeqCst);
             shared.usage.store(usage_per_cpu, Ordering::SeqCst);
 
-            // if usage_total < THRESHOLD_SAVING {
-            //     shared.state = SchedulerState::Saving;
-            // } else if usage_total
-            //     > System::current_device().num_of_performance_cpus() * THRESHOLD_FULL_THROTTLE_MODE
-            // {
-            //     shared.state = SchedulerState::FullThrottle;
-            // } else {
-            //     shared.state = SchedulerState::Running;
-            // }
+            match shared.state {
+                SchedulerState::Disabled => (),
+                SchedulerState::Saving => {
+                    if usage_total > THRESHOLD_LEAVE_SAVING {
+                        shared.state = SchedulerState::Running;
+                    }
+                }
+                SchedulerState::Running => {
+                    if usage_total < THRESHOLD_ENTER_SAVING {
+                        shared.state = SchedulerState::Saving;
+                    } else if usage_total
+                        > (System::current_device().num_of_performance_cpus() - 1) * 1000
+                            + THRESHOLD_ENTER_FULL
+                    {
+                        shared.state = SchedulerState::FullThrottle;
+                    }
+                }
+                SchedulerState::FullThrottle => {
+                    if usage_total
+                        < System::current_device().num_of_performance_cpus() * THRESHOLD_LEAVE_FULL
+                    {
+                        shared.state = SchedulerState::Running;
+                    }
+                }
+            }
 
             measure = now;
         }
@@ -442,11 +475,7 @@ impl Scheduler {
             let child =
                 ProcessContextData::new(current_pid, options.priority.unwrap_or_default(), name);
             let pid = child.pid;
-            Self::shared()
-                .process_pool
-                .write()
-                .unwrap()
-                .insert(pid, Arc::new(UnsafeCell::new(child)));
+            Self::shared().process_pool.add(child);
             pid
         } else {
             current_pid
@@ -1082,6 +1111,46 @@ impl From<Priority> for Quantum {
 }
 
 #[derive(Default)]
+struct ProcessPool {
+    data: RwLock<BTreeMap<ProcessId, Arc<UnsafeCell<Box<ProcessContextData>>>>>,
+}
+
+impl ProcessPool {
+    #[inline]
+    #[track_caller]
+    fn add(&self, process: Box<ProcessContextData>) {
+        let key = process.pid;
+        self.data
+            .write()
+            .unwrap()
+            .insert(key, Arc::new(UnsafeCell::new(process)));
+    }
+
+    #[inline]
+    #[track_caller]
+    fn remove(&self, handle: ProcessId) {
+        self.data.write().unwrap().remove(&handle);
+    }
+
+    #[inline]
+    fn read(
+        &self,
+    ) -> LockResult<RwLockReadGuard<BTreeMap<ProcessId, Arc<UnsafeCell<Box<ProcessContextData>>>>>>
+    {
+        self.data.read()
+    }
+
+    #[inline]
+    fn get<'a>(&self, handle: ProcessId) -> Option<&'a Box<ProcessContextData>> {
+        self.data
+            .read()
+            .unwrap()
+            .get(&handle)
+            .map(|v| unsafe { &*(v.clone().get()) })
+    }
+}
+
+#[derive(Default)]
 struct ThreadPool {
     data: BTreeMap<ThreadHandle, Arc<UnsafeCell<Box<ThreadContextData>>>>,
     lock: Spinlock,
@@ -1160,12 +1229,7 @@ impl ProcessId {
     #[inline]
     #[must_use]
     fn get<'a>(&self) -> Option<&'a Box<ProcessContextData>> {
-        Scheduler::shared()
-            .process_pool
-            .read()
-            .unwrap()
-            .get(self)
-            .map(|v| unsafe { &*(v.clone().get()) })
+        Scheduler::shared().process_pool.get(*self)
     }
 
     #[inline]
@@ -1251,11 +1315,7 @@ impl ProcessContextData {
 
     fn exit(&self) {
         self.sem.signal();
-        Scheduler::shared()
-            .process_pool
-            .write()
-            .unwrap()
-            .remove(&self.pid);
+        Scheduler::shared().process_pool.remove(self.pid);
     }
 }
 

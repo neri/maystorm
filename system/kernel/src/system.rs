@@ -258,14 +258,14 @@ impl System {
 
     #[inline]
     #[track_caller]
-    pub fn cpu<'a>(index: usize) -> &'a Cpu {
-        Self::shared().cpus.get(index).as_ref().unwrap()
+    pub fn cpu<'a>(index: ProcessorIndex) -> &'a Cpu {
+        Self::shared().cpus.get(index.0).unwrap()
     }
 
     #[inline]
     #[track_caller]
-    pub unsafe fn cpu_mut<'a>(index: usize) -> &'a mut Cpu {
-        Self::shared().cpus.get_mut(index).unwrap()
+    pub unsafe fn cpu_mut<'a>(index: ProcessorIndex) -> &'a mut Cpu {
+        Self::shared().cpus.get_mut(index.0).unwrap()
     }
 
     /// Sorts the list of CPUs by processor ID.

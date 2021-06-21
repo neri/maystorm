@@ -2,9 +2,7 @@
 
 use super::signal::SignallingObject;
 use crate::arch::cpu::Cpu;
-use crate::task::scheduler::*;
 use core::sync::atomic::*;
-use core::time::Duration;
 
 /// counting semaphore
 pub struct Semaphore {

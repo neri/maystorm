@@ -213,7 +213,7 @@ impl Cpu {
     #[inline]
     pub fn current_processor_type() -> ProcessorCoreType {
         let index = Self::current_processor_index();
-        System::cpu(index.0).processor_type()
+        System::cpu(index).processor_type()
     }
 
     #[inline]
@@ -262,6 +262,7 @@ impl Cpu {
     }
 
     pub unsafe fn reset() -> ! {
+        Cpu::disable_interrupt();
         let _ = Scheduler::freeze(true);
 
         Self::out8(0x0CF9, 0x06);
@@ -391,14 +392,14 @@ impl Cpu {
     #[inline]
     pub unsafe fn read_tsc() -> u64 {
         let (tsc_raw, index) = Self::rdtscp();
-        tsc_raw - System::cpu(index as usize).tsc_base
+        tsc_raw - System::cpu(ProcessorIndex(index as usize)).tsc_base
     }
 
     /// Launch the 32-bit legacy mode application.
     pub unsafe fn invoke_legacy(ctx: &LegacyAppContext) -> ! {
         Cpu::disable_interrupt();
 
-        let cpu = System::cpu_mut(Cpu::current_processor_index().0);
+        let cpu = System::cpu_mut(Cpu::current_processor_index());
         *cpu.gdt.item_mut(Selector::LEGACY_CODE).unwrap() = DescriptorEntry::code_legacy(
             ctx.base_of_code,
             ctx.size_of_code - 1,

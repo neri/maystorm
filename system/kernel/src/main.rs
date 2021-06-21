@@ -305,6 +305,13 @@ impl Shell {
         }
         let subcmd = argv[1];
         match subcmd {
+            "cpu" => {
+                let device = System::current_device();
+                for index in 0..device.num_of_active_cpus() {
+                    let cpu = System::cpu(ProcessorIndex(index));
+                    println!("CPU Core #{} {:?}", index, cpu.processor_type());
+                }
+            }
             "memory" => {
                 let mut sb = StringBuffer::with_capacity(256);
                 MemoryManager::statistics(&mut sb);
