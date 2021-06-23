@@ -65,7 +65,7 @@ pub enum SchedulerState {
 
 impl Scheduler {
     /// Start scheduler and sleep forever
-    pub(crate) fn start(f: fn(usize) -> (), args: usize) -> ! {
+    pub fn start(f: fn(usize) -> (), args: usize) -> ! {
         const SIZE_OF_SUB_QUEUE: usize = 63;
         const SIZE_OF_MAIN_QUEUE: usize = 255;
 
@@ -152,13 +152,15 @@ impl Scheduler {
         Ok(())
     }
 
-    /// Get the current process if possible
+    /// Get the current process running on the current processor
     #[inline]
-    pub fn current_pid() -> Option<ProcessId> {
+    pub fn current_pid() -> ProcessId {
         if Self::is_enabled() {
-            Self::current_thread().map(|thread| thread.as_ref().pid)
+            Self::current_thread()
+                .map(|thread| thread.as_ref().pid)
+                .unwrap_or_default()
         } else {
-            None
+            ProcessId(0)
         }
     }
 
@@ -470,7 +472,7 @@ impl Scheduler {
         name: &str,
         options: SpawnOption,
     ) -> Option<ThreadHandle> {
-        let current_pid = Self::current_pid().unwrap_or(ProcessId(0));
+        let current_pid = Self::current_pid();
         let pid = if options.raise_pid {
             let child =
                 ProcessContextData::new(current_pid, options.priority.unwrap_or_default(), name);

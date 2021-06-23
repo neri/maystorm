@@ -51,7 +51,7 @@ impl SharedCpu {
 }
 
 impl Cpu {
-    pub(crate) unsafe fn init() {
+    pub unsafe fn init() {
         let pi = System::acpi_platform().processor_info.unwrap();
         System::activate_cpu(Cpu::new(ProcessorId(pi.boot_processor.local_apic_id)));
 
@@ -75,13 +75,6 @@ impl Cpu {
     }
 
     pub(super) unsafe fn new(apic_id: ProcessorId) -> Box<Self> {
-        // Currently force disabling SSE
-        asm!("
-            mov {0}, cr4
-            btr {0}, 9
-            mov cr4, {0}
-            ", out(reg) _);
-
         let gdt = GlobalDescriptorTable::new();
 
         let core_type = if (apic_id.as_u32() & Self::shared().smt_topology) == 0 {
@@ -217,7 +210,7 @@ impl Cpu {
     }
 
     #[inline]
-    pub(crate) unsafe fn broadcast_schedule() -> Result<(), ()> {
+    pub unsafe fn broadcast_schedule() -> Result<(), ()> {
         match Apic::broadcast_schedule() {
             true => Ok(()),
             false => Err(()),
@@ -837,6 +830,19 @@ bitflags! {
     }
 }
 
+impl Rflags {
+    #[inline]
+    pub const fn iopl(&self) -> PrivilegeLevel {
+        PrivilegeLevel::from_usize((self.bits() & Self::IOPL3.bits()) as usize >> 12)
+    }
+
+    #[inline]
+    pub const fn set_iopl(&mut self, iopl: PrivilegeLevel) {
+        *self =
+            Self::from_bits_truncate((self.bits() & !Self::IOPL3.bits()) | ((iopl as usize) << 12));
+    }
+}
+
 /// Type of x86 segment limit
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -877,17 +883,16 @@ impl Selector {
 }
 
 /// DPL, CPL, RPL and IOPL
-#[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 pub enum PrivilegeLevel {
     /// Ring 0, Kernel mode
     Kernel = 0,
     /// Ring 1, Useless in 64bit mode
-    Ring1,
+    Ring1 = 1,
     /// Ring 2, Useless in 64bit mode
-    Ring2,
+    Ring2 = 2,
     /// Ring 3, User mode
-    User,
+    User = 3,
 }
 
 impl PrivilegeLevel {

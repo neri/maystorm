@@ -106,9 +106,9 @@ impl Shell {
             "ver" => {
                 println!("{} v{}", System::name(), System::version(),)
             }
-            "reboot" => unsafe {
+            "reboot" => {
                 System::reset();
-            },
+            }
             "memory" => {
                 let mut sb = StringBuffer::with_capacity(0x1000);
                 MemoryManager::statistics(&mut sb);

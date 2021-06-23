@@ -9,7 +9,7 @@ use core::{mem::size_of, num::*};
 
 type UsizeSmall = u16;
 
-pub(crate) struct SlabAllocator {
+pub(super) struct SlabAllocator {
     vec: Vec<SlabCache>,
 }
 

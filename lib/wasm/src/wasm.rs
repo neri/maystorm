@@ -395,7 +395,7 @@ impl WasmModule {
     }
 
     #[inline]
-    pub(crate) unsafe fn memory_unchecked(&self, index: usize) -> &WasmMemory {
+    pub unsafe fn memory_unchecked(&self, index: usize) -> &WasmMemory {
         self.memories.get_unchecked(index)
     }
 

@@ -7,6 +7,7 @@
 %define IA32_EFER           0xC0000080
 
 %define CR0_PE              0
+%define CR0_TS              3
 %define CR0_PG              31
 %define CR4_PAE             5
 %define EFER_LME            8
@@ -231,6 +232,11 @@ asm_sch_switch_context:
     mov r13, [rsi + CTX_R13]
     mov r14, [rsi + CTX_R14]
     mov r15, [rsi + CTX_R15]
+
+    ; set TS flag
+    mov rax, cr0
+    bts rax, CR0_TS
+    mov cr0, rax
 
     xor eax, eax
     xor ecx, ecx

@@ -38,7 +38,7 @@ impl FontManager {
         unsafe { &mut FONT_MANAGER }
     }
 
-    pub(crate) fn init() {
+    pub fn init() {
         let shared = Self::shared();
 
         let mut fonts: BTreeMap<FontFamily, Box<dyn FontDriver>> = BTreeMap::new();
@@ -338,7 +338,7 @@ impl<'a> HersheyFont<'a> {
             let n_pairs = (data[6] & 0x0F) * 10 + (data[7] & 0x0F);
             let left = data[8] as isize - Self::MAGIC_52;
 
-            let quality = 16;
+            let quality = 64;
             let center1 = Point::new(buffer.size().width() / 2, buffer.size().height() / 2);
             let mut cursor = 10;
             let mut c1: Option<Point> = None;

@@ -47,7 +47,7 @@ impl MemoryManager {
         }
     }
 
-    pub(crate) unsafe fn init_first(info: &BootInfo) {
+    pub unsafe fn init_first(info: &BootInfo) {
         let shared = Self::shared();
 
         let mm: &[BootMemoryMapDescriptor] =
@@ -74,7 +74,7 @@ impl MemoryManager {
         shared.slab = Some(Box::new(SlabAllocator::new()));
     }
 
-    pub(crate) unsafe fn late_init() {
+    pub unsafe fn late_init() {
         PageManager::init_late();
         SpawnOption::with_priority(Priority::Realtime).start(Self::page_thread, 0, "Page Manager");
     }

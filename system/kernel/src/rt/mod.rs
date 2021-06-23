@@ -24,7 +24,7 @@ impl RuntimeEnvironment {
     }
 
     #[inline]
-    pub(crate) unsafe fn init() {
+    pub unsafe fn init() {
         let shared = Self::shared();
         shared.add_image("wasm", megos::WasmRecognizer::new());
         shared.add_image("hrb", haribote::HrbRecognizer::new());

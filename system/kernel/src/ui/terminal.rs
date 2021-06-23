@@ -25,7 +25,7 @@ impl TerminalAgent {
         Self { n_instances: 0 }
     }
 
-    // pub(crate) unsafe fn init() {
+    // pub unsafe fn init() {
     //     SpawnOption::new().spawn(Self::console_thread, 0, "TerminalAgent");
     // }
 

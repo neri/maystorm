@@ -77,7 +77,7 @@ impl fmt::Display for Version<'_> {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ProcessorIndex(pub usize);
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -91,7 +91,7 @@ pub struct System {
     /// Current device information
     current_device: DeviceInfo,
 
-    /// Array of activated processors
+    /// Array of activated processor cores
     cpus: Vec<Box<Cpu>>,
 
     /// An instance of ACPI tables
@@ -249,7 +249,7 @@ impl System {
     /// Returns an instance of the current processor.
     #[inline]
     #[track_caller]
-    pub unsafe fn current_processor<'a>() -> &'a Cpu {
+    pub fn current_processor<'a>() -> &'a Cpu {
         Self::shared()
             .cpus
             .get(Cpu::current_processor_index().0)
@@ -293,6 +293,7 @@ impl System {
         Self::shared().smbios.as_ref().map(|v| v.as_ref())
     }
 
+    /// Returns the current device information.
     #[inline]
     pub fn current_device<'a>() -> &'a DeviceInfo {
         &Self::shared().current_device
@@ -304,11 +305,13 @@ impl System {
         Self::acpi().platform_info().unwrap()
     }
 
-    pub unsafe fn reset() -> ! {
-        Cpu::reset();
+    pub fn reset() -> ! {
+        unsafe {
+            Cpu::reset();
+        }
     }
 
-    pub unsafe fn shutdown() -> ! {
+    pub fn shutdown() -> ! {
         todo!();
     }
 

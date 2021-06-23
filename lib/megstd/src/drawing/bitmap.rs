@@ -2214,7 +2214,7 @@ impl OperationalBitmap {
     where
         F: FnMut(&mut OperationalBitmap, Point, u8),
     {
-        const FRAC_SIZE: isize = 4;
+        const FRAC_SIZE: isize = 6;
         const ONE: isize = 1 << FRAC_SIZE;
         const FRAC_MASK: isize = ONE - 1;
         const FRAC_HALF: isize = ONE / 2;

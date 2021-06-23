@@ -116,7 +116,7 @@ struct Resources<'a> {
 }
 
 impl WindowManager<'static> {
-    pub(crate) fn init(main_screen: Bitmap32<'static>) {
+    pub fn init(main_screen: Bitmap32<'static>) {
         let attributes = AtomicBitflags::EMPTY;
 
         let mut screen_size = main_screen.size();
@@ -696,9 +696,7 @@ impl WindowManager<'_> {
             && event.modifier().has_alt()
         {
             // ctrl alt del
-            unsafe {
-                System::reset();
-            }
+            System::reset();
         } else if let Some(window) = shared.active {
             let _ = Self::post_system_event(WindowSystemEvent::Key(window, event));
         }

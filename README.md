@@ -36,7 +36,7 @@ My first hobby OS written in Rust, one version of which is about 20,000 lines of
 * llvm (ld.lld)
 * qemu + ovmf (optional)
 
-### how to build
+### To build
 
 1. Install llvm
 2. Install rust (nightly)
@@ -50,7 +50,7 @@ If you get an error that the linker cannot be found, configure your linker in `~
 linker = "/opt/homebrew/opt/llvm/bin/ld.lld"
 ```
 
-### how to run on qemu
+### To run on qemu
 
 ```
 $ make run

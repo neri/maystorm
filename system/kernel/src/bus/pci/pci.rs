@@ -76,7 +76,7 @@ impl fmt::Debug for PciConfigAddress {
     }
 }
 
-pub(crate) trait PciImpl {
+pub trait PciImpl {
     unsafe fn read_pci(&self, addr: PciConfigAddress) -> u32;
 
     unsafe fn write_pci(&self, addr: PciConfigAddress, value: u32);
@@ -110,7 +110,7 @@ impl Pci {
         unsafe { &mut PCI }
     }
 
-    pub(crate) unsafe fn init() {
+    pub unsafe fn init() {
         let shared = Self::shared();
 
         // shared.registrars.push(super::xhci::XhciRegistrar::init());

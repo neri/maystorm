@@ -21,7 +21,7 @@ impl FileManager {
         Self { initramfs: None }
     }
 
-    pub(crate) unsafe fn init(initrd_base: usize, initrd_size: usize) {
+    pub unsafe fn init(initrd_base: usize, initrd_size: usize) {
         let shared = Self::shared_mut();
         shared.initramfs = InitRamfs::from_static(initrd_base, initrd_size);
     }

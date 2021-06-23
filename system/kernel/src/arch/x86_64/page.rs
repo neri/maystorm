@@ -14,7 +14,7 @@ use core::{
 pub type PhysicalAddress = u64;
 type PageTableRepr = u64;
 
-pub(crate) struct PageManager {
+pub struct PageManager {
     _phantom: (),
 }
 
@@ -27,7 +27,7 @@ impl PageManager {
     const DIRECT_BASE: usize = Self::PAGE_KERNEL_PREFIX | (Self::PAGE_DIRECT_MAP << 39);
 
     #[inline]
-    pub(crate) unsafe fn init(_info: &BootInfo) {
+    pub unsafe fn init(_info: &BootInfo) {
         let base = Self::read_pdbr() as usize & !(Self::PAGE_SIZE_MIN - 1);
         let p = base as *const u64 as *mut PageTableEntry;
 
@@ -55,7 +55,7 @@ impl PageManager {
     }
 
     #[inline]
-    pub(crate) unsafe fn init_late() {
+    pub unsafe fn init_late() {
         // let base = Self::read_pdbr() as usize & !(Self::PAGE_SIZE_MIN - 1);
         // let p = base as *const u64 as *mut PageTableEntry;
         // p.write_volatile(PageTableEntry::empty());
@@ -69,7 +69,7 @@ impl PageManager {
 
     #[inline]
     #[track_caller]
-    pub(crate) unsafe fn mmap(request: MemoryMapRequest) -> usize {
+    pub unsafe fn mmap(request: MemoryMapRequest) -> usize {
         use MemoryMapRequest::*;
         match request {
             Mmio(base, len) => {
@@ -195,10 +195,12 @@ impl PageManager {
     }
 
     #[inline]
-    pub(crate) unsafe fn broadcast_invalidate_tlb() -> Result<(), ()> {
-        match Apic::broadcast_invalidate_tlb() {
-            true => Ok(()),
-            false => Err(()),
+    pub fn broadcast_invalidate_tlb() -> Result<(), ()> {
+        unsafe {
+            match Apic::broadcast_invalidate_tlb() {
+                true => Ok(()),
+                false => Err(()),
+            }
         }
     }
 }

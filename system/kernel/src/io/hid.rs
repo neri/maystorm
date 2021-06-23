@@ -199,10 +199,8 @@ pub struct HidManager {
 static mut HID_MANAGER: Option<Box<HidManager>> = None;
 
 impl HidManager {
-    pub(crate) fn init() {
-        unsafe {
-            HID_MANAGER = Some(Box::new(HidManager::new()));
-        }
+    pub unsafe fn init() {
+        HID_MANAGER = Some(Box::new(HidManager::new()));
     }
 
     #[inline]

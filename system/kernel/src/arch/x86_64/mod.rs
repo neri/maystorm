@@ -19,7 +19,7 @@ use alloc::boxed::Box;
 use comport::*;
 use megstd::time::SystemTime;
 
-pub(crate) struct Arch;
+pub struct Arch;
 
 impl Arch {
     pub unsafe fn init() {

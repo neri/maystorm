@@ -23,7 +23,7 @@ pub struct UserEnv {
 }
 
 impl UserEnv {
-    pub(crate) fn start(f: fn()) {
+    pub fn start(f: fn()) {
         {
             WindowManager::set_desktop_color(DESKTOP_COLOR);
             if let Ok(mut file) = FileManager::open("wall.bmp") {

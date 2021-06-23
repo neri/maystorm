@@ -26,7 +26,6 @@
     "eliminate-frame-pointer": false,
     "exe-suffix": "",
     "has-rpath": false,
-    "no-compiler-rt": true,
     "no-default-libraries": true,
     "position-independent-executables": false,
     "has-elf-tls": true
