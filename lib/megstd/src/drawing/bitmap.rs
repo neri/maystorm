@@ -1842,6 +1842,28 @@ impl Bitmap<'_> {
             Bitmap::Argb32(ref mut v) => v.view(rect, f),
         }
     }
+
+    #[inline]
+    pub fn map_indexed<F, R>(&mut self, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut Bitmap8) -> R,
+    {
+        match self {
+            Bitmap::Indexed(ref mut v) => Some(f(v)),
+            Bitmap::Argb32(_) => None,
+        }
+    }
+
+    #[inline]
+    pub fn map_argb32<F, R>(&mut self, f: F) -> Option<R>
+    where
+        F: FnOnce(&mut Bitmap32) -> R,
+    {
+        match self {
+            Bitmap::Indexed(_) => None,
+            Bitmap::Argb32(ref mut v) => Some(f(v)),
+        }
+    }
 }
 
 impl GetPixel for Bitmap<'_> {

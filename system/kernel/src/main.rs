@@ -374,7 +374,7 @@ impl Shell {
 
     fn cmd_ps(_argv: &[&str]) -> isize {
         let mut sb = StringBuffer::with_capacity(1024);
-        Scheduler::print_statistics(&mut sb, false);
+        Scheduler::print_statistics(&mut sb);
         print!("{}", sb.as_str());
         0
     }

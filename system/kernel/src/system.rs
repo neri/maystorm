@@ -232,9 +232,12 @@ impl System {
         true
     }
 
-    /// Add SMP-initialized CPU cores to the list of enabled cores.
+    /// Add SMP-initialized CPU cores to the list of activated cores.
     ///
-    /// SAFETY: THREAD UNSAFE. Do not call this function except when initializing SMP.
+    /// # Safety
+    ///
+    /// THREAD UNSAFE.
+    /// Do not call this function except when initializing the SMP.
     #[inline]
     pub unsafe fn activate_cpu(new_cpu: Box<Cpu>) {
         let shared = Self::shared();
@@ -244,6 +247,23 @@ impl System {
         }
         device.num_of_active_cpus.fetch_add(1, Ordering::SeqCst);
         shared.cpus.push(new_cpu);
+    }
+
+    /// Sorts the list of CPUs by processor ID.
+    ///
+    /// # Safety
+    ///
+    /// THREAD UNSAFE.
+    /// Do not call this function except when initializing the SMP.
+    #[inline]
+    pub unsafe fn sort_cpus<F>(compare: F)
+    where
+        F: FnMut(&Box<Cpu>, &Box<Cpu>) -> core::cmp::Ordering,
+    {
+        Self::shared().cpus.sort_by(compare);
+        for (index, cpu) in Self::shared().cpus.iter_mut().enumerate() {
+            cpu.cpu_index = ProcessorIndex(index);
+        }
     }
 
     /// Returns an instance of the current processor.
@@ -256,30 +276,26 @@ impl System {
             .unwrap()
     }
 
+    /// Returns a reference to the processor at the specified index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if specified index is larger than the number of processors.
     #[inline]
     #[track_caller]
     pub fn cpu<'a>(index: ProcessorIndex) -> &'a Cpu {
         Self::shared().cpus.get(index.0).unwrap()
     }
 
+    /// Returns a mutable reference to the processor at the specified index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if specified index is larger than the number of processors.
     #[inline]
     #[track_caller]
     pub unsafe fn cpu_mut<'a>(index: ProcessorIndex) -> &'a mut Cpu {
         Self::shared().cpus.get_mut(index.0).unwrap()
-    }
-
-    /// Sorts the list of CPUs by processor ID.
-    ///
-    /// SAFETY: THREAD UNSAFE. Do not call this function except when initializing SMP.
-    #[inline]
-    pub unsafe fn sort_cpus<F>(compare: F)
-    where
-        F: FnMut(&Box<Cpu>, &Box<Cpu>) -> core::cmp::Ordering,
-    {
-        Self::shared().cpus.sort_by(compare);
-        for (index, cpu) in Self::shared().cpus.iter_mut().enumerate() {
-            cpu.cpu_index = ProcessorIndex(index);
-        }
     }
 
     #[inline]

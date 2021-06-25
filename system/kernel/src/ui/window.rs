@@ -1,6 +1,6 @@
 //! A Window System
 
-use super::font::*;
+use super::{font::*, theme::Theme};
 use crate::{
     io::hid::*, sync::atomicflags::*, sync::semaphore::*, sync::spinlock::Spinlock, sync::RwLock,
     task::scheduler::*, util::text::*, *,
@@ -31,12 +31,6 @@ const WINDOW_BORDER_PADDING: isize = 0;
 const WINDOW_BORDER_SHADOW_PADDING: isize = 8;
 const WINDOW_TITLE_HEIGHT: isize = 24;
 
-// const BARRIER_COLOR: TrueColor = TrueColor::from_argb(0x80000000);
-const WINDOW_ACTIVE_TITLE_BG_COLOR: SomeColor = SomeColor::from_argb(0xE0BBDEFB);
-const WINDOW_ACTIVE_TITLE_FG_COLOR: SomeColor = SomeColor::from_argb(0xFF212121);
-const WINDOW_INACTIVE_TITLE_BG_COLOR: SomeColor = SomeColor::from_argb(0xFFEEEEEE);
-const WINDOW_INACTIVE_TITLE_FG_COLOR: SomeColor = SomeColor::from_argb(0xFF9E9E9E);
-
 // Mouse Pointer
 const MOUSE_POINTER_WIDTH: usize = 12;
 const MOUSE_POINTER_HEIGHT: usize = 20;
@@ -59,20 +53,19 @@ const MOUSE_POINTER_SOURCE: [u8; MOUSE_POINTER_WIDTH * MOUSE_POINTER_HEIGHT] = [
 ];
 
 // Close button
-// const CLOSE_BUTTON_SIZE: usize = 10;
-// const CLOSE_BUTTON_PALETTE: [u32; 4] = [0x00000000, 0x40000000, 0x80000000, 0xC0000000];
-// const CLOSE_BUTTON_SOURCE: [[u8; CLOSE_BUTTON_SIZE]; CLOSE_BUTTON_SIZE] = [
-//     [0, 1, 0, 0, 0, 0, 0, 0, 1, 0],
-//     [1, 3, 2, 0, 0, 0, 0, 2, 3, 1],
-//     [0, 2, 3, 2, 0, 0, 2, 3, 2, 0],
-//     [0, 0, 2, 3, 2, 2, 3, 2, 0, 0],
-//     [0, 0, 0, 2, 3, 3, 2, 0, 0, 0],
-//     [0, 0, 0, 2, 3, 3, 2, 0, 0, 0],
-//     [0, 0, 2, 3, 2, 2, 3, 2, 0, 0],
-//     [0, 2, 3, 2, 0, 0, 2, 3, 2, 0],
-//     [1, 3, 2, 0, 0, 0, 0, 2, 3, 1],
-//     [0, 1, 0, 0, 0, 0, 0, 0, 1, 0],
-// ];
+const CLOSE_BUTTON_SIZE: usize = 10;
+const CLOSE_BUTTON_SOURCE: [[u8; CLOSE_BUTTON_SIZE]; CLOSE_BUTTON_SIZE] = [
+    [0x00, 0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x55, 0x00],
+    [0x55, 0xFF, 0xAA, 0x00, 0x00, 0x00, 0x00, 0xAA, 0xFF, 0x55],
+    [0x00, 0xAA, 0xFF, 0xAA, 0x00, 0x00, 0xAA, 0xFF, 0xAA, 0x00],
+    [0x00, 0x00, 0xAA, 0xFF, 0xAA, 0xAA, 0xFF, 0xAA, 0x00, 0x00],
+    [0x00, 0x00, 0x00, 0xAA, 0xFF, 0xFF, 0xAA, 0x00, 0x00, 0x00],
+    [0x00, 0x00, 0x00, 0xAA, 0xFF, 0xFF, 0xAA, 0x00, 0x00, 0x00],
+    [0x00, 0x00, 0xAA, 0xFF, 0xAA, 0xAA, 0xFF, 0xAA, 0x00, 0x00],
+    [0x00, 0xAA, 0xFF, 0xAA, 0x00, 0x00, 0xAA, 0xFF, 0xAA, 0x00],
+    [0x55, 0xFF, 0xAA, 0x00, 0x00, 0x00, 0x00, 0xAA, 0xFF, 0x55],
+    [0x00, 0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x55, 0x00],
+];
 
 static mut WM: Option<Box<WindowManager<'static>>> = None;
 
@@ -111,6 +104,7 @@ pub struct WindowManager<'a> {
 #[allow(dead_code)]
 struct Resources<'a> {
     corner_shadow: BoxedBitmap32<'a>,
+    close_button: OperationalBitmap,
     title_font: FontDescriptor,
     label_font: FontDescriptor,
 }
@@ -142,6 +136,21 @@ impl WindowManager<'static> {
                     bitmap.fill_circle(center, r, TrueColor::gray(0, density));
                 }
             });
+            bitmap
+        };
+
+        let close_button = {
+            let w = CLOSE_BUTTON_SIZE;
+            let h = CLOSE_BUTTON_SIZE;
+            let mut bitmap = OperationalBitmap::new(Size::new(w as isize, h as isize));
+            for x in 0..w {
+                for y in 0..h {
+                    bitmap.set_pixel(
+                        Point::new(x as isize, y as isize),
+                        CLOSE_BUTTON_SOURCE[x][y],
+                    );
+                }
+            }
             bitmap
         };
 
@@ -200,6 +209,7 @@ impl WindowManager<'static> {
                 screen_insets: EdgeInsets::default(),
                 resources: Resources {
                     corner_shadow,
+                    close_button,
                     title_font: FontManager::title_font(),
                     label_font: FontManager::ui_font(),
                 },
@@ -1055,6 +1065,13 @@ impl RawWindow<'_> {
                     Bitmap::Argb32(bitmap) => {
                         let q = WINDOW_BORDER_SHADOW_PADDING;
                         let rect = Rect::from(bitmap.size());
+
+                        // if WINDOW_BORDER_PADDING > 0 {
+                        //     let rect = Rect::from(bitmap.size())
+                        //         .insets_by(EdgeInsets::padding_each(WINDOW_BORDER_SHADOW_PADDING));
+                        //     bitmap.draw_rect(rect, WINDOW_BORDER_COLOR.into_argb());
+                        // }
+
                         for n in 0..q {
                             let rect = rect.insets_by(EdgeInsets::padding_each(n));
                             let light = 1 + n as u8;
@@ -1084,27 +1101,71 @@ impl RawWindow<'_> {
                 }
             }
             if self.style.contains(WindowStyle::TITLE) {
+                let padding = 8;
                 let shared = WindowManager::shared();
 
                 let rect = self.title_frame();
                 bitmap.fill_rect(
                     rect,
                     if is_active {
-                        WINDOW_ACTIVE_TITLE_BG_COLOR
+                        Theme::shared().window_title_active_background()
                     } else {
-                        WINDOW_INACTIVE_TITLE_BG_COLOR
+                        Theme::shared().window_title_inactive_background()
                     },
                 );
 
+                let left = padding;
+                let mut right = padding;
+                if true {
+                    let button = &shared.resources.close_button;
+                    let rect = Rect::new(
+                        rect.x() + rect.width() - right - button.width() as isize,
+                        rect.y() + (rect.height() - button.height() as isize) / 2,
+                        button.width() as isize,
+                        button.height() as isize,
+                    );
+                    let template = Theme::shared().window_title_close().into_argb();
+                    bitmap.view(rect, |mut bitmap| {
+                        bitmap.map_argb32(|bitmap| {
+                            for y in 0..button.height() {
+                                for x in 0..button.width() {
+                                    let point = Point::new(x as isize, y as isize);
+                                    unsafe {
+                                        bitmap.process_pixel_unchecked(point, |v| {
+                                            v.blend_draw(
+                                                template
+                                                    .set_opacity(button.get_pixel_unchecked(point)),
+                                            )
+                                        })
+                                    }
+                                }
+                            }
+                        })
+                    });
+
+                    right += padding + button.width() as isize;
+                }
+
                 if let Some(text) = self.title() {
                     let font = shared.resources.title_font;
-                    let rect = rect.insets_by(EdgeInsets::new(0, 8, 0, 8));
+                    let rect = rect.insets_by(EdgeInsets::new(2, left, 0, right));
+
+                    if is_active {
+                        let rect2 = rect + Point::new(1, 1);
+                        AttributedString::new()
+                            .font(font)
+                            .color(Theme::shared().window_title_active_shadow())
+                            .center()
+                            .text(text)
+                            .draw_text(&mut bitmap, rect2, 1);
+                    }
+
                     AttributedString::new()
                         .font(font)
                         .color(if is_active {
-                            WINDOW_ACTIVE_TITLE_FG_COLOR
+                            Theme::shared().window_title_active_foreground()
                         } else {
-                            WINDOW_INACTIVE_TITLE_FG_COLOR
+                            Theme::shared().window_title_inactive_foreground()
                         })
                         .center()
                         .text(text)

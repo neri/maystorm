@@ -6,6 +6,7 @@ use crate::system::*;
 use crate::task::scheduler::*;
 use crate::task::*;
 use crate::ui::font::*;
+use crate::ui::theme::Theme;
 use crate::ui::window::*;
 use crate::*;
 use crate::{arch::cpu::*, ui::terminal::Terminal};
@@ -16,16 +17,14 @@ use megstd::drawing::*;
 use megstd::string::*;
 use util::text::{AttributedString, VerticalAlignment};
 
-const DESKTOP_COLOR: SomeColor = SomeColor::from_argb(0xFF2196F3);
-
 pub struct UserEnv {
     _phantom: (),
 }
 
 impl UserEnv {
     pub fn start(f: fn()) {
-        {
-            WindowManager::set_desktop_color(DESKTOP_COLOR);
+        if true {
+            WindowManager::set_desktop_color(Theme::shared().desktop_color());
             if let Ok(mut file) = FileManager::open("wall.bmp") {
                 let stat = file.stat().unwrap();
                 let mut vec = Vec::with_capacity(stat.len() as usize);
@@ -34,6 +33,10 @@ impl UserEnv {
                     WindowManager::set_desktop_bitmap(&dib.as_const());
                 }
             }
+            WindowManager::set_pointer_visible(true);
+            Timer::sleep(Duration::from_millis(1000));
+        } else {
+            WindowManager::set_desktop_color(Theme::shared().desktop_color());
             WindowManager::set_pointer_visible(true);
             Timer::sleep(Duration::from_millis(1000));
         }
@@ -58,8 +61,8 @@ async fn shell_launcher(f: fn()) {
 #[allow(dead_code)]
 async fn status_bar_main() {
     const STATUS_BAR_HEIGHT: isize = 24;
-    let bg_color = SomeColor::from_argb(0xC0EEEEEE);
-    let fg_color = SomeColor::BLACK;
+    let bg_color = Theme::shared().status_bar_background();
+    let fg_color = Theme::shared().status_bar_foreground();
 
     let screen_bounds = WindowManager::main_screen_bounds();
     let window = WindowBuilder::new("Status Bar")
@@ -370,7 +373,7 @@ async fn activity_monitor_main() {
                                 device.num_of_active_cpus(),
                             )
                             .unwrap();
-                            Scheduler::print_statistics(&mut sb, true);
+                            Scheduler::print_statistics(&mut sb);
 
                             let mut rect = bitmap
                                 .bounds()
@@ -415,9 +418,9 @@ async fn activity_monitor_main() {
 async fn notification_main() {
     let padding = 8;
     let radius = 8;
-    let bg_color = SomeColor::from_argb(0x80000000);
-    let fg_color = SomeColor::WHITE;
-    let border_color = SomeColor::WHITE;
+    let bg_color = SomeColor::from_argb(0xC0FFFFFF);
+    let fg_color = SomeColor::BLACK;
+    let border_color = SomeColor::from_argb(0x80C0C0C0);
     let window_width = 240;
     let window_height = 80;
     let screen_bounds = WindowManager::user_screen_bounds();

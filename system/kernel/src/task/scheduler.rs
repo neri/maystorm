@@ -532,7 +532,7 @@ impl Scheduler {
         }
     }
 
-    pub fn print_statistics(sb: &mut StringBuffer, _exclude_idle: bool) {
+    pub fn print_statistics(sb: &mut StringBuffer) {
         let max_load = 1000 * System::current_device().num_of_active_cpus() as u32;
         let sch = Self::shared();
         writeln!(sb, "PID P #TH %CPU TIME     NAME").unwrap();
