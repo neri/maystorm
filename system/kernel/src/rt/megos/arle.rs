@@ -1,6 +1,7 @@
 // MEG-OS Arlequin Subsystem
 
 use super::*;
+use crate::ui::theme::Theme;
 use crate::*;
 use crate::{io::hid::*, ui::window::*, util::text::*};
 use alloc::collections::BTreeMap;
@@ -44,9 +45,9 @@ impl BinaryLoader for ArleBinaryLoader {
                     "svc0" | "svc1" | "svc2" | "svc3" | "svc4" | "svc5" | "svc6" => {
                         Ok(ArleRuntime::syscall)
                     }
-                    _ => Err(WasmDecodeErrorType::DynamicLinkError),
+                    _ => Err(WasmDecodeErrorType::NoMethod),
                 },
-                _ => Err(WasmDecodeErrorType::DynamicLinkError),
+                _ => Err(WasmDecodeErrorType::NoModule),
             })
             .map_err(|_| ())
     }
@@ -76,6 +77,7 @@ pub struct ArleRuntime {
     windows: BTreeMap<usize, WindowHandle>,
     rng32: XorShift32,
     key_buffer: Vec<KeyEvent>,
+    has_to_exit: AtomicBool,
 }
 
 impl ArleRuntime {
@@ -92,6 +94,7 @@ impl ArleRuntime {
             windows: BTreeMap::new(),
             rng32: XorShift32::default(),
             key_buffer: Vec::with_capacity(Self::SIZE_KEYBUFFER),
+            has_to_exit: AtomicBool::new(false),
         })
     }
 
@@ -141,6 +144,9 @@ impl ArleRuntime {
         let func_no = params.get_u32().and_then(|v| {
             FromPrimitive::from_u32(v).ok_or(WasmRuntimeErrorType::InvalidParameter)
         })?;
+        if self.has_to_exit.load(Ordering::Relaxed) {
+            return Err(WasmRuntimeErrorType::NoError);
+        }
 
         match func_no {
             Function::Exit => {
@@ -196,7 +202,7 @@ impl ArleRuntime {
                         BitmapStrategy::Expressive => SomeColor::TRANSPARENT,
                     }
                 } else {
-                    bg_color.unwrap_or(WindowManager::DEFAULT_BGCOLOR)
+                    bg_color.unwrap_or(Theme::shared().window_default_background())
                 };
 
                 let window = WindowBuilder::new(title)
@@ -289,8 +295,9 @@ impl ArleRuntime {
             }
             Function::WaitChar => {
                 if let Some(window) = params.get_window(self)? {
-                    let c = self.wait_key(window);
-                    return Ok(WasmValue::I32(c.unwrap_or('\0') as i32));
+                    return self
+                        .wait_key(window)
+                        .map(|c| WasmValue::I32(c.unwrap_or('\0') as i32));
                 }
             }
             Function::ReadChar => {
@@ -381,18 +388,21 @@ impl ArleRuntime {
         Ok(WasmValue::I32(0))
     }
 
-    fn wait_key(&mut self, window: WindowHandle) -> Option<char> {
+    fn wait_key(&mut self, window: WindowHandle) -> Result<Option<char>, WasmRuntimeErrorType> {
         while let Some(message) = window.wait_message() {
             self.process_message(window, message);
+            if self.has_to_exit.load(Ordering::Relaxed) {
+                return Err(WasmRuntimeErrorType::NoError);
+            }
 
             if let Some(c) = self
                 .read_key_buffer()
                 .and_then(|v| v.key_data().map(|v| v.into_char()))
             {
-                return Some(c);
+                return Ok(Some(c));
             }
         }
-        None
+        Err(WasmRuntimeErrorType::TypeMismatch)
     }
 
     fn read_key(&mut self, window: WindowHandle) -> Option<char> {
@@ -412,6 +422,14 @@ impl ArleRuntime {
 
     fn process_message(&mut self, window: WindowHandle, message: WindowMessage) {
         match message {
+            WindowMessage::Close => {
+                if self.windows.values().count() > 1 {
+                    // todo:
+                    window.close();
+                } else {
+                    self.has_to_exit.store(true, Ordering::SeqCst);
+                }
+            }
             WindowMessage::Key(event) => {
                 event.key_data().map(|data| self.key_buffer.push(data));
             }

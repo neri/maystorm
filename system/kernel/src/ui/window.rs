@@ -105,6 +105,7 @@ pub struct WindowManager<'a> {
 struct Resources<'a> {
     corner_shadow: BoxedBitmap32<'a>,
     close_button: OperationalBitmap,
+    close_button_width: isize,
     title_font: FontDescriptor,
     label_font: FontDescriptor,
 }
@@ -153,6 +154,7 @@ impl WindowManager<'static> {
             }
             bitmap
         };
+        let close_button_width = CLOSE_BUTTON_SIZE as isize + 16;
 
         let root = {
             let window = WindowBuilder::new("Root")
@@ -210,6 +212,7 @@ impl WindowManager<'static> {
                 resources: Resources {
                     corner_shadow,
                     close_button,
+                    close_button_width,
                     title_font: FontManager::title_font(),
                     label_font: FontManager::ui_font(),
                 },
@@ -273,8 +276,6 @@ impl WindowManager<'static> {
 }
 
 impl WindowManager<'_> {
-    pub const DEFAULT_BGCOLOR: SomeColor = SomeColor::WHITE;
-
     #[inline]
     #[track_caller]
     fn shared<'a>() -> &'a WindowManager<'static> {
@@ -334,7 +335,13 @@ impl WindowManager<'_> {
 
                 if let Some(captured) = shared.captured {
                     if current_buttons.contains(MouseButton::LEFT) {
-                        if shared.attributes.contains(WindowManagerAttributes::MOVING) {
+                        if shared
+                            .attributes
+                            .contains(WindowManagerAttributes::CLOSE_DOWN)
+                        {
+                            // close button
+                        } else if shared.attributes.contains(WindowManagerAttributes::MOVING) {
+                            // dragging title
                             let top = if captured.as_ref().level < WindowLevel::FLOATING {
                                 shared.screen_insets.top
                             } else {
@@ -353,15 +360,31 @@ impl WindowManager<'_> {
                             );
                         }
                     } else {
-                        let _ = Self::make_mouse_events(
-                            captured,
-                            position,
-                            current_buttons,
-                            buttons_down,
-                            buttons_up,
-                        );
+                        if shared
+                            .attributes
+                            .contains(WindowManagerAttributes::CLOSE_DOWN)
+                        {
+                            let target_window = captured.as_ref();
+                            let mut close_button_frame = target_window.close_button_frame();
+                            close_button_frame.origin += target_window.frame.origin;
+                            if position.is_within(close_button_frame) {
+                                let _ = captured.post(WindowMessage::Close);
+                            }
+                        } else {
+                            let _ = Self::make_mouse_events(
+                                captured,
+                                position,
+                                current_buttons,
+                                buttons_down,
+                                buttons_up,
+                            );
+                        }
+
                         shared.captured = None;
                         shared.attributes.remove(WindowManagerAttributes::MOVING);
+                        shared
+                            .attributes
+                            .remove(WindowManagerAttributes::CLOSE_DOWN);
 
                         let target = Self::window_at_point(position);
                         if let Some(entered) = shared.entered {
@@ -391,11 +414,18 @@ impl WindowManager<'_> {
                             WindowManager::set_active(Some(target));
                         }
                         let target_window = target.as_ref();
-                        if target_window.style.contains(WindowStyle::PINCHABLE) {
+                        let mut title_frame = target_window.title_frame();
+                        title_frame.origin += target_window.frame.origin;
+                        let mut close_button_frame = target_window.close_button_frame();
+                        close_button_frame.origin += target_window.frame.origin;
+
+                        if position.is_within(close_button_frame) {
+                            shared
+                                .attributes
+                                .insert(WindowManagerAttributes::CLOSE_DOWN);
+                        } else if target_window.style.contains(WindowStyle::PINCHABLE) {
                             shared.attributes.insert(WindowManagerAttributes::MOVING);
                         } else {
-                            let mut title_frame = target_window.title_frame();
-                            title_frame.origin += target_window.frame.origin;
                             if position.is_within(title_frame) {
                                 shared.attributes.insert(WindowManagerAttributes::MOVING);
                             } else {
@@ -434,6 +464,7 @@ impl WindowManager<'_> {
         }
     }
 
+    #[inline]
     fn post_system_event(event: WindowSystemEvent) -> Result<(), WindowSystemEvent> {
         let shared = Self::shared();
         let r = shared.system_event.push(event);
@@ -774,6 +805,7 @@ bitflags! {
         const MOUSE_MOVE    = 0b0000_0100;
         const NEEDS_REDRAW  = 0b0000_1000;
         const MOVING        = 0b0001_0000;
+        const CLOSE_DOWN    = 0b0010_0000;
     }
 }
 
@@ -1043,6 +1075,22 @@ impl RawWindow<'_> {
         }
     }
 
+    fn close_button_frame(&self) -> Rect {
+        if self.style.contains(WindowStyle::TITLE) {
+            let shared = WindowManager::shared();
+            let rect = self.title_frame();
+            let close_button_width = shared.resources.close_button_width;
+            Rect::new(
+                rect.max_x() - close_button_width,
+                rect.y(),
+                close_button_width,
+                rect.height(),
+            )
+        } else {
+            Rect::default()
+        }
+    }
+
     #[inline]
     fn is_active(&self) -> bool {
         WindowManager::shared().active.contains(&self.handle)
@@ -1115,11 +1163,14 @@ impl RawWindow<'_> {
                 );
 
                 let left = padding;
-                let mut right = padding;
+                let right;
                 if true {
+                    let button_width = shared.resources.close_button_width;
                     let button = &shared.resources.close_button;
                     let rect = Rect::new(
-                        rect.x() + rect.width() - right - button.width() as isize,
+                        rect.max_x()
+                            - (button_width - button.width() as isize) / 2
+                            - button.width() as isize,
                         rect.y() + (rect.height() - button.height() as isize) / 2,
                         button.width() as isize,
                         button.height() as isize,
@@ -1143,7 +1194,9 @@ impl RawWindow<'_> {
                         })
                     });
 
-                    right += padding + button.width() as isize;
+                    right = padding + button_width;
+                } else {
+                    right = padding;
                 }
 
                 if let Some(text) = self.title() {
@@ -1238,6 +1291,7 @@ impl<'a> RawWindow<'a> {
             .map(|v| v.as_bitmap())
     }
 
+    #[inline]
     fn title<'b>(&self) -> Option<&'b str> {
         let len = self.title[0] as usize;
         match len {
@@ -1316,7 +1370,7 @@ impl WindowBuilder {
             frame: Rect::new(isize::MIN, isize::MIN, 300, 300),
             level: WindowLevel::NORMAL,
             style: WindowStyle::DEFAULT,
-            bg_color: WindowManager::DEFAULT_BGCOLOR,
+            bg_color: Theme::shared().window_default_background(),
             title: [0; WINDOW_TITLE_LENGTH],
             queue_size: 100,
             bitmap_strategy: BitmapStrategy::default(),

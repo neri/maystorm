@@ -15,7 +15,7 @@ fn _start() {
     os_srand(os_monotonic());
 
     let window = Window::new(
-        "Game of Life",
+        "LIFE",
         Size::new(BITMAP_WIDTH * DRAW_SCALE, BITMAP_HEIGHT * DRAW_SCALE),
     );
 

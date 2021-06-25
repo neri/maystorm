@@ -200,11 +200,12 @@ impl Hoe {
             15 => {
                 // Get Key
                 let sleep = regs.eax != 0;
-                regs.eax = self
-                    .windows
-                    .first()
-                    .and_then(|window| window.get_message(sleep))
-                    .unwrap_or(0xFFFFFFFF);
+                let none = 0xFFFF_FFFF;
+                regs.eax = match self.windows.first().map(|window| window.get_message(sleep)) {
+                    Some(Err(WindowResult::Close)) => self.exit(),
+                    Some(Ok(Some(c))) => c,
+                    _ => none,
+                };
             }
             16 => {
                 // alloc timer
@@ -601,34 +602,37 @@ impl HoeWindow {
         window
     }
 
-    fn get_message(&self, sleep: bool) -> Option<u32> {
+    fn get_message(&self, sleep: bool) -> Result<Option<u32>, WindowResult> {
         let message_handler = |message| match message {
+            WindowMessage::Close => Err(WindowResult::Close),
             WindowMessage::Char(c) => match c {
-                '\x0D' => Some(0x0A),
-                _ => Some(c as u8 as u32),
+                '\x0D' => Ok(Some(0x0A)),
+                _ => Ok(Some(c as u8 as u32)),
             },
-            WindowMessage::Timer(timer_id) => Some(timer_id as u32),
+            WindowMessage::Timer(timer_id) => Ok(Some(timer_id as u32)),
             _ => {
                 self.handle.handle_default_message(message);
-                None
+                Ok(None)
             }
         };
         if sleep {
             while let Some(message) = self.handle.wait_message() {
                 match message_handler(message) {
-                    Some(v) => return Some(v),
-                    None => (),
+                    Ok(Some(v)) => return Ok(Some(v)),
+                    Ok(None) => (),
+                    Err(err) => return Err(err),
                 }
             }
-            None
+            Err(WindowResult::NoWindow)
         } else {
             while let Some(message) = self.handle.read_message() {
                 match message_handler(message) {
-                    Some(v) => return Some(v),
-                    None => (),
+                    Ok(Some(v)) => return Ok(Some(v)),
+                    Ok(None) => (),
+                    Err(err) => return Err(err),
                 }
             }
-            None
+            Err(WindowResult::NoWindow)
         }
     }
 
@@ -760,6 +764,11 @@ impl HoeWindow {
         }
         8
     }
+}
+
+enum WindowResult {
+    NoWindow,
+    Close,
 }
 
 struct HoeTimer {
