@@ -400,24 +400,14 @@ impl<'a> HersheyFont<'a> {
                 Bitmap::Indexed(_) => {
                     // TODO:
                 }
-                Bitmap::Argb32(bitmap) => {
+                Bitmap::Argb32(ref mut bitmap) => {
                     let color = color.into_argb();
-                    for y in 0..=height {
-                        for x in 0..act_w {
-                            let point = origin + Point::new(x, y);
-                            unsafe {
-                                bitmap.process_pixel_unchecked(point, |v| {
-                                    let mut c = color.components();
-                                    let alpha = buffer.get_pixel_unchecked(Point::new(
-                                        offset_x + x * master_scale,
-                                        offset_y + y * master_scale,
-                                    ));
-                                    c.a = alpha; //u8::MAX - alpha;
-                                    v.blend_draw(c.into())
-                                })
-                            }
-                        }
-                    }
+                    let rect = Rect::new(offset_x, offset_y, act_w, height);
+                    buffer.blt_to(*bitmap, origin, rect, |a, b| {
+                        let mut c = color.components();
+                        c.a = a;
+                        b.blend_draw(c.into())
+                    });
                 }
             }
         }

@@ -205,7 +205,7 @@ async fn activity_monitor_main() {
     let width = 260;
     let height = 200;
     let window = WindowBuilder::new("Activity Monitor")
-        // .style_add(WindowStyle::NAKED)
+        .style(WindowStyle::TITLE | WindowStyle::BORDER)
         .frame(Rect::new(-width - 16, -height - 16, width, height))
         .bg_color(bg_color)
         .build();
@@ -213,19 +213,6 @@ async fn activity_monitor_main() {
     unsafe {
         ACTIVITY_WINDOW = Some(window);
     }
-
-    // window
-    //     .draw(|bitmap| {
-    //         for i in 0..16 {
-    //             let r = i as usize;
-    //             let r = r * r;
-    //             let origin = Point::new(i, 0);
-    //             let color =
-    //                 SomeColor::from(bg_color32.set_opacity((bg_alpha as usize * r / 256) as u8));
-    //             bitmap.draw_vline(origin, bitmap.height() as isize, color);
-    //         }
-    //     })
-    //     .unwrap();
 
     window.show();
 

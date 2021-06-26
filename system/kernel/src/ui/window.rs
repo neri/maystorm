@@ -23,48 +23,53 @@ use futures_util::task::AtomicWaker;
 use megstd::drawing::*;
 use megstd::io::hid::*;
 
-const WINDOW_SYSTEM_EVENT_QUEUE_SIZE: usize = 100;
-
-const WINDOW_TITLE_LENGTH: usize = 32;
-
 const WINDOW_BORDER_PADDING: isize = 0;
 const WINDOW_BORDER_SHADOW_PADDING: isize = 8;
 const WINDOW_TITLE_HEIGHT: isize = 24;
+const WINDOW_SYSTEM_EVENT_QUEUE_SIZE: usize = 100;
+const WINDOW_TITLE_LENGTH: usize = 32;
 
 // Mouse Pointer
 const MOUSE_POINTER_WIDTH: usize = 12;
 const MOUSE_POINTER_HEIGHT: usize = 20;
+#[rustfmt::skip]
 const MOUSE_POINTER_SOURCE: [u8; MOUSE_POINTER_WIDTH * MOUSE_POINTER_HEIGHT] = [
-    0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x0F, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x07, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x00, 0x07, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0x0F, 0x00, 0x00, 0x07, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x00, 0x00, 0x00,
-    0x07, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x07, 0x0F, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF,
-    0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x0F, 0xFF, 0xFF, 0xFF, 0x0F, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x07, 0x0F, 0xFF, 0xFF, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x07, 0x0F, 0xFF, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x0F,
-    0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x00, 0x00, 0x07,
-    0x0F, 0x07, 0x00, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x00, 0x07, 0x0F, 0xFF, 0x0F, 0x00, 0x07,
-    0x0F, 0xFF, 0xFF, 0xFF, 0x0F, 0x07, 0x0F, 0xFF, 0xFF, 0x0F, 0x07, 0x00, 0x0F, 0xFF, 0xFF, 0xFF,
-    0x0F, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x00, 0x07, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0x0F, 0x07, 0x00, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F,
-    0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x0F, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x0F, 0x07, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x0F, 0x00, 0x07, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x0F, 0x00, 0x00, 0x07, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x0F, 0x00, 0x00, 0x00, 0x07, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x0F, 0x00, 0x00, 0x00, 0x00, 0x07, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x0F, 0xFF, 0xFF, 0xFF,
+    0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x0F, 0xFF, 0xFF,
+    0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x0F, 0xFF,
+    0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x0F,
+    0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F,
+    0x0F, 0x00, 0x00, 0x07, 0x0F, 0x07, 0x00, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF,
+    0x0F, 0x00, 0x07, 0x0F, 0xFF, 0x0F, 0x00, 0x07, 0x0F, 0xFF, 0xFF, 0xFF,
+    0x0F, 0x07, 0x0F, 0xFF, 0xFF, 0x0F, 0x07, 0x00, 0x0F, 0xFF, 0xFF, 0xFF,
+    0x0F, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x00, 0x07, 0x0F, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x07, 0x00, 0x0F, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x0F, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 ];
 
 // Close button
 const CLOSE_BUTTON_SIZE: usize = 10;
-const CLOSE_BUTTON_SOURCE: [[u8; CLOSE_BUTTON_SIZE]; CLOSE_BUTTON_SIZE] = [
-    [0x00, 0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x55, 0x00],
-    [0x55, 0xFF, 0xAA, 0x00, 0x00, 0x00, 0x00, 0xAA, 0xFF, 0x55],
-    [0x00, 0xAA, 0xFF, 0xAA, 0x00, 0x00, 0xAA, 0xFF, 0xAA, 0x00],
-    [0x00, 0x00, 0xAA, 0xFF, 0xAA, 0xAA, 0xFF, 0xAA, 0x00, 0x00],
-    [0x00, 0x00, 0x00, 0xAA, 0xFF, 0xFF, 0xAA, 0x00, 0x00, 0x00],
-    [0x00, 0x00, 0x00, 0xAA, 0xFF, 0xFF, 0xAA, 0x00, 0x00, 0x00],
-    [0x00, 0x00, 0xAA, 0xFF, 0xAA, 0xAA, 0xFF, 0xAA, 0x00, 0x00],
-    [0x00, 0xAA, 0xFF, 0xAA, 0x00, 0x00, 0xAA, 0xFF, 0xAA, 0x00],
-    [0x55, 0xFF, 0xAA, 0x00, 0x00, 0x00, 0x00, 0xAA, 0xFF, 0x55],
-    [0x00, 0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x55, 0x00],
+#[rustfmt::skip]
+const CLOSE_BUTTON_SOURCE: [u8; CLOSE_BUTTON_SIZE* CLOSE_BUTTON_SIZE] = [
+    0x00, 0x99, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x99, 0x00,
+    0x99, 0xFF, 0x99, 0x00, 0x00, 0x00, 0x00, 0x99, 0xFF, 0x99,
+    0x00, 0x99, 0xFF, 0x99, 0x00, 0x00, 0x99, 0xFF, 0x99, 0x00,
+    0x00, 0x00, 0x99, 0xFF, 0x99, 0x99, 0xFF, 0x99, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x99, 0xFF, 0xFF, 0x99, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x99, 0xFF, 0xFF, 0x99, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x99, 0xFF, 0x99, 0x99, 0xFF, 0x99, 0x00, 0x00,
+    0x00, 0x99, 0xFF, 0x99, 0x00, 0x00, 0x99, 0xFF, 0x99, 0x00,
+    0x99, 0xFF, 0x99, 0x00, 0x00, 0x00, 0x00, 0x99, 0xFF, 0x99,
+    0x00, 0x99, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x99, 0x00,
 ];
 
 static mut WM: Option<Box<WindowManager<'static>>> = None;
@@ -140,20 +145,10 @@ impl WindowManager<'static> {
             bitmap
         };
 
-        let close_button = {
-            let w = CLOSE_BUTTON_SIZE;
-            let h = CLOSE_BUTTON_SIZE;
-            let mut bitmap = OperationalBitmap::new(Size::new(w as isize, h as isize));
-            for x in 0..w {
-                for y in 0..h {
-                    bitmap.set_pixel(
-                        Point::new(x as isize, y as isize),
-                        CLOSE_BUTTON_SOURCE[x][y],
-                    );
-                }
-            }
-            bitmap
-        };
+        let close_button = OperationalBitmap::with_slice(
+            Size::new(CLOSE_BUTTON_SIZE as isize, CLOSE_BUTTON_SIZE as isize),
+            &CLOSE_BUTTON_SOURCE,
+        );
         let close_button_width = CLOSE_BUTTON_SIZE as isize + 16;
 
         let root = {
@@ -339,7 +334,18 @@ impl WindowManager<'_> {
                             .attributes
                             .contains(WindowManagerAttributes::CLOSE_DOWN)
                         {
-                            // close button
+                            let target_window = captured.as_ref();
+                            let mut close_button_frame = target_window.close_button_frame();
+                            close_button_frame.origin += target_window.frame.origin;
+                            if position.is_within(close_button_frame) {
+                                captured.update(|window| {
+                                    window.set_close_state(ViewActionState::Pressed)
+                                });
+                            } else {
+                                captured.update(|window| {
+                                    window.set_close_state(ViewActionState::Normal)
+                                });
+                            }
                         } else if shared.attributes.contains(WindowManagerAttributes::MOVING) {
                             // dragging title
                             let top = if captured.as_ref().level < WindowLevel::FLOATING {
@@ -364,6 +370,8 @@ impl WindowManager<'_> {
                             .attributes
                             .contains(WindowManagerAttributes::CLOSE_DOWN)
                         {
+                            captured
+                                .update(|window| window.set_close_state(ViewActionState::Normal));
                             let target_window = captured.as_ref();
                             let mut close_button_frame = target_window.close_button_frame();
                             close_button_frame.origin += target_window.frame.origin;
@@ -413,6 +421,7 @@ impl WindowManager<'_> {
                         } else {
                             WindowManager::set_active(Some(target));
                         }
+
                         let target_window = target.as_ref();
                         let mut title_frame = target_window.title_frame();
                         title_frame.origin += target_window.frame.origin;
@@ -420,6 +429,8 @@ impl WindowManager<'_> {
                         close_button_frame.origin += target_window.frame.origin;
 
                         if position.is_within(close_button_frame) {
+                            target
+                                .update(|window| window.set_close_state(ViewActionState::Pressed));
                             shared
                                 .attributes
                                 .insert(WindowManagerAttributes::CLOSE_DOWN);
@@ -815,6 +826,21 @@ impl Into<usize> for WindowManagerAttributes {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ViewActionState {
+    Normal,
+    Hover,
+    Pressed,
+    Disabled,
+}
+
+impl Default for ViewActionState {
+    #[inline]
+    fn default() -> Self {
+        Self::Normal
+    }
+}
+
 /// Raw implementation of the window
 #[allow(dead_code)]
 struct RawWindow<'a> {
@@ -837,6 +863,7 @@ struct RawWindow<'a> {
 
     /// Window Title
     title: [u8; WINDOW_TITLE_LENGTH],
+    close_button_state: ViewActionState,
 
     // Messages and Events
     waker: AtomicWaker,
@@ -851,12 +878,13 @@ bitflags! {
     pub struct WindowStyle: u8 {
         const BORDER        = 0b0000_0001;
         const TITLE         = 0b0000_0010;
-        const NAKED         = 0b0000_0100;
-        const OPAQUE        = 0b0000_1000;
-        const PINCHABLE     = 0b0001_0000;
-        const FLOATING      = 0b0010_0000;
+        const CLOSE_BUTTON  = 0b0000_0100;
+        const PINCHABLE     = 0b0000_1000;
+        const FLOATING      = 0b0001_0000;
+        const NAKED         = 0b0010_0000;
+        const OPAQUE        = 0b0100_0000;
 
-        const DEFAULT = Self::BORDER.bits | Self::TITLE.bits;
+        const DEFAULT = Self::BORDER.bits | Self::TITLE.bits | Self::CLOSE_BUTTON.bits;
     }
 }
 
@@ -1076,7 +1104,7 @@ impl RawWindow<'_> {
     }
 
     fn close_button_frame(&self) -> Rect {
-        if self.style.contains(WindowStyle::TITLE) {
+        if self.style.contains(WindowStyle::CLOSE_BUTTON) {
             let shared = WindowManager::shared();
             let rect = self.title_frame();
             let close_button_width = shared.resources.close_button_width;
@@ -1105,127 +1133,151 @@ impl RawWindow<'_> {
     }
 
     fn draw_frame(&mut self) {
-        if let Some(mut bitmap) = self.bitmap() {
-            let is_active = self.is_active();
+        let mut bitmap = match self.bitmap() {
+            Some(v) => v,
+            None => return,
+        };
+        let is_active = self.is_active();
 
-            if self.style.contains(WindowStyle::BORDER) {
-                match &mut bitmap {
-                    Bitmap::Argb32(bitmap) => {
-                        let q = WINDOW_BORDER_SHADOW_PADDING;
-                        let rect = Rect::from(bitmap.size());
+        if self.style.contains(WindowStyle::BORDER) {
+            match &mut bitmap {
+                Bitmap::Argb32(bitmap) => {
+                    let q = WINDOW_BORDER_SHADOW_PADDING;
+                    let rect = Rect::from(bitmap.size());
 
-                        // if WINDOW_BORDER_PADDING > 0 {
-                        //     let rect = Rect::from(bitmap.size())
-                        //         .insets_by(EdgeInsets::padding_each(WINDOW_BORDER_SHADOW_PADDING));
-                        //     bitmap.draw_rect(rect, WINDOW_BORDER_COLOR.into_argb());
-                        // }
+                    // if WINDOW_BORDER_PADDING > 0 {
+                    //     let rect = Rect::from(bitmap.size())
+                    //         .insets_by(EdgeInsets::padding_each(WINDOW_BORDER_SHADOW_PADDING));
+                    //     bitmap.draw_rect(rect, WINDOW_BORDER_COLOR.into_argb());
+                    // }
 
-                        for n in 0..q {
-                            let rect = rect.insets_by(EdgeInsets::padding_each(n));
-                            let light = 1 + n as u8;
-                            let color = TrueColor::TRANSPARENT.set_opacity(light * light);
-                            bitmap.draw_rect(rect, color);
-                        }
-                        let shared = WindowManager::shared();
-                        let corner = &shared.resources.corner_shadow;
-                        bitmap.blt(corner, Point::new(0, 0), Rect::new(0, 0, q, q));
-                        bitmap.blt(
-                            corner,
-                            Point::new(rect.width() - q, 0),
-                            Rect::new(q, 0, q, q),
-                        );
-                        bitmap.blt(
-                            corner,
-                            Point::new(0, rect.height() - q),
-                            Rect::new(0, q, q, q),
-                        );
-                        bitmap.blt(
-                            corner,
-                            Point::new(rect.width() - q, rect.height() - q),
-                            Rect::new(q, q, q, q),
-                        );
+                    for n in 0..q {
+                        let rect = rect.insets_by(EdgeInsets::padding_each(n));
+                        let light = 1 + n as u8;
+                        let color = TrueColor::TRANSPARENT.set_opacity(light * light);
+                        bitmap.draw_rect(rect, color);
                     }
-                    _ => (),
-                }
-            }
-            if self.style.contains(WindowStyle::TITLE) {
-                let padding = 8;
-                let shared = WindowManager::shared();
-
-                let rect = self.title_frame();
-                bitmap.fill_rect(
-                    rect,
-                    if is_active {
-                        Theme::shared().window_title_active_background()
-                    } else {
-                        Theme::shared().window_title_inactive_background()
-                    },
-                );
-
-                let left = padding;
-                let right;
-                if true {
-                    let button_width = shared.resources.close_button_width;
-                    let button = &shared.resources.close_button;
-                    let rect = Rect::new(
-                        rect.max_x()
-                            - (button_width - button.width() as isize) / 2
-                            - button.width() as isize,
-                        rect.y() + (rect.height() - button.height() as isize) / 2,
-                        button.width() as isize,
-                        button.height() as isize,
+                    let shared = WindowManager::shared();
+                    let corner = &shared.resources.corner_shadow;
+                    bitmap.blt(corner, Point::new(0, 0), Rect::new(0, 0, q, q));
+                    bitmap.blt(
+                        corner,
+                        Point::new(rect.width() - q, 0),
+                        Rect::new(q, 0, q, q),
                     );
-                    let template = Theme::shared().window_title_close().into_argb();
-                    bitmap.view(rect, |mut bitmap| {
-                        bitmap.map_argb32(|bitmap| {
-                            for y in 0..button.height() {
-                                for x in 0..button.width() {
-                                    let point = Point::new(x as isize, y as isize);
-                                    unsafe {
-                                        bitmap.process_pixel_unchecked(point, |v| {
-                                            v.blend_draw(
-                                                template
-                                                    .set_opacity(button.get_pixel_unchecked(point)),
-                                            )
-                                        })
-                                    }
-                                }
-                            }
-                        })
-                    });
-
-                    right = padding + button_width;
-                } else {
-                    right = padding;
+                    bitmap.blt(
+                        corner,
+                        Point::new(0, rect.height() - q),
+                        Rect::new(0, q, q, q),
+                    );
+                    bitmap.blt(
+                        corner,
+                        Point::new(rect.width() - q, rect.height() - q),
+                        Rect::new(q, q, q, q),
+                    );
                 }
+                _ => (),
+            }
+        }
 
-                if let Some(text) = self.title() {
-                    let font = shared.resources.title_font;
-                    let rect = rect.insets_by(EdgeInsets::new(2, left, 0, right));
+        if self.style.contains(WindowStyle::TITLE) {
+            let shared = WindowManager::shared();
+            let padding = 8;
+            let left = padding;
+            let right = padding;
 
-                    if is_active {
-                        let rect2 = rect + Point::new(1, 1);
-                        AttributedString::new()
-                            .font(font)
-                            .color(Theme::shared().window_title_active_shadow())
-                            .center()
-                            .text(text)
-                            .draw_text(&mut bitmap, rect2, 1);
-                    }
+            let mut rect = self.title_frame();
+            if self.style.contains(WindowStyle::CLOSE_BUTTON) {
+                rect.size.width -= shared.resources.close_button_width;
+                self.draw_close_button();
+            }
+            bitmap.fill_rect(
+                rect,
+                if is_active {
+                    Theme::shared().window_title_active_background()
+                } else {
+                    Theme::shared().window_title_inactive_background()
+                },
+            );
 
+            if let Some(text) = self.title() {
+                let font = shared.resources.title_font;
+                let rect = rect.insets_by(EdgeInsets::new(2, left, 0, right));
+
+                if is_active {
+                    let rect2 = rect + Point::new(1, 1);
                     AttributedString::new()
                         .font(font)
-                        .color(if is_active {
-                            Theme::shared().window_title_active_foreground()
-                        } else {
-                            Theme::shared().window_title_inactive_foreground()
-                        })
+                        .color(Theme::shared().window_title_active_shadow())
                         .center()
                         .text(text)
-                        .draw_text(&mut bitmap, rect, 1);
+                        .draw_text(&mut bitmap, rect2, 1);
+                }
+
+                AttributedString::new()
+                    .font(font)
+                    .color(if is_active {
+                        Theme::shared().window_title_active_foreground()
+                    } else {
+                        Theme::shared().window_title_inactive_foreground()
+                    })
+                    .center()
+                    .text(text)
+                    .draw_text(&mut bitmap, rect, 1);
+            }
+        }
+    }
+
+    fn draw_close_button(&mut self) {
+        if !self
+            .style
+            .contains(WindowStyle::TITLE | WindowStyle::CLOSE_BUTTON)
+        {
+            return;
+        }
+        let mut bitmap = match self.bitmap() {
+            Some(v) => v,
+            None => return,
+        };
+        let shared = WindowManager::shared();
+        let state = self.close_button_state;
+        let close_button_frame = self.close_button_frame();
+        let is_active = self.is_active();
+
+        let background = match state {
+            ViewActionState::Pressed => Theme::shared().window_title_close_active_background(),
+            _ => {
+                if is_active {
+                    Theme::shared().window_title_active_background()
+                } else {
+                    Theme::shared().window_title_inactive_background()
+                }
+            }
+        };
+        let foreground = match state {
+            ViewActionState::Pressed => Theme::shared().window_title_close_active_foreground(),
+            _ => {
+                if is_active {
+                    Theme::shared().window_title_close_foreground()
+                } else {
+                    Theme::shared().window_title_inactive_foreground()
                 }
             }
         }
+        .into_argb();
+
+        bitmap.fill_rect(close_button_frame, background);
+
+        let button = &shared.resources.close_button;
+        let origin = Point::new(
+            close_button_frame.x() + (close_button_frame.width() - button.width() as isize) / 2,
+            close_button_frame.y() + (close_button_frame.height() - button.height() as isize) / 2,
+        );
+        bitmap.map_argb32(|bitmap| {
+            button.blt_to(bitmap, origin, button.bounds(), |a, b| {
+                b.blend_draw(foreground.set_opacity(a))
+            })
+        });
     }
 
     #[inline]
@@ -1264,6 +1316,18 @@ impl RawWindow<'_> {
         RawWindow::set_title_array(&mut self.title, title);
         self.draw_frame();
         self.invalidate_rect(self.title_frame());
+    }
+
+    fn set_close_state(&mut self, state: ViewActionState) {
+        if self.close_button_state != state {
+            self.close_button_state = state;
+            self.update_close_button();
+        }
+    }
+
+    fn update_close_button(&mut self) {
+        self.draw_close_button();
+        self.invalidate_rect(self.close_button_frame());
     }
 
     fn prev(&self) -> Option<WindowHandle> {
@@ -1442,6 +1506,7 @@ impl WindowBuilder {
             bg_color: self.bg_color,
             bitmap: None,
             title: self.title,
+            close_button_state: Default::default(),
             attributes,
             waker: AtomicWaker::new(),
             sem: Semaphore::new(0),

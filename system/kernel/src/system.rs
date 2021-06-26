@@ -24,7 +24,7 @@ impl Version<'_> {
     const SYSTEM_NAME: &'static str = "MEG-OS codename Maystorm";
     const SYSTEM_SHORT_NAME: &'static str = "maystorm";
     const RELEASE: &'static str = "";
-    const VERSION: Version<'static> = Version::new(0, 21, 0, Self::RELEASE);
+    const VERSION: Version<'static> = Version::new(0, 21, 6, Self::RELEASE);
 
     #[inline]
     pub const fn new<'a>(maj: u8, min: u8, patch: u16, rel: &'a str) -> Version<'a> {

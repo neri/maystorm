@@ -5,7 +5,6 @@ use super::coords::*;
 use super::drawable::*;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use bitflags::*;
 use byteorder::*;
 use core::cell::UnsafeCell;
 use core::convert::TryFrom;
@@ -1017,13 +1016,6 @@ impl RasterImage for ConstBitmap32<'_> {
 
     fn slice(&self) -> &[Self::ColorType] {
         self.slice
-    }
-}
-
-bitflags! {
-    pub struct BitmapFlags: usize {
-        const PORTRAIT      = 0b0000_0001;
-        const TRANSLUCENT   = 0b0000_0010;
     }
 }
 
@@ -2152,13 +2144,14 @@ impl<'a> From<BoxedBitmap32<'a>> for BoxedBitmap<'a> {
     }
 }
 
-impl ColorTrait for u8 {}
-
+/// A special bitmap type that can be used for operations such as transparency and shading.
 pub struct OperationalBitmap {
     width: usize,
     height: usize,
     vec: UnsafeCell<Vec<u8>>,
 }
+
+impl ColorTrait for u8 {}
 
 impl Drawable for OperationalBitmap {
     type ColorType = u8;
@@ -2197,6 +2190,16 @@ impl OperationalBitmap {
     #[inline]
     pub const fn new(size: Size) -> Self {
         let vec = Vec::new();
+        Self {
+            width: size.width() as usize,
+            height: size.height() as usize,
+            vec: UnsafeCell::new(vec),
+        }
+    }
+
+    #[inline]
+    pub fn with_slice(size: Size, slice: &[u8]) -> Self {
+        let vec = Vec::from(slice);
         Self {
             width: size.width() as usize,
             height: size.height() as usize,
@@ -2336,6 +2339,64 @@ impl OperationalBitmap {
                 plot(self, x, intery, rfpart(intery));
                 plot(self, x, intery + ONE, fpart(intery));
                 intery += gradient;
+            }
+        }
+    }
+
+    pub fn blt_to<T, F>(&self, dest: &mut T, origin: Point, rect: Rect, mut f: F)
+    where
+        T: GetPixel + SetPixel,
+        F: FnMut(u8, <T as Drawable>::ColorType) -> <T as Drawable>::ColorType,
+    {
+        let mut dx = origin.x();
+        let mut dy = origin.y();
+        let mut sx = rect.x();
+        let mut sy = rect.y();
+        let mut width = rect.width();
+        let mut height = rect.height();
+
+        if dx < 0 {
+            sx -= dx;
+            width += dx;
+            dx = 0;
+        }
+        if dy < 0 {
+            sy -= dy;
+            height += dy;
+            dy = 0;
+        }
+        let sw = self.width() as isize;
+        let sh = self.height() as isize;
+        if width > sx + sw {
+            width = sw - sx;
+        }
+        if height > sy + sh {
+            height = sh - sy;
+        }
+        let r = dx + width;
+        let b = dy + height;
+        let dw = dest.width() as isize;
+        let dh = dest.height() as isize;
+        if r >= dw {
+            width = dw - dx;
+        }
+        if b >= dh {
+            height = dh - dy;
+        }
+        if width <= 0 || height <= 0 {
+            return;
+        }
+
+        for y in 0..height {
+            for x in 0..width {
+                let dp = Point::new(dx + x, dy + y);
+                let sp = Point::new(sx + x, sy + y);
+                unsafe {
+                    dest.set_pixel_unchecked(
+                        dp,
+                        f(self.get_pixel_unchecked(sp), dest.get_pixel_unchecked(dp)),
+                    );
+                }
             }
         }
     }

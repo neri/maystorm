@@ -1,6 +1,7 @@
 // MEG-OS Arlequin Subsystem
 
 use super::*;
+use crate::sync::Mutex;
 use crate::ui::theme::Theme;
 use crate::*;
 use crate::{io::hid::*, ui::window::*, util::text::*};
@@ -76,7 +77,7 @@ pub struct ArleRuntime {
     next_handle: AtomicUsize,
     windows: BTreeMap<usize, WindowHandle>,
     rng32: XorShift32,
-    key_buffer: Vec<KeyEvent>,
+    key_buffer: Mutex<Vec<KeyEvent>>,
     has_to_exit: AtomicBool,
 }
 
@@ -93,7 +94,7 @@ impl ArleRuntime {
             next_handle: AtomicUsize::new(1),
             windows: BTreeMap::new(),
             rng32: XorShift32::default(),
-            key_buffer: Vec::with_capacity(Self::SIZE_KEYBUFFER),
+            key_buffer: Mutex::new(Vec::with_capacity(Self::SIZE_KEYBUFFER)),
             has_to_exit: AtomicBool::new(false),
         })
     }
@@ -413,8 +414,9 @@ impl ArleRuntime {
     }
 
     fn read_key_buffer(&mut self) -> Option<KeyEvent> {
-        if self.key_buffer.len() > 0 {
-            Some(self.key_buffer.remove(0))
+        let mut buffer = self.key_buffer.lock().unwrap();
+        if buffer.len() > 0 {
+            Some(buffer.remove(0))
         } else {
             None
         }
@@ -431,7 +433,9 @@ impl ArleRuntime {
                 }
             }
             WindowMessage::Key(event) => {
-                event.key_data().map(|data| self.key_buffer.push(data));
+                event
+                    .key_data()
+                    .map(|data| self.key_buffer.lock().unwrap().push(data));
             }
             _ => window.handle_default_message(message),
         }

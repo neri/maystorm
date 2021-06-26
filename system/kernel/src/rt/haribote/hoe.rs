@@ -141,9 +141,21 @@ impl Hoe {
                 self.get_window(regs.ebx).map(|(window, refreshing)| {
                     let text = self.load_cstring(regs.ebp).unwrap_or_default();
                     let color = regs.eax as u8;
-                    let mut origin = Point::new(regs.esi as isize, regs.edi as isize);
-                    for ch in text.bytes() {
-                        origin.x += window.put_font(self, origin, ch, color, refreshing);
+                    let origin = Point::new(regs.esi as isize, regs.edi as isize);
+                    {
+                        let mut origin = origin;
+                        for ch in text.bytes() {
+                            origin.x += window.put_font(self, origin, ch, color);
+                        }
+                    }
+                    if refreshing {
+                        window.redraw_rect(
+                            self,
+                            origin.x as u32,
+                            origin.y as u32,
+                            origin.x as u32 + 8 * regs.ecx,
+                            origin.y as u32 + 16,
+                        );
                     }
                 });
             }
@@ -660,9 +672,10 @@ impl HoeWindow {
             (right - Self::WINDOW_ADJUST_X) as isize + 1,
             (bottom - Self::WINDOW_ADJUST_TOP) as isize + 1,
         );
+        let rect = Rect::from(coords);
 
         self.handle
-            .draw_in_rect(coords.into(), |bitmap| {
+            .draw_in_rect(rect, |bitmap| {
                 let stride = self.width as usize;
                 let width = bitmap.width() as usize;
                 let height = bitmap.height() as usize;
@@ -679,7 +692,7 @@ impl HoeWindow {
                 }
             })
             .unwrap();
-        self.handle.set_needs_display();
+        self.handle.invalidate_rect(rect);
     }
 
     fn fill_rect(&self, hoe: &Hoe, x0: u32, y0: u32, x1: u32, y1: u32, c: u8, refreshing: bool) {
@@ -731,7 +744,7 @@ impl HoeWindow {
 
     const BIT_MASKS: [u8; 8] = [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
 
-    fn put_font(&self, hoe: &Hoe, origin: Point, ch: u8, color: u8, refreshing: bool) -> isize {
+    fn put_font(&self, hoe: &Hoe, origin: Point, ch: u8, color: u8) -> isize {
         if ch > 0x20
             && ch < 0x80
             && origin.x < self.width as isize - 8
@@ -751,15 +764,6 @@ impl HoeWindow {
                         line[index] = color;
                     }
                 }
-            }
-            if refreshing {
-                self.redraw_rect(
-                    hoe,
-                    origin.x as u32,
-                    origin.y as u32,
-                    origin.x as u32 + 7,
-                    origin.y as u32 + 15,
-                );
             }
         }
         8

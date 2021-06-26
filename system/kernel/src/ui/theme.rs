@@ -46,8 +46,18 @@ impl Theme {
     }
 
     #[inline]
-    pub const fn window_title_close(&self) -> SomeColor {
-        SomeColor::DARK_GRAY
+    pub const fn window_title_close_foreground(&self) -> SomeColor {
+        SomeColor::BLACK
+    }
+
+    #[inline]
+    pub const fn window_title_close_active_foreground(&self) -> SomeColor {
+        SomeColor::WHITE
+    }
+
+    #[inline]
+    pub const fn window_title_close_active_background(&self) -> SomeColor {
+        SomeColor::LIGHT_RED
     }
 
     #[inline]
