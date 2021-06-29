@@ -75,7 +75,7 @@ pub struct ArleRuntime {
     // uuid: Uuid,
     module: WasmModule,
     next_handle: AtomicUsize,
-    windows: BTreeMap<usize, WindowHandle>,
+    windows: Mutex<BTreeMap<usize, UnsafeCell<OsWindow>>>,
     rng32: XorShift32,
     key_buffer: Mutex<Vec<KeyEvent>>,
     has_to_exit: AtomicBool,
@@ -92,7 +92,7 @@ impl ArleRuntime {
             // uuid: Uuid::generate().unwrap(),
             module,
             next_handle: AtomicUsize::new(1),
-            windows: BTreeMap::new(),
+            windows: Mutex::new(BTreeMap::new()),
             rng32: XorShift32::default(),
             key_buffer: Mutex::new(Vec::with_capacity(Self::SIZE_KEYBUFFER)),
             has_to_exit: AtomicBool::new(false),
@@ -216,135 +216,123 @@ impl ArleRuntime {
 
                 if window.as_usize() != 0 {
                     let handle = self.next_handle();
-                    self.windows.insert(handle, window);
+                    let window = UnsafeCell::new(OsWindow::new(window));
+                    self.windows.lock().unwrap().insert(handle, window);
                     return Ok(WasmValue::I32(handle as i32));
                 }
             }
             Function::CloseWindow => {
                 let handle = params.get_usize()?;
-                if let Some(window) = self.windows.get(&handle) {
-                    window.close();
-                    self.windows.remove(&handle);
+                self.windows.lock().unwrap().remove(&handle);
+            }
+            Function::BeginDraw => match params.get_window(self) {
+                Ok(window) => {
+                    window.begin_draw();
                 }
-            }
-
-            Function::BeginDraw => {
-                // TODO:
-            }
-            Function::EndDraw => {
-                if let Some(window) = params.get_window(self)? {
-                    window.refresh_if_needed();
+                Err(err) => return Err(err),
+            },
+            Function::EndDraw => match params.get_window(self) {
+                Ok(window) => {
+                    window.end_draw();
                 }
-            }
+                Err(err) => return Err(err),
+            },
 
             Function::DrawString => {
-                if let Some(window) = params.get_window(self)? {
-                    let max_lines = 0;
-                    let origin = params.get_point()?;
-                    let text = params.get_string(memory).unwrap_or("");
-                    let color = params.get_color()?;
-                    let mut rect = Rect::from(window.content_rect().size());
-                    rect.origin = origin;
-                    rect.size.width -= origin.x;
-                    rect.size.height -= origin.y;
-                    let _ = window.draw_in_rect(rect, |bitmap| {
-                        AttributedString::new()
-                            .align(TextAlignment::Left)
-                            .valign(VerticalAlignment::Top)
-                            .color(color)
-                            .text(text)
-                            .draw_text(bitmap, rect.size.into(), max_lines);
-                    });
-                    window.set_needs_display();
-                }
+                let window = params.get_window(self)?;
+
+                let max_lines = 0;
+                let origin = params.get_point()?;
+                let text = params.get_string(memory).unwrap_or("");
+                let color = params.get_color()?;
+                let mut rect = Rect::from(window.content_rect().size());
+                rect.origin = origin;
+                rect.size.width -= origin.x;
+                rect.size.height -= origin.y;
+                window.draw_in_rect(rect, |bitmap| {
+                    AttributedString::new()
+                        .align(TextAlignment::Left)
+                        .valign(VerticalAlignment::Top)
+                        .color(color)
+                        .text(text)
+                        .draw_text(bitmap, rect.size.into(), max_lines);
+                });
             }
             Function::FillRect => {
-                if let Some(window) = params.get_window(self)? {
-                    let origin = params.get_point()?;
-                    let size = params.get_size()?;
-                    let color = params.get_color()?;
-                    let rect = Rect { origin, size };
-                    let _ = window.draw_in_rect(rect, |bitmap| {
-                        bitmap.fill_rect(rect.size.into(), color);
-                    });
-                    window.set_needs_display();
-                }
+                let window = params.get_window(self)?;
+                let origin = params.get_point()?;
+                let size = params.get_size()?;
+                let color = params.get_color()?;
+                let rect = Rect { origin, size };
+                window.draw_in_rect(rect, |bitmap| {
+                    bitmap.fill_rect(rect.size.into(), color);
+                });
             }
             Function::DrawRect => {
-                if let Some(window) = params.get_window(self)? {
-                    let origin = params.get_point()?;
-                    let size = params.get_size()?;
-                    let color = params.get_color()?;
-                    let rect = Rect { origin, size };
-                    let _ = window.draw_in_rect(rect, |bitmap| {
-                        bitmap.draw_rect(rect.size.into(), color);
-                    });
-                    window.set_needs_display();
-                }
+                let window = params.get_window(self)?;
+                let origin = params.get_point()?;
+                let size = params.get_size()?;
+                let color = params.get_color()?;
+                let rect = Rect { origin, size };
+                window.draw_in_rect(rect, |bitmap| {
+                    bitmap.draw_rect(rect.size.into(), color);
+                });
             }
             Function::DrawLine => {
-                if let Some(window) = params.get_window(self)? {
-                    let c1 = params.get_point()?;
-                    let c2 = params.get_point()?;
-                    let color = params.get_color()?;
-                    let rect = Rect::from(Coordinates::from_two(c1, c2)) + Size::new(1, 1);
-                    let _ = window.draw_in_rect(rect, |bitmap| {
-                        bitmap.draw_line(c1 - rect.origin, c2 - rect.origin, color);
-                    });
-                    window.set_needs_display();
-                }
+                let window = params.get_window(self)?;
+                let c1 = params.get_point()?;
+                let c2 = params.get_point()?;
+                let color = params.get_color()?;
+                let rect = Rect::from(Coordinates::from_two(c1, c2)) + Size::new(1, 1);
+                window.draw_in_rect(rect, |bitmap| {
+                    bitmap.draw_line(c1 - rect.origin, c2 - rect.origin, color);
+                });
             }
             Function::WaitChar => {
-                if let Some(window) = params.get_window(self)? {
-                    return self
-                        .wait_key(window)
-                        .map(|c| WasmValue::I32(c.unwrap_or('\0') as i32));
-                }
+                let window = params.get_window(self)?;
+                return self
+                    .wait_key(window)
+                    .map(|c| WasmValue::I32(c.unwrap_or('\0') as i32));
             }
             Function::ReadChar => {
-                if let Some(window) = params.get_window(self)? {
-                    let c = self.read_key(window);
-                    return Ok(WasmValue::from(
-                        c.map(|v| v as u32).unwrap_or(megosabi::OPTION_CHAR_NONE),
-                    ));
-                }
+                let window = params.get_window(self)?;
+                let c = self.read_key(window);
+                return Ok(WasmValue::from(
+                    c.map(|v| v as u32).unwrap_or(megosabi::OPTION_CHAR_NONE),
+                ));
             }
             Function::Blt8 => {
-                if let Some(window) = params.get_window(self)? {
-                    let origin = params.get_point()?;
-                    let src = params.get_bitmap8(memory)?;
-                    let rect = Rect {
-                        origin,
-                        size: src.size(),
-                    };
-                    let _ = window.draw_in_rect(rect, |bitmap| {
-                        bitmap.blt_transparent(
-                            &ConstBitmap::from(&src),
-                            Point::default(),
-                            src.size().into(),
-                            IndexedColor::DEFAULT_KEY,
-                        );
-                    });
-                    window.set_needs_display();
-                }
+                let window = params.get_window(self)?;
+                let origin = params.get_point()?;
+                let src = params.get_bitmap8(memory)?;
+                let rect = Rect {
+                    origin,
+                    size: src.size(),
+                };
+                window.draw_in_rect(rect, |bitmap| {
+                    bitmap.blt_transparent(
+                        &ConstBitmap::from(&src),
+                        Point::default(),
+                        src.size().into(),
+                        IndexedColor::DEFAULT_KEY,
+                    );
+                });
             }
             Function::Blt32 => {
-                if let Some(window) = params.get_window(self)? {
-                    let origin = params.get_point()?;
-                    let src = params.get_bitmap32(memory)?;
-                    let rect = Rect {
-                        origin,
-                        size: src.size(),
-                    };
-                    let _ = window.draw_in_rect(rect, |bitmap| {
-                        bitmap.blt(
-                            &ConstBitmap::from(&src),
-                            Point::default(),
-                            src.size().into(),
-                        );
-                    });
-                    window.set_needs_display();
-                }
+                let window = params.get_window(self)?;
+                let origin = params.get_point()?;
+                let src = params.get_bitmap32(memory)?;
+                let rect = Rect {
+                    origin,
+                    size: src.size(),
+                };
+                window.draw_in_rect(rect, |bitmap| {
+                    bitmap.blt(
+                        &ConstBitmap::from(&src),
+                        Point::default(),
+                        src.size().into(),
+                    );
+                });
             }
             Function::BlendRect => {
                 let bitmap = params.get_bitmap32(memory)?;
@@ -356,16 +344,14 @@ impl ArleRuntime {
                 bitmap.blend_rect(rect, color);
             }
             Function::Blt1 => {
-                if let Some(window) = params.get_window(self)? {
-                    let origin = params.get_point()?;
-                    let os_bitmap = params.get_bitmap1(memory)?;
-                    let color = params.get_color()?;
-                    let mode = params.get_usize()?;
-                    let _ = window.draw_in_rect(os_bitmap.rect(origin, mode), |bitmap| {
-                        os_bitmap.blt(bitmap, Point::default(), color, mode);
-                    });
-                    window.set_needs_display();
-                }
+                let window = params.get_window(self)?;
+                let origin = params.get_point()?;
+                let os_bitmap = params.get_bitmap1(memory)?;
+                let color = params.get_color()?;
+                let mode = params.get_usize()?;
+                window.draw_in_rect(os_bitmap.rect(origin, mode), |bitmap| {
+                    os_bitmap.blt(bitmap, Point::default(), color, mode);
+                });
             }
 
             Function::Rand => {
@@ -389,9 +375,10 @@ impl ArleRuntime {
         Ok(WasmValue::I32(0))
     }
 
-    fn wait_key(&mut self, window: WindowHandle) -> Result<Option<char>, WasmRuntimeErrorType> {
-        while let Some(message) = window.wait_message() {
-            self.process_message(window, message);
+    fn wait_key(&self, window: &OsWindow) -> Result<Option<char>, WasmRuntimeErrorType> {
+        let handle = window.handle();
+        while let Some(message) = handle.wait_message() {
+            self.process_message(handle, message);
             if self.has_to_exit.load(Ordering::Relaxed) {
                 return Err(WasmRuntimeErrorType::NoError);
             }
@@ -406,14 +393,15 @@ impl ArleRuntime {
         Err(WasmRuntimeErrorType::TypeMismatch)
     }
 
-    fn read_key(&mut self, window: WindowHandle) -> Option<char> {
-        while let Some(message) = window.read_message() {
-            self.process_message(window, message);
+    fn read_key(&self, window: &OsWindow) -> Option<char> {
+        let handle = window.handle();
+        while let Some(message) = handle.read_message() {
+            self.process_message(handle, message);
         }
         self.read_key_buffer().map(|v| v.into_char())
     }
 
-    fn read_key_buffer(&mut self) -> Option<KeyEvent> {
+    fn read_key_buffer(&self) -> Option<KeyEvent> {
         let mut buffer = self.key_buffer.lock().unwrap();
         if buffer.len() > 0 {
             Some(buffer.remove(0))
@@ -422,10 +410,10 @@ impl ArleRuntime {
         }
     }
 
-    fn process_message(&mut self, window: WindowHandle, message: WindowMessage) {
+    fn process_message(&self, window: WindowHandle, message: WindowMessage) {
         match message {
             WindowMessage::Close => {
-                if self.windows.values().count() > 1 {
+                if self.windows.lock().unwrap().values().count() > 1 {
                     // todo:
                     window.close();
                 } else {
@@ -448,9 +436,7 @@ impl Personality for ArleRuntime {
     }
 
     fn on_exit(&mut self) {
-        for window in self.windows.values() {
-            window.close();
-        }
+        self.windows.lock().unwrap().clear();
     }
 }
 
@@ -595,12 +581,20 @@ impl ParamsDecoder<'_> {
     }
 
     #[inline]
-    fn get_window(
+    fn get_window<'a>(
         &mut self,
-        rt: &ArleRuntime,
-    ) -> Result<Option<WindowHandle>, WasmRuntimeErrorType> {
-        self.get_u32()
-            .map(|v| rt.windows.get(&(v as usize)).map(|v| *v))
+        rt: &'a ArleRuntime,
+    ) -> Result<&'a OsWindow, WasmRuntimeErrorType> {
+        match self.get_u32() {
+            Ok(v) => rt
+                .windows
+                .lock()
+                .unwrap()
+                .get(&(v as usize))
+                .map(|v| unsafe { &*v.get() })
+                .ok_or(WasmRuntimeErrorType::InvalidParameter),
+            Err(err) => Err(err),
+        }
     }
 }
 
@@ -701,5 +695,70 @@ impl OsBitmap1<'_> {
             }
             cursor += stride;
         }
+    }
+}
+
+struct OsWindow {
+    handle: WindowHandle,
+    draw_region: AtomicCoordinates,
+}
+
+impl OsWindow {
+    #[inline]
+    const fn new(handle: WindowHandle) -> Self {
+        Self {
+            handle,
+            draw_region: AtomicCoordinates::new(0, 0, 0, 0),
+        }
+    }
+
+    #[inline]
+    const fn handle(&self) -> WindowHandle {
+        self.handle
+    }
+
+    #[inline]
+    fn content_rect(&self) -> Rect {
+        self.handle.content_rect()
+    }
+
+    #[inline]
+    fn begin_draw(&self) {
+        self.draw_region.store(Coordinates::new(
+            isize::MAX,
+            isize::MAX,
+            isize::MIN,
+            isize::MIN,
+        ));
+    }
+
+    #[inline]
+    fn end_draw(&self) {
+        let coords = Coordinates::from(&self.draw_region);
+        if coords.left <= coords.right && coords.top <= coords.bottom {
+            self.handle.invalidate_rect(coords.into());
+        }
+    }
+
+    #[inline]
+    fn add_region(&self, rect: Rect) {
+        let coords = Coordinates::from_rect(rect).unwrap();
+        self.draw_region.merge(coords);
+    }
+
+    #[inline]
+    fn draw_in_rect<F>(&self, rect: Rect, f: F)
+    where
+        F: FnOnce(&mut Bitmap) -> (),
+    {
+        let _ = self.handle.draw_in_rect(rect, f);
+        self.add_region(rect);
+    }
+}
+
+impl Drop for OsWindow {
+    #[inline]
+    fn drop(&mut self) {
+        self.handle.close();
     }
 }

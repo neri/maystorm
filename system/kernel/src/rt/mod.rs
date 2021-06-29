@@ -3,11 +3,13 @@
 pub mod haribote;
 pub mod megos;
 
+use core::cell::UnsafeCell;
+
 use crate::arch::cpu::*;
 use crate::task::scheduler::*;
 use alloc::{boxed::Box, string::String, string::*, vec::Vec};
 
-static mut RE: RuntimeEnvironment = RuntimeEnvironment::new();
+static mut RE: UnsafeCell<RuntimeEnvironment> = UnsafeCell::new(RuntimeEnvironment::new());
 
 pub struct RuntimeEnvironment {
     exts: Vec<String>,
@@ -25,7 +27,7 @@ impl RuntimeEnvironment {
 
     #[inline]
     pub unsafe fn init() {
-        let shared = Self::shared();
+        let shared = &mut *RE.get();
         shared.add_image("wasm", megos::WasmRecognizer::new());
         shared.add_image("hrb", haribote::HrbRecognizer::new());
     }
@@ -37,8 +39,8 @@ impl RuntimeEnvironment {
     }
 
     #[inline]
-    fn shared() -> &'static mut Self {
-        unsafe { &mut RE }
+    fn shared<'a>() -> &'a Self {
+        unsafe { &*RE.get() }
     }
 
     #[inline]

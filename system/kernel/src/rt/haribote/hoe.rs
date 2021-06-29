@@ -468,7 +468,7 @@ impl Personality for Hoe {
 struct HrbExecutable {
     /// Size of data segment
     size_of_ds: u32,
-    /// Must be "Hari"
+    /// Must be `b"Hari"`
     signature: [u8; 4],
     /// Size of bss?
     size_of_bss: u32,

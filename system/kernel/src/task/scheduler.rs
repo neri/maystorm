@@ -1070,7 +1070,6 @@ impl Default for Priority {
     }
 }
 
-#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 struct Quantum {
     current: u8,
@@ -1357,14 +1356,12 @@ impl ThreadHandle {
     where
         F: FnOnce(&mut ThreadContextData) -> R,
     {
-        let shared = ThreadPool::shared();
-        shared.get_mut(*self, f).unwrap()
+        ThreadPool::shared().get_mut(*self, f).unwrap()
     }
 
     #[inline]
     fn get<'a>(&self) -> Option<&'a Box<ThreadContextData>> {
-        let shared = ThreadPool::shared();
-        shared.get(*self)
+        ThreadPool::shared().get(*self)
     }
 
     #[inline]
@@ -1376,8 +1373,7 @@ impl ThreadHandle {
     #[inline]
     #[track_caller]
     unsafe fn unsafe_weak<'a>(&self) -> Option<&'a mut Box<ThreadContextData>> {
-        let shared = ThreadPool::shared();
-        shared.unsafe_weak(*self)
+        ThreadPool::shared().unsafe_weak(*self)
     }
 
     #[inline]

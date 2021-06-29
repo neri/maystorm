@@ -1,6 +1,6 @@
 // Coordinate Types
 
-use core::{convert::TryFrom, ops::*};
+use core::{convert::TryFrom, ops::*, sync::atomic::*};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default, PartialEq)]
@@ -480,7 +480,7 @@ impl Coordinates {
     }
 
     #[inline]
-    pub fn comprehensive(&self, other: Self) -> Self {
+    pub fn merge(&self, other: Self) -> Self {
         Self {
             left: isize::min(self.left, other.left),
             top: isize::min(self.top, other.top),
@@ -533,13 +533,13 @@ impl Add for Coordinates {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        self.comprehensive(rhs)
+        self.merge(rhs)
     }
 }
 
 impl AddAssign for Coordinates {
     fn add_assign(&mut self, rhs: Self) {
-        *self = self.comprehensive(rhs)
+        *self = self.merge(rhs)
     }
 }
 
@@ -556,6 +556,88 @@ impl From<Coordinates> for Rect {
             origin: coods.left_top(),
             size: coods.size(),
         }
+    }
+}
+
+/// Atomic manipulable coordinate type
+#[derive(Default)]
+pub struct AtomicCoordinates {
+    left: AtomicIsize,
+    top: AtomicIsize,
+    right: AtomicIsize,
+    bottom: AtomicIsize,
+}
+
+impl AtomicCoordinates {
+    #[inline]
+    pub const fn new(left: isize, top: isize, right: isize, bottom: isize) -> Self {
+        Self {
+            left: AtomicIsize::new(left),
+            top: AtomicIsize::new(top),
+            right: AtomicIsize::new(right),
+            bottom: AtomicIsize::new(bottom),
+        }
+    }
+
+    #[inline]
+    pub fn store(&self, other: Coordinates) {
+        self.left.store(other.left, Ordering::SeqCst);
+        self.top.store(other.top, Ordering::SeqCst);
+        self.right.store(other.right, Ordering::SeqCst);
+        self.bottom.store(other.bottom, Ordering::SeqCst);
+    }
+
+    #[inline]
+    pub fn from_coords(val: Coordinates) -> Self {
+        Self::new(val.left, val.top, val.right, val.bottom)
+    }
+
+    #[inline]
+    pub fn into_coords(&self) -> Coordinates {
+        Coordinates::new(
+            self.left.load(Ordering::SeqCst),
+            self.top.load(Ordering::SeqCst),
+            self.right.load(Ordering::SeqCst),
+            self.bottom.load(Ordering::SeqCst),
+        )
+    }
+
+    #[inline]
+    pub fn merge(&self, other: Coordinates) {
+        let _ = self
+            .left
+            .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |v| {
+                Some(isize::min(v, other.left))
+            });
+        let _ = self
+            .top
+            .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |v| {
+                Some(isize::min(v, other.top))
+            });
+        let _ = self
+            .right
+            .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |v| {
+                Some(isize::max(v, other.right))
+            });
+        let _ = self
+            .bottom
+            .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |v| {
+                Some(isize::max(v, other.bottom))
+            });
+    }
+}
+
+impl From<&AtomicCoordinates> for Coordinates {
+    #[inline]
+    fn from(val: &AtomicCoordinates) -> Self {
+        val.into_coords()
+    }
+}
+
+impl From<Coordinates> for AtomicCoordinates {
+    #[inline]
+    fn from(val: Coordinates) -> Self {
+        Self::from_coords(val)
     }
 }
 

@@ -1,18 +1,11 @@
 // User Environment
 
-use crate::fs::*;
-use crate::mem::*;
-use crate::system::*;
-use crate::task::scheduler::*;
-use crate::task::*;
-use crate::ui::font::*;
-use crate::ui::theme::Theme;
-use crate::ui::window::*;
-use crate::*;
-use crate::{arch::cpu::*, ui::terminal::Terminal};
+use crate::{
+    arch::cpu::*, fs::*, mem::*, system::*, task::scheduler::*, task::*, ui::font::*,
+    ui::terminal::Terminal, ui::theme::Theme, ui::window::*, *,
+};
 use ::alloc::vec::*;
-use core::fmt::Write;
-use core::time::Duration;
+use core::{fmt::Write, time::Duration};
 use megstd::drawing::*;
 use megstd::string::*;
 use util::text::{AttributedString, VerticalAlignment};
