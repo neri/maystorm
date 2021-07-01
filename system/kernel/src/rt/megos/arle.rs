@@ -584,14 +584,14 @@ impl ParamsDecoder<'_> {
     fn get_window<'a>(
         &mut self,
         rt: &'a ArleRuntime,
-    ) -> Result<&'a OsWindow, WasmRuntimeErrorType> {
+    ) -> Result<&'a mut OsWindow, WasmRuntimeErrorType> {
         match self.get_u32() {
             Ok(v) => rt
                 .windows
                 .lock()
                 .unwrap()
                 .get(&(v as usize))
-                .map(|v| unsafe { &*v.get() })
+                .map(|v| unsafe { &mut *v.get() })
                 .ok_or(WasmRuntimeErrorType::InvalidParameter),
             Err(err) => Err(err),
         }
@@ -700,7 +700,7 @@ impl OsBitmap1<'_> {
 
 struct OsWindow {
     handle: WindowHandle,
-    draw_region: AtomicCoordinates,
+    draw_region: Coordinates,
 }
 
 impl OsWindow {
@@ -708,7 +708,7 @@ impl OsWindow {
     const fn new(handle: WindowHandle) -> Self {
         Self {
             handle,
-            draw_region: AtomicCoordinates::new(0, 0, 0, 0),
+            draw_region: Coordinates::void(),
         }
     }
 
@@ -723,31 +723,26 @@ impl OsWindow {
     }
 
     #[inline]
-    fn begin_draw(&self) {
-        self.draw_region.store(Coordinates::new(
-            isize::MAX,
-            isize::MAX,
-            isize::MIN,
-            isize::MIN,
-        ));
+    fn begin_draw(&mut self) {
+        self.draw_region = Coordinates::void();
     }
 
     #[inline]
     fn end_draw(&self) {
-        let coords = Coordinates::from(&self.draw_region);
+        let coords = self.draw_region;
         if coords.left <= coords.right && coords.top <= coords.bottom {
             self.handle.invalidate_rect(coords.into());
         }
     }
 
     #[inline]
-    fn add_region(&self, rect: Rect) {
+    fn add_region(&mut self, rect: Rect) {
         let coords = Coordinates::from_rect(rect).unwrap();
         self.draw_region.merge(coords);
     }
 
     #[inline]
-    fn draw_in_rect<F>(&self, rect: Rect, f: F)
+    fn draw_in_rect<F>(&mut self, rect: Rect, f: F)
     where
         F: FnOnce(&mut Bitmap) -> (),
     {
