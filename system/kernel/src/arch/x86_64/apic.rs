@@ -4,14 +4,19 @@ use super::{cpu::*, hpet::*, page::PageManager, page::PhysicalAddress};
 use crate::{
     mem::mmio::*,
     mem::*,
-    sync::spinlock::{SpinLoopWait, Spinlock},
+    sync::{
+        semaphore::BinarySemaphore,
+        spinlock::{SpinLoopWait, Spinlock},
+    },
     system::*,
     task::scheduler::*,
 };
 use ::alloc::{boxed::Box, vec::*};
 use acpi::platform::ProcessorState;
 use bootprot::BootFlags;
-use core::{alloc::Layout, ffi::c_void, mem::transmute, sync::atomic::*, time::Duration};
+use core::{
+    alloc::Layout, cell::UnsafeCell, ffi::c_void, mem::transmute, sync::atomic::*, time::Duration,
+};
 use seq_macro::seq;
 
 /// Maximum number of supported cpu cores
@@ -29,7 +34,7 @@ const MAX_MSI: isize = 16;
 #[allow(dead_code)]
 const MAX_IRQ: usize = MAX_IOAPIC_IRQS + MAX_MSI as usize;
 
-static mut APIC: Apic = Apic::new();
+static mut APIC: UnsafeCell<Apic> = UnsafeCell::new(Apic::new());
 const INVALID_PROCESSOR_INDEX: u8 = 0xFF;
 static mut CURRENT_PROCESSOR_INDEXES: [u8; 256] = [INVALID_PROCESSOR_INDEX; 256];
 
@@ -76,6 +81,7 @@ pub(super) struct Apic {
     idt: [usize; Irq::MAX.0 as usize],
     lapic_timer_value: u32,
     tlb_flush_bitmap: AtomicUsize,
+    ipi_mutex: BinarySemaphore,
 }
 
 impl Apic {
@@ -91,6 +97,7 @@ impl Apic {
             idt: [0; Irq::MAX.0 as usize],
             lapic_timer_value: 0,
             tlb_flush_bitmap: AtomicUsize::new(0),
+            ipi_mutex: BinarySemaphore::new(false),
         }
     }
 
@@ -103,21 +110,23 @@ impl Apic {
 
         Cpu::disable_interrupt();
 
+        let shared = Self::shared_mut();
+
         // init Local Apic
-        APIC.master_apic_id = System::acpi_platform()
+        shared.master_apic_id = System::acpi_platform()
             .processor_info
             .unwrap()
             .boot_processor
             .local_apic_id
             .into();
-        CURRENT_PROCESSOR_INDEXES[APIC.master_apic_id.0 as usize] = 0;
+        CURRENT_PROCESSOR_INDEXES[shared.master_apic_id.0 as usize] = 0;
         LocalApic::init(acpi_apic.local_apic_address);
 
         Msr::TscAux.write(0);
 
         // Define Default GSI table for ISA devices
         for irq in &[1, 12] {
-            APIC.gsi_table[*irq as usize] = GsiProps {
+            shared.gsi_table[*irq as usize] = GsiProps {
                 global_irq: Irq(*irq),
                 trigger: PackedTriggerMode(0),
             };
@@ -132,12 +141,12 @@ impl Apic {
                     ApicPolarity::from(&source.polarity),
                 ),
             };
-            APIC.gsi_table[source.isa_source as usize] = props;
+            shared.gsi_table[source.isa_source as usize] = props;
         }
 
         // Init IO Apics
         for acpi_ioapic in &acpi_apic.io_apics {
-            APIC.ioapics.push(Box::new(IoApic::new(acpi_ioapic)));
+            shared.ioapics.push(Box::new(IoApic::new(acpi_ioapic)));
         }
 
         seq!(N in 1..64 {
@@ -165,7 +174,7 @@ impl Apic {
             LocalApic::TimerInitialCount.write(u32::MAX);
             timer.repeat_until(|| Cpu::spin_loop_hint());
             let count = LocalApic::TimerCurrentCount.read() as u64;
-            APIC.lapic_timer_value = ((u32::MAX as u64 - count) * magic_number / 1000) as u32;
+            shared.lapic_timer_value = ((u32::MAX as u64 - count) * magic_number / 1000) as u32;
         } else {
             panic!("No Reference Timer found");
         }
@@ -177,7 +186,7 @@ impl Apic {
         LocalApic::set_timer(
             LocalApicTimerMode::Periodic,
             vec_latimer,
-            APIC.lapic_timer_value,
+            shared.lapic_timer_value,
         );
 
         InterruptDescriptorTable::register(
@@ -241,35 +250,38 @@ impl Apic {
             AP_STALLED.store(false, Ordering::SeqCst);
             System::cpu_mut(ProcessorIndex(0)).set_tsc_base(Cpu::rdtsc());
         }
+    }
 
-        // asm!("
-        //     mov eax, 0xCCCCCCCC
-        //     mov ecx, 256
-        //     xor edi, edi
-        //     rep stosd
-        //     ",
-        //     lateout("eax") _, lateout("ecx") _, lateout("edi") _,);
+    #[inline]
+    fn shared<'a>() -> &'a Self {
+        unsafe { &*APIC.get() }
+    }
+
+    #[inline]
+    fn shared_mut<'a>() -> &'a mut Self {
+        unsafe { &mut *APIC.get() }
     }
 
     pub unsafe fn register(irq: Irq, f: IrqHandler) -> Result<(), ()> {
-        let props = APIC.gsi_table[irq.0 as usize];
+        let shared = Self::shared_mut();
+        let props = shared.gsi_table[irq.0 as usize];
         let global_irq = props.global_irq;
         let trigger = props.trigger;
         if global_irq.0 == 0 {
             return Err(());
         }
 
-        for ioapic in APIC.ioapics.iter_mut() {
+        for ioapic in shared.ioapics.iter_mut() {
             let local_irq = global_irq.0 - ioapic.global_int.0;
             if ioapic.global_int <= global_irq && local_irq < ioapic.entries {
-                if APIC.idt[global_irq.0 as usize] != 0 {
+                if shared.idt[global_irq.0 as usize] != 0 {
                     return Err(());
                 }
-                APIC.idt[global_irq.0 as usize] = f as usize;
+                shared.idt[global_irq.0 as usize] = f as usize;
                 let pair = Self::make_redirect_table_entry_pair(
                     global_irq.as_vec(),
                     trigger,
-                    APIC.master_apic_id,
+                    shared.master_apic_id,
                 );
                 ioapic.write(IoApicIndex::redir_table_high(local_irq), pair.1);
                 ioapic.write(IoApicIndex::redir_table_low(local_irq), pair.0);
@@ -280,10 +292,11 @@ impl Apic {
     }
 
     pub unsafe fn set_irq_enabled(irq: Irq, enabled: bool) -> Result<(), ()> {
-        let props = APIC.gsi_table[irq.0 as usize];
+        let shared = Self::shared_mut();
+        let props = shared.gsi_table[irq.0 as usize];
         let global_irq = props.global_irq;
 
-        for ioapic in APIC.ioapics.iter_mut() {
+        for ioapic in shared.ioapics.iter_mut() {
             let local_irq = global_irq.0 - ioapic.global_int.0;
             if ioapic.global_int <= global_irq && local_irq < ioapic.entries {
                 let mut value = ioapic.read(IoApicIndex::redir_table_low(local_irq * 2));
@@ -309,6 +322,7 @@ impl Apic {
 
     #[inline]
     pub unsafe fn register_msi(f: fn() -> ()) -> Result<(u64, u16), ()> {
+        let shared = Self::shared_mut();
         static NEXT_MSI: AtomicIsize = AtomicIsize::new(0);
         NEXT_MSI
             .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |v| {
@@ -321,7 +335,7 @@ impl Apic {
             .map(|v| {
                 let msi = Msi(v);
                 let global_irq = msi.as_irq();
-                APIC.idt[global_irq.0 as usize] = f as usize;
+                shared.idt[global_irq.0 as usize] = f as usize;
                 let vec = msi.as_vec();
                 let addr = Self::MSI_BASE;
                 let data = Self::MSI_DATA | vec.0 as u16;
@@ -333,28 +347,32 @@ impl Apic {
     #[inline]
     #[must_use]
     pub unsafe fn broadcast_invalidate_tlb() -> bool {
-        Irql::IPI.raise(|| {
-            let max_cpu = System::current_device().num_of_active_cpus();
-            if max_cpu < 2 {
-                return true;
-            }
-            APIC.tlb_flush_bitmap.store(
-                ((1usize << max_cpu) - 1) & !(1usize << Cpu::current_processor_index().0),
-                Ordering::SeqCst,
-            );
+        let shared = Self::shared_mut();
 
-            LocalApic::broadcast_ipi(InterruptVector::IPI_INVALIDATE_TLB);
-
-            let mut hint = SpinLoopWait::new();
-            let deadline = Timer::new(Duration::from_millis(200));
-            while deadline.until() {
-                if APIC.tlb_flush_bitmap.load(Ordering::Relaxed) == 0 {
-                    break;
+        shared.ipi_mutex.synchronized(|| {
+            Irql::IPI.raise(|| {
+                let max_cpu = System::current_device().num_of_active_cpus();
+                if max_cpu < 2 {
+                    return true;
                 }
-                hint.wait();
-            }
+                shared.tlb_flush_bitmap.store(
+                    ((1usize << max_cpu) - 1) & !(1usize << Cpu::current_processor_index().0),
+                    Ordering::SeqCst,
+                );
 
-            APIC.tlb_flush_bitmap.load(Ordering::Relaxed) == 0
+                LocalApic::broadcast_ipi(InterruptVector::IPI_INVALIDATE_TLB);
+
+                let mut hint = SpinLoopWait::new();
+                let deadline = Timer::new(Duration::from_millis(200));
+                while deadline.until() {
+                    if shared.tlb_flush_bitmap.load(Ordering::Relaxed) == 0 {
+                        break;
+                    }
+                    hint.wait();
+                }
+
+                shared.tlb_flush_bitmap.load(Ordering::Relaxed) == 0
+            })
         })
     }
 
@@ -369,7 +387,8 @@ impl Apic {
 
     #[inline]
     unsafe fn handle_irq(irq: Irq) {
-        match APIC.idt[irq.0 as usize] {
+        let shared = Self::shared();
+        match shared.idt[irq.0 as usize] {
             0 => {
                 let _ = irq.disable();
                 panic!("IRQ {} is Enabled, But not Installed", irq.0);
@@ -402,8 +421,9 @@ unsafe extern "x86-interrupt" fn ipi_schedule_handler() {
 }
 
 unsafe extern "x86-interrupt" fn ipi_tlb_flush_handler() {
+    let shared = Apic::shared();
     PageManager::invalidate_all_pages();
-    Cpu::interlocked_test_and_clear(&APIC.tlb_flush_bitmap, Cpu::current_processor_index().0);
+    Cpu::interlocked_test_and_clear(&shared.tlb_flush_bitmap, Cpu::current_processor_index().0);
     LocalApic::eoi();
 }
 
@@ -611,6 +631,7 @@ impl LocalApic {
     }
 
     unsafe fn init_ap() -> ProcessorId {
+        let shared = Apic::shared();
         Msr::ApicBase.write(LOCAL_APIC_PA | Self::IA32_APIC_BASE_MSR_ENABLE);
 
         let apicid = LocalApic::current_processor_id();
@@ -623,7 +644,7 @@ impl LocalApic {
         LocalApic::set_timer(
             LocalApicTimerMode::Periodic,
             vec_latimer,
-            APIC.lapic_timer_value,
+            shared.lapic_timer_value,
         );
 
         apicid

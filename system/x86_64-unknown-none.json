@@ -1,15 +1,22 @@
 {
-    "llvm-target": "x86_64-unknown-none",
-    "target-endian": "little",
-    "target-pointer-width": "64",
-    "target-c-int-width": "32",
-    "data-layout": "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128",
+    "code-model": "kernel",
+    "disable-redzone": true,
+    "features": "-mmx,-sse,-sse2,-sse3,-ssse3,-sse4.1,-sse4.2,-3dnow,-3dnowa,-avx,-avx2,+soft-float",
+    "no-default-libraries": true,
     "arch": "x86_64",
-    "os": "none",
+    "cpu": "x86-64",
+    "crt-static-respected": true,
+    "data-layout": "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128",
+    "dynamic-linking": false,
     "env": "",
-    "vendor": "unknown",
-    "linker-flavor": "gcc",
-    "target-family": "unkown",
+    "executables": true,
+    "has-elf-tls": true,
+    "has-rpath": false,
+    "is-builtin": true,
+    "llvm-target": "x86_64-unknown-none",
+    "max-atomic-width": 64,
+    "os": "none",
+    "position-independent-executables": false,
     "pre-link-args": {
         "gcc": [
             "-m64",
@@ -17,16 +24,18 @@
             "-static"
         ]
     },
-    "features": "-mmx,-sse,-sse2,-sse3,-ssse3,-sse4.1,-sse4.2,-3dnow,-3dnowa,-avx,-avx2,+soft-float",
-    "dynamic-linking": false,
-    "executables": true,
-    "relocation-model": "pic",
-    "code-model": "kernel",
-    "disable-redzone": true,
-    "eliminate-frame-pointer": false,
-    "exe-suffix": "",
-    "has-rpath": false,
-    "no-default-libraries": true,
-    "position-independent-executables": false,
-    "has-elf-tls": true
+    "relro-level": "full",
+    "stack-probes": {
+        "kind": "call"
+    },
+    "supported-sanitizers": [
+        "address",
+        "leak",
+        "memory",
+        "thread"
+    ],
+    "target-family": [
+        "unknown"
+    ],
+    "target-pointer-width": "64"
 }

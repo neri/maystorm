@@ -4,7 +4,10 @@ use super::{executor::Executor, *};
 use crate::{
     arch::cpu::*,
     rt::Personality,
-    sync::{atomicflags::*, semaphore::*, spinlock::*, LockResult, Mutex, RwLock, RwLockReadGuard},
+    sync::{
+        atomicflags::*, fifo::*, semaphore::*, spinlock::*, LockResult, Mutex, RwLock,
+        RwLockReadGuard,
+    },
     system::*,
     ui::window::{WindowHandle, WindowMessage},
     *,
@@ -14,7 +17,6 @@ use bitflags::*;
 use core::{
     cell::UnsafeCell, ffi::c_void, fmt::Write, num::*, ops::*, sync::atomic::*, time::Duration,
 };
-use crossbeam_queue::ArrayQueue;
 use megstd::string::*;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
@@ -46,7 +48,7 @@ pub struct Scheduler {
 
     next_timer: AtomicUsize,
     sem_timer: Semaphore,
-    timer_queue: ArrayQueue<TimerEvent>,
+    timer_queue: ConcurrentFifo<TimerEvent>,
 }
 
 #[allow(non_camel_case_types)]
@@ -87,7 +89,7 @@ impl Scheduler {
                 state: SchedulerState::Running,
                 next_timer: AtomicUsize::new(0),
                 sem_timer: Semaphore::new(0),
-                timer_queue: ArrayQueue::new(100),
+                timer_queue: ConcurrentFifo::with_capacity(100),
             }));
         }
 
@@ -338,7 +340,7 @@ impl Scheduler {
         let shared = Self::shared();
         shared
             .timer_queue
-            .push(event)
+            .enqueue(event)
             .map(|_| shared.sem_timer.signal())
     }
 
@@ -354,9 +356,9 @@ impl Scheduler {
 
         let mut events: Vec<TimerEvent> = Vec::with_capacity(100);
         loop {
-            if let Some(event) = shared.timer_queue.pop() {
+            if let Some(event) = shared.timer_queue.dequeue() {
                 events.push(event);
-                while let Some(event) = shared.timer_queue.pop() {
+                while let Some(event) = shared.timer_queue.dequeue() {
                     events.push(event);
                 }
                 events.sort_by(|a, b| a.timer.deadline.cmp(&b.timer.deadline));
@@ -1576,12 +1578,12 @@ impl ThreadContextData {
 
 //     #[inline]
 //     fn dequeue(&self) -> Option<ThreadHandle> {
-//         self.0.pop().map(|v| ThreadHandle(v))
+//         unsafe { Cpu::without_interrupts(|| self.0.pop().map(|v| ThreadHandle(v))) }
 //     }
 
 //     #[inline]
 //     fn enqueue(&self, data: ThreadHandle) -> Result<(), ()> {
-//         self.0.push(data.0).map_err(|_| ())
+//         unsafe { Cpu::without_interrupts(|| self.0.push(data.0).map_err(|_| ())) }
 //     }
 // }
 

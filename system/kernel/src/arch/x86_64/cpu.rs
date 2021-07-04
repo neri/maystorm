@@ -452,6 +452,22 @@ impl Cpu {
 
         result
     }
+
+    #[allow(dead_code)]
+    pub unsafe fn is_interrupt_disabled() -> bool {
+        !Self::is_interrupt_enabled()
+    }
+
+    #[allow(dead_code)]
+    pub unsafe fn is_interrupt_enabled() -> bool {
+        let mut rax: usize;
+        asm!("
+            pushfq
+            cli
+            pop {0}
+            ", lateout(reg) rax);
+        Rflags::from_bits_truncate(rax).contains(Rflags::IF)
+    }
 }
 
 #[macro_export]

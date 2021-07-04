@@ -7,9 +7,7 @@ use super::{
 use crate::system::*;
 use crate::ui::font::*;
 use alloc::boxed::Box;
-use core::fmt;
-use core::future::Future;
-use core::pin::Pin;
+use core::{fmt, future::Future, pin::Pin};
 use megstd::drawing::*;
 
 pub struct EmConsole {
@@ -27,7 +25,7 @@ impl EmConsole {
             x: 0,
             y: 0,
             fg_color: IndexedColor::WHITE,
-            bg_color: IndexedColor::BLUE,
+            bg_color: IndexedColor::BLACK,
             font,
         }
     }

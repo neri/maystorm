@@ -3,10 +3,11 @@
 use super::initramfs::*;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::cell::UnsafeCell;
 use core::num::{NonZeroU64, NonZeroUsize};
 use megstd::io;
 
-static mut FS: FileManager = FileManager::new();
+static mut FS: UnsafeCell<FileManager> = UnsafeCell::new(FileManager::new());
 
 pub type OffsetType = i64;
 pub type INodeType = u64;
@@ -28,12 +29,12 @@ impl FileManager {
 
     #[inline]
     fn shared_mut<'a>() -> &'a mut Self {
-        unsafe { &mut FS }
+        unsafe { &mut *FS.get() }
     }
 
     #[inline]
     fn shared<'a>() -> &'a Self {
-        unsafe { &FS }
+        unsafe { &*FS.get() }
     }
 
     #[inline]

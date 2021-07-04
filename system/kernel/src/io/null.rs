@@ -3,6 +3,7 @@
 use super::tty::*;
 use alloc::boxed::Box;
 use core::{
+    cell::UnsafeCell,
     fmt::Write,
     future::Future,
     pin::Pin,
@@ -10,16 +11,20 @@ use core::{
 };
 
 // Null is singleton
-static mut SINGLETON: Null = Null::new();
+static mut NULL: UnsafeCell<Null> = UnsafeCell::new(Null::new());
 
-pub struct Null {}
+/// Null Device Driver
+pub struct Null;
 
 impl Null {
+    #[inline]
     const fn new() -> Self {
         Self {}
     }
-    pub fn null() -> &'static mut dyn Tty {
-        unsafe { &mut SINGLETON }
+
+    #[inline]
+    pub fn null<'a>() -> &'a mut dyn Tty {
+        unsafe { &mut *NULL.get() }
     }
 }
 

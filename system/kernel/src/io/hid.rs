@@ -2,8 +2,8 @@
 
 use crate::ui::window::*;
 use crate::*;
-use alloc::boxed::Box;
 use bitflags::*;
+use core::cell::UnsafeCell;
 use core::num::*;
 use megstd::drawing::*;
 use megstd::io::hid::*;
@@ -192,26 +192,25 @@ impl MouseEvent {
 /// HidManager relays between human interface devices and the window event subsystem.
 ///
 /// Keyboard scancodes will be converted to the Usage specified by the USB-HID specification on all platforms.
-pub struct HidManager {
-    _phantom: (),
-}
+pub struct HidManager;
 
-static mut HID_MANAGER: Option<Box<HidManager>> = None;
+static mut HID_MANAGER: UnsafeCell<HidManager> = UnsafeCell::new(HidManager::new());
 
 impl HidManager {
-    pub unsafe fn init() {
-        HID_MANAGER = Some(Box::new(HidManager::new()));
+    #[inline]
+    const fn new() -> Self {
+        HidManager {}
     }
 
     #[inline]
-    const fn new() -> Self {
-        HidManager { _phantom: () }
+    pub unsafe fn init() {
+        //
     }
 
     #[inline]
     #[allow(dead_code)]
-    fn shared() -> &'static HidManager {
-        unsafe { HID_MANAGER.as_ref().unwrap() }
+    fn shared<'a>() -> &'a HidManager {
+        unsafe { &*HID_MANAGER.get() }
     }
 
     #[inline]

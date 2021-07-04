@@ -16,6 +16,7 @@ impl InitRamfs {
     const SIZE_OF_RAW_DIR: usize = 32;
     const OFFSET_DATA: usize = 16;
 
+    #[inline]
     pub unsafe fn from_static(base: usize, len: usize) -> Option<Self> {
         let boxed = Box::from_raw(slice_from_raw_parts_mut(base as *mut u8, len));
         let mut dir = Vec::new();

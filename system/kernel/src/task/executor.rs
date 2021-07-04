@@ -1,13 +1,9 @@
 // Task Executor
 
 use super::{Task, TaskId};
-use crate::sync::semaphore::*;
-use alloc::collections::BTreeMap;
-use alloc::sync::Arc;
-use alloc::task::Wake;
-use core::task::Waker;
-use core::task::{Context, Poll};
-use crossbeam_queue::ArrayQueue;
+use crate::{sync::fifo::*, sync::semaphore::*};
+use alloc::{collections::BTreeMap, sync::Arc, task::Wake};
+use core::task::{Context, Poll, Waker};
 
 pub struct Executor {
     tasks: BTreeMap<TaskId, Task>,
@@ -95,24 +91,24 @@ impl Wake for TaskWaker {
 }
 
 struct TaskQueue {
-    queue: ArrayQueue<TaskId>,
+    queue: ConcurrentFifo<TaskId>,
     sem: Semaphore,
 }
 
 impl TaskQueue {
     fn new() -> Arc<Self> {
         Arc::new(Self {
-            queue: ArrayQueue::new(100),
+            queue: ConcurrentFifo::with_capacity(100),
             sem: Semaphore::new(0),
         })
     }
 
     fn push(&self, task_id: TaskId) -> Result<(), TaskId> {
-        self.queue.push(task_id).map(|_| self.sem.signal())
+        self.queue.enqueue(task_id).map(|_| self.sem.signal())
     }
 
     fn pop(&self) -> Option<TaskId> {
-        self.queue.pop()
+        self.queue.dequeue()
     }
 
     fn wait(&self) {

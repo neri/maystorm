@@ -4,6 +4,7 @@
 #![feature(abi_x86_interrupt)]
 #![feature(alloc_error_handler)]
 #![feature(asm)]
+#![feature(box_into_inner)]
 #![feature(cfg_target_has_atomic)]
 #![feature(const_fn_trait_bound)]
 #![feature(const_fn_transmute)]
@@ -11,12 +12,12 @@
 #![feature(core_intrinsics)]
 #![feature(global_asm)]
 #![feature(lang_items)]
+#![feature(maybe_uninit_extra)]
 #![feature(negative_impls)]
 #![feature(new_uninit)]
 #![feature(option_result_contains)]
 #![feature(panic_info_message)]
 #![feature(try_reserve)]
-#![feature(box_into_inner)]
 
 #[macro_use]
 pub mod arch;
@@ -71,14 +72,15 @@ fn panic(info: &PanicInfo) -> ! {
         Cpu::disable_interrupt();
         let _ = task::scheduler::Scheduler::freeze(true);
         PANIC_GLOBAL_LOCK.synchronized(|| {
+            let stdout = System::em_console();
             if let Some(thread) = task::scheduler::Scheduler::current_thread() {
                 if let Some(name) = thread.name() {
-                    let _ = write!(System::em_console(), "thread '{}' ", name);
+                    let _ = write!(stdout, "thread '{}' ", name);
                 } else {
-                    let _ = write!(System::em_console(), "thread {} ", thread.as_usize());
+                    let _ = write!(stdout, "thread {} ", thread.as_usize());
                 }
             }
-            let _ = writeln!(System::em_console(), "{}", info);
+            let _ = writeln!(stdout, "{}", info);
         });
         Cpu::stop()
     }

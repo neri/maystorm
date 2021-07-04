@@ -2,8 +2,14 @@
 
 use super::{font::*, theme::Theme};
 use crate::{
-    io::hid::*, sync::atomicflags::*, sync::semaphore::*, sync::spinlock::Spinlock, sync::RwLock,
-    task::scheduler::*, util::text::*, *,
+    io::hid::*,
+    sync::atomicflags::*,
+    sync::spinlock::Spinlock,
+    sync::RwLock,
+    sync::{fifo::*, semaphore::*},
+    task::scheduler::*,
+    util::text::*,
+    *,
 };
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc};
 use bitflags::*;
@@ -18,7 +24,6 @@ use core::{
     task::{Context, Poll},
     time::Duration,
 };
-use crossbeam_queue::ArrayQueue;
 use futures_util::task::AtomicWaker;
 use megstd::drawing::*;
 use megstd::io::hid::*;
@@ -81,7 +86,7 @@ pub struct WindowManager<'a> {
 
     sem_event: Semaphore,
     attributes: AtomicBitflags<WindowManagerAttributes>,
-    system_event: ArrayQueue<WindowSystemEvent>,
+    system_event: ConcurrentFifo<WindowSystemEvent>,
 
     pointer_x: AtomicIsize,
     pointer_y: AtomicIsize,
@@ -218,7 +223,7 @@ impl WindowManager<'static> {
                 captured: None,
                 captured_origin: Point::default(),
                 entered: None,
-                system_event: ArrayQueue::new(WINDOW_SYSTEM_EVENT_QUEUE_SIZE),
+                system_event: ConcurrentFifo::with_capacity(WINDOW_SYSTEM_EVENT_QUEUE_SIZE),
             }));
         }
 
@@ -306,7 +311,7 @@ impl WindowManager<'_> {
                 .attributes
                 .test_and_clear(WindowManagerAttributes::EVENT)
             {
-                while let Some(event) = shared.system_event.pop() {
+                while let Some(event) = shared.system_event.dequeue() {
                     match event {
                         WindowSystemEvent::Key(w, e) => {
                             let _ = w.post(WindowMessage::Key(e));
@@ -478,7 +483,7 @@ impl WindowManager<'_> {
     #[inline]
     fn post_system_event(event: WindowSystemEvent) -> Result<(), WindowSystemEvent> {
         let shared = Self::shared();
-        let r = shared.system_event.push(event);
+        let r = shared.system_event.enqueue(event);
         shared.attributes.insert(WindowManagerAttributes::EVENT);
         shared.sem_event.signal();
         r
@@ -868,7 +873,7 @@ struct RawWindow<'a> {
     // Messages and Events
     waker: AtomicWaker,
     sem: Semaphore,
-    queue: Option<ArrayQueue<WindowMessage>>,
+    queue: Option<ConcurrentFifo<WindowMessage>>,
 
     // TODO: Window Hierachies
     next: Option<WindowHandle>,
@@ -1492,7 +1497,7 @@ impl WindowBuilder {
 
         let queue = match self.queue_size {
             0 => None,
-            _ => Some(ArrayQueue::new(self.queue_size)),
+            _ => Some(ConcurrentFifo::with_capacity(self.queue_size)),
         };
 
         let handle = WindowManager::next_window_handle();
@@ -1822,7 +1827,7 @@ impl WindowHandle {
                     Ok(())
                 }
                 _ => queue
-                    .push(message)
+                    .enqueue(message)
                     .map_err(|_| WindowPostError::Full)
                     .map(|_| {
                         window.waker.wake();
@@ -1841,7 +1846,7 @@ impl WindowHandle {
             None => return None,
         };
         if let Some(queue) = window.queue.as_ref() {
-            match queue.pop() {
+            match queue.dequeue() {
                 Some(v) => Some(v),
                 _ => {
                     if window
