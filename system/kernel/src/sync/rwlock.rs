@@ -270,7 +270,7 @@ impl RwLockInner {
                 }
             });
         if self.data.load(Ordering::Relaxed) == 0 {
-            self.signal.signal()
+            let _ = self.signal.signal();
         }
     }
 
@@ -287,7 +287,7 @@ impl RwLockInner {
                 }
             });
         if self.data.load(Ordering::Relaxed) == 0 {
-            self.signal.signal()
+            let _ = self.signal.signal();
         }
     }
 }

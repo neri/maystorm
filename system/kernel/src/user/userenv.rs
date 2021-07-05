@@ -60,7 +60,6 @@ async fn status_bar_main() {
     let screen_bounds = WindowManager::main_screen_bounds();
     let window = WindowBuilder::new("Status Bar")
         .style(WindowStyle::NAKED | WindowStyle::FLOATING)
-        .style_add(WindowStyle::BORDER)
         .frame(Rect::new(0, 0, screen_bounds.width(), STATUS_BAR_HEIGHT))
         .bg_color(bg_color)
         .build();

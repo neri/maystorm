@@ -109,6 +109,32 @@ impl Shell {
             "reboot" => {
                 System::reset();
             }
+            "uptime" => {
+                let systime = System::system_time();
+                let sec = systime.secs;
+                // let time_s = sec % 60;
+                let time_m = (sec / 60) % 60;
+                let time_h = (sec / 3600) % 24;
+
+                let uptime = Timer::monotonic();
+                let sec = uptime.as_secs();
+                let upt_s = sec % 60;
+                let upt_m = (sec / 60) % 60;
+                let upt_h = (sec / 3600) % 24;
+                let upt_d = sec / 86400;
+
+                if upt_d > 0 {
+                    println!(
+                        "{:02}:{:02} up {} days, {:02}:{:02}",
+                        time_h, time_m, upt_d, upt_h, upt_m
+                    );
+                } else {
+                    println!(
+                        "{:02}:{:02} up {:02}:{:02}:{:02}",
+                        time_h, time_m, upt_h, upt_m, upt_s
+                    );
+                }
+            }
             "memory" => {
                 let mut sb = StringBuffer::with_capacity(0x1000);
                 MemoryManager::statistics(&mut sb);
@@ -124,7 +150,13 @@ impl Shell {
                     exec(args);
                 }
                 None => {
-                    Self::spawn(name, args, true);
+                    if args.len() > 1 && args.last() == Some(&"&") {
+                        let mut args = Vec::from(args);
+                        args.remove(args.len() - 1);
+                        Self::spawn(name, &args, false);
+                    } else {
+                        Self::spawn(name, args, true);
+                    }
                 }
             },
         }) {

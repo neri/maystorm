@@ -28,8 +28,9 @@ use futures_util::task::AtomicWaker;
 use megstd::drawing::*;
 use megstd::io::hid::*;
 
-const WINDOW_BORDER_PADDING: isize = 0;
-const WINDOW_BORDER_SHADOW_PADDING: isize = 8;
+const WINDOW_BORDER_PADDING: isize = 1;
+const WINDOW_BORDER_SHADOW_PADDING: isize = 16;
+const WINDOW_SHADOW_LEVEL: isize = 4;
 const WINDOW_TITLE_HEIGHT: isize = 24;
 const WINDOW_SYSTEM_EVENT_QUEUE_SIZE: usize = 100;
 const WINDOW_TITLE_LENGTH: usize = 32;
@@ -143,7 +144,7 @@ impl WindowManager<'static> {
                 let center = bitmap.bounds().center();
                 for q in 0..WINDOW_BORDER_SHADOW_PADDING {
                     let r = WINDOW_BORDER_SHADOW_PADDING - q;
-                    let density = ((q + 1) * (q + 1)) as u8;
+                    let density = ((q + 1) * (q + 1) * WINDOW_SHADOW_LEVEL / 16) as u8;
                     bitmap.fill_circle(center, r, TrueColor::gray(0, density));
                 }
             });
@@ -158,7 +159,7 @@ impl WindowManager<'static> {
 
         let root = {
             let window = WindowBuilder::new("Root")
-                .style(WindowStyle::NAKED | WindowStyle::OPAQUE)
+                .style(WindowStyle::NAKED | WindowStyle::OPAQUE | WindowStyle::NO_SHADOW)
                 .level(WindowLevel::ROOT)
                 .frame(Rect::from(screen_size))
                 .bg_color(SomeColor::BLACK)
@@ -175,7 +176,7 @@ impl WindowManager<'static> {
             let pointer_size =
                 Size::new(MOUSE_POINTER_WIDTH as isize, MOUSE_POINTER_HEIGHT as isize);
             let window = WindowBuilder::new("Root")
-                .style(WindowStyle::NAKED)
+                .style(WindowStyle::NAKED | WindowStyle::NO_SHADOW)
                 .level(WindowLevel::POINTER)
                 .origin(Point::new(pointer_x, pointer_y))
                 .size(pointer_size)
@@ -880,14 +881,16 @@ struct RawWindow<'a> {
 }
 
 bitflags! {
-    pub struct WindowStyle: u8 {
-        const BORDER        = 0b0000_0001;
-        const TITLE         = 0b0000_0010;
-        const CLOSE_BUTTON  = 0b0000_0100;
-        const PINCHABLE     = 0b0000_1000;
-        const FLOATING      = 0b0001_0000;
-        const NAKED         = 0b0010_0000;
-        const OPAQUE        = 0b0100_0000;
+    pub struct WindowStyle: usize {
+        const BORDER        = 0b0000_0000_0000_0001;
+        const TITLE         = 0b0000_0000_0000_0010;
+        const CLOSE_BUTTON  = 0b0000_0000_0000_0100;
+        const PINCHABLE     = 0b0000_0000_0000_1000;
+        const FLOATING      = 0b0000_0000_0001_0000;
+        const NAKED         = 0b0000_0000_0010_0000;
+        const OPAQUE        = 0b0000_0000_0100_0000;
+        const NO_SHADOW     = 0b0000_0000_1000_0000;
+        const STYLE_DARK    = 0b0000_0001_0000_0000;
 
         const DEFAULT = Self::BORDER.bits | Self::TITLE.bits | Self::CLOSE_BUTTON.bits;
     }
@@ -1145,21 +1148,32 @@ impl RawWindow<'_> {
         let is_active = self.is_active();
 
         if self.style.contains(WindowStyle::BORDER) {
+            if WINDOW_BORDER_PADDING > 0 {
+                let rect = Rect::from(bitmap.size())
+                    .insets_by(EdgeInsets::padding_each(WINDOW_BORDER_SHADOW_PADDING));
+                bitmap.draw_rect(
+                    rect,
+                    if self.style.contains(WindowStyle::STYLE_DARK) {
+                        Theme::shared().window_default_border_dark()
+                    } else {
+                        Theme::shared().window_default_border_light()
+                    },
+                );
+            }
+        }
+
+        if self.style.contains(WindowStyle::NO_SHADOW) {
+            // NO SHADOW
+        } else {
             match &mut bitmap {
                 Bitmap::Argb32(bitmap) => {
                     let q = WINDOW_BORDER_SHADOW_PADDING;
                     let rect = Rect::from(bitmap.size());
-
-                    // if WINDOW_BORDER_PADDING > 0 {
-                    //     let rect = Rect::from(bitmap.size())
-                    //         .insets_by(EdgeInsets::padding_each(WINDOW_BORDER_SHADOW_PADDING));
-                    //     bitmap.draw_rect(rect, WINDOW_BORDER_COLOR.into_argb());
-                    // }
-
                     for n in 0..q {
                         let rect = rect.insets_by(EdgeInsets::padding_each(n));
-                        let light = 1 + n as u8;
-                        let color = TrueColor::TRANSPARENT.set_opacity(light * light);
+                        let light = 1 + n as isize;
+                        let color = TrueColor::TRANSPARENT
+                            .set_opacity((light * light * WINDOW_SHADOW_LEVEL / 16) as u8);
                         bitmap.draw_rect(rect, color);
                     }
                     let shared = WindowManager::shared();
@@ -1458,10 +1472,11 @@ impl WindowBuilder {
     #[inline]
     fn build_inner<'a>(mut self) -> Box<RawWindow<'a>> {
         let screen_bounds = WindowManager::user_screen_bounds();
-        let shadow_insets = if self.style.contains(WindowStyle::BORDER) {
-            EdgeInsets::padding_each(WINDOW_BORDER_SHADOW_PADDING)
-        } else {
+
+        let shadow_insets = if self.style.contains(WindowStyle::NO_SHADOW) {
             EdgeInsets::default()
+        } else {
+            EdgeInsets::padding_each(WINDOW_BORDER_SHADOW_PADDING)
         };
         let window_insets = self.style.as_content_insets();
         let content_insets = window_insets + shadow_insets;
@@ -1494,6 +1509,11 @@ impl WindowBuilder {
         } else {
             AtomicBitflags::empty()
         };
+
+        let light = self.bg_color.into_argb().brightness();
+        if light < 128 {
+            self.style.insert(WindowStyle::STYLE_DARK);
+        }
 
         let queue = match self.queue_size {
             0 => None,

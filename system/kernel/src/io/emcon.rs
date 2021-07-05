@@ -19,6 +19,8 @@ pub struct EmConsole {
 }
 
 impl EmConsole {
+    const PADDING: isize = 8;
+
     #[inline]
     pub const fn new(font: &'static FixedFontDriver<'static>) -> Self {
         Self {
@@ -48,11 +50,11 @@ impl EmConsole {
             self.y = rows - 1;
             let sh = font_size.height() * self.y as isize;
             let mut rect = bitmap.bounds();
-            rect.origin.y += font_size.height();
+            rect.origin.y += font_size.height() + Self::PADDING;
             rect.size.height = sh;
-            bitmap.blt_itself(Point::new(0, 0), rect);
+            bitmap.blt_itself(Point::new(0, Self::PADDING), rect);
             bitmap.fill_rect(
-                Rect::new(0, sh, rect.width(), font_size.height()),
+                Rect::new(0, sh + Self::PADDING, rect.width(), font_size.height()),
                 self.bg_color.into(),
             );
         }
@@ -72,8 +74,8 @@ impl EmConsole {
             }
             _ => {
                 let origin = Point::new(
-                    self.x as isize * font_size.width,
-                    self.y as isize * font_size.height,
+                    self.x as isize * font_size.width + Self::PADDING,
+                    self.y as isize * font_size.height + Self::PADDING,
                 );
                 bitmap.fill_rect(
                     Rect {
@@ -109,8 +111,8 @@ impl TtyWrite for EmConsole {
         let font = self.font;
         let font_size = Size::new(font.width(), font.line_height());
         let bitmap = System::main_screen();
-        let cols = bitmap.width() as isize / font_size.width();
-        let rows = bitmap.height() as isize / font_size.height();
+        let cols = (bitmap.width() as isize - Self::PADDING * 2) / font_size.width();
+        let rows = (bitmap.height() as isize - Self::PADDING * 2) / font_size.height();
         (cols, rows)
     }
 

@@ -48,6 +48,7 @@ pub struct Scheduler {
 
     next_timer: AtomicUsize,
     sem_timer: Semaphore,
+
     timer_queue: ConcurrentFifo<TimerEvent>,
 }
 
@@ -308,11 +309,13 @@ impl Scheduler {
             return;
         } else if thread.attribute.contains(ThreadAttributes::ZOMBIE) {
             ThreadPool::remove(handle);
-        } else if thread.attribute.test_and_clear(ThreadAttributes::AWAKE) {
-            thread.attribute.remove(ThreadAttributes::ASLEEP);
-            shared.enqueue(handle);
         } else if thread.attribute.contains(ThreadAttributes::ASLEEP) {
-            thread.attribute.remove(ThreadAttributes::QUEUED);
+            if thread.attribute.test_and_clear(ThreadAttributes::AWAKE) {
+                thread.attribute.remove(ThreadAttributes::ASLEEP);
+                shared.enqueue(handle);
+            } else {
+                thread.attribute.remove(ThreadAttributes::QUEUED);
+            }
         } else {
             shared.enqueue(handle);
         }
@@ -1567,93 +1570,93 @@ impl ThreadContextData {
 //     }
 // }
 
-// #[repr(transparent)]
-// struct ThreadQueue(ArrayQueue<NonZeroUsize>);
-
-// impl ThreadQueue {
-//     #[inline]
-//     fn with_capacity(capacity: usize) -> Self {
-//         Self(ArrayQueue::new(capacity))
-//     }
-
-//     #[inline]
-//     fn dequeue(&self) -> Option<ThreadHandle> {
-//         unsafe { Cpu::without_interrupts(|| self.0.pop().map(|v| ThreadHandle(v))) }
-//     }
-
-//     #[inline]
-//     fn enqueue(&self, data: ThreadHandle) -> Result<(), ()> {
-//         unsafe { Cpu::without_interrupts(|| self.0.push(data.0).map_err(|_| ())) }
-//     }
-// }
-
-struct ThreadQueue {
-    lock: Spinlock,
-    mask: usize,
-    head: AtomicUsize,
-    tail: AtomicUsize,
-    slice: UnsafeCell<Box<[usize]>>,
-}
+#[repr(transparent)]
+struct ThreadQueue(ConcurrentFifo<ThreadHandle>);
 
 impl ThreadQueue {
     #[inline]
     fn with_capacity(capacity: usize) -> Self {
-        let cap = (capacity + 1).next_power_of_two();
-        let mask = cap - 1;
-        let mut vec = Vec::with_capacity(cap);
-        vec.resize(cap, 0);
-        Self {
-            lock: Spinlock::new(),
-            head: AtomicUsize::new(0),
-            tail: AtomicUsize::new(0),
-            mask,
-            slice: UnsafeCell::new(vec.into_boxed_slice()),
-        }
+        Self(ConcurrentFifo::with_capacity(capacity))
     }
 
     #[inline]
     fn dequeue(&self) -> Option<ThreadHandle> {
-        unsafe {
-            without_interrupts! {
-                self.lock.synchronized(|| {
-                    let mask = self.mask;
-                    let head = mask & self.head.load(Ordering::Relaxed);
-                    let tail = mask & self.tail.load(Ordering::Relaxed);
-                    (head != tail)
-                        .then(|| {
-                            self.head.fetch_add(1, Ordering::SeqCst);
-                            let slice = &*self.slice.get();
-                            let a = slice.get_unchecked(head);
-                            NonZeroUsize::new(*a).map(|v| ThreadHandle(v))
-                        })
-                        .flatten()
-                })
-            }
-        }
+        self.0.dequeue()
     }
 
     #[inline]
     fn enqueue(&self, data: ThreadHandle) -> Result<(), ()> {
-        unsafe {
-            without_interrupts! {
-                self.lock.synchronized(|| {
-                    let mask = self.mask;
-                    let head = mask & self.head.load(Ordering::Relaxed);
-                    let tail = mask & self.tail.load(Ordering::Relaxed);
-                    let new_tail = mask & (tail + 1);
-                    (head != new_tail)
-                        .then(|| {
-                            self.tail.fetch_add(1, Ordering::SeqCst);
-                            let slice = &mut *self.slice.get();
-                            let a = slice.get_unchecked_mut(tail);
-                            *a = data.as_usize();
-                        })
-                        .ok_or(())
-                })
-            }
-        }
+        self.0.enqueue(data).map_err(|_| ())
     }
 }
+
+// struct ThreadQueue {
+//     lock: Spinlock,
+//     mask: usize,
+//     head: AtomicUsize,
+//     tail: AtomicUsize,
+//     slice: UnsafeCell<Box<[usize]>>,
+// }
+
+// impl ThreadQueue {
+//     #[inline]
+//     fn with_capacity(capacity: usize) -> Self {
+//         let cap = (capacity + 1).next_power_of_two();
+//         let mask = cap - 1;
+//         let mut vec = Vec::with_capacity(cap);
+//         vec.resize(cap, 0);
+//         Self {
+//             lock: Spinlock::new(),
+//             head: AtomicUsize::new(0),
+//             tail: AtomicUsize::new(0),
+//             mask,
+//             slice: UnsafeCell::new(vec.into_boxed_slice()),
+//         }
+//     }
+
+//     #[inline]
+//     fn dequeue(&self) -> Option<ThreadHandle> {
+//         unsafe {
+//             without_interrupts! {
+//                 self.lock.synchronized(|| {
+//                     let mask = self.mask;
+//                     let head = mask & self.head.load(Ordering::Relaxed);
+//                     let tail = mask & self.tail.load(Ordering::Relaxed);
+//                     (head != tail)
+//                         .then(|| {
+//                             self.head.fetch_add(1, Ordering::SeqCst);
+//                             let slice = &*self.slice.get();
+//                             let a = slice.get_unchecked(head);
+//                             NonZeroUsize::new(*a).map(|v| ThreadHandle(v))
+//                         })
+//                         .flatten()
+//                 })
+//             }
+//         }
+//     }
+
+//     #[inline]
+//     fn enqueue(&self, data: ThreadHandle) -> Result<(), ()> {
+//         unsafe {
+//             without_interrupts! {
+//                 self.lock.synchronized(|| {
+//                     let mask = self.mask;
+//                     let head = mask & self.head.load(Ordering::Relaxed);
+//                     let tail = mask & self.tail.load(Ordering::Relaxed);
+//                     let new_tail = mask & (tail + 1);
+//                     (head != new_tail)
+//                         .then(|| {
+//                             self.tail.fetch_add(1, Ordering::SeqCst);
+//                             let slice = &mut *self.slice.get();
+//                             let a = slice.get_unchecked_mut(tail);
+//                             *a = data.as_usize();
+//                         })
+//                         .ok_or(())
+//                 })
+//             }
+//         }
+//     }
+// }
 
 /// Interrupt Request Level
 #[non_exhaustive]

@@ -43,7 +43,7 @@ impl Semaphore {
     #[inline]
     pub fn signal(&self) {
         let _ = Cpu::interlocked_increment(&self.value);
-        self.signal.signal();
+        let _ = self.signal.signal();
     }
 
     #[inline]
@@ -88,7 +88,7 @@ impl BinarySemaphore {
     #[inline]
     pub fn unlock(&self) {
         self.value.store(false, Ordering::SeqCst);
-        self.signal.signal();
+        let _ = self.signal.signal();
     }
 
     #[inline]

@@ -46,6 +46,16 @@ impl Theme {
     }
 
     #[inline]
+    pub const fn window_default_border_light(&self) -> SomeColor {
+        SomeColor::LIGHT_GRAY
+    }
+
+    #[inline]
+    pub const fn window_default_border_dark(&self) -> SomeColor {
+        SomeColor::DARK_GRAY
+    }
+
+    #[inline]
     pub const fn window_title_close_foreground(&self) -> SomeColor {
         SomeColor::BLACK
     }

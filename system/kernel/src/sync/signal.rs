@@ -30,11 +30,6 @@ impl SignallingObject {
     }
 
     #[inline]
-    pub fn store(&self, val: Option<ThreadHandle>) {
-        self.data.store(Self::from_t(val), Ordering::SeqCst)
-    }
-
-    #[inline]
     pub fn load(&self) -> Option<ThreadHandle> {
         Self::into_t(self.data.load(Ordering::Relaxed))
     }
@@ -103,10 +98,8 @@ impl SignallingObject {
     }
 
     #[inline]
-    pub fn signal(&self) {
-        if let Some(thread) = self.swap(None) {
-            thread.wake();
-        }
+    pub fn signal(&self) -> Option<()> {
+        self.swap(None).map(|thread| thread.wake())
     }
 }
 
