@@ -66,9 +66,9 @@ pub struct BinarySemaphore {
 
 impl BinarySemaphore {
     #[inline]
-    pub const fn new(value: bool) -> Self {
+    pub const fn new() -> Self {
         Self {
-            value: AtomicBool::new(value),
+            value: AtomicBool::new(false),
             signal: SignallingObject::new(None),
         }
     }
@@ -76,7 +76,7 @@ impl BinarySemaphore {
     #[inline]
     pub fn try_lock(&self) -> bool {
         self.value
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
             .is_ok()
     }
 
@@ -87,7 +87,7 @@ impl BinarySemaphore {
 
     #[inline]
     pub fn unlock(&self) {
-        self.value.store(false, Ordering::SeqCst);
+        self.value.store(false, Ordering::Release);
         let _ = self.signal.signal();
     }
 
@@ -106,6 +106,6 @@ impl BinarySemaphore {
 impl Default for BinarySemaphore {
     #[inline]
     fn default() -> Self {
-        Self::new(false)
+        Self::new()
     }
 }

@@ -97,7 +97,7 @@ impl Apic {
             idt: [0; Irq::MAX.0 as usize],
             lapic_timer_value: 0,
             tlb_flush_bitmap: AtomicUsize::new(0),
-            ipi_mutex: BinarySemaphore::new(false),
+            ipi_mutex: BinarySemaphore::new(),
         }
     }
 

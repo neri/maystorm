@@ -234,7 +234,7 @@ impl RwLockInner {
     #[inline]
     fn try_read(&self) -> bool {
         self.data
-            .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |v| {
+            .fetch_update(Ordering::Acquire, Ordering::Relaxed, |v| {
                 if (v & Self::LOCK_WRITE) == 0 {
                     Some(v + Self::LOCK_COUNT)
                 } else {
@@ -247,7 +247,7 @@ impl RwLockInner {
     #[inline]
     fn try_write(&self) -> bool {
         self.data
-            .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |v| {
+            .fetch_update(Ordering::Acquire, Ordering::Relaxed, |v| {
                 if v == 0 {
                     Some(Self::LOCK_WRITE)
                 } else {
@@ -260,15 +260,7 @@ impl RwLockInner {
     #[inline]
     #[track_caller]
     unsafe fn read_unlock(&self) {
-        let _ = self
-            .data
-            .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |v| {
-                if v >= Self::LOCK_COUNT {
-                    Some(v - Self::LOCK_COUNT)
-                } else {
-                    None
-                }
-            });
+        let _ = self.data.fetch_sub(Self::LOCK_COUNT, Ordering::Relaxed);
         if self.data.load(Ordering::Relaxed) == 0 {
             let _ = self.signal.signal();
         }
@@ -277,15 +269,7 @@ impl RwLockInner {
     #[inline]
     #[track_caller]
     unsafe fn write_unlock(&self) {
-        let _ = self
-            .data
-            .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |v| {
-                if v == Self::LOCK_WRITE {
-                    Some(0)
-                } else {
-                    None
-                }
-            });
+        let _ = self.data.store(0, Ordering::Release);
         if self.data.load(Ordering::Relaxed) == 0 {
             let _ = self.signal.signal();
         }

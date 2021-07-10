@@ -3,8 +3,11 @@
 use crate::arch::cpu::Cpu;
 use crate::sync::spinlock::SpinLoopWait;
 use alloc::boxed::Box;
-use core::mem::{self, MaybeUninit};
-use core::{cell::UnsafeCell, sync::atomic::*};
+use core::{
+    mem::{self, MaybeUninit},
+    ptr::slice_from_raw_parts_mut,
+    {cell::UnsafeCell, sync::atomic::*},
+};
 
 /// First In First Out
 pub struct ConcurrentFifo<T> {
@@ -51,13 +54,7 @@ impl<T: Sized> ConcurrentFifo<T> {
         unsafe { Cpu::without_interrupts(|| self._dequeue()) }
     }
 
-    #[track_caller]
     fn _enqueue(&self, data: T) -> Result<(), T> {
-        assert!(
-            unsafe { Cpu::is_interrupt_disabled() },
-            "ConcurrentQueue.enqueue: Interrupts must be disabled."
-        );
-
         let mut spin = SpinLoopWait::new();
         let mut tail = self.tail.load(Ordering::Relaxed);
         loop {
@@ -67,7 +64,8 @@ impl<T: Sized> ConcurrentFifo<T> {
             let index = tail & self.mask;
             let slot = unsafe { &mut *self.data.add(index) };
             if slot.stamp() == tail {
-                match self.tail.compare_exchange(
+                spin.reset();
+                match self.tail.compare_exchange_weak(
                     tail,
                     tail + 1,
                     Ordering::SeqCst,
@@ -93,11 +91,11 @@ impl<T: Sized> ConcurrentFifo<T> {
                 return None;
             }
             let slot = unsafe { &*self.data.add(index) };
-            if slot.stamp() == head + 1 {
-                fence(Ordering::SeqCst);
-                match self.head.compare_exchange(
+            let new_head = head.wrapping_add(1);
+            if slot.stamp() == new_head {
+                match self.head.compare_exchange_weak(
                     head,
-                    head + 1,
+                    new_head,
                     Ordering::SeqCst,
                     Ordering::Relaxed,
                 ) {
@@ -116,7 +114,14 @@ impl<T: Sized> ConcurrentFifo<T> {
 
 impl<T> Drop for ConcurrentFifo<T> {
     fn drop(&mut self) {
-        // TODO
+        while let Some(t) = self.dequeue() {
+            drop(t);
+        }
+        unsafe {
+            let boxed = Box::from_raw(slice_from_raw_parts_mut(self.data, self.one_lap));
+            drop(boxed);
+        }
+        todo!();
     }
 }
 
@@ -147,12 +152,12 @@ impl<T> Slot<T> {
     #[inline]
     fn write(&mut self, val: T, stamp: usize) {
         self.value.get_mut().write(val);
-        fence(Ordering::SeqCst);
         self.write_stamp(stamp);
     }
 
     #[inline]
     fn read(&self) -> T {
+        fence(Ordering::SeqCst);
         unsafe { mem::transmute_copy(&*self.value.get()) }
     }
 }

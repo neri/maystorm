@@ -63,6 +63,7 @@ impl<'a> App<'a> {
         let window = WindowBuilder::new()
             .size(Size::new(BITMAP_WIDTH, BITMAP_HEIGHT))
             .expressive()
+            .thin_border()
             .build("noiz2bg");
         let bitmap =
             Bitmap32::from_bytes(unsafe { &mut DATA }, Size::new(BITMAP_WIDTH, BITMAP_HEIGHT));

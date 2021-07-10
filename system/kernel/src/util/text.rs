@@ -143,6 +143,69 @@ impl AttributedStringBuilder {
         self.valign = valign;
         self
     }
+
+    #[inline]
+    pub fn top_left(mut self) -> Self {
+        self.valign = VerticalAlignment::Top;
+        self.align = TextAlignment::Left;
+        self
+    }
+
+    #[inline]
+    pub fn top_center(mut self) -> Self {
+        self.valign = VerticalAlignment::Top;
+        self.align = TextAlignment::Center;
+        self
+    }
+
+    #[inline]
+    pub fn top_right(mut self) -> Self {
+        self.valign = VerticalAlignment::Top;
+        self.align = TextAlignment::Right;
+        self
+    }
+
+    #[inline]
+    pub fn middle_left(mut self) -> Self {
+        self.valign = VerticalAlignment::Center;
+        self.align = TextAlignment::Left;
+        self
+    }
+
+    #[inline]
+    pub fn middle_center(mut self) -> Self {
+        self.valign = VerticalAlignment::Center;
+        self.align = TextAlignment::Center;
+        self
+    }
+
+    #[inline]
+    pub fn middle_right(mut self) -> Self {
+        self.valign = VerticalAlignment::Center;
+        self.align = TextAlignment::Right;
+        self
+    }
+
+    #[inline]
+    pub fn bottom_left(mut self) -> Self {
+        self.valign = VerticalAlignment::Bottom;
+        self.align = TextAlignment::Left;
+        self
+    }
+
+    #[inline]
+    pub fn bottom_center(mut self) -> Self {
+        self.valign = VerticalAlignment::Bottom;
+        self.align = TextAlignment::Center;
+        self
+    }
+
+    #[inline]
+    pub fn bottom_right(mut self) -> Self {
+        self.valign = VerticalAlignment::Bottom;
+        self.align = TextAlignment::Right;
+        self
+    }
 }
 
 pub struct TextProcessing {

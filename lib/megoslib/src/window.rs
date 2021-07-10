@@ -191,4 +191,10 @@ impl WindowBuilder {
         self.flag |= megosabi::window::TRANSPARENT_WINDOW;
         self
     }
+
+    #[inline]
+    pub const fn thin_border(mut self) -> Self {
+        self.flag |= megosabi::window::THIN_BORDER;
+        self
+    }
 }

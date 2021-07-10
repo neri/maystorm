@@ -10,7 +10,7 @@ use core::{
 };
 use megstd::drawing::*;
 
-const DEFAULT_INSETS: EdgeInsets = EdgeInsets::new(4, 4, 4, 4);
+const DEFAULT_INSETS: EdgeInsets = EdgeInsets::new(0, 0, 0, 0);
 const DEFAULT_ATTRIBUTE: u8 = 0x0F;
 const BG_ALPHA: u8 = 0xC0;
 
@@ -86,7 +86,7 @@ impl Terminal {
         ) + insets;
 
         let window = WindowBuilder::new("Terminal")
-            .style_add(WindowStyle::NAKED)
+            .style_add(WindowStyle::NAKED | WindowStyle::THICK_FRAME)
             .frame(Rect::new(
                 screen_insets.left + 16 + 24 * n_instances as isize,
                 screen_insets.top + 16 + 24 * n_instances as isize,

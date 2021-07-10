@@ -29,11 +29,19 @@ use megstd::drawing::*;
 use megstd::io::hid::*;
 
 const WINDOW_BORDER_PADDING: isize = 1;
+const WINDOW_THICK_BORDER: isize = 8;
 const WINDOW_BORDER_SHADOW_PADDING: isize = 16;
-const WINDOW_SHADOW_LEVEL: isize = 4;
 const WINDOW_TITLE_HEIGHT: isize = 24;
+
+const WINDOW_TITLE_HEIGHT_THICK: isize = WINDOW_TITLE_HEIGHT;
+// WINDOW_TITLE_HEIGHT + WINDOW_THICK_BORDER - WINDOW_BORDER_PADDING * 2;
+
 const WINDOW_SYSTEM_EVENT_QUEUE_SIZE: usize = 100;
 const WINDOW_TITLE_LENGTH: usize = 32;
+const WINDOW_RADIUS: isize = 8;
+const SHADOW_RADIUS: isize = 16;
+const SHADOW_OFFSET: isize = 2;
+const SHADOW_LEVEL: usize = 8;
 
 // Mouse Pointer
 const MOUSE_POINTER_WIDTH: usize = 12;
@@ -83,7 +91,7 @@ static mut WM: Option<Box<WindowManager<'static>>> = None;
 pub struct WindowManager<'a> {
     lock: Spinlock,
 
-    sem_draw: Semaphore,
+    sem_draw: BinarySemaphore,
 
     sem_event: Semaphore,
     attributes: AtomicBitflags<WindowManagerAttributes>,
@@ -114,11 +122,11 @@ pub struct WindowManager<'a> {
 
 #[allow(dead_code)]
 struct Resources<'a> {
-    corner_shadow: BoxedBitmap32<'a>,
     close_button: OperationalBitmap,
     close_button_width: isize,
     title_font: FontDescriptor,
     label_font: FontDescriptor,
+    _phantom: &'a (),
 }
 
 impl WindowManager<'static> {
@@ -135,21 +143,6 @@ impl WindowManager<'static> {
         let pointer_y = screen_size.height() / 2;
         let off_screen = BoxedBitmap32::new(screen_size, TrueColor::TRANSPARENT);
         let mut window_pool = BTreeMap::new();
-
-        let corner_shadow = {
-            let w = WINDOW_BORDER_SHADOW_PADDING;
-            let h = WINDOW_BORDER_SHADOW_PADDING;
-            let mut bitmap = BoxedBitmap32::new(Size::new(w * 2, h * 2), TrueColor::TRANSPARENT);
-            bitmap.draw(|bitmap| {
-                let center = bitmap.bounds().center();
-                for q in 0..WINDOW_BORDER_SHADOW_PADDING {
-                    let r = WINDOW_BORDER_SHADOW_PADDING - q;
-                    let density = ((q + 1) * (q + 1) * WINDOW_SHADOW_LEVEL / 16) as u8;
-                    bitmap.fill_circle(center, r, TrueColor::gray(0, density));
-                }
-            });
-            bitmap
-        };
 
         let close_button = OperationalBitmap::with_slice(
             Size::new(CLOSE_BUTTON_SIZE as isize, CLOSE_BUTTON_SIZE as isize),
@@ -176,10 +169,11 @@ impl WindowManager<'static> {
             let pointer_size =
                 Size::new(MOUSE_POINTER_WIDTH as isize, MOUSE_POINTER_HEIGHT as isize);
             let window = WindowBuilder::new("Root")
-                .style(WindowStyle::NAKED | WindowStyle::NO_SHADOW)
+                .style(WindowStyle::NAKED)
                 .level(WindowLevel::POINTER)
                 .origin(Point::new(pointer_x, pointer_y))
                 .size(pointer_size)
+                .bg_color(SomeColor::Transparent)
                 .without_message_queue()
                 .build_inner();
 
@@ -189,6 +183,7 @@ impl WindowManager<'static> {
                     bitmap.blt(&cursor, Point::new(0, 0), pointer_size.into())
                 })
                 .unwrap();
+            window.update_shadow();
 
             let handle = window.handle;
             window_pool.insert(handle, Arc::new(UnsafeCell::new(window)));
@@ -198,7 +193,7 @@ impl WindowManager<'static> {
         unsafe {
             WM = Some(Box::new(WindowManager {
                 lock: Spinlock::default(),
-                sem_draw: Semaphore::new(1),
+                sem_draw: BinarySemaphore::new(),
                 sem_event: Semaphore::new(0),
                 attributes,
                 pointer_x: AtomicIsize::new(pointer_x),
@@ -211,7 +206,7 @@ impl WindowManager<'static> {
                 off_screen,
                 screen_insets: EdgeInsets::default(),
                 resources: Resources {
-                    corner_shadow,
+                    _phantom: &(),
                     close_button,
                     close_button_width,
                     title_font: FontManager::title_font(),
@@ -866,6 +861,7 @@ struct RawWindow<'a> {
     // Appearances
     bg_color: SomeColor,
     bitmap: Option<UnsafeCell<BoxedBitmap<'a>>>,
+    shadow_bitmap: Option<UnsafeCell<OperationalBitmap>>,
 
     /// Window Title
     title: [u8; WINDOW_TITLE_LENGTH],
@@ -890,7 +886,8 @@ bitflags! {
         const NAKED         = 0b0000_0000_0010_0000;
         const OPAQUE        = 0b0000_0000_0100_0000;
         const NO_SHADOW     = 0b0000_0000_1000_0000;
-        const STYLE_DARK    = 0b0000_0001_0000_0000;
+        const DARK          = 0b0000_0001_0000_0000;
+        const THICK_FRAME   = 0b0000_0010_0000_0000;
 
         const DEFAULT = Self::BORDER.bits | Self::TITLE.bits | Self::CLOSE_BUTTON.bits;
     }
@@ -898,14 +895,23 @@ bitflags! {
 
 impl WindowStyle {
     fn as_content_insets(self) -> EdgeInsets {
-        let mut insets = if self.contains(Self::BORDER) {
-            EdgeInsets::padding_each(WINDOW_BORDER_PADDING)
+        let mut insets = if self.contains(Self::TITLE) {
+            EdgeInsets::new(WINDOW_TITLE_HEIGHT, 0, 0, 0)
         } else {
             EdgeInsets::default()
         };
-        if self.contains(Self::TITLE) {
-            insets.top += WINDOW_TITLE_HEIGHT;
-        }
+        if self.contains(Self::BORDER) {
+            if self.contains(Self::THICK_FRAME) {
+                insets = EdgeInsets::new(
+                    WINDOW_TITLE_HEIGHT_THICK,
+                    WINDOW_THICK_BORDER,
+                    WINDOW_THICK_BORDER,
+                    WINDOW_THICK_BORDER,
+                );
+            } else {
+                insets += EdgeInsets::padding_each(WINDOW_BORDER_PADDING);
+            }
+        };
         insets
     }
 }
@@ -936,6 +942,7 @@ impl RawWindow<'_> {
 
     fn show(&mut self) {
         self.draw_frame();
+        self.update_shadow();
         WindowManager::synchronized(|| unsafe {
             WindowManager::add_hierarchy(self.handle);
         });
@@ -1024,8 +1031,7 @@ impl RawWindow<'_> {
             WindowManager::shared().root
         };
 
-        WindowManager::shared().sem_draw.lock();
-        loop {
+        WindowManager::shared().sem_draw.synchronized(|| loop {
             let window = cursor.as_ref();
             if let Ok(coords2) = Coordinates::from_rect(window.frame) {
                 if frame.is_within_rect(window.frame) {
@@ -1051,6 +1057,12 @@ impl RawWindow<'_> {
                         cmp::min(coords1.bottom, coords2.bottom)
                             - cmp::max(coords1.top, coords2.top),
                     );
+
+                    if let Some(shadow) = window.shadow_bitmap() {
+                        shadow.blt_to(target_bitmap, blt_origin, blt_rect, |a, b| {
+                            b.blend(TrueColor::from_argb(0).set_opacity(a))
+                        });
+                    }
 
                     if let Some(bitmap) = window.bitmap() {
                         match bitmap {
@@ -1083,8 +1095,7 @@ impl RawWindow<'_> {
                 Some(next) => next,
                 None => break,
             };
-        }
-        WindowManager::shared().sem_draw.unlock();
+        });
 
         true
     }
@@ -1104,7 +1115,11 @@ impl RawWindow<'_> {
                 WINDOW_BORDER_SHADOW_PADDING + WINDOW_BORDER_PADDING,
                 WINDOW_BORDER_SHADOW_PADDING + WINDOW_BORDER_PADDING,
                 self.frame.width() - WINDOW_BORDER_PADDING * 2 - WINDOW_BORDER_SHADOW_PADDING * 2,
-                WINDOW_TITLE_HEIGHT,
+                if self.style.contains(WindowStyle::THICK_FRAME) {
+                    WINDOW_TITLE_HEIGHT_THICK
+                } else {
+                    WINDOW_TITLE_HEIGHT
+                },
             )
         } else {
             Rect::default()
@@ -1117,7 +1132,7 @@ impl RawWindow<'_> {
             let rect = self.title_frame();
             let close_button_width = shared.resources.close_button_width;
             Rect::new(
-                rect.max_x() - close_button_width,
+                rect.max_x() - close_button_width - WINDOW_RADIUS,
                 rect.y(),
                 close_button_width,
                 rect.height(),
@@ -1146,56 +1161,75 @@ impl RawWindow<'_> {
             None => return,
         };
         let is_active = self.is_active();
+        let is_thick = self.style.contains(WindowStyle::THICK_FRAME);
+        let is_dark = self.style.contains(WindowStyle::DARK);
 
         if self.style.contains(WindowStyle::BORDER) {
-            if WINDOW_BORDER_PADDING > 0 {
+            if is_thick {
+                // Thick border
                 let rect = Rect::from(bitmap.size())
                     .insets_by(EdgeInsets::padding_each(WINDOW_BORDER_SHADOW_PADDING));
                 bitmap.draw_rect(
                     rect,
-                    if self.style.contains(WindowStyle::STYLE_DARK) {
+                    if is_dark {
                         Theme::shared().window_default_border_dark()
                     } else {
                         Theme::shared().window_default_border_light()
                     },
                 );
+
+                let bottom = Rect::new(
+                    rect.min_x(),
+                    rect.max_y() - WINDOW_THICK_BORDER,
+                    rect.width(),
+                    WINDOW_THICK_BORDER,
+                );
+                bitmap
+                    .view(bottom, |mut bitmap| {
+                        bitmap.fill_rect(bitmap.bounds(), SomeColor::TRANSPARENT);
+                        let rect = Rect::new(
+                            0,
+                            -WINDOW_THICK_BORDER,
+                            bitmap.bounds().width(),
+                            WINDOW_THICK_BORDER * 2,
+                        );
+                        bitmap.fill_round_rect(rect, WINDOW_RADIUS, self.bg_color);
+                        bitmap.draw_round_rect(
+                            rect,
+                            WINDOW_RADIUS,
+                            if is_dark {
+                                Theme::shared().window_default_border_dark()
+                            } else {
+                                Theme::shared().window_default_border_light()
+                            },
+                        );
+                    })
+                    .unwrap();
+            } else {
+                // Thin border
+                if WINDOW_BORDER_PADDING > 0 {
+                    let rect = Rect::from(bitmap.size())
+                        .insets_by(EdgeInsets::padding_each(WINDOW_BORDER_SHADOW_PADDING));
+                    bitmap.draw_rect(
+                        rect,
+                        if is_dark {
+                            Theme::shared().window_default_border_dark()
+                        } else {
+                            Theme::shared().window_default_border_light()
+                        },
+                    );
+                }
             }
         }
 
         if self.style.contains(WindowStyle::NO_SHADOW) {
             // NO SHADOW
         } else {
-            match &mut bitmap {
-                Bitmap::Argb32(bitmap) => {
-                    let q = WINDOW_BORDER_SHADOW_PADDING;
-                    let rect = Rect::from(bitmap.size());
-                    for n in 0..q {
-                        let rect = rect.insets_by(EdgeInsets::padding_each(n));
-                        let light = 1 + n as isize;
-                        let color = TrueColor::TRANSPARENT
-                            .set_opacity((light * light * WINDOW_SHADOW_LEVEL / 16) as u8);
-                        bitmap.draw_rect(rect, color);
-                    }
-                    let shared = WindowManager::shared();
-                    let corner = &shared.resources.corner_shadow;
-                    bitmap.blt(corner, Point::new(0, 0), Rect::new(0, 0, q, q));
-                    bitmap.blt(
-                        corner,
-                        Point::new(rect.width() - q, 0),
-                        Rect::new(q, 0, q, q),
-                    );
-                    bitmap.blt(
-                        corner,
-                        Point::new(0, rect.height() - q),
-                        Rect::new(0, q, q, q),
-                    );
-                    bitmap.blt(
-                        corner,
-                        Point::new(rect.width() - q, rect.height() - q),
-                        Rect::new(q, q, q, q),
-                    );
-                }
-                _ => (),
+            // New shadow
+            let rect = Rect::from(bitmap.size());
+            for n in 0..WINDOW_BORDER_SHADOW_PADDING {
+                let rect = rect.insets_by(EdgeInsets::padding_each(n));
+                bitmap.draw_rect(rect, SomeColor::TRANSPARENT);
             }
         }
 
@@ -1205,45 +1239,79 @@ impl RawWindow<'_> {
             let left = padding;
             let right = padding;
 
-            let mut rect = self.title_frame();
-            if self.style.contains(WindowStyle::CLOSE_BUTTON) {
-                rect.size.width -= shared.resources.close_button_width;
-                self.draw_close_button();
-            }
-            bitmap.fill_rect(
-                rect,
-                if is_active {
-                    Theme::shared().window_title_active_background()
-                } else {
-                    Theme::shared().window_title_inactive_background()
-                },
-            );
+            let rect = self
+                .title_frame()
+                .insets_by(EdgeInsets::padding_each(-WINDOW_BORDER_PADDING));
+            bitmap
+                .view(rect, |mut bitmap| {
+                    let rect = bitmap.bounds();
+                    bitmap.fill_rect(rect, SomeColor::TRANSPARENT);
 
-            if let Some(text) = self.title() {
-                let font = shared.resources.title_font;
-                let rect = rect.insets_by(EdgeInsets::new(2, left, 0, right));
+                    let round_rect = rect + Size::new(0, WINDOW_RADIUS);
+                    bitmap.fill_round_rect(
+                        round_rect,
+                        WINDOW_RADIUS,
+                        if is_thick {
+                            self.bg_color
+                        } else if is_active {
+                            Theme::shared().window_title_active_background()
+                        } else {
+                            Theme::shared().window_title_inactive_background()
+                        },
+                    );
+                    bitmap.draw_round_rect(
+                        round_rect,
+                        WINDOW_RADIUS,
+                        if is_dark {
+                            Theme::shared().window_default_border_dark()
+                        } else {
+                            Theme::shared().window_default_border_light()
+                        },
+                    );
+                    if self.style.contains(WindowStyle::CLOSE_BUTTON) {
+                        // rect.size.width -= shared.resources.close_button_width;
+                        self.draw_close_button();
+                    }
 
-                if is_active {
-                    let rect2 = rect + Point::new(1, 1);
-                    AttributedString::new()
-                        .font(font)
-                        .color(Theme::shared().window_title_active_shadow())
-                        .center()
-                        .text(text)
-                        .draw_text(&mut bitmap, rect2, 1);
-                }
+                    if let Some(text) = self.title() {
+                        let font = shared.resources.title_font;
+                        let rect = rect.insets_by(EdgeInsets::new(2, left, 0, right));
 
-                AttributedString::new()
-                    .font(font)
-                    .color(if is_active {
-                        Theme::shared().window_title_active_foreground()
-                    } else {
-                        Theme::shared().window_title_inactive_foreground()
-                    })
-                    .center()
-                    .text(text)
-                    .draw_text(&mut bitmap, rect, 1);
-            }
+                        if is_active {
+                            let rect2 = rect + Point::new(1, 1);
+                            AttributedString::new()
+                                .font(font)
+                                .color(if is_thick && is_dark {
+                                    Theme::shared().window_title_active_shadow_dark()
+                                } else {
+                                    Theme::shared().window_title_active_shadow()
+                                })
+                                .center()
+                                .text(text)
+                                .draw_text(&mut bitmap, rect2, 1);
+                        }
+
+                        AttributedString::new()
+                            .font(font)
+                            .color(if is_thick && is_dark {
+                                if is_active {
+                                    Theme::shared().window_title_active_foreground_dark()
+                                } else {
+                                    Theme::shared().window_title_inactive_foreground_dark()
+                                }
+                            } else {
+                                if is_active {
+                                    Theme::shared().window_title_active_foreground()
+                                } else {
+                                    Theme::shared().window_title_inactive_foreground()
+                                }
+                            })
+                            .center()
+                            .text(text)
+                            .draw_text(&mut bitmap, rect, 1);
+                    }
+                })
+                .unwrap();
         }
     }
 
@@ -1266,7 +1334,9 @@ impl RawWindow<'_> {
         let background = match state {
             ViewActionState::Pressed => Theme::shared().window_title_close_active_background(),
             _ => {
-                if is_active {
+                if self.style.contains(WindowStyle::THICK_FRAME) {
+                    self.bg_color
+                } else if is_active {
                     Theme::shared().window_title_active_background()
                 } else {
                     Theme::shared().window_title_inactive_background()
@@ -1276,10 +1346,20 @@ impl RawWindow<'_> {
         let foreground = match state {
             ViewActionState::Pressed => Theme::shared().window_title_close_active_foreground(),
             _ => {
-                if is_active {
-                    Theme::shared().window_title_close_foreground()
+                if self.style.contains(WindowStyle::THICK_FRAME)
+                    && self.style.contains(WindowStyle::DARK)
+                {
+                    if is_active {
+                        Theme::shared().window_title_close_foreground_dark()
+                    } else {
+                        Theme::shared().window_title_inactive_foreground_dark()
+                    }
                 } else {
-                    Theme::shared().window_title_inactive_foreground()
+                    if is_active {
+                        Theme::shared().window_title_close_foreground()
+                    } else {
+                        Theme::shared().window_title_inactive_foreground()
+                    }
                 }
             }
         }
@@ -1362,6 +1442,109 @@ impl RawWindow<'_> {
             }
             None
         })
+    }
+
+    #[inline]
+    fn shadow_bitmap<'a>(&'a self) -> Option<&'a mut OperationalBitmap> {
+        self.shadow_bitmap
+            .as_ref()
+            .map(|v| unsafe { &mut *v.get() })
+    }
+
+    fn update_shadow(&self) {
+        let bitmap = match self.bitmap() {
+            Some(v) => v,
+            None => return,
+        };
+        let shadow = match self.shadow_bitmap() {
+            Some(v) => v,
+            None => return,
+        };
+        let bounds = shadow.bounds();
+
+        shadow.reset();
+
+        let content_rect = Rect::from(self.frame.size()).insets_by(self.shadow_insets);
+        let origin = Point::new(
+            WINDOW_BORDER_SHADOW_PADDING - SHADOW_RADIUS / 2 + SHADOW_OFFSET,
+            WINDOW_BORDER_SHADOW_PADDING - SHADOW_RADIUS / 2 + SHADOW_OFFSET,
+        );
+        shadow.blt_from(&bitmap, origin, content_rect, |a, _| {
+            a.into_argb().opacity()
+        });
+
+        for y in (SHADOW_RADIUS..bounds.height()).rev() {
+            for x in 0..bounds.width() {
+                let mut acc = 0;
+                for r in 0..SHADOW_RADIUS {
+                    unsafe {
+                        acc += shadow.get_pixel_unchecked(Point::new(x, y - r)) as usize;
+                    }
+                }
+                unsafe {
+                    shadow.set_pixel_unchecked(
+                        Point::new(x, y),
+                        (acc / SHADOW_RADIUS as usize) as u8,
+                    );
+                }
+            }
+        }
+        for y in (0..SHADOW_RADIUS).rev() {
+            for x in 0..bounds.width() {
+                let mut acc = 0;
+                for r in 0..y {
+                    unsafe {
+                        acc += shadow.get_pixel_unchecked(Point::new(x, y - r)) as usize;
+                    }
+                }
+                unsafe {
+                    shadow.set_pixel_unchecked(
+                        Point::new(x, y),
+                        (acc / SHADOW_RADIUS as usize) as u8,
+                    );
+                }
+            }
+        }
+
+        for y in 0..bounds.height() {
+            for x in (SHADOW_RADIUS..bounds.width()).rev() {
+                let mut acc = 0;
+                for r in 0..SHADOW_RADIUS {
+                    unsafe {
+                        acc += shadow.get_pixel_unchecked(Point::new(x - r, y)) as usize;
+                    }
+                }
+                unsafe {
+                    shadow.set_pixel_unchecked(
+                        Point::new(x, y),
+                        (acc / SHADOW_RADIUS as usize) as u8,
+                    );
+                }
+            }
+            for x in (0..SHADOW_RADIUS).rev() {
+                let mut acc = 0;
+                for r in 0..x {
+                    unsafe {
+                        acc += shadow.get_pixel_unchecked(Point::new(x - r, y)) as usize;
+                    }
+                }
+                unsafe {
+                    shadow.set_pixel_unchecked(
+                        Point::new(x, y),
+                        (acc / SHADOW_RADIUS as usize) as u8,
+                    );
+                }
+            }
+        }
+
+        shadow.blt_from(&bitmap, Point::new(0, 0), shadow.bounds(), |a, b| {
+            let b = (b as usize * SHADOW_LEVEL / 16) as u8;
+            if a.into_argb().opacity() >= b {
+                0
+            } else {
+                b
+            }
+        });
     }
 }
 
@@ -1512,12 +1695,20 @@ impl WindowBuilder {
 
         let light = self.bg_color.into_argb().brightness();
         if light < 128 {
-            self.style.insert(WindowStyle::STYLE_DARK);
+            self.style.insert(WindowStyle::DARK);
         }
 
         let queue = match self.queue_size {
             0 => None,
             _ => Some(ConcurrentFifo::with_capacity(self.queue_size)),
+        };
+
+        let shadow_bitmap = if self.style.contains(WindowStyle::NO_SHADOW) {
+            None
+        } else {
+            let mut shadow = OperationalBitmap::new(frame.size());
+            shadow.reset();
+            Some(UnsafeCell::new(shadow))
         };
 
         let handle = WindowManager::next_window_handle();
@@ -1530,6 +1721,7 @@ impl WindowBuilder {
             level: self.level,
             bg_color: self.bg_color,
             bitmap: None,
+            shadow_bitmap,
             title: self.title,
             close_button_state: Default::default(),
             attributes,

@@ -315,6 +315,11 @@ impl Rect {
     }
 
     #[inline]
+    pub fn mid_x(&self) -> isize {
+        (self.min_x() + self.max_x()) / 2
+    }
+
+    #[inline]
     pub fn min_y(&self) -> isize {
         isize::min(self.y(), self.y() + self.height())
     }
@@ -322,6 +327,11 @@ impl Rect {
     #[inline]
     pub fn max_y(&self) -> isize {
         isize::max(self.y(), self.y() + self.height())
+    }
+
+    #[inline]
+    pub fn mid_y(&self) -> isize {
+        (self.min_y() + self.max_y()) / 2
     }
 
     #[inline]

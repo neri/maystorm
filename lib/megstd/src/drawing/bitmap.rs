@@ -2400,6 +2400,64 @@ impl OperationalBitmap {
             }
         }
     }
+
+    pub fn blt_from<T, F>(&mut self, src: &T, origin: Point, rect: Rect, mut f: F)
+    where
+        T: GetPixel,
+        F: FnMut(<T as Drawable>::ColorType, u8) -> u8,
+    {
+        let mut dx = origin.x();
+        let mut dy = origin.y();
+        let mut sx = rect.x();
+        let mut sy = rect.y();
+        let mut width = rect.width();
+        let mut height = rect.height();
+
+        if dx < 0 {
+            sx -= dx;
+            width += dx;
+            dx = 0;
+        }
+        if dy < 0 {
+            sy -= dy;
+            height += dy;
+            dy = 0;
+        }
+        let sw = src.width() as isize;
+        let sh = src.height() as isize;
+        if width > sx + sw {
+            width = sw - sx;
+        }
+        if height > sy + sh {
+            height = sh - sy;
+        }
+        let r = dx + width;
+        let b = dy + height;
+        let dw = self.width() as isize;
+        let dh = self.height() as isize;
+        if r >= dw {
+            width = dw - dx;
+        }
+        if b >= dh {
+            height = dh - dy;
+        }
+        if width <= 0 || height <= 0 {
+            return;
+        }
+
+        for y in 0..height {
+            for x in 0..width {
+                let dp = Point::new(dx + x, dy + y);
+                let sp = Point::new(sx + x, sy + y);
+                unsafe {
+                    self.set_pixel_unchecked(
+                        dp,
+                        f(src.get_pixel_unchecked(sp), self.get_pixel_unchecked(dp)),
+                    );
+                }
+            }
+        }
+    }
 }
 
 pub struct ImageLoader {

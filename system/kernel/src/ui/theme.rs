@@ -61,6 +61,11 @@ impl Theme {
     }
 
     #[inline]
+    pub const fn window_title_close_foreground_dark(&self) -> SomeColor {
+        SomeColor::WHITE
+    }
+
+    #[inline]
     pub const fn window_title_close_active_foreground(&self) -> SomeColor {
         SomeColor::WHITE
     }
@@ -93,5 +98,50 @@ impl Theme {
     #[inline]
     pub const fn window_title_inactive_foreground(&self) -> SomeColor {
         SomeColor::LIGHT_GRAY
+    }
+
+    #[inline]
+    pub const fn window_title_active_foreground_dark(&self) -> SomeColor {
+        SomeColor::WHITE
+    }
+
+    #[inline]
+    pub const fn window_title_active_shadow_dark(&self) -> SomeColor {
+        SomeColor::DARK_GRAY
+    }
+
+    #[inline]
+    pub const fn window_title_inactive_foreground_dark(&self) -> SomeColor {
+        SomeColor::LIGHT_GRAY
+    }
+
+    #[inline]
+    pub const fn button_default_background(&self) -> SomeColor {
+        SomeColor::LIGHT_BLUE
+    }
+
+    #[inline]
+    pub const fn button_default_foreground(&self) -> SomeColor {
+        SomeColor::WHITE
+    }
+
+    #[inline]
+    pub const fn button_default_border(&self) -> SomeColor {
+        SomeColor::BLUE
+    }
+
+    #[inline]
+    pub const fn button_destructive_background(&self) -> SomeColor {
+        SomeColor::LIGHT_RED
+    }
+
+    #[inline]
+    pub const fn button_destructive_foreground(&self) -> SomeColor {
+        SomeColor::WHITE
+    }
+
+    #[inline]
+    pub const fn button_destructive_border(&self) -> SomeColor {
+        SomeColor::RED
     }
 }

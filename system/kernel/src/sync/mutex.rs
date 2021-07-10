@@ -21,7 +21,7 @@ impl<T> Mutex<T> {
     #[inline]
     pub const fn new(data: T) -> Self {
         Self {
-            inner: BinarySemaphore::new(false),
+            inner: BinarySemaphore::new(),
             data: UnsafeCell::new(data),
         }
     }

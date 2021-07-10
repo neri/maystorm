@@ -80,6 +80,11 @@ _asm_int_06: ; #UD Invalid Opcode
     push BYTE 0x06
     jmp short _exception
 
+_asm_int_07: ; #NM Device Not Available
+    push BYTE 0
+    push BYTE 0x07
+    jmp short _exception
+
 _asm_int_08: ; #DF Double Fault
     push BYTE 0x08
     jmp short _exception
@@ -365,7 +370,7 @@ _exception_table:
     dd 0 ; int_04
     dd 0 ; int_05
     dd _asm_int_06 - _base
-    dd 0 ; int_07
+    dd _asm_int_07 - _base
     dd _asm_int_08 - _base
     dd 0 ; int_09
     dd 0 ; int_0A

@@ -38,6 +38,7 @@ impl UserEnv {
         // Scheduler::spawn_async(Task::new(notification_main()));
         Scheduler::spawn_async(Task::new(activity_monitor_main()));
         Scheduler::spawn_async(Task::new(shell_launcher(f)));
+        // Scheduler::spawn_async(Task::new(test_window_main()));
         Scheduler::perform_tasks();
     }
 }
@@ -59,7 +60,7 @@ async fn status_bar_main() {
 
     let screen_bounds = WindowManager::main_screen_bounds();
     let window = WindowBuilder::new("Status Bar")
-        .style(WindowStyle::NAKED | WindowStyle::FLOATING)
+        .style(WindowStyle::NAKED | WindowStyle::FLOATING | WindowStyle::NO_SHADOW)
         .frame(Rect::new(0, 0, screen_bounds.width(), STATUS_BAR_HEIGHT))
         .bg_color(bg_color)
         .build();
@@ -191,13 +192,13 @@ async fn activity_monitor_main() {
     let graph_main_color1 = SomeColor::LIGHT_RED;
     let graph_main_color2 = SomeColor::YELLOW;
     let graph_main_color3 = SomeColor::LIGHT_GREEN;
-    let margin = EdgeInsets::new(4, 4, 4, 4);
+    let margin = EdgeInsets::new(0, 0, 0, 0);
 
     // let screen_bounds = WindowManager::user_screen_bounds();
     let width = 260;
     let height = 200;
     let window = WindowBuilder::new("Activity Monitor")
-        .style(WindowStyle::TITLE | WindowStyle::BORDER)
+        .style(WindowStyle::TITLE | WindowStyle::BORDER | WindowStyle::THICK_FRAME)
         .frame(Rect::new(-width - 16, -height - 16, width, height))
         .bg_color(bg_color)
         .build();
@@ -429,6 +430,109 @@ async fn notification_main() {
                 .center()
                 .text("USB Device\nis connected.");
             ats.draw_text(bitmap, rect2, 0);
+        })
+        .unwrap();
+
+    // window.show();
+    window.make_active();
+
+    while let Some(message) = window.get_message().await {
+        match message {
+            _ => window.handle_default_message(message),
+        }
+    }
+}
+
+#[allow(dead_code)]
+async fn test_window_main() {
+    let width = 320;
+    let height = 200;
+    let window = WindowBuilder::new("Window Test")
+        .style_add(WindowStyle::THICK_FRAME)
+        .size(Size::new(width, height))
+        .bg_color(SomeColor::from_argb(0xE0EEEEEE))
+        .build();
+
+    window
+        .draw(|bitmap| {
+            // bitmap.fill_rect(bitmap.bounds(), SomeColor::WHITE);
+            // bitmap.draw_rect(bitmap.bounds(), SomeColor::LIGHT_GRAY);
+
+            let font = FontManager::title_font();
+            let button_width = 120;
+            let button_height = 28;
+            let button_radius = 8;
+            let padding = 8;
+            let padding_bottom = button_height;
+            let button_center_top = Point::new(
+                bitmap.bounds().mid_x(),
+                bitmap.bounds().max_y() - padding_bottom - padding,
+            );
+            {
+                let rect = bitmap.bounds().insets_by(EdgeInsets::new(
+                    padding,
+                    padding,
+                    padding_bottom + padding,
+                    padding,
+                ));
+                AttributedString::new()
+                    .font(font)
+                    .middle_center()
+                    .color(SomeColor::BLACK)
+                    .text(
+                        "Lorem ipsum dolor sit amet, consectetur adipiscing elit, \
+sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
+                    )
+                    .draw_text(bitmap, rect, 0);
+            }
+            {
+                let rect = Rect::new(
+                    button_center_top.x() - button_width - padding / 2,
+                    button_center_top.y(),
+                    button_width,
+                    button_height,
+                );
+                bitmap.fill_round_rect(
+                    rect,
+                    button_radius,
+                    Theme::shared().button_default_background(),
+                );
+                bitmap.draw_round_rect(
+                    rect,
+                    button_radius,
+                    Theme::shared().button_default_border(),
+                );
+                AttributedString::new()
+                    .font(font)
+                    .middle_center()
+                    .color(Theme::shared().button_default_foreground())
+                    .text("Ok")
+                    .draw_text(bitmap, rect, 1);
+            }
+            {
+                let rect = Rect::new(
+                    button_center_top.x() + padding / 2,
+                    button_center_top.y(),
+                    button_width,
+                    button_height,
+                );
+                bitmap.fill_round_rect(
+                    rect,
+                    button_radius,
+                    Theme::shared().button_destructive_background(),
+                );
+                bitmap.draw_round_rect(
+                    rect,
+                    button_radius,
+                    Theme::shared().button_destructive_border(),
+                );
+                AttributedString::new()
+                    .font(font)
+                    .middle_center()
+                    .color(Theme::shared().button_destructive_foreground())
+                    .text("Cancel")
+                    .draw_text(bitmap, rect, 1);
+            }
         })
         .unwrap();
 

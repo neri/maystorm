@@ -208,6 +208,11 @@ impl ArleRuntime {
 
                 let window = WindowBuilder::new(title)
                     .style_add(WindowStyle::NAKED)
+                    .style_add(if (window_option & megosabi::window::THIN_BORDER) != 0 {
+                        WindowStyle::empty()
+                    } else {
+                        WindowStyle::THICK_FRAME
+                    })
                     .size(size)
                     .bg_color(bg_color)
                     .bitmap_strategy(bitmap_strategy)

@@ -410,6 +410,8 @@ impl Cpu {
         asm!("mov {0}, rsp", out(reg) rsp);
         cpu.gdt.tss.stack_pointer[0] = rsp;
 
+        let rflags = Rflags::IF;
+
         asm!("
             mov ds, {0:e}
             mov es, {0:e}
@@ -426,7 +428,7 @@ impl Cpu {
             in (reg) Selector::LEGACY_CODE.0 as usize,
             in (reg) ctx.stack_pointer as usize,
             in (reg) ctx.start as usize,
-            in (reg) Rflags::IF.bits(),
+            in (reg) rflags.bits(),
             options(noreturn));
     }
 
@@ -453,20 +455,20 @@ impl Cpu {
         result
     }
 
-    #[allow(dead_code)]
-    pub unsafe fn is_interrupt_disabled() -> bool {
+    pub fn is_interrupt_disabled() -> bool {
         !Self::is_interrupt_enabled()
     }
 
-    #[allow(dead_code)]
-    pub unsafe fn is_interrupt_enabled() -> bool {
-        let mut rax: usize;
-        asm!("
+    pub fn is_interrupt_enabled() -> bool {
+        unsafe {
+            let mut rax: usize;
+            asm!("
             pushfq
             cli
             pop {0}
             ", lateout(reg) rax);
-        Rflags::from_bits_truncate(rax).contains(Rflags::IF)
+            Rflags::from_bits_truncate(rax).contains(Rflags::IF)
+        }
     }
 }
 
