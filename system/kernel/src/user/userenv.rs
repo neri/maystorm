@@ -445,8 +445,8 @@ async fn notification_main() {
 
 #[allow(dead_code)]
 async fn test_window_main() {
-    let width = 320;
-    let height = 200;
+    let width = 480;
+    let height = 160;
     let window = WindowBuilder::new("Window Test")
         .style_add(WindowStyle::THICK_FRAME)
         .size(Size::new(width, height))
@@ -455,8 +455,9 @@ async fn test_window_main() {
 
     window
         .draw(|bitmap| {
-            // bitmap.fill_rect(bitmap.bounds(), SomeColor::WHITE);
-            // bitmap.draw_rect(bitmap.bounds(), SomeColor::LIGHT_GRAY);
+            // let radius = 4;
+            // bitmap.fill_round_rect(bitmap.bounds(), radius, SomeColor::WHITE);
+            // bitmap.draw_round_rect(bitmap.bounds(), radius, SomeColor::LIGHT_GRAY);
 
             let font = FontManager::title_font();
             let button_width = 120;
@@ -497,11 +498,11 @@ sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
                     button_radius,
                     Theme::shared().button_default_background(),
                 );
-                bitmap.draw_round_rect(
-                    rect,
-                    button_radius,
-                    Theme::shared().button_default_border(),
-                );
+                // bitmap.draw_round_rect(
+                //     rect,
+                //     button_radius,
+                //     Theme::shared().button_default_border(),
+                // );
                 AttributedString::new()
                     .font(font)
                     .middle_center()
@@ -521,11 +522,11 @@ sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
                     button_radius,
                     Theme::shared().button_destructive_background(),
                 );
-                bitmap.draw_round_rect(
-                    rect,
-                    button_radius,
-                    Theme::shared().button_destructive_border(),
-                );
+                // bitmap.draw_round_rect(
+                //     rect,
+                //     button_radius,
+                //     Theme::shared().button_destructive_border(),
+                // );
                 AttributedString::new()
                     .font(font)
                     .middle_center()

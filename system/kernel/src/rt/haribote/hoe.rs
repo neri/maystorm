@@ -597,6 +597,7 @@ impl HoeWindow {
     fn new(hoe: &Hoe, title: &str, width: u32, height: u32, buffer: u32) -> Self {
         let handle = WindowBuilder::new(title)
             .style_add(WindowStyle::NAKED)
+            .style_add(WindowStyle::THICK_FRAME)
             .size(Size::new(
                 (width - Self::WINDOW_ADJUST_X * 2) as isize,
                 (height - (Self::WINDOW_ADJUST_TOP + Self::WINDOW_ADJUST_BOTTOM)) as isize,

@@ -162,6 +162,69 @@ pub trait BasicDrawing: SetPixel {
         }
     }
 
+    fn fill_round_rect_outside(&mut self, rect: Rect, radius: isize, color: Self::ColorType) {
+        let width = rect.size.width;
+        let height = rect.size.height;
+        let dx = rect.origin.x;
+        let dy = rect.origin.y;
+        let left = rect.min_x();
+        let right = rect.max_x();
+
+        let mut radius = radius;
+        if radius * 2 > width {
+            radius = width / 2;
+        }
+        if radius * 2 > height {
+            radius = height / 2;
+        }
+
+        let mut cx = radius;
+        let mut cy = 0;
+        let mut f = -2 * radius + 3;
+        let qh = height - 1;
+
+        while cx >= cy {
+            {
+                let bx = radius - cy;
+                let by = radius - cx;
+                let dw = width - bx * 2 - 1;
+                let lx = dx + bx;
+                if lx > left {
+                    self.draw_hline(Point::new(left, dy + by), lx - left, color);
+                    self.draw_hline(Point::new(left, dy + qh - by), lx - left, color);
+                }
+                let rx = dx + bx + dw;
+                if rx < right {
+                    self.draw_hline(Point::new(rx, dy + by), right - rx, color);
+                    self.draw_hline(Point::new(rx, dy + qh - by), right - rx, color);
+                }
+            }
+
+            {
+                let bx = radius - cx;
+                let by = radius - cy;
+                let dw = width - bx * 2 - 1;
+                let lx = dx + bx;
+                if lx > left {
+                    self.draw_hline(Point::new(left, dy + by), lx - left, color);
+                    self.draw_hline(Point::new(left, dy + qh - by), lx - left, color);
+                }
+                let rx = dx + bx + dw;
+                if rx < right {
+                    self.draw_hline(Point::new(rx, dy + by), right - rx, color);
+                    self.draw_hline(Point::new(rx, dy + qh - by), right - rx, color);
+                }
+            }
+
+            if f >= 0 {
+                cx -= 1;
+                f -= 4 * cx;
+            }
+            cy += 1;
+            f += 4 * cy + 2;
+        }
+    }
+
     fn draw_line(&mut self, c1: Point, c2: Point, color: Self::ColorType) {
         if c1.x() == c2.x() {
             if c1.y() < c2.y() {
@@ -251,45 +314,11 @@ pub trait BltConverter<T: ColorTrait>: MutableRasterImage {
         U: RasterImage<ColorType = T>,
         F: FnMut(T) -> Self::ColorType,
     {
-        let mut dx = origin.x;
-        let mut dy = origin.y;
-        let mut sx = rect.origin.x;
-        let mut sy = rect.origin.y;
-        let mut width = rect.width();
-        let mut height = rect.height();
-
-        if dx < 0 {
-            sx -= dx;
-            width += dx;
-            dx = 0;
-        }
-        if dy < 0 {
-            sy -= dy;
-            height += dy;
-            dy = 0;
-        }
-        let sw = src.width() as isize;
-        let sh = src.height() as isize;
-        if width > sx + sw {
-            width = sw - sx;
-        }
-        if height > sy + sh {
-            height = sh - sy;
-        }
-        let r = dx + width;
-        let b = dy + height;
-        let dw = self.width() as isize;
-        let dh = self.height() as isize;
-        if r >= dw {
-            width = dw - dx;
-        }
-        if b >= dh {
-            height = dh - dy;
-        }
+        let (dx, dy, sx, sy, width, height) =
+            adjust_blt_coords(self.size(), src.size(), origin, rect);
         if width <= 0 || height <= 0 {
             return;
         }
-
         let width = width as usize;
         let height = height as usize;
 
@@ -594,45 +623,12 @@ impl<'a> Bitmap8<'a> {
         color_key: Option<<Self as Drawable>::ColorType>,
     ) {
         let src = src.as_ref();
-        let mut dx = origin.x;
-        let mut dy = origin.y;
-        let mut sx = rect.origin.x;
-        let mut sy = rect.origin.y;
-        let mut width = rect.width();
-        let mut height = rect.height();
 
-        if dx < 0 {
-            sx -= dx;
-            width += dx;
-            dx = 0;
-        }
-        if dy < 0 {
-            sy -= dy;
-            height += dy;
-            dy = 0;
-        }
-        let sw = src.width() as isize;
-        let sh = src.height() as isize;
-        if width > sx + sw {
-            width = sw - sx;
-        }
-        if height > sy + sh {
-            height = sh - sy;
-        }
-        let r = dx + width;
-        let b = dy + height;
-        let dw = self.width() as isize;
-        let dh = self.height() as isize;
-        if r >= dw {
-            width = dw - dx;
-        }
-        if b >= dh {
-            height = dh - dy;
-        }
+        let (dx, dy, sx, sy, width, height) =
+            adjust_blt_coords(self.size(), src.size(), origin, rect);
         if width <= 0 || height <= 0 {
             return;
         }
-
         let width = width as usize;
         let height = height as usize;
 
@@ -1342,45 +1338,12 @@ impl<'a> Bitmap32<'a> {
         mode: BltMode,
     ) {
         let src = src.as_ref();
-        let mut dx = origin.x;
-        let mut dy = origin.y;
-        let mut sx = rect.origin.x;
-        let mut sy = rect.origin.y;
-        let mut width = rect.width();
-        let mut height = rect.height();
 
-        if dx < 0 {
-            sx -= dx;
-            width += dx;
-            dx = 0;
-        }
-        if dy < 0 {
-            sy -= dy;
-            height += dy;
-            dy = 0;
-        }
-        let sw = src.width() as isize;
-        let sh = src.height() as isize;
-        if width > sx + sw {
-            width = sw - sx;
-        }
-        if height > sy + sh {
-            height = sh - sy;
-        }
-        let r = dx + width;
-        let b = dy + height;
-        let dw = self.width() as isize;
-        let dh = self.height() as isize;
-        if r >= dw {
-            width = dw - dx;
-        }
-        if b >= dh {
-            height = dh - dy;
-        }
+        let (dx, dy, sx, sy, width, height) =
+            adjust_blt_coords(self.size(), src.size(), origin, rect);
         if width <= 0 || height <= 0 {
             return;
         }
-
         let width = width as usize;
         let height = height as usize;
 
@@ -1433,52 +1396,19 @@ impl<'a> Bitmap32<'a> {
         rect: Rect,
     ) {
         let src = src.as_ref();
-        let mut dx = origin.x;
-        let mut dy = origin.y;
-        let mut sx = rect.origin.x;
-        let mut sy = rect.origin.y;
-        let mut width = rect.width();
-        let mut height = rect.height();
-
-        if dx < 0 {
-            sx -= dx;
-            width += dx;
-            dx = 0;
-        }
-        if dy < 0 {
-            sy -= dy;
-            height += dy;
-            dy = 0;
-        }
-        let sw = src.width() as isize;
-        let sh = src.height() as isize;
-        if width > sx + sw {
-            width = sw - sx;
-        }
-        if height > sy + sh {
-            height = sh - sy;
-        }
-        let r = dx + width;
-        let b = dy + height;
-        let dw = self.height() as isize;
-        let dh = self.width() as isize;
-        if r >= dw {
-            width = dw - dx;
-        }
-        if b >= dh {
-            height = dh - dy;
-        }
+        let self_size = Size::new(self.height() as isize, self.width() as isize);
+        let (mut dx, mut dy, sx, sy, width, height) =
+            adjust_blt_coords(self_size, src.size(), origin, rect);
         if width <= 0 || height <= 0 {
             return;
         }
-
         let width = width as usize;
         let height = height as usize;
 
         let ds = self.stride();
         let ss = src.stride();
         let temp = dx;
-        dx = dh as isize - dy;
+        dx = self_size.height() - dy;
         dy = temp;
         let mut p = dx as usize + dy as usize * ds - height as usize;
         let q0 = sx as usize + (sy as usize + height - 1) * ss;
@@ -2348,41 +2278,8 @@ impl OperationalBitmap {
         T: GetPixel + SetPixel,
         F: FnMut(u8, <T as Drawable>::ColorType) -> <T as Drawable>::ColorType,
     {
-        let mut dx = origin.x();
-        let mut dy = origin.y();
-        let mut sx = rect.x();
-        let mut sy = rect.y();
-        let mut width = rect.width();
-        let mut height = rect.height();
-
-        if dx < 0 {
-            sx -= dx;
-            width += dx;
-            dx = 0;
-        }
-        if dy < 0 {
-            sy -= dy;
-            height += dy;
-            dy = 0;
-        }
-        let sw = self.width() as isize;
-        let sh = self.height() as isize;
-        if width > sx + sw {
-            width = sw - sx;
-        }
-        if height > sy + sh {
-            height = sh - sy;
-        }
-        let r = dx + width;
-        let b = dy + height;
-        let dw = dest.width() as isize;
-        let dh = dest.height() as isize;
-        if r >= dw {
-            width = dw - dx;
-        }
-        if b >= dh {
-            height = dh - dy;
-        }
+        let (dx, dy, sx, sy, width, height) =
+            adjust_blt_coords(dest.size(), self.size(), origin, rect);
         if width <= 0 || height <= 0 {
             return;
         }
@@ -2406,41 +2303,8 @@ impl OperationalBitmap {
         T: GetPixel,
         F: FnMut(<T as Drawable>::ColorType, u8) -> u8,
     {
-        let mut dx = origin.x();
-        let mut dy = origin.y();
-        let mut sx = rect.x();
-        let mut sy = rect.y();
-        let mut width = rect.width();
-        let mut height = rect.height();
-
-        if dx < 0 {
-            sx -= dx;
-            width += dx;
-            dx = 0;
-        }
-        if dy < 0 {
-            sy -= dy;
-            height += dy;
-            dy = 0;
-        }
-        let sw = src.width() as isize;
-        let sh = src.height() as isize;
-        if width > sx + sw {
-            width = sw - sx;
-        }
-        if height > sy + sh {
-            height = sh - sy;
-        }
-        let r = dx + width;
-        let b = dy + height;
-        let dw = self.width() as isize;
-        let dh = self.height() as isize;
-        if r >= dw {
-            width = dw - dx;
-        }
-        if b >= dh {
-            height = dh - dy;
-        }
+        let (dx, dy, sx, sy, width, height) =
+            adjust_blt_coords(self.size(), src.size(), origin, rect);
         if width <= 0 || height <= 0 {
             return;
         }
@@ -2549,4 +2413,60 @@ impl ImageLoader {
         }
         Some(BoxedBitmap32::from_vec(vec, Size::new(width as isize, height as isize)).into())
     }
+}
+
+/// Adjust the coordinates for blt.
+///
+/// Returns the adjusted destination x, y, source x, y, width and height.
+fn adjust_blt_coords(
+    dest_size: Size,
+    src_size: Size,
+    origin: Point,
+    rect: Rect,
+) -> (isize, isize, isize, isize, isize, isize) {
+    let mut dx = origin.x;
+    let mut dy = origin.y;
+    let mut sx = rect.origin.x;
+    let mut sy = rect.origin.y;
+    let mut width = rect.width();
+    let mut height = rect.height();
+    let dw = dest_size.width();
+    let dh = dest_size.height();
+    let sw = src_size.width();
+    let sh = src_size.height();
+
+    if sx < 0 {
+        dx -= sx;
+        width += sx;
+        sx = 0;
+    }
+    if sy < 0 {
+        dy -= sy;
+        height += sy;
+        sy = 0;
+    }
+    if dx < 0 {
+        sx -= dx;
+        width += dx;
+        dx = 0;
+    }
+    if dy < 0 {
+        sy -= dy;
+        height += dy;
+        dy = 0;
+    }
+    if sx + width > sw {
+        width = sw - sx;
+    }
+    if sy + height > sh {
+        height = sh - sy;
+    }
+    if dx + width >= dw {
+        width = dw - dx;
+    }
+    if dy + height >= dh {
+        height = dh - dy;
+    }
+
+    (dx, dy, sx, sy, width, height)
 }

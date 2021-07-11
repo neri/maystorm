@@ -29,16 +29,13 @@ use megstd::drawing::*;
 use megstd::io::hid::*;
 
 const WINDOW_BORDER_PADDING: isize = 1;
-const WINDOW_THICK_BORDER: isize = 8;
+const WINDOW_THICK_BORDER: isize = 4;
+const WINDOW_RADIUS: isize = 8;
 const WINDOW_BORDER_SHADOW_PADDING: isize = 16;
 const WINDOW_TITLE_HEIGHT: isize = 24;
-
 const WINDOW_TITLE_HEIGHT_THICK: isize = WINDOW_TITLE_HEIGHT;
-// WINDOW_TITLE_HEIGHT + WINDOW_THICK_BORDER - WINDOW_BORDER_PADDING * 2;
-
 const WINDOW_SYSTEM_EVENT_QUEUE_SIZE: usize = 100;
 const WINDOW_TITLE_LENGTH: usize = 32;
-const WINDOW_RADIUS: isize = 8;
 const SHADOW_RADIUS: isize = 16;
 const SHADOW_OFFSET: isize = 2;
 const SHADOW_LEVEL: usize = 8;
@@ -654,7 +651,7 @@ impl WindowManager<'_> {
                 if window.level == WindowLevel::POINTER {
                     break found;
                 }
-                if point.is_within(window.frame.insets_by(window.shadow_insets)) {
+                if point.is_within(window.frame) {
                     found = cursor;
                 }
                 match window.next {
@@ -855,7 +852,6 @@ struct RawWindow<'a> {
 
     // Placement and Size
     frame: Rect,
-    shadow_insets: EdgeInsets,
     content_insets: EdgeInsets,
 
     // Appearances
@@ -903,7 +899,7 @@ impl WindowStyle {
         if self.contains(Self::BORDER) {
             if self.contains(Self::THICK_FRAME) {
                 insets = EdgeInsets::new(
-                    WINDOW_TITLE_HEIGHT_THICK,
+                    WINDOW_BORDER_PADDING + WINDOW_TITLE_HEIGHT_THICK,
                     WINDOW_THICK_BORDER,
                     WINDOW_THICK_BORDER,
                     WINDOW_THICK_BORDER,
@@ -937,7 +933,16 @@ impl RawWindow<'_> {
 
     #[inline]
     fn visible_frame(&self) -> Rect {
-        self.frame.insets_by(self.shadow_insets)
+        self.frame
+    }
+
+    #[inline]
+    fn shadow_frame(&self) -> Rect {
+        if self.style.contains(WindowStyle::NO_SHADOW) {
+            self.frame
+        } else {
+            self.frame + EdgeInsets::padding_each(WINDOW_BORDER_SHADOW_PADDING)
+        }
     }
 
     fn show(&mut self) {
@@ -946,12 +951,12 @@ impl RawWindow<'_> {
         WindowManager::synchronized(|| unsafe {
             WindowManager::add_hierarchy(self.handle);
         });
-        WindowManager::invalidate_screen(self.frame);
+        WindowManager::invalidate_screen(self.shadow_frame());
     }
 
     fn hide(&self) {
         let shared = WindowManager::shared_mut();
-        let frame = self.frame;
+        let frame = self.shadow_frame();
         let new_active = if shared.active.contains(&self.handle) {
             self.prev()
         } else {
@@ -971,13 +976,8 @@ impl RawWindow<'_> {
 
     fn set_frame(&mut self, new_frame: Rect) {
         let old_frame = self.frame;
-        let new_frame = Rect::new(
-            new_frame.x() - self.shadow_insets.left,
-            new_frame.y() - self.shadow_insets.top,
-            new_frame.width() + self.shadow_insets.left + self.shadow_insets.right,
-            new_frame.height() + self.shadow_insets.top + self.shadow_insets.bottom,
-        );
         if old_frame != new_frame {
+            let old_frame = self.shadow_frame();
             self.frame = new_frame;
             if self.attributes.contains(WindowAttributes::VISIBLE) {
                 self.draw_frame();
@@ -986,7 +986,7 @@ impl RawWindow<'_> {
                     Ok(v) => v,
                     Err(_) => return,
                 };
-                let coords2 = match Coordinates::from_rect(new_frame) {
+                let coords2 = match Coordinates::from_rect(self.shadow_frame()) {
                     Ok(v) => v,
                     Err(_) => return,
                 };
@@ -1033,8 +1033,10 @@ impl RawWindow<'_> {
 
         WindowManager::shared().sem_draw.synchronized(|| loop {
             let window = cursor.as_ref();
-            if let Ok(coords2) = Coordinates::from_rect(window.frame) {
-                if frame.is_within_rect(window.frame) {
+            let frame = window.shadow_frame();
+            if let Ok(coords2) = Coordinates::from_rect(frame) {
+                if frame.is_within_rect(frame) {
+                    let adjust_point = window.frame.origin() - coords2.left_top();
                     let blt_origin = Point::new(
                         cmp::max(coords1.left, coords2.left),
                         cmp::max(coords1.top, coords2.top),
@@ -1065,6 +1067,8 @@ impl RawWindow<'_> {
                     }
 
                     if let Some(bitmap) = window.bitmap() {
+                        // let blt_origin = blt_origin + adjust_point;
+                        let blt_rect = blt_rect - adjust_point;
                         match bitmap {
                             Bitmap::Indexed(bitmap) => {
                                 target_bitmap.blt8(
@@ -1112,9 +1116,9 @@ impl RawWindow<'_> {
     fn title_frame(&self) -> Rect {
         if self.style.contains(WindowStyle::TITLE) {
             Rect::new(
-                WINDOW_BORDER_SHADOW_PADDING + WINDOW_BORDER_PADDING,
-                WINDOW_BORDER_SHADOW_PADDING + WINDOW_BORDER_PADDING,
-                self.frame.width() - WINDOW_BORDER_PADDING * 2 - WINDOW_BORDER_SHADOW_PADDING * 2,
+                WINDOW_BORDER_PADDING,
+                WINDOW_BORDER_PADDING,
+                self.frame.width() - WINDOW_BORDER_PADDING * 2,
                 if self.style.contains(WindowStyle::THICK_FRAME) {
                     WINDOW_TITLE_HEIGHT_THICK
                 } else {
@@ -1167,49 +1171,21 @@ impl RawWindow<'_> {
         if self.style.contains(WindowStyle::BORDER) {
             if is_thick {
                 // Thick border
-                let rect = Rect::from(bitmap.size())
-                    .insets_by(EdgeInsets::padding_each(WINDOW_BORDER_SHADOW_PADDING));
-                bitmap.draw_rect(
+                let rect = Rect::from(bitmap.size());
+                bitmap.fill_round_rect_outside(rect, WINDOW_RADIUS, SomeColor::TRANSPARENT);
+                bitmap.draw_round_rect(
                     rect,
+                    WINDOW_RADIUS,
                     if is_dark {
                         Theme::shared().window_default_border_dark()
                     } else {
                         Theme::shared().window_default_border_light()
                     },
                 );
-
-                let bottom = Rect::new(
-                    rect.min_x(),
-                    rect.max_y() - WINDOW_THICK_BORDER,
-                    rect.width(),
-                    WINDOW_THICK_BORDER,
-                );
-                bitmap
-                    .view(bottom, |mut bitmap| {
-                        bitmap.fill_rect(bitmap.bounds(), SomeColor::TRANSPARENT);
-                        let rect = Rect::new(
-                            0,
-                            -WINDOW_THICK_BORDER,
-                            bitmap.bounds().width(),
-                            WINDOW_THICK_BORDER * 2,
-                        );
-                        bitmap.fill_round_rect(rect, WINDOW_RADIUS, self.bg_color);
-                        bitmap.draw_round_rect(
-                            rect,
-                            WINDOW_RADIUS,
-                            if is_dark {
-                                Theme::shared().window_default_border_dark()
-                            } else {
-                                Theme::shared().window_default_border_light()
-                            },
-                        );
-                    })
-                    .unwrap();
             } else {
                 // Thin border
                 if WINDOW_BORDER_PADDING > 0 {
-                    let rect = Rect::from(bitmap.size())
-                        .insets_by(EdgeInsets::padding_each(WINDOW_BORDER_SHADOW_PADDING));
+                    let rect = Rect::from(bitmap.size());
                     bitmap.draw_rect(
                         rect,
                         if is_dark {
@@ -1222,52 +1198,32 @@ impl RawWindow<'_> {
             }
         }
 
-        if self.style.contains(WindowStyle::NO_SHADOW) {
-            // NO SHADOW
-        } else {
-            // New shadow
-            let rect = Rect::from(bitmap.size());
-            for n in 0..WINDOW_BORDER_SHADOW_PADDING {
-                let rect = rect.insets_by(EdgeInsets::padding_each(n));
-                bitmap.draw_rect(rect, SomeColor::TRANSPARENT);
-            }
-        }
-
         if self.style.contains(WindowStyle::TITLE) {
             let shared = WindowManager::shared();
             let padding = 8;
             let left = padding;
             let right = padding;
 
-            let rect = self
-                .title_frame()
-                .insets_by(EdgeInsets::padding_each(-WINDOW_BORDER_PADDING));
+            let rect = self.title_frame();
             bitmap
                 .view(rect, |mut bitmap| {
                     let rect = bitmap.bounds();
-                    bitmap.fill_rect(rect, SomeColor::TRANSPARENT);
-
-                    let round_rect = rect + Size::new(0, WINDOW_RADIUS);
-                    bitmap.fill_round_rect(
-                        round_rect,
-                        WINDOW_RADIUS,
-                        if is_thick {
-                            self.bg_color
-                        } else if is_active {
-                            Theme::shared().window_title_active_background()
-                        } else {
-                            Theme::shared().window_title_inactive_background()
-                        },
-                    );
-                    bitmap.draw_round_rect(
-                        round_rect,
-                        WINDOW_RADIUS,
-                        if is_dark {
-                            Theme::shared().window_default_border_dark()
-                        } else {
-                            Theme::shared().window_default_border_light()
-                        },
-                    );
+                    if is_thick {
+                        let rect =
+                            rect.insets_by(EdgeInsets::new(0, WINDOW_RADIUS, 0, WINDOW_RADIUS));
+                        bitmap.fill_rect(rect, self.bg_color);
+                    } else {
+                        bitmap.fill_rect(
+                            rect,
+                            if is_thick {
+                                self.bg_color
+                            } else if is_active {
+                                Theme::shared().window_title_active_background()
+                            } else {
+                                Theme::shared().window_title_inactive_background()
+                            },
+                        );
+                    }
                     if self.style.contains(WindowStyle::CLOSE_BUTTON) {
                         // rect.size.width -= shared.resources.close_button_width;
                         self.draw_close_button();
@@ -1464,7 +1420,7 @@ impl RawWindow<'_> {
 
         shadow.reset();
 
-        let content_rect = Rect::from(self.frame.size()).insets_by(self.shadow_insets);
+        let content_rect = Rect::from(self.frame.size());
         let origin = Point::new(
             WINDOW_BORDER_SHADOW_PADDING - SHADOW_RADIUS / 2 + SHADOW_OFFSET,
             WINDOW_BORDER_SHADOW_PADDING - SHADOW_RADIUS / 2 + SHADOW_OFFSET,
@@ -1517,7 +1473,7 @@ impl RawWindow<'_> {
                 unsafe {
                     shadow.set_pixel_unchecked(
                         Point::new(x, y),
-                        (acc / SHADOW_RADIUS as usize) as u8,
+                        ((acc / SHADOW_RADIUS as usize) * SHADOW_LEVEL / 16) as u8,
                     );
                 }
             }
@@ -1531,20 +1487,24 @@ impl RawWindow<'_> {
                 unsafe {
                     shadow.set_pixel_unchecked(
                         Point::new(x, y),
-                        (acc / SHADOW_RADIUS as usize) as u8,
+                        ((acc / SHADOW_RADIUS as usize) * SHADOW_LEVEL / 16) as u8,
                     );
                 }
             }
         }
 
-        shadow.blt_from(&bitmap, Point::new(0, 0), shadow.bounds(), |a, b| {
-            let b = (b as usize * SHADOW_LEVEL / 16) as u8;
-            if a.into_argb().opacity() >= b {
-                0
-            } else {
-                b
-            }
-        });
+        shadow.blt_from(
+            &bitmap,
+            Point::new(WINDOW_BORDER_SHADOW_PADDING, WINDOW_BORDER_SHADOW_PADDING),
+            bitmap.bounds(),
+            |a, b| {
+                if a.into_argb().opacity() >= b {
+                    0
+                } else {
+                    b
+                }
+            },
+        );
     }
 }
 
@@ -1656,13 +1616,8 @@ impl WindowBuilder {
     fn build_inner<'a>(mut self) -> Box<RawWindow<'a>> {
         let screen_bounds = WindowManager::user_screen_bounds();
 
-        let shadow_insets = if self.style.contains(WindowStyle::NO_SHADOW) {
-            EdgeInsets::default()
-        } else {
-            EdgeInsets::padding_each(WINDOW_BORDER_SHADOW_PADDING)
-        };
         let window_insets = self.style.as_content_insets();
-        let content_insets = window_insets + shadow_insets;
+        let content_insets = window_insets;
         let mut frame = self.frame;
         if self.style.contains(WindowStyle::NAKED) {
             frame.size += window_insets;
@@ -1680,8 +1635,6 @@ impl WindowBuilder {
         } else if frame.y() < 0 {
             frame.origin.y += screen_bounds.y() + screen_bounds.height();
         }
-        frame.origin -= Point::new(shadow_insets.left, shadow_insets.top);
-        frame.size += shadow_insets;
 
         if self.style.contains(WindowStyle::FLOATING) {
             self.level = WindowLevel::FLOATING;
@@ -1706,7 +1659,13 @@ impl WindowBuilder {
         let shadow_bitmap = if self.style.contains(WindowStyle::NO_SHADOW) {
             None
         } else {
-            let mut shadow = OperationalBitmap::new(frame.size());
+            let mut shadow = OperationalBitmap::new(
+                frame.size()
+                    + Size::new(
+                        WINDOW_BORDER_SHADOW_PADDING * 2,
+                        WINDOW_BORDER_SHADOW_PADDING * 2,
+                    ),
+            );
             shadow.reset();
             Some(UnsafeCell::new(shadow))
         };
@@ -1715,7 +1674,6 @@ impl WindowBuilder {
         let mut window = Box::new(RawWindow {
             handle,
             frame,
-            shadow_insets,
             content_insets,
             style: self.style,
             level: self.level,
@@ -2016,11 +1974,10 @@ impl WindowHandle {
 
     /// Draws the contents of the window on the screen as a bitmap.
     pub fn draw_into(&self, target_bitmap: &mut Bitmap32, rect: Rect) {
-        // self.as_ref().draw_into(target_bitmap, rect);
         let window = self.as_ref();
         let mut frame = rect;
-        frame.origin.x += window.frame.x() + window.shadow_insets.left;
-        frame.origin.y += window.frame.y() + window.shadow_insets.top;
+        frame.origin.x += window.frame.x();
+        frame.origin.y += window.frame.y();
         window.draw_into(target_bitmap, frame);
     }
 
