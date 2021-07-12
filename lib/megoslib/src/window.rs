@@ -193,8 +193,8 @@ impl WindowBuilder {
     }
 
     #[inline]
-    pub const fn thin_border(mut self) -> Self {
-        self.flag |= megosabi::window::THIN_BORDER;
+    pub const fn thin_frame(mut self) -> Self {
+        self.flag |= megosabi::window::THIN_FRAME;
         self
     }
 }

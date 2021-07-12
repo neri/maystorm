@@ -16,7 +16,7 @@ TARGET_BOOT_EFI	= boot/target/$(EFI_ARCH)/release/boot-efi.efi
 TARGET_ISO	= var/megos.iso
 TARGETS		= kernel boot
 OVMF		= var/ovmfx64.fd
-INITRD_FILES	= $(MISC)initrd/* apps/target/wasm32-unknown-unknown/release/*.wasm
+INITRD_FILES	= LICENSE $(MISC)initrd/* apps/target/wasm32-unknown-unknown/release/*.wasm
 
 all: $(TARGETS)
 

@@ -127,56 +127,56 @@ impl TrueColor {
     }
 
     #[inline]
-    pub const fn gray(white: u8, alpha: u8) -> Self {
+    pub const fn from_gray(white: u8, alpha: u8) -> Self {
         Self(white as u32 * 0x00_01_01_01 + alpha as u32 * 0x01_00_00_00)
     }
 
     #[inline]
-    pub fn components(self) -> ColorComponents {
-        self.into()
+    pub const fn components(&self) -> ColorComponents {
+        ColorComponents::from_argb(*self)
     }
 
     #[inline]
-    pub const fn rgb(self) -> u32 {
+    pub const fn rgb(&self) -> u32 {
         self.0 & 0x00FFFFFF
     }
 
     #[inline]
-    pub const fn argb(self) -> u32 {
+    pub const fn argb(&self) -> u32 {
         self.0
     }
 
     #[inline]
-    pub fn brightness(self) -> u8 {
+    pub const fn brightness(&self) -> u8 {
         let cc = self.components();
         ((cc.r as usize * 19589 + cc.g as usize * 38444 + cc.b as usize * 7502 + 32767) >> 16) as u8
     }
 
     #[inline]
-    pub const fn opacity(self) -> u8 {
+    pub const fn opacity(&self) -> u8 {
         (self.0 >> 24) as u8
     }
 
     #[inline]
-    pub fn set_opacity(mut self, alpha: u8) -> Self {
+    #[must_use]
+    pub const fn set_opacity(&self, alpha: u8) -> Self {
         let mut components = self.components();
         components.a = alpha;
-        self.0 = components.into();
-        self
+        components.into_argb()
     }
 
     #[inline]
-    pub const fn is_opaque(self) -> bool {
+    pub const fn is_opaque(&self) -> bool {
         self.opacity() == 0xFF
     }
 
     #[inline]
-    pub const fn is_transparent(self) -> bool {
+    pub const fn is_transparent(&self) -> bool {
         self.opacity() == 0
     }
 
     #[inline]
-    pub fn blend_each<F>(self, rhs: Self, f: F) -> Self
+    pub fn blend_each<F>(&self, rhs: Self, f: F) -> Self
     where
         F: Fn(u8, u8) -> u8,
     {
@@ -184,7 +184,7 @@ impl TrueColor {
     }
 
     #[inline]
-    pub fn blend_color<F1, F2>(self, rhs: Self, f_rgb: F1, f_a: F2) -> Self
+    pub fn blend_color<F1, F2>(&self, rhs: Self, f_rgb: F1, f_a: F2) -> Self
     where
         F1: Fn(u8, u8) -> u8,
         F2: Fn(u8, u8) -> u8,
@@ -193,7 +193,7 @@ impl TrueColor {
     }
 
     #[inline]
-    pub fn blend(self, rhs: Self) -> Self {
+    pub fn blend(&self, rhs: Self) -> Self {
         let c = rhs.components();
         let alpha_l = c.a as usize;
         let alpha_r = 255 - alpha_l;
@@ -204,7 +204,7 @@ impl TrueColor {
     }
 
     #[inline]
-    pub fn blend_draw(self, rhs: Self) -> Self {
+    pub fn blend_draw(&self, rhs: Self) -> Self {
         let r = rhs.components();
         let alpha_r = r.a as usize;
         let alpha_l = 255 - alpha_r;
@@ -241,6 +241,16 @@ pub struct ColorComponents {
 }
 
 impl ColorComponents {
+    #[inline]
+    pub const fn from_argb(val: TrueColor) -> Self {
+        unsafe { transmute(val) }
+    }
+
+    #[inline]
+    pub const fn into_argb(self) -> TrueColor {
+        unsafe { transmute(self) }
+    }
+
     #[inline]
     pub fn blend_each<F>(self, rhs: Self, f: F) -> Self
     where

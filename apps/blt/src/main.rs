@@ -10,7 +10,7 @@ fn _start() {
     let window = WindowBuilder::new()
         .size(Size::new(256, 224))
         .bg_color(WindowColor::BLACK)
-        .thin_border()
+        .thin_frame()
         .build("Blt Test");
     let bitmap = ConstBitmap8::from_bytes(&BITMAP_DATA, Size::new(BITMAP_WIDTH, BITMAP_HEIGHT));
     loop {

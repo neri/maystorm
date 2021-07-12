@@ -70,7 +70,7 @@ impl Point {
     }
 
     #[inline]
-    pub fn is_within(self, rect: Rect) -> bool {
+    pub const fn is_within(self, rect: Rect) -> bool {
         if let Ok(coords) = Coordinates::from_rect(rect) {
             coords.left <= self.x
                 && coords.right > self.x
@@ -270,6 +270,19 @@ impl Rect {
     }
 
     #[inline]
+    pub const fn from_diagonal(c1: Point, c2: Point) -> Self {
+        Self::from_coordinates(Coordinates::from_diagonal(c1, c2))
+    }
+
+    #[inline]
+    pub const fn from_coordinates(coods: Coordinates) -> Rect {
+        Rect {
+            origin: coods.left_top(),
+            size: coods.size(),
+        }
+    }
+
+    #[inline]
     pub const fn void() -> Self {
         Self::VOID
     }
@@ -305,37 +318,61 @@ impl Rect {
     }
 
     #[inline]
-    pub fn min_x(&self) -> isize {
-        isize::min(self.x(), self.x() + self.width())
+    pub const fn min_x(&self) -> isize {
+        let a = self.x();
+        let b = self.x() + self.width();
+        if a < b {
+            a
+        } else {
+            b
+        }
     }
 
     #[inline]
-    pub fn max_x(&self) -> isize {
-        isize::max(self.x(), self.x() + self.width())
+    pub const fn max_x(&self) -> isize {
+        let a = self.x();
+        let b = self.x() + self.width();
+        if a > b {
+            a
+        } else {
+            b
+        }
     }
 
     #[inline]
-    pub fn mid_x(&self) -> isize {
+    pub const fn mid_x(&self) -> isize {
         (self.min_x() + self.max_x()) / 2
     }
 
     #[inline]
-    pub fn min_y(&self) -> isize {
-        isize::min(self.y(), self.y() + self.height())
+    pub const fn min_y(&self) -> isize {
+        let a = self.y();
+        let b = self.y() + self.height();
+        if a < b {
+            a
+        } else {
+            b
+        }
     }
 
     #[inline]
-    pub fn max_y(&self) -> isize {
-        isize::max(self.y(), self.y() + self.height())
+    pub const fn max_y(&self) -> isize {
+        let a = self.y();
+        let b = self.y() + self.height();
+        if a > b {
+            a
+        } else {
+            b
+        }
     }
 
     #[inline]
-    pub fn mid_y(&self) -> isize {
+    pub const fn mid_y(&self) -> isize {
         (self.min_y() + self.max_y()) / 2
     }
 
     #[inline]
-    pub fn insets_by(self, insets: EdgeInsets) -> Self {
+    pub const fn insets_by(self, insets: EdgeInsets) -> Self {
         Rect {
             origin: Point {
                 x: self.origin.x + insets.left,
@@ -348,7 +385,7 @@ impl Rect {
         }
     }
 
-    pub fn is_within_rect(self, rhs: Self) -> bool {
+    pub const fn is_within_rect(self, rhs: Self) -> bool {
         let cl = match Coordinates::from_rect(self) {
             Ok(coords) => coords,
             Err(_) => return false,
@@ -361,7 +398,8 @@ impl Rect {
         cl.left < cr.right && cr.left < cl.right && cl.top < cr.bottom && cr.top < cl.bottom
     }
 
-    pub fn center(&self) -> Point {
+    #[inline]
+    pub const fn center(&self) -> Point {
         Point::new(
             self.origin.x + self.size.width / 2,
             self.origin.y + self.size.height / 2,
@@ -469,37 +507,47 @@ impl Coordinates {
     }
 
     #[inline]
-    pub fn from_two(c1: Point, c2: Point) -> Self {
+    pub const fn from_diagonal(c1: Point, c2: Point) -> Self {
+        let a = c1.x();
+        let b = c2.x();
+        let left = if a < b { a } else { b };
+        let right = if a > b { a } else { b };
+
+        let a = c1.y();
+        let b = c2.y();
+        let top = if a < b { a } else { b };
+        let bottom = if a > b { a } else { b };
+
         Self {
-            left: isize::min(c1.x, c2.x),
-            top: isize::min(c1.y, c2.y),
-            right: isize::max(c1.x, c2.x),
-            bottom: isize::max(c1.y, c2.y),
+            left,
+            top,
+            right,
+            bottom,
         }
     }
 
     #[inline]
-    pub fn left_top(&self) -> Point {
+    pub const fn left_top(&self) -> Point {
         Point::new(self.left, self.top)
     }
 
     #[inline]
-    pub fn right_bottom(&self) -> Point {
+    pub const fn right_bottom(&self) -> Point {
         Point::new(self.right, self.bottom)
     }
 
     #[inline]
-    pub fn left_bottom(&self) -> Point {
+    pub const fn left_bottom(&self) -> Point {
         Point::new(self.left, self.bottom)
     }
 
     #[inline]
-    pub fn right_top(&self) -> Point {
+    pub const fn right_top(&self) -> Point {
         Point::new(self.right, self.top)
     }
 
     #[inline]
-    pub fn size(&self) -> Size {
+    pub const fn size(&self) -> Size {
         Size::new(self.right - self.left, self.bottom - self.top)
     }
 
@@ -520,7 +568,7 @@ impl Coordinates {
     }
 
     #[inline]
-    pub fn from_rect(rect: Rect) -> Result<Coordinates, ()> {
+    pub const fn from_rect(rect: Rect) -> Result<Coordinates, ()> {
         if rect.size.width == 0 || rect.size.height == 0 {
             Err(())
         } else {
@@ -529,7 +577,7 @@ impl Coordinates {
     }
 
     #[inline]
-    pub unsafe fn from_rect_unchecked(rect: Rect) -> Coordinates {
+    pub const unsafe fn from_rect_unchecked(rect: Rect) -> Coordinates {
         let left: isize;
         let right: isize;
         if rect.size.width > 0 {

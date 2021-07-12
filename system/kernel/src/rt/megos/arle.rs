@@ -208,7 +208,7 @@ impl ArleRuntime {
 
                 let window = WindowBuilder::new(title)
                     .style_add(WindowStyle::NAKED)
-                    .style_add(if (window_option & megosabi::window::THIN_BORDER) != 0 {
+                    .style_add(if (window_option & megosabi::window::THIN_FRAME) != 0 {
                         WindowStyle::empty()
                     } else {
                         WindowStyle::THICK_FRAME
@@ -288,7 +288,7 @@ impl ArleRuntime {
                 let c1 = params.get_point()?;
                 let c2 = params.get_point()?;
                 let color = params.get_color()?;
-                let rect = Rect::from(Coordinates::from_two(c1, c2)) + Size::new(1, 1);
+                let rect = Rect::from(Coordinates::from_diagonal(c1, c2)) + Size::new(1, 1);
                 window.draw_in_rect(rect, |bitmap| {
                     bitmap.draw_line(c1 - rect.origin, c2 - rect.origin, color);
                 });

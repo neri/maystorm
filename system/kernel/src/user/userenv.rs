@@ -35,9 +35,9 @@ impl UserEnv {
         }
 
         Scheduler::spawn_async(Task::new(status_bar_main()));
-        // Scheduler::spawn_async(Task::new(notification_main()));
         Scheduler::spawn_async(Task::new(activity_monitor_main()));
         Scheduler::spawn_async(Task::new(shell_launcher(f)));
+        // Scheduler::spawn_async(Task::new(notification_main()));
         // Scheduler::spawn_async(Task::new(test_window_main()));
         Scheduler::perform_tasks();
     }
@@ -398,7 +398,7 @@ async fn activity_monitor_main() {
 async fn notification_main() {
     let padding = 8;
     let radius = 8;
-    let bg_color = SomeColor::from_argb(0xC0FFFFFF);
+    let bg_color = SomeColor::from_argb(0xC0EEEEEE);
     let fg_color = SomeColor::BLACK;
     let border_color = SomeColor::from_argb(0x80C0C0C0);
     let window_width = 240;
@@ -428,13 +428,12 @@ async fn notification_main() {
                 // .font(FontManager::title_font())
                 .color(fg_color)
                 .center()
-                .text("USB Device\nis connected.");
+                .text("Lorem ipsum dolor sit amet, consectetur adipiscing elit,");
             ats.draw_text(bitmap, rect2, 0);
         })
         .unwrap();
 
-    // window.show();
-    window.make_active();
+    window.show();
 
     while let Some(message) = window.get_message().await {
         match message {

@@ -11,6 +11,6 @@ pub mod window {
     pub const USE_BITMAP32: u32 = 0b0000_0000_0000_0001;
     /// Transparent Window
     pub const TRANSPARENT_WINDOW: u32 = 0b0000_0000_0000_0010;
-    /// Thin border
-    pub const THIN_BORDER: u32 = 0b0000_0000_0000_0100;
+    /// Thin frame
+    pub const THIN_FRAME: u32 = 0b0000_0000_0000_0100;
 }
