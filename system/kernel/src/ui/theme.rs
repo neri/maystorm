@@ -107,7 +107,7 @@ impl Theme {
 
     #[inline]
     pub const fn window_title_active_shadow_dark(&self) -> SomeColor {
-        SomeColor::DARK_GRAY
+        SomeColor::from_argb(0x80616161)
     }
 
     #[inline]

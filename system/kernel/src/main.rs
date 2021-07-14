@@ -91,8 +91,6 @@ impl Shell {
         match Self::parse_cmd(&cmdline, |name, args| match name {
             "clear" | "cls" => System::stdout().reset().unwrap(),
             "cd" | "exit" => println!("Feature not available"),
-            // "dir" => Self::cmd_dir(args),
-            // "type" => Self::cmd_type(stdout, args),
             "echo" => {
                 let stdout = System::stdout();
                 for (index, word) in args.iter().skip(1).enumerate() {
@@ -134,11 +132,6 @@ impl Shell {
                         time_h, time_m, upt_h, upt_m, upt_s
                     );
                 }
-            }
-            "memory" => {
-                let mut sb = StringBuffer::with_capacity(0x1000);
-                MemoryManager::statistics(&mut sb);
-                print!("{}", sb.as_str());
             }
             "open" => {
                 let args = &args[1..];

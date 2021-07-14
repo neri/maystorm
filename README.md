@@ -22,7 +22,7 @@ My first hobby OS written in Rust, one version of which is about 20,000 lines of
 
 ### Legacy Platform (Not yet included in this repository)
 
-* IBM PC compatible / 日本電気 PC-9800 ｼﾘｰｽﾞ ﾊﾟｰｿﾅﾙ ｺﾝﾋﾟｭｰﾀ / 富士通 FM TOWNS
+* IBM PC compatible / NEC PC-9800 / Fujitsu FM TOWNS
 * 486SX or later
 * 3.6MB? or a lot more memory
 * VGA or better video adapter

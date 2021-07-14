@@ -11,8 +11,8 @@ use core::{
 use megstd::drawing::*;
 
 const DEFAULT_INSETS: EdgeInsets = EdgeInsets::new(0, 0, 0, 0);
-const DEFAULT_ATTRIBUTE: u8 = 0x0F;
-const BG_ALPHA: u8 = 0xC0;
+const DEFAULT_ATTRIBUTE: u8 = 0x07;
+const BG_ALPHA: u8 = 0xE0;
 
 static mut TA: TerminalAgent = TerminalAgent::new();
 
@@ -115,7 +115,7 @@ impl Terminal {
     fn split_attr(val: u8) -> (SomeColor, SomeColor) {
         (
             SomeColor::Indexed(IndexedColor(val & 0x0F)),
-            SomeColor::from(TrueColor::from(IndexedColor(val >> 4)).set_opacity(BG_ALPHA)),
+            SomeColor::from(TrueColor::from(IndexedColor(val >> 4)).with_opacity(BG_ALPHA)),
         )
     }
 

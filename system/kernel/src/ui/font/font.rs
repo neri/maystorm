@@ -71,6 +71,12 @@ impl FontManager {
         ));
         fonts.insert(FontFamily::Serif, font);
 
+        let font = Box::new(HersheyFont::new(
+            0,
+            include_bytes!("../../../../../ext/hershey/japanese.jhf"),
+        ));
+        fonts.insert(FontFamily::Japanese, font);
+
         shared.fonts = Some(fonts);
     }
 

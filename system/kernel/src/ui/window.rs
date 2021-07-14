@@ -1073,7 +1073,7 @@ impl RawWindow<'_> {
 
                     if let Some(shadow) = window.shadow_bitmap() {
                         shadow.blt_to(target_bitmap, blt_origin, blt_rect, |a, b| {
-                            b.blend(TrueColor::from_argb(0).set_opacity(a))
+                            b.blend(TrueColor::from_argb(0).with_opacity(a))
                         });
                     }
 
@@ -1345,7 +1345,7 @@ impl RawWindow<'_> {
         );
         bitmap.map_argb32(|bitmap| {
             button.blt_to(bitmap, origin, button.bounds(), |a, b| {
-                b.blend_draw(foreground.set_opacity(a))
+                b.blend_draw(foreground.with_opacity(a))
             })
         });
     }

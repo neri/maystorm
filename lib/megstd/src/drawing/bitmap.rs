@@ -1664,7 +1664,7 @@ fn blend_line32(
     let dest = &mut dest[dest_cursor..dest_cursor + count];
     let src = &src[src_cursor..src_cursor + count];
     for i in 0..count {
-        dest[i] = dest[i].blend(src[i]);
+        dest[i] = dest[i].blend_draw(src[i]);
     }
 }
 

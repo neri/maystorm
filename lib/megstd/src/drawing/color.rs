@@ -35,7 +35,7 @@ impl IndexedColor {
 
     pub const COLOR_PALETTE: [u32; 256] = [
         0xFF212121, 0xFF0D47A1, 0xFF1B5E20, 0xFF006064, 0xFFb71c1c, 0xFF4A148C, 0xFF795548,
-        0xFF9E9E9E, 0xFF616161, 0xFF2196F3, 0xFF4CAF50, 0xFF00BCD4, 0xFFf44336, 0xFF9C27B0,
+        0xFFBDBDBD, 0xFF616161, 0xFF2196F3, 0xFF4CAF50, 0xFF00BCD4, 0xFFf44336, 0xFF9C27B0,
         0xFFFFEB3B, 0xFFFFFFFF, 0xFF000000, 0xFF330000, 0xFF660000, 0xFF990000, 0xFFCC0000,
         0xFFFF0000, 0xFF003300, 0xFF333300, 0xFF663300, 0xFF993300, 0xFFCC3300, 0xFFFF3300,
         0xFF006600, 0xFF336600, 0xFF666600, 0xFF996600, 0xFFCC6600, 0xFFFF6600, 0xFF009900,
@@ -158,8 +158,7 @@ impl TrueColor {
     }
 
     #[inline]
-    #[must_use]
-    pub const fn set_opacity(&self, alpha: u8) -> Self {
+    pub const fn with_opacity(&self, alpha: u8) -> Self {
         let mut components = self.components();
         components.a = alpha;
         components.into_argb()

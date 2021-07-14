@@ -184,7 +184,7 @@ fn format_bytes(sb: &mut dyn Write, val: usize) -> core::fmt::Result {
 async fn activity_monitor_main() {
     let bg_alpha = 0xC0;
     let bg_color32 = TrueColor::from(IndexedColor::BLACK);
-    let bg_color = SomeColor::Argb32(bg_color32.set_opacity(bg_alpha));
+    let bg_color = SomeColor::Argb32(bg_color32.with_opacity(bg_alpha));
     let fg_color2 = SomeColor::DARK_GRAY;
     let fg_color = SomeColor::YELLOW;
     let graph_border_color = SomeColor::LIGHT_GRAY;
@@ -198,7 +198,7 @@ async fn activity_monitor_main() {
     let width = 260;
     let height = 200;
     let window = WindowBuilder::new("Activity Monitor")
-        .style(WindowStyle::TITLE | WindowStyle::BORDER | WindowStyle::THICK_FRAME)
+        .style(WindowStyle::DEFAULT | WindowStyle::THICK_FRAME)
         .frame(Rect::new(-width - 16, -height - 16, width, height))
         .bg_color(bg_color)
         .build();
