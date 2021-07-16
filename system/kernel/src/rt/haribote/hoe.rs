@@ -595,16 +595,13 @@ impl HoeWindow {
     const WINDOW_ADJUST_BOTTOM: u32 = 2;
 
     fn new(hoe: &Hoe, title: &str, width: u32, height: u32, buffer: u32) -> Self {
-        let handle = WindowBuilder::new(title)
-            .style_add(WindowStyle::NAKED)
-            .style_add(WindowStyle::THICK_FRAME)
+        let handle = WindowBuilder::new()
             .size(Size::new(
                 (width - Self::WINDOW_ADJUST_X * 2) as isize,
                 (height - (Self::WINDOW_ADJUST_TOP + Self::WINDOW_ADJUST_BOTTOM)) as isize,
             ))
             .bg_color(Hoe::get_color(Self::WINDOW_BGCOLOR))
-            .build();
-        handle.make_active();
+            .build(title);
         let window = HoeWindow {
             handle,
             width,

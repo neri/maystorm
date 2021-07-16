@@ -25,8 +25,8 @@ use core::{
     time::Duration,
 };
 use futures_util::task::AtomicWaker;
-use megstd::drawing::*;
 use megstd::io::hid::*;
+use megstd::{drawing::*, string::StringBuffer};
 
 const WINDOW_SYSTEM_EVENT_QUEUE_SIZE: usize = 100;
 
@@ -149,14 +149,14 @@ impl WindowManager<'static> {
         let close_button_width = CLOSE_BUTTON_SIZE as isize + 16;
 
         let root = {
-            let window = WindowBuilder::new("Root")
-                .style(WindowStyle::NAKED | WindowStyle::OPAQUE | WindowStyle::NO_SHADOW)
+            let window = WindowBuilder::new()
+                .style(WindowStyle::OPAQUE | WindowStyle::NO_SHADOW)
                 .level(WindowLevel::ROOT)
                 .frame(Rect::from(screen_size))
                 .bg_color(SomeColor::BLACK)
                 .without_message_queue()
                 .bitmap_strategy(BitmapStrategy::NonBitmap)
-                .build_inner();
+                .build_inner("Root");
 
             let handle = window.handle;
             window_pool.insert(handle, Arc::new(UnsafeCell::new(window)));
@@ -166,14 +166,14 @@ impl WindowManager<'static> {
         let pointer = {
             let pointer_size =
                 Size::new(MOUSE_POINTER_WIDTH as isize, MOUSE_POINTER_HEIGHT as isize);
-            let window = WindowBuilder::new("Root")
-                .style(WindowStyle::NAKED)
+            let window = WindowBuilder::new()
+                .style(WindowStyle::empty())
                 .level(WindowLevel::POINTER)
                 .origin(Point::new(pointer_x, pointer_y))
                 .size(pointer_size)
                 .bg_color(SomeColor::Transparent)
                 .without_message_queue()
-                .build_inner();
+                .build_inner("Pointer");
 
             window
                 .draw_in_rect(pointer_size.into(), |bitmap| {
@@ -762,10 +762,17 @@ impl WindowManager<'_> {
         }
     }
 
+    #[inline]
+    pub fn current_desktop_window() -> WindowHandle {
+        Self::shared().root
+    }
+
     pub fn set_desktop_color(color: SomeColor) {
         let desktop = Self::shared().root;
-        desktop.update(|window| window.bitmap = None);
-        desktop.set_bg_color(color);
+        desktop.update(|window| {
+            window.bitmap = None;
+            window.set_bg_color(color);
+        });
     }
 
     pub fn set_desktop_bitmap(bitmap: &ConstBitmap) {
@@ -814,6 +821,29 @@ impl WindowManager<'_> {
     pub fn save_screen_to(bitmap: &mut Bitmap32, rect: Rect) {
         let shared = Self::shared();
         Self::while_hiding_pointer(|| shared.root.draw_into(bitmap, rect));
+    }
+
+    pub fn get_statistics(sb: &mut StringBuffer) {
+        let shared = Self::shared();
+        sb.clear();
+
+        writeln!(sb, "  # Lv Frame",).unwrap();
+        for window in shared.window_pool.read().unwrap().values() {
+            let window = unsafe { &*window.clone().as_ref().get() };
+            let frame = window.frame;
+            writeln!(
+                sb,
+                "{:3} {:2x} {:4} {:4} {:4} {:4} {}",
+                window.handle.0,
+                window.level.0,
+                frame.x(),
+                frame.y(),
+                frame.width(),
+                frame.height(),
+                window.title().unwrap_or("")
+            )
+            .unwrap();
+        }
     }
 }
 
@@ -889,34 +919,44 @@ bitflags! {
         const CLOSE_BUTTON  = 0b0000_0000_0000_0100;
         const PINCHABLE     = 0b0000_0000_0000_1000;
         const FLOATING      = 0b0000_0000_0001_0000;
-        const NAKED         = 0b0000_0000_0010_0000;
         const OPAQUE        = 0b0000_0000_0100_0000;
         const NO_SHADOW     = 0b0000_0000_1000_0000;
         const DARK          = 0b0000_0001_0000_0000;
         const THICK_FRAME   = 0b0000_0010_0000_0000;
+        const SUSPENDED     = 0b1000_0000_0000_0000;
 
-        const DEFAULT = Self::BORDER.bits | Self::TITLE.bits | Self::CLOSE_BUTTON.bits;
+        const DEFAULT = Self::BORDER.bits | Self::TITLE.bits | Self::CLOSE_BUTTON.bits | Self::THICK_FRAME.bits;
     }
 }
 
 impl WindowStyle {
     fn as_content_insets(self) -> EdgeInsets {
-        let mut insets = if self.contains(Self::TITLE) {
-            EdgeInsets::new(WINDOW_TITLE_HEIGHT, 0, 0, 0)
+        let insets = if self.contains(Self::BORDER) {
+            if self.contains(Self::THICK_FRAME) {
+                if self.contains(Self::TITLE) {
+                    EdgeInsets::new(
+                        WINDOW_BORDER_WIDTH + WINDOW_TITLE_HEIGHT_THICK,
+                        WINDOW_THICK_BORDER_WIDTH,
+                        WINDOW_THICK_BORDER_WIDTH,
+                        WINDOW_THICK_BORDER_WIDTH,
+                    )
+                } else {
+                    EdgeInsets::padding_each(WINDOW_THICK_BORDER_WIDTH)
+                }
+            } else {
+                if self.contains(Self::TITLE) {
+                    EdgeInsets::new(
+                        WINDOW_BORDER_WIDTH + WINDOW_TITLE_HEIGHT,
+                        WINDOW_BORDER_WIDTH,
+                        WINDOW_BORDER_WIDTH,
+                        WINDOW_BORDER_WIDTH,
+                    )
+                } else {
+                    EdgeInsets::padding_each(WINDOW_BORDER_WIDTH)
+                }
+            }
         } else {
             EdgeInsets::default()
-        };
-        if self.contains(Self::BORDER) {
-            if self.contains(Self::THICK_FRAME) {
-                insets = EdgeInsets::new(
-                    WINDOW_BORDER_WIDTH + WINDOW_TITLE_HEIGHT_THICK,
-                    WINDOW_THICK_BORDER_WIDTH,
-                    WINDOW_THICK_BORDER_WIDTH,
-                    WINDOW_THICK_BORDER_WIDTH,
-                );
-            } else {
-                insets += EdgeInsets::padding_each(WINDOW_BORDER_WIDTH);
-            }
         };
         insets
     }
@@ -1598,58 +1638,68 @@ impl WindowLevel {
 pub struct WindowBuilder {
     frame: Rect,
     style: WindowStyle,
+    window_options: u32,
     level: WindowLevel,
     bg_color: SomeColor,
-    title: [u8; WINDOW_TITLE_LENGTH],
     queue_size: usize,
     bitmap_strategy: BitmapStrategy,
 }
 
 impl WindowBuilder {
     #[inline]
-    pub fn new(title: &str) -> Self {
-        let window = Self {
+    pub fn new() -> Self {
+        Self {
             frame: Rect::new(isize::MIN, isize::MIN, 300, 300),
             level: WindowLevel::NORMAL,
             style: WindowStyle::DEFAULT,
+            window_options: 0,
             bg_color: Theme::shared().window_default_background(),
-            title: [0; WINDOW_TITLE_LENGTH],
             queue_size: 100,
             bitmap_strategy: BitmapStrategy::default(),
-        };
-        window.title(title).style(WindowStyle::DEFAULT)
+        }
     }
 
     #[inline]
-    pub fn build(self) -> WindowHandle {
-        let window = self.build_inner();
+    pub fn build(self, title: &str) -> WindowHandle {
+        let window = self.build_inner(title);
         let handle = window.handle;
+        let style = window.style;
         WindowManager::add(window);
+        if !style.contains(WindowStyle::SUSPENDED) {
+            handle.make_active();
+        }
         handle
     }
 
     #[inline]
-    fn build_inner<'a>(mut self) -> Box<RawWindow<'a>> {
-        let screen_bounds = WindowManager::user_screen_bounds();
-
-        let window_insets = self.style.as_content_insets();
-        let content_insets = window_insets;
-        let mut frame = self.frame;
-        if self.style.contains(WindowStyle::NAKED) {
-            frame.size += window_insets;
+    fn build_inner<'a>(mut self, title: &str) -> Box<RawWindow<'a>> {
+        let window_options = self.window_options;
+        if (window_options & megosabi::window::TRANSPARENT_WINDOW) != 0 {
+            self.bg_color = SomeColor::TRANSPARENT;
         }
+        if (window_options & megosabi::window::THIN_FRAME) != 0 {
+            self.style.remove(WindowStyle::THICK_FRAME);
+        }
+        if (window_options & megosabi::window::USE_BITMAP32) != 0 {
+            self.bitmap_strategy = BitmapStrategy::Expressive;
+        }
+
+        let screen_bounds = WindowManager::user_screen_bounds();
+        let content_insets = self.style.as_content_insets();
+        let mut frame = self.frame;
+        frame.size += content_insets;
         if frame.x() == isize::MIN {
-            frame.origin.x = (screen_bounds.width() - frame.width()) / 2;
+            frame.origin.x = screen_bounds.min_x() + (screen_bounds.max_x() - frame.width()) / 2;
         } else if frame.x() < 0 {
-            frame.origin.x += screen_bounds.x() + screen_bounds.width();
+            frame.origin.x += screen_bounds.max_x() - (content_insets.left + content_insets.right);
         }
         if frame.y() == isize::MIN {
             frame.origin.y = isize::max(
-                screen_bounds.y(),
-                (screen_bounds.height() - frame.height()) / 2,
+                screen_bounds.min_y(),
+                screen_bounds.min_y() + (screen_bounds.max_y() - frame.height()) / 2,
             );
         } else if frame.y() < 0 {
-            frame.origin.y += screen_bounds.y() + screen_bounds.height();
+            frame.origin.y += screen_bounds.max_y() - (content_insets.top + content_insets.bottom);
         }
 
         if self.style.contains(WindowStyle::FLOATING) {
@@ -1682,6 +1732,9 @@ impl WindowBuilder {
             Some(UnsafeCell::new(shadow))
         };
 
+        let mut title_array = [0; WINDOW_TITLE_LENGTH];
+        RawWindow::set_title_array(&mut title_array, title);
+
         let handle = WindowManager::next_window_handle();
         let mut window = Box::new(RawWindow {
             handle,
@@ -1692,7 +1745,7 @@ impl WindowBuilder {
             bg_color: self.bg_color,
             bitmap: None,
             shadow_bitmap,
-            title: self.title,
+            title: title_array,
             close_button_state: Default::default(),
             attributes,
             waker: AtomicWaker::new(),
@@ -1726,13 +1779,7 @@ impl WindowBuilder {
     }
 
     #[inline]
-    pub fn title(mut self, title: &str) -> Self {
-        RawWindow::set_title_array(&mut self.title, title);
-        self
-    }
-
-    #[inline]
-    pub const fn level(mut self, level: WindowLevel) -> Self {
+    const fn level(mut self, level: WindowLevel) -> Self {
         self.level = level;
         self
     }
@@ -1767,21 +1814,46 @@ impl WindowBuilder {
         self
     }
 
-    #[inline]
-    pub const fn message_queue_size(mut self, queue_size: usize) -> Self {
-        self.queue_size = queue_size;
-        self
-    }
+    // #[inline]
+    // const fn message_queue_size(mut self, queue_size: usize) -> Self {
+    //     self.queue_size = queue_size;
+    //     self
+    // }
 
     #[inline]
-    pub const fn without_message_queue(mut self) -> Self {
+    const fn without_message_queue(mut self) -> Self {
         self.queue_size = 0;
         self
     }
 
     #[inline]
-    pub const fn bitmap_strategy(mut self, bitmap_strategy: BitmapStrategy) -> Self {
+    const fn bitmap_strategy(mut self, bitmap_strategy: BitmapStrategy) -> Self {
         self.bitmap_strategy = bitmap_strategy;
+        self
+    }
+
+    /// Sets the window's content bitmap to ARGB32 format.
+    #[inline]
+    pub const fn bitmap_argb32(self) -> Self {
+        self.bitmap_strategy(BitmapStrategy::Expressive)
+    }
+
+    /// Makes the background color transparent.
+    #[inline]
+    pub const fn transparent(self) -> Self {
+        self.bg_color(SomeColor::TRANSPARENT)
+    }
+
+    /// Makes the border of the window a thin border.
+    #[inline]
+    pub const fn thin_frame(mut self) -> Self {
+        self.style.bits &= !WindowStyle::THICK_FRAME.bits();
+        self
+    }
+
+    #[inline]
+    pub const fn with_options(mut self, options: u32) -> Self {
+        self.window_options = options;
         self
     }
 }
@@ -2175,6 +2247,8 @@ pub enum WindowMessage {
     User(usize),
 }
 
+#[non_exhaustive]
+#[derive(Debug, Copy, Clone)]
 pub enum WindowSystemEvent {
     /// Raw Keyboard event
     Key(WindowHandle, KeyEvent),

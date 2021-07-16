@@ -62,7 +62,7 @@ impl<'a> App<'a> {
     fn new() -> Self {
         let window = WindowBuilder::new()
             .size(Size::new(BITMAP_WIDTH, BITMAP_HEIGHT))
-            .expressive()
+            .bitmap_argb32()
             .thin_frame()
             .build("noiz2bg");
         let bitmap =

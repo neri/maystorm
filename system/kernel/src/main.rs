@@ -16,6 +16,7 @@ use kernel::rt::*;
 use kernel::system::*;
 use kernel::task::scheduler::*;
 use kernel::task::Task;
+use kernel::ui::window::WindowManager;
 use kernel::*;
 use kernel::{arch::cpu::*, bus::pci::PciClass};
 use megstd::string::*;
@@ -340,6 +341,11 @@ impl Shell {
             "memory" => {
                 let mut sb = StringBuffer::with_capacity(256);
                 MemoryManager::statistics(&mut sb);
+                print!("{}", sb.as_str());
+            }
+            "windows" => {
+                let mut sb = StringBuffer::with_capacity(4096);
+                WindowManager::get_statistics(&mut sb);
                 print!("{}", sb.as_str());
             }
             "random" => match Cpu::secure_rand() {

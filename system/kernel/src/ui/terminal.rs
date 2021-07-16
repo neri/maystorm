@@ -85,8 +85,7 @@ impl Terminal {
             font.line_height() * rows as isize,
         ) + insets;
 
-        let window = WindowBuilder::new("Terminal")
-            .style_add(WindowStyle::NAKED | WindowStyle::THICK_FRAME)
+        let window = WindowBuilder::new()
             .frame(Rect::new(
                 screen_insets.left + 16 + 24 * n_instances as isize,
                 screen_insets.top + 16 + 24 * n_instances as isize,
@@ -94,8 +93,7 @@ impl Terminal {
                 window_size.height,
             ))
             .bg_color(bg_color)
-            .build();
-        window.make_active();
+            .build("Terminal");
 
         Self {
             window,

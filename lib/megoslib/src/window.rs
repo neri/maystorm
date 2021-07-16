@@ -146,7 +146,7 @@ impl WindowBuilder {
     #[inline]
     pub const fn new() -> Self {
         Self {
-            size: Size::new(240, 240),
+            size: Size::new(300, 300),
             bg_color: WindowColor::WHITE,
             flag: 0,
         }
@@ -179,22 +179,31 @@ impl WindowBuilder {
         self
     }
 
-    /// Make window's bitmap to expressive (32bit)
+    /// Sets the window's content bitmap to ARGB32 format.
     #[inline]
-    pub const fn expressive(mut self) -> Self {
+    pub const fn bitmap_argb32(mut self) -> Self {
         self.flag |= megosabi::window::USE_BITMAP32;
         self
     }
 
+    /// Makes the background color transparent.
     #[inline]
     pub const fn transparent(mut self) -> Self {
         self.flag |= megosabi::window::TRANSPARENT_WINDOW;
         self
     }
 
+    /// Makes the border of the window a thin border.
     #[inline]
     pub const fn thin_frame(mut self) -> Self {
         self.flag |= megosabi::window::THIN_FRAME;
+        self
+    }
+
+    /// Set window options
+    #[inline]
+    pub const fn with_options(mut self, options: u32) -> Self {
+        self.flag = options;
         self
     }
 }

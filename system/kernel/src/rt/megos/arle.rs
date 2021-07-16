@@ -190,34 +190,11 @@ impl ArleRuntime {
                 let bg_color = params.get_color().ok();
                 let window_option = params.get_u32().unwrap_or(0);
 
-                let bitmap_strategy = if (window_option & megosabi::window::USE_BITMAP32) != 0 {
-                    BitmapStrategy::Expressive
-                } else {
-                    BitmapStrategy::Compact
-                };
-                let bg_color = if (window_option & megosabi::window::TRANSPARENT_WINDOW) != 0 {
-                    match bitmap_strategy {
-                        BitmapStrategy::NonBitmap
-                        | BitmapStrategy::Native
-                        | BitmapStrategy::Compact => SomeColor::DEFAULT_KEY,
-                        BitmapStrategy::Expressive => SomeColor::TRANSPARENT,
-                    }
-                } else {
-                    bg_color.unwrap_or(Theme::shared().window_default_background())
-                };
-
-                let window = WindowBuilder::new(title)
-                    .style_add(WindowStyle::NAKED)
-                    .style_add(if (window_option & megosabi::window::THIN_FRAME) != 0 {
-                        WindowStyle::empty()
-                    } else {
-                        WindowStyle::THICK_FRAME
-                    })
+                let window = WindowBuilder::new()
+                    .with_options(window_option)
                     .size(size)
-                    .bg_color(bg_color)
-                    .bitmap_strategy(bitmap_strategy)
-                    .build();
-                window.make_active();
+                    .bg_color(bg_color.unwrap_or(Theme::shared().window_default_background()))
+                    .build(title);
 
                 if window.as_usize() != 0 {
                     let handle = self.next_handle();

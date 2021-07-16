@@ -59,11 +59,11 @@ async fn status_bar_main() {
     let fg_color = Theme::shared().status_bar_foreground();
 
     let screen_bounds = WindowManager::main_screen_bounds();
-    let window = WindowBuilder::new("Status Bar")
-        .style(WindowStyle::NAKED | WindowStyle::FLOATING | WindowStyle::NO_SHADOW)
+    let window = WindowBuilder::new()
+        .style(WindowStyle::FLOATING | WindowStyle::NO_SHADOW)
         .frame(Rect::new(0, 0, screen_bounds.width(), STATUS_BAR_HEIGHT))
         .bg_color(bg_color)
-        .build();
+        .build("Status Bar");
 
     window
         .draw(|bitmap| {
@@ -76,7 +76,6 @@ async fn status_bar_main() {
             ats.draw_text(bitmap, rect, 1);
         })
         .unwrap();
-    window.show();
     WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT, 0, 0, 0));
 
     let font = FontManager::system_font();
@@ -194,20 +193,16 @@ async fn activity_monitor_main() {
     let graph_main_color3 = SomeColor::LIGHT_GREEN;
     let margin = EdgeInsets::new(0, 0, 0, 0);
 
-    // let screen_bounds = WindowManager::user_screen_bounds();
     let width = 260;
-    let height = 200;
-    let window = WindowBuilder::new("Activity Monitor")
-        .style(WindowStyle::DEFAULT | WindowStyle::THICK_FRAME)
+    let height = 180;
+    let window = WindowBuilder::new()
         .frame(Rect::new(-width - 16, -height - 16, width, height))
         .bg_color(bg_color)
-        .build();
+        .build("Activity Monitor");
 
     unsafe {
         ACTIVITY_WINDOW = Some(window);
     }
-
-    window.show();
 
     let font = FontDescriptor::new(FontFamily::SmallFixed, 8).unwrap_or(FontManager::system_font());
 
@@ -405,8 +400,8 @@ async fn notification_main() {
     let window_height = 80;
     let screen_bounds = WindowManager::user_screen_bounds();
 
-    let window = WindowBuilder::new("notification")
-        .style(WindowStyle::NAKED | WindowStyle::FLOATING)
+    let window = WindowBuilder::new()
+        .style(WindowStyle::FLOATING)
         .frame(Rect::new(
             screen_bounds.max_x() - window_width,
             screen_bounds.min_y(),
@@ -414,7 +409,7 @@ async fn notification_main() {
             window_height,
         ))
         .bg_color(SomeColor::TRANSPARENT)
-        .build();
+        .build("Notification Center");
 
     window
         .draw(|bitmap| {
@@ -433,8 +428,6 @@ async fn notification_main() {
         })
         .unwrap();
 
-    window.show();
-
     while let Some(message) = window.get_message().await {
         match message {
             _ => window.handle_default_message(message),
@@ -446,11 +439,10 @@ async fn notification_main() {
 async fn test_window_main() {
     let width = 480;
     let height = 160;
-    let window = WindowBuilder::new("Window Test")
-        .style_add(WindowStyle::THICK_FRAME)
+    let window = WindowBuilder::new()
         .size(Size::new(width, height))
         .bg_color(SomeColor::from_argb(0xE0EEEEEE))
-        .build();
+        .build("Test Window");
 
     window
         .draw(|bitmap| {
@@ -535,8 +527,6 @@ sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
             }
         })
         .unwrap();
-
-    window.show();
 
     while let Some(message) = window.get_message().await {
         match message {
