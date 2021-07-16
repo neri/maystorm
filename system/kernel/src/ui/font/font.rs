@@ -359,8 +359,8 @@ impl<'a> HersheyFont<'a> {
                     let d2 = p2 - Self::MAGIC_52;
                     let c2 = center2
                         + Point::new(
-                            d1 * quality * height / Self::POINT,
-                            d2 * quality * height / Self::POINT,
+                            d1 * quality * height * master_scale / Self::POINT,
+                            d2 * quality * height * master_scale / Self::POINT,
                         );
                     if let Some(c1) = c1 {
                         buffer.draw_line_anti_aliasing(c1, c2, quality, |bitmap, point, value| {
@@ -378,17 +378,13 @@ impl<'a> HersheyFont<'a> {
             }
 
             let act_w = width * height / Self::POINT;
-            let offset_x = center1.x - (-left * master_scale) * height / Self::POINT;
-            let offset_y = center1.y - height * master_scale / 2;
+            let act_h = self.line_height * height / Self::POINT;
+            let offset_x = center1.x - -left * height / Self::POINT;
+            let offset_y = center1.y - height / 2;
 
             // DEBUG
             if false {
-                let rect = Rect::new(
-                    origin.x,
-                    origin.y,
-                    width * height / Self::POINT,
-                    self.line_height * height / Self::POINT,
-                );
+                let rect = Rect::new(origin.x, origin.y, width * height / Self::POINT, act_h);
                 bitmap.draw_rect(rect, SomeColor::from_rgb(0xFFCCFF));
                 bitmap.draw_hline(
                     Point::new(origin.x, origin.y + height - 1),
@@ -408,7 +404,7 @@ impl<'a> HersheyFont<'a> {
                 }
                 Bitmap::Argb32(ref mut bitmap) => {
                     let color = color.into_argb();
-                    let rect = Rect::new(offset_x, offset_y, act_w, height);
+                    let rect = Rect::new(offset_x, offset_y, act_w, act_h);
                     buffer.blt_to(*bitmap, origin, rect, |a, b| {
                         let mut c = color.components();
                         c.a = a;

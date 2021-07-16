@@ -2273,6 +2273,62 @@ impl OperationalBitmap {
         }
     }
 
+    /// Like box linear filter
+    pub fn blur(&mut self, radius: isize, level: usize) {
+        let bounds = self.bounds();
+        let length = radius * 2 + 1;
+
+        for y in (length..bounds.height()).rev() {
+            for x in 0..bounds.width() {
+                let mut acc = 0;
+                for r in 0..length {
+                    acc += unsafe { self.get_pixel_unchecked(Point::new(x, y - r)) as usize };
+                }
+                unsafe {
+                    self.set_pixel_unchecked(Point::new(x, y), (acc / length as usize) as u8);
+                }
+            }
+        }
+        for y in (0..length).rev() {
+            for x in 0..bounds.width() {
+                let mut acc = 0;
+                for r in 0..y {
+                    acc += unsafe { self.get_pixel_unchecked(Point::new(x, y - r)) as usize };
+                }
+                unsafe {
+                    self.set_pixel_unchecked(Point::new(x, y), (acc / length as usize) as u8);
+                }
+            }
+        }
+
+        for y in 0..bounds.height() {
+            for x in (length..bounds.width()).rev() {
+                let mut acc = 0;
+                for r in 0..length {
+                    acc += unsafe { self.get_pixel_unchecked(Point::new(x - r, y)) as usize };
+                }
+                unsafe {
+                    self.set_pixel_unchecked(
+                        Point::new(x, y),
+                        ((acc / length as usize) * level / 256) as u8,
+                    );
+                }
+            }
+            for x in (0..length).rev() {
+                let mut acc = 0;
+                for r in 0..x {
+                    acc += unsafe { self.get_pixel_unchecked(Point::new(x - r, y)) as usize };
+                }
+                unsafe {
+                    self.set_pixel_unchecked(
+                        Point::new(x, y),
+                        ((acc / length as usize) * level / 256) as u8,
+                    );
+                }
+            }
+        }
+    }
+
     pub fn blt_to<T, F>(&self, dest: &mut T, origin: Point, rect: Rect, mut f: F)
     where
         T: GetPixel + SetPixel,

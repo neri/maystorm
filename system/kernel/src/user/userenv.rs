@@ -437,8 +437,8 @@ async fn notification_main() {
 
 #[allow(dead_code)]
 async fn test_window_main() {
-    let width = 480;
-    let height = 160;
+    let width = 320;
+    let height = 480;
     let window = WindowBuilder::new()
         .size(Size::new(width, height))
         .bg_color(SomeColor::from_argb(0xE0EEEEEE))

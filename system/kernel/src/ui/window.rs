@@ -37,9 +37,9 @@ const WINDOW_TITLE_HEIGHT: isize = 24;
 const WINDOW_TITLE_HEIGHT_THICK: isize = WINDOW_TITLE_HEIGHT;
 const WINDOW_TITLE_LENGTH: usize = 32;
 const WINDOW_SHADOW_PADDING: isize = 16;
-const SHADOW_RADIUS: isize = 16;
+const SHADOW_RADIUS: isize = 8;
 const SHADOW_OFFSET: Point = Point::new(2, 2);
-const SHADOW_LEVEL: usize = 8;
+const SHADOW_LEVEL: usize = 128;
 
 // Mouse Pointer
 const MOUSE_POINTER_WIDTH: usize = 12;
@@ -88,8 +88,6 @@ static mut WM: Option<Box<WindowManager<'static>>> = None;
 
 pub struct WindowManager<'a> {
     lock: Spinlock,
-
-    sem_draw: BinarySemaphore,
 
     sem_event: Semaphore,
     attributes: AtomicBitflags<WindowManagerAttributes>,
@@ -190,7 +188,6 @@ impl WindowManager<'static> {
         unsafe {
             WM = Some(Box::new(WindowManager {
                 lock: Spinlock::default(),
-                sem_draw: BinarySemaphore::new(),
                 sem_event: Semaphore::new(0),
                 attributes,
                 pointer_x: AtomicIsize::new(pointer_x),
@@ -284,16 +281,6 @@ impl WindowManager<'_> {
     #[inline]
     fn shared_opt<'a>() -> Option<&'a Box<WindowManager<'static>>> {
         unsafe { WM.as_ref() }
-    }
-
-    #[inline]
-    fn draw_lock<F: FnOnce()>(&self, f: F) {
-        let read_guard = self.window_pool.read().unwrap();
-        let sem = &self.sem_draw;
-        sem.lock();
-        f();
-        sem.unlock();
-        drop(read_guard);
     }
 
     /// Window Manager's Thread
@@ -1471,83 +1458,20 @@ impl RawWindow<'_> {
             Some(v) => v,
             None => return,
         };
-        let bounds = shadow.bounds();
 
         shadow.reset();
 
         let content_rect = Rect::from(self.frame.size());
         let origin = Point::new(
-            WINDOW_SHADOW_PADDING - SHADOW_RADIUS / 2,
-            WINDOW_SHADOW_PADDING - SHADOW_RADIUS / 2,
+            WINDOW_SHADOW_PADDING - SHADOW_RADIUS,
+            WINDOW_SHADOW_PADDING - SHADOW_RADIUS,
         ) + SHADOW_OFFSET;
         shadow.blt_from(&bitmap, origin, content_rect, |a, _| {
             let a = a.into_argb().opacity();
             a.saturating_add(a)
         });
 
-        for y in (SHADOW_RADIUS..bounds.height()).rev() {
-            for x in 0..bounds.width() {
-                let mut acc = 0;
-                for r in 0..SHADOW_RADIUS {
-                    unsafe {
-                        acc += shadow.get_pixel_unchecked(Point::new(x, y - r)) as usize;
-                    }
-                }
-                unsafe {
-                    shadow.set_pixel_unchecked(
-                        Point::new(x, y),
-                        (acc / SHADOW_RADIUS as usize) as u8,
-                    );
-                }
-            }
-        }
-        for y in (0..SHADOW_RADIUS).rev() {
-            for x in 0..bounds.width() {
-                let mut acc = 0;
-                for r in 0..y {
-                    unsafe {
-                        acc += shadow.get_pixel_unchecked(Point::new(x, y - r)) as usize;
-                    }
-                }
-                unsafe {
-                    shadow.set_pixel_unchecked(
-                        Point::new(x, y),
-                        (acc / SHADOW_RADIUS as usize) as u8,
-                    );
-                }
-            }
-        }
-
-        for y in 0..bounds.height() {
-            for x in (SHADOW_RADIUS..bounds.width()).rev() {
-                let mut acc = 0;
-                for r in 0..SHADOW_RADIUS {
-                    unsafe {
-                        acc += shadow.get_pixel_unchecked(Point::new(x - r, y)) as usize;
-                    }
-                }
-                unsafe {
-                    shadow.set_pixel_unchecked(
-                        Point::new(x, y),
-                        ((acc / SHADOW_RADIUS as usize) * SHADOW_LEVEL / 16) as u8,
-                    );
-                }
-            }
-            for x in (0..SHADOW_RADIUS).rev() {
-                let mut acc = 0;
-                for r in 0..x {
-                    unsafe {
-                        acc += shadow.get_pixel_unchecked(Point::new(x - r, y)) as usize;
-                    }
-                }
-                unsafe {
-                    shadow.set_pixel_unchecked(
-                        Point::new(x, y),
-                        ((acc / SHADOW_RADIUS as usize) * SHADOW_LEVEL / 16) as u8,
-                    );
-                }
-            }
-        }
+        shadow.blur(SHADOW_RADIUS, SHADOW_LEVEL);
 
         shadow.blt_from(
             &bitmap,
@@ -1689,14 +1613,14 @@ impl WindowBuilder {
         let mut frame = self.frame;
         frame.size += content_insets;
         if frame.x() == isize::MIN {
-            frame.origin.x = screen_bounds.min_x() + (screen_bounds.max_x() - frame.width()) / 2;
+            frame.origin.x = (screen_bounds.max_x() - frame.width()) / 2;
         } else if frame.x() < 0 {
             frame.origin.x += screen_bounds.max_x() - (content_insets.left + content_insets.right);
         }
         if frame.y() == isize::MIN {
             frame.origin.y = isize::max(
                 screen_bounds.min_y(),
-                screen_bounds.min_y() + (screen_bounds.max_y() - frame.height()) / 2,
+                (screen_bounds.max_y() - frame.height()) / 2,
             );
         } else if frame.y() < 0 {
             frame.origin.y += screen_bounds.max_y() - (content_insets.top + content_insets.bottom);
