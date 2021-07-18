@@ -2310,7 +2310,7 @@ impl OperationalBitmap {
                 unsafe {
                     self.set_pixel_unchecked(
                         Point::new(x, y),
-                        ((acc / length as usize) * level / 256) as u8,
+                        usize::min(255, (acc / length as usize) * level / 256) as u8,
                     );
                 }
             }
@@ -2322,7 +2322,7 @@ impl OperationalBitmap {
                 unsafe {
                     self.set_pixel_unchecked(
                         Point::new(x, y),
-                        ((acc / length as usize) * level / 256) as u8,
+                        usize::min(255, (acc / length as usize) * level / 256) as u8,
                     );
                 }
             }

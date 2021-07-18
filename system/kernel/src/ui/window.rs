@@ -1,6 +1,6 @@
 //! A Window System
 
-use super::{font::*, theme::Theme};
+use super::{font::*, text::*, theme::Theme};
 use crate::{
     io::hid::*,
     sync::atomicflags::*,
@@ -8,7 +8,6 @@ use crate::{
     sync::RwLock,
     sync::{fifo::*, semaphore::*},
     task::scheduler::*,
-    util::text::*,
     *,
 };
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc};
@@ -1606,6 +1605,9 @@ impl WindowBuilder {
         }
         if (window_options & megosabi::window::USE_BITMAP32) != 0 {
             self.bitmap_strategy = BitmapStrategy::Expressive;
+        }
+        if self.style.contains(WindowStyle::THICK_FRAME) {
+            self.style.insert(WindowStyle::BORDER);
         }
 
         let screen_bounds = WindowManager::user_screen_bounds();

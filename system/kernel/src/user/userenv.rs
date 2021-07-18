@@ -2,13 +2,12 @@
 
 use crate::{
     arch::cpu::*, fs::*, mem::*, system::*, task::scheduler::*, task::*, ui::font::*,
-    ui::terminal::Terminal, ui::theme::Theme, ui::window::*, *,
+    ui::terminal::Terminal, ui::text::*, ui::theme::Theme, ui::window::*, *,
 };
 use ::alloc::vec::*;
 use core::{fmt::Write, time::Duration};
 use megstd::drawing::*;
 use megstd::string::*;
-use util::text::{AttributedString, VerticalAlignment};
 
 pub struct UserEnv {
     _phantom: (),
@@ -397,11 +396,11 @@ async fn notification_main() {
     let fg_color = SomeColor::BLACK;
     let border_color = SomeColor::from_argb(0x80C0C0C0);
     let window_width = 240;
-    let window_height = 80;
+    let window_height = 120;
     let screen_bounds = WindowManager::user_screen_bounds();
 
     let window = WindowBuilder::new()
-        .style(WindowStyle::FLOATING)
+        .style(WindowStyle::FLOATING | WindowStyle::SUSPENDED)
         .frame(Rect::new(
             screen_bounds.max_x() - window_width,
             screen_bounds.min_y(),
@@ -428,6 +427,8 @@ async fn notification_main() {
         })
         .unwrap();
 
+    window.show();
+
     while let Some(message) = window.get_message().await {
         match message {
             _ => window.handle_default_message(message),
@@ -437,7 +438,7 @@ async fn notification_main() {
 
 #[allow(dead_code)]
 async fn test_window_main() {
-    let width = 320;
+    let width = 640;
     let height = 480;
     let window = WindowBuilder::new()
         .size(Size::new(width, height))
@@ -463,19 +464,32 @@ async fn test_window_main() {
             {
                 let rect = bitmap.bounds().insets_by(EdgeInsets::new(
                     padding,
-                    padding,
-                    padding_bottom + padding,
-                    padding,
+                    4,
+                    padding_bottom + padding + padding,
+                    4,
                 ));
-                AttributedString::new()
-                    .font(font)
-                    .middle_center()
-                    .color(SomeColor::BLACK)
-                    .text(
-                        "Lorem ipsum dolor sit amet, consectetur adipiscing elit, \
-sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
-                    )
-                    .draw_text(bitmap, rect, 0);
+                bitmap
+                    .view(rect, |mut bitmap| {
+                        let mut offset = 0;
+                        for family in [
+                            FontFamily::SansSerif,
+                            FontFamily::SystemUI,
+                            // FontFamily::Cursive,
+                            // FontFamily::Serif,
+                        ] {
+                            for point in [64, 48, 32, 24, 16] {
+                                offset += font_test(
+                                    &mut bitmap,
+                                    offset,
+                                    SomeColor::BLACK,
+                                    family,
+                                    point,
+                                    1,
+                                );
+                            }
+                        }
+                    })
+                    .unwrap();
             }
             {
                 let rect = Rect::new(
@@ -484,22 +498,27 @@ sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
                     button_width,
                     button_height,
                 );
-                bitmap.fill_round_rect(
-                    rect,
-                    button_radius,
-                    Theme::shared().button_default_background(),
-                );
-                // bitmap.draw_round_rect(
-                //     rect,
-                //     button_radius,
-                //     Theme::shared().button_default_border(),
-                // );
-                AttributedString::new()
-                    .font(font)
-                    .middle_center()
-                    .color(Theme::shared().button_default_foreground())
-                    .text("Ok")
-                    .draw_text(bitmap, rect, 1);
+                bitmap
+                    .view(rect, |mut bitmap| {
+                        let rect = bitmap.bounds();
+                        bitmap.fill_round_rect(
+                            rect,
+                            button_radius,
+                            Theme::shared().button_default_background(),
+                        );
+                        // bitmap.draw_round_rect(
+                        //     rect,
+                        //     button_radius,
+                        //     Theme::shared().button_default_border(),
+                        // );
+                        AttributedString::new()
+                            .font(font)
+                            .middle_center()
+                            .color(Theme::shared().button_default_foreground())
+                            .text("Ok")
+                            .draw_text(&mut bitmap, rect, 1);
+                    })
+                    .unwrap();
             }
             {
                 let rect = Rect::new(
@@ -508,22 +527,27 @@ sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
                     button_width,
                     button_height,
                 );
-                bitmap.fill_round_rect(
-                    rect,
-                    button_radius,
-                    Theme::shared().button_destructive_background(),
-                );
-                // bitmap.draw_round_rect(
-                //     rect,
-                //     button_radius,
-                //     Theme::shared().button_destructive_border(),
-                // );
-                AttributedString::new()
-                    .font(font)
-                    .middle_center()
-                    .color(Theme::shared().button_destructive_foreground())
-                    .text("Cancel")
-                    .draw_text(bitmap, rect, 1);
+                bitmap
+                    .view(rect, |mut bitmap| {
+                        let rect = bitmap.bounds();
+                        bitmap.fill_round_rect(
+                            rect,
+                            button_radius,
+                            Theme::shared().button_destructive_background(),
+                        );
+                        // bitmap.draw_round_rect(
+                        //     rect,
+                        //     button_radius,
+                        //     Theme::shared().button_destructive_border(),
+                        // );
+                        AttributedString::new()
+                            .font(font)
+                            .middle_center()
+                            .color(Theme::shared().button_destructive_foreground())
+                            .text("Cancel")
+                            .draw_text(&mut bitmap, rect, 1);
+                    })
+                    .unwrap();
             }
         })
         .unwrap();
@@ -533,4 +557,31 @@ sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
             _ => window.handle_default_message(message),
         }
     }
+}
+
+fn font_test(
+    bitmap: &mut Bitmap,
+    offset: isize,
+    color: SomeColor,
+    family: FontFamily,
+    point: isize,
+    max_lines: usize,
+) -> isize {
+    let font = FontDescriptor::new(family, point).unwrap();
+    let rect = Rect::new(0, offset, bitmap.width() as isize, isize::MAX);
+
+    let ats = AttributedString::new()
+        .font(font)
+        .top_left()
+        .color(color)
+        .text("The quick borwn fox jumps over the lazy dog.");
+    //         .text(
+    //             "Lorem ipsum dolor sit amet, consectetur adipiscing elit, \
+    // sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
+    //         );
+
+    let bounds = ats.bounding_size(rect.size(), max_lines);
+    ats.draw_text(bitmap, rect, max_lines);
+
+    bounds.height()
 }

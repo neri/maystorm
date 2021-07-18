@@ -163,8 +163,8 @@ pub fn os_alloc(size: usize, align: usize) -> usize {
 }
 
 #[inline]
-pub fn os_free(ptr: usize) {
-    unsafe { svc1(Function::Free, ptr) };
+pub fn os_dealloc(ptr: usize, size: usize, align: usize) {
+    unsafe { svc3(Function::Dealloc, ptr, size, align) };
 }
 
 #[inline]

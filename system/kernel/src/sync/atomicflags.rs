@@ -78,13 +78,13 @@ where
     }
 
     #[inline]
-    pub fn test_and_set(&self, bits: T) -> bool {
-        Cpu::interlocked_test_and_set(&self.repr, bits.into().trailing_zeros() as usize)
+    pub fn test_and_set(&self, other: T) -> bool {
+        Cpu::interlocked_test_and_set(&self.repr, other.into().trailing_zeros() as usize)
     }
 
     #[inline]
-    pub fn test_and_clear(&self, bits: T) -> bool {
-        Cpu::interlocked_test_and_clear(&self.repr, bits.into().trailing_zeros() as usize)
+    pub fn test_and_clear(&self, other: T) -> bool {
+        Cpu::interlocked_test_and_clear(&self.repr, other.into().trailing_zeros() as usize)
     }
 }
 

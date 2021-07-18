@@ -1,13 +1,17 @@
 // MEG-OS Arlequin Subsystem
 
 use super::*;
-use crate::sync::Mutex;
-use crate::ui::theme::Theme;
-use crate::*;
-use crate::{io::hid::*, ui::window::*, util::text::*};
+use crate::{
+    sync::Mutex,
+    ui::theme::Theme,
+    *,
+    {io::hid::*, ui::text::*, ui::window::*},
+};
 use alloc::collections::BTreeMap;
 use byteorder::*;
-use core::{intrinsics::transmute, num::NonZeroU32, sync::atomic::*, time::Duration};
+use core::{
+    alloc::Layout, intrinsics::transmute, num::NonZeroU32, sync::atomic::*, time::Duration,
+};
 use megstd::drawing::*;
 use megstd::rand::*;
 use num_traits::FromPrimitive;
@@ -50,7 +54,10 @@ impl BinaryLoader for ArleBinaryLoader {
                 },
                 _ => Err(WasmDecodeErrorType::NoModule),
             })
-            .map_err(|_| ())
+            .map_err(|v| {
+                println!("Load error: {:?}", v);
+                ()
+            })
     }
 
     fn invoke_start(self: Box<Self>) -> Option<ProcessId> {
@@ -78,6 +85,7 @@ pub struct ArleRuntime {
     windows: Mutex<BTreeMap<usize, UnsafeCell<OsWindow>>>,
     rng32: XorShift32,
     key_buffer: Mutex<Vec<KeyEvent>>,
+    malloc: Mutex<SimpleAllocator>,
     has_to_exit: AtomicBool,
 }
 
@@ -95,6 +103,7 @@ impl ArleRuntime {
             windows: Mutex::new(BTreeMap::new()),
             rng32: XorShift32::default(),
             key_buffer: Mutex::new(Vec::with_capacity(Self::SIZE_KEYBUFFER)),
+            malloc: Mutex::new(SimpleAllocator::default()),
             has_to_exit: AtomicBool::new(false),
         })
     }
@@ -116,7 +125,7 @@ impl ArleRuntime {
         match function.invoke(&[]) {
             Ok(_v) => (),
             Err(err) => match err.kind() {
-                WasmRuntimeErrorType::NoError => (),
+                WasmRuntimeErrorType::Exit => (),
                 _ => println!("error: {:?}", err),
             },
         }
@@ -146,12 +155,12 @@ impl ArleRuntime {
             FromPrimitive::from_u32(v).ok_or(WasmRuntimeErrorType::InvalidParameter)
         })?;
         if self.has_to_exit.load(Ordering::Relaxed) {
-            return Err(WasmRuntimeErrorType::NoError);
+            return Err(WasmRuntimeErrorType::Exit);
         }
 
         match func_no {
             Function::Exit => {
-                return Err(WasmRuntimeErrorType::NoError);
+                return Err(WasmRuntimeErrorType::Exit);
             }
 
             Function::Monotonic => {
@@ -344,8 +353,42 @@ impl ArleRuntime {
                 NonZeroU32::new(seed).map(|v| self.rng32 = XorShift32::new(v));
             }
 
-            Function::Alloc | Function::Free => {
-                // TODO:
+            Function::Alloc => {
+                let size = params.get_usize()?;
+                let align = params.get_usize()?;
+                let layout = Layout::from_size_align(size, align)
+                    .map_err(|_| WasmRuntimeErrorType::InvalidParameter)?;
+
+                if let Some(result) = self.malloc.lock().unwrap().alloc(layout) {
+                    return Ok(WasmValue::from(result.get()));
+                } else {
+                    let min_alloc = WasmMemory::PAGE_SIZE;
+                    let delta = ((layout.size() + min_alloc - 1) / min_alloc) as i32;
+                    let new_page = memory.grow(delta);
+
+                    if new_page > 0 {
+                        self.malloc.lock().unwrap().append_block(
+                            new_page as u32 * WasmMemory::PAGE_SIZE as u32,
+                            delta as u32 * WasmMemory::PAGE_SIZE as u32,
+                        );
+                    }
+
+                    let result = match self.malloc.lock().unwrap().alloc(layout) {
+                        Some(v) => v.get(),
+                        None => 0,
+                    };
+                    return Ok(WasmValue::from(result));
+                }
+            }
+
+            Function::Dealloc => {
+                let base = params.get_u32()?;
+                let size = params.get_usize()?;
+                let align = params.get_usize()?;
+                let layout = Layout::from_size_align(size, align)
+                    .map_err(|_| WasmRuntimeErrorType::InvalidParameter)?;
+
+                self.malloc.lock().unwrap().dealloc(base, layout);
             }
 
             Function::Test => {
@@ -362,7 +405,7 @@ impl ArleRuntime {
         while let Some(message) = handle.wait_message() {
             self.process_message(handle, message);
             if self.has_to_exit.load(Ordering::Relaxed) {
-                return Err(WasmRuntimeErrorType::NoError);
+                return Err(WasmRuntimeErrorType::Exit);
             }
 
             if let Some(c) = self
@@ -737,5 +780,130 @@ impl Drop for OsWindow {
     #[inline]
     fn drop(&mut self) {
         self.handle.close();
+    }
+}
+
+pub struct SimpleAllocator {
+    data: Vec<SimpleFreePair>,
+    strategy: SimpleAllicationStrategy,
+}
+
+impl SimpleAllocator {
+    const MIN_MASK: u32 = 0x0000_000F;
+
+    #[inline]
+    pub const fn new(strategy: SimpleAllicationStrategy) -> Self {
+        Self {
+            data: Vec::new(),
+            strategy,
+        }
+    }
+
+    pub fn append_block(&mut self, base: u32, size: u32) {
+        self.data.push(SimpleFreePair::new(base, size));
+        self.data.sort_by(|a, b| a.base.cmp(&b.base));
+    }
+
+    pub fn alloc(&mut self, layout: Layout) -> Option<NonZeroU32> {
+        let layout_align = u32::max(layout.align() as u32, Self::MIN_MASK + 1);
+        let layout_mask = layout_align - 1;
+        let min_alloc =
+            (u32::max(layout_align, layout.size() as u32) + Self::MIN_MASK) & !Self::MIN_MASK;
+        let max_alloc = (min_alloc + layout_mask) & layout_mask;
+
+        let mut result = 0;
+        let mut extend = Vec::new();
+        match self.strategy {
+            SimpleAllicationStrategy::FirstFit => {
+                for pair in &mut self.data {
+                    if (pair.base & layout_mask) == 0 && pair.size >= min_alloc {
+                        result = pair.base;
+                        pair.size -= min_alloc;
+                        pair.base += min_alloc;
+                    } else if pair.size >= max_alloc {
+                        let redundant = pair.base & layout_mask;
+                        extend.push(SimpleFreePair::new(pair.base, redundant));
+                        pair.base -= redundant;
+                        pair.size -= redundant;
+
+                        result = pair.base;
+                        pair.size -= min_alloc;
+                        pair.base += min_alloc;
+                    }
+                }
+            }
+            SimpleAllicationStrategy::BestFit => todo!(),
+        }
+        if extend.len() > 0 {
+            self.data.extend_from_slice(extend.as_slice());
+            self.data.sort_by(|a, b| a.base.cmp(&b.base));
+        }
+
+        NonZeroU32::new(result)
+    }
+
+    pub fn dealloc(&mut self, base: u32, layout: Layout) {
+        let layout_align = u32::max(layout.align() as u32, Self::MIN_MASK + 1);
+        // let layout_mask = layout_align - 1;
+        let min_alloc =
+            (u32::max(layout_align, layout.size() as u32) + Self::MIN_MASK) & !Self::MIN_MASK;
+
+        let new_pair = SimpleFreePair::new(base, min_alloc);
+
+        let mut cursor = None;
+        for (index, pair) in self.data.iter_mut().enumerate() {
+            if pair.next_base() == base {
+                pair.size += min_alloc;
+                cursor = Some(index);
+                break;
+            }
+        }
+
+        if let Some(cursor) = cursor {
+            if cursor < self.data.len() - 1 {
+                let current = unsafe { self.data.get_unchecked(cursor) };
+                let next = unsafe { self.data.get_unchecked(cursor + 1) };
+                if current.next_base() == next.base {
+                    let next = self.data.remove(cursor + 1);
+                    self.data[cursor].size += next.size;
+                }
+            }
+            return;
+        }
+
+        self.data.push(new_pair);
+        self.data.sort_by(|a, b| a.base.cmp(&b.base));
+    }
+}
+
+impl Default for SimpleAllocator {
+    #[inline]
+    fn default() -> Self {
+        Self::new(SimpleAllicationStrategy::FirstFit)
+    }
+}
+
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SimpleAllicationStrategy {
+    FirstFit,
+    BestFit,
+}
+
+#[derive(Clone, Copy)]
+struct SimpleFreePair {
+    base: u32,
+    size: u32,
+}
+
+impl SimpleFreePair {
+    #[inline]
+    pub const fn new(base: u32, size: u32) -> Self {
+        Self { base, size }
+    }
+
+    #[inline]
+    pub const fn next_base(&self) -> u32 {
+        self.base + self.size
     }
 }

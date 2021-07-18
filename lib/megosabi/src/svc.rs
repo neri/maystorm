@@ -53,7 +53,7 @@ pub enum Function {
     /// RESERVED
     Alloc = 10000,
     /// RESERVED
-    Free,
+    Dealloc,
     /// test_u64
     Test,
 }

@@ -297,8 +297,8 @@ struct HersheyFont<'a> {
 impl<'a> HersheyFont<'a> {
     const MAGIC_20: isize = 0x20;
     const MAGIC_52: isize = 0x52;
-    const POINT: isize = 32;
     const DESCENT: isize = 4;
+    const POINT: isize = 32;
 
     fn new(extra_height: isize, font_data: &'a [u8]) -> Self {
         let descent = Self::DESCENT + extra_height;
@@ -341,40 +341,53 @@ impl<'a> HersheyFont<'a> {
             buffer.reset();
 
             let master_scale = 1;
+            let counter = 1;
             let n_pairs = (data[6] & 0x0F) * 10 + (data[7] & 0x0F);
             let left = data[8] as isize - Self::MAGIC_52;
 
             let quality = 64;
             let center1 = Point::new(buffer.size().width() / 2, buffer.size().height() / 2);
-            let mut cursor = 10;
-            let mut c1: Option<Point> = None;
-            let center2 = Point::new(center1.x * quality, center1.y * quality);
-            for _ in 1..n_pairs {
-                let p1 = data[cursor] as isize;
-                let p2 = data[cursor + 1] as isize;
-                if p1 == Self::MAGIC_20 && p2 == Self::MAGIC_52 {
-                    c1 = None;
-                } else {
-                    let d1 = p1 - Self::MAGIC_52;
-                    let d2 = p2 - Self::MAGIC_52;
-                    let c2 = center2
-                        + Point::new(
-                            d1 * quality * height * master_scale / Self::POINT,
-                            d2 * quality * height * master_scale / Self::POINT,
-                        );
-                    if let Some(c1) = c1 {
-                        buffer.draw_line_anti_aliasing(c1, c2, quality, |bitmap, point, value| {
-                            if point.is_within(bitmap.bounds()) {
-                                unsafe {
-                                    bitmap
-                                        .process_pixel_unchecked(point, |v| v.saturating_add(value))
-                                }
-                            }
-                        });
+            for _count in 0..counter {
+                let level = 256;
+
+                let mut cursor = 10;
+                let mut c1: Option<Point> = None;
+                let center2 = Point::new(center1.x * quality, center1.y * quality);
+                for _ in 1..n_pairs {
+                    let p1 = data[cursor] as isize;
+                    let p2 = data[cursor + 1] as isize;
+                    if p1 == Self::MAGIC_20 && p2 == Self::MAGIC_52 {
+                        c1 = None;
+                    } else {
+                        let d1 = p1 - Self::MAGIC_52;
+                        let d2 = p2 - Self::MAGIC_52;
+                        let c2 = center2
+                            + Point::new(
+                                d1 * quality * height * master_scale / Self::POINT,
+                                d2 * quality * height * master_scale / Self::POINT,
+                            );
+                        if let Some(c1) = c1 {
+                            buffer.draw_line_anti_aliasing(
+                                c1,
+                                c2,
+                                quality,
+                                |bitmap, point, value| {
+                                    if point.is_within(bitmap.bounds()) {
+                                        unsafe {
+                                            bitmap.process_pixel_unchecked(point, |v| {
+                                                v.saturating_add(
+                                                    (value as isize * level / 256) as u8,
+                                                )
+                                            })
+                                        }
+                                    }
+                                },
+                            );
+                        }
+                        c1 = Some(c2);
                     }
-                    c1 = Some(c2);
+                    cursor += 2;
                 }
-                cursor += 2;
             }
 
             let act_w = width * height / Self::POINT;
@@ -397,6 +410,10 @@ impl<'a> HersheyFont<'a> {
                     SomeColor::from_rgb(0xFF3333),
                 );
             }
+
+            // if height >= Self::POINT {
+            //     buffer.blur(1, 384);
+            // }
 
             match bitmap {
                 Bitmap::Indexed(_) => {

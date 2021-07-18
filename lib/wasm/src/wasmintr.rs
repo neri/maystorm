@@ -424,11 +424,11 @@ impl WasmInterpreter<'_> {
 
                 WasmIntMnemonic::MemorySize => {
                     let ref_a = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
-                    *ref_a = WasmStackValue::from(memory.size() as u32);
+                    *ref_a = WasmStackValue::from(memory.size());
                 }
                 WasmIntMnemonic::MemoryGrow => {
                     let ref_a = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
-                    *ref_a = WasmStackValue::from(memory.grow(ref_a.get_u32() as usize) as u32);
+                    *ref_a = WasmStackValue::from(memory.grow(ref_a.get_i32()));
                 }
 
                 WasmIntMnemonic::I32Const => {

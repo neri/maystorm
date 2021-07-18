@@ -18,6 +18,7 @@ pub struct FileManager {
 }
 
 impl FileManager {
+    #[inline]
     const fn new() -> Self {
         Self { initramfs: None }
     }
@@ -207,7 +208,7 @@ impl FsFileHandle {
     // TODO:
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Whence {
     SeekSet = 0,
     SeekCur,

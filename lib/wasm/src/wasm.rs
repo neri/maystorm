@@ -788,20 +788,22 @@ impl WasmLimit {
 /// WebAssembly memory object
 pub struct WasmMemory {
     limit: WasmLimit,
-    memory: UnsafeCell<Vec<u8>>,
+    data: UnsafeCell<Vec<u8>>,
 }
 
 impl WasmMemory {
-    const PAGE_SIZE: usize = 0x10000;
+    /// The length of the vector always is a multiple of the WebAssembly page size,
+    /// which is defined to be the constant 65536 – abbreviated 64Ki.
+    pub const PAGE_SIZE: usize = 65536;
 
     #[inline]
     pub fn new(limit: WasmLimit) -> Self {
         let size = limit.min as usize * Self::PAGE_SIZE;
-        let mut memory = Vec::with_capacity(size);
-        memory.resize(size, 0);
+        let mut data = Vec::with_capacity(size);
+        data.resize(size, 0);
         Self {
             limit,
-            memory: UnsafeCell::new(memory),
+            data: UnsafeCell::new(data),
         }
     }
 
@@ -812,29 +814,37 @@ impl WasmMemory {
 
     #[inline]
     fn memory(&self) -> &[u8] {
-        unsafe { &*self.memory.get() }
+        unsafe { &*self.data.get() }
     }
 
     #[inline]
     fn memory_mut(&self) -> &mut [u8] {
-        unsafe { &mut *self.memory.get() }
+        unsafe { &mut *self.data.get() }
     }
 
-    pub fn grow(&self, delta: usize) -> isize {
-        let memory = unsafe { self.memory.get().as_mut().unwrap() };
-        let old_size = memory.len();
-        let additional = delta * Self::PAGE_SIZE;
-        if memory.try_reserve_exact(additional).is_err() {
-            return -1;
-        }
-        memory.resize(old_size + additional, 0);
-        (old_size / Self::PAGE_SIZE) as isize
-    }
-
+    /// memory.size
     #[inline]
-    pub fn size(&self) -> usize {
+    pub fn size(&self) -> i32 {
         let memory = self.memory();
-        memory.len() / Self::PAGE_SIZE
+        (memory.len() / Self::PAGE_SIZE) as i32
+    }
+
+    /// memory.grow
+    pub fn grow(&self, delta: i32) -> i32 {
+        let memory = unsafe { &mut *self.data.get() };
+        let old_size = memory.len();
+        if delta > 0 {
+            let additional = delta as usize * Self::PAGE_SIZE;
+            if memory.try_reserve_exact(additional).is_err() {
+                return -1;
+            }
+            memory.resize(old_size + additional, 0);
+            (old_size / Self::PAGE_SIZE) as i32
+        } else if delta == 0 {
+            (old_size / Self::PAGE_SIZE) as i32
+        } else {
+            -1
+        }
     }
 
     /// Read the specified range of memory
@@ -1300,7 +1310,8 @@ pub enum WasmDecodeErrorType {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum WasmRuntimeErrorType {
-    NoError,
+    /// Exit the application (not an error)
+    Exit,
     // InternalInconsistency,
     InvalidParameter,
     NotSupprted,

@@ -21,8 +21,7 @@ unsafe impl GlobalAlloc for CustomAlloc {
         os_alloc(layout.size(), layout.align()) as *mut u8
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        let _ = layout;
-        os_free(ptr as usize)
+        os_dealloc(ptr as usize, layout.size(), layout.align());
     }
 }
 
