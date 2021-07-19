@@ -207,7 +207,7 @@ impl ArleRuntime {
 
                 if window.as_usize() != 0 {
                     let handle = self.next_handle();
-                    let window = UnsafeCell::new(OsWindow::new(window));
+                    let window = UnsafeCell::new(OsWindow::new(handle, window));
                     self.windows.lock().unwrap().insert(handle, window);
                     return Ok(WasmValue::I32(handle as i32));
                 }
@@ -219,6 +219,7 @@ impl ArleRuntime {
             Function::BeginDraw => match params.get_window(self) {
                 Ok(window) => {
                     window.begin_draw();
+                    return Ok(WasmValue::from(window.handle() as u32));
                 }
                 Err(err) => return Err(err),
             },
@@ -358,25 +359,32 @@ impl ArleRuntime {
                 let align = params.get_usize()?;
                 let layout = Layout::from_size_align(size, align)
                     .map_err(|_| WasmRuntimeErrorType::InvalidParameter)?;
+                let mut malloc = self.malloc.lock().unwrap();
+                // return Err(WasmRuntimeErrorType::OutOfMemory);
 
-                if let Some(result) = self.malloc.lock().unwrap().alloc(layout) {
+                if let Some(result) = malloc.alloc(layout) {
+                    println!("alloc1 {:?} => {:08x}", layout, result);
                     return Ok(WasmValue::from(result.get()));
                 } else {
                     let min_alloc = WasmMemory::PAGE_SIZE;
-                    let delta = ((layout.size() + min_alloc - 1) / min_alloc) as i32;
+                    let delta = (((layout.size() + min_alloc - 1) / min_alloc) * min_alloc
+                        / WasmMemory::PAGE_SIZE) as i32;
                     let new_page = memory.grow(delta);
-
                     if new_page > 0 {
-                        self.malloc.lock().unwrap().append_block(
+                        println!("grow {} => {}", delta, new_page);
+                        malloc.append_block(
                             new_page as u32 * WasmMemory::PAGE_SIZE as u32,
                             delta as u32 * WasmMemory::PAGE_SIZE as u32,
                         );
+                    } else {
+                        return Err(WasmRuntimeErrorType::OutOfMemory);
                     }
 
-                    let result = match self.malloc.lock().unwrap().alloc(layout) {
+                    let result = match malloc.alloc(layout) {
                         Some(v) => v.get(),
                         None => 0,
                     };
+                    println!("alloc2 {:?} => {:08x}", layout, result);
                     return Ok(WasmValue::from(result));
                 }
             }
@@ -388,12 +396,10 @@ impl ArleRuntime {
                 let layout = Layout::from_size_align(size, align)
                     .map_err(|_| WasmRuntimeErrorType::InvalidParameter)?;
 
-                self.malloc.lock().unwrap().dealloc(base, layout);
-            }
+                println!("dealloc {:08x} {:?}", base, layout);
+                memory.write_bytes(base as usize, 0xCC, size)?;
 
-            Function::Test => {
-                let val = params.get_u32()?;
-                println!("val: {}", val);
+                self.malloc.lock().unwrap().dealloc(base, layout);
             }
         }
 
@@ -401,7 +407,7 @@ impl ArleRuntime {
     }
 
     fn wait_key(&self, window: &OsWindow) -> Result<Option<char>, WasmRuntimeErrorType> {
-        let handle = window.handle();
+        let handle = window.native();
         while let Some(message) = handle.wait_message() {
             self.process_message(handle, message);
             if self.has_to_exit.load(Ordering::Relaxed) {
@@ -419,7 +425,7 @@ impl ArleRuntime {
     }
 
     fn read_key(&self, window: &OsWindow) -> Option<char> {
-        let handle = window.handle();
+        let handle = window.native();
         while let Some(message) = handle.read_message() {
             self.process_message(handle, message);
         }
@@ -724,27 +730,34 @@ impl OsBitmap1<'_> {
 }
 
 struct OsWindow {
-    handle: WindowHandle,
+    native: WindowHandle,
+    handle: usize,
     draw_region: Coordinates,
 }
 
 impl OsWindow {
     #[inline]
-    const fn new(handle: WindowHandle) -> Self {
+    const fn new(handle: usize, native: WindowHandle) -> Self {
         Self {
+            native,
             handle,
             draw_region: Coordinates::void(),
         }
     }
 
     #[inline]
-    const fn handle(&self) -> WindowHandle {
+    const fn native(&self) -> WindowHandle {
+        self.native
+    }
+
+    #[inline]
+    const fn handle(&self) -> usize {
         self.handle
     }
 
     #[inline]
     fn content_rect(&self) -> Rect {
-        self.handle.content_rect()
+        self.native.content_rect()
     }
 
     #[inline]
@@ -756,7 +769,7 @@ impl OsWindow {
     fn end_draw(&self) {
         let coords = self.draw_region;
         if coords.left <= coords.right && coords.top <= coords.bottom {
-            self.handle.invalidate_rect(coords.into());
+            self.native.invalidate_rect(coords.into());
         }
     }
 
@@ -771,7 +784,7 @@ impl OsWindow {
     where
         F: FnOnce(&mut Bitmap) -> (),
     {
-        let _ = self.handle.draw_in_rect(rect, f);
+        let _ = self.native.draw_in_rect(rect, f);
         self.add_region(rect);
     }
 }
@@ -779,7 +792,7 @@ impl OsWindow {
 impl Drop for OsWindow {
     #[inline]
     fn drop(&mut self) {
-        self.handle.close();
+        self.native.close();
     }
 }
 
@@ -799,9 +812,32 @@ impl SimpleAllocator {
         }
     }
 
+    fn merge(&mut self) {
+        self.data.sort_by(|a, b| a.base.cmp(&b.base));
+
+        let mut do_retry = false;
+        let mut retry_index = 0;
+        loop {
+            for index in retry_index..self.data.len() - 1 {
+                let current = unsafe { self.data.get_unchecked(index) };
+                let next = unsafe { self.data.get_unchecked(index + 1) };
+                if current.next_base() == next.base {
+                    let next = self.data.remove(index + 1);
+                    self.data[index].size += next.size;
+                    retry_index = index;
+                    do_retry = true;
+                    break;
+                }
+            }
+            if do_retry == false {
+                break;
+            }
+        }
+    }
+
     pub fn append_block(&mut self, base: u32, size: u32) {
         self.data.push(SimpleFreePair::new(base, size));
-        self.data.sort_by(|a, b| a.base.cmp(&b.base));
+        self.merge();
     }
 
     pub fn alloc(&mut self, layout: Layout) -> Option<NonZeroU32> {
@@ -836,7 +872,7 @@ impl SimpleAllocator {
         }
         if extend.len() > 0 {
             self.data.extend_from_slice(extend.as_slice());
-            self.data.sort_by(|a, b| a.base.cmp(&b.base));
+            self.merge();
         }
 
         NonZeroU32::new(result)
@@ -852,27 +888,34 @@ impl SimpleAllocator {
 
         let mut cursor = None;
         for (index, pair) in self.data.iter_mut().enumerate() {
-            if pair.next_base() == base {
+            if new_pair.next_base() == pair.base {
+                pair.base = new_pair.base;
+                pair.size += min_alloc;
+                cursor = Some(index);
+                break;
+            } else if pair.next_base() == base {
                 pair.size += min_alloc;
                 cursor = Some(index);
                 break;
             }
         }
 
-        if let Some(cursor) = cursor {
-            if cursor < self.data.len() - 1 {
-                let current = unsafe { self.data.get_unchecked(cursor) };
-                let next = unsafe { self.data.get_unchecked(cursor + 1) };
+        if let Some(index) = cursor {
+            if index < self.data.len() - 1 {
+                let current = unsafe { self.data.get_unchecked(index) };
+                let next = unsafe { self.data.get_unchecked(index + 1) };
                 if current.next_base() == next.base {
-                    let next = self.data.remove(cursor + 1);
-                    self.data[cursor].size += next.size;
+                    let next = self.data.remove(index + 1);
+                    self.data[index].size += next.size;
                 }
             }
-            return;
+        } else {
+            self.data.push(new_pair);
+            self.merge();
         }
-
-        self.data.push(new_pair);
-        self.data.sort_by(|a, b| a.base.cmp(&b.base));
+        for data in &self.data {
+            println!("DATA {:08x} {}", data.base, data.size);
+        }
     }
 }
 

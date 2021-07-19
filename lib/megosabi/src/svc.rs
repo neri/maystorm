@@ -1,4 +1,4 @@
-// MEG-OS Arlequin System Call Function Numbers
+//! MEG-OS Arlequin System Call Function Numbers
 
 use num_derive::FromPrimitive;
 // use num_traits::FromPrimitive;
@@ -50,10 +50,8 @@ pub enum Function {
     Rand = 100,
     /// Set the seed of the random number
     Srand,
-    /// RESERVED
-    Alloc = 10000,
-    /// RESERVED
+    /// Allocates memory blocks with a simple allocator
+    Alloc,
+    /// Frees an allocated memory block
     Dealloc,
-    /// test_u64
-    Test,
 }

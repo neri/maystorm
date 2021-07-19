@@ -5,10 +5,13 @@
 #![no_main]
 #![feature(asm)]
 
-use boot_efi::{config::*, invocation::*, loader::*, page::*, *};
+use boot_efi::{config::*, invocation::*, loader::*, page::*};
 use bootprot::*;
 use core::{ffi::c_void, fmt::Write, mem::*};
 use uefi::prelude::*;
+
+extern crate lib_efi;
+use lib_efi::*;
 
 #[entry]
 fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {

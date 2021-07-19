@@ -84,7 +84,7 @@ impl Console {
     pub fn draw_char(&mut self, x: usize, y: usize, c: char, fg_color: u32, bg_color: u32) {
         let width = FONT_MEGH0608_WIDTH;
         let height = FONT_MEGH0608_HEIGHT;
-        let c = c as u8 as usize;
+        let c = c as u32 as usize;
         let x = x * width + Self::PADDING_X;
         let y = y * height + Self::PADDING_Y;
         if c >= 0x20 && c < 0x80 {
@@ -93,6 +93,8 @@ impl Console {
             let pattern = &FONT_MEGH0608_DATA[offset..offset + stride];
             self.fill_rect(x, y, width, height, bg_color);
             self.draw_pattern(x, y, width, height, pattern, fg_color);
+        } else {
+            self.fill_rect(x + 1, y, width - 2, height, fg_color);
         }
     }
 

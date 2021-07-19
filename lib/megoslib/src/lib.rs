@@ -1,6 +1,7 @@
 // MEG-OS Library
 #![no_std]
 #![feature(alloc_error_handler)]
+#![feature(asm)]
 
 pub mod bitmap;
 pub mod os_alloc;
@@ -15,7 +16,7 @@ extern crate alloc;
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     println!("{}", info);
-    loop {}
+    os_exit();
 }
 
 pub struct OsPrint {}

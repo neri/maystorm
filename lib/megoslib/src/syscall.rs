@@ -14,8 +14,13 @@ extern "C" {
 }
 
 #[inline]
-pub fn os_exit() {
-    unsafe { svc0(Function::Exit) };
+pub fn os_exit() -> ! {
+    unsafe {
+        svc0(Function::Exit);
+        loop {
+            asm!("unreachable");
+        }
+    }
 }
 
 /// Display a string.
@@ -80,8 +85,8 @@ pub fn os_close_window(window: usize) {
 
 /// Create a drawing context
 #[inline]
-pub fn os_begin_draw(window: usize) {
-    unsafe { svc1(Function::BeginDraw, window) };
+pub fn os_begin_draw(window: usize) -> usize {
+    unsafe { svc1(Function::BeginDraw, window) }
 }
 
 /// Discard the drawing context and reflect it to the screen
@@ -157,17 +162,14 @@ pub fn os_srand(srand: u32) -> u32 {
     unsafe { svc1(Function::Srand, srand as usize) as u32 }
 }
 
+/// Allocates memory blocks with a simple allocator
 #[inline]
 pub fn os_alloc(size: usize, align: usize) -> usize {
     unsafe { svc2(Function::Alloc, size, align) }
 }
 
+/// Frees an allocated memory block
 #[inline]
 pub fn os_dealloc(ptr: usize, size: usize, align: usize) {
     unsafe { svc3(Function::Dealloc, ptr, size, align) };
-}
-
-#[inline]
-pub fn os_test(val: usize) {
-    unsafe { svc1(Function::Test, val) };
 }

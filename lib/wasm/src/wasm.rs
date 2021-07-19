@@ -262,7 +262,7 @@ impl WasmLoader {
                 .memories
                 .get_mut(memidx)
                 .ok_or(WasmDecodeErrorType::InvalidParameter)?;
-            memory.write_bytes(offset, src).unwrap();
+            memory.write_slice(offset, src).unwrap();
         }
         Ok(())
     }
@@ -882,7 +882,7 @@ impl WasmMemory {
 
     /// Write slice to memory
     #[inline]
-    pub fn write_bytes(&self, offset: usize, src: &[u8]) -> Result<(), WasmRuntimeErrorType> {
+    pub fn write_slice(&self, offset: usize, src: &[u8]) -> Result<(), WasmRuntimeErrorType> {
         let memory = self.memory_mut();
         let size = src.len();
         let limit = memory.len();
@@ -891,6 +891,25 @@ impl WasmMemory {
             let src = &src[0] as *const u8;
             unsafe {
                 dest.copy_from_nonoverlapping(src, size);
+            }
+            Ok(())
+        } else {
+            Err(WasmRuntimeErrorType::OutOfBounds)
+        }
+    }
+
+    pub fn write_bytes(
+        &self,
+        offset: usize,
+        val: u8,
+        count: usize,
+    ) -> Result<(), WasmRuntimeErrorType> {
+        let memory = self.memory_mut();
+        let limit = memory.len();
+        if offset < limit && count < limit && offset + count < limit {
+            let dest = &mut memory[offset] as *mut u8;
+            unsafe {
+                dest.write_bytes(val, count);
             }
             Ok(())
         } else {

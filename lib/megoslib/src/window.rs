@@ -36,8 +36,9 @@ impl Window {
 
     #[inline]
     pub fn begin_draw(&self) -> DrawingContext {
-        os_begin_draw(self.handle.0);
-        DrawingContext { ctx: self.handle.0 }
+        DrawingContext {
+            ctx: os_begin_draw(self.handle.0),
+        }
     }
 
     #[inline]
