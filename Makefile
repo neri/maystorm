@@ -1,4 +1,5 @@
 .PHONY: love all clean install iso run runs test apps doc kernel boot
+.SUFFIXED: .wasm
 
 EFI_ARCH	= x86_64-unknown-uefi
 KRNL_ARCH	= x86_64-unknown-none
@@ -55,6 +56,8 @@ iso: install
 
 apps:
 	cd apps; cargo build --target wasm32-unknown-unknown --release
+	for name in ./apps/target/wasm32-unknown-unknown/release/*.wasm; do \
+	cargo run --manifest-path ./tools/wasm-strip/Cargo.toml -- -preserve name $$name $$name; done
 
 test:
 	cargo test --manifest-path lib/wasm/Cargo.toml

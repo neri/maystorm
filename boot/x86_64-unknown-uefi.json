@@ -10,7 +10,6 @@
   "exe-suffix": ".efi",
   "executables": true,
   "features": "-mmx,-sse,-soft-float",
-  "is-builtin": true,
   "is-like-msvc": true,
   "is-like-windows": true,
   "linker": "rust-lld",

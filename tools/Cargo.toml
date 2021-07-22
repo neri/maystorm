@@ -3,6 +3,7 @@ members = [
   "elf2ceef",
   "mkfdfs",
   "mkinitrd",
+  "wasm-strip",
 ]
 
 [profile.release]

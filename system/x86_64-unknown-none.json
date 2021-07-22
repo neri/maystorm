@@ -12,7 +12,6 @@
     "executables": true,
     "has-elf-tls": true,
     "has-rpath": false,
-    "is-builtin": true,
     "llvm-target": "x86_64-unknown-none",
     "max-atomic-width": 64,
     "os": "none",

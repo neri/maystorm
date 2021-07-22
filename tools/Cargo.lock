@@ -34,3 +34,10 @@ version = "0.1.0"
 dependencies = [
  "byteorder",
 ]
+
+[[package]]
+name = "wasm-strip"
+version = "0.1.0"
+dependencies = [
+ "byteorder",
+]

@@ -798,21 +798,24 @@ impl Drop for OsWindow {
 
 pub struct SimpleAllocator {
     data: Vec<SimpleFreePair>,
-    strategy: SimpleAllicationStrategy,
+    strategy: AllocationStrategy,
 }
 
 impl SimpleAllocator {
     const MIN_MASK: u32 = 0x0000_000F;
 
     #[inline]
-    pub const fn new(strategy: SimpleAllicationStrategy) -> Self {
+    pub const fn new(strategy: AllocationStrategy) -> Self {
         Self {
             data: Vec::new(),
             strategy,
         }
     }
 
-    fn merge(&mut self) {
+    fn merge(&mut self, new_data: Option<SimpleFreePair>) {
+        if let Some(new_data) = new_data {
+            self.data.push(new_data);
+        }
         self.data.sort_by(|a, b| a.base.cmp(&b.base));
 
         let mut do_retry = false;
@@ -836,8 +839,7 @@ impl SimpleAllocator {
     }
 
     pub fn append_block(&mut self, base: u32, size: u32) {
-        self.data.push(SimpleFreePair::new(base, size));
-        self.merge();
+        self.merge(Some(SimpleFreePair::new(base, size)));
     }
 
     pub fn alloc(&mut self, layout: Layout) -> Option<NonZeroU32> {
@@ -850,12 +852,13 @@ impl SimpleAllocator {
         let mut result = 0;
         let mut extend = Vec::new();
         match self.strategy {
-            SimpleAllicationStrategy::FirstFit => {
+            AllocationStrategy::FirstFit => {
                 for pair in &mut self.data {
                     if (pair.base & layout_mask) == 0 && pair.size >= min_alloc {
                         result = pair.base;
                         pair.size -= min_alloc;
                         pair.base += min_alloc;
+                        break;
                     } else if pair.size >= max_alloc {
                         let redundant = pair.base & layout_mask;
                         extend.push(SimpleFreePair::new(pair.base, redundant));
@@ -865,14 +868,15 @@ impl SimpleAllocator {
                         result = pair.base;
                         pair.size -= min_alloc;
                         pair.base += min_alloc;
+                        break;
                     }
                 }
             }
-            SimpleAllicationStrategy::BestFit => todo!(),
+            AllocationStrategy::BestFit => todo!(),
         }
         if extend.len() > 0 {
             self.data.extend_from_slice(extend.as_slice());
-            self.merge();
+            self.merge(None);
         }
 
         NonZeroU32::new(result)
@@ -910,8 +914,7 @@ impl SimpleAllocator {
                 }
             }
         } else {
-            self.data.push(new_pair);
-            self.merge();
+            self.merge(Some(new_pair));
         }
         for data in &self.data {
             println!("DATA {:08x} {}", data.base, data.size);
@@ -922,13 +925,13 @@ impl SimpleAllocator {
 impl Default for SimpleAllocator {
     #[inline]
     fn default() -> Self {
-        Self::new(SimpleAllicationStrategy::FirstFit)
+        Self::new(AllocationStrategy::FirstFit)
     }
 }
 
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum SimpleAllicationStrategy {
+pub enum AllocationStrategy {
     FirstFit,
     BestFit,
 }
