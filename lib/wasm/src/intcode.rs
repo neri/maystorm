@@ -39,8 +39,6 @@ pub enum WasmIntMnemonic {
     LocalGet,
     /// Set a value to a local variable
     LocalSet,
-    /// Duplicate a value to local variable
-    LocalTee,
     /// Get a value from a global variable
     GlobalGet,
     /// Set a value to a global variable

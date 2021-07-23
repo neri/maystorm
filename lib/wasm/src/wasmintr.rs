@@ -2,10 +2,12 @@
 
 use super::{intcode::*, stack::*, wasm::*};
 use crate::opcode::WasmOpcode;
-use alloc::vec::Vec;
+use alloc::{borrow::ToOwned, string::String, vec::Vec};
 use core::fmt;
 
 type StackType = usize;
+
+const INITIAL_VALUE_STACK_SIZE: usize = 512;
 
 /// Wasm Intermediate Code
 #[derive(Debug, Clone, Copy)]
@@ -102,43 +104,50 @@ impl<'a> WasmInterpreter<'a> {
 }
 
 impl WasmInterpreter<'_> {
-    pub fn invoke(
-        &mut self,
-        func_index: usize,
-        code_block: &WasmCodeBlock,
-        locals: &[WasmStackValue],
-        result_types: &[WasmValType],
-    ) -> Result<Option<WasmValue>, WasmRuntimeError> {
-        let mut heap = StackHeap::with_capacity(0x10000);
-
-        let mut locals = {
-            let output = heap.alloc(locals.len());
-            output.copy_from_slice(locals);
-            output
-        };
-
-        self.func_index = func_index;
-
-        self.interpret(code_block, &mut locals, result_types, &mut heap)
-    }
-
     #[inline]
     fn error(&self, kind: WasmRuntimeErrorType, code: &WasmImc) -> WasmRuntimeError {
+        let function_name = self
+            .module
+            .names()
+            .and_then(|v| v.search_function(self.func_index))
+            .map(|v| v.to_owned());
+        let file_position = self
+            .module
+            .codeblock(self.func_index)
+            .map(|v| v.file_position())
+            .unwrap_or(0)
+            + code.source_position();
         WasmRuntimeError {
             kind,
+            file_position,
             function: self.func_index,
+            function_name,
             position: code.source_position(),
             opcode: code.opcode().unwrap_or(WasmOpcode::Unreachable),
         }
     }
 
+    #[inline]
+    pub fn invoke(
+        &mut self,
+        func_index: usize,
+        code_block: &WasmCodeBlock,
+        locals: &mut [WasmStackValue],
+        result_types: &[WasmValType],
+    ) -> Result<Option<WasmValue>, WasmRuntimeError> {
+        let mut heap = StackHeap::with_capacity(0x10000);
+        self.interpret(func_index, code_block, locals, result_types, &mut heap)
+    }
+
     fn interpret(
         &mut self,
+        func_index: usize,
         code_block: &WasmCodeBlock,
         locals: &mut [WasmStackValue],
         result_types: &[WasmValType],
         heap: &mut StackHeap,
     ) -> Result<Option<WasmValue>, WasmRuntimeError> {
+        self.func_index = func_index;
         let mut codes = WasmIntermediateCodeStream::from_codes(code_block.intermediate_codes());
 
         let value_stack = heap.alloc(code_block.max_value_stack());
@@ -148,18 +157,14 @@ impl WasmInterpreter<'_> {
 
         let mut result_stack_level = 0;
 
-        // let mut last_code = WasmImc::from_mnemonic(WasmIntMnemonic::Unreachable);
-
         let memory = unsafe { self.module.memory_unchecked(0) };
 
         while let Some(code) = codes.fetch() {
             match code.mnemonic() {
-                WasmIntMnemonic::Unreachable => {
-                    return Err(self.error(WasmRuntimeErrorType::Unreachable, code))
+                WasmIntMnemonic::Unreachable | WasmIntMnemonic::Nop => {
+                    // Currently, NOP is unreachable
+                    return Err(self.error(WasmRuntimeErrorType::Unreachable, code));
                 }
-
-                // Currently, NOP is unreachable
-                WasmIntMnemonic::Nop => unreachable!(),
 
                 WasmIntMnemonic::Br => {
                     let br = code.param1() as usize;
@@ -230,7 +235,7 @@ impl WasmInterpreter<'_> {
                     let ref_a = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
                     *ref_a = *local;
                 }
-                WasmIntMnemonic::LocalSet | WasmIntMnemonic::LocalTee => {
+                WasmIntMnemonic::LocalSet => {
                     let local = unsafe { locals.get_unchecked_mut(code.param1() as usize) };
                     let ref_a = unsafe { value_stack.get_unchecked(code.stack_level()) };
                     *local = *ref_a;
@@ -929,17 +934,31 @@ impl WasmInterpreter<'_> {
 
         if let Some(code_block) = target.code_block() {
             heap.snapshot(|heap| {
-                let mut locals = heap.alloc_stack(param_len + code_block.local_types().len());
                 let stack_under = stack_pointer - param_len;
+                let local_len = param_len + code_block.local_types().len();
 
-                locals.extend_from_slice(&value_stack[stack_under..stack_under + param_len]);
-                for _ in code_block.local_types() {
-                    let _ = locals.push(WasmStackValue::zero());
+                let locals = if value_stack.len() >= stack_under + local_len {
+                    let (_, locals) = value_stack.split_at_mut(stack_under);
+                    locals
+                } else {
+                    let locals = heap.alloc(usize::max(INITIAL_VALUE_STACK_SIZE, local_len));
+                    for (index, value) in value_stack[stack_under..stack_under + param_len]
+                        .iter()
+                        .enumerate()
+                    {
+                        unsafe {
+                            *locals.get_unchecked_mut(index) = *value;
+                        }
+                    }
+                    locals
+                };
+                for index in 0..code_block.local_types().len() {
+                    unsafe {
+                        *locals.get_unchecked_mut(param_len + index) = WasmStackValue::zero();
+                    }
                 }
 
-                self.func_index = target.index();
-
-                self.interpret(code_block, locals.as_mut_slice(), result_types, heap)
+                self.interpret(target.index(), code_block, locals, result_types, heap)
                     .and_then(|v| {
                         if let Some(result) = v {
                             let var = unsafe { value_stack.get_unchecked_mut(stack_under) };
@@ -1028,8 +1047,13 @@ impl WasmInvocation for WasmRunnable<'_> {
             .code_block()
             .ok_or(WasmRuntimeError::from(WasmRuntimeErrorType::NoMethod))?;
 
-        let mut locals =
-            Vec::with_capacity(function.param_types().len() + code_block.local_types().len());
+        let local_len = usize::max(
+            INITIAL_VALUE_STACK_SIZE,
+            function.param_types().len() + code_block.local_types().len(),
+        );
+        let mut locals = Vec::with_capacity(local_len);
+        locals.resize(local_len, WasmStackValue::zero());
+
         for (index, param_type) in function.param_types().iter().enumerate() {
             let param = params.get(index).ok_or(WasmRuntimeError::from(
                 WasmRuntimeErrorType::InvalidParameter,
@@ -1037,10 +1061,9 @@ impl WasmInvocation for WasmRunnable<'_> {
             if !param.is_valid_type(*param_type) {
                 return Err(WasmRuntimeErrorType::InvalidParameter.into());
             }
-            locals.push(WasmStackValue::from(param.clone()));
-        }
-        for _ in code_block.local_types() {
-            locals.push(WasmStackValue::zero());
+            unsafe {
+                *locals.get_unchecked_mut(index) = WasmStackValue::from(param.clone());
+            }
         }
 
         let result_types = function.result_types();
@@ -1049,7 +1072,7 @@ impl WasmInvocation for WasmRunnable<'_> {
         interp.invoke(
             function.index(),
             code_block,
-            locals.as_slice(),
+            locals.as_mut_slice(),
             result_types,
         )
     }
@@ -1057,7 +1080,9 @@ impl WasmInvocation for WasmRunnable<'_> {
 
 pub struct WasmRuntimeError {
     kind: WasmRuntimeErrorType,
+    file_position: usize,
     function: usize,
+    function_name: Option<String>,
     position: usize,
     opcode: WasmOpcode,
 }
@@ -1069,8 +1094,18 @@ impl WasmRuntimeError {
     }
 
     #[inline]
+    pub const fn file_position(&self) -> usize {
+        self.file_position
+    }
+
+    #[inline]
     pub const fn function(&self) -> usize {
         self.function
+    }
+
+    #[inline]
+    pub fn function_name(&self) -> Option<&String> {
+        self.function_name.as_ref()
     }
 
     #[inline]
@@ -1089,7 +1124,9 @@ impl From<WasmRuntimeErrorType> for WasmRuntimeError {
     fn from(kind: WasmRuntimeErrorType) -> Self {
         Self {
             kind,
+            file_position: 0,
             function: 0,
+            function_name: None,
             position: 0,
             opcode: WasmOpcode::Unreachable,
         }
@@ -1100,15 +1137,30 @@ impl fmt::Debug for WasmRuntimeError {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let opcode = self.opcode();
-        write!(
-            f,
-            "{:?} (function {} position {:x} bytecode {:02x} {})",
-            self.kind(),
-            self.function(),
-            self.position(),
-            opcode as usize,
-            opcode.to_str(),
-        )
+        if let Some(function_name) = self.function_name() {
+            write!(
+                f,
+                "{:?} (at 0x{:x} [${}:{}] opcode {:02x} {} function {})",
+                self.kind(),
+                self.file_position(),
+                self.function(),
+                self.position(),
+                opcode as usize,
+                opcode.to_str(),
+                function_name,
+            )
+        } else {
+            write!(
+                f,
+                "{:?} (at 0x{:x} [${}:{}] opcode {:02x} {})",
+                self.kind(),
+                self.file_position(),
+                self.function(),
+                self.position(),
+                opcode as usize,
+                opcode.to_str(),
+            )
+        }
     }
 }
 

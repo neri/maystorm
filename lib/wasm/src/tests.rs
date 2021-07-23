@@ -4,6 +4,7 @@ use crate::{
     wasmintr::{WasmInterpreter, WasmInvocation},
     Leb128Stream, WasmCodeBlock, WasmLoader, WasmModule, WasmRuntimeErrorType, WasmValType,
 };
+use alloc::borrow::ToOwned;
 
 #[test]
 fn instantiate() {
@@ -14,22 +15,22 @@ fn instantiate() {
 #[test]
 #[should_panic(expected = "BadExecutable")]
 fn instantiate_bad_exec1() {
-    let too_small = [0, 97, 115, 109, 1, 0, 0];
-    WasmLoader::instantiate(&too_small, |_, _, _| unreachable!()).unwrap();
+    let bad_exec = [0, 97, 115, 109, 1, 0, 0];
+    WasmLoader::instantiate(&bad_exec, |_, _, _| unreachable!()).unwrap();
 }
 
 #[test]
 #[should_panic(expected = "BadExecutable")]
 fn instantiate_bad_exec2() {
-    let too_small = [0, 97, 115, 109, 2, 0, 0, 0];
-    WasmLoader::instantiate(&too_small, |_, _, _| unreachable!()).unwrap();
+    let bad_exec = [0, 97, 115, 109, 2, 0, 0, 0];
+    WasmLoader::instantiate(&bad_exec, |_, _, _| unreachable!()).unwrap();
 }
 
 #[test]
 #[should_panic(expected = "UnexpectedEof")]
 fn instantiate_unexpected_eof() {
-    let minimal_bad = [0, 97, 115, 109, 1, 0, 0, 0, 1];
-    WasmLoader::instantiate(&minimal_bad, |_, _, _| unreachable!()).unwrap();
+    let bad_exec = [0, 97, 115, 109, 1, 0, 0, 0, 1];
+    WasmLoader::instantiate(&bad_exec, |_, _, _| unreachable!()).unwrap();
 }
 
 #[test]
@@ -83,22 +84,21 @@ fn add() {
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
-    let params = [1234.into(), 5678.into()];
-
+    let mut locals = [1234.into(), 5678.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 6912);
 
-    let params = [0xDEADBEEFu32.into(), 0x55555555.into()];
+    let mut locals = [0xDEADBEEFu32.into(), 0x55555555.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
@@ -114,22 +114,21 @@ fn fused_add() {
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
-    let params = [1234_5678.into()];
-
+    let mut locals = [1234_5678.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 12345679);
 
-    let params = [0xFFFF_FFFFu32.into()];
+    let mut locals = [0xFFFF_FFFFu32.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
@@ -145,21 +144,21 @@ fn sub() {
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
-    let params = [1234.into(), 5678.into()];
+    let mut locals = [1234.into(), 5678.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, -4444);
 
-    let params = [0x55555555.into(), 0xDEADBEEFu32.into()];
+    let mut locals = [0x55555555.into(), 0xDEADBEEFu32.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
@@ -175,21 +174,21 @@ fn mul() {
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
-    let params = [1234.into(), 5678.into()];
+    let mut locals = [1234.into(), 5678.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 7006652);
 
-    let params = [0x55555555.into(), 0xDEADBEEFu32.into()];
+    let mut locals = [0x55555555.into(), 0xDEADBEEFu32.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
@@ -205,47 +204,49 @@ fn div_s() {
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
-    let params = [7006652.into(), 5678.into()];
+    let mut locals = [7006652.into(), 5678.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 1234);
 
-    let params = [42.into(), (-6).into()];
+    let mut locals = [42.into(), (-6).into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, -7);
 
-    let params = [(-42).into(), (6).into()];
+    let mut locals = [(-42).into(), (6).into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, -7);
 
-    let params = [(-42).into(), (-6).into()];
+    let mut locals = [(-42).into(), (-6).into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 7);
 
-    let params = [1234.into(), 0.into()];
-    let result = interp.invoke(0, &info, &params, &result_types).unwrap_err();
+    let mut locals = [1234.into(), 0.into()];
+    let result = interp
+        .invoke(0, &info, &mut locals, &result_types)
+        .unwrap_err();
     assert_eq!(WasmRuntimeErrorType::DivideByZero, result.kind());
 }
 
@@ -257,38 +258,40 @@ fn div_u() {
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
-    let params = [7006652.into(), 5678.into()];
+    let mut locals = [7006652.into(), 5678.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 1234);
 
-    let params = [42.into(), (-6).into()];
+    let mut locals = [42.into(), (-6).into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 0);
 
-    let params = [(-42).into(), (6).into()];
+    let mut locals = [(-42).into(), (6).into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 715827875);
 
-    let params = [1234.into(), 0.into()];
-    let result = interp.invoke(0, &info, &params, &result_types).unwrap_err();
+    let mut locals = [1234.into(), 0.into()];
+    let result = interp
+        .invoke(0, &info, &mut locals, &result_types)
+        .unwrap_err();
     assert_eq!(WasmRuntimeErrorType::DivideByZero, result.kind());
 }
 
@@ -300,21 +303,21 @@ fn select() {
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
-    let params = [123.into(), 456.into(), 789.into()];
+    let mut locals = [123.into(), 456.into(), 789.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 123);
 
-    let params = [123.into(), 456.into(), 0.into()];
+    let mut locals = [123.into(), 456.into(), 0.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
@@ -330,48 +333,48 @@ fn lts() {
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
-    let params = [123.into(), 456.into()];
+    let mut locals = [123.into(), 456.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 1);
 
-    let params = [123.into(), 123.into()];
+    let mut locals = [123.into(), 123.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 0);
 
-    let params = [456.into(), 123.into()];
+    let mut locals = [456.into(), 123.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 0);
 
-    let params = [123.into(), (-456).into()];
+    let mut locals = [123.into(), (-456).into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 0);
 
-    let params = [456.into(), (-123).into()];
+    let mut locals = [456.into(), (-123).into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
@@ -387,48 +390,48 @@ fn ltu() {
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
-    let params = [123.into(), 456.into()];
+    let mut locals = [123.into(), 456.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 1);
 
-    let params = [123.into(), 123.into()];
+    let mut locals = [123.into(), 123.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 0);
 
-    let params = [456.into(), 123.into()];
+    let mut locals = [456.into(), 123.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 0);
 
-    let params = [123.into(), (-456).into()];
+    let mut locals = [123.into(), (-456).into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 1);
 
-    let params = [456.into(), (-123).into()];
+    let mut locals = [456.into(), (-123).into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
@@ -444,48 +447,48 @@ fn les() {
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
-    let params = [123.into(), 456.into()];
+    let mut locals = [123.into(), 456.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 1);
 
-    let params = [123.into(), 123.into()];
+    let mut locals = [123.into(), 123.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 1);
 
-    let params = [456.into(), 123.into()];
+    let mut locals = [456.into(), 123.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 0);
 
-    let params = [123.into(), (-456).into()];
+    let mut locals = [123.into(), (-456).into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 0);
 
-    let params = [456.into(), (-123).into()];
+    let mut locals = [456.into(), (-123).into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
@@ -505,66 +508,66 @@ fn br_table() {
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
-    let params = [0.into()];
+    let mut locals = [0.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 123);
 
-    let params = [1.into()];
+    let mut locals = [1.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 456);
 
-    let params = [2.into()];
+    let mut locals = [2.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 789);
 
-    let params = [3.into()];
+    let mut locals = [3.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 789);
 
-    let params = [4.into()];
+    let mut locals = [4.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 789);
 
-    let params = [5.into()];
+    let mut locals = [5.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 789);
 
-    let params = [(-1).into()];
+    let mut locals = [(-1).into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
@@ -586,21 +589,21 @@ fn app_factorial() {
     let mut stream = Leb128Stream::from_slice(&slice);
     let module = WasmModule::new();
     let info =
-        WasmCodeBlock::generate(0, &mut stream, &param_types, &result_types, &module).unwrap();
+        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
 
-    let params = [7.into(), 0.into()];
+    let mut locals = [7.into(), 0.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
         .unwrap();
     assert_eq!(result, 5040);
 
-    let params = [10.into(), 0.into()];
+    let mut locals = [10.into(), 0.into()];
     let result = interp
-        .invoke(0, &info, &params, &result_types)
+        .invoke(0, &info, &mut locals, &result_types)
         .unwrap()
         .unwrap()
         .get_i32()
@@ -677,4 +680,21 @@ fn global() {
     assert_eq!(result, 1368);
 
     assert_eq!(module.global(0).unwrap().value().get_i32().unwrap(), 1368);
+}
+
+#[test]
+fn name() {
+    let slice = [
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x00, 0x1F, 0x04, 0x6E, 0x61, 0x6D, 0x65,
+        0x00, 0x06, 0x05, 0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x01, 0x0E, 0x02, 0x01, 0x04, 0x77, 0x61,
+        0x73, 0x6D, 0xB4, 0x24, 0x04, 0x74, 0x65, 0x73, 0x74, 0x7F, 0x00,
+    ];
+    let module = WasmLoader::instantiate(&slice, |_, _, _| unreachable!()).unwrap();
+    let names = module.names().unwrap();
+
+    assert_eq!(names.module().unwrap(), &"Hello".to_owned());
+
+    assert_eq!(names.functions()[0], (1, "wasm".to_owned()));
+
+    assert_eq!(names.search_function(0x1234).unwrap(), &"test".to_owned());
 }

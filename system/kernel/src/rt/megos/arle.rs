@@ -816,7 +816,7 @@ impl SimpleAllocator {
         if let Some(new_data) = new_data {
             self.data.push(new_data);
         }
-        self.data.sort_by(|a, b| a.base.cmp(&b.base));
+        self.data.sort_by_key(|v| v.base);
 
         let mut do_retry = false;
         let mut retry_index = 0;

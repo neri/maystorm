@@ -1,4 +1,5 @@
 // Wasm Bytecode Table (AUTO GENERATED)
+use core::convert::TryFrom;
 
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -940,5 +941,13 @@ impl WasmOpcode {
             Self::I64Extend32S => WasmProposalType::SignExtend,
             _ => WasmProposalType::Mvp,
         }
+    }
+}
+
+impl TryFrom<u8> for WasmOpcode {
+    type Error = ();
+    #[inline]
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::new(value).ok_or(())
     }
 }

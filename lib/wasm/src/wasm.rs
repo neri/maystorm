@@ -6,6 +6,7 @@ use bitflags::*;
 use byteorder::*;
 use core::{
     cell::{RefCell, UnsafeCell},
+    convert::TryFrom,
     fmt,
     ops::*,
     slice, str,
@@ -60,9 +61,17 @@ impl WasmLoader {
         F: FnMut(&str, &str, &WasmType) -> Result<WasmDynFunc, WasmDecodeErrorType> + Copy,
     {
         let mut blob = Leb128Stream::from_slice(&blob[8..]);
-        while let Some(section) = blob.next_section()? {
+        while let Some(mut section) = blob.next_section()? {
             match section.section_type {
-                WasmSectionType::Custom => Ok(()),
+                WasmSectionType::Custom => {
+                    match section.stream.get_string() {
+                        Ok(WasmName::SECTION_NAME) => {
+                            self.module.names = WasmName::from_stream(&mut section.stream).ok()
+                        }
+                        _ => (),
+                    }
+                    Ok(())
+                }
                 WasmSectionType::Type => self.parse_sec_type(section),
                 WasmSectionType::Import => self.parse_sec_import(section, resolver),
                 WasmSectionType::Table => self.parse_sec_table(section),
@@ -235,10 +244,13 @@ impl WasmLoader {
                 .functions
                 .get(index)
                 .ok_or(WasmDecodeErrorType::InvalidParameter)?;
-            let blob = section.stream.read_bytes().unwrap();
+            let length = section.stream.read_unsigned()? as usize;
+            let file_position = section.file_position() + section.stream.position();
+            let blob = section.stream.get_bytes(length)?;
             let mut stream = Leb128Stream::from_slice(blob);
             let body = WasmCodeBlock::generate(
                 index,
+                file_position,
                 &mut stream,
                 func_def.param_types(),
                 func_def.result_types(),
@@ -335,6 +347,7 @@ pub struct WasmModule {
     functions: Vec<WasmFunction>,
     start: Option<usize>,
     globals: Vec<WasmGlobal>,
+    names: Option<WasmName>,
     n_ext_func: usize,
 }
 
@@ -350,6 +363,7 @@ impl WasmModule {
             functions: Vec::new(),
             start: None,
             globals: Vec::new(),
+            names: None,
             n_ext_func: 0,
         }
     }
@@ -426,6 +440,11 @@ impl WasmModule {
     }
 
     #[inline]
+    pub(crate) fn codeblock(&self, index: usize) -> Option<&WasmCodeBlock> {
+        self.functions.get(index).and_then(|v| v.code_block())
+    }
+
+    #[inline]
     pub fn entry_point(&self) -> Result<WasmRunnable, WasmRuntimeErrorType> {
         self.start
             .ok_or(WasmRuntimeErrorType::NoMethod)
@@ -454,6 +473,11 @@ impl WasmModule {
     pub fn global(&self, index: usize) -> Option<&WasmGlobal> {
         self.globals.get(index)
     }
+
+    #[inline]
+    pub fn names(&self) -> Option<&WasmName> {
+        self.names.as_ref()
+    }
 }
 
 /// Stream encoded with LEB128
@@ -469,6 +493,14 @@ impl<'a> Leb128Stream<'a> {
         Self {
             blob: slice,
             position: 0,
+        }
+    }
+
+    #[inline]
+    pub fn cloned(&self) -> Self {
+        Self {
+            blob: self.blob,
+            position: self.position,
         }
     }
 }
@@ -606,12 +638,30 @@ impl Leb128Stream<'_> {
             None => return Ok(None),
         };
 
-        let blob = self.read_bytes()?;
+        let magic = 8;
+        let length = self.read_unsigned()? as usize;
+        let file_position = self.position + magic;
+        let blob = self.get_bytes(length)?;
         let stream = Leb128Stream::from_slice(blob);
         Ok(Some(WasmSection {
             section_type: section_type.into(),
+            file_position,
             stream,
         }))
+    }
+
+    pub fn write_unsigned(vec: &mut Vec<u8>, value: u64) {
+        let mut value = value;
+        loop {
+            let byte = value & 0x7F;
+            value >>= 7;
+            if value == 0 {
+                vec.push(byte as u8);
+                break;
+            } else {
+                vec.push(0x80 | byte as u8);
+            }
+        }
     }
 }
 
@@ -635,15 +685,49 @@ impl WasmMemArg {
 }
 
 /// WebAssembly section stream
-struct WasmSection<'a> {
+pub struct WasmSection<'a> {
     section_type: WasmSectionType,
+    file_position: usize,
     stream: Leb128Stream<'a>,
+}
+
+impl WasmSection<'_> {
+    #[inline]
+    pub const fn section_type(&self) -> WasmSectionType {
+        self.section_type
+    }
+
+    #[inline]
+    pub const fn file_position(&self) -> usize {
+        self.file_position
+    }
+
+    #[inline]
+    pub const fn stream_size(&self) -> usize {
+        self.stream.len()
+    }
+
+    #[inline]
+    pub fn custom_section_name(&self) -> Option<String> {
+        if self.section_type != WasmSectionType::Custom {
+            return None;
+        }
+        let mut blob = self.stream.cloned();
+        blob.reset();
+        blob.get_string().map(|v| v.to_string()).ok()
+    }
+
+    pub fn write_to_vec(&self, vec: &mut Vec<u8>) {
+        vec.push(self.section_type() as u8);
+        Leb128Stream::write_unsigned(vec, self.stream_size() as u64);
+        vec.extend_from_slice(self.stream.blob);
+    }
 }
 
 /// WebAssembly section types
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialOrd, PartialEq)]
-enum WasmSectionType {
+pub enum WasmSectionType {
     Custom = 0,
     Type,
     Import,
@@ -1538,9 +1622,92 @@ impl WasmGlobal {
     }
 }
 
+/// WebAssembly name section
+pub struct WasmName {
+    module: Option<String>,
+    functions: Vec<(usize, String)>,
+    //locals: Vec<>,
+}
+
+impl WasmName {
+    pub const SECTION_NAME: &'static str = "name";
+
+    fn from_stream(stream: &mut Leb128Stream) -> Result<Self, WasmDecodeErrorType> {
+        let mut module = None;
+        let mut functions = Vec::new();
+
+        while !stream.is_eof() {
+            let name_id = stream.read_byte()?;
+            let blob = stream.read_bytes()?;
+            let name_id = match WasmNameSubsectionType::try_from(name_id) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let mut stream = Leb128Stream::from_slice(blob);
+            match name_id {
+                WasmNameSubsectionType::Module => {
+                    module = stream.get_string().map(|s| s.to_string()).ok()
+                }
+                WasmNameSubsectionType::Function => {
+                    let length = stream.read_unsigned()? as usize;
+                    for _ in 0..length {
+                        let idx = stream.read_unsigned()? as usize;
+                        let s = stream.get_string().map(|s| s.to_string())?;
+                        functions.push((idx, s));
+                    }
+                }
+                WasmNameSubsectionType::Local => {
+                    // TODO:
+                }
+            }
+        }
+
+        Ok(Self { module, functions })
+    }
+
+    #[inline]
+    pub fn module(&self) -> Option<&String> {
+        self.module.as_ref()
+    }
+
+    #[inline]
+    pub fn functions(&self) -> &[(usize, String)] {
+        self.functions.as_slice()
+    }
+
+    pub fn search_function(&self, idx: usize) -> Option<&String> {
+        let functions = self.functions();
+        match functions.binary_search_by_key(&idx, |(k, _v)| *k) {
+            Ok(v) => functions.get(v).map(|(_k, v)| v),
+            Err(_) => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum WasmNameSubsectionType {
+    Module = 0,
+    Function,
+    Local,
+}
+
+impl TryFrom<u8> for WasmNameSubsectionType {
+    type Error = WasmDecodeErrorType;
+    #[inline]
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Module),
+            1 => Ok(Self::Function),
+            2 => Ok(Self::Local),
+            _ => Err(WasmDecodeErrorType::UnexpectedToken),
+        }
+    }
+}
+
 /// WebAssembly code block
 pub struct WasmCodeBlock {
     func_index: usize,
+    file_position: usize,
     local_types: Box<[WasmValType]>,
     max_stack: usize,
     flags: WasmBlockFlag,
@@ -1558,6 +1725,11 @@ impl WasmCodeBlock {
     #[inline]
     pub const fn func_index(&self) -> usize {
         self.func_index
+    }
+
+    #[inline]
+    pub const fn file_position(&self) -> usize {
+        self.file_position
     }
 
     #[inline]
@@ -1591,6 +1763,7 @@ impl WasmCodeBlock {
     /// Analyzes the WebAssembly bytecode stream to generate intermediate code blocks.
     pub fn generate(
         func_index: usize,
+        file_position: usize,
         stream: &mut Leb128Stream,
         param_types: &[WasmValType],
         result_types: &[WasmValType],
@@ -1641,7 +1814,13 @@ impl WasmCodeBlock {
 
             match opcode {
                 WasmOpcode::Unreachable => {
-                    int_codes.push(WasmIntMnemonic::Unreachable.into());
+                    int_codes.push(WasmImc::new(
+                        position,
+                        opcode,
+                        WasmIntMnemonic::Unreachable,
+                        value_stack.len(),
+                        0,
+                    ));
                 }
 
                 WasmOpcode::Nop => (),
@@ -1786,6 +1965,9 @@ impl WasmCodeBlock {
                         .get(block_stack.len() - br - 1)
                         .ok_or(WasmDecodeErrorType::OutOfBranch)?;
                     let cc = value_stack.pop().ok_or(WasmDecodeErrorType::OutOfStack)?;
+                    if cc != WasmValType::I32 {
+                        return Err(WasmDecodeErrorType::TypeMismatch);
+                    }
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
@@ -1793,9 +1975,6 @@ impl WasmCodeBlock {
                         value_stack.len(),
                         *target as u64,
                     ));
-                    if cc != WasmValType::I32 {
-                        return Err(WasmDecodeErrorType::TypeMismatch);
-                    }
                 }
                 WasmOpcode::BrTable => {
                     let table_len = 1 + stream.read_unsigned()? as usize;
@@ -1947,7 +2126,7 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::LocalTee,
+                        WasmIntMnemonic::LocalSet,
                         value_stack.len() - 1,
                         local_ref as u64,
                     ));
@@ -2395,7 +2574,7 @@ impl WasmCodeBlock {
                         position,
                         opcode,
                         WasmIntMnemonic::MemoryGrow,
-                        value_stack.len(),
+                        value_stack.len() - 1,
                         0,
                     ));
                     let a = *value_stack.last().ok_or(WasmDecodeErrorType::OutOfStack)?;
@@ -3311,7 +3490,6 @@ impl WasmCodeBlock {
                         0,
                     ));
                 }
-
                 WasmOpcode::I64Rotr => {
                     let a = value_stack.pop().ok_or(WasmDecodeErrorType::OutOfStack)?;
                     let b = *value_stack.last().ok_or(WasmDecodeErrorType::OutOfStack)?;
@@ -3728,6 +3906,7 @@ impl WasmCodeBlock {
 
         Ok(Self {
             func_index,
+            file_position,
             local_types: local_var_types.into_boxed_slice(),
             max_stack,
             flags,
