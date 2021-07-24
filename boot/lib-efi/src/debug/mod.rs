@@ -4,7 +4,7 @@
 use core::fmt::Write;
 use core::slice;
 
-include!("megh0608.rs");
+include!("megh0816.rs");
 
 static mut CONSOLE: Console = Console::new();
 
@@ -55,8 +55,8 @@ impl Console {
         shared.width = width;
         shared.height = height;
         shared.stride = stride;
-        shared.cols = (width - Self::PADDING_X * 2) / FONT_MEGH0608_WIDTH;
-        shared.rows = (height - Self::PADDING_Y * 2) / FONT_MEGH0608_HEIGHT;
+        shared.cols = (width - Self::PADDING_X * 2) / FONT_MEGH0816_WIDTH;
+        shared.rows = (height - Self::PADDING_Y * 2) / FONT_MEGH0816_HEIGHT;
 
         shared.fill_rect(0, 0, width, height, 0x000000);
     }
@@ -82,15 +82,15 @@ impl Console {
     }
 
     pub fn draw_char(&mut self, x: usize, y: usize, c: char, fg_color: u32, bg_color: u32) {
-        let width = FONT_MEGH0608_WIDTH;
-        let height = FONT_MEGH0608_HEIGHT;
+        let width = FONT_MEGH0816_WIDTH;
+        let height = FONT_MEGH0816_HEIGHT;
         let c = c as u32 as usize;
         let x = x * width + Self::PADDING_X;
         let y = y * height + Self::PADDING_Y;
         if c >= 0x20 && c < 0x80 {
             let stride = ((width + 7) / 8) * height;
             let offset = (c - 0x20) * stride;
-            let pattern = &FONT_MEGH0608_DATA[offset..offset + stride];
+            let pattern = &FONT_MEGH0816_DATA[offset..offset + stride];
             self.fill_rect(x, y, width, height, bg_color);
             self.draw_pattern(x, y, width, height, pattern, fg_color);
         } else {

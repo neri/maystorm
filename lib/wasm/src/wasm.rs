@@ -6,11 +6,12 @@ use bitflags::*;
 use byteorder::*;
 use core::{
     cell::{RefCell, UnsafeCell},
-    convert::TryFrom,
     fmt,
     ops::*,
     slice, str,
 };
+use num_derive::FromPrimitive;
+use num_traits::FromPrimitive;
 
 /// WebAssembly loader
 pub struct WasmLoader {
@@ -633,9 +634,13 @@ impl Leb128Stream<'_> {
     }
 
     fn next_section(&mut self) -> Result<Option<WasmSection>, WasmDecodeErrorType> {
-        let section_type = match self.read_byte().ok() {
+        if self.is_eof() {
+            return Ok(None);
+        }
+        let section_type = self.read_byte()?;
+        let section_type = match FromPrimitive::from_u8(section_type) {
             Some(v) => v,
-            None => return Ok(None),
+            None => return Err(WasmDecodeErrorType::UnexpectedToken),
         };
 
         let magic = 8;
@@ -644,7 +649,7 @@ impl Leb128Stream<'_> {
         let blob = self.get_bytes(length)?;
         let stream = Leb128Stream::from_slice(blob);
         Ok(Some(WasmSection {
-            section_type: section_type.into(),
+            section_type,
             file_position,
             stream,
         }))
@@ -703,7 +708,7 @@ impl WasmSection<'_> {
     }
 
     #[inline]
-    pub const fn stream_size(&self) -> usize {
+    pub const fn content_size(&self) -> usize {
         self.stream.len()
     }
 
@@ -719,14 +724,14 @@ impl WasmSection<'_> {
 
     pub fn write_to_vec(&self, vec: &mut Vec<u8>) {
         vec.push(self.section_type() as u8);
-        Leb128Stream::write_unsigned(vec, self.stream_size() as u64);
+        Leb128Stream::write_unsigned(vec, self.content_size() as u64);
         vec.extend_from_slice(self.stream.blob);
     }
 }
 
 /// WebAssembly section types
 #[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialOrd, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialOrd, PartialEq, FromPrimitive)]
 pub enum WasmSectionType {
     Custom = 0,
     Type,
@@ -740,26 +745,6 @@ pub enum WasmSectionType {
     Element,
     Code,
     Data,
-}
-
-impl From<u8> for WasmSectionType {
-    #[inline]
-    fn from(v: u8) -> Self {
-        match v {
-            1 => WasmSectionType::Type,
-            2 => WasmSectionType::Import,
-            3 => WasmSectionType::Function,
-            4 => WasmSectionType::Table,
-            5 => WasmSectionType::Memory,
-            6 => WasmSectionType::Global,
-            7 => WasmSectionType::Export,
-            8 => WasmSectionType::Start,
-            9 => WasmSectionType::Element,
-            10 => WasmSectionType::Code,
-            11 => WasmSectionType::Data,
-            _ => WasmSectionType::Custom,
-        }
-    }
 }
 
 /// WebAssembly primitive types
@@ -1639,9 +1624,9 @@ impl WasmName {
         while !stream.is_eof() {
             let name_id = stream.read_byte()?;
             let blob = stream.read_bytes()?;
-            let name_id = match WasmNameSubsectionType::try_from(name_id) {
-                Ok(v) => v,
-                Err(_) => continue,
+            let name_id = match FromPrimitive::from_u8(name_id) {
+                Some(v) => v,
+                None => continue,
             };
             let mut stream = Leb128Stream::from_slice(blob);
             match name_id {
@@ -1656,7 +1641,7 @@ impl WasmName {
                         functions.push((idx, s));
                     }
                 }
-                WasmNameSubsectionType::Local => {
+                _ => {
                     // TODO:
                 }
             }
@@ -1684,24 +1669,18 @@ impl WasmName {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
 enum WasmNameSubsectionType {
     Module = 0,
     Function,
     Local,
-}
-
-impl TryFrom<u8> for WasmNameSubsectionType {
-    type Error = WasmDecodeErrorType;
-    #[inline]
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Module),
-            1 => Ok(Self::Function),
-            2 => Ok(Self::Local),
-            _ => Err(WasmDecodeErrorType::UnexpectedToken),
-        }
-    }
+    Labels,
+    Type,
+    Table,
+    Memory,
+    Global,
+    ElemSegment,
+    DataSegment,
 }
 
 /// WebAssembly code block
