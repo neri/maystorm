@@ -105,11 +105,11 @@ impl<'a> WasmInterpreter<'a> {
 
 impl WasmInterpreter<'_> {
     #[inline]
-    fn error(&self, kind: WasmRuntimeErrorType, code: &WasmImc) -> WasmRuntimeError {
+    fn error(&self, kind: WasmRuntimeErrorKind, code: &WasmImc) -> WasmRuntimeError {
         let function_name = self
             .module
             .names()
-            .and_then(|v| v.search_function(self.func_index))
+            .and_then(|v| v.func_by_index(self.func_index))
             .map(|v| v.to_owned());
         let file_position = self
             .module
@@ -163,7 +163,7 @@ impl WasmInterpreter<'_> {
             match code.mnemonic() {
                 WasmIntMnemonic::Unreachable | WasmIntMnemonic::Nop => {
                     // Currently, NOP is unreachable
-                    return Err(self.error(WasmRuntimeErrorType::Unreachable, code));
+                    return Err(self.error(WasmRuntimeErrorKind::Unreachable, code));
                 }
 
                 WasmIntMnemonic::Br => {
@@ -211,9 +211,9 @@ impl WasmInterpreter<'_> {
                     let func = self
                         .module
                         .elem_by_index(index)
-                        .ok_or(self.error(WasmRuntimeErrorType::NoMethod, code))?;
+                        .ok_or(self.error(WasmRuntimeErrorKind::NoMethod, code))?;
                     if func.type_index() != type_index {
-                        return Err(self.error(WasmRuntimeErrorType::TypeMismatch, code));
+                        return Err(self.error(WasmRuntimeErrorKind::TypeMismatch, code));
                     }
                     self.call(func, code, value_stack, heap)?;
                 }
@@ -251,7 +251,7 @@ impl WasmInterpreter<'_> {
                     let global =
                         unsafe { self.module.globals().get_unchecked(code.param1() as usize) };
                     let ref_a = unsafe { value_stack.get_unchecked(code.stack_level()) };
-                    global.set(|v| *v = ref_a.get_by_type(global.val_type()));
+                    *global.get_mut() = ref_a.get_by_type(global.val_type());
                 }
 
                 WasmIntMnemonic::I32Load => {
@@ -546,7 +546,7 @@ impl WasmInterpreter<'_> {
                     let rhs = unsafe { value_stack.get_unchecked(stack_level + 1).get_i32() };
                     let lhs = unsafe { value_stack.get_unchecked_mut(stack_level) };
                     if rhs == 0 {
-                        return Err(self.error(WasmRuntimeErrorType::DivideByZero, code));
+                        return Err(self.error(WasmRuntimeErrorKind::DivideByZero, code));
                     }
                     lhs.map_i32(|lhs| lhs.wrapping_div(rhs));
                 }
@@ -555,7 +555,7 @@ impl WasmInterpreter<'_> {
                     let rhs = unsafe { value_stack.get_unchecked(stack_level + 1).get_u32() };
                     let lhs = unsafe { value_stack.get_unchecked_mut(stack_level) };
                     if rhs == 0 {
-                        return Err(self.error(WasmRuntimeErrorType::DivideByZero, code));
+                        return Err(self.error(WasmRuntimeErrorKind::DivideByZero, code));
                     }
                     lhs.map_u32(|lhs| lhs.wrapping_div(rhs));
                 }
@@ -564,7 +564,7 @@ impl WasmInterpreter<'_> {
                     let rhs = unsafe { value_stack.get_unchecked(stack_level + 1).get_i32() };
                     let lhs = unsafe { value_stack.get_unchecked_mut(stack_level) };
                     if rhs == 0 {
-                        return Err(self.error(WasmRuntimeErrorType::DivideByZero, code));
+                        return Err(self.error(WasmRuntimeErrorKind::DivideByZero, code));
                     }
                     lhs.map_i32(|lhs| lhs.wrapping_rem(rhs));
                 }
@@ -573,7 +573,7 @@ impl WasmInterpreter<'_> {
                     let rhs = unsafe { value_stack.get_unchecked(stack_level + 1).get_u32() };
                     let lhs = unsafe { value_stack.get_unchecked_mut(stack_level) };
                     if rhs == 0 {
-                        return Err(self.error(WasmRuntimeErrorType::DivideByZero, code));
+                        return Err(self.error(WasmRuntimeErrorKind::DivideByZero, code));
                     }
                     lhs.map_u32(|lhs| lhs.wrapping_rem(rhs));
                 }
@@ -728,7 +728,7 @@ impl WasmInterpreter<'_> {
                     let rhs = unsafe { value_stack.get_unchecked(stack_level + 1).get_i64() };
                     let lhs = unsafe { value_stack.get_unchecked_mut(stack_level) };
                     if rhs == 0 {
-                        return Err(self.error(WasmRuntimeErrorType::DivideByZero, code));
+                        return Err(self.error(WasmRuntimeErrorKind::DivideByZero, code));
                     }
                     lhs.map_i64(|lhs| lhs.wrapping_div(rhs));
                 }
@@ -737,7 +737,7 @@ impl WasmInterpreter<'_> {
                     let rhs = unsafe { value_stack.get_unchecked(stack_level + 1).get_u64() };
                     let lhs = unsafe { value_stack.get_unchecked_mut(stack_level) };
                     if rhs == 0 {
-                        return Err(self.error(WasmRuntimeErrorType::DivideByZero, code));
+                        return Err(self.error(WasmRuntimeErrorKind::DivideByZero, code));
                     }
                     lhs.map_u64(|lhs| lhs.wrapping_div(rhs));
                 }
@@ -746,7 +746,7 @@ impl WasmInterpreter<'_> {
                     let rhs = unsafe { value_stack.get_unchecked(stack_level + 1).get_i64() };
                     let lhs = unsafe { value_stack.get_unchecked_mut(stack_level) };
                     if rhs == 0 {
-                        return Err(self.error(WasmRuntimeErrorType::DivideByZero, code));
+                        return Err(self.error(WasmRuntimeErrorKind::DivideByZero, code));
                     }
                     lhs.map_i64(|lhs| lhs.wrapping_rem(rhs));
                 }
@@ -755,7 +755,7 @@ impl WasmInterpreter<'_> {
                     let rhs = unsafe { value_stack.get_unchecked(stack_level + 1).get_u64() };
                     let lhs = unsafe { value_stack.get_unchecked_mut(stack_level) };
                     if rhs == 0 {
-                        return Err(self.error(WasmRuntimeErrorType::DivideByZero, code));
+                        return Err(self.error(WasmRuntimeErrorKind::DivideByZero, code));
                     }
                     lhs.map_u64(|lhs| lhs.wrapping_rem(rhs));
                 }
@@ -897,7 +897,7 @@ impl WasmInterpreter<'_> {
                     }
                 }
 
-                _ => return Err(self.error(WasmRuntimeErrorType::NotSupprted, code)),
+                _ => return Err(self.error(WasmRuntimeErrorKind::NotSupprted, code)),
             }
         }
         if let Some(result_type) = result_types.first() {
@@ -987,18 +987,18 @@ impl WasmInterpreter<'_> {
                         let var = match value_stack.get_mut(stack_under) {
                             Some(v) => v,
                             None => {
-                                return Err(self.error(WasmRuntimeErrorType::TypeMismatch, code))
+                                return Err(self.error(WasmRuntimeErrorKind::TypeMismatch, code))
                             }
                         };
                         *var = WasmStackValue::from(result);
                     } else {
-                        return Err(self.error(WasmRuntimeErrorType::TypeMismatch, code));
+                        return Err(self.error(WasmRuntimeErrorKind::TypeMismatch, code));
                     }
                 }
                 Ok(())
             })
         } else {
-            Err(self.error(WasmRuntimeErrorType::NoMethod, code))
+            Err(self.error(WasmRuntimeErrorKind::NoMethod, code))
         }
     }
 }
@@ -1045,7 +1045,7 @@ impl WasmInvocation for WasmRunnable<'_> {
         let function = self.function();
         let code_block = function
             .code_block()
-            .ok_or(WasmRuntimeError::from(WasmRuntimeErrorType::NoMethod))?;
+            .ok_or(WasmRuntimeError::from(WasmRuntimeErrorKind::NoMethod))?;
 
         let local_len = usize::max(
             INITIAL_VALUE_STACK_SIZE,
@@ -1056,10 +1056,10 @@ impl WasmInvocation for WasmRunnable<'_> {
 
         for (index, param_type) in function.param_types().iter().enumerate() {
             let param = params.get(index).ok_or(WasmRuntimeError::from(
-                WasmRuntimeErrorType::InvalidParameter,
+                WasmRuntimeErrorKind::InvalidParameter,
             ))?;
             if !param.is_valid_type(*param_type) {
-                return Err(WasmRuntimeErrorType::InvalidParameter.into());
+                return Err(WasmRuntimeErrorKind::InvalidParameter.into());
             }
             unsafe {
                 *locals.get_unchecked_mut(index) = WasmStackValue::from(param.clone());
@@ -1079,7 +1079,7 @@ impl WasmInvocation for WasmRunnable<'_> {
 }
 
 pub struct WasmRuntimeError {
-    kind: WasmRuntimeErrorType,
+    kind: WasmRuntimeErrorKind,
     file_position: usize,
     function: usize,
     function_name: Option<String>,
@@ -1089,7 +1089,7 @@ pub struct WasmRuntimeError {
 
 impl WasmRuntimeError {
     #[inline]
-    pub const fn kind(&self) -> WasmRuntimeErrorType {
+    pub const fn kind(&self) -> WasmRuntimeErrorKind {
         self.kind
     }
 
@@ -1119,9 +1119,9 @@ impl WasmRuntimeError {
     }
 }
 
-impl From<WasmRuntimeErrorType> for WasmRuntimeError {
+impl From<WasmRuntimeErrorKind> for WasmRuntimeError {
     #[inline]
-    fn from(kind: WasmRuntimeErrorType) -> Self {
+    fn from(kind: WasmRuntimeErrorKind) -> Self {
         Self {
             kind,
             file_position: 0,

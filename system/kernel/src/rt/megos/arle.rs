@@ -50,9 +50,9 @@ impl BinaryLoader for ArleBinaryLoader {
                     "svc0" | "svc1" | "svc2" | "svc3" | "svc4" | "svc5" | "svc6" => {
                         Ok(ArleRuntime::syscall)
                     }
-                    _ => Err(WasmDecodeErrorType::NoMethod),
+                    _ => Err(WasmDecodeErrorKind::NoMethod),
                 },
-                _ => Err(WasmDecodeErrorType::NoModule),
+                _ => Err(WasmDecodeErrorKind::NoModule),
             })
             .map_err(|v| {
                 println!("Load error: {:?}", v);
@@ -125,7 +125,7 @@ impl ArleRuntime {
         match function.invoke(&[]) {
             Ok(_v) => (),
             Err(err) => match err.kind() {
-                WasmRuntimeErrorType::Exit => (),
+                WasmRuntimeErrorKind::Exit => (),
                 _ => println!("error: {:?}", err),
             },
         }
@@ -133,7 +133,7 @@ impl ArleRuntime {
         RuntimeEnvironment::exit(0);
     }
 
-    fn syscall(_: &WasmModule, params: &[WasmValue]) -> Result<WasmValue, WasmRuntimeErrorType> {
+    fn syscall(_: &WasmModule, params: &[WasmValue]) -> Result<WasmValue, WasmRuntimeErrorKind> {
         Scheduler::current_personality(|personality| match personality.context() {
             PersonalityContext::Arlequin(rt) => rt.dispatch_syscall(&params),
             _ => unreachable!(),
@@ -144,23 +144,23 @@ impl ArleRuntime {
     fn dispatch_syscall(
         &mut self,
         params: &[WasmValue],
-    ) -> Result<WasmValue, WasmRuntimeErrorType> {
+    ) -> Result<WasmValue, WasmRuntimeErrorKind> {
         use megosabi::svc::Function;
         let mut params = ParamsDecoder::new(params);
         let memory = self
             .module
             .memory(0)
-            .ok_or(WasmRuntimeErrorType::OutOfMemory)?;
+            .ok_or(WasmRuntimeErrorKind::OutOfMemory)?;
         let func_no = params.get_u32().and_then(|v| {
-            FromPrimitive::from_u32(v).ok_or(WasmRuntimeErrorType::InvalidParameter)
+            FromPrimitive::from_u32(v).ok_or(WasmRuntimeErrorKind::InvalidParameter)
         })?;
         if self.has_to_exit.load(Ordering::Relaxed) {
-            return Err(WasmRuntimeErrorType::Exit);
+            return Err(WasmRuntimeErrorKind::Exit);
         }
 
         match func_no {
             Function::Exit => {
-                return Err(WasmRuntimeErrorType::Exit);
+                return Err(WasmRuntimeErrorKind::Exit);
             }
 
             Function::Monotonic => {
@@ -358,7 +358,7 @@ impl ArleRuntime {
                 let size = params.get_usize()?;
                 let align = params.get_usize()?;
                 let layout = Layout::from_size_align(size, align)
-                    .map_err(|_| WasmRuntimeErrorType::InvalidParameter)?;
+                    .map_err(|_| WasmRuntimeErrorKind::InvalidParameter)?;
                 let mut malloc = self.malloc.lock().unwrap();
                 // return Err(WasmRuntimeErrorType::OutOfMemory);
 
@@ -377,7 +377,7 @@ impl ArleRuntime {
                             delta as u32 * WasmMemory::PAGE_SIZE as u32,
                         );
                     } else {
-                        return Err(WasmRuntimeErrorType::OutOfMemory);
+                        return Err(WasmRuntimeErrorKind::OutOfMemory);
                     }
 
                     let result = match malloc.alloc(layout) {
@@ -394,7 +394,7 @@ impl ArleRuntime {
                 let size = params.get_usize()?;
                 let align = params.get_usize()?;
                 let layout = Layout::from_size_align(size, align)
-                    .map_err(|_| WasmRuntimeErrorType::InvalidParameter)?;
+                    .map_err(|_| WasmRuntimeErrorKind::InvalidParameter)?;
 
                 println!("dealloc {:08x} {:?}", base, layout);
                 memory.write_bytes(base as usize, 0xCC, size)?;
@@ -406,12 +406,12 @@ impl ArleRuntime {
         Ok(WasmValue::I32(0))
     }
 
-    fn wait_key(&self, window: &OsWindow) -> Result<Option<char>, WasmRuntimeErrorType> {
+    fn wait_key(&self, window: &OsWindow) -> Result<Option<char>, WasmRuntimeErrorKind> {
         let handle = window.native();
         while let Some(message) = handle.wait_message() {
             self.process_message(handle, message);
             if self.has_to_exit.load(Ordering::Relaxed) {
-                return Err(WasmRuntimeErrorType::Exit);
+                return Err(WasmRuntimeErrorKind::Exit);
             }
 
             if let Some(c) = self
@@ -421,7 +421,7 @@ impl ArleRuntime {
                 return Ok(Some(c));
             }
         }
-        Err(WasmRuntimeErrorType::TypeMismatch)
+        Err(WasmRuntimeErrorKind::TypeMismatch)
     }
 
     fn read_key(&self, window: &OsWindow) -> Option<char> {
@@ -485,11 +485,11 @@ impl<'a> ParamsDecoder<'a> {
 
 impl ParamsDecoder<'_> {
     #[inline]
-    fn get_u32(&mut self) -> Result<u32, WasmRuntimeErrorType> {
+    fn get_u32(&mut self) -> Result<u32, WasmRuntimeErrorKind> {
         let index = self.index;
         self.params
             .get(index)
-            .ok_or(WasmRuntimeErrorType::InvalidParameter)
+            .ok_or(WasmRuntimeErrorKind::InvalidParameter)
             .and_then(|v| v.get_u32())
             .map(|v| {
                 self.index += 1;
@@ -498,11 +498,11 @@ impl ParamsDecoder<'_> {
     }
 
     #[inline]
-    fn get_i32(&mut self) -> Result<i32, WasmRuntimeErrorType> {
+    fn get_i32(&mut self) -> Result<i32, WasmRuntimeErrorKind> {
         let index = self.index;
         self.params
             .get(index)
-            .ok_or(WasmRuntimeErrorType::InvalidParameter)
+            .ok_or(WasmRuntimeErrorKind::InvalidParameter)
             .and_then(|v| v.get_i32())
             .map(|v| {
                 self.index += 1;
@@ -511,12 +511,12 @@ impl ParamsDecoder<'_> {
     }
 
     #[inline]
-    fn get_usize(&mut self) -> Result<usize, WasmRuntimeErrorType> {
+    fn get_usize(&mut self) -> Result<usize, WasmRuntimeErrorKind> {
         self.get_u32().map(|v| v as usize)
     }
 
     #[inline]
-    fn get_memarg(&mut self) -> Result<MemArg, WasmRuntimeErrorType> {
+    fn get_memarg(&mut self) -> Result<MemArg, WasmRuntimeErrorKind> {
         let base = self.get_u32()? as usize;
         let len = self.get_u32()? as usize;
         Ok(MemArg::new(base, len))
@@ -541,28 +541,28 @@ impl ParamsDecoder<'_> {
     }
 
     #[inline]
-    fn get_point(&mut self) -> Result<Point, WasmRuntimeErrorType> {
+    fn get_point(&mut self) -> Result<Point, WasmRuntimeErrorKind> {
         let x = self.get_i32()? as isize;
         let y = self.get_i32()? as isize;
         Ok(Point::new(x, y))
     }
 
     #[inline]
-    fn get_size(&mut self) -> Result<Size, WasmRuntimeErrorType> {
+    fn get_size(&mut self) -> Result<Size, WasmRuntimeErrorKind> {
         let width = self.get_i32()? as isize;
         let height = self.get_i32()? as isize;
         Ok(Size::new(width, height))
     }
 
     #[inline]
-    fn get_color(&mut self) -> Result<SomeColor, WasmRuntimeErrorType> {
+    fn get_color(&mut self) -> Result<SomeColor, WasmRuntimeErrorKind> {
         self.get_u32().map(|v| IndexedColor::from(v as u8).into())
     }
 
     fn get_bitmap8<'a>(
         &mut self,
         memory: &'a WasmMemory,
-    ) -> Result<ConstBitmap8<'a>, WasmRuntimeErrorType> {
+    ) -> Result<ConstBitmap8<'a>, WasmRuntimeErrorKind> {
         const SIZE_OF_BITMAP: usize = 20;
         let base = self.get_u32()? as usize;
         let array = memory.read_bytes(base as usize, SIZE_OF_BITMAP)?;
@@ -584,7 +584,7 @@ impl ParamsDecoder<'_> {
     fn get_bitmap32<'a>(
         &mut self,
         memory: &'a WasmMemory,
-    ) -> Result<ConstBitmap32<'a>, WasmRuntimeErrorType> {
+    ) -> Result<ConstBitmap32<'a>, WasmRuntimeErrorKind> {
         const SIZE_OF_BITMAP: usize = 20;
         let base = self.get_u32()? as usize;
         let array = memory.read_bytes(base as usize, SIZE_OF_BITMAP)?;
@@ -606,7 +606,7 @@ impl ParamsDecoder<'_> {
     fn get_bitmap1<'a>(
         &mut self,
         memory: &'a WasmMemory,
-    ) -> Result<OsBitmap1<'a>, WasmRuntimeErrorType> {
+    ) -> Result<OsBitmap1<'a>, WasmRuntimeErrorKind> {
         let base = self.get_u32()?;
         OsBitmap1::from_memory(memory, base)
     }
@@ -615,7 +615,7 @@ impl ParamsDecoder<'_> {
     fn get_window<'a>(
         &mut self,
         rt: &'a ArleRuntime,
-    ) -> Result<&'a mut OsWindow, WasmRuntimeErrorType> {
+    ) -> Result<&'a mut OsWindow, WasmRuntimeErrorKind> {
         match self.get_u32() {
             Ok(v) => rt
                 .windows
@@ -623,7 +623,7 @@ impl ParamsDecoder<'_> {
                 .unwrap()
                 .get(&(v as usize))
                 .map(|v| unsafe { &mut *v.get() })
-                .ok_or(WasmRuntimeErrorType::InvalidParameter),
+                .ok_or(WasmRuntimeErrorKind::InvalidParameter),
             Err(err) => Err(err),
         }
     }
@@ -658,7 +658,7 @@ struct OsBitmap1<'a> {
 }
 
 impl<'a> OsBitmap1<'a> {
-    fn from_memory(memory: &'a WasmMemory, base: u32) -> Result<Self, WasmRuntimeErrorType> {
+    fn from_memory(memory: &'a WasmMemory, base: u32) -> Result<Self, WasmRuntimeErrorKind> {
         const SIZE_OF_BITMAP: usize = 16;
         let array = memory.read_bytes(base as usize, SIZE_OF_BITMAP)?;
 

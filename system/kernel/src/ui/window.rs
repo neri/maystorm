@@ -772,8 +772,13 @@ impl WindowManager<'_> {
                     root.bg_color,
                 )));
             }
-            root.bitmap()
-                .map(|mut v| v.blt(bitmap, Point::default(), bitmap.bounds()));
+            root.bitmap().map(|mut v| {
+                let origin = Point::new(
+                    (bitmap.bounds().width() - v.bounds().width()) / 2,
+                    (bitmap.bounds().height() - v.bounds().height()) / 2,
+                );
+                v.blt(bitmap, origin, bitmap.bounds())
+            });
             root.set_needs_display();
         });
     }
@@ -1207,7 +1212,7 @@ impl RawWindow<'_> {
 
         if self.style.contains(WindowStyle::BORDER) {
             if is_thick {
-                // Thick border
+                // Thick frame
                 let rect = Rect::from(bitmap.size());
                 bitmap.fill_round_rect_outside(rect, WINDOW_CORNER_RADIUS, SomeColor::TRANSPARENT);
                 bitmap.draw_round_rect(
@@ -1220,7 +1225,7 @@ impl RawWindow<'_> {
                     },
                 );
             } else {
-                // Thin border
+                // Thin frame
                 if WINDOW_BORDER_WIDTH > 0 {
                     let rect = Rect::from(bitmap.size());
                     bitmap.draw_rect(

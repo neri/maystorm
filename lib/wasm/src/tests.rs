@@ -2,7 +2,7 @@
 
 use crate::{
     wasmintr::{WasmInterpreter, WasmInvocation},
-    Leb128Stream, WasmCodeBlock, WasmLoader, WasmModule, WasmRuntimeErrorType, WasmValType,
+    Leb128Stream, WasmCodeBlock, WasmLoader, WasmModule, WasmRuntimeErrorKind, WasmValType,
 };
 use alloc::borrow::ToOwned;
 
@@ -247,7 +247,7 @@ fn div_s() {
     let result = interp
         .invoke(0, &info, &mut locals, &result_types)
         .unwrap_err();
-    assert_eq!(WasmRuntimeErrorType::DivideByZero, result.kind());
+    assert_eq!(WasmRuntimeErrorKind::DivideByZero, result.kind());
 }
 
 #[test]
@@ -292,7 +292,7 @@ fn div_u() {
     let result = interp
         .invoke(0, &info, &mut locals, &result_types)
         .unwrap_err();
-    assert_eq!(WasmRuntimeErrorType::DivideByZero, result.kind());
+    assert_eq!(WasmRuntimeErrorKind::DivideByZero, result.kind());
 }
 
 #[test]
@@ -696,5 +696,5 @@ fn name() {
 
     assert_eq!(names.functions()[0], (1, "wasm".to_owned()));
 
-    assert_eq!(names.search_function(0x1234).unwrap().as_str(), "test");
+    assert_eq!(names.func_by_index(0x1234).unwrap().as_str(), "test");
 }
