@@ -2,22 +2,16 @@
 
 use megosabi::svc::Function;
 
+#[allow(dead_code)]
 #[link(wasm_import_module = "megos-canary")]
 extern "C" {
-    #[no_mangle]
-    pub fn svc0(_: Function) -> usize;
-    #[no_mangle]
-    pub fn svc1(_: Function, _: usize) -> usize;
-    #[no_mangle]
-    pub fn svc2(_: Function, _: usize, _: usize) -> usize;
-    #[no_mangle]
-    pub fn svc3(_: Function, _: usize, _: usize, _: usize) -> usize;
-    #[no_mangle]
-    pub fn svc4(_: Function, _: usize, _: usize, _: usize, _: usize) -> usize;
-    #[no_mangle]
-    pub fn svc5(_: Function, _: usize, _: usize, _: usize, _: usize, _: usize) -> usize;
-    #[no_mangle]
-    pub fn svc6(_: Function, _: usize, _: usize, _: usize, _: usize, _: usize, _: usize) -> usize;
+    fn svc0(_: Function) -> usize;
+    fn svc1(_: Function, _: usize) -> usize;
+    fn svc2(_: Function, _: usize, _: usize) -> usize;
+    fn svc3(_: Function, _: usize, _: usize, _: usize) -> usize;
+    fn svc4(_: Function, _: usize, _: usize, _: usize, _: usize) -> usize;
+    fn svc5(_: Function, _: usize, _: usize, _: usize, _: usize, _: usize) -> usize;
+    fn svc6(_: Function, _: usize, _: usize, _: usize, _: usize, _: usize, _: usize) -> usize;
 }
 
 #[inline]

@@ -33,7 +33,7 @@ const WINDOW_BORDER_WIDTH: isize = 1;
 const WINDOW_THICK_BORDER_WIDTH: isize = 4;
 const WINDOW_CORNER_RADIUS: isize = 8;
 const WINDOW_TITLE_HEIGHT: isize = 24;
-const WINDOW_TITLE_HEIGHT_THICK: isize = WINDOW_TITLE_HEIGHT;
+const WINDOW_TITLE_HEIGHT_THICK: isize = 24;
 const WINDOW_TITLE_LENGTH: usize = 32;
 const WINDOW_SHADOW_PADDING: isize = 16;
 const SHADOW_RADIUS: isize = 8;
@@ -70,7 +70,7 @@ const MOUSE_POINTER_SOURCE: [u8; MOUSE_POINTER_WIDTH * MOUSE_POINTER_HEIGHT] = [
 // Close button
 const CLOSE_BUTTON_SIZE: usize = 10;
 #[rustfmt::skip]
-const CLOSE_BUTTON_SOURCE: [u8; CLOSE_BUTTON_SIZE* CLOSE_BUTTON_SIZE] = [
+const CLOSE_BUTTON_SOURCE: [u8; CLOSE_BUTTON_SIZE * CLOSE_BUTTON_SIZE] = [
     0x00, 0x99, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x99, 0x00,
     0x99, 0xFF, 0x99, 0x00, 0x00, 0x00, 0x00, 0x99, 0xFF, 0x99,
     0x00, 0x99, 0xFF, 0x99, 0x00, 0x00, 0x99, 0xFF, 0x99, 0x00,
@@ -81,6 +81,25 @@ const CLOSE_BUTTON_SOURCE: [u8; CLOSE_BUTTON_SIZE* CLOSE_BUTTON_SIZE] = [
     0x00, 0x99, 0xFF, 0x99, 0x00, 0x00, 0x99, 0xFF, 0x99, 0x00,
     0x99, 0xFF, 0x99, 0x00, 0x00, 0x00, 0x00, 0x99, 0xFF, 0x99,
     0x00, 0x99, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x99, 0x00,
+];
+
+// Back button
+const BACK_BUTTON_WIDTH: usize = 8;
+const BACK_BUTTON_HEIGHT: usize = 12;
+#[rustfmt::skip]
+const BACK_BUTTON_SOURCE: [u8; BACK_BUTTON_WIDTH * BACK_BUTTON_HEIGHT] = [
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x99, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x99, 0xFF, 0x99, 0x00,
+    0x00, 0x00, 0x00, 0x99, 0xFF, 0x99, 0x00, 0x00,
+    0x00, 0x00, 0x99, 0xFF, 0x99, 0x00, 0x00, 0x00,
+    0x00, 0x99, 0xFF, 0x99, 0x00, 0x00, 0x00, 0x00,
+    0x99, 0xFF, 0x99, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x99, 0xFF, 0x99, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x99, 0xFF, 0x99, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x99, 0xFF, 0x99, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x99, 0xFF, 0x99, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x99, 0xFF, 0x99, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x99, 0x00, 0x00,
 ];
 
 static mut WM: Option<Box<WindowManager<'static>>> = None;
@@ -117,8 +136,9 @@ pub struct WindowManager<'a> {
 
 #[allow(dead_code)]
 struct Resources<'a> {
+    window_button_width: isize,
     close_button: OperationalBitmap,
-    close_button_width: isize,
+    back_button: OperationalBitmap,
     title_font: FontDescriptor,
     label_font: FontDescriptor,
     _phantom: &'a (),
@@ -139,11 +159,15 @@ impl WindowManager<'static> {
         let off_screen = BoxedBitmap32::new(screen_size, TrueColor::TRANSPARENT);
         let mut window_pool = BTreeMap::new();
 
+        let window_button_width = WINDOW_TITLE_HEIGHT;
         let close_button = OperationalBitmap::with_slice(
             Size::new(CLOSE_BUTTON_SIZE as isize, CLOSE_BUTTON_SIZE as isize),
             &CLOSE_BUTTON_SOURCE,
         );
-        let close_button_width = CLOSE_BUTTON_SIZE as isize + 16;
+        let back_button = OperationalBitmap::with_slice(
+            Size::new(BACK_BUTTON_WIDTH as isize, BACK_BUTTON_HEIGHT as isize),
+            &BACK_BUTTON_SOURCE,
+        );
 
         let root = {
             let window = WindowBuilder::new()
@@ -201,7 +225,8 @@ impl WindowManager<'static> {
                 resources: Resources {
                     _phantom: &(),
                     close_button,
-                    close_button_width,
+                    window_button_width,
+                    back_button,
                     title_font: FontManager::title_font(),
                     label_font: FontManager::ui_font(),
                 },
@@ -328,18 +353,24 @@ impl WindowManager<'_> {
                             .attributes
                             .contains(WindowManagerAttributes::CLOSE_DOWN)
                         {
-                            let target_window = captured.as_ref();
-                            let mut close_button_frame = target_window.close_button_frame();
-                            close_button_frame.origin += target_window.frame.origin;
-                            if position.is_within(close_button_frame) {
-                                captured.update(|window| {
-                                    window.set_close_state(ViewActionState::Pressed)
-                                });
-                            } else {
-                                captured.update(|window| {
-                                    window.set_close_state(ViewActionState::Normal)
-                                });
-                            }
+                            captured.update(|window| {
+                                if window.test_frame(position, window.close_button_frame()) {
+                                    window.set_close_state(ViewActionState::Pressed);
+                                } else {
+                                    window.set_close_state(ViewActionState::Normal);
+                                }
+                            });
+                        } else if shared
+                            .attributes
+                            .contains(WindowManagerAttributes::BACK_DOWN)
+                        {
+                            captured.update(|window| {
+                                if window.test_frame(position, window.back_button_frame()) {
+                                    window.set_close_state(ViewActionState::Pressed);
+                                } else {
+                                    window.set_close_state(ViewActionState::Normal);
+                                }
+                            });
                         } else if shared.attributes.contains(WindowManagerAttributes::MOVING) {
                             // dragging title
                             let top = if captured.as_ref().level < WindowLevel::FLOATING {
@@ -364,13 +395,27 @@ impl WindowManager<'_> {
                             .attributes
                             .contains(WindowManagerAttributes::CLOSE_DOWN)
                         {
-                            captured
-                                .update(|window| window.set_close_state(ViewActionState::Normal));
+                            captured.update(|window| {
+                                window.set_close_state(ViewActionState::Normal);
+                            });
                             let target_window = captured.as_ref();
-                            let mut close_button_frame = target_window.close_button_frame();
-                            close_button_frame.origin += target_window.frame.origin;
-                            if position.is_within(close_button_frame) {
+                            if target_window
+                                .test_frame(position, target_window.close_button_frame())
+                            {
                                 let _ = captured.post(WindowMessage::Close);
+                            }
+                        } else if shared
+                            .attributes
+                            .contains(WindowManagerAttributes::BACK_DOWN)
+                        {
+                            captured.update(|window| {
+                                window.set_back_state(ViewActionState::Normal);
+                            });
+
+                            let target_window = captured.as_ref();
+                            if target_window.test_frame(position, target_window.back_button_frame())
+                            {
+                                let _ = captured.post(WindowMessage::Back);
                             }
                         } else {
                             let _ = Self::make_mouse_events(
@@ -383,10 +428,11 @@ impl WindowManager<'_> {
                         }
 
                         shared.captured = None;
-                        shared.attributes.remove(WindowManagerAttributes::MOVING);
-                        shared
-                            .attributes
-                            .remove(WindowManagerAttributes::CLOSE_DOWN);
+                        shared.attributes.remove(
+                            WindowManagerAttributes::MOVING
+                                | WindowManagerAttributes::CLOSE_DOWN
+                                | WindowManagerAttributes::BACK_DOWN,
+                        );
 
                         let target = Self::window_at_point(position);
                         if let Some(entered) = shared.entered {
@@ -417,21 +463,24 @@ impl WindowManager<'_> {
                         }
 
                         let target_window = target.as_ref();
-                        let mut title_frame = target_window.title_frame();
-                        title_frame.origin += target_window.frame.origin;
-                        let mut close_button_frame = target_window.close_button_frame();
-                        close_button_frame.origin += target_window.frame.origin;
-
-                        if position.is_within(close_button_frame) {
+                        if target_window.close_button_state != ViewActionState::Disabled
+                            && target_window
+                                .test_frame(position, target_window.close_button_frame())
+                        {
                             target
                                 .update(|window| window.set_close_state(ViewActionState::Pressed));
                             shared
                                 .attributes
                                 .insert(WindowManagerAttributes::CLOSE_DOWN);
+                        } else if target_window.back_button_state != ViewActionState::Disabled
+                            && target_window.test_frame(position, target_window.back_button_frame())
+                        {
+                            target.update(|window| window.set_back_state(ViewActionState::Pressed));
+                            shared.attributes.insert(WindowManagerAttributes::BACK_DOWN);
                         } else if target_window.style.contains(WindowStyle::PINCHABLE) {
                             shared.attributes.insert(WindowManagerAttributes::MOVING);
                         } else {
-                            if position.is_within(title_frame) {
+                            if target_window.test_frame(position, target_window.title_frame()) {
                                 shared.attributes.insert(WindowManagerAttributes::MOVING);
                             } else {
                                 let _ = Self::make_mouse_events(
@@ -774,8 +823,8 @@ impl WindowManager<'_> {
             }
             root.bitmap().map(|mut v| {
                 let origin = Point::new(
-                    (bitmap.bounds().width() - v.bounds().width()) / 2,
-                    (bitmap.bounds().height() - v.bounds().height()) / 2,
+                    (v.bounds().width() - bitmap.bounds().width()) / 2,
+                    (v.bounds().height() - bitmap.bounds().height()) / 2,
                 );
                 v.blt(bitmap, origin, bitmap.bounds())
             });
@@ -846,6 +895,7 @@ bitflags! {
         const NEEDS_REDRAW  = 0b0000_1000;
         const MOVING        = 0b0001_0000;
         const CLOSE_DOWN    = 0b0010_0000;
+        const BACK_DOWN     = 0b0100_0000;
     }
 }
 
@@ -893,6 +943,7 @@ struct RawWindow<'a> {
     /// Window Title
     title: [u8; WINDOW_TITLE_LENGTH],
     close_button_state: ViewActionState,
+    back_button_state: ViewActionState,
 
     // Messages and Events
     waker: AtomicWaker,
@@ -1042,6 +1093,12 @@ impl RawWindow<'_> {
         }
     }
 
+    fn test_frame(&self, position: Point, frame: Rect) -> bool {
+        let mut frame = frame;
+        frame.origin += self.frame.origin;
+        position.is_within(frame)
+    }
+
     fn draw_to_screen(&self, rect: Rect) {
         let mut frame = rect;
         frame.origin += self.frame.origin;
@@ -1173,19 +1230,27 @@ impl RawWindow<'_> {
     }
 
     fn close_button_frame(&self) -> Rect {
-        if self.style.contains(WindowStyle::CLOSE_BUTTON) {
-            let shared = WindowManager::shared();
-            let rect = self.title_frame();
-            let close_button_width = shared.resources.close_button_width;
-            Rect::new(
-                rect.max_x() - close_button_width - WINDOW_CORNER_RADIUS,
-                rect.y(),
-                close_button_width,
-                rect.height(),
-            )
-        } else {
-            Rect::default()
-        }
+        let shared = WindowManager::shared();
+        let rect = self.title_frame();
+        let window_button_width = shared.resources.window_button_width;
+        Rect::new(
+            rect.max_x() - window_button_width - WINDOW_CORNER_RADIUS,
+            rect.y(),
+            window_button_width,
+            rect.height(),
+        )
+    }
+
+    fn back_button_frame(&self) -> Rect {
+        let shared = WindowManager::shared();
+        let rect = self.title_frame();
+        let window_button_width = shared.resources.window_button_width;
+        Rect::new(
+            WINDOW_CORNER_RADIUS,
+            rect.y(),
+            window_button_width,
+            rect.height(),
+        )
     }
 
     #[inline]
@@ -1270,10 +1335,9 @@ impl RawWindow<'_> {
                             },
                         );
                     }
-                    if self.style.contains(WindowStyle::CLOSE_BUTTON) {
-                        // rect.size.width -= shared.resources.close_button_width;
-                        self.draw_close_button();
-                    }
+
+                    self.draw_close_button();
+                    self.draw_back_button();
 
                     if let Some(text) = self.title() {
                         let font = shared.resources.title_font;
@@ -1318,10 +1382,7 @@ impl RawWindow<'_> {
     }
 
     fn draw_close_button(&mut self) {
-        if !self
-            .style
-            .contains(WindowStyle::TITLE | WindowStyle::CLOSE_BUTTON)
-        {
+        if !self.style.contains(WindowStyle::TITLE) {
             return;
         }
         let mut bitmap = match self.bitmap() {
@@ -1330,7 +1391,71 @@ impl RawWindow<'_> {
         };
         let shared = WindowManager::shared();
         let state = self.close_button_state;
-        let close_button_frame = self.close_button_frame();
+        let button_frame = self.close_button_frame();
+        let is_active = self.is_active() && state != ViewActionState::Disabled;
+
+        let background = match state {
+            ViewActionState::Pressed => Theme::shared().window_title_close_active_background(),
+            _ => {
+                if self.style.contains(WindowStyle::THICK_FRAME) {
+                    self.bg_color
+                } else if is_active {
+                    Theme::shared().window_title_active_background()
+                } else {
+                    Theme::shared().window_title_inactive_background()
+                }
+            }
+        };
+        let foreground = match state {
+            ViewActionState::Pressed => Theme::shared().window_title_close_active_foreground(),
+            _ => {
+                if self.style.contains(WindowStyle::THICK_FRAME)
+                    && self.style.contains(WindowStyle::DARK)
+                {
+                    if is_active {
+                        Theme::shared().window_title_close_foreground_dark()
+                    } else {
+                        Theme::shared().window_title_inactive_foreground_dark()
+                    }
+                } else {
+                    if is_active {
+                        Theme::shared().window_title_close_foreground()
+                    } else {
+                        Theme::shared().window_title_inactive_foreground()
+                    }
+                }
+            }
+        }
+        .into_argb();
+
+        bitmap.fill_rect(button_frame, background);
+
+        let button = &shared.resources.close_button;
+        let origin = Point::new(
+            button_frame.x() + (button_frame.width() - button.width() as isize) / 2,
+            button_frame.y() + (button_frame.height() - button.height() as isize) / 2,
+        );
+        bitmap.map_argb32(|bitmap| {
+            button.blt_to(bitmap, origin, button.bounds(), |a, b| {
+                b.blend_draw(foreground.with_opacity(a))
+            })
+        });
+    }
+
+    fn draw_back_button(&mut self) {
+        if !self.style.contains(WindowStyle::TITLE) {
+            return;
+        }
+        let mut bitmap = match self.bitmap() {
+            Some(v) => v,
+            None => return,
+        };
+        let state = match self.back_button_state {
+            ViewActionState::Disabled => return,
+            other => other,
+        };
+        let shared = WindowManager::shared();
+        let button_frame = self.back_button_frame();
         let is_active = self.is_active();
 
         let background = match state {
@@ -1367,12 +1492,12 @@ impl RawWindow<'_> {
         }
         .into_argb();
 
-        bitmap.fill_rect(close_button_frame, background);
+        bitmap.fill_rect(button_frame, background);
 
-        let button = &shared.resources.close_button;
+        let button = &shared.resources.back_button;
         let origin = Point::new(
-            close_button_frame.x() + (close_button_frame.width() - button.width() as isize) / 2,
-            close_button_frame.y() + (close_button_frame.height() - button.height() as isize) / 2,
+            button_frame.x() + (button_frame.width() - button.width() as isize) / 2,
+            button_frame.y() + (button_frame.height() - button.height() as isize) / 2,
         );
         bitmap.map_argb32(|bitmap| {
             button.blt_to(bitmap, origin, button.bounds(), |a, b| {
@@ -1413,12 +1538,14 @@ impl RawWindow<'_> {
         array[0] = i as u8 - 1;
     }
 
+    #[inline]
     fn set_title(&mut self, title: &str) {
         RawWindow::set_title_array(&mut self.title, title);
         self.draw_frame();
         self.invalidate_rect(self.title_frame());
     }
 
+    #[inline]
     fn set_close_state(&mut self, state: ViewActionState) {
         if self.close_button_state != state {
             self.close_button_state = state;
@@ -1426,9 +1553,29 @@ impl RawWindow<'_> {
         }
     }
 
+    #[inline]
+    fn set_back_state(&mut self, state: ViewActionState) {
+        if self.back_button_state != state {
+            self.back_button_state = state;
+            if state == ViewActionState::Disabled {
+                self.draw_frame();
+                self.invalidate_rect(self.title_frame());
+            } else {
+                self.update_back_button();
+            }
+        }
+    }
+
+    #[inline]
     fn update_close_button(&mut self) {
         self.draw_close_button();
         self.invalidate_rect(self.close_button_frame());
+    }
+
+    #[inline]
+    fn update_back_button(&mut self) {
+        self.draw_back_button();
+        self.invalidate_rect(self.back_button_frame());
     }
 
     fn prev(&self) -> Option<WindowHandle> {
@@ -1666,6 +1813,12 @@ impl WindowBuilder {
         let mut title_array = [0; WINDOW_TITLE_LENGTH];
         RawWindow::set_title_array(&mut title_array, title);
 
+        let close_button_state = if self.style.contains(WindowStyle::CLOSE_BUTTON) {
+            Default::default()
+        } else {
+            ViewActionState::Disabled
+        };
+
         let handle = WindowManager::next_window_handle();
         let mut window = Box::new(RawWindow {
             handle,
@@ -1677,7 +1830,8 @@ impl WindowBuilder {
             bitmap: None,
             shadow_bitmap,
             title: title_array,
-            close_button_state: Default::default(),
+            close_button_state,
+            back_button_state: ViewActionState::Disabled,
             attributes,
             waker: AtomicWaker::new(),
             sem: Semaphore::new(0),
@@ -1706,6 +1860,12 @@ impl WindowBuilder {
     #[inline]
     pub const fn style_add(mut self, style: WindowStyle) -> Self {
         self.style.bits |= style.bits();
+        self
+    }
+
+    #[inline]
+    pub const fn style_sub(mut self, style: WindowStyle) -> Self {
+        self.style.bits &= !style.bits();
         self
     }
 
@@ -1949,6 +2109,28 @@ impl WindowHandle {
     }
 
     #[inline]
+    pub fn set_close_button_enabled(&self, enabled: bool) {
+        self.update(|window| {
+            if enabled {
+                window.set_close_state(ViewActionState::Normal)
+            } else {
+                window.set_close_state(ViewActionState::Disabled)
+            }
+        });
+    }
+
+    #[inline]
+    pub fn set_back_button_enabled(&self, enabled: bool) {
+        self.update(|window| {
+            if enabled {
+                window.set_back_state(ViewActionState::Normal)
+            } else {
+                window.set_back_state(ViewActionState::Disabled)
+            }
+        });
+    }
+
+    #[inline]
     pub fn invalidate_rect(&self, rect: Rect) {
         self.update(|window| {
             let mut frame = rect;
@@ -2157,6 +2339,8 @@ pub enum WindowMessage {
     Nop,
     /// Requested to close the window
     Close,
+    ///
+    Back,
     /// Needs to be redrawn
     Draw,
     // Active

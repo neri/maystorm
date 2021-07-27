@@ -195,6 +195,7 @@ async fn activity_monitor_main() {
     let width = 260;
     let height = 180;
     let window = WindowBuilder::new()
+        .style_sub(WindowStyle::CLOSE_BUTTON)
         .frame(Rect::new(-width - 16, -height - 16, width, height))
         .bg_color(bg_color)
         .build("Activity Monitor");

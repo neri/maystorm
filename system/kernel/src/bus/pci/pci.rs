@@ -92,6 +92,7 @@ pub trait PciDriver {
 
 static mut PCI: Pci = Pci::new();
 
+#[allow(dead_code)]
 pub struct Pci {
     devices: Vec<PciDevice>,
     registrars: Vec<Box<dyn PciDriverRegistrar>>,
