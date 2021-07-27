@@ -67,8 +67,18 @@ $ make run
 
 * Initial Commit
 
-## License
+## LICENSE
 
 MIT License
 
-&copy; 2020 Nerry.
+&copy; 2020 MEG-OS Project.
+
+## Contributors
+
+### Kernel
+
+[![Nerry](https://github.com/neri.png?size=50)](https://github.com/neri "Nerry")
+
+### Wall paper
+
+[![猫(1010)](https://github.com/No000.png?size=50)](https://github.com/No000 "猫(1010)")
