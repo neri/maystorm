@@ -179,6 +179,7 @@ fn format_bytes(sb: &mut dyn Write, val: usize) -> core::fmt::Result {
     }
 }
 
+#[allow(dead_code)]
 async fn activity_monitor_main() {
     let bg_alpha = 0xC0;
     let bg_color32 = TrueColor::from(IndexedColor::BLACK);
@@ -439,12 +440,13 @@ async fn notification_main() {
 
 #[allow(dead_code)]
 async fn test_window_main() {
-    let width = 640;
+    let width = 320;
     let height = 480;
     let window = WindowBuilder::new()
         .size(Size::new(width, height))
-        .bg_color(SomeColor::from_argb(0xE0EEEEEE))
+        .bg_color(SomeColor::from_argb(0xE0FFFFFF))
         .build("Test Window");
+    window.set_back_button_enabled(true);
 
     window
         .draw(|bitmap| {
@@ -475,10 +477,10 @@ async fn test_window_main() {
                         for family in [
                             FontFamily::SansSerif,
                             FontFamily::SystemUI,
-                            // FontFamily::Cursive,
-                            // FontFamily::Serif,
+                            FontFamily::Serif,
+                            FontFamily::Cursive,
                         ] {
-                            for point in [64, 48, 32, 24, 16] {
+                            for point in [32, 28, 24, 20, 16, 14, 12] {
                                 offset += font_test(
                                     &mut bitmap,
                                     offset,
@@ -575,11 +577,8 @@ fn font_test(
         .font(font)
         .top_left()
         .color(color)
-        .text("The quick borwn fox jumps over the lazy dog.");
-    //         .text(
-    //             "Lorem ipsum dolor sit amet, consectetur adipiscing elit, \
-    // sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.",
-    //         );
+        .text("The quick brown fox jumps over the lazy dog.");
+    // .text("AVATAR Lorem ipsum dolor sit amet,");
 
     let bounds = ats.bounding_size(rect.size(), max_lines);
     ats.draw_text(bitmap, rect, max_lines);

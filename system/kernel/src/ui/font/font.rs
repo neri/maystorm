@@ -340,80 +340,175 @@ impl<'a> HersheyFont<'a> {
             let mut buffer = FontManager::shared().buffer.lock().unwrap();
             buffer.reset();
 
-            let master_scale = 1;
-            let counter = 1;
+            let master_scale = if height < Self::POINT / 2 { 2 } else { 1 };
+            let extra_weight = if height / master_scale <= Self::POINT / 2 {
+                0
+            } else {
+                usize::min(
+                    255,
+                    ((master_scale * height - Self::POINT / 2) * 256 / Self::POINT) as usize,
+                )
+            };
             let n_pairs = (data[6] & 0x0F) * 10 + (data[7] & 0x0F);
             let left = data[8] as isize - Self::MAGIC_52;
 
+            let border_bounds = buffer.bounds().insets_by(EdgeInsets::padding_each(1));
             let quality = 64;
             let center1 = Point::new(buffer.size().width() / 2, buffer.size().height() / 2);
-            for _count in 0..counter {
-                let level = 256;
+            let mut cursor = 10;
+            let mut c1: Option<Point> = None;
+            let center2 = Point::new(center1.x * quality, center1.y * quality);
+            let mut min_x = center2.x();
+            let mut max_x = center2.x();
+            let mut min_y = center2.y();
+            let mut max_y = center2.y();
 
-                let mut cursor = 10;
-                let mut c1: Option<Point> = None;
-                let center2 = Point::new(center1.x * quality, center1.y * quality);
-                for _ in 1..n_pairs {
-                    let p1 = data[cursor] as isize;
-                    let p2 = data[cursor + 1] as isize;
-                    if p1 == Self::MAGIC_20 && p2 == Self::MAGIC_52 {
-                        c1 = None;
-                    } else {
-                        let d1 = p1 - Self::MAGIC_52;
-                        let d2 = p2 - Self::MAGIC_52;
-                        let c2 = center2
-                            + Point::new(
-                                d1 * quality * height * master_scale / Self::POINT,
-                                d2 * quality * height * master_scale / Self::POINT,
-                            );
-                        if let Some(c1) = c1 {
+            for _ in 1..n_pairs {
+                let p1 = unsafe { *data.get_unchecked(cursor) as isize };
+                let p2 = unsafe { *data.get_unchecked(cursor + 1) as isize };
+                cursor += 2;
+
+                if p1 == Self::MAGIC_20 && p2 == Self::MAGIC_52 {
+                    c1 = None;
+                } else {
+                    let d1 = p1 - Self::MAGIC_52;
+                    let d2 = p2 - Self::MAGIC_52;
+                    let c2 = center2
+                        + Point::new(
+                            d1 * quality * height * master_scale / Self::POINT,
+                            d2 * quality * height * master_scale / Self::POINT,
+                        );
+                    if let Some(c1) = c1 {
+                        min_x = isize::min(min_x, isize::min(c1.x(), c2.x()));
+                        max_x = isize::max(max_x, isize::max(c1.x(), c2.x()));
+                        min_y = isize::min(min_y, isize::min(c1.y(), c2.y()));
+                        max_y = isize::max(max_y, isize::max(c1.y(), c2.y()));
+
+                        if extra_weight > 0 {
                             buffer.draw_line_anti_aliasing(
                                 c1,
                                 c2,
                                 quality,
                                 |bitmap, point, value| {
-                                    if point.is_within(bitmap.bounds()) {
+                                    if point.is_within(border_bounds) {
                                         unsafe {
                                             bitmap.process_pixel_unchecked(point, |v| {
-                                                v.saturating_add(
-                                                    (value as isize * level / 256) as u8,
-                                                )
-                                            })
+                                                v.saturating_add(value)
+                                            });
+                                            bitmap.process_pixel_unchecked(
+                                                point + Point::new(0, -1),
+                                                |v| {
+                                                    v.saturating_add(
+                                                        (value as usize * extra_weight / 256) as u8,
+                                                    )
+                                                },
+                                            );
+                                            bitmap.process_pixel_unchecked(
+                                                point + Point::new(-1, 0),
+                                                |v| {
+                                                    v.saturating_add(
+                                                        (value as usize * extra_weight / 256) as u8,
+                                                    )
+                                                },
+                                            );
+                                            bitmap.process_pixel_unchecked(
+                                                point + Point::new(1, 0),
+                                                |v| {
+                                                    v.saturating_add(
+                                                        (value as usize * extra_weight / 256) as u8,
+                                                    )
+                                                },
+                                            );
+                                            bitmap.process_pixel_unchecked(
+                                                point + Point::new(0, 1),
+                                                |v| {
+                                                    v.saturating_add(
+                                                        (value as usize * extra_weight / 256) as u8,
+                                                    )
+                                                },
+                                            );
+                                        }
+                                    }
+                                },
+                            );
+                        } else {
+                            buffer.draw_line_anti_aliasing(
+                                c1,
+                                c2,
+                                quality,
+                                |bitmap, point, value| {
+                                    if point.is_within(border_bounds) {
+                                        unsafe {
+                                            bitmap.process_pixel_unchecked(point, |v| {
+                                                v.saturating_add(value)
+                                            });
                                         }
                                     }
                                 },
                             );
                         }
-                        c1 = Some(c2);
                     }
-                    cursor += 2;
+                    c1 = Some(c2);
                 }
             }
 
-            let act_w = width * height / Self::POINT;
+            let box_w = width * height / Self::POINT;
+            let act_w = ((max_x - min_x + quality) / quality + master_scale) / master_scale;
             let act_h = self.line_height * height / Self::POINT;
-            let offset_x = center1.x - -left * height / Self::POINT;
-            let offset_y = center1.y - height / 2;
+            let offset_x = min_x / quality;
+            let offset_y = center1.y - (height / 2) * master_scale;
+            let offset_box_x =
+                center1.x - (-left * height / Self::POINT + master_scale - 1) * master_scale;
+            let offset_act_x = offset_x - offset_box_x;
+
+            if master_scale > 1 {
+                let buf_w = (max_x - min_x + quality) / quality;
+                // let buf_w = width * height * master_scale / Self::POINT;
+                let buf_h = self.line_height * height * master_scale / Self::POINT;
+
+                for y in (0..buf_h + master_scale - 1).step_by(master_scale as usize) {
+                    for x in (0..buf_w + master_scale - 1).step_by(master_scale as usize) {
+                        let mut acc = 0;
+                        for y0 in 0..master_scale {
+                            for x0 in 0..master_scale {
+                                acc += unsafe {
+                                    buffer.get_pixel_unchecked(Point::new(
+                                        offset_x + x + x0,
+                                        offset_y + y + y0,
+                                    )) as isize
+                                };
+                            }
+                        }
+                        unsafe {
+                            buffer.set_pixel_unchecked(
+                                Point::new(
+                                    offset_x + x / master_scale,
+                                    offset_y + y / master_scale,
+                                ),
+                                (acc / (master_scale * master_scale)) as u8,
+                            );
+                        }
+                    }
+                }
+            }
 
             // DEBUG
             if false {
-                let rect = Rect::new(origin.x, origin.y, width * height / Self::POINT, act_h);
-                bitmap.draw_rect(rect, SomeColor::from_rgb(0xFFCCFF));
-                bitmap.draw_hline(
-                    Point::new(origin.x, origin.y + height - 1),
-                    width * height / Self::POINT,
-                    SomeColor::from_rgb(0xFFFF33),
-                );
-                bitmap.draw_hline(
-                    Point::new(origin.x, origin.y + height * 3 / 4),
-                    width * height / Self::POINT,
-                    SomeColor::from_rgb(0xFF3333),
-                );
+                let rect = Rect::new(origin.x, origin.y, box_w, act_h);
+                bitmap.draw_rect(rect, SomeColor::from_argb(0xC0FF8888));
+                let rect = Rect::new(origin.x + offset_act_x, origin.y, act_w, act_h);
+                bitmap.draw_rect(rect, SomeColor::from_argb(0xC08888FF));
+                // bitmap.draw_hline(
+                //     Point::new(origin.x, origin.y + height - 1),
+                //     box_w,
+                //     SomeColor::from_rgb(0xFFFF33),
+                // );
+                // bitmap.draw_hline(
+                //     Point::new(origin.x, origin.y + height * 3 / 4),
+                //     box_w,
+                //     SomeColor::from_rgb(0xFF3333),
+                // );
             }
-
-            // if height >= Self::POINT {
-            //     buffer.blur(1, 384);
-            // }
 
             match bitmap {
                 Bitmap::Indexed(_) => {
@@ -421,6 +516,7 @@ impl<'a> HersheyFont<'a> {
                 }
                 Bitmap::Argb32(ref mut bitmap) => {
                     let color = color.into_argb();
+                    let origin = origin + Point::new(offset_act_x, 0);
                     let rect = Rect::new(offset_x, offset_y, act_w, act_h);
                     buffer.blt_to(*bitmap, origin, rect, |a, b| {
                         let mut c = color.components();

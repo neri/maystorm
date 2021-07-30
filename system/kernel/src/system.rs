@@ -427,15 +427,15 @@ impl ::acpi::AcpiHandler for MyAcpiHandler {
         physical_address: usize,
         size: usize,
     ) -> PhysicalMapping<Self, T> {
-        PhysicalMapping {
-            physical_start: physical_address,
-            virtual_start: NonNull::new_unchecked(PageManager::direct_map(
-                physical_address as PhysicalAddress,
-            ) as *mut T),
-            region_length: size,
-            mapped_length: size,
-            handler: Self::new(),
-        }
+        PhysicalMapping::new(
+            physical_address,
+            NonNull::new_unchecked(
+                PageManager::direct_map(physical_address as PhysicalAddress) as *mut T
+            ),
+            size,
+            size,
+            Self::new(),
+        )
     }
-    fn unmap_physical_region<T>(&self, _region: &PhysicalMapping<Self, T>) {}
+    fn unmap_physical_region<T>(_region: &PhysicalMapping<Self, T>) {}
 }

@@ -30,10 +30,19 @@ impl Sb255 {
         self.0[0] as usize
     }
 
-    /// SAFETY: This method does not strictly conform to Rust's ownership and lifetime philosophy
     #[inline]
-    pub fn as_str<'a>(&self) -> &'a str {
-        unsafe { str::from_utf8_unchecked(slice::from_raw_parts(&self.0[1], self.len())) }
+    fn as_slice(&self) -> &[u8] {
+        unsafe { slice::from_raw_parts(&self.0[1], self.len()) }
+    }
+
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        str::from_utf8(self.as_slice()).unwrap_or("")
+    }
+
+    #[inline]
+    pub unsafe fn as_str_unchecked(&self) -> &str {
+        str::from_utf8_unchecked(self.as_slice())
     }
 }
 
@@ -46,6 +55,13 @@ impl fmt::Write for Sb255 {
         }
         self.0[0] += s.bytes().count() as u8;
         Ok(())
+    }
+}
+
+impl AsRef<str> for Sb255 {
+    #[inline]
+    fn as_ref(&self) -> &str {
+        self.as_str()
     }
 }
 

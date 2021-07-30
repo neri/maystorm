@@ -101,7 +101,7 @@ impl Apic {
         }
     }
 
-    pub unsafe fn init(acpi_apic: &acpi::platform::Apic) {
+    pub unsafe fn init(acpi_apic: &acpi::platform::interrupt::Apic) {
         if acpi_apic.also_has_legacy_pics {
             // disable legacy PICs
             Cpu::out8(0xA1, 0xFF);
@@ -562,12 +562,12 @@ impl ApicPolarity {
     }
 }
 
-impl From<&acpi::platform::Polarity> for ApicPolarity {
-    fn from(src: &acpi::platform::Polarity) -> Self {
+impl From<&acpi::platform::interrupt::Polarity> for ApicPolarity {
+    fn from(src: &acpi::platform::interrupt::Polarity) -> Self {
         match *src {
-            acpi::platform::Polarity::SameAsBus => ApicPolarity::ActiveHigh,
-            acpi::platform::Polarity::ActiveHigh => ApicPolarity::ActiveHigh,
-            acpi::platform::Polarity::ActiveLow => ApicPolarity::ActiveLow,
+            acpi::platform::interrupt::Polarity::SameAsBus => ApicPolarity::ActiveHigh,
+            acpi::platform::interrupt::Polarity::ActiveHigh => ApicPolarity::ActiveHigh,
+            acpi::platform::interrupt::Polarity::ActiveLow => ApicPolarity::ActiveLow,
         }
     }
 }
@@ -584,12 +584,12 @@ impl ApicTriggerMode {
     }
 }
 
-impl From<&acpi::platform::TriggerMode> for ApicTriggerMode {
-    fn from(src: &acpi::platform::TriggerMode) -> Self {
+impl From<&acpi::platform::interrupt::TriggerMode> for ApicTriggerMode {
+    fn from(src: &acpi::platform::interrupt::TriggerMode) -> Self {
         match *src {
-            acpi::platform::TriggerMode::SameAsBus => ApicTriggerMode::Edge,
-            acpi::platform::TriggerMode::Edge => ApicTriggerMode::Edge,
-            acpi::platform::TriggerMode::Level => ApicTriggerMode::Level,
+            acpi::platform::interrupt::TriggerMode::SameAsBus => ApicTriggerMode::Edge,
+            acpi::platform::interrupt::TriggerMode::Edge => ApicTriggerMode::Edge,
+            acpi::platform::interrupt::TriggerMode::Level => ApicTriggerMode::Level,
         }
     }
 }
@@ -753,7 +753,7 @@ struct IoApic {
 }
 
 impl IoApic {
-    unsafe fn new(acpi_ioapic: &acpi::platform::IoApic) -> Self {
+    unsafe fn new(acpi_ioapic: &acpi::platform::interrupt::IoApic) -> Self {
         let mut ioapic = IoApic {
             mmio: Mmio::from_phys(acpi_ioapic.address as PhysicalAddress, 0x14).unwrap(),
             global_int: Irq(acpi_ioapic.global_system_interrupt_base as u8),

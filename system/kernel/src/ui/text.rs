@@ -293,35 +293,32 @@ impl TextProcessing {
         current_line.height = font.line_height();
         let mut current_height = current_line.height;
         for (index, c) in s.chars().enumerate() {
-            match c {
-                '\n' => {
-                    current_line.end_position = index;
+            if c == '\n' {
+                current_line.end_position = index;
+                current_height += current_line.height;
+                vec.push(current_line);
+                current_line = LineStatus::empty();
+                if vec.len() >= max_lines || current_height >= size.height() {
+                    break;
+                }
+                current_line.start_position = index + 1;
+                current_line.height = font.line_height();
+            } else {
+                current_line.end_position = index;
+                let current_width = font.width_of(c);
+                let new_width = current_line.width + current_width;
+                if current_line.width > 0 && new_width > size.width {
                     current_height += current_line.height;
                     vec.push(current_line);
                     current_line = LineStatus::empty();
                     if vec.len() >= max_lines || current_height >= size.height() {
                         break;
                     }
-                    current_line.start_position = index + 1;
+                    current_line.start_position = index;
+                    current_line.width = current_width;
                     current_line.height = font.line_height();
-                }
-                _ => {
-                    current_line.end_position = index;
-                    let current_width = font.width_of(c);
-                    let new_width = current_line.width + current_width;
-                    if current_line.width > 0 && new_width > size.width {
-                        current_height += current_line.height;
-                        vec.push(current_line);
-                        current_line = LineStatus::empty();
-                        if vec.len() >= max_lines || current_height >= size.height() {
-                            break;
-                        }
-                        current_line.start_position = index;
-                        current_line.width = current_width;
-                        current_line.height = font.line_height();
-                    } else {
-                        current_line.width = new_width;
-                    }
+                } else {
+                    current_line.width = new_width;
                 }
             }
         }
