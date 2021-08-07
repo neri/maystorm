@@ -32,7 +32,7 @@ const WINDOW_SYSTEM_EVENT_QUEUE_SIZE: usize = 100;
 const WINDOW_BORDER_WIDTH: isize = 1;
 const WINDOW_THICK_BORDER_WIDTH: isize = 4;
 const WINDOW_CORNER_RADIUS: isize = 8;
-const WINDOW_TITLE_HEIGHT: isize = 24;
+const WINDOW_TITLE_HEIGHT_THIN: isize = 24;
 const WINDOW_TITLE_HEIGHT_THICK: isize = 24;
 const WINDOW_TITLE_LENGTH: usize = 32;
 const WINDOW_SHADOW_PADDING: isize = 16;
@@ -159,7 +159,7 @@ impl WindowManager<'static> {
         let off_screen = BoxedBitmap32::new(screen_size, TrueColor::TRANSPARENT);
         let mut window_pool = BTreeMap::new();
 
-        let window_button_width = WINDOW_TITLE_HEIGHT;
+        let window_button_width = WINDOW_TITLE_HEIGHT_THIN;
         let close_button = OperationalBitmap::with_slice(
             Size::new(CLOSE_BUTTON_SIZE as isize, CLOSE_BUTTON_SIZE as isize),
             &CLOSE_BUTTON_SOURCE,
@@ -174,7 +174,7 @@ impl WindowManager<'static> {
                 .style(WindowStyle::OPAQUE | WindowStyle::NO_SHADOW)
                 .level(WindowLevel::ROOT)
                 .frame(Rect::from(screen_size))
-                .bg_color(SomeColor::BLACK)
+                .bg_color(Color::BLACK)
                 .without_message_queue()
                 .bitmap_strategy(BitmapStrategy::NonBitmap)
                 .build_inner("Root");
@@ -192,7 +192,7 @@ impl WindowManager<'static> {
                 .level(WindowLevel::POINTER)
                 .origin(Point::new(pointer_x, pointer_y))
                 .size(pointer_size)
-                .bg_color(SomeColor::Transparent)
+                .bg_color(Color::Transparent)
                 .without_message_queue()
                 .build_inner("Pointer");
 
@@ -802,7 +802,7 @@ impl WindowManager<'_> {
         Self::shared().root
     }
 
-    pub fn set_desktop_color(color: SomeColor) {
+    pub fn set_desktop_color(color: Color) {
         let desktop = Self::shared().root;
         desktop.update(|window| {
             window.bitmap = None;
@@ -936,7 +936,10 @@ struct RawWindow<'a> {
     content_insets: EdgeInsets,
 
     // Appearances
-    bg_color: SomeColor,
+    bg_color: Color,
+    accent_color: Color,
+    active_title_color: Color,
+    inactive_title_color: Color,
     bitmap: Option<UnsafeCell<BoxedBitmap<'a>>>,
     shadow_bitmap: Option<UnsafeCell<OperationalBitmap>>,
 
@@ -957,24 +960,46 @@ struct RawWindow<'a> {
 bitflags! {
     pub struct WindowStyle: usize {
         const BORDER        = 0b0000_0000_0000_0001;
-        const TITLE         = 0b0000_0000_0000_0010;
-        const CLOSE_BUTTON  = 0b0000_0000_0000_0100;
-        const PINCHABLE     = 0b0000_0000_0000_1000;
-        const FLOATING      = 0b0000_0000_0001_0000;
+        const THIN_FRAME    = 0b0000_0000_0000_0010;
+        const TITLE         = 0b0000_0000_0000_0100;
+        const CLOSE_BUTTON  = 0b0000_0000_0000_1000;
+
+        const PINCHABLE     = 0b0000_0000_0001_0000;
+        const FLOATING      = 0b0000_0000_0010_0000;
         const OPAQUE        = 0b0000_0000_0100_0000;
         const NO_SHADOW     = 0b0000_0000_1000_0000;
-        const DARK          = 0b0000_0001_0000_0000;
-        const THICK_FRAME   = 0b0000_0010_0000_0000;
+
+        const DARK_BORDER   = 0b0000_0001_0000_0000;
+        const DARK_TITLE    = 0b0000_0010_0000_0000;
+        const DARK_ACTIVE   = 0b0000_0100_0000_0000;
+
         const SUSPENDED     = 0b1000_0000_0000_0000;
 
-        const DEFAULT = Self::BORDER.bits | Self::TITLE.bits | Self::CLOSE_BUTTON.bits | Self::THICK_FRAME.bits;
+    }
+}
+
+impl Default for WindowStyle {
+    #[inline]
+    fn default() -> Self {
+        Self::BORDER | Self::TITLE | Self::CLOSE_BUTTON
     }
 }
 
 impl WindowStyle {
     fn as_content_insets(self) -> EdgeInsets {
         let insets = if self.contains(Self::BORDER) {
-            if self.contains(Self::THICK_FRAME) {
+            if self.contains(Self::THIN_FRAME) {
+                if self.contains(Self::TITLE) {
+                    EdgeInsets::new(
+                        WINDOW_BORDER_WIDTH + WINDOW_TITLE_HEIGHT_THIN,
+                        WINDOW_BORDER_WIDTH,
+                        WINDOW_BORDER_WIDTH,
+                        WINDOW_BORDER_WIDTH,
+                    )
+                } else {
+                    EdgeInsets::padding_each(WINDOW_BORDER_WIDTH)
+                }
+            } else {
                 if self.contains(Self::TITLE) {
                     EdgeInsets::new(
                         WINDOW_BORDER_WIDTH + WINDOW_TITLE_HEIGHT_THICK,
@@ -984,17 +1009,6 @@ impl WindowStyle {
                     )
                 } else {
                     EdgeInsets::padding_each(WINDOW_THICK_BORDER_WIDTH)
-                }
-            } else {
-                if self.contains(Self::TITLE) {
-                    EdgeInsets::new(
-                        WINDOW_BORDER_WIDTH + WINDOW_TITLE_HEIGHT,
-                        WINDOW_BORDER_WIDTH,
-                        WINDOW_BORDER_WIDTH,
-                        WINDOW_BORDER_WIDTH,
-                    )
-                } else {
-                    EdgeInsets::padding_each(WINDOW_BORDER_WIDTH)
                 }
             }
         } else {
@@ -1203,8 +1217,12 @@ impl RawWindow<'_> {
         true
     }
 
-    fn set_bg_color(&mut self, color: SomeColor) {
+    fn set_bg_color(&mut self, color: Color) {
         self.bg_color = color;
+        self.style.set(
+            WindowStyle::DARK_BORDER,
+            color.brightness().unwrap_or(255) < 128,
+        );
         if let Some(mut bitmap) = self.bitmap() {
             bitmap.fill_rect(bitmap.bounds(), color.into());
             self.draw_frame();
@@ -1218,10 +1236,10 @@ impl RawWindow<'_> {
                 WINDOW_BORDER_WIDTH,
                 WINDOW_BORDER_WIDTH,
                 self.frame.width() - WINDOW_BORDER_WIDTH * 2,
-                if self.style.contains(WindowStyle::THICK_FRAME) {
-                    WINDOW_TITLE_HEIGHT_THICK
+                if self.style.contains(WindowStyle::THIN_FRAME) {
+                    WINDOW_TITLE_HEIGHT_THIN
                 } else {
-                    WINDOW_TITLE_HEIGHT
+                    WINDOW_TITLE_HEIGHT_THICK
                 },
             )
         } else {
@@ -1272,38 +1290,8 @@ impl RawWindow<'_> {
             None => return,
         };
         let is_active = self.is_active();
-        let is_thick = self.style.contains(WindowStyle::THICK_FRAME);
-        let is_dark = self.style.contains(WindowStyle::DARK);
-
-        if self.style.contains(WindowStyle::BORDER) {
-            if is_thick {
-                // Thick frame
-                let rect = Rect::from(bitmap.size());
-                bitmap.fill_round_rect_outside(rect, WINDOW_CORNER_RADIUS, SomeColor::TRANSPARENT);
-                bitmap.draw_round_rect(
-                    rect,
-                    WINDOW_CORNER_RADIUS,
-                    if is_dark {
-                        Theme::shared().window_default_border_dark()
-                    } else {
-                        Theme::shared().window_default_border_light()
-                    },
-                );
-            } else {
-                // Thin frame
-                if WINDOW_BORDER_WIDTH > 0 {
-                    let rect = Rect::from(bitmap.size());
-                    bitmap.draw_rect(
-                        rect,
-                        if is_dark {
-                            Theme::shared().window_default_border_dark()
-                        } else {
-                            Theme::shared().window_default_border_light()
-                        },
-                    );
-                }
-            }
-        }
+        let is_thin = self.style.contains(WindowStyle::THIN_FRAME);
+        let is_dark = self.style.contains(WindowStyle::DARK_BORDER);
 
         if self.style.contains(WindowStyle::TITLE) {
             let shared = WindowManager::shared();
@@ -1315,25 +1303,17 @@ impl RawWindow<'_> {
             bitmap
                 .view(rect, |mut bitmap| {
                     let rect = bitmap.bounds();
-                    if is_thick {
-                        let rect = rect.insets_by(EdgeInsets::new(
-                            0,
-                            WINDOW_CORNER_RADIUS,
-                            0,
-                            WINDOW_CORNER_RADIUS,
-                        ));
-                        bitmap.fill_rect(rect, self.bg_color);
+
+                    if is_thin {
+                        bitmap.fill_rect(rect, self.title_background());
                     } else {
-                        bitmap.fill_rect(
-                            rect,
-                            if is_thick {
-                                self.bg_color
-                            } else if is_active {
-                                Theme::shared().window_title_active_background()
-                            } else {
-                                Theme::shared().window_title_inactive_background()
-                            },
-                        );
+                        // let rect = rect.insets_by(EdgeInsets::new(
+                        //     0,
+                        //     WINDOW_CORNER_RADIUS,
+                        //     0,
+                        //     WINDOW_CORNER_RADIUS,
+                        // ));
+                        bitmap.fill_rect(rect, self.title_background());
                     }
 
                     self.draw_close_button();
@@ -1347,7 +1327,7 @@ impl RawWindow<'_> {
                             let rect2 = rect + Point::new(1, 1);
                             AttributedString::new()
                                 .font(font)
-                                .color(if is_thick && is_dark {
+                                .color(if self.style.contains(WindowStyle::DARK_ACTIVE) {
                                     Theme::shared().window_title_active_shadow_dark()
                                 } else {
                                     Theme::shared().window_title_active_shadow()
@@ -1359,25 +1339,71 @@ impl RawWindow<'_> {
 
                         AttributedString::new()
                             .font(font)
-                            .color(if is_thick && is_dark {
-                                if is_active {
-                                    Theme::shared().window_title_active_foreground_dark()
-                                } else {
-                                    Theme::shared().window_title_inactive_foreground_dark()
-                                }
-                            } else {
-                                if is_active {
-                                    Theme::shared().window_title_active_foreground()
-                                } else {
-                                    Theme::shared().window_title_inactive_foreground()
-                                }
-                            })
+                            .color(self.title_foreground())
                             .center()
                             .text(text)
                             .draw_text(&mut bitmap, rect, 1);
                     }
                 })
                 .unwrap();
+        }
+
+        if self.style.contains(WindowStyle::BORDER) {
+            if is_thin {
+                // Thin frame
+                if WINDOW_BORDER_WIDTH > 0 {
+                    let rect = Rect::from(bitmap.size());
+                    bitmap.draw_rect(
+                        rect,
+                        if is_dark {
+                            Theme::shared().window_default_border_dark()
+                        } else {
+                            Theme::shared().window_default_border_light()
+                        },
+                    );
+                }
+            } else {
+                // Thick frame
+                let rect = Rect::from(bitmap.size());
+                bitmap.fill_round_rect_outside(rect, WINDOW_CORNER_RADIUS, Color::TRANSPARENT);
+                bitmap.draw_round_rect(
+                    rect,
+                    WINDOW_CORNER_RADIUS,
+                    if is_dark {
+                        Theme::shared().window_default_border_dark()
+                    } else {
+                        Theme::shared().window_default_border_light()
+                    },
+                );
+            }
+        }
+    }
+
+    #[inline]
+    fn title_background(&self) -> Color {
+        let is_active = self.is_active();
+        if is_active {
+            self.active_title_color
+        } else {
+            self.inactive_title_color
+        }
+    }
+
+    #[inline]
+    fn title_foreground(&self) -> Color {
+        let is_active = self.is_active();
+        if is_active {
+            if self.style.contains(WindowStyle::DARK_ACTIVE) {
+                Theme::shared().window_title_active_foreground_dark()
+            } else {
+                Theme::shared().window_title_active_foreground()
+            }
+        } else {
+            if self.style.contains(WindowStyle::DARK_TITLE) {
+                Theme::shared().window_title_inactive_foreground_dark()
+            } else {
+                Theme::shared().window_title_inactive_foreground()
+            }
         }
     }
 
@@ -1396,33 +1422,19 @@ impl RawWindow<'_> {
 
         let background = match state {
             ViewActionState::Pressed => Theme::shared().window_title_close_active_background(),
-            _ => {
-                if self.style.contains(WindowStyle::THICK_FRAME) {
-                    self.bg_color
-                } else if is_active {
-                    Theme::shared().window_title_active_background()
-                } else {
-                    Theme::shared().window_title_inactive_background()
-                }
-            }
+            _ => self.title_background(),
         };
         let foreground = match state {
             ViewActionState::Pressed => Theme::shared().window_title_close_active_foreground(),
             _ => {
-                if self.style.contains(WindowStyle::THICK_FRAME)
-                    && self.style.contains(WindowStyle::DARK)
-                {
-                    if is_active {
+                if is_active {
+                    if self.style.contains(WindowStyle::DARK_ACTIVE) {
                         Theme::shared().window_title_close_foreground_dark()
                     } else {
-                        Theme::shared().window_title_inactive_foreground_dark()
+                        Theme::shared().window_title_close_foreground()
                     }
                 } else {
-                    if is_active {
-                        Theme::shared().window_title_close_foreground()
-                    } else {
-                        Theme::shared().window_title_inactive_foreground()
-                    }
+                    self.title_foreground()
                 }
             }
         }
@@ -1460,33 +1472,19 @@ impl RawWindow<'_> {
 
         let background = match state {
             ViewActionState::Pressed => Theme::shared().window_title_close_active_background(),
-            _ => {
-                if self.style.contains(WindowStyle::THICK_FRAME) {
-                    self.bg_color
-                } else if is_active {
-                    Theme::shared().window_title_active_background()
-                } else {
-                    Theme::shared().window_title_inactive_background()
-                }
-            }
+            _ => self.title_background(),
         };
         let foreground = match state {
             ViewActionState::Pressed => Theme::shared().window_title_close_active_foreground(),
             _ => {
-                if self.style.contains(WindowStyle::THICK_FRAME)
-                    && self.style.contains(WindowStyle::DARK)
-                {
-                    if is_active {
+                if is_active {
+                    if self.style.contains(WindowStyle::DARK_ACTIVE) {
                         Theme::shared().window_title_close_foreground_dark()
                     } else {
-                        Theme::shared().window_title_inactive_foreground_dark()
+                        Theme::shared().window_title_close_foreground()
                     }
                 } else {
-                    if is_active {
-                        Theme::shared().window_title_close_foreground()
-                    } else {
-                        Theme::shared().window_title_inactive_foreground()
-                    }
+                    self.title_foreground()
                 }
             }
         }
@@ -1715,7 +1713,8 @@ pub struct WindowBuilder {
     style: WindowStyle,
     window_options: u32,
     level: WindowLevel,
-    bg_color: SomeColor,
+    bg_color: Color,
+    accent_color: Option<Color>,
     queue_size: usize,
     bitmap_strategy: BitmapStrategy,
 }
@@ -1726,9 +1725,10 @@ impl WindowBuilder {
         Self {
             frame: Rect::new(isize::MIN, isize::MIN, 300, 300),
             level: WindowLevel::NORMAL,
-            style: WindowStyle::DEFAULT,
+            style: WindowStyle::default(),
             window_options: 0,
             bg_color: Theme::shared().window_default_background(),
+            accent_color: None,
             queue_size: 100,
             bitmap_strategy: BitmapStrategy::default(),
         }
@@ -1750,17 +1750,18 @@ impl WindowBuilder {
     fn build_inner<'a>(mut self, title: &str) -> Box<RawWindow<'a>> {
         let window_options = self.window_options;
         if (window_options & megosabi::window::TRANSPARENT_WINDOW) != 0 {
-            self.bg_color = SomeColor::TRANSPARENT;
+            self.bg_color = Color::TRANSPARENT;
         }
         if (window_options & megosabi::window::THIN_FRAME) != 0 {
-            self.style.remove(WindowStyle::THICK_FRAME);
+            self.style.insert(WindowStyle::THIN_FRAME);
         }
         if (window_options & megosabi::window::USE_BITMAP32) != 0 {
             self.bitmap_strategy = BitmapStrategy::Expressive;
         }
-        if self.style.contains(WindowStyle::THICK_FRAME) {
+        if self.style.contains(WindowStyle::THIN_FRAME) {
             self.style.insert(WindowStyle::BORDER);
         }
+        let is_thin = self.style.contains(WindowStyle::THIN_FRAME);
 
         let screen_bounds = WindowManager::user_screen_bounds();
         let content_insets = self.style.as_content_insets();
@@ -1790,9 +1791,28 @@ impl WindowBuilder {
             AtomicBitflags::empty()
         };
 
-        let light = self.bg_color.into_argb().brightness();
-        if light < 128 {
-            self.style.insert(WindowStyle::DARK);
+        let bg_color = self.bg_color;
+        let accent_color = self
+            .accent_color
+            .unwrap_or(Theme::shared().window_default_accent());
+        let active_title_color = if is_thin {
+            Theme::shared().window_title_active_background()
+        } else {
+            self.accent_color.unwrap_or(bg_color)
+        };
+        let inactive_title_color = if is_thin {
+            Theme::shared().window_title_inactive_background()
+        } else {
+            bg_color
+        };
+        if bg_color.brightness().unwrap_or(255) < 128 {
+            self.style.insert(WindowStyle::DARK_BORDER);
+        }
+        if active_title_color.brightness().unwrap_or(255) < 192 {
+            self.style.insert(WindowStyle::DARK_ACTIVE);
+        }
+        if inactive_title_color.brightness().unwrap_or(255) < 128 {
+            self.style.insert(WindowStyle::DARK_TITLE);
         }
 
         let queue = match self.queue_size {
@@ -1826,7 +1846,10 @@ impl WindowBuilder {
             content_insets,
             style: self.style,
             level: self.level,
-            bg_color: self.bg_color,
+            bg_color,
+            accent_color,
+            active_title_color,
+            inactive_title_color,
             bitmap: None,
             shadow_bitmap,
             title: title_array,
@@ -1900,16 +1923,16 @@ impl WindowBuilder {
     }
 
     #[inline]
-    pub const fn bg_color(mut self, bg_color: SomeColor) -> Self {
+    pub const fn bg_color(mut self, bg_color: Color) -> Self {
         self.bg_color = bg_color;
         self
     }
 
-    // #[inline]
-    // const fn message_queue_size(mut self, queue_size: usize) -> Self {
-    //     self.queue_size = queue_size;
-    //     self
-    // }
+    #[inline]
+    pub const fn accent_color(mut self, accent_color: Color) -> Self {
+        self.accent_color = Some(accent_color);
+        self
+    }
 
     #[inline]
     const fn without_message_queue(mut self) -> Self {
@@ -1932,13 +1955,13 @@ impl WindowBuilder {
     /// Makes the background color transparent.
     #[inline]
     pub const fn transparent(self) -> Self {
-        self.bg_color(SomeColor::TRANSPARENT)
+        self.bg_color(Color::TRANSPARENT)
     }
 
     /// Makes the border of the window a thin border.
     #[inline]
     pub const fn thin_frame(mut self) -> Self {
-        self.style.bits &= !WindowStyle::THICK_FRAME.bits();
+        self.style.bits |= WindowStyle::THIN_FRAME.bits;
         self
     }
 
@@ -2025,15 +2048,26 @@ impl WindowHandle {
         self.as_ref().title()
     }
 
-    pub fn set_bg_color(&self, color: SomeColor) {
+    #[inline]
+    pub fn set_bg_color(&self, color: Color) {
         self.update(|window| {
             window.set_bg_color(color);
         });
     }
 
     #[inline]
-    pub fn bg_color(&self) -> SomeColor {
+    pub fn bg_color(&self) -> Color {
         self.as_ref().bg_color
+    }
+
+    #[inline]
+    pub fn active_title_color(&self) -> Color {
+        self.as_ref().active_title_color
+    }
+
+    #[inline]
+    pub fn inactive_title_color(&self) -> Color {
+        self.as_ref().inactive_title_color
     }
 
     #[inline]
@@ -2041,6 +2075,7 @@ impl WindowHandle {
         self.as_ref().visible_frame()
     }
 
+    #[inline]
     pub fn set_frame(&self, rect: Rect) {
         self.update(|window| {
             window.set_frame(rect);
@@ -2084,10 +2119,12 @@ impl WindowHandle {
         self.set_frame(new_rect);
     }
 
+    #[inline]
     pub fn show(&self) {
         self.update(|window| window.show());
     }
 
+    #[inline]
     pub fn hide(&self) {
         self.update(|window| window.hide());
     }

@@ -32,7 +32,6 @@ pub mod system;
 pub mod task;
 pub mod ui;
 pub mod user;
-pub mod util;
 
 use crate::arch::cpu::Cpu;
 use crate::system::System;

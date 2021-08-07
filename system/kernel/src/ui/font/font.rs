@@ -178,7 +178,7 @@ impl FontDescriptor {
     }
 
     #[inline]
-    pub fn draw_char(&self, character: char, bitmap: &mut Bitmap, origin: Point, color: SomeColor) {
+    pub fn draw_char(&self, character: char, bitmap: &mut Bitmap, origin: Point, color: Color) {
         self.driver
             .draw_char(character, bitmap, origin, self.point(), color)
     }
@@ -199,7 +199,7 @@ pub trait FontDriver {
         bitmap: &mut Bitmap,
         origin: Point,
         height: isize,
-        color: SomeColor,
+        color: Color,
     );
 }
 
@@ -277,7 +277,7 @@ impl FontDriver for FixedFontDriver<'_> {
         bitmap: &mut Bitmap,
         origin: Point,
         _height: isize,
-        color: SomeColor,
+        color: Color,
     ) {
         if let Some(font) = self.glyph_for(character) {
             let origin = Point::new(origin.x, origin.y + self.leading);
@@ -334,7 +334,7 @@ impl<'a> HersheyFont<'a> {
         origin: Point,
         width: isize,
         height: isize,
-        color: SomeColor,
+        color: Color,
     ) {
         if data.len() >= 12 {
             let mut buffer = FontManager::shared().buffer.lock().unwrap();
@@ -452,13 +452,20 @@ impl<'a> HersheyFont<'a> {
                 }
             }
 
+            let extra_offset = if extra_weight > 0 {
+                min_x -= quality;
+                max_x += quality;
+                1
+            } else {
+                0
+            };
             let box_w = width * height / Self::POINT;
             let act_w = ((max_x - min_x + quality) / quality + master_scale) / master_scale;
             let act_h = self.line_height * height / Self::POINT;
             let offset_x = min_x / quality;
             let offset_y = center1.y - (height / 2) * master_scale;
             let offset_box_x =
-                center1.x - (-left * height / Self::POINT + master_scale - 1) * master_scale;
+                center1.x - (-left * height) * master_scale / Self::POINT + extra_offset;
             let offset_act_x = offset_x - offset_box_x;
 
             if master_scale > 1 {
@@ -495,18 +502,18 @@ impl<'a> HersheyFont<'a> {
             // DEBUG
             if false {
                 let rect = Rect::new(origin.x, origin.y, box_w, act_h);
-                bitmap.draw_rect(rect, SomeColor::from_argb(0xC0FF8888));
-                let rect = Rect::new(origin.x + offset_act_x, origin.y, act_w, act_h);
-                bitmap.draw_rect(rect, SomeColor::from_argb(0xC08888FF));
+                bitmap.draw_rect(rect, Color::from_argb(0x80FF8888));
+                // let rect = Rect::new(origin.x + offset_act_x, origin.y, act_w, act_h);
+                // bitmap.draw_rect(rect, Color::from_argb(0xC08888FF));
                 // bitmap.draw_hline(
                 //     Point::new(origin.x, origin.y + height - 1),
                 //     box_w,
-                //     SomeColor::from_rgb(0xFFFF33),
+                //     Color::from_rgb(0xFFFF33),
                 // );
                 // bitmap.draw_hline(
                 //     Point::new(origin.x, origin.y + height * 3 / 4),
                 //     box_w,
-                //     SomeColor::from_rgb(0xFF3333),
+                //     Color::from_rgb(0xFF3333),
                 // );
             }
 
@@ -591,7 +598,7 @@ impl FontDriver for HersheyFont<'_> {
         bitmap: &mut Bitmap,
         origin: Point,
         height: isize,
-        color: SomeColor,
+        color: Color,
     ) {
         let (base, last, width) = match self.glyph_for(character) {
             Some(info) => info,

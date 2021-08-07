@@ -7,7 +7,7 @@ use megstd::drawing::*;
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct WindowHandle(pub usize);
 
-pub type WindowColor = IndexedColor;
+pub type WindowColor = PackedColor;
 
 pub struct Window {
     handle: WindowHandle,

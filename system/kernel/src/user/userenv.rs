@@ -183,14 +183,14 @@ fn format_bytes(sb: &mut dyn Write, val: usize) -> core::fmt::Result {
 async fn activity_monitor_main() {
     let bg_alpha = 0xC0;
     let bg_color32 = TrueColor::from(IndexedColor::BLACK);
-    let bg_color = SomeColor::Argb32(bg_color32.with_opacity(bg_alpha));
-    let fg_color2 = SomeColor::DARK_GRAY;
-    let fg_color = SomeColor::YELLOW;
-    let graph_border_color = SomeColor::LIGHT_GRAY;
-    let graph_sub_color = SomeColor::LIGHT_GREEN;
-    let graph_main_color1 = SomeColor::LIGHT_RED;
-    let graph_main_color2 = SomeColor::YELLOW;
-    let graph_main_color3 = SomeColor::LIGHT_GREEN;
+    let bg_color = Color::Argb32(bg_color32.with_opacity(bg_alpha));
+    let fg_color2 = Color::DARK_GRAY;
+    let fg_color = Color::YELLOW;
+    let graph_border_color = Color::LIGHT_GRAY;
+    let graph_sub_color = Color::LIGHT_GREEN;
+    let graph_main_color1 = Color::LIGHT_RED;
+    let graph_main_color2 = Color::YELLOW;
+    let graph_main_color3 = Color::LIGHT_GREEN;
     let margin = EdgeInsets::new(0, 0, 0, 0);
 
     let width = 260;
@@ -394,9 +394,9 @@ async fn activity_monitor_main() {
 async fn notification_main() {
     let padding = 8;
     let radius = 8;
-    let bg_color = SomeColor::from_argb(0xC0EEEEEE);
-    let fg_color = SomeColor::BLACK;
-    let border_color = SomeColor::from_argb(0x80C0C0C0);
+    let bg_color = Color::from_argb(0xC0EEEEEE);
+    let fg_color = Color::BLACK;
+    let border_color = Color::from_argb(0x80C0C0C0);
     let window_width = 240;
     let window_height = 120;
     let screen_bounds = WindowManager::user_screen_bounds();
@@ -409,7 +409,7 @@ async fn notification_main() {
             window_width,
             window_height,
         ))
-        .bg_color(SomeColor::TRANSPARENT)
+        .bg_color(Color::TRANSPARENT)
         .build("Notification Center");
 
     window
@@ -440,19 +440,20 @@ async fn notification_main() {
 
 #[allow(dead_code)]
 async fn test_window_main() {
-    let width = 320;
+    let width = 640;
     let height = 480;
     let window = WindowBuilder::new()
         .size(Size::new(width, height))
-        .bg_color(SomeColor::from_argb(0xE0FFFFFF))
+        .bg_color(Color::from_argb(0xE0FFFFFF))
+        .accent_color(Color::LIGHT_BLUE)
         .build("Test Window");
     window.set_back_button_enabled(true);
 
     window
         .draw(|bitmap| {
             // let radius = 4;
-            // bitmap.fill_round_rect(bitmap.bounds(), radius, SomeColor::WHITE);
-            // bitmap.draw_round_rect(bitmap.bounds(), radius, SomeColor::LIGHT_GRAY);
+            // bitmap.fill_round_rect(bitmap.bounds(), radius, Color::WHITE);
+            // bitmap.draw_round_rect(bitmap.bounds(), radius, Color::LIGHT_GRAY);
 
             let font = FontManager::title_font();
             let button_width = 120;
@@ -466,9 +467,7 @@ async fn test_window_main() {
             );
             {
                 let rect = bitmap.bounds().insets_by(EdgeInsets::new(
-                    padding,
-                    4,
-                    padding_bottom + padding + padding,
+                    padding, 4, padding, //padding_bottom+ padding + padding,
                     4,
                 ));
                 bitmap
@@ -478,23 +477,18 @@ async fn test_window_main() {
                             FontFamily::SansSerif,
                             FontFamily::SystemUI,
                             FontFamily::Serif,
-                            FontFamily::Cursive,
+                            // FontFamily::Cursive,
+                            // FontFamily::Japanese,
                         ] {
-                            for point in [32, 28, 24, 20, 16, 14, 12] {
-                                offset += font_test(
-                                    &mut bitmap,
-                                    offset,
-                                    SomeColor::BLACK,
-                                    family,
-                                    point,
-                                    1,
-                                );
+                            for point in [48, 32, 28, 24, 20, 16, 14, 12, 10, 8] {
+                                offset +=
+                                    font_test(&mut bitmap, offset, Color::BLACK, family, point, 1);
                             }
                         }
                     })
                     .unwrap();
             }
-            {
+            if false {
                 let rect = Rect::new(
                     button_center_top.x() - button_width - padding / 2,
                     button_center_top.y(),
@@ -523,7 +517,7 @@ async fn test_window_main() {
                     })
                     .unwrap();
             }
-            {
+            if false {
                 let rect = Rect::new(
                     button_center_top.x() + padding / 2,
                     button_center_top.y(),
@@ -565,7 +559,7 @@ async fn test_window_main() {
 fn font_test(
     bitmap: &mut Bitmap,
     offset: isize,
-    color: SomeColor,
+    color: Color,
     family: FontFamily,
     point: isize,
     max_lines: usize,

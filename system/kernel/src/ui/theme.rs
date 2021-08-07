@@ -1,6 +1,6 @@
 //! Theme Manager
 
-use megstd::drawing::SomeColor;
+use megstd::drawing::Color;
 
 static THEME: Theme = Theme::new();
 
@@ -21,127 +21,132 @@ impl Theme {
     }
 
     #[inline]
-    pub const fn desktop_color(&self) -> SomeColor {
-        SomeColor::from_rgb(0x2196F3)
+    pub const fn desktop_color(&self) -> Color {
+        Color::from_rgb(0x2196F3)
     }
 
     #[inline]
-    pub const fn status_bar_background(&self) -> SomeColor {
-        SomeColor::from_argb(0xC0ECEFF1)
+    pub const fn status_bar_background(&self) -> Color {
+        Color::from_argb(0xC0ECEFF1)
     }
 
     #[inline]
-    pub const fn status_bar_foreground(&self) -> SomeColor {
-        SomeColor::BLACK
+    pub const fn status_bar_foreground(&self) -> Color {
+        Color::BLACK
     }
 
     #[inline]
-    pub const fn window_default_background(&self) -> SomeColor {
-        SomeColor::WHITE
+    pub const fn window_default_background(&self) -> Color {
+        Color::WHITE
     }
 
     #[inline]
-    pub const fn window_default_foreground(&self) -> SomeColor {
-        SomeColor::BLACK
+    pub const fn window_default_foreground(&self) -> Color {
+        Color::BLACK
     }
 
     #[inline]
-    pub const fn window_default_border_light(&self) -> SomeColor {
-        SomeColor::LIGHT_GRAY
+    pub const fn window_default_accent(&self) -> Color {
+        Color::LIGHT_BLUE
     }
 
     #[inline]
-    pub const fn window_default_border_dark(&self) -> SomeColor {
-        SomeColor::DARK_GRAY
+    pub const fn window_default_border_light(&self) -> Color {
+        Color::LIGHT_GRAY
     }
 
     #[inline]
-    pub const fn window_title_close_foreground(&self) -> SomeColor {
-        SomeColor::BLACK
+    pub const fn window_default_border_dark(&self) -> Color {
+        Color::DARK_GRAY
     }
 
     #[inline]
-    pub const fn window_title_close_foreground_dark(&self) -> SomeColor {
-        SomeColor::WHITE
+    pub const fn window_title_close_foreground(&self) -> Color {
+        Color::BLACK
     }
 
     #[inline]
-    pub const fn window_title_close_active_foreground(&self) -> SomeColor {
-        SomeColor::WHITE
+    pub const fn window_title_close_foreground_dark(&self) -> Color {
+        Color::WHITE
     }
 
     #[inline]
-    pub const fn window_title_close_active_background(&self) -> SomeColor {
-        SomeColor::LIGHT_RED
+    pub const fn window_title_close_active_foreground(&self) -> Color {
+        Color::WHITE
     }
 
     #[inline]
-    pub const fn window_title_active_background(&self) -> SomeColor {
-        SomeColor::from_argb(0xE0ECEFF1)
+    pub const fn window_title_close_active_background(&self) -> Color {
+        Color::LIGHT_RED
     }
 
     #[inline]
-    pub const fn window_title_active_foreground(&self) -> SomeColor {
-        SomeColor::BLACK
+    pub const fn window_title_active_background(&self) -> Color {
+        Color::from_argb(0xE0ECEFF1)
     }
 
     #[inline]
-    pub const fn window_title_active_shadow(&self) -> SomeColor {
-        SomeColor::from_argb(0x80babdbe)
+    pub const fn window_title_active_foreground(&self) -> Color {
+        Color::BLACK
     }
 
     #[inline]
-    pub const fn window_title_inactive_background(&self) -> SomeColor {
-        SomeColor::from_rgb(0xEEEEEE)
+    pub const fn window_title_active_shadow(&self) -> Color {
+        Color::from_argb(0x80babdbe)
     }
 
     #[inline]
-    pub const fn window_title_inactive_foreground(&self) -> SomeColor {
-        SomeColor::LIGHT_GRAY
+    pub const fn window_title_inactive_background(&self) -> Color {
+        Color::from_rgb(0xEEEEEE)
     }
 
     #[inline]
-    pub const fn window_title_active_foreground_dark(&self) -> SomeColor {
-        SomeColor::WHITE
+    pub const fn window_title_inactive_foreground(&self) -> Color {
+        Color::LIGHT_GRAY
     }
 
     #[inline]
-    pub const fn window_title_active_shadow_dark(&self) -> SomeColor {
-        SomeColor::from_argb(0x80616161)
+    pub const fn window_title_active_foreground_dark(&self) -> Color {
+        Color::WHITE
     }
 
     #[inline]
-    pub const fn window_title_inactive_foreground_dark(&self) -> SomeColor {
-        SomeColor::LIGHT_GRAY
+    pub const fn window_title_active_shadow_dark(&self) -> Color {
+        Color::from_argb(0x80616161)
     }
 
     #[inline]
-    pub const fn button_default_background(&self) -> SomeColor {
-        SomeColor::LIGHT_BLUE
+    pub const fn window_title_inactive_foreground_dark(&self) -> Color {
+        Color::LIGHT_GRAY
     }
 
     #[inline]
-    pub const fn button_default_foreground(&self) -> SomeColor {
-        SomeColor::WHITE
+    pub const fn button_default_background(&self) -> Color {
+        Color::LIGHT_BLUE
     }
 
     #[inline]
-    pub const fn button_default_border(&self) -> SomeColor {
-        SomeColor::BLUE
+    pub const fn button_default_foreground(&self) -> Color {
+        Color::WHITE
     }
 
     #[inline]
-    pub const fn button_destructive_background(&self) -> SomeColor {
-        SomeColor::LIGHT_RED
+    pub const fn button_default_border(&self) -> Color {
+        Color::BLUE
     }
 
     #[inline]
-    pub const fn button_destructive_foreground(&self) -> SomeColor {
-        SomeColor::WHITE
+    pub const fn button_destructive_background(&self) -> Color {
+        Color::LIGHT_RED
     }
 
     #[inline]
-    pub const fn button_destructive_border(&self) -> SomeColor {
-        SomeColor::RED
+    pub const fn button_destructive_foreground(&self) -> Color {
+        Color::WHITE
+    }
+
+    #[inline]
+    pub const fn button_destructive_border(&self) -> Color {
+        Color::RED
     }
 }

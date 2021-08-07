@@ -8,7 +8,7 @@ use megstd::drawing::*;
 pub struct AttributedString<'a> {
     text: &'a str,
     font: FontDescriptor,
-    color: SomeColor,
+    color: Color,
     line_break_mode: LineBreakMode,
     align: TextAlignment,
     valign: VerticalAlignment,
@@ -30,7 +30,7 @@ impl AttributedString<'_> {
     }
 
     #[inline]
-    pub const fn color(&self) -> SomeColor {
+    pub const fn color(&self) -> Color {
         self.color
     }
 
@@ -72,7 +72,7 @@ impl AttributedString<'_> {
 
 pub struct AttributedStringBuilder {
     font: FontDescriptor,
-    color: SomeColor,
+    color: Color,
     line_break_mode: LineBreakMode,
     align: TextAlignment,
     valign: VerticalAlignment,
@@ -83,7 +83,7 @@ impl AttributedStringBuilder {
     pub fn new() -> Self {
         Self {
             font: FontManager::ui_font(),
-            color: SomeColor::BLACK,
+            color: Color::BLACK,
             line_break_mode: LineBreakMode::default(),
             align: TextAlignment::Leading,
             valign: VerticalAlignment::Center,
@@ -109,7 +109,7 @@ impl AttributedStringBuilder {
     }
 
     #[inline]
-    pub fn color(mut self, color: SomeColor) -> Self {
+    pub fn color(mut self, color: Color) -> Self {
         self.color = color;
         self
     }
@@ -345,13 +345,7 @@ impl TextProcessing {
     }
 
     /// Write string to bitmap
-    pub fn write_str(
-        to: &mut Bitmap,
-        s: &str,
-        font: FontDescriptor,
-        origin: Point,
-        color: SomeColor,
-    ) {
+    pub fn write_str(to: &mut Bitmap, s: &str, font: FontDescriptor, origin: Point, color: Color) {
         Self::draw_text(
             to,
             s,
@@ -377,7 +371,7 @@ impl TextProcessing {
         s: &str,
         font: FontDescriptor,
         rect: Rect,
-        color: SomeColor,
+        color: Color,
         max_lines: usize,
         line_break: LineBreakMode,
         align: TextAlignment,

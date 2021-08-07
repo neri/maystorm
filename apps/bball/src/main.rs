@@ -18,7 +18,7 @@ fn _start() {
                 ctx.draw_line(
                     Point::new(c1.0 as isize, c1.1 as isize),
                     Point::new(c2.0 as isize, c2.1 as isize),
-                    IndexedColor(16 - dis as u8),
+                    PackedColor(16 - dis as u32),
                 );
             }
         }

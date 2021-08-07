@@ -1674,7 +1674,7 @@ pub enum ConstBitmap<'a> {
 }
 
 impl Drawable for ConstBitmap<'_> {
-    type ColorType = SomeColor;
+    type ColorType = Color;
 
     #[inline]
     fn width(&self) -> usize {
@@ -1733,7 +1733,7 @@ pub enum Bitmap<'a> {
 }
 
 impl Drawable for Bitmap<'_> {
-    type ColorType = SomeColor;
+    type ColorType = Color;
 
     #[inline]
     fn width(&self) -> usize {
@@ -1958,7 +1958,7 @@ pub enum OwnedBitmap<'a> {
 }
 
 impl Drawable for OwnedBitmap<'_> {
-    type ColorType = SomeColor;
+    type ColorType = Color;
 
     #[inline]
     fn width(&self) -> usize {
@@ -2010,7 +2010,7 @@ pub enum BoxedBitmap<'a> {
 }
 
 impl Drawable for BoxedBitmap<'_> {
-    type ColorType = SomeColor;
+    type ColorType = Color;
 
     #[inline]
     fn width(&self) -> usize {
@@ -2033,7 +2033,7 @@ impl<'a> BoxedBitmap<'a> {
     pub fn same_format<'b, T: AsRef<ConstBitmap<'b>>>(
         template: &T,
         size: Size,
-        bg_color: SomeColor,
+        bg_color: Color,
     ) -> BoxedBitmap<'a> {
         match template.as_ref() {
             ConstBitmap::Indexed(_) => BoxedBitmap8::new(size, bg_color.into()).into(),
@@ -2146,10 +2146,7 @@ impl OperationalBitmap {
         let count = self.stride() * self.height() as usize;
         let vec = self.vec.get_mut();
         if vec.capacity() >= count {
-            let slice = vec.as_mut_slice();
-            for i in 0..count {
-                slice[i] = color;
-            }
+            vec.fill(color);
         } else {
             vec.resize(count, color);
         }

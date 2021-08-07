@@ -398,8 +398,8 @@ impl Hoe {
             .ok_or(())
     }
 
-    fn get_color(index: u8) -> SomeColor {
-        SomeColor::from_argb(Self::PALETTE[index as usize])
+    fn get_color(index: u8) -> Color {
+        Color::from_argb(Self::PALETTE[index as usize])
     }
 
     fn alloc_window(&mut self, title: &str, width: u32, height: u32, buffer: u32) -> u32 {
@@ -601,6 +601,7 @@ impl HoeWindow {
                 (height - (Self::WINDOW_ADJUST_TOP + Self::WINDOW_ADJUST_BOTTOM)) as isize,
             ))
             .bg_color(Hoe::get_color(Self::WINDOW_BGCOLOR))
+            .accent_color(Color::LIGHT_BLUE)
             .build(title);
         let window = HoeWindow {
             handle,

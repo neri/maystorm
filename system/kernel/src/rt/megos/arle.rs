@@ -196,13 +196,15 @@ impl ArleRuntime {
             Function::NewWindow => {
                 let title = params.get_string(memory).unwrap_or("");
                 let size = params.get_size()?;
-                let bg_color = params.get_color().ok();
-                let window_option = params.get_u32().unwrap_or(0);
+                let bg_color = params
+                    .get_color()
+                    .unwrap_or(Theme::shared().window_default_background());
+                let window_option = params.get_u32().unwrap_or_default();
 
                 let window = WindowBuilder::new()
                     .with_options(window_option)
                     .size(size)
-                    .bg_color(bg_color.unwrap_or(Theme::shared().window_default_background()))
+                    .bg_color(bg_color)
                     .build(title);
 
                 if window.as_usize() != 0 {
@@ -555,8 +557,8 @@ impl ParamsDecoder<'_> {
     }
 
     #[inline]
-    fn get_color(&mut self) -> Result<SomeColor, WasmRuntimeErrorKind> {
-        self.get_u32().map(|v| IndexedColor::from(v as u8).into())
+    fn get_color(&mut self) -> Result<Color, WasmRuntimeErrorKind> {
+        self.get_u32().map(|v| PackedColor(v).into())
     }
 
     fn get_bitmap8<'a>(
@@ -685,7 +687,7 @@ impl OsBitmap1<'_> {
         }
     }
 
-    fn blt(&self, to: &mut Bitmap, origin: Point, color: SomeColor, mode: usize) {
+    fn blt(&self, to: &mut Bitmap, origin: Point, color: Color, mode: usize) {
         // TODO: clipping
         let scale = mode as isize;
         let stride = self.stride;
