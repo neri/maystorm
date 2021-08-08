@@ -210,7 +210,7 @@ impl WasmInterpreter<'_> {
                         unsafe { value_stack.get_unchecked(code.stack_level()).get_i32() as usize };
                     let func = self
                         .module
-                        .elem_by_index(index)
+                        .elem_get(index)
                         .ok_or(self.error(WasmRuntimeErrorKind::NoMethod, code))?;
                     if func.type_index() != type_index {
                         return Err(self.error(WasmRuntimeErrorKind::TypeMismatch, code));
@@ -242,16 +242,26 @@ impl WasmInterpreter<'_> {
                 }
 
                 WasmIntMnemonic::GlobalGet => {
-                    let global =
-                        unsafe { self.module.globals().get_unchecked(code.param1() as usize) };
+                    let global = unsafe {
+                        &*self
+                            .module
+                            .globals()
+                            .get_raw_unchecked(code.param1() as usize)
+                            .get()
+                    };
                     let ref_a = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
-                    *ref_a = WasmValue::from(*global.value()).into();
+                    *ref_a = *global;
                 }
                 WasmIntMnemonic::GlobalSet => {
-                    let global =
-                        unsafe { self.module.globals().get_unchecked(code.param1() as usize) };
+                    let global = unsafe {
+                        &mut *self
+                            .module
+                            .globals()
+                            .get_raw_unchecked(code.param1() as usize)
+                            .get()
+                    };
                     let ref_a = unsafe { value_stack.get_unchecked(code.stack_level()) };
-                    *global.get_mut() = ref_a.get_by_type(global.val_type());
+                    *global = *ref_a;
                 }
 
                 WasmIntMnemonic::I32Load => {
@@ -1160,208 +1170,6 @@ impl fmt::Debug for WasmRuntimeError {
                 opcode as usize,
                 opcode.to_str(),
             )
-        }
-    }
-}
-
-/// A shared data type for storing in the value stack in the WebAssembly interpreter.
-///
-/// The internal representation is `union`, so information about the type needs to be provided externally.
-#[derive(Copy, Clone)]
-pub union WasmStackValue {
-    i32: i32,
-    u32: u32,
-    i64: i64,
-    u64: u64,
-    f32: f32,
-    f64: f64,
-}
-
-impl WasmStackValue {
-    #[inline]
-    pub const fn zero() -> Self {
-        Self { u64: 0 }
-    }
-
-    #[inline]
-    pub const fn from_bool(v: bool) -> Self {
-        if v {
-            Self::from_i32(1)
-        } else {
-            Self::from_i32(0)
-        }
-    }
-
-    #[inline]
-    pub const fn from_i32(v: i32) -> Self {
-        Self { i32: v }
-    }
-
-    #[inline]
-    pub const fn from_u32(v: u32) -> Self {
-        Self { u32: v }
-    }
-
-    #[inline]
-    pub const fn from_i64(v: i64) -> Self {
-        Self { i64: v }
-    }
-
-    #[inline]
-    pub const fn from_u64(v: u64) -> Self {
-        Self { u64: v }
-    }
-
-    #[inline]
-    pub fn get_bool(&self) -> bool {
-        unsafe { self.i32 != 0 }
-    }
-
-    #[inline]
-    pub fn get_i32(&self) -> i32 {
-        unsafe { self.i32 }
-    }
-
-    #[inline]
-    pub fn get_u32(&self) -> u32 {
-        unsafe { self.u32 }
-    }
-
-    #[inline]
-    pub fn get_i64(&self) -> i64 {
-        unsafe { self.i64 }
-    }
-
-    #[inline]
-    pub fn get_u64(&self) -> u64 {
-        unsafe { self.u64 }
-    }
-
-    #[inline]
-    pub fn get_f32(&self) -> f32 {
-        unsafe { self.f32 }
-    }
-
-    #[inline]
-    pub fn get_f64(&self) -> f64 {
-        unsafe { self.f64 }
-    }
-
-    #[inline]
-    pub fn get_i8(&self) -> i8 {
-        unsafe { self.u32 as i8 }
-    }
-
-    #[inline]
-    pub fn get_u8(&self) -> u8 {
-        unsafe { self.u32 as u8 }
-    }
-
-    #[inline]
-    pub fn get_i16(&self) -> i16 {
-        unsafe { self.u32 as i16 }
-    }
-
-    #[inline]
-    pub fn get_u16(&self) -> u16 {
-        unsafe { self.u32 as u16 }
-    }
-
-    /// Retrieves the value held by the instance as a value of type `i32` and re-stores the value processed by the closure.
-    #[inline]
-    pub fn map_i32<F>(&mut self, f: F)
-    where
-        F: FnOnce(i32) -> i32,
-    {
-        let val = unsafe { self.i32 };
-        self.i32 = f(val);
-    }
-
-    /// Retrieves the value held by the instance as a value of type `u32` and re-stores the value processed by the closure.
-    #[inline]
-    pub fn map_u32<F>(&mut self, f: F)
-    where
-        F: FnOnce(u32) -> u32,
-    {
-        let val = unsafe { self.u32 };
-        self.u32 = f(val);
-    }
-
-    /// Retrieves the value held by the instance as a value of type `i64` and re-stores the value processed by the closure.
-    #[inline]
-    pub fn map_i64<F>(&mut self, f: F)
-    where
-        F: FnOnce(i64) -> i64,
-    {
-        let val = unsafe { self.i64 };
-        self.i64 = f(val);
-    }
-
-    /// Retrieves the value held by the instance as a value of type `u64` and re-stores the value processed by the closure.
-    #[inline]
-    pub fn map_u64<F>(&mut self, f: F)
-    where
-        F: FnOnce(u64) -> u64,
-    {
-        let val = unsafe { self.u64 };
-        self.u64 = f(val);
-    }
-
-    /// Converts the value held by the instance to the `WasmValue` type as a value of the specified type.
-    #[inline]
-    pub fn get_by_type(&self, val_type: WasmValType) -> WasmValue {
-        match val_type {
-            WasmValType::I32 => WasmValue::I32(self.get_i32()),
-            WasmValType::I64 => WasmValue::I64(self.get_i64()),
-            // WasmValType::F32 => {}
-            // WasmValType::F64 => {}
-            _ => todo!(),
-        }
-    }
-}
-
-impl From<bool> for WasmStackValue {
-    #[inline]
-    fn from(v: bool) -> Self {
-        Self::from_bool(v)
-    }
-}
-
-impl From<u32> for WasmStackValue {
-    #[inline]
-    fn from(v: u32) -> Self {
-        Self::from_u32(v)
-    }
-}
-
-impl From<i32> for WasmStackValue {
-    #[inline]
-    fn from(v: i32) -> Self {
-        Self::from_i32(v)
-    }
-}
-
-impl From<u64> for WasmStackValue {
-    #[inline]
-    fn from(v: u64) -> Self {
-        Self::from_u64(v)
-    }
-}
-
-impl From<i64> for WasmStackValue {
-    #[inline]
-    fn from(v: i64) -> Self {
-        Self::from_i64(v)
-    }
-}
-
-impl From<WasmValue> for WasmStackValue {
-    #[inline]
-    fn from(v: WasmValue) -> Self {
-        match v {
-            WasmValue::I32(v) => Self::from_i64(v as i64),
-            WasmValue::I64(v) => Self::from_i64(v),
-            _ => todo!(),
         }
     }
 }

@@ -249,7 +249,7 @@ impl ArleRuntime {
                         .valign(VerticalAlignment::Top)
                         .color(color)
                         .text(text)
-                        .draw_text(bitmap, rect.size.into(), max_lines);
+                        .draw_text(bitmap, rect.bounds(), max_lines);
                 });
             }
             Function::FillRect => {
@@ -259,7 +259,7 @@ impl ArleRuntime {
                 let color = params.get_color()?;
                 let rect = Rect { origin, size };
                 window.draw_in_rect(rect, |bitmap| {
-                    bitmap.fill_rect(rect.size.into(), color);
+                    bitmap.fill_rect(rect.bounds(), color);
                 });
             }
             Function::DrawRect => {
@@ -269,7 +269,7 @@ impl ArleRuntime {
                 let color = params.get_color()?;
                 let rect = Rect { origin, size };
                 window.draw_in_rect(rect, |bitmap| {
-                    bitmap.draw_rect(rect.size.into(), color);
+                    bitmap.draw_rect(rect.bounds(), color);
                 });
             }
             Function::DrawLine => {
@@ -295,6 +295,11 @@ impl ArleRuntime {
                     c.map(|v| v as u32).unwrap_or(megosabi::OPTION_CHAR_NONE),
                 ));
             }
+
+            Function::DrawView => {
+                todo!()
+            }
+
             Function::Blt8 => {
                 let window = params.get_window(self)?;
                 let origin = params.get_point()?;

@@ -204,7 +204,6 @@ name = "wasm"
 version = "0.1.0"
 dependencies = [
  "bitflags",
- "byteorder",
  "num-derive",
  "num-traits",
 ]

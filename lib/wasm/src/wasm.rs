@@ -3,10 +3,10 @@
 use crate::{intcode::*, opcode::*, wasmintr::*, *};
 use alloc::{boxed::Box, string::*, vec::Vec};
 use bitflags::*;
-use byteorder::*;
 use core::{
     cell::{RefCell, UnsafeCell},
     fmt,
+    mem::transmute,
     ops::*,
     slice, str,
 };
@@ -19,6 +19,55 @@ pub struct WasmLoader {
 }
 
 pub type WasmDynFunc = fn(&WasmModule, &[WasmValue]) -> Result<WasmValue, WasmRuntimeErrorKind>;
+
+struct WasmEndian;
+
+#[cfg(target_endian = "little")]
+impl WasmEndian {
+    // TODO: unaligned memory access
+
+    #[inline]
+    unsafe fn read_u16(slice: &[u8], offset: usize) -> u16 {
+        let p = slice.get_unchecked(offset) as *const u8;
+        let p: *const u16 = transmute(p);
+        *p
+    }
+
+    #[inline]
+    unsafe fn read_u32(slice: &[u8], offset: usize) -> u32 {
+        let p = slice.get_unchecked(offset) as *const u8;
+        let p: *const u32 = transmute(p);
+        *p
+    }
+
+    #[inline]
+    unsafe fn read_u64(slice: &[u8], offset: usize) -> u64 {
+        let p = slice.get_unchecked(offset) as *const u8;
+        let p: *const u64 = transmute(p);
+        *p
+    }
+
+    #[inline]
+    unsafe fn write_u16(slice: &mut [u8], offset: usize, val: u16) {
+        let p = slice.get_unchecked_mut(offset) as *mut u8;
+        let p: *mut u16 = transmute(p);
+        *p = val;
+    }
+
+    #[inline]
+    unsafe fn write_u32(slice: &mut [u8], offset: usize, val: u32) {
+        let p = slice.get_unchecked_mut(offset) as *mut u8;
+        let p: *mut u32 = transmute(p);
+        *p = val;
+    }
+
+    #[inline]
+    unsafe fn write_u64(slice: &mut [u8], offset: usize, val: u64) {
+        let p = slice.get_unchecked_mut(offset) as *mut u8;
+        let p: *mut u64 = transmute(p);
+        *p = val;
+    }
+}
 
 impl WasmLoader {
     /// Minimal valid module size, Magic(4) + Version(4) + Empty sections(0) = 8
@@ -39,8 +88,8 @@ impl WasmLoader {
     #[inline]
     pub fn identity(blob: &[u8]) -> bool {
         blob.len() >= Self::MINIMAL_MOD_SIZE
-            && LE::read_u32(&blob[0..4]) == Self::MAGIC
-            && LE::read_u32(&blob[4..8]) == Self::VER_CURRENT
+            && unsafe { WasmEndian::read_u32(blob, 0) } == Self::MAGIC
+            && unsafe { WasmEndian::read_u32(blob, 4) } == Self::VER_CURRENT
     }
 
     /// Instantiate wasm modules from slice
@@ -93,7 +142,6 @@ impl WasmLoader {
         self.module.tables.shrink_to_fit();
         self.module.memories.shrink_to_fit();
         self.module.exports.shrink_to_fit();
-        self.module.globals.shrink_to_fit();
 
         Ok(())
     }
@@ -302,8 +350,7 @@ impl WasmLoader {
                 return Err(WasmDecodeErrorKind::InvalidGlobal);
             }
 
-            let global = WasmGlobal::new(value, is_mutable);
-            self.module.globals.push(global);
+            self.module.globals.append(value, is_mutable);
         }
         Ok(())
     }
@@ -347,7 +394,7 @@ pub struct WasmModule {
     tables: Vec<WasmTable>,
     functions: Vec<WasmFunction>,
     start: Option<usize>,
-    globals: Vec<WasmGlobal>,
+    globals: WasmGlobal,
     names: Option<WasmName>,
     n_ext_func: usize,
 }
@@ -363,7 +410,7 @@ impl WasmModule {
             tables: Vec::new(),
             functions: Vec::new(),
             start: None,
-            globals: Vec::new(),
+            globals: WasmGlobal::new(),
             names: None,
             n_ext_func: 0,
         }
@@ -420,7 +467,7 @@ impl WasmModule {
     }
 
     #[inline]
-    pub fn elem_by_index(&self, index: usize) -> Option<&WasmFunction> {
+    pub fn elem_get(&self, index: usize) -> Option<&WasmFunction> {
         self.tables
             .get(0)
             .and_then(|v| v.table.get(index))
@@ -466,12 +513,12 @@ impl WasmModule {
     }
 
     #[inline]
-    pub fn globals(&self) -> &[WasmGlobal] {
-        self.globals.as_slice()
+    pub fn globals(&self) -> &WasmGlobal {
+        &self.globals
     }
 
     #[inline]
-    pub fn global(&self, index: usize) -> Option<&WasmGlobal> {
+    pub fn global_get(&self, index: usize) -> Option<WasmValue> {
         self.globals.get(index)
     }
 
@@ -1022,7 +1069,7 @@ impl WasmMemory {
         let slice = self.memory();
         let limit = slice.len();
         if offset + 1 < limit {
-            Ok(LE::read_u16(&slice[offset..offset + 2]))
+            Ok(unsafe { WasmEndian::read_u16(slice, offset) })
         } else {
             Err(WasmRuntimeErrorKind::OutOfBounds)
         }
@@ -1033,7 +1080,9 @@ impl WasmMemory {
         let slice = self.memory_mut();
         let limit = slice.len();
         if offset + 1 < limit {
-            LE::write_u16(&mut slice[offset..offset + 2], val);
+            unsafe {
+                WasmEndian::write_u16(slice, offset, val);
+            }
             Ok(())
         } else {
             Err(WasmRuntimeErrorKind::OutOfBounds)
@@ -1045,7 +1094,7 @@ impl WasmMemory {
         let slice = self.memory();
         let limit = slice.len();
         if offset + 3 < limit {
-            Ok(LE::read_u32(&slice[offset..offset + 4]))
+            Ok(unsafe { WasmEndian::read_u32(slice, offset) })
         } else {
             Err(WasmRuntimeErrorKind::OutOfBounds)
         }
@@ -1056,7 +1105,9 @@ impl WasmMemory {
         let slice = self.memory_mut();
         let limit = slice.len();
         if offset + 3 < limit {
-            LE::write_u32(&mut slice[offset..offset + 4], val);
+            unsafe {
+                WasmEndian::write_u32(slice, offset, val);
+            }
             Ok(())
         } else {
             Err(WasmRuntimeErrorKind::OutOfBounds)
@@ -1068,7 +1119,7 @@ impl WasmMemory {
         let slice = self.memory();
         let limit = slice.len();
         if offset + 7 < limit {
-            Ok(LE::read_u64(&slice[offset..offset + 8]))
+            Ok(unsafe { WasmEndian::read_u64(slice, offset) })
         } else {
             Err(WasmRuntimeErrorKind::OutOfBounds)
         }
@@ -1079,7 +1130,9 @@ impl WasmMemory {
         let slice = self.memory_mut();
         let limit = slice.len();
         if offset + 7 < limit {
-            LE::write_u64(&mut slice[offset..offset + 8], val);
+            unsafe {
+                WasmEndian::write_u64(slice, offset, val);
+            }
             Ok(())
         } else {
             Err(WasmRuntimeErrorKind::OutOfBounds)
@@ -1596,39 +1649,314 @@ impl fmt::Display for WasmValue {
     }
 }
 
+/// A shared data type for storing in the value stack in the WebAssembly interpreter.
+///
+/// The internal representation is `union`, so information about the type needs to be provided externally.
+#[derive(Copy, Clone)]
+pub union WasmStackValue {
+    i32: i32,
+    u32: u32,
+    i64: i64,
+    u64: u64,
+    f32: f32,
+    f64: f64,
+}
+
+impl WasmStackValue {
+    #[inline]
+    pub const fn zero() -> Self {
+        Self { u64: 0 }
+    }
+
+    #[inline]
+    pub const fn from_bool(v: bool) -> Self {
+        if v {
+            Self::from_i32(1)
+        } else {
+            Self::from_i32(0)
+        }
+    }
+
+    #[inline]
+    pub const fn from_i32(v: i32) -> Self {
+        Self { i32: v }
+    }
+
+    #[inline]
+    pub const fn from_u32(v: u32) -> Self {
+        Self { u32: v }
+    }
+
+    #[inline]
+    pub const fn from_i64(v: i64) -> Self {
+        Self { i64: v }
+    }
+
+    #[inline]
+    pub const fn from_u64(v: u64) -> Self {
+        Self { u64: v }
+    }
+
+    #[inline]
+    pub const fn from_f32(v: f32) -> Self {
+        Self { f32: v }
+    }
+
+    #[inline]
+    pub const fn from_f64(v: f64) -> Self {
+        Self { f64: v }
+    }
+
+    #[inline]
+    pub fn get_bool(&self) -> bool {
+        unsafe { self.i32 != 0 }
+    }
+
+    #[inline]
+    pub fn get_i32(&self) -> i32 {
+        unsafe { self.i32 }
+    }
+
+    #[inline]
+    pub fn get_u32(&self) -> u32 {
+        unsafe { self.u32 }
+    }
+
+    #[inline]
+    pub fn get_i64(&self) -> i64 {
+        unsafe { self.i64 }
+    }
+
+    #[inline]
+    pub fn get_u64(&self) -> u64 {
+        unsafe { self.u64 }
+    }
+
+    #[inline]
+    pub fn get_f32(&self) -> f32 {
+        unsafe { self.f32 }
+    }
+
+    #[inline]
+    pub fn get_f64(&self) -> f64 {
+        unsafe { self.f64 }
+    }
+
+    #[inline]
+    pub fn get_i8(&self) -> i8 {
+        unsafe { self.u32 as i8 }
+    }
+
+    #[inline]
+    pub fn get_u8(&self) -> u8 {
+        unsafe { self.u32 as u8 }
+    }
+
+    #[inline]
+    pub fn get_i16(&self) -> i16 {
+        unsafe { self.u32 as i16 }
+    }
+
+    #[inline]
+    pub fn get_u16(&self) -> u16 {
+        unsafe { self.u32 as u16 }
+    }
+
+    /// Retrieves the value held by the instance as a value of type `i32` and re-stores the value processed by the closure.
+    #[inline]
+    pub fn map_i32<F>(&mut self, f: F)
+    where
+        F: FnOnce(i32) -> i32,
+    {
+        let val = unsafe { self.i32 };
+        self.i32 = f(val);
+    }
+
+    /// Retrieves the value held by the instance as a value of type `u32` and re-stores the value processed by the closure.
+    #[inline]
+    pub fn map_u32<F>(&mut self, f: F)
+    where
+        F: FnOnce(u32) -> u32,
+    {
+        let val = unsafe { self.u32 };
+        self.u32 = f(val);
+    }
+
+    /// Retrieves the value held by the instance as a value of type `i64` and re-stores the value processed by the closure.
+    #[inline]
+    pub fn map_i64<F>(&mut self, f: F)
+    where
+        F: FnOnce(i64) -> i64,
+    {
+        let val = unsafe { self.i64 };
+        self.i64 = f(val);
+    }
+
+    /// Retrieves the value held by the instance as a value of type `u64` and re-stores the value processed by the closure.
+    #[inline]
+    pub fn map_u64<F>(&mut self, f: F)
+    where
+        F: FnOnce(u64) -> u64,
+    {
+        let val = unsafe { self.u64 };
+        self.u64 = f(val);
+    }
+
+    /// Converts the value held by the instance to the [WasmValue] type as a value of the specified type.
+    #[inline]
+    pub fn get_by_type(&self, val_type: WasmValType) -> WasmValue {
+        match val_type {
+            WasmValType::I32 => WasmValue::I32(self.get_i32()),
+            WasmValType::I64 => WasmValue::I64(self.get_i64()),
+            WasmValType::F32 => WasmValue::F32(self.get_f32()),
+            WasmValType::F64 => WasmValue::F64(self.get_f64()),
+        }
+    }
+}
+
+impl From<bool> for WasmStackValue {
+    #[inline]
+    fn from(v: bool) -> Self {
+        Self::from_bool(v)
+    }
+}
+
+impl From<u32> for WasmStackValue {
+    #[inline]
+    fn from(v: u32) -> Self {
+        Self::from_u32(v)
+    }
+}
+
+impl From<i32> for WasmStackValue {
+    #[inline]
+    fn from(v: i32) -> Self {
+        Self::from_i32(v)
+    }
+}
+
+impl From<u64> for WasmStackValue {
+    #[inline]
+    fn from(v: u64) -> Self {
+        Self::from_u64(v)
+    }
+}
+
+impl From<i64> for WasmStackValue {
+    #[inline]
+    fn from(v: i64) -> Self {
+        Self::from_i64(v)
+    }
+}
+
+impl From<f32> for WasmStackValue {
+    #[inline]
+    fn from(v: f32) -> Self {
+        Self::from_f32(v)
+    }
+}
+
+impl From<f64> for WasmStackValue {
+    #[inline]
+    fn from(v: f64) -> Self {
+        Self::from_f64(v)
+    }
+}
+
+impl From<WasmValue> for WasmStackValue {
+    #[inline]
+    fn from(v: WasmValue) -> Self {
+        match v {
+            WasmValue::I32(v) => Self::from_i64(v as i64),
+            WasmValue::I64(v) => Self::from_i64(v),
+            WasmValue::F32(v) => Self::from_f32(v),
+            WasmValue::F64(v) => Self::from_f64(v),
+        }
+    }
+}
+
 /// WebAssembly global variables
 pub struct WasmGlobal {
-    value: UnsafeCell<WasmValue>,
-    is_mutable: bool,
+    data: Vec<UnsafeCell<WasmStackValue>>,
+    props: Vec<WasmGlobalProp>,
 }
 
 impl WasmGlobal {
     #[inline]
-    pub const fn new(val: WasmValue, is_mutable: bool) -> Self {
+    pub const fn new() -> Self {
         Self {
-            value: UnsafeCell::new(val),
+            data: Vec::new(),
+            props: Vec::new(),
+        }
+    }
+
+    pub fn append(&mut self, value: WasmValue, is_mutable: bool) {
+        let data = UnsafeCell::new(WasmStackValue::from(value));
+        let props = WasmGlobalProp::new(value.val_type(), is_mutable);
+        self.data.push(data);
+        self.props.push(props);
+    }
+
+    pub fn get(&self, index: usize) -> Option<WasmValue> {
+        let val = match self.data.get(index) {
+            Some(v) => unsafe { &*v.get() },
+            None => return None,
+        };
+        let val_type = match self.props.get(index) {
+            Some(v) => v.val_type(),
+            None => return None,
+        };
+        Some(val.get_by_type(val_type))
+    }
+
+    #[inline]
+    pub fn get_type(&self, index: usize) -> Option<WasmValType> {
+        self.props.get(index).map(|v| v.props().0)
+    }
+
+    #[inline]
+    pub fn get_is_mutable(&self, index: usize) -> Option<bool> {
+        self.props.get(index).map(|v| v.props().1)
+    }
+
+    #[inline]
+    pub fn get_raw_slice(&self) -> &[UnsafeCell<WasmStackValue>] {
+        self.data.as_slice()
+    }
+
+    #[inline]
+    pub unsafe fn get_raw_unchecked(&self, index: usize) -> &UnsafeCell<WasmStackValue> {
+        self.data.get_unchecked(index)
+    }
+}
+
+pub struct WasmGlobalProp {
+    val_type: WasmValType,
+    is_mutable: bool,
+}
+
+impl WasmGlobalProp {
+    #[inline]
+    pub const fn new(val_type: WasmValType, is_mutable: bool) -> Self {
+        Self {
+            val_type,
             is_mutable,
         }
     }
 
     #[inline]
+    pub fn props(&self) -> (WasmValType, bool) {
+        (self.val_type, self.is_mutable)
+    }
+
+    #[inline]
     pub const fn val_type(&self) -> WasmValType {
-        self.value().val_type()
+        self.val_type
     }
 
     #[inline]
     pub const fn is_mutable(&self) -> bool {
         self.is_mutable
-    }
-
-    #[inline]
-    pub const fn value(&self) -> &WasmValue {
-        unsafe { &*self.value.get() }
-    }
-
-    #[inline]
-    pub fn get_mut<'a>(&self) -> &'a mut WasmValue {
-        unsafe { &mut *self.value.get() }
     }
 }
 
@@ -2165,8 +2493,9 @@ impl WasmCodeBlock {
 
                 WasmOpcode::GlobalGet => {
                     let global_ref = stream.read_unsigned()? as usize;
-                    let global = module
-                        .global(global_ref)
+                    let val_type = module
+                        .globals()
+                        .get_type(global_ref)
                         .ok_or(WasmDecodeErrorKind::InvalidGlobal)?;
                     int_codes.push(WasmImc::new(
                         position,
@@ -2175,18 +2504,23 @@ impl WasmCodeBlock {
                         value_stack.len(),
                         global_ref as u64,
                     ));
-                    value_stack.push(global.val_type());
+                    value_stack.push(val_type);
                 }
                 WasmOpcode::GlobalSet => {
                     let global_ref = stream.read_unsigned()? as usize;
-                    let global = module
-                        .global(global_ref)
+                    let val_type = module
+                        .globals()
+                        .get_type(global_ref)
                         .ok_or(WasmDecodeErrorKind::InvalidGlobal)?;
-                    if !global.is_mutable() {
+                    let is_mutable = module
+                        .globals()
+                        .get_is_mutable(global_ref)
+                        .ok_or(WasmDecodeErrorKind::InvalidGlobal)?;
+                    if !is_mutable {
                         return Err(WasmDecodeErrorKind::InvalidGlobal);
                     }
                     let stack = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                    if stack != global.val_type() {
+                    if stack != val_type {
                         return Err(WasmDecodeErrorKind::TypeMismatch);
                     }
                     int_codes.push(WasmImc::new(

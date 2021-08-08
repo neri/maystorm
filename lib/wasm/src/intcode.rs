@@ -10,6 +10,10 @@ pub enum WasmIntMnemonic {
     Unreachable,
     /// No operation, this mnemonic will be removed during the compaction phase.
     Nop,
+    /// Block Marker, this mnemonic will be removed during the compaction phase.
+    Block,
+    /// End of block marker, this mnemonic will be removed during the compaction phase.
+    End,
 
     /// branch
     Br,
@@ -21,11 +25,6 @@ pub enum WasmIntMnemonic {
 
     /// branch table
     BrTable,
-
-    /// Block Marker, this mnemonic will be removed during the compaction phase.
-    Block,
-    /// End of block marker, this mnemonic will be removed during the compaction phase.
-    End,
 
     /// return from function
     Return,

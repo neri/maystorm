@@ -649,7 +649,7 @@ impl WindowManager<'_> {
     pub fn user_screen_bounds() -> Rect {
         match WindowManager::shared_opt() {
             Some(shared) => Rect::from(shared.screen_size).insets_by(shared.screen_insets),
-            None => System::main_screen().size().into(),
+            None => System::main_screen().bounds(),
         }
     }
 
@@ -1034,7 +1034,7 @@ impl Into<usize> for WindowAttributes {
 impl RawWindow<'_> {
     #[inline]
     fn actual_bounds(&self) -> Rect {
-        self.frame.size().into()
+        self.frame.bounds()
     }
 
     #[inline]
@@ -1664,7 +1664,7 @@ impl<'a> RawWindow<'a> {
             Some(bitmap) => bitmap,
             None => return Err(WindowDrawingError::NoBitmap),
         };
-        let bounds = Rect::from(self.frame.size).insets_by(self.content_insets);
+        let bounds = self.frame.bounds().insets_by(self.content_insets);
         let origin = Point::new(isize::max(0, rect.x()), isize::max(0, rect.y()));
         let coords = match Coordinates::from_rect(Rect::new(
             origin.x + bounds.x(),
@@ -1734,7 +1734,6 @@ impl WindowBuilder {
         }
     }
 
-    #[inline]
     pub fn build(self, title: &str) -> WindowHandle {
         let window = self.build_inner(title);
         let handle = window.handle;
@@ -1746,12 +1745,8 @@ impl WindowBuilder {
         handle
     }
 
-    #[inline]
     fn build_inner<'a>(mut self, title: &str) -> Box<RawWindow<'a>> {
         let window_options = self.window_options;
-        if (window_options & megosabi::window::TRANSPARENT_WINDOW) != 0 {
-            self.bg_color = Color::TRANSPARENT;
-        }
         if (window_options & megosabi::window::THIN_FRAME) != 0 {
             self.style.insert(WindowStyle::THIN_FRAME);
         }
@@ -1948,20 +1943,15 @@ impl WindowBuilder {
 
     /// Sets the window's content bitmap to ARGB32 format.
     #[inline]
-    pub const fn bitmap_argb32(self) -> Self {
-        self.bitmap_strategy(BitmapStrategy::Expressive)
-    }
-
-    /// Makes the background color transparent.
-    #[inline]
-    pub const fn transparent(self) -> Self {
-        self.bg_color(Color::TRANSPARENT)
+    pub const fn bitmap_argb32(mut self) -> Self {
+        self.window_options |= megosabi::window::USE_BITMAP32;
+        self
     }
 
     /// Makes the border of the window a thin border.
     #[inline]
     pub const fn thin_frame(mut self) -> Self {
-        self.style.bits |= WindowStyle::THIN_FRAME.bits;
+        self.window_options |= megosabi::window::THIN_FRAME;
         self
     }
 

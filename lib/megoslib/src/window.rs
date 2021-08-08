@@ -147,7 +147,7 @@ impl WindowBuilder {
     #[inline]
     pub const fn new() -> Self {
         Self {
-            size: Size::new(300, 300),
+            size: Size::new(300, 400),
             bg_color: WindowColor::WHITE,
             flag: 0,
         }
@@ -184,13 +184,6 @@ impl WindowBuilder {
     #[inline]
     pub const fn bitmap_argb32(mut self) -> Self {
         self.flag |= megosabi::window::USE_BITMAP32;
-        self
-    }
-
-    /// Makes the background color transparent.
-    #[inline]
-    pub const fn transparent(mut self) -> Self {
-        self.flag |= megosabi::window::TRANSPARENT_WINDOW;
         self
     }
 

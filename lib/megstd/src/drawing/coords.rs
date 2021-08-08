@@ -405,6 +405,14 @@ impl Rect {
             self.origin.y + self.size.height / 2,
         )
     }
+
+    #[inline]
+    pub const fn bounds(&self) -> Rect {
+        Rect {
+            origin: Point::new(0, 0),
+            size: self.size,
+        }
+    }
 }
 
 impl From<Size> for Rect {

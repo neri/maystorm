@@ -46,6 +46,10 @@ pub enum Function {
     WaitChar,
     /// Read a char event
     ReadChar,
+
+    /// Draw a view
+    DrawView,
+
     /// Return a random number
     Rand = 100,
     /// Set the seed of the random number

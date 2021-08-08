@@ -24,6 +24,7 @@ fn main() {
     let mut args = env::args();
     let _ = args.next().unwrap();
 
+    let mut to_overwrite = false;
     let mut preserved_names = Vec::new();
     let mut path_input = None;
 
@@ -31,6 +32,9 @@ fn main() {
         let arg = arg.as_str();
         if arg.chars().next().unwrap_or_default() == '-' {
             match arg {
+                "-overwrite" => {
+                    to_overwrite = true;
+                }
                 "-preserve" => match args.next() {
                     Some(v) => preserved_names.push(v),
                     None => usage(),
@@ -56,9 +60,10 @@ fn main() {
         None => path_input.clone(),
     };
 
-    println!("FILE {} => {}", path_input, path_output);
+    // println!("FILE {} => {}", path_input, path_output);
 
     {
+        let is_same_file = path_input == path_output;
         let mut ib = Vec::new();
         let mut is = File::open(path_input).expect("cannot open file");
         is.read_to_end(&mut ib).expect("read file error");
@@ -96,16 +101,21 @@ fn main() {
             }
         }
 
-        let mut os = File::create(path_output).expect("cannot create file");
-        os.write_all(&ob).expect("write error");
-        drop(os);
-
         let out_size = ob.len();
-        println!(
-            " {} bytes <= {} bytes ({:.2}%)",
-            out_size,
-            org_size,
-            (100.0 * out_size as f64) / org_size as f64
-        );
+
+        if !to_overwrite && is_same_file && org_size <= out_size {
+            println!("There is no more data on file that can be stripped.");
+        } else {
+            let mut os = File::create(path_output).expect("cannot create file");
+            os.write_all(&ob).expect("write error");
+            drop(os);
+
+            println!(
+                " {} bytes <= {} bytes ({:.2}%)",
+                out_size,
+                org_size,
+                (100.0 * out_size as f64) / org_size as f64
+            );
+        }
     }
 }
