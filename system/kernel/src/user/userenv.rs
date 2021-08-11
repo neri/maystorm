@@ -6,6 +6,7 @@ use crate::{
 };
 use ::alloc::vec::*;
 use core::{fmt::Write, time::Duration};
+use megstd::drawing::img::*;
 use megstd::drawing::*;
 use megstd::string::*;
 
@@ -445,8 +446,8 @@ async fn test_window_main() {
     let window = WindowBuilder::new()
         .size(Size::new(width, height))
         .bg_color(Color::from_argb(0xE0FFFFFF))
-        .accent_color(Color::LIGHT_BLUE)
-        .build("Test Window");
+        // .accent_color(Color::LIGHT_BLUE)
+        .build("");
     window.set_back_button_enabled(true);
 
     window
@@ -456,6 +457,7 @@ async fn test_window_main() {
             // bitmap.draw_round_rect(bitmap.bounds(), radius, Color::LIGHT_GRAY);
 
             let font = FontManager::title_font();
+            let title_height = 48;
             let button_width = 120;
             let button_height = 28;
             let button_radius = 8;
@@ -466,8 +468,26 @@ async fn test_window_main() {
                 bitmap.bounds().max_y() - padding_bottom - padding,
             );
             {
+                let mut rect = bitmap.bounds();
+                rect.size.height = title_height;
+                bitmap
+                    .view(rect, |mut bitmap| {
+                        let rect = bitmap.bounds();
+                        bitmap.fill_rect(rect, Color::LIGHT_BLUE);
+                        AttributedString::new()
+                            .font(FontDescriptor::new(FontFamily::SansSerif, 32).unwrap())
+                            .middle_center()
+                            .color(Color::WHITE)
+                            .text("Welcome to MYOS!")
+                            .draw_text(&mut bitmap, rect, 1);
+                    })
+                    .unwrap();
+            }
+            {
                 let rect = bitmap.bounds().insets_by(EdgeInsets::new(
-                    padding, 4, padding, //padding_bottom+ padding + padding,
+                    title_height + padding,
+                    4,
+                    padding_bottom + padding + padding,
                     4,
                 ));
                 bitmap
@@ -480,7 +500,7 @@ async fn test_window_main() {
                             // FontFamily::Cursive,
                             // FontFamily::Japanese,
                         ] {
-                            for point in [48, 32, 28, 24, 20, 16, 14, 12, 10, 8] {
+                            for point in [32, 28, 24, 20, 16, 14, 12, 10, 8] {
                                 offset +=
                                     font_test(&mut bitmap, offset, Color::BLACK, family, point, 1);
                             }
@@ -488,7 +508,7 @@ async fn test_window_main() {
                     })
                     .unwrap();
             }
-            if false {
+            if true {
                 let rect = Rect::new(
                     button_center_top.x() - button_width - padding / 2,
                     button_center_top.y(),
@@ -517,7 +537,7 @@ async fn test_window_main() {
                     })
                     .unwrap();
             }
-            if false {
+            if true {
                 let rect = Rect::new(
                     button_center_top.x() + padding / 2,
                     button_center_top.y(),

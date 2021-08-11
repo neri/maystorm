@@ -8,3 +8,5 @@ pub use bitmap::*;
 pub use color::*;
 pub use coords::*;
 pub use drawable::*;
+
+pub mod img;

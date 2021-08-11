@@ -256,11 +256,11 @@ impl System {
     /// THREAD UNSAFE.
     /// Do not call this function except when initializing the SMP.
     #[inline]
-    pub unsafe fn sort_cpus<F>(compare: F)
+    pub unsafe fn sort_cpus_by<F>(key: F)
     where
-        F: FnMut(&Box<Cpu>, &Box<Cpu>) -> core::cmp::Ordering,
+        F: FnMut(&Box<Cpu>) -> usize,
     {
-        Self::shared().cpus.sort_by(compare);
+        Self::shared().cpus.sort_by_key(key);
         for (index, cpu) in Self::shared().cpus.iter_mut().enumerate() {
             cpu.cpu_index = ProcessorIndex(index);
         }

@@ -364,7 +364,7 @@ impl Scheduler {
                 while let Some(event) = shared.timer_queue.dequeue() {
                     events.push(event);
                 }
-                events.sort_by(|a, b| a.timer.deadline.cmp(&b.timer.deadline));
+                events.sort_by_key(|a| a.timer.deadline);
             }
 
             while let Some(event) = events.first() {

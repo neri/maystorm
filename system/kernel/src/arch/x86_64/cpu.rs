@@ -509,7 +509,7 @@ impl Into<u32> for PciConfigAddress {
 }
 
 /// Architecture-specific context data
-#[repr(C)]
+#[repr(C, align(64))]
 pub struct CpuContextData {
     _repr: [u8; Self::SIZE_OF_CONTEXT],
 }
@@ -1442,7 +1442,6 @@ pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext)
 
         match cs_desc.default_operand_size().unwrap() {
             DefaultSize::Use16 | DefaultSize::Use32 => {
-                let va_mask = 0xFFFF_FFFF_FFFF;
                 let mask32 = 0xFFFF_FFFF;
                 match ex {
                     ExceptionType::PageFault => {
@@ -1450,7 +1449,7 @@ pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext)
                             stdout,
                             "\n#### PAGE FAULT {:04x} {:08x} EIP {:02x}:{:08x} ESP {:02x}:{:08x}",
                             ctx.error_code(),
-                            ctx.cr2 & va_mask,
+                            ctx.cr2 & mask32,
                             ctx.cs().0,
                             ctx.rip & mask32,
                             ctx.ss().0,

@@ -240,7 +240,7 @@ impl Apic {
             // Since each processor that receives an IPI starts initializing asynchronously,
             // the physical processor ID and the logical ID assigned by the OS will not match.
             // Therefore, sorting is required here.
-            System::sort_cpus(|a, b| a.cpu_id().0.cmp(&b.cpu_id().0));
+            System::sort_cpus_by(|a| a.cpu_id().0 as usize);
 
             for index in 0..System::current_device().num_of_active_cpus() {
                 let cpu = System::cpu(ProcessorIndex(index));

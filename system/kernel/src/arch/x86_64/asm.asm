@@ -209,6 +209,7 @@ asm_sch_switch_context:
     mov [rdi + CTX_ES], es
     mov [rdi + CTX_FS], fs
     mov [rdi + CTX_GS], gs
+    ; fxsave [rdi + CTX_FPU_BASE]
 
     sgdt [rdi + CTX_GDT_TEMP + 6]
     mov rbx, [rdi + CTX_GDT_TEMP + 8]
@@ -226,6 +227,7 @@ asm_sch_switch_context:
     xchg rax, [rbx + TSS64_RSP0]
     mov [rdi + CTX_TSS_RSP0], rax
 
+    ; fxrstor [rsi + CTX_FPU_BASE]
     mov ds, [rsi + CTX_DS]
     mov es, [rsi + CTX_ES]
     mov fs, [rsi + CTX_FS]

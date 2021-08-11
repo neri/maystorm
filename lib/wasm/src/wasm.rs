@@ -1653,7 +1653,7 @@ impl fmt::Display for WasmValue {
 ///
 /// The internal representation is `union`, so information about the type needs to be provided externally.
 #[derive(Copy, Clone)]
-pub union WasmStackValue {
+pub union WasmUnsafeValue {
     i32: i32,
     u32: u32,
     i64: i64,
@@ -1662,7 +1662,7 @@ pub union WasmStackValue {
     f64: f64,
 }
 
-impl WasmStackValue {
+impl WasmUnsafeValue {
     #[inline]
     pub const fn zero() -> Self {
         Self { u64: 0 }
@@ -1708,103 +1708,103 @@ impl WasmStackValue {
     }
 
     #[inline]
-    pub fn get_bool(&self) -> bool {
-        unsafe { self.i32 != 0 }
+    pub unsafe fn get_bool(&self) -> bool {
+        self.i32 != 0
     }
 
     #[inline]
-    pub fn get_i32(&self) -> i32 {
-        unsafe { self.i32 }
+    pub unsafe fn get_i32(&self) -> i32 {
+        self.i32
     }
 
     #[inline]
-    pub fn get_u32(&self) -> u32 {
-        unsafe { self.u32 }
+    pub unsafe fn get_u32(&self) -> u32 {
+        self.u32
     }
 
     #[inline]
-    pub fn get_i64(&self) -> i64 {
-        unsafe { self.i64 }
+    pub unsafe fn get_i64(&self) -> i64 {
+        self.i64
     }
 
     #[inline]
-    pub fn get_u64(&self) -> u64 {
-        unsafe { self.u64 }
+    pub unsafe fn get_u64(&self) -> u64 {
+        self.u64
     }
 
     #[inline]
-    pub fn get_f32(&self) -> f32 {
-        unsafe { self.f32 }
+    pub unsafe fn get_f32(&self) -> f32 {
+        self.f32
     }
 
     #[inline]
-    pub fn get_f64(&self) -> f64 {
-        unsafe { self.f64 }
+    pub unsafe fn get_f64(&self) -> f64 {
+        self.f64
     }
 
     #[inline]
-    pub fn get_i8(&self) -> i8 {
-        unsafe { self.u32 as i8 }
+    pub unsafe fn get_i8(&self) -> i8 {
+        self.u32 as i8
     }
 
     #[inline]
-    pub fn get_u8(&self) -> u8 {
-        unsafe { self.u32 as u8 }
+    pub unsafe fn get_u8(&self) -> u8 {
+        self.u32 as u8
     }
 
     #[inline]
-    pub fn get_i16(&self) -> i16 {
-        unsafe { self.u32 as i16 }
+    pub unsafe fn get_i16(&self) -> i16 {
+        self.u32 as i16
     }
 
     #[inline]
-    pub fn get_u16(&self) -> u16 {
-        unsafe { self.u32 as u16 }
+    pub unsafe fn get_u16(&self) -> u16 {
+        self.u32 as u16
     }
 
     /// Retrieves the value held by the instance as a value of type `i32` and re-stores the value processed by the closure.
     #[inline]
-    pub fn map_i32<F>(&mut self, f: F)
+    pub unsafe fn map_i32<F>(&mut self, f: F)
     where
         F: FnOnce(i32) -> i32,
     {
-        let val = unsafe { self.i32 };
+        let val = self.i32;
         self.i32 = f(val);
     }
 
     /// Retrieves the value held by the instance as a value of type `u32` and re-stores the value processed by the closure.
     #[inline]
-    pub fn map_u32<F>(&mut self, f: F)
+    pub unsafe fn map_u32<F>(&mut self, f: F)
     where
         F: FnOnce(u32) -> u32,
     {
-        let val = unsafe { self.u32 };
+        let val = self.u32;
         self.u32 = f(val);
     }
 
     /// Retrieves the value held by the instance as a value of type `i64` and re-stores the value processed by the closure.
     #[inline]
-    pub fn map_i64<F>(&mut self, f: F)
+    pub unsafe fn map_i64<F>(&mut self, f: F)
     where
         F: FnOnce(i64) -> i64,
     {
-        let val = unsafe { self.i64 };
+        let val = self.i64;
         self.i64 = f(val);
     }
 
     /// Retrieves the value held by the instance as a value of type `u64` and re-stores the value processed by the closure.
     #[inline]
-    pub fn map_u64<F>(&mut self, f: F)
+    pub unsafe fn map_u64<F>(&mut self, f: F)
     where
         F: FnOnce(u64) -> u64,
     {
-        let val = unsafe { self.u64 };
+        let val = self.u64;
         self.u64 = f(val);
     }
 
     /// Converts the value held by the instance to the [WasmValue] type as a value of the specified type.
     #[inline]
-    pub fn get_by_type(&self, val_type: WasmValType) -> WasmValue {
+    pub unsafe fn get_by_type(&self, val_type: WasmValType) -> WasmValue {
         match val_type {
             WasmValType::I32 => WasmValue::I32(self.get_i32()),
             WasmValType::I64 => WasmValue::I64(self.get_i64()),
@@ -1814,56 +1814,56 @@ impl WasmStackValue {
     }
 }
 
-impl From<bool> for WasmStackValue {
+impl From<bool> for WasmUnsafeValue {
     #[inline]
     fn from(v: bool) -> Self {
         Self::from_bool(v)
     }
 }
 
-impl From<u32> for WasmStackValue {
+impl From<u32> for WasmUnsafeValue {
     #[inline]
     fn from(v: u32) -> Self {
         Self::from_u32(v)
     }
 }
 
-impl From<i32> for WasmStackValue {
+impl From<i32> for WasmUnsafeValue {
     #[inline]
     fn from(v: i32) -> Self {
         Self::from_i32(v)
     }
 }
 
-impl From<u64> for WasmStackValue {
+impl From<u64> for WasmUnsafeValue {
     #[inline]
     fn from(v: u64) -> Self {
         Self::from_u64(v)
     }
 }
 
-impl From<i64> for WasmStackValue {
+impl From<i64> for WasmUnsafeValue {
     #[inline]
     fn from(v: i64) -> Self {
         Self::from_i64(v)
     }
 }
 
-impl From<f32> for WasmStackValue {
+impl From<f32> for WasmUnsafeValue {
     #[inline]
     fn from(v: f32) -> Self {
         Self::from_f32(v)
     }
 }
 
-impl From<f64> for WasmStackValue {
+impl From<f64> for WasmUnsafeValue {
     #[inline]
     fn from(v: f64) -> Self {
         Self::from_f64(v)
     }
 }
 
-impl From<WasmValue> for WasmStackValue {
+impl From<WasmValue> for WasmUnsafeValue {
     #[inline]
     fn from(v: WasmValue) -> Self {
         match v {
@@ -1877,7 +1877,7 @@ impl From<WasmValue> for WasmStackValue {
 
 /// WebAssembly global variables
 pub struct WasmGlobal {
-    data: Vec<UnsafeCell<WasmStackValue>>,
+    data: Vec<UnsafeCell<WasmUnsafeValue>>,
     props: Vec<WasmGlobalProp>,
 }
 
@@ -1891,7 +1891,7 @@ impl WasmGlobal {
     }
 
     pub fn append(&mut self, value: WasmValue, is_mutable: bool) {
-        let data = UnsafeCell::new(WasmStackValue::from(value));
+        let data = UnsafeCell::new(WasmUnsafeValue::from(value));
         let props = WasmGlobalProp::new(value.val_type(), is_mutable);
         self.data.push(data);
         self.props.push(props);
@@ -1906,7 +1906,7 @@ impl WasmGlobal {
             Some(v) => v.val_type(),
             None => return None,
         };
-        Some(val.get_by_type(val_type))
+        Some(unsafe { val.get_by_type(val_type) })
     }
 
     #[inline]
@@ -1920,12 +1920,12 @@ impl WasmGlobal {
     }
 
     #[inline]
-    pub fn get_raw_slice(&self) -> &[UnsafeCell<WasmStackValue>] {
+    pub fn get_raw_slice(&self) -> &[UnsafeCell<WasmUnsafeValue>] {
         self.data.as_slice()
     }
 
     #[inline]
-    pub unsafe fn get_raw_unchecked(&self, index: usize) -> &UnsafeCell<WasmStackValue> {
+    pub unsafe fn get_raw_unchecked(&self, index: usize) -> &UnsafeCell<WasmUnsafeValue> {
         self.data.get_unchecked(index)
     }
 }
