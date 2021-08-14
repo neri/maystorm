@@ -1,4 +1,4 @@
-//! First In First Out
+//! Concurrent First In First Out
 
 use crate::arch::cpu::Cpu;
 use crate::sync::spinlock::SpinLoopWait;
@@ -9,7 +9,7 @@ use core::{
     {cell::UnsafeCell, sync::atomic::*},
 };
 
-/// First In First Out
+/// Concurrent First In First Out
 pub struct ConcurrentFifo<T> {
     head: AtomicUsize,
     tail: AtomicUsize,
@@ -44,48 +44,48 @@ impl<T: Sized> ConcurrentFifo<T> {
         }
     }
 
-    #[inline]
     pub fn enqueue(&self, value: T) -> Result<(), T> {
         unsafe { Cpu::without_interrupts(|| self._enqueue(value)) }
     }
 
-    #[inline]
     pub fn dequeue(&self) -> Option<T> {
         unsafe { Cpu::without_interrupts(|| self._dequeue()) }
     }
 
+    #[inline]
     fn _enqueue(&self, data: T) -> Result<(), T> {
         let mut spin = SpinLoopWait::new();
-        let mut tail = self.tail.load(Ordering::Relaxed);
         loop {
+            let tail = self.tail.load(Ordering::Relaxed);
             if (tail + 1) & self.mask == self.head.load(Ordering::Relaxed) & self.mask {
                 return Err(data);
             }
             let index = tail & self.mask;
             let slot = unsafe { &mut *self.data.add(index) };
             if slot.stamp() == tail {
-                spin.reset();
+                let new_tail = tail.wrapping_add(1);
                 match self.tail.compare_exchange_weak(
                     tail,
-                    tail + 1,
+                    new_tail,
                     Ordering::SeqCst,
                     Ordering::Relaxed,
                 ) {
                     Ok(tail) => {
-                        slot.write(data, tail + 1);
+                        slot.write(data, new_tail);
                         return Ok(());
                     }
-                    Err(v) => tail = v,
+                    Err(_) => (),
                 }
             }
             spin.wait();
         }
     }
 
+    #[inline]
     fn _dequeue(&self) -> Option<T> {
         let mut spin = SpinLoopWait::new();
-        let mut head = self.head.load(Ordering::Relaxed);
         loop {
+            let head = self.head.load(Ordering::Relaxed);
             let index = head & self.mask;
             if index == self.tail.load(Ordering::Relaxed) & self.mask {
                 return None;
@@ -104,7 +104,7 @@ impl<T: Sized> ConcurrentFifo<T> {
                         slot.write_stamp(head + self.one_lap);
                         return Some(data);
                     }
-                    Err(v) => head = v,
+                    Err(_) => (),
                 }
             }
             spin.wait();

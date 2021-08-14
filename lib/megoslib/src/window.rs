@@ -1,8 +1,10 @@
 // MEG-OS Window API
 
 use super::*;
+use crate::game::v1::GamePresenterImpl;
+use core::cell::UnsafeCell;
 use megosabi;
-use megstd::drawing::*;
+use megstd::{drawing::*, game::v1};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct WindowHandle(pub usize);
@@ -62,6 +64,16 @@ impl Window {
             c => Some(unsafe { core::char::from_u32_unchecked(c as u32) }),
         }
     }
+
+    #[inline]
+    pub fn init_game_presenter<'a>(
+        &self,
+        screen: &'a UnsafeCell<v1::Screen>,
+        scale: v1::ScaleMode,
+        fps: usize,
+    ) -> GamePresenterImpl<'a> {
+        GamePresenterImpl::new(self.handle, screen, scale, fps)
+    }
 }
 
 pub struct DrawingContext {
@@ -107,6 +119,29 @@ impl DrawingContext {
             rect.height() as usize,
             color.0 as usize,
         )
+    }
+
+    #[inline]
+    pub fn draw_shape(
+        &self,
+        rect: Rect,
+        radius: isize,
+        bg_color: WindowColor,
+        border_color: WindowColor,
+    ) {
+        let params = OsDrawShape {
+            radius: radius as u32,
+            bg_color: bg_color.0,
+            border_color: border_color.0,
+        };
+        os_draw_shape(
+            self.ctx,
+            rect.x() as usize,
+            rect.y() as usize,
+            rect.width() as usize,
+            rect.height() as usize,
+            &params,
+        );
     }
 
     #[inline]

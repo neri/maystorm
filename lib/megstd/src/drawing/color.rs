@@ -138,7 +138,7 @@ impl TrueColor {
 
     #[inline]
     pub const fn components(&self) -> ColorComponents {
-        ColorComponents::from_argb(*self)
+        ColorComponents::from_true_color(*self)
     }
 
     #[inline]
@@ -172,7 +172,7 @@ impl TrueColor {
     pub const fn with_opacity(&self, alpha: u8) -> Self {
         let mut components = self.components();
         components.a = alpha;
-        components.into_argb()
+        components.into_true_color()
     }
 
     #[inline]
@@ -229,14 +229,14 @@ impl TrueColor {
 }
 
 impl From<u32> for TrueColor {
-    fn from(val: u32) -> Self {
-        Self::from_argb(val)
+    fn from(argb: u32) -> Self {
+        Self::from_argb(argb)
     }
 }
 
 impl From<TrueColor> for IndexedColor {
-    fn from(val: TrueColor) -> Self {
-        Self::from_rgb(val.rgb())
+    fn from(color: TrueColor) -> Self {
+        Self::from_rgb(color.rgb())
     }
 }
 
@@ -252,12 +252,12 @@ pub struct ColorComponents {
 
 impl ColorComponents {
     #[inline]
-    pub const fn from_argb(val: TrueColor) -> Self {
+    pub const fn from_true_color(val: TrueColor) -> Self {
         unsafe { transmute(val) }
     }
 
     #[inline]
-    pub const fn into_argb(self) -> TrueColor {
+    pub const fn into_true_color(self) -> TrueColor {
         unsafe { transmute(self) }
     }
 
@@ -422,8 +422,8 @@ impl Color {
     }
 
     #[inline]
-    pub const fn from_argb(rgb: u32) -> Self {
-        Self::Argb32(TrueColor::from_argb(rgb))
+    pub const fn from_argb(argb: u32) -> Self {
+        Self::Argb32(TrueColor::from_argb(argb))
     }
 
     #[inline]
@@ -436,7 +436,7 @@ impl Color {
     }
 
     #[inline]
-    pub const fn into_argb(&self) -> TrueColor {
+    pub const fn into_true_color(&self) -> TrueColor {
         match self {
             Color::Transparent => TrueColor::TRANSPARENT,
             Color::Indexed(v) => v.as_true_color(),
@@ -476,7 +476,7 @@ impl Into<IndexedColor> for Color {
 impl Into<TrueColor> for Color {
     #[inline]
     fn into(self) -> TrueColor {
-        self.into_argb()
+        self.into_true_color()
     }
 }
 
@@ -504,8 +504,8 @@ pub struct PackedColor(pub u32);
 impl ColorTrait for PackedColor {}
 
 impl PackedColor {
-    pub const TRANSPARENT: Self = Self(0);
-    const INDEX_COLOR_MIN: u32 = 1;
+    pub const TRANSPARENT: Self = Self(0x100);
+    const INDEX_COLOR_MIN: u32 = 0;
     const INDEX_COLOR_MAX: u32 = Self::INDEX_COLOR_MIN + 0xFF;
 
     pub const BLACK: Self = Self::from_indexed(IndexedColor::BLACK);
@@ -526,7 +526,12 @@ impl PackedColor {
     pub const WHITE: Self = Self::from_indexed(IndexedColor::WHITE);
 
     #[inline]
-    pub const fn from_argb(argb: TrueColor) -> Self {
+    pub const fn from_argb(argb: u32) -> Self {
+        Self::from_true_color(TrueColor::from_argb(argb))
+    }
+
+    #[inline]
+    pub const fn from_true_color(argb: TrueColor) -> Self {
         match argb.is_transparent() {
             true => Self::TRANSPARENT,
             false => Self(argb.argb()),
@@ -546,7 +551,7 @@ impl PackedColor {
         match color {
             Color::Transparent => Self::TRANSPARENT,
             Color::Indexed(index) => Self::from_indexed(index),
-            Color::Argb32(argb) => Self::from_argb(argb),
+            Color::Argb32(argb) => Self::from_true_color(argb),
         }
     }
 
@@ -560,12 +565,22 @@ impl PackedColor {
             Color::from_argb(self.0)
         }
     }
+
+    #[inline]
+    pub const fn into_true_color(&self) -> TrueColor {
+        self.as_color().into_true_color()
+    }
+
+    #[inline]
+    pub const fn into_indexed(&self) -> IndexedColor {
+        self.as_color().into_indexed()
+    }
 }
 
 impl From<TrueColor> for PackedColor {
     #[inline]
-    fn from(argb: TrueColor) -> Self {
-        Self::from_argb(argb)
+    fn from(color: TrueColor) -> Self {
+        Self::from_true_color(color)
     }
 }
 
@@ -587,5 +602,79 @@ impl From<PackedColor> for Color {
     #[inline]
     fn from(color: PackedColor) -> Self {
         color.as_color()
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RGB555(pub u16);
+
+impl ColorTrait for RGB555 {}
+
+impl RGB555 {
+    #[inline]
+    pub const fn components(&self) -> (u8, u8, u8) {
+        let b = (self.0 & 0x1F) as u8;
+        let g = ((self.0 >> 5) & 0x1F) as u8;
+        let r = ((self.0 >> 10) & 0x1F) as u8;
+        (r, g, b)
+    }
+
+    #[inline]
+    pub const fn from_components(r: u8, g: u8, b: u8) -> Self {
+        Self(((r as u16) << 10) | ((g as u16) << 5) | (b as u16))
+    }
+
+    #[inline]
+    pub const fn as_true_color(&self) -> TrueColor {
+        let components = self.components();
+        let components = ColorComponents {
+            a: u8::MAX,
+            r: Self::c5c8(components.2),
+            g: Self::c5c8(components.1),
+            b: Self::c5c8(components.0),
+        };
+        components.into_true_color()
+    }
+
+    const fn c5c8(c: u8) -> u8 {
+        (c << 3) | (c >> 2)
+    }
+
+    #[inline]
+    pub const fn from_true_color(color: TrueColor) -> Self {
+        let components = color.components();
+        Self(
+            ((components.b >> 3) as u16)
+                | (((components.g >> 3) as u16) << 5)
+                | (((components.r >> 3) as u16) << 10),
+        )
+    }
+}
+
+impl From<TrueColor> for RGB555 {
+    #[inline]
+    fn from(color: TrueColor) -> Self {
+        Self::from_true_color(color)
+    }
+}
+
+impl From<RGB555> for TrueColor {
+    #[inline]
+    fn from(color: RGB555) -> Self {
+        color.as_true_color()
+    }
+}
+
+impl From<Color> for RGB555 {
+    #[inline]
+    fn from(color: Color) -> Self {
+        Self::from_true_color(color.into_true_color())
+    }
+}
+
+impl From<RGB555> for Color {
+    #[inline]
+    fn from(color: RGB555) -> Self {
+        Color::Argb32(color.as_true_color())
     }
 }

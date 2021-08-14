@@ -46,9 +46,15 @@ pub enum Function {
     WaitChar,
     /// Read a char event
     ReadChar,
+    /// Draw a shape in a window
+    DrawShape,
 
-    /// Draw a view
-    DrawView,
+    ///
+    GameV1Init,
+    GameV1Sync,
+    GameV1Redraw,
+    GameV1Rect,
+    GameV1MoveSprite,
 
     /// Return a random number
     Rand = 100,

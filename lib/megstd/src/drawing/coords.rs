@@ -251,6 +251,56 @@ impl SubAssign for Size {
     }
 }
 
+impl Mul<isize> for Size {
+    type Output = Self;
+
+    fn mul(self, rhs: isize) -> Self::Output {
+        Self {
+            width: self.width * rhs,
+            height: self.height * rhs,
+        }
+    }
+}
+
+impl Mul<usize> for Size {
+    type Output = Self;
+
+    fn mul(self, rhs: usize) -> Self::Output {
+        Self {
+            width: self.width * rhs as isize,
+            height: self.height * rhs as isize,
+        }
+    }
+}
+
+impl MulAssign<isize> for Size {
+    fn mul_assign(&mut self, rhs: isize) {
+        *self = self.mul(rhs);
+    }
+}
+
+impl Div<isize> for Size {
+    type Output = Self;
+
+    fn div(self, rhs: isize) -> Self::Output {
+        Self {
+            width: self.width / rhs,
+            height: self.height / rhs,
+        }
+    }
+}
+
+impl Div<usize> for Size {
+    type Output = Self;
+
+    fn div(self, rhs: usize) -> Self::Output {
+        Self {
+            width: self.width / rhs as isize,
+            height: self.height / rhs as isize,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default, PartialEq)]
 pub struct Rect {

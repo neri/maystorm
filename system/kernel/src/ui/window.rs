@@ -32,8 +32,7 @@ const WINDOW_SYSTEM_EVENT_QUEUE_SIZE: usize = 100;
 const WINDOW_BORDER_WIDTH: isize = 1;
 const WINDOW_THICK_BORDER_WIDTH: isize = 4;
 const WINDOW_CORNER_RADIUS: isize = 8;
-const WINDOW_TITLE_HEIGHT_THIN: isize = 24;
-const WINDOW_TITLE_HEIGHT_THICK: isize = 24;
+const WINDOW_TITLE_HEIGHT: isize = 24;
 const WINDOW_TITLE_LENGTH: usize = 32;
 const WINDOW_SHADOW_PADDING: isize = 16;
 const SHADOW_RADIUS: isize = 8;
@@ -159,7 +158,7 @@ impl WindowManager<'static> {
         let off_screen = BoxedBitmap32::new(screen_size, TrueColor::TRANSPARENT);
         let mut window_pool = BTreeMap::new();
 
-        let window_button_width = WINDOW_TITLE_HEIGHT_THIN;
+        let window_button_width = WINDOW_TITLE_HEIGHT;
         let close_button = OperationalBitmap::with_slice(
             Size::new(CLOSE_BUTTON_SIZE as isize, CLOSE_BUTTON_SIZE as isize),
             &CLOSE_BUTTON_SOURCE,
@@ -810,7 +809,8 @@ impl WindowManager<'_> {
         });
     }
 
-    pub fn set_desktop_bitmap(bitmap: &ConstBitmap) {
+    pub fn set_desktop_bitmap<'a, T: AsRef<ConstBitmap<'a>>>(bitmap: &T) {
+        let bitmap = bitmap.as_ref();
         let shared = Self::shared();
         let _ = shared.root.update_opt(|root| {
             if root.bitmap.is_none() {
@@ -991,7 +991,7 @@ impl WindowStyle {
             if self.contains(Self::THIN_FRAME) {
                 if self.contains(Self::TITLE) {
                     EdgeInsets::new(
-                        WINDOW_BORDER_WIDTH + WINDOW_TITLE_HEIGHT_THIN,
+                        WINDOW_BORDER_WIDTH + WINDOW_TITLE_HEIGHT,
                         WINDOW_BORDER_WIDTH,
                         WINDOW_BORDER_WIDTH,
                         WINDOW_BORDER_WIDTH,
@@ -1002,7 +1002,7 @@ impl WindowStyle {
             } else {
                 if self.contains(Self::TITLE) {
                     EdgeInsets::new(
-                        WINDOW_BORDER_WIDTH + WINDOW_TITLE_HEIGHT_THICK,
+                        WINDOW_BORDER_WIDTH + WINDOW_TITLE_HEIGHT,
                         WINDOW_THICK_BORDER_WIDTH,
                         WINDOW_THICK_BORDER_WIDTH,
                         WINDOW_THICK_BORDER_WIDTH,
@@ -1118,7 +1118,7 @@ impl RawWindow<'_> {
         frame.origin += self.frame.origin;
         let shared = WindowManager::shared_mut();
         let main_screen = &mut shared.main_screen;
-        let off_screen = shared.off_screen.inner();
+        let off_screen = shared.off_screen.inner_mut();
         if self.draw_into(off_screen, frame) {
             if shared
                 .attributes
@@ -1236,11 +1236,7 @@ impl RawWindow<'_> {
                 WINDOW_BORDER_WIDTH,
                 WINDOW_BORDER_WIDTH,
                 self.frame.width() - WINDOW_BORDER_WIDTH * 2,
-                if self.style.contains(WindowStyle::THIN_FRAME) {
-                    WINDOW_TITLE_HEIGHT_THIN
-                } else {
-                    WINDOW_TITLE_HEIGHT_THICK
-                },
+                WINDOW_TITLE_HEIGHT,
             )
         } else {
             Rect::default()
@@ -1438,7 +1434,7 @@ impl RawWindow<'_> {
                 }
             }
         }
-        .into_argb();
+        .into_true_color();
 
         bitmap.fill_rect(button_frame, background);
 
@@ -1488,7 +1484,7 @@ impl RawWindow<'_> {
                 }
             }
         }
-        .into_argb();
+        .into_true_color();
 
         bitmap.fill_rect(button_frame, background);
 
@@ -1616,7 +1612,7 @@ impl RawWindow<'_> {
             WINDOW_SHADOW_PADDING - SHADOW_RADIUS,
         ) + SHADOW_OFFSET;
         shadow.blt_from(&bitmap, origin, content_rect, |a, _| {
-            let a = a.into_argb().opacity();
+            let a = a.into_true_color().opacity();
             a.saturating_add(a)
         });
 
@@ -1627,7 +1623,7 @@ impl RawWindow<'_> {
             Point::new(WINDOW_SHADOW_PADDING, WINDOW_SHADOW_PADDING),
             bitmap.bounds(),
             |a, b| {
-                if a.into_argb().opacity() >= b {
+                if a.into_true_color().opacity() >= b {
                     0
                 } else {
                     b
@@ -1642,8 +1638,8 @@ impl<'a> RawWindow<'a> {
     fn bitmap(&self) -> Option<Bitmap<'a>> {
         self.bitmap
             .as_ref()
-            .and_then(|v| unsafe { v.get().as_mut() })
-            .map(|v| v.as_bitmap())
+            .map(|v| unsafe { &mut *v.get() })
+            .map(|v| v.into_bitmap())
     }
 
     #[inline]
@@ -1680,10 +1676,9 @@ impl<'a> RawWindow<'a> {
         }
 
         let rect = coords.into();
-        match bitmap.view(rect, |mut bitmap| f(&mut bitmap)) {
-            Some(_) => Ok(()),
-            None => Err(WindowDrawingError::InconsistentCoordinates),
-        }
+        bitmap
+            .view(rect, |mut bitmap| f(&mut bitmap))
+            .ok_or(WindowDrawingError::InconsistentCoordinates)
     }
 }
 
@@ -1714,7 +1709,9 @@ pub struct WindowBuilder {
     window_options: u32,
     level: WindowLevel,
     bg_color: Color,
-    accent_color: Option<Color>,
+    active_title_color: Option<Color>,
+    inactive_title_color: Option<Color>,
+
     queue_size: usize,
     bitmap_strategy: BitmapStrategy,
 }
@@ -1728,7 +1725,8 @@ impl WindowBuilder {
             style: WindowStyle::default(),
             window_options: 0,
             bg_color: Theme::shared().window_default_background(),
-            accent_color: None,
+            active_title_color: None,
+            inactive_title_color: None,
             queue_size: 100,
             bitmap_strategy: BitmapStrategy::default(),
         }
@@ -1787,19 +1785,17 @@ impl WindowBuilder {
         };
 
         let bg_color = self.bg_color;
-        let accent_color = self
-            .accent_color
-            .unwrap_or(Theme::shared().window_default_accent());
-        let active_title_color = if is_thin {
+        let accent_color = Theme::shared().window_default_accent();
+        let active_title_color = self.active_title_color.unwrap_or(if is_thin {
             Theme::shared().window_title_active_background()
         } else {
-            self.accent_color.unwrap_or(bg_color)
-        };
-        let inactive_title_color = if is_thin {
+            bg_color
+        });
+        let inactive_title_color = self.inactive_title_color.unwrap_or(if is_thin {
             Theme::shared().window_title_inactive_background()
         } else {
             bg_color
-        };
+        });
         if bg_color.brightness().unwrap_or(255) < 128 {
             self.style.insert(WindowStyle::DARK_BORDER);
         }
@@ -1924,8 +1920,14 @@ impl WindowBuilder {
     }
 
     #[inline]
-    pub const fn accent_color(mut self, accent_color: Color) -> Self {
-        self.accent_color = Some(accent_color);
+    pub const fn active_title_color(mut self, active_title_color: Color) -> Self {
+        self.active_title_color = Some(active_title_color);
+        self
+    }
+
+    #[inline]
+    pub const fn inactive_title_color(mut self, inactive_title_color: Color) -> Self {
+        self.inactive_title_color = Some(inactive_title_color);
         self
     }
 
@@ -1992,6 +1994,7 @@ impl WindowHandle {
     }
 
     #[inline]
+    #[track_caller]
     fn get<'a>(&self) -> Option<&'a Box<RawWindow<'static>>> {
         WindowManager::shared().get(self)
     }
@@ -2173,7 +2176,7 @@ impl WindowHandle {
     }
 
     #[inline]
-    pub fn draw<F>(&self, f: F) -> Result<(), WindowDrawingError>
+    pub fn draw<F>(&self, f: F)
     where
         F: FnOnce(&mut Bitmap) -> (),
     {
@@ -2182,9 +2185,8 @@ impl WindowHandle {
             match self.draw_in_rect(rect.size().into(), f) {
                 Ok(_) | Err(WindowDrawingError::NoBitmap) => {
                     window.invalidate_rect(rect);
-                    Ok(())
                 }
-                Err(err) => Err(err),
+                Err(_) => (),
             }
         })
     }
@@ -2288,9 +2290,7 @@ impl WindowHandle {
     /// Process window messages that are not handled.
     pub fn handle_default_message(&self, message: WindowMessage) {
         match message {
-            WindowMessage::Draw => {
-                self.draw(|_bitmap| {}).unwrap();
-            }
+            WindowMessage::Draw => self.draw(|_| {}),
             WindowMessage::Key(key) => {
                 if let Some(c) = key.key_data().map(|v| v.into_char()) {
                     let _ = self.post(WindowMessage::Char(c));
@@ -2310,7 +2310,7 @@ impl WindowHandle {
             .attributes
             .test_and_clear(WindowAttributes::NEEDS_REDRAW)
         {
-            self.draw(|_bitmap| {}).unwrap();
+            self.draw(|_| {})
         }
     }
 

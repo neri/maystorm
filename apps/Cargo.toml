@@ -2,6 +2,7 @@
 members = [
   "bball",
   "bench",
+  "gbench",
   "hello",
   "hello2",
   "life",

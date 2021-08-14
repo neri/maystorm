@@ -1,3 +1,5 @@
+use core::mem::size_of;
+
 use super::color::*;
 use super::coords::*;
 
@@ -11,10 +13,17 @@ where
 
     fn height(&self) -> usize;
 
+    #[inline]
+    fn bpp(&self) -> usize {
+        8 * size_of::<Self::ColorType>()
+    }
+
+    #[inline]
     fn size(&self) -> Size {
         Size::new(self.width() as isize, self.height() as isize)
     }
 
+    #[inline]
     fn bounds(&self) -> Rect {
         Rect::from(self.size())
     }

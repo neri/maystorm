@@ -27,7 +27,7 @@ impl Theme {
 
     #[inline]
     pub const fn status_bar_background(&self) -> Color {
-        Color::from_argb(0xC0ECEFF1)
+        Color::from_argb(0x80ECEFF1)
     }
 
     #[inline]
@@ -82,7 +82,7 @@ impl Theme {
 
     #[inline]
     pub const fn window_title_active_background(&self) -> Color {
-        Color::from_argb(0xE0ECEFF1)
+        Color::from_argb(0xC0ECEFF1)
     }
 
     #[inline]

@@ -1,5 +1,6 @@
 // MEG-OS System Calls
 
+use core::ffi::c_void;
 use megosabi::svc::Function;
 
 #[allow(dead_code)]
@@ -103,6 +104,20 @@ pub fn os_win_draw_string(ctx: usize, x: usize, y: usize, s: &str, color: usize)
     unsafe { svc6(Function::DrawString, ctx, x, y, ptr, s.len(), color) };
 }
 
+#[inline]
+#[rustfmt::skip]
+pub fn os_draw_shape(ctx: usize, x: usize, y: usize, width: usize, height: usize, params: &OsDrawShape) {
+    unsafe { svc6(Function::DrawShape, ctx, x, y, width, height, params as *const _ as usize) };
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy)]
+pub struct OsDrawShape {
+    pub radius: u32,
+    pub bg_color: u32,
+    pub border_color: u32,
+}
+
 /// Fill a rectangle in a window.
 #[inline]
 #[rustfmt::skip]
@@ -173,4 +188,30 @@ pub fn os_alloc(size: usize, align: usize) -> usize {
 #[inline]
 pub fn os_dealloc(ptr: usize, size: usize, align: usize) {
     unsafe { svc3(Function::Dealloc, ptr, size, align) };
+}
+
+#[inline]
+#[rustfmt::skip]
+pub unsafe fn game_v1_init(window: usize, screen: *const c_void, scale: usize, fps: usize) -> usize {
+    svc4(Function::GameV1Init, window, screen as usize, scale, fps)
+}
+
+#[inline]
+pub fn game_v1_sync(handle: usize) -> bool {
+    unsafe { svc1(Function::GameV1Sync, handle) != 0 }
+}
+
+#[inline]
+pub fn game_v1_redraw(handle: usize) {
+    unsafe { svc1(Function::GameV1Redraw, handle) };
+}
+
+#[inline]
+pub fn game_v1_rect(handle: usize, x: usize, y: usize, width: usize, height: usize) {
+    unsafe { svc5(Function::GameV1Rect, handle, x, y, width, height) };
+}
+
+#[inline]
+pub fn game_v1_move_sprite(handle: usize, index: usize, x: usize, y: usize) {
+    unsafe { svc4(Function::GameV1MoveSprite, handle, index, x, y) };
 }

@@ -3,6 +3,7 @@
 use super::*;
 use crate::fs::*;
 use crate::mem::MemoryManager;
+use crate::ui::theme::Theme;
 use crate::ui::window::*;
 use crate::*;
 use alloc::boxed::Box;
@@ -601,7 +602,8 @@ impl HoeWindow {
                 (height - (Self::WINDOW_ADJUST_TOP + Self::WINDOW_ADJUST_BOTTOM)) as isize,
             ))
             .bg_color(Hoe::get_color(Self::WINDOW_BGCOLOR))
-            .accent_color(Color::LIGHT_BLUE)
+            .active_title_color(Color::LIGHT_BLUE)
+            .inactive_title_color(Theme::shared().window_title_inactive_background())
             .build(title);
         let window = HoeWindow {
             handle,

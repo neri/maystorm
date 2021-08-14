@@ -522,7 +522,7 @@ impl<'a> HersheyFont<'a> {
                     // TODO:
                 }
                 Bitmap::Argb32(ref mut bitmap) => {
-                    let color = color.into_argb();
+                    let color = color.into_true_color();
                     let origin = origin + Point::new(offset_act_x, 0);
                     let rect = Rect::new(offset_x, offset_y, act_w, act_h);
                     buffer.blt_to(*bitmap, origin, rect, |a, b| {

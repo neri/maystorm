@@ -1,6 +1,7 @@
 //! WebAssembly Runtime Library
 
 use crate::{intcode::*, opcode::*, wasmintr::*, *};
+use _core::mem::size_of;
 use alloc::{boxed::Box, string::*, vec::Vec};
 use bitflags::*;
 use core::{
@@ -982,7 +983,24 @@ impl WasmMemory {
         let memory = self.memory();
         let limit = memory.len();
         if offset < limit && size < limit && offset + size < limit {
-            unsafe { Ok(slice::from_raw_parts(&memory[offset] as *const _, size)) }
+            unsafe {
+                Ok(slice::from_raw_parts(
+                    memory.get_unchecked(offset) as *const _,
+                    size,
+                ))
+            }
+        } else {
+            Err(WasmRuntimeErrorKind::OutOfBounds)
+        }
+    }
+
+    #[inline]
+    pub unsafe fn transmute<T>(&self, offset: usize) -> Result<&T, WasmRuntimeErrorKind> {
+        let memory = self.memory();
+        let limit = memory.len();
+        let size = size_of::<T>();
+        if offset < limit && size < limit && offset + size < limit {
+            Ok(transmute(memory.get_unchecked(offset) as *const _))
         } else {
             Err(WasmRuntimeErrorKind::OutOfBounds)
         }
@@ -1000,7 +1018,7 @@ impl WasmMemory {
         if offset < limit && size < limit && offset + size < limit {
             unsafe {
                 Ok(slice::from_raw_parts(
-                    &memory[offset] as *const _ as *const u32,
+                    memory.get_unchecked(offset) as *const _ as *const u32,
                     len,
                 ))
             }

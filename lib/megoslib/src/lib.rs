@@ -4,6 +4,7 @@
 #![feature(asm)]
 
 pub mod bitmap;
+pub mod game;
 pub mod os_alloc;
 pub mod syscall;
 pub mod window;

@@ -22,8 +22,8 @@ impl UserEnv {
                 let stat = file.stat().unwrap();
                 let mut vec = Vec::with_capacity(stat.len() as usize);
                 file.read_to_end(&mut vec).unwrap();
-                if let Some(dib) = ImageLoader::from_msdib(vec.as_slice()) {
-                    WindowManager::set_desktop_bitmap(&dib.as_const());
+                if let Some(mut dib) = ImageLoader::from_msdib(vec.as_slice()) {
+                    WindowManager::set_desktop_bitmap(&dib.into_bitmap());
                 }
             }
             WindowManager::set_pointer_visible(true);
@@ -33,7 +33,6 @@ impl UserEnv {
             WindowManager::set_pointer_visible(true);
             Timer::sleep(Duration::from_millis(1000));
         }
-
         Scheduler::spawn_async(Task::new(status_bar_main()));
         Scheduler::spawn_async(Task::new(activity_monitor_main()));
         Scheduler::spawn_async(Task::new(shell_launcher(f)));
@@ -65,17 +64,15 @@ async fn status_bar_main() {
         .bg_color(bg_color)
         .build("Status Bar");
 
-    window
-        .draw(|bitmap| {
-            let font = FontManager::title_font();
-            let ats = AttributedString::new()
-                .font(font)
-                .color(fg_color)
-                .text(System::short_name());
-            let rect = Rect::new(16, 0, 320, STATUS_BAR_HEIGHT);
-            ats.draw_text(bitmap, rect, 1);
-        })
-        .unwrap();
+    window.draw(|bitmap| {
+        let font = FontManager::title_font();
+        let ats = AttributedString::new()
+            .font(font)
+            .color(fg_color)
+            .text(System::short_name());
+        let rect = Rect::new(16, 0, 320, STATUS_BAR_HEIGHT);
+        ats.draw_text(bitmap, rect, 1);
+    });
     WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT, 0, 0, 0));
 
     let font = FontManager::system_font();
@@ -413,22 +410,20 @@ async fn notification_main() {
         .bg_color(Color::TRANSPARENT)
         .build("Notification Center");
 
-    window
-        .draw(|bitmap| {
-            let rect = bitmap.bounds().insets_by(EdgeInsets::padding_each(padding));
-            bitmap.fill_round_rect(rect, radius, bg_color);
-            bitmap.draw_round_rect(rect, radius, border_color);
+    window.draw(|bitmap| {
+        let rect = bitmap.bounds().insets_by(EdgeInsets::padding_each(padding));
+        bitmap.fill_round_rect(rect, radius, bg_color);
+        bitmap.draw_round_rect(rect, radius, border_color);
 
-            let rect2 = rect.insets_by(EdgeInsets::padding_each(padding));
-            let ats = AttributedString::new()
-                .font(FontDescriptor::new(FontFamily::SystemUI, 16).unwrap())
-                // .font(FontManager::title_font())
-                .color(fg_color)
-                .center()
-                .text("Lorem ipsum dolor sit amet, consectetur adipiscing elit,");
-            ats.draw_text(bitmap, rect2, 0);
-        })
-        .unwrap();
+        let rect2 = rect.insets_by(EdgeInsets::padding_each(padding));
+        let ats = AttributedString::new()
+            .font(FontDescriptor::new(FontFamily::SystemUI, 16).unwrap())
+            // .font(FontManager::title_font())
+            .color(fg_color)
+            .center()
+            .text("Lorem ipsum dolor sit amet, consectetur adipiscing elit,");
+        ats.draw_text(bitmap, rect2, 0);
+    });
 
     window.show();
 
@@ -445,129 +440,129 @@ async fn test_window_main() {
     let height = 480;
     let window = WindowBuilder::new()
         .size(Size::new(width, height))
-        .bg_color(Color::from_argb(0xE0FFFFFF))
-        // .accent_color(Color::LIGHT_BLUE)
+        .bg_color(Color::from_argb(0x80FFFFFF))
         .build("");
     window.set_back_button_enabled(true);
 
-    window
-        .draw(|bitmap| {
-            // let radius = 4;
-            // bitmap.fill_round_rect(bitmap.bounds(), radius, Color::WHITE);
-            // bitmap.draw_round_rect(bitmap.bounds(), radius, Color::LIGHT_GRAY);
+    window.draw(|bitmap| {
+        bitmap.fill_round_rect(bitmap.bounds(), 4, Color::WHITE);
+        bitmap.draw_round_rect(bitmap.bounds(), 4, Color::LIGHT_GRAY);
 
-            let font = FontManager::title_font();
-            let title_height = 48;
-            let button_width = 120;
-            let button_height = 28;
-            let button_radius = 8;
-            let padding = 8;
-            let padding_bottom = button_height;
-            let button_center_top = Point::new(
-                bitmap.bounds().mid_x(),
-                bitmap.bounds().max_y() - padding_bottom - padding,
-            );
-            {
-                let mut rect = bitmap.bounds();
-                rect.size.height = title_height;
-                bitmap
-                    .view(rect, |mut bitmap| {
-                        let rect = bitmap.bounds();
-                        bitmap.fill_rect(rect, Color::LIGHT_BLUE);
-                        AttributedString::new()
-                            .font(FontDescriptor::new(FontFamily::SansSerif, 32).unwrap())
-                            .middle_center()
-                            .color(Color::WHITE)
-                            .text("Welcome to MYOS!")
-                            .draw_text(&mut bitmap, rect, 1);
-                    })
-                    .unwrap();
-            }
-            {
-                let rect = bitmap.bounds().insets_by(EdgeInsets::new(
-                    title_height + padding,
-                    4,
-                    padding_bottom + padding + padding,
-                    4,
-                ));
-                bitmap
-                    .view(rect, |mut bitmap| {
-                        let mut offset = 0;
-                        for family in [
-                            FontFamily::SansSerif,
-                            FontFamily::SystemUI,
-                            FontFamily::Serif,
-                            // FontFamily::Cursive,
-                            // FontFamily::Japanese,
-                        ] {
-                            for point in [32, 28, 24, 20, 16, 14, 12, 10, 8] {
-                                offset +=
-                                    font_test(&mut bitmap, offset, Color::BLACK, family, point, 1);
-                            }
+        // let radius = 4;
+        // bitmap.fill_round_rect(bitmap.bounds(), radius, Color::WHITE);
+        // bitmap.draw_round_rect(bitmap.bounds(), radius, Color::LIGHT_GRAY);
+
+        let font = FontManager::title_font();
+        let title_height = 48;
+        let button_width = 120;
+        let button_height = 28;
+        let button_radius = 4;
+        let padding = 8;
+        let padding_bottom = button_height;
+        let button_center_top = Point::new(
+            bitmap.bounds().mid_x(),
+            bitmap.bounds().max_y() - padding_bottom - padding,
+        );
+        {
+            let mut rect = bitmap.bounds();
+            rect.size.height = title_height;
+            bitmap
+                .view(rect, |mut bitmap| {
+                    let rect = bitmap.bounds();
+                    bitmap.fill_rect(rect, Color::LIGHT_BLUE);
+                    AttributedString::new()
+                        .font(FontDescriptor::new(FontFamily::SansSerif, 32).unwrap())
+                        .middle_center()
+                        .color(Color::WHITE)
+                        .text("Welcome to MYOS!")
+                        .draw_text(&mut bitmap, rect, 1);
+                })
+                .unwrap();
+        }
+        {
+            let rect = bitmap.bounds().insets_by(EdgeInsets::new(
+                title_height + padding,
+                4,
+                padding_bottom + padding + padding,
+                4,
+            ));
+            bitmap
+                .view(rect, |mut bitmap| {
+                    let mut offset = 0;
+                    for family in [
+                        FontFamily::SansSerif,
+                        FontFamily::SystemUI,
+                        FontFamily::Serif,
+                        // FontFamily::Cursive,
+                        // FontFamily::Japanese,
+                    ] {
+                        for point in [32, 28, 24, 20, 16, 14, 12, 10, 8] {
+                            offset +=
+                                font_test(&mut bitmap, offset, Color::BLACK, family, point, 1);
                         }
-                    })
-                    .unwrap();
-            }
-            if true {
-                let rect = Rect::new(
-                    button_center_top.x() - button_width - padding / 2,
-                    button_center_top.y(),
-                    button_width,
-                    button_height,
-                );
-                bitmap
-                    .view(rect, |mut bitmap| {
-                        let rect = bitmap.bounds();
-                        bitmap.fill_round_rect(
-                            rect,
-                            button_radius,
-                            Theme::shared().button_default_background(),
-                        );
-                        // bitmap.draw_round_rect(
-                        //     rect,
-                        //     button_radius,
-                        //     Theme::shared().button_default_border(),
-                        // );
-                        AttributedString::new()
-                            .font(font)
-                            .middle_center()
-                            .color(Theme::shared().button_default_foreground())
-                            .text("Ok")
-                            .draw_text(&mut bitmap, rect, 1);
-                    })
-                    .unwrap();
-            }
-            if true {
-                let rect = Rect::new(
-                    button_center_top.x() + padding / 2,
-                    button_center_top.y(),
-                    button_width,
-                    button_height,
-                );
-                bitmap
-                    .view(rect, |mut bitmap| {
-                        let rect = bitmap.bounds();
-                        bitmap.fill_round_rect(
-                            rect,
-                            button_radius,
-                            Theme::shared().button_destructive_background(),
-                        );
-                        // bitmap.draw_round_rect(
-                        //     rect,
-                        //     button_radius,
-                        //     Theme::shared().button_destructive_border(),
-                        // );
-                        AttributedString::new()
-                            .font(font)
-                            .middle_center()
-                            .color(Theme::shared().button_destructive_foreground())
-                            .text("Cancel")
-                            .draw_text(&mut bitmap, rect, 1);
-                    })
-                    .unwrap();
-            }
-        })
-        .unwrap();
+                    }
+                })
+                .unwrap();
+        }
+        if true {
+            let rect = Rect::new(
+                button_center_top.x() - button_width - padding / 2,
+                button_center_top.y(),
+                button_width,
+                button_height,
+            );
+            bitmap
+                .view(rect, |mut bitmap| {
+                    let rect = bitmap.bounds();
+                    bitmap.fill_round_rect(
+                        rect,
+                        button_radius,
+                        Theme::shared().button_default_background(),
+                    );
+                    // bitmap.draw_round_rect(
+                    //     rect,
+                    //     button_radius,
+                    //     Theme::shared().button_default_border(),
+                    // );
+                    AttributedString::new()
+                        .font(font)
+                        .middle_center()
+                        .color(Theme::shared().button_default_foreground())
+                        .text("Ok")
+                        .draw_text(&mut bitmap, rect, 1);
+                })
+                .unwrap();
+        }
+        if true {
+            let rect = Rect::new(
+                button_center_top.x() + padding / 2,
+                button_center_top.y(),
+                button_width,
+                button_height,
+            );
+            bitmap
+                .view(rect, |mut bitmap| {
+                    let rect = bitmap.bounds();
+                    bitmap.fill_round_rect(
+                        rect,
+                        button_radius,
+                        Theme::shared().button_destructive_background(),
+                    );
+                    // bitmap.draw_round_rect(
+                    //     rect,
+                    //     button_radius,
+                    //     Theme::shared().button_destructive_border(),
+                    // );
+                    AttributedString::new()
+                        .font(font)
+                        .middle_center()
+                        .color(Theme::shared().button_destructive_foreground())
+                        .text("Cancel")
+                        .draw_text(&mut bitmap, rect, 1);
+                })
+                .unwrap();
+        }
+    });
 
     while let Some(message) = window.get_message().await {
         match message {

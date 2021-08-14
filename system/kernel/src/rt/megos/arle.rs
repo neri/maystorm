@@ -12,8 +12,8 @@ use byteorder::*;
 use core::{
     alloc::Layout, intrinsics::transmute, num::NonZeroU32, sync::atomic::*, time::Duration,
 };
-use megstd::drawing::*;
-use megstd::rand::*;
+use megstd::{drawing::*, game::v1};
+use megstd::{game::v1::PaletteEntry, rand::*};
 use num_traits::FromPrimitive;
 use wasm::{wasmintr::*, *};
 
@@ -85,6 +85,7 @@ pub struct ArleRuntime {
     windows: Mutex<BTreeMap<usize, UnsafeCell<OsWindow>>>,
     rng32: XorShift32,
     key_buffer: Mutex<Vec<KeyEvent>>,
+    game_presenter: Option<UnsafeCell<Box<OsGamePresenter<'static>>>>,
     malloc: Mutex<SimpleAllocator>,
     has_to_exit: AtomicBool,
 }
@@ -103,6 +104,7 @@ impl ArleRuntime {
             windows: Mutex::new(BTreeMap::new()),
             rng32: XorShift32::default(),
             key_buffer: Mutex::new(Vec::with_capacity(Self::SIZE_KEYBUFFER)),
+            game_presenter: None,
             malloc: Mutex::new(SimpleAllocator::default()),
             has_to_exit: AtomicBool::new(false),
         })
@@ -282,22 +284,99 @@ impl ArleRuntime {
                     bitmap.draw_line(c1 - rect.origin, c2 - rect.origin, color);
                 });
             }
+            Function::DrawShape => {
+                let window = params.get_window(self)?;
+                let origin = params.get_point()?;
+                let size = params.get_size()?;
+
+                let offset = params.get_usize()?;
+                let len = 3;
+                let params = memory.read_u32_array(offset, len)?;
+                let radius = unsafe { *params.get_unchecked(0) as isize };
+                let bg_color = PackedColor(unsafe { *params.get_unchecked(1) }).as_color();
+                let border_color = PackedColor(unsafe { *params.get_unchecked(2) }).as_color();
+
+                let rect = Rect { origin, size };
+                window.draw_in_rect(rect, |bitmap| {
+                    if bg_color != Color::TRANSPARENT {
+                        bitmap.fill_round_rect(bitmap.bounds(), radius, bg_color);
+                    }
+                    if border_color != Color::TRANSPARENT {
+                        bitmap.draw_round_rect(bitmap.bounds(), radius, border_color);
+                    }
+                });
+            }
             Function::WaitChar => {
                 let window = params.get_window(self)?;
                 return self
-                    .wait_key(window)
+                    .wait_key(window.native())
                     .map(|c| WasmValue::I32(c.unwrap_or('\0') as i32));
             }
             Function::ReadChar => {
                 let window = params.get_window(self)?;
-                let c = self.read_key(window);
+                let c = self.read_key(window.native());
                 return Ok(WasmValue::from(
                     c.map(|v| v as u32).unwrap_or(megosabi::OPTION_CHAR_NONE),
                 ));
             }
 
-            Function::DrawView => {
-                todo!()
+            Function::GameV1Init => {
+                let window = params.get_window(self)?;
+                let screen = params.get_usize()?;
+                let scale = params.get_usize()?;
+                let fps = params.get_usize()?;
+
+                let scale = FromPrimitive::from_usize(scale)
+                    .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
+                self.game_presenter =
+                    match OsGamePresenter::new(memory, window.native(), screen, scale, fps) {
+                        Ok(v) => Some(UnsafeCell::new(Box::new(v))),
+                        Err(err) => return Err(err),
+                    };
+                return Ok(WasmValue::from(1i32));
+            }
+            Function::GameV1Sync => {
+                let _handle = params.get_usize()?;
+                let presenter = self
+                    .game_presenter
+                    .as_ref()
+                    .map(|v| unsafe { &mut *v.get() })
+                    .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
+                self.sense_message(presenter.window);
+                return Ok(WasmValue::from(presenter.sync()));
+            }
+            Function::GameV1Redraw => {
+                let _handle = params.get_usize()?;
+                let presenter = self
+                    .game_presenter
+                    .as_ref()
+                    .map(|v| unsafe { &mut *v.get() })
+                    .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
+                presenter.redraw();
+            }
+            Function::GameV1Rect => {
+                let _handle = params.get_usize()?;
+                let origin = params.get_point()?;
+                let size = params.get_size()?;
+                let rect = Rect { origin, size };
+                let presenter = self
+                    .game_presenter
+                    .as_ref()
+                    .map(|v| unsafe { &mut *v.get() })
+                    .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
+                presenter.invalidate_rect(memory, rect);
+            }
+            Function::GameV1MoveSprite => {
+                let _handle = params.get_usize()?;
+                let index = params.get_usize()?;
+                let x = params.get_usize()?;
+                let y = params.get_usize()?;
+                let presenter = self
+                    .game_presenter
+                    .as_ref()
+                    .map(|v| unsafe { &mut *v.get() })
+                    .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
+                presenter.move_sprite(memory, index, x, y);
             }
 
             Function::Blt8 => {
@@ -413,10 +492,9 @@ impl ArleRuntime {
         Ok(WasmValue::I32(0))
     }
 
-    fn wait_key(&self, window: &OsWindow) -> Result<Option<char>, WasmRuntimeErrorKind> {
-        let handle = window.native();
-        while let Some(message) = handle.wait_message() {
-            self.process_message(handle, message);
+    fn wait_key(&self, window: WindowHandle) -> Result<Option<char>, WasmRuntimeErrorKind> {
+        while let Some(message) = window.wait_message() {
+            self.process_message(window, message);
             if self.has_to_exit.load(Ordering::Relaxed) {
                 return Err(WasmRuntimeErrorKind::Exit);
             }
@@ -431,10 +509,9 @@ impl ArleRuntime {
         Err(WasmRuntimeErrorKind::TypeMismatch)
     }
 
-    fn read_key(&self, window: &OsWindow) -> Option<char> {
-        let handle = window.native();
-        while let Some(message) = handle.read_message() {
-            self.process_message(handle, message);
+    fn read_key(&self, window: WindowHandle) -> Option<char> {
+        while let Some(message) = window.read_message() {
+            self.process_message(window, message);
         }
         self.read_key_buffer().map(|v| v.into_char())
     }
@@ -445,6 +522,12 @@ impl ArleRuntime {
             Some(buffer.remove(0))
         } else {
             None
+        }
+    }
+
+    fn sense_message(&self, window: WindowHandle) {
+        while let Some(message) = window.read_message() {
+            self.process_message(window, message);
         }
     }
 
@@ -958,5 +1041,259 @@ impl SimpleFreePair {
     #[inline]
     pub const fn next_base(&self) -> u32 {
         self.base + self.size
+    }
+}
+
+struct OsGamePresenter<'a> {
+    window: WindowHandle,
+    screen: usize,
+    scale: v1::ScaleMode,
+    size: Size,
+    buffer: BoxedBitmap32<'a>,
+    draw_region: Coordinates,
+    fps: usize,
+    timer_div: u64,
+    expected_time: u64,
+}
+
+impl OsGamePresenter<'_> {
+    #[inline]
+    fn new(
+        memory: &WasmMemory,
+        window: WindowHandle,
+        screen: usize,
+        scale: v1::ScaleMode,
+        fps: usize,
+    ) -> Result<Self, WasmRuntimeErrorKind> {
+        let timer_div = 1000_000usize.checked_div(fps).unwrap_or(1) as u64;
+        let scale_factor = scale.scale_factor();
+        let size = window.content_rect().size() / scale_factor;
+        let buffer = BoxedBitmap32::new(size, TrueColor::TRANSPARENT);
+
+        let result = Self {
+            window,
+            screen,
+            scale,
+            size,
+            buffer,
+            draw_region: Coordinates::void(),
+            fps,
+            timer_div,
+            expected_time: timer_div + Timer::monotonic().as_micros() as u64,
+        };
+
+        let screen = unsafe { &mut *result.screen(memory).unwrap().get() };
+        *screen.get_palette_mut(0) = PaletteEntry(PackedColor::WHITE);
+        *screen.get_palette_mut(1) = PaletteEntry(PackedColor::LIGHT_GRAY);
+        *screen.get_palette_mut(2) = PaletteEntry(PackedColor::DARK_GRAY);
+        *screen.get_palette_mut(3) = PaletteEntry(PackedColor::BLACK);
+
+        for i in 0..v1::MAX_SPRITES {
+            screen.get_sprite_mut(i).gone();
+        }
+
+        Ok(result)
+    }
+
+    #[inline]
+    unsafe fn screen<'a>(
+        &self,
+        memory: &'a WasmMemory,
+    ) -> Result<&'a UnsafeCell<v1::Screen>, WasmRuntimeErrorKind> {
+        memory.transmute(self.screen)
+    }
+
+    #[inline]
+    fn sync(&mut self) -> bool {
+        self.redraw();
+        let actual = Timer::monotonic().as_micros() as u64;
+        if actual < self.expected_time {
+            let diff = self.expected_time - actual;
+            self.expected_time += self.timer_div;
+            Timer::sleep(Duration::from_micros(diff));
+            true
+        } else {
+            self.expected_time += self.timer_div;
+            Timer::sleep(Duration::from_nanos(1));
+            false
+        }
+    }
+
+    #[inline]
+    fn add_region(&mut self, rect: Rect) {
+        let coords = Coordinates::from_rect(rect).unwrap();
+        self.draw_region.merge(coords);
+    }
+
+    fn redraw(&mut self) {
+        let coords = self.draw_region;
+        if coords.left <= coords.right && coords.top <= coords.bottom {
+            self.window.invalidate_rect(coords.into());
+        }
+        self.draw_region = Coordinates::void();
+    }
+
+    fn invalidate_rect(&mut self, memory: &WasmMemory, rect: Rect) {
+        let screen = match unsafe { self.screen(memory) } {
+            Ok(v) => unsafe { &*v.get() },
+            Err(_) => return,
+        };
+        let limit_x = v1::MAX_WIDTH / v1::CHAR_SIZE;
+        let limit_y = v1::MAX_WIDTH / v1::CHAR_SIZE;
+        let min_x = rect.min_x() / v1::CHAR_SIZE;
+        let max_x = isize::min(limit_x, (rect.max_x() + 7) / v1::CHAR_SIZE);
+        let min_y = rect.min_y() / v1::CHAR_SIZE;
+        let max_y = isize::min(limit_y, (rect.max_y() + 7) / v1::CHAR_SIZE);
+        if min_x < 0 || min_y < 0 || max_x < 0 || min_y < 0 || min_x >= limit_x || min_y >= limit_y
+        {
+            return;
+        }
+
+        let bitmap = self.buffer.as_mut();
+        bitmap.fill_rect(rect, screen.get_palette(0).0.into_true_color());
+
+        for y in min_y..max_y {
+            for x in min_x..max_x {
+                let pattern = screen.get_char_data(unsafe { screen.get_name(x, y) });
+                let origin = Point::new(x * v1::CHAR_SIZE, y * v1::CHAR_SIZE);
+                Self::render_char(bitmap, 0, pattern.data(), origin, screen.palettes());
+            }
+        }
+        for oam in screen.sprites().iter().rev() {
+            if oam.y >= v1::SPRITE_DISABLED {
+                continue;
+            }
+            let oam_attr = oam.attr;
+            let oam_rect = oam.frame();
+            if (oam_rect.min_x() >= rect.min_x() && oam_rect.min_x() < rect.max_x()
+                || oam_rect.max_x() >= rect.min_x() && oam_rect.max_x() < rect.max_x())
+                && (oam_rect.min_y() >= rect.min_y() && oam_rect.min_y() < rect.max_y()
+                    || oam_rect.max_y() >= rect.min_y() && oam_rect.max_y() < rect.max_y())
+            {
+                let pattern = screen.get_char_data(oam.index());
+                Self::render_char(
+                    bitmap,
+                    oam.attr,
+                    pattern.data(),
+                    oam_rect.origin(),
+                    screen.palettes(),
+                );
+                if (oam_attr & v1::OAM_ATTR_W16) != 0 {
+                    let pattern = screen.get_char_data(oam.index() | 1);
+                    Self::render_char(
+                        bitmap,
+                        oam.attr,
+                        pattern.data(),
+                        oam_rect.origin() + Point::new(v1::CHAR_SIZE, 0),
+                        screen.palettes(),
+                    );
+                }
+                if (oam_attr & v1::OAM_ATTR_H16) != 0 {
+                    let pattern = screen.get_char_data(oam.index() | 0x10);
+                    Self::render_char(
+                        bitmap,
+                        oam.attr,
+                        pattern.data(),
+                        oam_rect.origin() + Point::new(0, v1::CHAR_SIZE),
+                        screen.palettes(),
+                    );
+                }
+                if (oam_attr & (v1::OAM_ATTR_H16 | v1::OAM_ATTR_W16))
+                    == (v1::OAM_ATTR_H16 | v1::OAM_ATTR_W16)
+                {
+                    let pattern = screen.get_char_data(oam.index() | 0x11);
+                    Self::render_char(
+                        bitmap,
+                        oam.attr,
+                        pattern.data(),
+                        oam_rect.origin() + Point::new(v1::CHAR_SIZE, v1::CHAR_SIZE),
+                        screen.palettes(),
+                    );
+                }
+            }
+        }
+
+        let _ = self.window.draw_in_rect(rect, |bitmap| {
+            bitmap.blt(self.buffer.as_ref(), Point::new(0, 0), rect);
+        });
+        self.add_region(rect);
+    }
+
+    fn move_sprite(&mut self, memory: &WasmMemory, index: usize, x: usize, y: usize) {
+        let screen = match unsafe { self.screen(memory) } {
+            Ok(v) => unsafe { &mut *v.get() },
+            Err(_) => return,
+        };
+        let oam = screen.get_sprite(index);
+        let old_rect = oam.frame();
+
+        let oam = screen.get_sprite_mut(index);
+        oam.x = x as u8;
+        oam.y = y as u8;
+        let new_rect = oam.frame();
+        drop(oam);
+
+        self.invalidate_rect(memory, old_rect);
+        self.invalidate_rect(memory, new_rect);
+    }
+
+    fn render_char(
+        bitmap: &mut Bitmap32,
+        attr: u8,
+        pattern: &[u8; 16],
+        origin: Point,
+        palette: &[v1::PaletteEntry],
+    ) {
+        let dx = origin.x();
+        let dy = origin.y();
+        let mut dw = v1::CHAR_SIZE;
+        let mut dh = v1::CHAR_SIZE;
+        if dx + dw > bitmap.width() as isize {
+            dw = bitmap.width() as isize - dx;
+        }
+        if dy + dh > bitmap.height() as isize {
+            dh = bitmap.height() as isize - dy;
+        }
+        if dx < 0 || dy < 0 || dw < 0 || dh < 0 {
+            return;
+        }
+
+        let palette_base = (attr & v1::OAM_PALETTE_MASK) as usize * 4;
+
+        let color1 = unsafe { palette.get_unchecked(palette_base + 1) }
+            .get_color()
+            .into_true_color();
+        let color2 = unsafe { palette.get_unchecked(palette_base + 2) }
+            .get_color()
+            .into_true_color();
+        let color3 = unsafe { palette.get_unchecked(palette_base + 3) }
+            .get_color()
+            .into_true_color();
+
+        for y in 0..dh as usize {
+            let p1 = unsafe { *pattern.get_unchecked(y) };
+            let p2 = unsafe { *pattern.get_unchecked(y + 8) };
+            let p3 = p1 & p2;
+            if (p1 | p2) != 0 {
+                let oy = dy + y as isize;
+                for x in 0..dw as usize {
+                    let point = Point::new(dx + x as isize, oy);
+                    let bits = 0x80u8 >> x;
+                    if (p3 & bits) != 0 {
+                        unsafe {
+                            bitmap.set_pixel_unchecked(point, color3);
+                        }
+                    } else if (p2 & bits) != 0 {
+                        unsafe {
+                            bitmap.set_pixel_unchecked(point, color2);
+                        }
+                    } else if (p1 & bits) != 0 {
+                        unsafe {
+                            bitmap.set_pixel_unchecked(point, color1);
+                        }
+                    }
+                }
+            }
+        }
     }
 }
