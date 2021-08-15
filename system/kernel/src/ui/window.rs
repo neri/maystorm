@@ -964,14 +964,15 @@ bitflags! {
         const TITLE         = 0b0000_0000_0000_0100;
         const CLOSE_BUTTON  = 0b0000_0000_0000_1000;
 
-        const PINCHABLE     = 0b0000_0000_0001_0000;
-        const FLOATING      = 0b0000_0000_0010_0000;
-        const OPAQUE        = 0b0000_0000_0100_0000;
-        const NO_SHADOW     = 0b0000_0000_1000_0000;
+        const OPAQUE_CONTENT    = 0b0000_0000_0001_0000;
+        const OPAQUE        = 0b0000_0000_0010_0000;
+        const NO_SHADOW     = 0b0000_0000_0100_0000;
+        const FLOATING      = 0b0000_0000_1000_0000;
 
         const DARK_BORDER   = 0b0000_0001_0000_0000;
         const DARK_TITLE    = 0b0000_0010_0000_0000;
         const DARK_ACTIVE   = 0b0000_0100_0000_0000;
+        const PINCHABLE     = 0b0000_1000_0000_0000;
 
         const SUSPENDED     = 0b1000_0000_0000_0000;
 
@@ -1137,7 +1138,14 @@ impl RawWindow<'_> {
             Err(_) => return false,
         };
 
-        let mut cursor = if self.style.contains(WindowStyle::OPAQUE) {
+        let is_opaque = self.style.contains(WindowStyle::OPAQUE)
+            || self.style.contains(WindowStyle::OPAQUE_CONTENT)
+                && self
+                    .frame
+                    .insets_by(self.content_insets)
+                    .is_within_rect(frame);
+
+        let mut cursor = if is_opaque {
             self.handle
         } else {
             WindowManager::shared().root
@@ -1191,7 +1199,9 @@ impl RawWindow<'_> {
                                 );
                             }
                             Bitmap::Argb32(bitmap) => {
-                                if window.style.contains(WindowStyle::OPAQUE) {
+                                if window.style.contains(WindowStyle::OPAQUE)
+                                    || self.handle == window.handle && is_opaque
+                                {
                                     target_bitmap.blt(bitmap, blt_origin, blt_rect);
                                 } else {
                                     target_bitmap.blt_blend(bitmap, blt_origin, blt_rect);
@@ -1747,6 +1757,9 @@ impl WindowBuilder {
         let window_options = self.window_options;
         if (window_options & megosabi::window::THIN_FRAME) != 0 {
             self.style.insert(WindowStyle::THIN_FRAME);
+        }
+        if (window_options & megosabi::window::OPAQUE_CONTENT) != 0 {
+            self.style.insert(WindowStyle::OPAQUE_CONTENT);
         }
         if (window_options & megosabi::window::USE_BITMAP32) != 0 {
             self.bitmap_strategy = BitmapStrategy::Expressive;

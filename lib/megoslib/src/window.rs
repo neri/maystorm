@@ -1,10 +1,8 @@
 // MEG-OS Window API
 
 use super::*;
-use crate::game::v1::GamePresenterImpl;
-use core::cell::UnsafeCell;
 use megosabi;
-use megstd::{drawing::*, game::v1};
+use megstd::drawing::*;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct WindowHandle(pub usize);
@@ -32,7 +30,7 @@ impl Window {
     }
 
     #[inline]
-    pub const unsafe fn handle(&self) -> WindowHandle {
+    pub const fn handle(&self) -> WindowHandle {
         self.handle
     }
 
@@ -63,16 +61,6 @@ impl Window {
             megosabi::OPTION_CHAR_NONE => None,
             c => Some(unsafe { core::char::from_u32_unchecked(c as u32) }),
         }
-    }
-
-    #[inline]
-    pub fn init_game_presenter<'a>(
-        &self,
-        screen: &'a UnsafeCell<v1::Screen>,
-        scale: v1::ScaleMode,
-        fps: usize,
-    ) -> GamePresenterImpl<'a> {
-        GamePresenterImpl::new(self.handle, screen, scale, fps)
     }
 }
 
@@ -226,6 +214,13 @@ impl WindowBuilder {
     #[inline]
     pub const fn thin_frame(mut self) -> Self {
         self.flag |= megosabi::window::THIN_FRAME;
+        self
+    }
+
+    /// Content is opaque
+    #[inline]
+    pub const fn opaque(mut self) -> Self {
+        self.flag |= megosabi::window::OPAQUE_CONTENT;
         self
     }
 

@@ -29,12 +29,10 @@ static mut SCREEN: UnsafeCell<v1::Screen> = UnsafeCell::new(v1::Screen::new());
 
 impl<'a> App<'a> {
     fn new() -> Self {
-        let presenter = GameWindow::with_options(
-            "GAME BENCH",
+        let presenter = GameWindow::new(
+            "GAME TEST",
             Size::new(Self::WINDOW_WIDTH, Self::WINDOW_HEIGHT),
             unsafe { &SCREEN },
-            v1::ScaleMode::DotByDot,
-            240,
         );
         Self { presenter }
     }
@@ -122,6 +120,11 @@ impl App<'_> {
         screen.set_char_data(0x91, &[
             0x01, 0x01, 0x02, 0x02, 0x04, 0x08, 0x30, 0xC0, 0xFF, 0xFF, 0xFE, 0xFE, 0xFC, 0xF8, 0xF0, 0xC0,
         ]);
+
+        screen.set_char_data(0xE0, &[
+            0x00, 0x00, 0x30, 0x30, 0x00, 0x00, 0x00, 0x00, 0x3C, 0x7E, 0xCF, 0xCF, 0xFF, 0xFF, 0x7E, 0x3C,
+        ]);
+
     }
 
     fn run(&mut self) {
@@ -134,38 +137,34 @@ impl App<'_> {
                 Self::WINDOW_WIDTH / v1::CHAR_SIZE,
                 Self::WINDOW_HEIGHT / v1::CHAR_SIZE,
             ),
+            2,
+        );
+        screen.fill_names(
+            Rect::new(
+                2,
+                2,
+                Self::WINDOW_WIDTH / v1::CHAR_SIZE - 4,
+                Self::WINDOW_HEIGHT / v1::CHAR_SIZE - 4,
+            ),
             1,
         );
-        // screen.fill_names(
-        //     Rect::new(
-        //         2,
-        //         2,
-        //         Self::WINDOW_WIDTH / v1::CHAR_SIZE - 4,
-        //         Self::WINDOW_HEIGHT / v1::CHAR_SIZE - 4,
-        //     ),
-        //     1,
-        // );
 
         unsafe {
             screen.set_name(Self::WINDOW_WIDTH / v1::CHAR_SIZE - 2, 0, 3);
             screen.set_name(Self::WINDOW_WIDTH / v1::CHAR_SIZE - 1, 0, 4);
         }
 
-        let mut marbles = [Marble::empty(); 64];
-        for (index, item) in marbles.iter_mut().enumerate() {
-            *item = Marble::new(
-                (os_rand() % (Self::WINDOW_WIDTH as u32 - 48)) as isize + 16,
-                (os_rand() % (Self::WINDOW_HEIGHT as u32 - 48)) as isize + 16,
-                if (os_rand() & 1) == 0 { 1 } else { -1 },
-                if (os_rand() & 1) == 0 { 1 } else { -1 },
-                1 + (os_rand() & 1) as isize,
-            );
-            *screen.get_sprite_mut(index) = v1::Sprite::new(
-                item.origin(),
-                0x80,
-                v1::OAM_ATTR_W16 | v1::OAM_ATTR_H16 | (1 + (3 & index as u8)),
-            );
-        }
+        let mut player = Player::new(
+            Point::new(Self::WINDOW_WIDTH / 2, Self::WINDOW_HEIGHT / 2),
+            1,
+            Direction::Neutral,
+        );
+        let mut missile = Missile::new(Point::new(0, v1::MAX_HEIGHT), Direction::Neutral);
+
+        *screen.get_sprite_mut(0) =
+            v1::Sprite::new(player.point, 0x80, v1::OAM_ATTR_W16 | v1::OAM_ATTR_H16 | 4);
+
+        *screen.get_sprite_mut(1) = v1::Sprite::new(missile.point, 0xE0, 1);
 
         self.presenter.set_needs_display();
 
@@ -174,10 +173,34 @@ impl App<'_> {
         loop {
             self.presenter.sync();
 
-            for (index, item) in marbles.iter_mut().enumerate() {
-                item.step();
-                self.presenter.move_sprite(index as u8, item.origin());
-            }
+            self.presenter.dispatch_buttons(|pad| match pad {
+                v1::JoyPad::DpadRight => {
+                    player.dir = Direction::Right;
+                    player.walk();
+                }
+                v1::JoyPad::DpadLeft => {
+                    player.dir = Direction::Left;
+                    player.walk();
+                }
+                v1::JoyPad::DpadDown => {
+                    player.dir = Direction::Down;
+                    player.walk();
+                }
+                v1::JoyPad::DpadUp => {
+                    player.dir = Direction::Up;
+                    player.walk();
+                }
+                v1::JoyPad::A => {
+                    if !missile.is_alive() {
+                        missile.point = player.point + Point::new(4, 4);
+                        missile.dir = player.dir;
+                    }
+                }
+                _ => (),
+            });
+            self.presenter.move_sprite(0, player.point);
+            missile.step();
+            self.presenter.move_sprite(1, missile.point);
 
             fps += 1;
             let now = os_monotonic();
@@ -207,73 +230,95 @@ impl App<'_> {
     }
 }
 
-#[derive(Clone, Copy)]
-struct Marble {
-    x: isize,
-    y: isize,
-    dir_x: isize,
-    dir_y: isize,
-    speed: isize,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Direction {
+    Neutral,
+    Up,
+    Down,
+    Left,
+    Right,
 }
 
-impl Marble {
+struct Player {
+    point: Point,
+    speed: isize,
+    dir: Direction,
+}
+
+impl Player {
     #[inline]
-    fn new(x: isize, y: isize, dir_x: isize, dir_y: isize, speed: isize) -> Self {
-        Self {
-            x,
-            y,
-            dir_x,
-            dir_y,
-            speed,
+    const fn new(point: Point, speed: isize, dir: Direction) -> Self {
+        Self { point, speed, dir }
+    }
+
+    fn walk(&mut self) {
+        let speed = self.speed * 2;
+        match self.dir {
+            Direction::Neutral => (),
+            Direction::Up => {
+                if self.point.y > 16 {
+                    self.point.y -= speed;
+                }
+            }
+            Direction::Down => {
+                if self.point.y < App::WINDOW_HEIGHT - 32 {
+                    self.point.y += speed;
+                }
+            }
+            Direction::Left => {
+                if self.point.x > 16 {
+                    self.point.x -= speed;
+                }
+            }
+            Direction::Right => {
+                if self.point.x < App::WINDOW_WIDTH - 32 {
+                    self.point.x += speed;
+                }
+            }
         }
+    }
+}
+
+struct Missile {
+    point: Point,
+    dir: Direction,
+}
+
+impl Missile {
+    #[inline]
+    fn new(point: Point, dir: Direction) -> Self {
+        Self { point, dir }
     }
 
     #[inline]
-    const fn origin(&self) -> Point {
-        Point::new(self.x as isize, self.y as isize)
-    }
-
-    #[inline]
-    const fn empty() -> Self {
-        Self {
-            x: 0,
-            y: 0,
-            dir_x: 0,
-            dir_y: 0,
-            speed: 0,
-        }
+    fn is_alive(&self) -> bool {
+        self.point.y < v1::MAX_HEIGHT
     }
 
     fn step(&mut self) {
-        // let mut turned = false;
-        if self.dir_x > 0 {
-            if self.x + self.speed < App::WINDOW_WIDTH - 16 {
-                self.x += self.speed;
-            } else {
-                self.dir_x = -1;
-                // turned = true;
+        let speed = 4;
+        if self.point.y < v1::MAX_HEIGHT {
+            match self.dir {
+                Direction::Neutral => (),
+                Direction::Up => {
+                    self.point.y -= speed;
+                }
+                Direction::Down => {
+                    self.point.y += speed;
+                }
+                Direction::Left => {
+                    self.point.x -= speed;
+                }
+                Direction::Right => {
+                    self.point.x += speed;
+                }
             }
-        } else if self.dir_x < 0 {
-            if self.x - self.speed > 0 {
-                self.x -= self.speed;
-            } else {
-                self.dir_x = 1;
-                // turned = true;
-            }
-        }
-        if self.dir_y > 0 {
-            if self.y + self.speed < App::WINDOW_HEIGHT - 16 {
-                self.y += self.speed;
-            } else {
-                self.dir_y = -1;
-                // turned = true;
-            }
-        } else if self.dir_y < 0 {
-            if self.y - self.speed > 0 {
-                self.y -= self.speed;
-            } else {
-                self.dir_y = 1;
-                // turned = true;
+            if self.point.x < 8
+                || self.point.x >= App::WINDOW_WIDTH - 8
+                || self.point.y < 8
+                || self.point.y >= App::WINDOW_HEIGHT - 8
+            {
+                self.point.y = v1::MAX_HEIGHT;
             }
         }
     }

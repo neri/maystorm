@@ -55,6 +55,7 @@ pub enum Function {
     GameV1Redraw,
     GameV1Rect,
     GameV1MoveSprite,
+    GameV1Button,
 
     /// Return a random number
     Rand = 100,

@@ -8,6 +8,7 @@ members = [
   "life",
   "noiz2bg",
   "winhello",
+  "test",
 ]
 
 [profile.release]

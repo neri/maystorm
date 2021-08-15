@@ -61,7 +61,7 @@ impl KeyboardState {
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone)]
-pub struct KeyEvent(NonZeroU32);
+pub struct KeyEvent(pub NonZeroU32);
 
 impl KeyEvent {
     #[inline]

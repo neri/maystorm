@@ -70,7 +70,7 @@ impl<T: Sized> ConcurrentFifo<T> {
                     Ordering::SeqCst,
                     Ordering::Relaxed,
                 ) {
-                    Ok(tail) => {
+                    Ok(_) => {
                         slot.write(data, new_tail);
                         return Ok(());
                     }
