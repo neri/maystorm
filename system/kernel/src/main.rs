@@ -134,6 +134,11 @@ impl Shell {
                     );
                 }
             }
+            "ts" => {
+                let mut sb = StringBuffer::with_capacity(1024);
+                Scheduler::get_thread_statistics(&mut sb);
+                print!("{}", sb.as_str());
+            }
             "open" => {
                 let args = &args[1..];
                 let name = args[0];

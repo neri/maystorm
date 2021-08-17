@@ -1,6 +1,14 @@
 //! Retro Game Framework
 
 pub mod v1 {
+
+    pub mod prelude {
+        pub use super::{GamePresenterImpl, GameWindow};
+        pub use megstd::drawing::*;
+        pub use megstd::game::v1;
+        pub use megstd::game::v1::GamePresenter;
+    }
+
     use crate::window;
     use crate::{syscall::*, window::WindowHandle};
     use core::cell::UnsafeCell;
@@ -12,57 +20,56 @@ pub mod v1 {
 
     impl GameWindow {
         #[inline]
-        pub fn new<'a>(
-            title: &str,
-            size: Size,
-            screen: &'a UnsafeCell<v1::Screen>,
-        ) -> GamePresenterImpl<'a> {
-            Self::with_options(title, size, screen, v1::ScaleMode::DotByDot, 60)
-        }
-
-        #[inline]
-        pub fn with_options<'a>(
-            title: &str,
-            size: Size,
-            screen: &'a UnsafeCell<v1::Screen>,
-            scale: v1::ScaleMode,
-            fps: usize,
-        ) -> GamePresenterImpl<'a> {
+        pub fn new(title: &str, size: Size) -> GamePresenterImpl {
             let window = window::WindowBuilder::new()
                 .opaque()
                 .size(size)
                 .build(title);
-            GamePresenterImpl::new(window.handle(), screen, scale, fps)
+            GamePresenterImpl::new(window.handle())
         }
-    }
 
-    pub struct GamePresenterImpl<'a> {
-        game_handle: usize,
-        screen: &'a UnsafeCell<v1::Screen>,
-    }
-
-    impl<'a> GamePresenterImpl<'a> {
         #[inline]
-        fn new(
-            window: WindowHandle,
-            screen: &'a UnsafeCell<v1::Screen>,
+        pub fn with_options(
+            title: &str,
+            size: Size,
             scale: v1::ScaleMode,
             fps: usize,
-        ) -> Self {
-            let game_handle = unsafe {
-                game_v1_init(window.0, screen.get() as *const c_void, scale as usize, fps)
-            };
-            Self {
-                game_handle,
-                screen,
-            }
+        ) -> GamePresenterImpl {
+            let window = window::WindowBuilder::new()
+                .opaque()
+                .size(size)
+                .build(title);
+            GamePresenterImpl::new_long(window.handle(), scale, fps)
         }
     }
 
-    impl v1::GamePresenter for GamePresenterImpl<'_> {
+    static mut SCREEN: UnsafeCell<v1::Screen> = UnsafeCell::new(v1::Screen::new());
+
+    pub struct GamePresenterImpl {
+        game_handle: usize,
+    }
+
+    impl GamePresenterImpl {
+        #[inline]
+        fn new(window: WindowHandle) -> Self {
+            let game_handle = unsafe { game_v1_init(window.0, SCREEN.get() as *const c_void) };
+            Self { game_handle }
+        }
+
+        #[inline]
+        fn new_long(window: WindowHandle, scale: v1::ScaleMode, fps: usize) -> Self {
+            let game_handle = unsafe {
+                game_v1_init_long(window.0, SCREEN.get() as *const c_void, scale as usize, fps)
+            };
+            Self { game_handle }
+        }
+    }
+
+    impl v1::GamePresenter for GamePresenterImpl {
         #[inline]
         fn screen<'a>(&'a self) -> &'a mut v1::Screen {
-            unsafe { &mut *self.screen.get() }
+            // unsafe { &mut *self.screen.get() }
+            unsafe { &mut *SCREEN.get() }
         }
 
         #[inline]
@@ -110,6 +117,11 @@ pub mod v1 {
                 origin.x as usize,
                 origin.y as usize,
             );
+        }
+
+        #[inline]
+        fn load_font(&self, start_index: u8, start_char: u8, end_char: u8) {
+            game_v1_load_font(self.game_handle, start_index, start_char, end_char);
         }
     }
 }

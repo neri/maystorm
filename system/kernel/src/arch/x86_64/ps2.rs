@@ -173,10 +173,11 @@ impl Ps2 {
                 let bit_position =
                     unsafe { Modifier::from_bits_unchecked(1 << (usage.0 - Usage::MOD_MIN.0)) };
                 self.key_modifier.set(bit_position, !data.is_break());
-                KeyEvent::new(Usage::NONE, self.key_modifier, flags).post();
+                // KeyEvent::new(Usage::NONE, self.key_modifier, flags).post();
             } else {
-                KeyEvent::new(usage, self.key_modifier, flags).post();
+                // KeyEvent::new(usage, self.key_modifier, flags).post();
             }
+            KeyEvent::new(usage, self.key_modifier, flags).post();
         }
     }
 

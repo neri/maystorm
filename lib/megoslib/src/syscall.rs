@@ -191,8 +191,13 @@ pub fn os_dealloc(ptr: usize, size: usize, align: usize) {
 }
 
 #[inline]
+pub unsafe fn game_v1_init(window: usize, screen: *const c_void) -> usize {
+    svc2(Function::GameV1Init, window, screen as usize)
+}
+
+#[inline]
 #[rustfmt::skip]
-pub unsafe fn game_v1_init(window: usize, screen: *const c_void, scale: usize, fps: usize) -> usize {
+pub unsafe fn game_v1_init_long(window: usize, screen: *const c_void, scale: usize, fps: usize) -> usize {
     svc4(Function::GameV1Init, window, screen as usize, scale, fps)
 }
 
@@ -219,4 +224,10 @@ pub fn game_v1_move_sprite(handle: usize, index: usize, x: usize, y: usize) {
 #[inline]
 pub fn game_v1_button(handle: usize) -> u8 {
     unsafe { svc1(Function::GameV1Button, handle) as u8 }
+}
+
+#[inline]
+#[rustfmt::skip]
+pub fn game_v1_load_font(handle: usize, start_index: u8, start_char: u8, end_char: u8) {
+    unsafe { svc4(Function::GameV1LoadFont, handle, start_index as usize, start_char as usize, end_char as usize) };
 }

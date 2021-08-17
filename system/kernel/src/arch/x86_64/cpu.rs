@@ -20,6 +20,7 @@ extern "C" {
     fn asm_handle_exception(_: InterruptVector) -> usize;
     fn asm_sch_switch_context(current: *mut u8, next: *const u8);
     fn asm_sch_make_new_thread(context: *mut u8, new_sp: *mut c_void, start: usize, arg: usize);
+    fn asm_sch_get_context_status(context: *const u8, result: *mut [usize; 2]);
     fn _asm_int_40() -> !;
 }
 
@@ -536,6 +537,17 @@ impl CpuContextData {
     pub unsafe fn init(&mut self, new_sp: *mut c_void, start: usize, arg: usize) {
         let context = self as *const _ as *mut u8;
         asm_sch_make_new_thread(context, new_sp, start, arg);
+    }
+
+    #[inline]
+    pub fn get_context_status(&self) -> (usize, usize) {
+        let context = self as *const _ as *const u8;
+        let mut result = [0usize; 2];
+        unsafe {
+            let rp = &mut result as *mut _;
+            asm_sch_get_context_status(context, rp);
+        }
+        (result[0], result[1])
     }
 }
 

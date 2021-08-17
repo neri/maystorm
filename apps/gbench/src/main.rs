@@ -2,45 +2,34 @@
 #![no_main]
 #![no_std]
 
-use core::cell::UnsafeCell;
 // use core::fmt::*;
-use megoslib::game::v1::{GamePresenterImpl, GameWindow};
+use megoslib::game::v1::prelude::*;
 use megoslib::*;
-use megstd::drawing::*;
-use megstd::game::v1;
-use megstd::game::v1::GamePresenter;
 
 #[no_mangle]
 fn _start() {
-    let mut app = App::new();
-    app.initialize();
-    app.run();
-}
-pub struct App<'a> {
-    presenter: GamePresenterImpl<'a>,
+    App::new().run();
 }
 
-impl App<'_> {
+pub struct App {
+    presenter: GamePresenterImpl,
+}
+
+impl App {
     const WINDOW_WIDTH: isize = 256;
     const WINDOW_HEIGHT: isize = 240;
-}
 
-static mut SCREEN: UnsafeCell<v1::Screen> = UnsafeCell::new(v1::Screen::new());
-
-impl<'a> App<'a> {
+    #[inline]
     fn new() -> Self {
         let presenter = GameWindow::with_options(
             "GAME BENCH",
             Size::new(Self::WINDOW_WIDTH, Self::WINDOW_HEIGHT),
-            unsafe { &SCREEN },
             v1::ScaleMode::DotByDot,
             240,
         );
         Self { presenter }
     }
-}
 
-impl App<'_> {
     #[inline]
     fn screen(&mut self) -> &mut v1::Screen {
         self.presenter.screen()
@@ -48,6 +37,7 @@ impl App<'_> {
 
     #[rustfmt::skip]
     fn initialize(&mut self) {
+
         let screen = self.screen();
 
         screen.set_palette(0x05, PackedColor::WHITE);
@@ -77,38 +67,6 @@ impl App<'_> {
             0x00, 0x00, 0x00, 0x8F, 0xDC, 0x8E, 0x07, 0x1E, 0x00, 0x00, 0x00, 0x8F, 0xDC, 0x8E, 0x07, 0x1E,
         ]);
 
-        // number fonts
-        screen.set_char_data(0x30, &[
-            0x3c, 0x66, 0x66, 0x6e, 0x76, 0x66, 0x66, 0x3c, 0x3c, 0x66, 0x66, 0x6e, 0x76, 0x66, 0x66, 0x3c,
-        ]);
-        screen.set_char_data(0x31, &[
-            0x18, 0x38, 0x78, 0x18, 0x18, 0x18, 0x18, 0x7e, 0x18, 0x38, 0x78, 0x18, 0x18, 0x18, 0x18, 0x7e,
-        ]);
-        screen.set_char_data(0x32, &[
-            0x3c, 0x66, 0x66, 0x06, 0x1c, 0x30, 0x62, 0x7e, 0x3c, 0x66, 0x66, 0x06, 0x1c, 0x30, 0x62, 0x7e,
-        ]);
-        screen.set_char_data(0x33, &[
-            0x7e, 0x0c, 0x18, 0x3c, 0x06, 0x06, 0x66, 0x3c, 0x7e, 0x0c, 0x18, 0x3c, 0x06, 0x06, 0x66, 0x3c,
-        ]);
-        screen.set_char_data(0x34, &[
-            0x0c, 0x1c, 0x3c, 0x3c, 0x6c, 0x6c, 0x7e, 0x0c, 0x0c, 0x1c, 0x3c, 0x3c, 0x6c, 0x6c, 0x7e, 0x0c,
-        ]);
-        screen.set_char_data(0x35, &[
-            0x7e, 0x60, 0x60, 0x7c, 0x06, 0x06, 0x66, 0x3c, 0x7e, 0x60, 0x60, 0x7c, 0x06, 0x06, 0x66, 0x3c,
-        ]);
-        screen.set_char_data(0x36, &[
-            0x3c, 0x62, 0x60, 0x7c, 0x66, 0x66, 0x66, 0x3c, 0x3c, 0x62, 0x60, 0x7c, 0x66, 0x66, 0x66, 0x3c,
-        ]);
-        screen.set_char_data(0x37, &[
-            0x7e, 0x66, 0x06, 0x0c, 0x18, 0x18, 0x18, 0x18, 0x7e, 0x66, 0x06, 0x0c, 0x18, 0x18, 0x18, 0x18,
-        ]);
-        screen.set_char_data(0x38, &[
-            0x3c, 0x66, 0x66, 0x3c, 0x66, 0x66, 0x66, 0x3c, 0x3c, 0x66, 0x66, 0x3c, 0x66, 0x66, 0x66, 0x3c,
-        ]);
-        screen.set_char_data(0x39, &[
-            0x3c, 0x66, 0x66, 0x66, 0x3e, 0x06, 0x0c, 0x38, 0x3c, 0x66, 0x66, 0x66, 0x3e, 0x06, 0x0c, 0x38,
-        ]);
-
         // sprites
         screen.set_char_data(0x80, &[
             0x03, 0x0C, 0x10, 0x20, 0x4C, 0x4C, 0x80, 0x80, 0x03, 0x0F, 0x1F, 0x3F, 0x73, 0x73, 0xFF, 0xFF,
@@ -125,33 +83,23 @@ impl App<'_> {
     }
 
     fn run(&mut self) {
+        self.initialize();
         let screen = self.screen();
 
-        screen.fill_names(
-            Rect::new(
-                0,
-                0,
-                Self::WINDOW_WIDTH / v1::CHAR_SIZE,
-                Self::WINDOW_HEIGHT / v1::CHAR_SIZE,
-            ),
-            1,
+        screen.fill_all(v1::NameTableEntry::from_index(1));
+
+        screen.set_name(
+            Self::WINDOW_WIDTH / v1::CHAR_SIZE - 2,
+            0,
+            v1::NameTableEntry::from_index(3),
         );
-        // screen.fill_names(
-        //     Rect::new(
-        //         2,
-        //         2,
-        //         Self::WINDOW_WIDTH / v1::CHAR_SIZE - 4,
-        //         Self::WINDOW_HEIGHT / v1::CHAR_SIZE - 4,
-        //     ),
-        //     1,
-        // );
+        screen.set_name(
+            Self::WINDOW_WIDTH / v1::CHAR_SIZE - 1,
+            0,
+            v1::NameTableEntry::from_index(4),
+        );
 
-        unsafe {
-            screen.set_name(Self::WINDOW_WIDTH / v1::CHAR_SIZE - 2, 0, 3);
-            screen.set_name(Self::WINDOW_WIDTH / v1::CHAR_SIZE - 1, 0, 4);
-        }
-
-        let mut marbles = [Marble::empty(); 64];
+        let mut marbles = [Marble::empty(); 64]; //v1::MAX_SPRITES];
         for (index, item) in marbles.iter_mut().enumerate() {
             *item = Marble::new(
                 (os_rand() % (Self::WINDOW_WIDTH as u32 - 48)) as isize + 16,
@@ -189,11 +137,21 @@ impl App<'_> {
                 if fps2 > 0 {
                     fps2 += 0x30;
                 }
-                unsafe {
-                    screen.set_name(Self::WINDOW_WIDTH / v1::CHAR_SIZE - 5, 0, fps2);
-                    screen.set_name(Self::WINDOW_WIDTH / v1::CHAR_SIZE - 4, 0, fps1);
-                    screen.set_name(Self::WINDOW_WIDTH / v1::CHAR_SIZE - 3, 0, fps0);
-                }
+                screen.set_name(
+                    Self::WINDOW_WIDTH / v1::CHAR_SIZE - 5,
+                    0,
+                    v1::NameTableEntry::from_index(fps2),
+                );
+                screen.set_name(
+                    Self::WINDOW_WIDTH / v1::CHAR_SIZE - 4,
+                    0,
+                    v1::NameTableEntry::from_index(fps1),
+                );
+                screen.set_name(
+                    Self::WINDOW_WIDTH / v1::CHAR_SIZE - 3,
+                    0,
+                    v1::NameTableEntry::from_index(fps0),
+                );
                 self.presenter.invalidate_rect(Rect::new(
                     Self::WINDOW_WIDTH - v1::CHAR_SIZE * 5,
                     0,

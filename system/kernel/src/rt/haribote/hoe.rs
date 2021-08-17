@@ -604,6 +604,7 @@ impl HoeWindow {
             .bg_color(Hoe::get_color(Self::WINDOW_BGCOLOR))
             .active_title_color(Color::LIGHT_BLUE)
             .inactive_title_color(Theme::shared().window_title_inactive_background())
+            .opaque()
             .build(title);
         let window = HoeWindow {
             handle,

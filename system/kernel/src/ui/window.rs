@@ -1970,6 +1970,13 @@ impl WindowBuilder {
         self
     }
 
+    /// Content is opaque
+    #[inline]
+    pub const fn opaque(mut self) -> Self {
+        self.window_options |= megosabi::window::OPAQUE_CONTENT;
+        self
+    }
+
     #[inline]
     pub const fn with_options(mut self, options: u32) -> Self {
         self.window_options = options;

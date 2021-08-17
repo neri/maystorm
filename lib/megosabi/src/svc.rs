@@ -49,13 +49,20 @@ pub enum Function {
     /// Draw a shape in a window
     DrawShape,
 
-    ///
+    /// Initialize Game API
     GameV1Init,
+    /// Transfers the drawing buffer to the window and synchronizes the frames.
     GameV1Sync,
+    /// Transfers the drawing buffer to the window if needed.
     GameV1Redraw,
+    /// Redraws the drawing buffer of the specified range.
     GameV1Rect,
+    /// Moves the sprite and redraw it.
     GameV1MoveSprite,
+    /// Gets the status of a button for a game.
     GameV1Button,
+    /// Load system font
+    GameV1LoadFont,
 
     /// Return a random number
     Rand = 100,

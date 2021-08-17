@@ -232,7 +232,7 @@ impl Scheduler {
                 let local = Self::local_scheduler().unwrap();
                 let current = local.current_thread();
                 current.update_statistics();
-                current.as_ref().attribute.insert(ThreadAttributes::ASLEEP);
+                current.as_ref().attribute.insert(ThreadAttribute::ASLEEP);
                 LocalScheduler::switch_context(local, Scheduler::next(local).unwrap_or(local.idle));
             });
         }
@@ -307,16 +307,18 @@ impl Scheduler {
         let thread = handle.as_ref();
         if thread.priority == Priority::Idle {
             return;
-        } else if thread.attribute.contains(ThreadAttributes::ZOMBIE) {
+        } else if thread.attribute.contains(ThreadAttribute::ZOMBIE) {
             ThreadPool::remove(handle);
-        } else if thread.attribute.contains(ThreadAttributes::ASLEEP) {
-            if thread.attribute.test_and_clear(ThreadAttributes::AWAKE) {
-                thread.attribute.remove(ThreadAttributes::ASLEEP);
+        } else if thread.attribute.contains(ThreadAttribute::ASLEEP) {
+            if thread.attribute.test_and_clear(ThreadAttribute::AWAKE) {
+                thread.attribute.remove(ThreadAttribute::ASLEEP);
+                thread.attribute.remove(ThreadAttribute::RESIGN_ATVIVE);
                 shared.enqueue(handle);
             } else {
-                thread.attribute.remove(ThreadAttributes::QUEUED);
+                thread.attribute.remove(ThreadAttribute::QUEUED);
             }
         } else {
+            thread.attribute.remove(ThreadAttribute::RESIGN_ATVIVE);
             shared.enqueue(handle);
         }
     }
@@ -326,13 +328,12 @@ impl Scheduler {
         let handle = thread;
         let shared = Self::shared();
         let thread = handle.as_ref();
-        if thread.priority == Priority::Idle || thread.attribute.contains(ThreadAttributes::ZOMBIE)
-        {
+        if thread.priority == Priority::Idle || thread.attribute.contains(ThreadAttribute::ZOMBIE) {
             return;
         }
-        if !thread.attribute.test_and_set(ThreadAttributes::QUEUED) {
-            if thread.attribute.test_and_clear(ThreadAttributes::AWAKE) {
-                thread.attribute.remove(ThreadAttributes::ASLEEP);
+        if !thread.attribute.test_and_set(ThreadAttribute::QUEUED) {
+            if thread.attribute.test_and_clear(ThreadAttribute::AWAKE) {
+                thread.attribute.remove(ThreadAttribute::ASLEEP);
             }
             shared.enqueue(handle);
         }
@@ -583,6 +584,45 @@ impl Scheduler {
             }
         }
     }
+
+    pub fn get_thread_statistics(sb: &mut StringBuffer) {
+        let shared = Self::shared();
+        writeln!(
+            sb,
+            " ID PID P ST %CPU code             stack            NAME"
+        )
+        .unwrap();
+        for thread in shared.thread_pool.data.values() {
+            let thread = thread.clone();
+            let thread = unsafe { &mut (*thread.get()) };
+
+            write!(
+                sb,
+                "{:3} {:3} {} {:02x}",
+                thread.handle.as_usize(),
+                thread.pid.0,
+                thread.priority as usize,
+                thread.attribute.bits(),
+            )
+            .unwrap();
+
+            let cts = thread.context.get_context_status();
+            let load = thread.load.load(Ordering::Relaxed);
+            let load0 = load % 10;
+            let load1 = load / 10;
+            if load1 >= 10 {
+                write!(sb, " {:4}", load1,).unwrap();
+            } else {
+                write!(sb, " {:2}.{:1}", load1, load0,).unwrap();
+            }
+
+            write!(sb, " {:016x} {:016x}", cts.0, cts.1,).unwrap();
+
+            if let Some(name) = thread.name() {
+                writeln!(sb, " {}", name).unwrap();
+            }
+        }
+    }
 }
 
 /// Processor Local Scheduler
@@ -598,7 +638,7 @@ struct LocalScheduler {
 impl LocalScheduler {
     fn new(index: ProcessorIndex) -> Box<Self> {
         let mut sb = Sb255::new();
-        write!(sb, "idle.{}", index.0).unwrap();
+        write!(sb, "Idle_#{}", index.0).unwrap();
         let idle = ThreadContextData::new(ProcessId(0), Priority::Idle, sb.as_str(), None, 0, None);
         Box::new(Self {
             index,
@@ -624,8 +664,10 @@ impl LocalScheduler {
 
             {
                 let current = current.unsafe_weak().unwrap();
-                let next = &next.unsafe_weak().unwrap().context;
-                current.context.switch(next);
+                let next = next.unsafe_weak().unwrap();
+                current.attribute.insert(ThreadAttribute::RESIGN_ATVIVE);
+                next.attribute.insert(ThreadAttribute::BECOME_ACTIVE);
+                current.context.switch(&next.context);
             }
 
             Scheduler::local_scheduler()
@@ -641,8 +683,9 @@ impl LocalScheduler {
         let current = self.current_thread();
 
         current.update(|thread| {
-            thread.attribute.remove(ThreadAttributes::AWAKE);
-            thread.attribute.remove(ThreadAttributes::ASLEEP);
+            thread.attribute.remove(ThreadAttribute::BECOME_ACTIVE);
+            thread.attribute.remove(ThreadAttribute::AWAKE);
+            thread.attribute.remove(ThreadAttribute::ASLEEP);
             thread.measure.store(Timer::measure().0, Ordering::SeqCst);
         });
         let retired = self.swap_retired(None).unwrap();
@@ -1388,7 +1431,7 @@ impl ThreadHandle {
 
     #[inline]
     pub fn wake(&self) {
-        self.as_ref().attribute.insert(ThreadAttributes::AWAKE);
+        self.as_ref().attribute.insert(ThreadAttribute::AWAKE);
         Scheduler::add(*self);
     }
 
@@ -1423,7 +1466,7 @@ struct ThreadContextData {
     // Properties
     sem: Semaphore,
     personality: Option<Box<dyn Personality>>,
-    attribute: AtomicBitflags<ThreadAttributes>,
+    attribute: AtomicBitflags<ThreadAttribute>,
     priority: Priority,
     quantum: Quantum,
 
@@ -1441,29 +1484,31 @@ struct ThreadContextData {
 }
 
 bitflags! {
-    struct ThreadAttributes: usize {
+    struct ThreadAttribute: usize {
         const QUEUED    = 0b0000_0000_0000_0001;
         const ASLEEP    = 0b0000_0000_0000_0010;
         const AWAKE     = 0b0000_0000_0000_0100;
         const ZOMBIE    = 0b0000_0000_0000_1000;
+        const BECOME_ACTIVE = 0b0000_0000_0001_0000;
+        const RESIGN_ATVIVE = 0b0000_0000_0010_0000;
     }
 }
 
-impl Into<usize> for ThreadAttributes {
+impl Into<usize> for ThreadAttribute {
     fn into(self) -> usize {
         self.bits()
     }
 }
 
-impl AtomicBitflags<ThreadAttributes> {
+impl AtomicBitflags<ThreadAttribute> {
     fn to_char(&self) -> char {
-        if self.contains(ThreadAttributes::ZOMBIE) {
+        if self.contains(ThreadAttribute::ZOMBIE) {
             'z'
-        } else if self.contains(ThreadAttributes::AWAKE) {
+        } else if self.contains(ThreadAttribute::AWAKE) {
             'w'
-        } else if self.contains(ThreadAttributes::ASLEEP) {
+        } else if self.contains(ThreadAttribute::ASLEEP) {
             'S'
-        } else if self.contains(ThreadAttributes::QUEUED) {
+        } else if self.contains(ThreadAttribute::QUEUED) {
             'R'
         } else {
             '-'
@@ -1472,7 +1517,7 @@ impl AtomicBitflags<ThreadAttributes> {
 }
 
 use core::fmt;
-impl fmt::Display for AtomicBitflags<ThreadAttributes> {
+impl fmt::Display for AtomicBitflags<ThreadAttribute> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_char())
     }
@@ -1539,7 +1584,7 @@ impl ThreadContextData {
             process.exit();
         }
 
-        self.attribute.insert(ThreadAttributes::ZOMBIE);
+        self.attribute.insert(ThreadAttribute::ZOMBIE);
         Scheduler::sleep();
         unreachable!();
     }

@@ -40,6 +40,11 @@ where
     }
 
     #[inline]
+    pub fn bits(&self) -> usize {
+        self.repr.load(Ordering::Relaxed)
+    }
+
+    #[inline]
     pub fn contains(&self, other: T) -> bool {
         let other = other.into();
         (self.repr.load(Ordering::SeqCst) & other) == other

@@ -258,6 +258,16 @@ asm_sch_switch_context:
     ret
 
 
+;    fn asm_sch_get_context_status(context: *const u8, result: *mut &[usize; 2]);
+    global asm_sch_get_context_status
+asm_sch_get_context_status:
+    mov rax, [rdi + CTX_SP]
+    mov rcx, [rax]
+    mov [rsi], rcx
+    mov [rsi + 8], rax
+    ret
+
+
 ;    fn asm_sch_make_new_thread(context: *mut u8, new_sp: *mut u8, start: () -> (), args: usize,);
     global asm_sch_make_new_thread
 asm_sch_make_new_thread:

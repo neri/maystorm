@@ -95,6 +95,15 @@ impl Usage {
     pub const INTERNATIONAL_8: Usage = Usage(0x8E);
     pub const INTERNATIONAL_9: Usage = Usage(0x8F);
 
+    pub const KEY_LEFT_CONTROL: Usage = Usage(0xE0);
+    pub const KEY_LEFT_SHIFT: Usage = Usage(0xE1);
+    pub const KEY_LEFT_ALT: Usage = Usage(0xE2);
+    pub const KEY_LEFT_GUI: Usage = Usage(0xE3);
+    pub const KEY_RIGHT_CONTROL: Usage = Usage(0xE4);
+    pub const KEY_RIGHT_SHIFT: Usage = Usage(0xE5);
+    pub const KEY_RIGHT_ALT: Usage = Usage(0xE6);
+    pub const KEY_RIGHT_GUI: Usage = Usage(0xE7);
+
     pub const ALPHABET_MIN: Usage = Usage(0x04);
     pub const ALPHABET_MAX: Usage = Usage(0x1D);
     pub const NUMBER_MIN: Usage = Usage(0x1E);

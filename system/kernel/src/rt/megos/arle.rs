@@ -16,6 +16,8 @@ use megstd::{drawing::*, game::v1, io::hid::Usage, rand::*};
 use num_traits::FromPrimitive;
 use wasm::{wasmintr::*, *};
 
+include!("megh0808.rs");
+
 pub struct ArleBinaryLoader {
     loader: WasmLoader,
     lio: LoadedImageOption,
@@ -322,8 +324,8 @@ impl ArleRuntime {
             Function::GameV1Init => {
                 let window = params.get_window(self)?;
                 let screen = params.get_usize()?;
-                let scale = params.get_usize()?;
-                let fps = params.get_usize()?;
+                let scale = params.get_usize().unwrap_or(0);
+                let fps = params.get_usize().unwrap_or(60);
 
                 let scale = FromPrimitive::from_usize(scale)
                     .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
@@ -385,6 +387,20 @@ impl ArleRuntime {
                     .map(|v| unsafe { &mut *v.get() })
                     .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
                 return Ok(WasmValue::from(presenter.get_buttons()));
+            }
+            Function::GameV1LoadFont => {
+                let _handle = params.get_usize()?;
+                let start_index = params.get_u32()? as u8;
+                let start_char = params.get_u32()? as u8;
+                let end_char = params.get_u32()? as u8;
+
+                let presenter = self
+                    .game_presenter
+                    .as_ref()
+                    .map(|v| unsafe { &mut *v.get() })
+                    .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
+
+                presenter.load_font(memory, start_index, start_char, end_char);
             }
 
             Function::Blt8 => {
@@ -453,34 +469,8 @@ impl ArleRuntime {
                 let align = params.get_usize()?;
                 let layout = Layout::from_size_align(size, align)
                     .map_err(|_| WasmRuntimeErrorKind::InvalidParameter)?;
-                let mut malloc = self.malloc.lock().unwrap();
-                // return Err(WasmRuntimeErrorType::OutOfMemory);
 
-                if let Some(result) = malloc.alloc(layout) {
-                    println!("alloc1 {:?} => {:08x}", layout, result);
-                    return Ok(WasmValue::from(result.get()));
-                } else {
-                    let min_alloc = WasmMemory::PAGE_SIZE;
-                    let delta = (((layout.size() + min_alloc - 1) / min_alloc) * min_alloc
-                        / WasmMemory::PAGE_SIZE) as i32;
-                    let new_page = memory.grow(delta);
-                    if new_page > 0 {
-                        println!("grow {} => {}", delta, new_page);
-                        malloc.append_block(
-                            new_page as u32 * WasmMemory::PAGE_SIZE as u32,
-                            delta as u32 * WasmMemory::PAGE_SIZE as u32,
-                        );
-                    } else {
-                        return Err(WasmRuntimeErrorKind::OutOfMemory);
-                    }
-
-                    let result = match malloc.alloc(layout) {
-                        Some(v) => v.get(),
-                        None => 0,
-                    };
-                    println!("alloc2 {:?} => {:08x}", layout, result);
-                    return Ok(WasmValue::from(result));
-                }
+                return self.alloc(memory, layout).map(|v| WasmValue::from(v.get()));
             }
 
             Function::Dealloc => {
@@ -498,6 +488,40 @@ impl ArleRuntime {
         }
 
         Ok(WasmValue::I32(0))
+    }
+
+    fn alloc(
+        &self,
+        memory: &WasmMemory,
+        layout: Layout,
+    ) -> Result<NonZeroU32, WasmRuntimeErrorKind> {
+        let mut malloc = self.malloc.lock().unwrap();
+
+        if let Some(result) = malloc.alloc(layout) {
+            println!("alloc1 {:?} => {:08x}", layout, result);
+            return Ok(result);
+        } else {
+            let min_alloc = WasmMemory::PAGE_SIZE;
+            let delta = (((layout.size() + min_alloc - 1) / min_alloc) * min_alloc
+                / WasmMemory::PAGE_SIZE) as i32;
+            let new_page = memory.grow(delta);
+            if new_page > 0 {
+                println!("grow {} => {}", delta, new_page);
+                malloc.append_block(
+                    new_page as u32 * WasmMemory::PAGE_SIZE as u32,
+                    delta as u32 * WasmMemory::PAGE_SIZE as u32,
+                );
+            } else {
+                return Err(WasmRuntimeErrorKind::OutOfMemory);
+            }
+
+            let result = match malloc.alloc(layout) {
+                Some(v) => v.get(),
+                None => 0,
+            };
+            println!("alloc2 {:?} => {:08x}", layout, result);
+            NonZeroU32::new(result).ok_or(WasmRuntimeErrorKind::OutOfMemory)
+        }
     }
 
     fn wait_key(&self, window: WindowHandle) -> Result<Option<char>, WasmRuntimeErrorKind> {
@@ -1076,26 +1100,6 @@ struct OsGamePresenter<'a> {
 }
 
 impl OsGamePresenter<'_> {
-    const MODIFIER_EX_MASK: u8 = 0b0011_1111;
-    const MODIFIER_TO_PAD: [u8; 16] = [
-        0b0000_0000,
-        0b0100_0000,
-        0b1000_0000,
-        0b1100_0000,
-        0b0000_0000,
-        0b0100_0000,
-        0b1000_0000,
-        0b1100_0000,
-        0b0000_0000,
-        0b0100_0000,
-        0b1000_0000,
-        0b1100_0000,
-        0b0000_0000,
-        0b0100_0000,
-        0b1000_0000,
-        0b1100_0000,
-    ];
-
     #[inline]
     fn new(
         memory: &WasmMemory,
@@ -1115,7 +1119,7 @@ impl OsGamePresenter<'_> {
             scale,
             size,
             buffer,
-            draw_region: Coordinates::void(),
+            draw_region: unsafe { Coordinates::from_rect_unchecked(Rect::from(size)) },
             timer_div,
             expected_time: timer_div + Timer::monotonic().as_micros() as u64,
             pad0: AtomicU8::new(0),
@@ -1132,6 +1136,8 @@ impl OsGamePresenter<'_> {
             screen.get_sprite_mut(i).gone();
         }
 
+        result.load_font(memory, 0, 0, 0xFF);
+
         Ok(result)
     }
 
@@ -1143,13 +1149,31 @@ impl OsGamePresenter<'_> {
         memory.transmute(self.screen)
     }
 
+    fn load_font(&self, memory: &WasmMemory, start_index: u8, start_char: u8, end_char: u8) {
+        let screen = match unsafe { self.screen(memory) } {
+            Ok(v) => unsafe { &mut *v.get() },
+            Err(_) => return,
+        };
+        let adjust = start_index - start_char;
+        let char_min = 0x20;
+        let char_max = 0x80;
+        let start_char = u8::max(char_min, start_char);
+        let end_char = u8::min(char_max, end_char);
+        let stride = v1::CHAR_SIZE as usize;
+        for index in start_char..=end_char {
+            let base = (index - char_min) as usize * stride;
+            let data8 = unsafe { FONT_MEGH0808_DATA.get_unchecked(base..base + stride) };
+            let mut data = [0u8; v1::CHAR_DATA_LEN];
+            for (index, byte) in data8.iter().enumerate() {
+                data[index] = *byte;
+                data[index + stride] = *byte;
+            }
+            screen.set_char_data(index + adjust, &data);
+        }
+    }
+
     fn handle_key(&self, event: KeyEvent) {
-        let modifier = event.modifier().bits();
-        let mut pad = self.pad0.load(Ordering::Acquire) & Self::MODIFIER_EX_MASK
-            | unsafe {
-                *Self::MODIFIER_TO_PAD
-                    .get_unchecked(((modifier | (modifier >> 4)) & 0b1111) as usize)
-            };
+        let mut pad = self.pad0.load(Ordering::Acquire);
 
         let bit = match event.usage() {
             Usage::NUMPAD_2 => v1::DPAD_DOWN,
@@ -1160,10 +1184,21 @@ impl OsGamePresenter<'_> {
             Usage::KEY_DOWN_ARROW => v1::DPAD_DOWN,
             Usage::KEY_RIGHT_ARROW => v1::DPAD_RIGHT,
             Usage::KEY_LEFT_ARROW => v1::DPAD_LEFT,
+            Usage::KEY_W => v1::DPAD_UP,
+            Usage::KEY_A => v1::DPAD_LEFT,
+            Usage::KEY_S => v1::DPAD_DOWN,
+            Usage::KEY_D => v1::DPAD_RIGHT,
+
             Usage::KEY_ENTER => v1::JOYPAD_START,
             Usage::KEY_SPACE => v1::JOYPAD_SELECT,
-            // Usage::KEY_Z => v1::JOYPAD_A,
-            // Usage::KEY_X => v1::JOYPAD_B,
+
+            Usage::KEY_Z => v1::JOYPAD_FIRE_1,
+            Usage::KEY_X => v1::JOYPAD_FIRE_2,
+            Usage::KEY_LEFT_CONTROL => v1::JOYPAD_FIRE_2,
+            Usage::KEY_LEFT_SHIFT => v1::JOYPAD_FIRE_1,
+            Usage::KEY_RIGHT_CONTROL => v1::JOYPAD_FIRE_2,
+            Usage::KEY_RIGHT_SHIFT => v1::JOYPAD_FIRE_1,
+
             _ => 0,
         };
         if event.flags().contains(KeyEventFlags::BREAK) {
@@ -1186,7 +1221,7 @@ impl OsGamePresenter<'_> {
             true
         } else {
             self.expected_time += self.timer_div;
-            Timer::sleep(Duration::from_nanos(1));
+            Timer::sleep(Duration::from_micros(1));
             false
         }
     }
@@ -1230,7 +1265,14 @@ impl OsGamePresenter<'_> {
     }
 
     fn redraw(&mut self, memory: &WasmMemory) {
+        let limit = self.window.content_size();
         let coords = self.draw_region;
+        let coords = Coordinates::new(
+            isize::max(0, coords.left),
+            isize::max(0, coords.top),
+            isize::min(limit.width, coords.right),
+            isize::min(limit.height, coords.bottom),
+        );
         if coords.left <= coords.right && coords.top <= coords.bottom {
             let rect = Rect::from(coords);
             self.redraw_rect(memory, rect);
@@ -1258,11 +1300,29 @@ impl OsGamePresenter<'_> {
         let bitmap = self.buffer.as_mut();
         bitmap.fill_rect(rect, screen.get_palette(0).into_true_color());
 
-        for y in min_y..max_y {
-            for x in min_x..max_x {
-                let pattern = screen.get_char_data(unsafe { screen.get_name(x, y) });
-                let origin = Point::new(x * v1::CHAR_SIZE, y * v1::CHAR_SIZE);
-                Self::render_char(bitmap, 0, pattern, origin, screen.palettes());
+        {
+            let scroll = screen.control().get_scroll();
+            let sx = scroll.x;
+            let sy = scroll.y;
+            let sx7 = sx & 7;
+            let sy7 = sy & 7;
+            let sx8 = ((sx as u8) >> 3) as isize;
+            let sy8 = ((sy as u8) >> 3) as isize;
+            let min_x = if sx7 != 0 { min_x - 1 } else { min_x };
+            let min_y = if sy7 != 0 { min_y - 1 } else { min_y };
+            let v_width = v1::STRIDE as isize;
+            let v_height = v1::MAX_VHEIGHT as isize / v1::CHAR_SIZE;
+
+            for y in min_y..max_y {
+                for x in min_x..max_x {
+                    let pattern = screen.get_char_data(
+                        screen
+                            .get_name((x - sx8) & (v_width - 1), (y - sy8) & (v_height - 1))
+                            .index(),
+                    );
+                    let origin = Point::new(x * v1::CHAR_SIZE + sx7, y * v1::CHAR_SIZE + sy7);
+                    Self::render_char(bitmap, 0, pattern, origin, screen.palettes());
+                }
             }
         }
 
@@ -1271,7 +1331,7 @@ impl OsGamePresenter<'_> {
         let rect_max_x = rect.max_x();
         let rect_max_y = rect.max_y();
         for oam in screen.sprites().iter().rev() {
-            if oam.y >= v1::SPRITE_DISABLED {
+            if oam.is_gone() {
                 continue;
             }
             let oam_attr = oam.attr;
@@ -1344,14 +1404,6 @@ impl OsGamePresenter<'_> {
             }
         }
 
-        // for y in min_y..max_y {
-        //     for x in min_x..max_x {
-        //         let pattern = screen.get_char_data(unsafe { screen.get_name(x, y) });
-        //         let origin = Point::new(x * v1::CHAR_SIZE, y * v1::CHAR_SIZE);
-        //         Self::render_char(bitmap, 0, pattern, origin, screen.palettes());
-        //     }
-        // }
-
         let _ = self.window.draw_in_rect(rect, |bitmap| {
             bitmap.blt(self.buffer.as_ref(), Point::new(0, 0), rect);
         });
@@ -1364,8 +1416,10 @@ impl OsGamePresenter<'_> {
         origin: Point,
         palette: &[v1::PaletteEntry],
     ) {
-        let dx = origin.x();
-        let dy = origin.y();
+        let mut dx = origin.x();
+        let mut dy = origin.y();
+        let mut bx = 0;
+        let mut by = 0;
         let mut dw = v1::CHAR_SIZE;
         let mut dh = v1::CHAR_SIZE;
         if dx + dw > bitmap.width() as isize {
@@ -1374,7 +1428,15 @@ impl OsGamePresenter<'_> {
         if dy + dh > bitmap.height() as isize {
             dh = bitmap.height() as isize - dy;
         }
-        if dx < 0 || dy < 0 || dw < 0 || dh < 0 {
+        if dx < 0 {
+            bx -= dx;
+            dx = 0;
+        }
+        if dy < 0 {
+            by -= dy;
+            dy = 0;
+        }
+        if dw <= 0 || dh <= 0 {
             return;
         }
 
@@ -1383,15 +1445,20 @@ impl OsGamePresenter<'_> {
         let color2 = unsafe { palette.get_unchecked(palette_base + 2) }.into_true_color();
         let color3 = unsafe { palette.get_unchecked(palette_base + 3) }.into_true_color();
 
+        let delta1 = 1;
+        let delta2 = 8;
+
         match attr & v1::OAM_ATTR_FLIP_XY {
             0 => {
-                for y in 0..dh as usize {
-                    let p1 = unsafe { *pattern.get_unchecked(y) };
-                    let p2 = unsafe { *pattern.get_unchecked(y + 8) };
+                let dy = dy - by;
+                let dx = dx - bx;
+                for y in by as usize..dh as usize {
+                    let p1 = unsafe { *pattern.get_unchecked(y * delta1) };
+                    let p2 = unsafe { *pattern.get_unchecked(y * delta1 + delta2) };
                     let p3 = p1 & p2;
                     if (p1 | p2) != 0 {
                         let oy = dy + y as isize;
-                        for x in 0..dw as usize {
+                        for x in bx as usize..dw as usize {
                             let point = Point::new(dx + x as isize, oy);
                             let bits = 0x80u8 >> x;
                             if (p3 & bits) != 0 {
@@ -1412,13 +1479,15 @@ impl OsGamePresenter<'_> {
                 }
             }
             v1::OAM_ATTR_FLIP_X => {
-                for y in 0..dh as usize {
-                    let p1 = unsafe { *pattern.get_unchecked(y) };
-                    let p2 = unsafe { *pattern.get_unchecked(y + 8) };
+                let dy = dy - by;
+                let dx = dx - bx;
+                for y in by as usize..dh as usize {
+                    let p1 = unsafe { *pattern.get_unchecked(y * delta1) };
+                    let p2 = unsafe { *pattern.get_unchecked(y * delta1 + delta2) };
                     let p3 = p1 & p2;
                     if (p1 | p2) != 0 {
                         let oy = dy + y as isize;
-                        for x in 0..dw as usize {
+                        for x in bx as usize..dw as usize {
                             let point = Point::new(dx + x as isize, oy);
                             let bits = 0x01u8 << x;
                             if (p3 & bits) != 0 {
@@ -1439,14 +1508,17 @@ impl OsGamePresenter<'_> {
                 }
             }
             v1::OAM_ATTR_FLIP_Y => {
-                for y in 0..dh as usize {
-                    let p1 = unsafe { *pattern.get_unchecked(y) };
-                    let p2 = unsafe { *pattern.get_unchecked(y + 8) };
+                let eh = 7 - by;
+                let ch = dh - by;
+                let dx = dx - bx;
+                for y in 0..ch as usize {
+                    let p1 = unsafe { *pattern.get_unchecked((eh as usize - y) * delta1) };
+                    let p2 = unsafe { *pattern.get_unchecked((eh as usize - y) * delta1 + delta2) };
                     let p3 = p1 & p2;
                     if (p1 | p2) != 0 {
-                        let oy = dy + 8 - y as isize;
-                        for x in 0..dw as usize {
-                            let point = Point::new(dx + x as isize, oy);
+                        let oy = dy + y as isize;
+                        for x in bx as usize..dw as usize {
+                            let point = Point::new(dx + x as isize - bx, oy);
                             let bits = 0x80u8 >> x;
                             if (p3 & bits) != 0 {
                                 unsafe {
@@ -1466,13 +1538,16 @@ impl OsGamePresenter<'_> {
                 }
             }
             _ => {
-                for y in 0..dh as usize {
-                    let p1 = unsafe { *pattern.get_unchecked(y) };
-                    let p2 = unsafe { *pattern.get_unchecked(y + 8) };
+                let eh = 7 - by;
+                let ch = dh - by;
+                let dx = dx - bx;
+                for y in 0..ch as usize {
+                    let p1 = unsafe { *pattern.get_unchecked((eh as usize - y) * delta1) };
+                    let p2 = unsafe { *pattern.get_unchecked((eh as usize - y) * delta1 + delta2) };
                     let p3 = p1 & p2;
                     if (p1 | p2) != 0 {
-                        let oy = dy + 8 - y as isize;
-                        for x in 0..dw as usize {
+                        let oy = dy + y as isize;
+                        for x in bx as usize..dw as usize {
                             let point = Point::new(dx + x as isize, oy);
                             let bits = 0x01u8 << x;
                             if (p3 & bits) != 0 {
