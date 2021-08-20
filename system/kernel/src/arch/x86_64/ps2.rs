@@ -13,7 +13,6 @@ static mut PS2: Ps2 = Ps2::new();
 
 pub(super) struct Ps2 {
     key_state: Ps2KeyState,
-    key_modifier: Modifier,
     mouse_state: MouseState,
     mouse_phase: Ps2MousePhase,
     mouse_buf: [Ps2Data; 3],
@@ -27,7 +26,6 @@ impl Ps2 {
     const fn new() -> Self {
         Self {
             key_state: Ps2KeyState::Default,
-            key_modifier: Modifier::empty(),
             mouse_phase: Ps2MousePhase::Ack,
             mouse_buf: [Ps2Data(0); 3],
             mouse_state: MouseState::empty(),
@@ -169,15 +167,7 @@ impl Ps2 {
                 _ => (),
             }
             let usage = Usage(PS2_TO_HID[scancode as usize]);
-            if usage >= Usage::MOD_MIN && usage < Usage::MOD_MAX {
-                let bit_position =
-                    unsafe { Modifier::from_bits_unchecked(1 << (usage.0 - Usage::MOD_MIN.0)) };
-                self.key_modifier.set(bit_position, !data.is_break());
-                // KeyEvent::new(Usage::NONE, self.key_modifier, flags).post();
-            } else {
-                // KeyEvent::new(usage, self.key_modifier, flags).post();
-            }
-            KeyEvent::new(usage, self.key_modifier, flags).post();
+            KeyEvent::new(usage, Modifier::empty(), flags).post();
         }
     }
 

@@ -9,7 +9,7 @@ fn _start() {
     let presenter = GameWindow::new("hello", Size::new(128, 64));
     presenter
         .screen()
-        .draw_string(Point::new(0, 3), b"Hello, world!");
+        .draw_string(Point::new(0, 3), 0, b"Hello, world!");
     loop {
         presenter.sync();
 

@@ -16,7 +16,7 @@ use megstd::{drawing::*, game::v1, io::hid::Usage, rand::*};
 use num_traits::FromPrimitive;
 use wasm::{wasmintr::*, *};
 
-include!("megh0808.rs");
+include!("megg0808.rs");
 
 pub struct ArleBinaryLoader {
     loader: WasmLoader,
@@ -325,7 +325,7 @@ impl ArleRuntime {
                 let window = params.get_window(self)?;
                 let screen = params.get_usize()?;
                 let scale = params.get_usize().unwrap_or(0);
-                let fps = params.get_usize().unwrap_or(60);
+                let fps = params.get_usize().unwrap_or(0);
 
                 let scale = FromPrimitive::from_usize(scale)
                     .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
@@ -1108,7 +1108,8 @@ impl OsGamePresenter<'_> {
         scale: v1::ScaleMode,
         fps: usize,
     ) -> Result<Self, WasmRuntimeErrorKind> {
-        let timer_div = 1000_000usize.checked_div(fps).unwrap_or(1) as u64;
+        let fps = if fps > 0 && fps <= 500 { fps } else { 60 };
+        let timer_div = (1000_000 / fps) as u64;
         let scale_factor = scale.scale_factor();
         let size = window.content_rect().size() / scale_factor;
         let buffer = BoxedBitmap32::new(size, TrueColor::TRANSPARENT);
@@ -1126,17 +1127,21 @@ impl OsGamePresenter<'_> {
         };
 
         let screen = unsafe { &mut *result.screen(memory).unwrap().get() };
+        screen.control_mut().reset();
         for i in 0..v1::MAX_PALETTES / 4 {
-            screen.set_palette(i * 4, PackedColor::WHITE);
+            if i < v1::MAX_PALETTES / 8 {
+                screen.set_palette(i * 4, PackedColor::WHITE);
+            } else {
+                screen.set_palette(i * 4, PackedColor::TRANSPARENT);
+            }
             screen.set_palette(i * 4 + 1, PackedColor::LIGHT_GRAY);
             screen.set_palette(i * 4 + 2, PackedColor::DARK_GRAY);
             screen.set_palette(i * 4 + 3, PackedColor::BLACK);
         }
+        result.load_font(memory, 0, 0, 0xFF);
         for i in 0..v1::MAX_SPRITES {
             screen.get_sprite_mut(i).gone();
         }
-
-        result.load_font(memory, 0, 0, 0xFF);
 
         Ok(result)
     }
@@ -1159,22 +1164,20 @@ impl OsGamePresenter<'_> {
         let char_max = 0x80;
         let start_char = u8::max(char_min, start_char);
         let end_char = u8::min(char_max, end_char);
-        let stride = v1::CHAR_SIZE as usize;
+        let stride = v1::TILE_SIZE as usize;
         for index in start_char..=end_char {
             let base = (index - char_min) as usize * stride;
-            let data8 = unsafe { FONT_MEGH0808_DATA.get_unchecked(base..base + stride) };
-            let mut data = [0u8; v1::CHAR_DATA_LEN];
+            let data8 = unsafe { FONT_MEGG0808_DATA.get_unchecked(base..base + stride) };
+            let mut data = [0u8; v1::TILE_DATA_LEN];
             for (index, byte) in data8.iter().enumerate() {
                 data[index] = *byte;
                 data[index + stride] = *byte;
             }
-            screen.set_char_data(index + adjust, &data);
+            screen.set_tile_data(index + adjust, &data);
         }
     }
 
     fn handle_key(&self, event: KeyEvent) {
-        let mut pad = self.pad0.load(Ordering::Acquire);
-
         let bit = match event.usage() {
             Usage::NUMPAD_2 => v1::DPAD_DOWN,
             Usage::NUMPAD_4 => v1::DPAD_LEFT,
@@ -1201,28 +1204,30 @@ impl OsGamePresenter<'_> {
 
             _ => 0,
         };
-        if event.flags().contains(KeyEventFlags::BREAK) {
-            pad &= !bit;
-        } else {
-            pad |= bit;
+        if bit != 0 {
+            if event.is_break() {
+                self.pad0.fetch_and(!bit, Ordering::SeqCst);
+            } else {
+                self.pad0.fetch_or(bit, Ordering::SeqCst);
+            }
         }
-
-        self.pad0.store(pad, Ordering::Release)
     }
 
     #[inline]
-    fn sync(&mut self, memory: &WasmMemory) -> bool {
+    fn sync(&mut self, memory: &WasmMemory) -> u32 {
         self.redraw(memory);
         let actual = Timer::monotonic().as_micros() as u64;
         if actual < self.expected_time {
             let diff = self.expected_time - actual;
             self.expected_time += self.timer_div;
             Timer::sleep(Duration::from_micros(diff));
-            true
+            0
         } else {
-            self.expected_time += self.timer_div;
+            let diff = actual - self.expected_time;
+            let lost_frames = 1 + diff / self.timer_div;
+            self.expected_time += lost_frames * self.timer_div;
             Timer::sleep(Duration::from_micros(1));
-            false
+            lost_frames as u32
         }
     }
 
@@ -1238,12 +1243,12 @@ impl OsGamePresenter<'_> {
         };
         if coords.right < 0
             || coords.bottom < 0
-            || coords.top >= v1::MAX_HEIGHT
-            || coords.left >= v1::MAX_WIDTH
+            || coords.left >= self.size.width()
+            || coords.top >= self.size.height()
         {
             return;
         }
-        self.draw_region.merge(coords);
+        self.draw_region.merge(coords.trimmed(self.size.into()));
     }
 
     fn move_sprite(&mut self, memory: &WasmMemory, index: usize, x: usize, y: usize) {
@@ -1265,18 +1270,18 @@ impl OsGamePresenter<'_> {
     }
 
     fn redraw(&mut self, memory: &WasmMemory) {
-        let limit = self.window.content_size();
         let coords = self.draw_region;
         let coords = Coordinates::new(
             isize::max(0, coords.left),
             isize::max(0, coords.top),
-            isize::min(limit.width, coords.right),
-            isize::min(limit.height, coords.bottom),
+            isize::min(self.size.width, coords.right),
+            isize::min(self.size.height, coords.bottom),
         );
         if coords.left <= coords.right && coords.top <= coords.bottom {
             let rect = Rect::from(coords);
             self.redraw_rect(memory, rect);
-            self.window.invalidate_rect(rect);
+            self.window
+                .invalidate_rect(rect * self.scale.scale_factor());
         }
         self.draw_region = Coordinates::void();
     }
@@ -1286,20 +1291,20 @@ impl OsGamePresenter<'_> {
             Ok(v) => unsafe { &*v.get() },
             Err(_) => return,
         };
-        let limit_x = v1::MAX_WIDTH / v1::CHAR_SIZE;
-        let limit_y = v1::MAX_WIDTH / v1::CHAR_SIZE;
-        let min_x = rect.min_x() / v1::CHAR_SIZE;
-        let max_x = isize::min(limit_x, (rect.max_x() + 7) / v1::CHAR_SIZE);
-        let min_y = rect.min_y() / v1::CHAR_SIZE;
-        let max_y = isize::min(limit_y, (rect.max_y() + 7) / v1::CHAR_SIZE);
-        if min_x < 0 || min_y < 0 || max_x < 0 || min_y < 0 || min_x >= limit_x || min_y >= limit_y
-        {
+        let limit_x = self.size.width() / v1::TILE_SIZE;
+        let limit_y = self.size.height() / v1::TILE_SIZE;
+        let min_x = isize::max(0, rect.min_x() / v1::TILE_SIZE);
+        let max_x = isize::min(limit_x, (rect.max_x() + 7) / v1::TILE_SIZE);
+        let min_y = isize::max(0, rect.min_y() / v1::TILE_SIZE);
+        let max_y = isize::min(limit_y, (rect.max_y() + 7) / v1::TILE_SIZE);
+        if max_x < 0 || min_y < 0 || min_x >= limit_x || min_y >= limit_y {
             return;
         }
 
         let bitmap = self.buffer.as_mut();
-        bitmap.fill_rect(rect, screen.get_palette(0).into_true_color());
+        // bitmap.fill_rect(rect, screen.get_palette(0).into_true_color());
 
+        // BG1
         {
             let scroll = screen.control().get_scroll();
             let sx = scroll.x;
@@ -1310,18 +1315,15 @@ impl OsGamePresenter<'_> {
             let sy8 = ((sy as u8) >> 3) as isize;
             let min_x = if sx7 != 0 { min_x - 1 } else { min_x };
             let min_y = if sy7 != 0 { min_y - 1 } else { min_y };
-            let v_width = v1::STRIDE as isize;
-            let v_height = v1::MAX_VHEIGHT as isize / v1::CHAR_SIZE;
+            let hmask = v1::MAX_VWIDTH as isize / v1::TILE_SIZE - 1;
+            let vmask = v1::MAX_VHEIGHT as isize / v1::TILE_SIZE - 1;
 
             for y in min_y..max_y {
                 for x in min_x..max_x {
-                    let pattern = screen.get_char_data(
-                        screen
-                            .get_name((x - sx8) & (v_width - 1), (y - sy8) & (v_height - 1))
-                            .index(),
-                    );
-                    let origin = Point::new(x * v1::CHAR_SIZE + sx7, y * v1::CHAR_SIZE + sy7);
-                    Self::render_char(bitmap, 0, pattern, origin, screen.palettes());
+                    let name = screen.get_name((x - sx8) & hmask, (y - sy8) & vmask);
+                    let pattern = screen.get_tile_data(name.index());
+                    let origin = Point::new(x * v1::TILE_SIZE + sx7, y * v1::TILE_SIZE + sy7);
+                    Self::render_tile(bitmap, name.attr(), pattern, origin, screen.palettes());
                 }
             }
         }
@@ -1330,7 +1332,15 @@ impl OsGamePresenter<'_> {
         let rect_min_y = rect.min_y();
         let rect_max_x = rect.max_x();
         let rect_max_y = rect.max_y();
-        for oam in screen.sprites().iter().rev() {
+        let sprite_min = screen.control().sprite_min as usize;
+        let sprite_max = screen.control().sprite_max as usize;
+        for oam in unsafe {
+            screen
+                .sprites()
+                .get_unchecked(sprite_min..=sprite_max)
+                .iter()
+                .rev()
+        } {
             if oam.is_gone() {
                 continue;
             }
@@ -1347,56 +1357,57 @@ impl OsGamePresenter<'_> {
                 && (oam_min_y >= rect_min_y && oam_min_y < rect_max_y
                     || oam_max_y >= rect_min_y && oam_max_y < rect_max_y)
             {
-                let base_x = if oam_attr & (v1::OAM_ATTR_W16 | v1::OAM_ATTR_FLIP_X)
-                    == (v1::OAM_ATTR_W16 | v1::OAM_ATTR_FLIP_X)
+                let base_x = if oam_attr & (v1::OAM_ATTR_W16 | v1::OAM_ATTR_HFLIP)
+                    == (v1::OAM_ATTR_W16 | v1::OAM_ATTR_HFLIP)
                 {
-                    v1::CHAR_SIZE
+                    v1::TILE_SIZE
                 } else {
                     0
                 };
-                let base_y = if oam_attr & (v1::OAM_ATTR_H16 | v1::OAM_ATTR_FLIP_Y)
-                    == (v1::OAM_ATTR_H16 | v1::OAM_ATTR_FLIP_Y)
+                let base_y = if oam_attr & (v1::OAM_ATTR_H16 | v1::OAM_ATTR_VFLIP)
+                    == (v1::OAM_ATTR_H16 | v1::OAM_ATTR_VFLIP)
                 {
-                    v1::CHAR_SIZE
+                    v1::TILE_SIZE
                 } else {
                     0
                 };
+                let attr = oam.attr | v1::OAM_PALETTE_BASE;
 
-                let pattern = screen.get_char_data(oam.index());
-                Self::render_char(
+                let pattern = screen.get_tile_data(oam.index());
+                Self::render_tile(
                     bitmap,
-                    oam.attr,
+                    attr,
                     pattern,
                     oam_rect.origin() + Point::new(base_x, base_y),
                     screen.palettes(),
                 );
                 if (oam_attr & v1::OAM_ATTR_W16) != 0 {
-                    let pattern = screen.get_char_data(oam.index() | 0x01);
-                    Self::render_char(
+                    let pattern = screen.get_tile_data(oam.index() | 0x01);
+                    Self::render_tile(
                         bitmap,
-                        oam.attr,
+                        attr,
                         pattern,
-                        oam_rect.origin() + Point::new(base_x ^ v1::CHAR_SIZE, base_y),
+                        oam_rect.origin() + Point::new(base_x ^ v1::TILE_SIZE, base_y),
                         screen.palettes(),
                     );
                 }
                 if (oam_attr & v1::OAM_ATTR_H16) != 0 {
-                    let pattern = screen.get_char_data(oam.index() | 0x10);
-                    Self::render_char(
+                    let pattern = screen.get_tile_data(oam.index() | 0x10);
+                    Self::render_tile(
                         bitmap,
-                        oam.attr,
+                        attr,
                         pattern,
-                        oam_rect.origin() + Point::new(base_x, base_y ^ v1::CHAR_SIZE),
+                        oam_rect.origin() + Point::new(base_x, base_y ^ v1::TILE_SIZE),
                         screen.palettes(),
                     );
                     if oam_attr & (v1::OAM_ATTR_W16) != 0 {
-                        let pattern = screen.get_char_data(oam.index() | 0x11);
-                        Self::render_char(
+                        let pattern = screen.get_tile_data(oam.index() | 0x11);
+                        Self::render_tile(
                             bitmap,
-                            oam.attr,
+                            attr,
                             pattern,
                             oam_rect.origin()
-                                + Point::new(base_x ^ v1::CHAR_SIZE, base_y ^ v1::CHAR_SIZE),
+                                + Point::new(base_x ^ v1::TILE_SIZE, base_y ^ v1::TILE_SIZE),
                             screen.palettes(),
                         );
                     }
@@ -1404,15 +1415,83 @@ impl OsGamePresenter<'_> {
             }
         }
 
-        let _ = self.window.draw_in_rect(rect, |bitmap| {
-            bitmap.blt(self.buffer.as_ref(), Point::new(0, 0), rect);
-        });
+        // BG2
+        if false {
+            //
+        }
+
+        let rect = rect * self.scale.scale_factor();
+        match self.scale {
+            v1::ScaleMode::DotByDot => {
+                let _ = self.window.draw_in_rect(rect, |bitmap| {
+                    bitmap.blt(self.buffer.as_ref(), Point::new(0, 0), rect);
+                });
+            }
+            v1::ScaleMode::Sparse2X => {
+                let _ = self.window.draw_in_rect(rect, |bitmap| match bitmap {
+                    Bitmap::Indexed(_) => todo!(),
+                    Bitmap::Argb32(bitmap) => {
+                        let origin = Point::new(rect.x() / 2, rect.y() / 2);
+                        for y in 0..bitmap.height() / 2 {
+                            for x in 0..bitmap.width() / 2 {
+                                unsafe {
+                                    let sp = origin + Point::new(x as isize, y as isize);
+                                    let dp = Point::new(x as isize * 2, y as isize * 2);
+                                    let pixel = self.buffer.get_pixel_unchecked(sp);
+                                    bitmap.set_pixel_unchecked(dp, pixel);
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+            v1::ScaleMode::Interlace2X => {
+                let _ = self.window.draw_in_rect(rect, |bitmap| match bitmap {
+                    Bitmap::Indexed(_) => todo!(),
+                    Bitmap::Argb32(bitmap) => {
+                        let origin = Point::new(rect.x() / 2, rect.y() / 2);
+                        for y in 0..bitmap.height() / 2 {
+                            for x in 0..bitmap.width() / 2 {
+                                unsafe {
+                                    let sp = origin + Point::new(x as isize, y as isize);
+                                    let dp = Point::new(x as isize * 2, y as isize * 2);
+                                    let pixel = self.buffer.get_pixel_unchecked(sp);
+                                    bitmap.set_pixel_unchecked(dp, pixel);
+                                    bitmap.set_pixel_unchecked(dp + Point::new(1, 0), pixel);
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+            v1::ScaleMode::NearestNeighbor2X => {
+                let _ = self.window.draw_in_rect(rect, |bitmap| match bitmap {
+                    Bitmap::Indexed(_) => todo!(),
+                    Bitmap::Argb32(bitmap) => {
+                        let origin = Point::new(rect.x() / 2, rect.y() / 2);
+                        for y in 0..bitmap.height() / 2 {
+                            for x in 0..bitmap.width() / 2 {
+                                unsafe {
+                                    let sp = origin + Point::new(x as isize, y as isize);
+                                    let dp = Point::new(x as isize * 2, y as isize * 2);
+                                    let pixel = self.buffer.get_pixel_unchecked(sp);
+                                    bitmap.set_pixel_unchecked(dp, pixel);
+                                    bitmap.set_pixel_unchecked(dp + Point::new(1, 0), pixel);
+                                    bitmap.set_pixel_unchecked(dp + Point::new(0, 1), pixel);
+                                    bitmap.set_pixel_unchecked(dp + Point::new(1, 1), pixel);
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
     }
 
-    fn render_char(
+    fn render_tile(
         bitmap: &mut Bitmap32,
         attr: u8,
-        pattern: &v1::CharData,
+        pattern: &v1::TileData,
         origin: Point,
         palette: &[v1::PaletteEntry],
     ) {
@@ -1420,8 +1499,8 @@ impl OsGamePresenter<'_> {
         let mut dy = origin.y();
         let mut bx = 0;
         let mut by = 0;
-        let mut dw = v1::CHAR_SIZE;
-        let mut dh = v1::CHAR_SIZE;
+        let mut dw = v1::TILE_SIZE;
+        let mut dh = v1::TILE_SIZE;
         if dx + dw > bitmap.width() as isize {
             dw = bitmap.width() as isize - dx;
         }
@@ -1440,129 +1519,78 @@ impl OsGamePresenter<'_> {
             return;
         }
 
-        let palette_base = (attr & v1::OAM_PALETTE_MASK) as usize * 4;
+        let palette_base = ((attr & v1::TILE_ATTR_PAL_MASK) / v1::PALETTE_1) as usize * 4;
+        let color0 = unsafe { palette.get_unchecked(palette_base + 0) }.into_true_color();
         let color1 = unsafe { palette.get_unchecked(palette_base + 1) }.into_true_color();
         let color2 = unsafe { palette.get_unchecked(palette_base + 2) }.into_true_color();
         let color3 = unsafe { palette.get_unchecked(palette_base + 3) }.into_true_color();
+        let color0_transparent = color0.is_transparent();
 
         let delta1 = 1;
         let delta2 = 8;
+        let bit_pattern = if (attr & v1::TILE_ATTR_HFLIP) == 0 {
+            0x0102040810204080u64
+        } else {
+            0x8040201008040201u64
+        };
 
-        match attr & v1::OAM_ATTR_FLIP_XY {
-            0 => {
-                let dy = dy - by;
-                let dx = dx - bx;
-                for y in by as usize..dh as usize {
-                    let p1 = unsafe { *pattern.get_unchecked(y * delta1) };
-                    let p2 = unsafe { *pattern.get_unchecked(y * delta1 + delta2) };
-                    let p3 = p1 & p2;
-                    if (p1 | p2) != 0 {
-                        let oy = dy + y as isize;
-                        for x in bx as usize..dw as usize {
-                            let point = Point::new(dx + x as isize, oy);
-                            let bits = 0x80u8 >> x;
-                            if (p3 & bits) != 0 {
-                                unsafe {
-                                    bitmap.set_pixel_unchecked(point, color3);
-                                }
-                            } else if (p2 & bits) != 0 {
-                                unsafe {
-                                    bitmap.set_pixel_unchecked(point, color2);
-                                }
-                            } else if (p1 & bits) != 0 {
-                                unsafe {
-                                    bitmap.set_pixel_unchecked(point, color1);
-                                }
-                            }
+        if (attr & v1::TILE_ATTR_VFLIP) == 0 {
+            let dy = dy - by;
+            let dx = dx - bx;
+            for y in by as usize..dh as usize {
+                let p1 = unsafe { *pattern.get_unchecked(y * delta1) };
+                let p2 = unsafe { *pattern.get_unchecked(y * delta1 + delta2) };
+                let p3 = p1 & p2;
+                let oy = dy + y as isize;
+                for x in bx as usize..dw as usize {
+                    let point = Point::new(dx + x as isize, oy);
+                    let bits = (bit_pattern >> (x * 8)) as u8;
+                    if (p3 & bits) != 0 {
+                        unsafe {
+                            bitmap.set_pixel_unchecked(point, color3);
+                        }
+                    } else if (p2 & bits) != 0 {
+                        unsafe {
+                            bitmap.set_pixel_unchecked(point, color2);
+                        }
+                    } else if (p1 & bits) != 0 {
+                        unsafe {
+                            bitmap.set_pixel_unchecked(point, color1);
+                        }
+                    } else if !color0_transparent {
+                        unsafe {
+                            bitmap.set_pixel_unchecked(point, color0);
                         }
                     }
                 }
             }
-            v1::OAM_ATTR_FLIP_X => {
-                let dy = dy - by;
-                let dx = dx - bx;
-                for y in by as usize..dh as usize {
-                    let p1 = unsafe { *pattern.get_unchecked(y * delta1) };
-                    let p2 = unsafe { *pattern.get_unchecked(y * delta1 + delta2) };
-                    let p3 = p1 & p2;
-                    if (p1 | p2) != 0 {
-                        let oy = dy + y as isize;
-                        for x in bx as usize..dw as usize {
-                            let point = Point::new(dx + x as isize, oy);
-                            let bits = 0x01u8 << x;
-                            if (p3 & bits) != 0 {
-                                unsafe {
-                                    bitmap.set_pixel_unchecked(point, color3);
-                                }
-                            } else if (p2 & bits) != 0 {
-                                unsafe {
-                                    bitmap.set_pixel_unchecked(point, color2);
-                                }
-                            } else if (p1 & bits) != 0 {
-                                unsafe {
-                                    bitmap.set_pixel_unchecked(point, color1);
-                                }
-                            }
+        } else {
+            let eh = 7 - by;
+            let ch = dh - by;
+            let dx = dx - bx;
+            for y in 0..ch as usize {
+                let p1 = unsafe { *pattern.get_unchecked((eh as usize - y) * delta1) };
+                let p2 = unsafe { *pattern.get_unchecked((eh as usize - y) * delta1 + delta2) };
+                let p3 = p1 & p2;
+                let oy = dy + y as isize;
+                for x in bx as usize..dw as usize {
+                    let point = Point::new(dx + x as isize, oy);
+                    let bits = (bit_pattern >> (x * 8)) as u8;
+                    if (p3 & bits) != 0 {
+                        unsafe {
+                            bitmap.set_pixel_unchecked(point, color3);
                         }
-                    }
-                }
-            }
-            v1::OAM_ATTR_FLIP_Y => {
-                let eh = 7 - by;
-                let ch = dh - by;
-                let dx = dx - bx;
-                for y in 0..ch as usize {
-                    let p1 = unsafe { *pattern.get_unchecked((eh as usize - y) * delta1) };
-                    let p2 = unsafe { *pattern.get_unchecked((eh as usize - y) * delta1 + delta2) };
-                    let p3 = p1 & p2;
-                    if (p1 | p2) != 0 {
-                        let oy = dy + y as isize;
-                        for x in bx as usize..dw as usize {
-                            let point = Point::new(dx + x as isize - bx, oy);
-                            let bits = 0x80u8 >> x;
-                            if (p3 & bits) != 0 {
-                                unsafe {
-                                    bitmap.set_pixel_unchecked(point, color3);
-                                }
-                            } else if (p2 & bits) != 0 {
-                                unsafe {
-                                    bitmap.set_pixel_unchecked(point, color2);
-                                }
-                            } else if (p1 & bits) != 0 {
-                                unsafe {
-                                    bitmap.set_pixel_unchecked(point, color1);
-                                }
-                            }
+                    } else if (p2 & bits) != 0 {
+                        unsafe {
+                            bitmap.set_pixel_unchecked(point, color2);
                         }
-                    }
-                }
-            }
-            _ => {
-                let eh = 7 - by;
-                let ch = dh - by;
-                let dx = dx - bx;
-                for y in 0..ch as usize {
-                    let p1 = unsafe { *pattern.get_unchecked((eh as usize - y) * delta1) };
-                    let p2 = unsafe { *pattern.get_unchecked((eh as usize - y) * delta1 + delta2) };
-                    let p3 = p1 & p2;
-                    if (p1 | p2) != 0 {
-                        let oy = dy + y as isize;
-                        for x in bx as usize..dw as usize {
-                            let point = Point::new(dx + x as isize, oy);
-                            let bits = 0x01u8 << x;
-                            if (p3 & bits) != 0 {
-                                unsafe {
-                                    bitmap.set_pixel_unchecked(point, color3);
-                                }
-                            } else if (p2 & bits) != 0 {
-                                unsafe {
-                                    bitmap.set_pixel_unchecked(point, color2);
-                                }
-                            } else if (p1 & bits) != 0 {
-                                unsafe {
-                                    bitmap.set_pixel_unchecked(point, color1);
-                                }
-                            }
+                    } else if (p1 & bits) != 0 {
+                        unsafe {
+                            bitmap.set_pixel_unchecked(point, color1);
+                        }
+                    } else if !color0_transparent {
+                        unsafe {
+                            bitmap.set_pixel_unchecked(point, color0);
                         }
                     }
                 }

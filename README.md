@@ -73,6 +73,10 @@ MIT License
 
 &copy; 2020 MEG-OS Project.
 
+### Wall paper
+
+* CC BY-SA 4.0 &copy; 猫(1010) 
+
 ## Contributors
 
 ### Kernel

@@ -312,13 +312,11 @@ impl Scheduler {
         } else if thread.attribute.contains(ThreadAttribute::ASLEEP) {
             if thread.attribute.test_and_clear(ThreadAttribute::AWAKE) {
                 thread.attribute.remove(ThreadAttribute::ASLEEP);
-                thread.attribute.remove(ThreadAttribute::RESIGN_ATVIVE);
                 shared.enqueue(handle);
             } else {
                 thread.attribute.remove(ThreadAttribute::QUEUED);
             }
         } else {
-            thread.attribute.remove(ThreadAttribute::RESIGN_ATVIVE);
             shared.enqueue(handle);
         }
     }
@@ -665,8 +663,6 @@ impl LocalScheduler {
             {
                 let current = current.unsafe_weak().unwrap();
                 let next = next.unsafe_weak().unwrap();
-                current.attribute.insert(ThreadAttribute::RESIGN_ATVIVE);
-                next.attribute.insert(ThreadAttribute::BECOME_ACTIVE);
                 current.context.switch(&next.context);
             }
 
@@ -683,7 +679,6 @@ impl LocalScheduler {
         let current = self.current_thread();
 
         current.update(|thread| {
-            thread.attribute.remove(ThreadAttribute::BECOME_ACTIVE);
             thread.attribute.remove(ThreadAttribute::AWAKE);
             thread.attribute.remove(ThreadAttribute::ASLEEP);
             thread.measure.store(Timer::measure().0, Ordering::SeqCst);
@@ -1489,8 +1484,6 @@ bitflags! {
         const ASLEEP    = 0b0000_0000_0000_0010;
         const AWAKE     = 0b0000_0000_0000_0100;
         const ZOMBIE    = 0b0000_0000_0000_1000;
-        const BECOME_ACTIVE = 0b0000_0000_0001_0000;
-        const RESIGN_ATVIVE = 0b0000_0000_0010_0000;
     }
 }
 

@@ -147,6 +147,20 @@ impl Modifier {
     }
 }
 
+impl From<Modifier> for usize {
+    #[inline]
+    fn from(v: Modifier) -> Self {
+        v.bits() as Self
+    }
+}
+
+impl From<usize> for Modifier {
+    #[inline]
+    fn from(v: usize) -> Self {
+        Self::from_bits_truncate(v as u8)
+    }
+}
+
 impl Default for Modifier {
     #[inline]
     fn default() -> Self {

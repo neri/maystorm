@@ -16,13 +16,15 @@ struct App {
 }
 
 impl App {
-    const WINDOW_WIDTH: isize = 256;
-    const WINDOW_HEIGHT: isize = 240;
+    const WINDOW_WIDTH: isize = 240;
+    const WINDOW_HEIGHT: isize = 160;
 
     fn new() -> Self {
-        let presenter = GameWindow::new(
+        let presenter = GameWindow::with_options(
             "GAME TEST",
             Size::new(Self::WINDOW_WIDTH, Self::WINDOW_HEIGHT),
+            v1::ScaleMode::NearestNeighbor2X,
+            60,
         );
         Self { presenter }
     }
@@ -36,49 +38,36 @@ impl App {
     fn initialize(&mut self) {
         let screen = self.screen();
 
-        screen.set_palette(0x05, PackedColor::WHITE);
-        screen.set_palette(0x06, PackedColor::LIGHT_BLUE);
-        screen.set_palette(0x07, PackedColor::BLUE);
-        screen.set_palette(0x09, PackedColor::WHITE);
-        screen.set_palette(0x0A, PackedColor::LIGHT_RED);
-        screen.set_palette(0x0B, PackedColor::RED);
-        screen.set_palette(0x0D, PackedColor::WHITE);
-        screen.set_palette(0x0E, PackedColor::YELLOW);
-        screen.set_palette(0x0F, PackedColor::BROWN);
-        screen.set_palette(0x11, PackedColor::WHITE);
-        screen.set_palette(0x12, PackedColor::LIGHT_GREEN);
-        screen.set_palette(0x13, PackedColor::GREEN);
-
         // basic background patterns
-        screen.set_char_data(0x01, &[
+        screen.set_tile_data(0x01, &[
             // 0x81, 0x42, 0x24, 0x18, 0x18, 0x24, 0x42, 0x81, 0, 0, 0, 0, 0, 0, 0, 0,
             0x81, 0xC3, 0xE7, 0xFF, 0xFF, 0xE7, 0xC3, 0x81, 0, 0, 0, 0, 0, 0, 0, 0,
         ]);
-        screen.set_char_data(0x02, &[
+        screen.set_tile_data(0x02, &[
             0x00, 0x00, 0x00, 0x1C, 0x1C, 0x1C, 0x00, 0x00, 0x00, 0x7F, 0x7F, 0x63, 0x63, 0x63, 0x7F, 0x7F,
         ]);
-        screen.set_char_data(0x03, &[
+        screen.set_tile_data(0x03, &[
             0x00, 0x00, 0x00, 0xF7, 0xC6, 0xE7, 0xC6, 0xC6, 0x00, 0x00, 0x00, 0xF7, 0xC6, 0xE7, 0xC6, 0xC6,
         ]);
-        screen.set_char_data(0x04, &[
+        screen.set_tile_data(0x04, &[
             0x00, 0x00, 0x00, 0x8F, 0xDC, 0x8E, 0x07, 0x1E, 0x00, 0x00, 0x00, 0x8F, 0xDC, 0x8E, 0x07, 0x1E,
         ]);
 
         // sprites
-        screen.set_char_data(0x80, &[
+        screen.set_tile_data(0x80, &[
             0x03, 0x0C, 0x10, 0x20, 0x4C, 0x4C, 0x80, 0x80, 0x03, 0x0F, 0x1F, 0x3F, 0x73, 0x73, 0xFF, 0xFF,
         ]);
-        screen.set_char_data(0x81, &[
+        screen.set_tile_data(0x81, &[
             0xC0, 0x30, 0x08, 0x04, 0x02, 0x02, 0x01, 0x01, 0xC0, 0xF0, 0xF8, 0xFC, 0xFE, 0xFE, 0xFF, 0xFF,
         ]);
-        screen.set_char_data(0x90, &[
+        screen.set_tile_data(0x90, &[
             0x80, 0x80, 0x40, 0x40, 0x20, 0x10, 0x0C, 0x03, 0xFF, 0xFF, 0x7F, 0x7F, 0x3F, 0x1F, 0x0F, 0x03,
         ]);
-        screen.set_char_data(0x91, &[
+        screen.set_tile_data(0x91, &[
             0x01, 0x01, 0x02, 0x02, 0x04, 0x08, 0x30, 0xC0, 0xFF, 0xFF, 0xFE, 0xFE, 0xFC, 0xF8, 0xF0, 0xC0,
         ]);
 
-        screen.set_char_data(0xE0, &[
+        screen.set_tile_data(0xE0, &[
             0x00, 0x00, 0x30, 0x30, 0x00, 0x00, 0x00, 0x00, 0x3C, 0x7E, 0xCF, 0xCF, 0xFF, 0xFF, 0x7E, 0x3C,
         ]);
 
@@ -95,8 +84,8 @@ impl App {
             Rect::new(
                 0,
                 0,
-                Self::WINDOW_WIDTH / v1::CHAR_SIZE,
-                Self::WINDOW_HEIGHT / v1::CHAR_SIZE,
+                Self::WINDOW_WIDTH / v1::TILE_SIZE,
+                Self::WINDOW_HEIGHT / v1::TILE_SIZE,
             ),
             v1::NameTableEntry::from_index(2),
         );
@@ -104,19 +93,19 @@ impl App {
             Rect::new(
                 2,
                 2,
-                Self::WINDOW_WIDTH / v1::CHAR_SIZE - 4,
-                Self::WINDOW_HEIGHT / v1::CHAR_SIZE - 4,
+                Self::WINDOW_WIDTH / v1::TILE_SIZE - 4,
+                Self::WINDOW_HEIGHT / v1::TILE_SIZE - 4,
             ),
             v1::NameTableEntry::from_index(0),
         );
 
         screen.set_name(
-            Self::WINDOW_WIDTH / v1::CHAR_SIZE - 2,
+            Self::WINDOW_WIDTH / v1::TILE_SIZE - 2,
             0,
             v1::NameTableEntry::from_index(3),
         );
         screen.set_name(
-            Self::WINDOW_WIDTH / v1::CHAR_SIZE - 1,
+            Self::WINDOW_WIDTH / v1::TILE_SIZE - 1,
             0,
             v1::NameTableEntry::from_index(4),
         );
@@ -133,7 +122,7 @@ impl App {
 
         *screen.get_sprite_mut(1) = v1::Sprite::new(missile.point, 0xE0, 1);
 
-        screen.draw_string(Point::new(3, 3), b"Hello, world!");
+        screen.draw_string(Point::new(3, 3), 0, b"Hello, world!");
 
         let mut fps = 0;
         let mut time = os_monotonic();
@@ -184,22 +173,22 @@ impl App {
                     fps2 += 0x30;
                 }
                 screen.set_name(
-                    Self::WINDOW_WIDTH / v1::CHAR_SIZE - 5,
+                    Self::WINDOW_WIDTH / v1::TILE_SIZE - 5,
                     0,
                     v1::NameTableEntry::from_index(fps2),
                 );
                 screen.set_name(
-                    Self::WINDOW_WIDTH / v1::CHAR_SIZE - 4,
+                    Self::WINDOW_WIDTH / v1::TILE_SIZE - 4,
                     0,
                     v1::NameTableEntry::from_index(fps1),
                 );
                 screen.set_name(
-                    Self::WINDOW_WIDTH / v1::CHAR_SIZE - 3,
+                    Self::WINDOW_WIDTH / v1::TILE_SIZE - 3,
                     0,
                     v1::NameTableEntry::from_index(fps0),
                 );
                 self.presenter.invalidate_rect(Rect::new(
-                    Self::WINDOW_WIDTH - v1::CHAR_SIZE * 5,
+                    Self::WINDOW_WIDTH - v1::TILE_SIZE * 5,
                     0,
                     24,
                     8,

@@ -4,18 +4,12 @@ use crate::arch::cpu::Cpu;
 use core::marker::PhantomData;
 use core::sync::atomic::*;
 
-pub struct AtomicBitflags<T>
-where
-    T: Into<usize>,
-{
+pub struct AtomicBitflags<T> {
     repr: AtomicUsize,
     _phantom: PhantomData<T>,
 }
 
-impl<T> AtomicBitflags<T>
-where
-    T: Into<usize>,
-{
+impl<T: Into<usize>> AtomicBitflags<T> {
     pub const EMPTY: Self = Self::empty();
 
     #[inline]
@@ -37,6 +31,14 @@ where
     #[inline]
     pub fn new(value: T) -> AtomicBitflags<T> {
         unsafe { Self::from_bits_unchecked(value.into()) }
+    }
+
+    #[inline]
+    pub fn value(&self) -> T
+    where
+        T: From<usize>,
+    {
+        T::from(self.bits())
     }
 
     #[inline]
@@ -93,10 +95,7 @@ where
     }
 }
 
-impl<T> Default for AtomicBitflags<T>
-where
-    T: Into<usize> + Default,
-{
+impl<T: Into<usize> + Default> Default for AtomicBitflags<T> {
     #[inline]
     fn default() -> Self {
         Self::new(T::default())

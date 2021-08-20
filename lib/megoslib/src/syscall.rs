@@ -166,7 +166,12 @@ pub fn os_blend_rect(bitmap: usize, x: usize, y: usize, width: usize, height: us
     unsafe { svc6(Function::BlendRect, bitmap, x, y, width, height, color as usize) };
 }
 
-/// Return a random number
+/// Returns a simple pseudo-random number
+///
+/// # Safety
+///
+/// Since this system call returns a simple pseudo-random number,
+/// it should not be used in situations where random number safety is required.
 #[inline]
 pub fn os_rand() -> u32 {
     unsafe { svc0(Function::Rand) as u32 }
@@ -202,8 +207,8 @@ pub unsafe fn game_v1_init_long(window: usize, screen: *const c_void, scale: usi
 }
 
 #[inline]
-pub fn game_v1_sync(handle: usize) -> bool {
-    unsafe { svc1(Function::GameV1Sync, handle) != 0 }
+pub fn game_v1_sync(handle: usize) -> usize {
+    unsafe { svc1(Function::GameV1Sync, handle) }
 }
 
 #[inline]
@@ -228,6 +233,6 @@ pub fn game_v1_button(handle: usize) -> u8 {
 
 #[inline]
 #[rustfmt::skip]
-pub fn game_v1_load_font(handle: usize, start_index: u8, start_char: u8, end_char: u8) {
-    unsafe { svc4(Function::GameV1LoadFont, handle, start_index as usize, start_char as usize, end_char as usize) };
+pub fn game_v1_load_font(handle: usize, start_index: usize, start_char: usize, end_char: usize) {
+    unsafe { svc4( Function::GameV1LoadFont, handle, start_index, start_char, end_char) };
 }

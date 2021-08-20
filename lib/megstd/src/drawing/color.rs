@@ -531,6 +531,11 @@ impl PackedColor {
     }
 
     #[inline]
+    pub const fn from_safe_rgb(rgb: u32) -> Self {
+        Self::from_indexed(IndexedColor::from_rgb(rgb))
+    }
+
+    #[inline]
     pub const fn from_true_color(argb: TrueColor) -> Self {
         match argb.is_transparent() {
             true => Self::TRANSPARENT,

@@ -537,6 +537,30 @@ impl Sub<EdgeInsets> for Rect {
     }
 }
 
+impl Mul<isize> for Rect {
+    type Output = Self;
+    fn mul(self, rhs: isize) -> Self::Output {
+        Self::new(
+            self.x() * rhs,
+            self.y() * rhs,
+            self.width() * rhs,
+            self.height() * rhs,
+        )
+    }
+}
+
+impl Mul<usize> for Rect {
+    type Output = Self;
+    fn mul(self, rhs: usize) -> Self::Output {
+        Self::new(
+            self.x() * rhs as isize,
+            self.y() * rhs as isize,
+            self.width() * rhs as isize,
+            self.height() * rhs as isize,
+        )
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default, PartialEq)]
 pub struct Coordinates {
@@ -626,6 +650,52 @@ impl Coordinates {
     }
 
     #[inline]
+    pub const fn trimmed(&self, other: Self) -> Self {
+        let left = if self.left > other.left {
+            self.left
+        } else {
+            other.left
+        };
+        let top = if self.top > other.top {
+            self.top
+        } else {
+            other.top
+        };
+        let right = if self.right < other.right {
+            self.right
+        } else {
+            other.right
+        };
+        let bottom = if self.bottom < other.bottom {
+            self.bottom
+        } else {
+            other.bottom
+        };
+
+        Self {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+
+    #[inline]
+    pub fn trim(&mut self, other: Self) {
+        *self = self.trimmed(other);
+    }
+
+    #[inline]
+    pub const fn from_size(size: Size) -> Self {
+        Self {
+            left: 0,
+            top: 0,
+            right: size.width(),
+            bottom: size.height(),
+        }
+    }
+
+    #[inline]
     pub const fn from_rect(rect: Rect) -> Result<Coordinates, ()> {
         if rect.size.width == 0 || rect.size.height == 0 {
             Err(())
@@ -692,6 +762,13 @@ impl From<Coordinates> for Rect {
             origin: coods.left_top(),
             size: coods.size(),
         }
+    }
+}
+
+impl From<Size> for Coordinates {
+    #[inline]
+    fn from(size: Size) -> Self {
+        Self::from_size(size)
     }
 }
 

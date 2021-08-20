@@ -1,4 +1,4 @@
-//! Retro Game Framework
+//! Retro Game Framework v1
 
 pub mod v1 {
 
@@ -37,7 +37,7 @@ pub mod v1 {
         ) -> GamePresenterImpl {
             let window = window::WindowBuilder::new()
                 .opaque()
-                .size(size)
+                .size(size * scale.scale_factor() as isize)
                 .build(title);
             GamePresenterImpl::new_long(window.handle(), scale, fps)
         }
@@ -68,7 +68,6 @@ pub mod v1 {
     impl v1::GamePresenter for GamePresenterImpl {
         #[inline]
         fn screen<'a>(&'a self) -> &'a mut v1::Screen {
-            // unsafe { &mut *self.screen.get() }
             unsafe { &mut *SCREEN.get() }
         }
 
@@ -78,7 +77,7 @@ pub mod v1 {
         }
 
         #[inline]
-        fn sync(&self) -> bool {
+        fn sync(&self) -> usize {
             game_v1_sync(self.game_handle)
         }
 
@@ -110,7 +109,7 @@ pub mod v1 {
         }
 
         #[inline]
-        fn move_sprite(&self, index: v1::PatternIndex, origin: Point) {
+        fn move_sprite(&self, index: v1::SpriteIndex, origin: Point) {
             game_v1_move_sprite(
                 self.game_handle,
                 index as usize,
@@ -120,8 +119,13 @@ pub mod v1 {
         }
 
         #[inline]
-        fn load_font(&self, start_index: u8, start_char: u8, end_char: u8) {
-            game_v1_load_font(self.game_handle, start_index, start_char, end_char);
+        fn load_font(&self, start_index: v1::TileIndex, start_char: u8, end_char: u8) {
+            game_v1_load_font(
+                self.game_handle,
+                start_index as usize,
+                start_char as usize,
+                end_char as usize,
+            );
         }
     }
 }

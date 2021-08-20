@@ -1,53 +1,94 @@
-//! Retro Game Framework v1
+//! MEG-OS Retro Game Framework v1
 //!
 //! This framework provides functionality similar to the screen display of retro games.
 //!
 //! # Restrictions
 //!
-//! * Frame size is within 256 x 240 pixels.
-//! * The number of patterns is up to 256.
-//! * The number of colors is up to 24? of the true colors.
+//! This version of the game framework has a number of tight restrictions, much like a real retro game console.
+//!
+//! * The screen size is within 256x240 pixels.
+//! * The number of tile data is up to 256.
+//! * Each tile data can be used for up to four colors for BGs and up to three colors for sprites.
 
 use crate::drawing::*;
 use num_derive::FromPrimitive;
 
-pub type PatternIndex = u8;
+pub type TileIndex = u8;
+pub type SpriteIndex = u8;
 pub type PaletteEntry = PackedColor;
-pub const CHAR_SIZE: isize = 8;
+pub const TILE_SIZE: isize = 8;
 pub const MAX_WIDTH: isize = 256;
 pub const MAX_HEIGHT: isize = 240;
 pub const MAX_VWIDTH: usize = 256;
 pub const MAX_VHEIGHT: usize = 256;
-pub const STRIDE: usize = MAX_VWIDTH / CHAR_SIZE as usize;
-pub const MAX_NAMES: usize = MAX_VWIDTH / (CHAR_SIZE as usize) * MAX_VHEIGHT / (CHAR_SIZE as usize);
+pub const STRIDE: usize = MAX_VWIDTH / TILE_SIZE as usize;
+pub const MAX_NAMES: usize = MAX_VWIDTH / (TILE_SIZE as usize) * MAX_VHEIGHT / (TILE_SIZE as usize);
 pub const MAX_X: u8 = 255;
 pub const MAX_Y: u8 = 239;
 pub const SPRITE_DISABLED: u8 = 1 + MAX_Y;
-pub const MAX_CHAR_DATA: usize = 256;
+pub const MAX_TILE_DATA: usize = 256;
 pub const MAX_SPRITES: usize = 256;
-pub const MAX_PALETTES: usize = 32;
+pub const MAX_PALETTES: usize = 64;
 
-pub const CHAR_DATA_LEN: usize = 16;
-pub type CharData = [u8; CHAR_DATA_LEN];
-pub const CHAR_DATA_EMPTY: CharData = [0u8; CHAR_DATA_LEN];
+pub const TILE_DATA_LEN: usize = 16;
+pub type TileData = [u8; TILE_DATA_LEN];
+pub const TILE_DATA_EMPTY: TileData = [0u8; TILE_DATA_LEN];
 
-/// If set, the width of the sprite is 16, otherwise it is 8
-pub const OAM_ATTR_W16: u8 = 0b0001_0000;
+pub const TILE_ATTR_FLIP_XY: u8 = TILE_ATTR_VFLIP | TILE_ATTR_HFLIP;
+pub const TILE_ATTR_VFLIP: u8 = 0b1000_0000;
+pub const TILE_ATTR_HFLIP: u8 = 0b0100_0000;
+// pub const TILE_ATTR_xxxx: u8 = 0b0010_0000;
+// pub const TILE_ATTR_xxxx: u8 = 0b0001_0000;
+pub const TILE_ATTR_PAL_MASK: u8 = 0b0000_1111;
+
+/// If set, the top and bottom of the sprite will be flipped.
+pub const OAM_ATTR_VFLIP: u8 = TILE_ATTR_VFLIP;
+/// If set, the left and right sides of the sprite will be flipped.
+pub const OAM_ATTR_HFLIP: u8 = TILE_ATTR_HFLIP;
 /// If set, the sprite height is 16, otherwise it is 8
 pub const OAM_ATTR_H16: u8 = 0b0010_0000;
-/// If set, the left and right sides of the sprite will be flipped.
-pub const OAM_ATTR_FLIP_X: u8 = 0b0100_0000;
-/// If set, the top and bottom of the sprite will be flipped.
-pub const OAM_ATTR_FLIP_Y: u8 = 0b1000_0000;
-pub const OAM_ATTR_FLIP_XY: u8 = OAM_ATTR_FLIP_X | OAM_ATTR_FLIP_Y;
+/// If set, the width of the sprite is 16, otherwise it is 8
+pub const OAM_ATTR_W16: u8 = 0b0001_0000;
+// pub const OAM_ATTR_xxxx: u8 = 0b0000_1000;
+pub const OAM_PALETTE_BASE: u8 = 0b0000_1000;
 pub const OAM_PALETTE_MASK: u8 = 0b0000_0111;
+
+pub const PALETTE_0: u8 = 0;
+pub const PALETTE_1: u8 = 1;
+pub const PALETTE_2: u8 = 2;
+pub const PALETTE_3: u8 = 3;
+pub const PALETTE_4: u8 = 4;
+pub const PALETTE_5: u8 = 5;
+pub const PALETTE_6: u8 = 6;
+pub const PALETTE_7: u8 = 7;
+
+/// An object that mimics the screen of a retro game.
+///
+/// The tile specified in the name table is displayed on the BG screen. It can also display sprites on top of each other.
+/// The tile data can be defined by the application, and the system font data is set in tile data 0x20 to 0x7F by default.
+///
+/// You can change the contents of this object directly, but you need to notify GamePresenter in order for the changes to be displayed correctly.
+#[repr(C)]
+pub struct Screen {
+    // 256 x 16 = 4096bytes
+    tile_data: [TileData; MAX_TILE_DATA],
+    // 2 x 32 x 32 = 2048 bytes
+    name_table: [NameTableEntry; MAX_NAMES],
+    // 4 x 256 = 1024 bytes
+    sprites: [Sprite; MAX_SPRITES],
+    // 4 x 64 = 256 bytes
+    palettes: [PaletteEntry; MAX_PALETTES],
+    // control registers
+    control: Control,
+}
 
 /// Retro Game Presenter
 pub trait GamePresenter {
     /// Gets the reference of the screen object
     fn screen<'a>(&'a self) -> &'a mut Screen;
-    /// Transfers the drawing buffer to the window and synchronizes the frames.
-    fn sync(&self) -> bool;
+    /// Redraws the buffer contents to the window and synchronizes the frames.
+    /// Returns the number of skipped frames, if any.
+    fn sync(&self) -> usize;
     /// Transfers the drawing buffer to the window if needed.
     fn display_if_needed(&self);
     /// Redraws the entire screen buffer.
@@ -55,7 +96,7 @@ pub trait GamePresenter {
     /// Redraws the drawing buffer of the specified range.
     fn invalidate_rect(&self, rect: Rect);
     /// Moves the sprite and redraw it.
-    fn move_sprite(&self, index: PatternIndex, origin: Point);
+    fn move_sprite(&self, index: SpriteIndex, origin: Point);
     /// Loads the font data from `start_char` to `end_char` into the character data from `start_index`.
     fn load_font(&self, start_index: u8, start_char: u8, end_char: u8);
     /// Gets the status of some buttons for the game.
@@ -98,53 +139,36 @@ pub const JOYPAD_SELECT: u8 = 1u8 << JoyPad::Select as u8;
 pub const JOYPAD_FIRE_1: u8 = 1u8 << JoyPad::Fire1 as u8;
 pub const JOYPAD_FIRE_2: u8 = 1u8 << JoyPad::Fire2 as u8;
 
-/// An object that mimics the screen of a retro game.
-///
-/// When you change the content of this object directly, you need to notify the GamePresenter of the change.
-#[repr(C)]
-pub struct Screen {
-    // 256 x 16 = 4096bytes
-    patterns: [CharData; MAX_CHAR_DATA],
-    // 1 x 32 x 32 = 1024 bytes?
-    name_table: [NameTableEntry; MAX_NAMES],
-    // 4 x 256 = 1024 bytes?
-    oam: [Sprite; MAX_SPRITES],
-    // 4 x 64 = 256 bytes?
-    palettes: [PaletteEntry; MAX_PALETTES],
-    // control registers
-    control: Control,
-}
-
 impl Screen {
     #[inline]
     pub const fn new() -> Self {
         Self {
-            patterns: [CHAR_DATA_EMPTY; MAX_CHAR_DATA],
+            tile_data: [TILE_DATA_EMPTY; MAX_TILE_DATA],
             name_table: [NameTableEntry::empty(); MAX_NAMES],
-            oam: [Sprite::empty(); MAX_SPRITES],
+            sprites: [Sprite::empty(); MAX_SPRITES],
             palettes: [PackedColor(0); MAX_PALETTES],
             control: Control::new(),
         }
     }
 
     #[inline]
-    pub const fn char_data(&self) -> &[CharData; MAX_CHAR_DATA] {
-        &self.patterns
+    pub const fn tile_data(&self) -> &[TileData; MAX_TILE_DATA] {
+        &self.tile_data
     }
 
     #[inline]
-    pub const fn char_data_mut(&mut self) -> &mut [CharData; MAX_CHAR_DATA] {
-        &mut self.patterns
+    pub const fn tile_data_mut(&mut self) -> &mut [TileData; MAX_TILE_DATA] {
+        &mut self.tile_data
     }
 
     #[inline]
-    pub fn get_char_data(&self, index: PatternIndex) -> &CharData {
-        unsafe { self.patterns.get_unchecked(index as usize) }
+    pub fn get_tile_data(&self, index: TileIndex) -> &TileData {
+        unsafe { self.tile_data.get_unchecked(index as usize) }
     }
 
     #[inline]
-    pub fn set_char_data(&mut self, index: PatternIndex, data: &CharData) {
-        let p = unsafe { self.patterns.get_unchecked_mut(index as usize) };
+    pub fn set_tile_data(&mut self, index: TileIndex, data: &TileData) {
+        let p = unsafe { self.tile_data.get_unchecked_mut(index as usize) };
         p.copy_from_slice(data);
     }
 
@@ -191,12 +215,12 @@ impl Screen {
     }
 
     #[inline]
-    pub fn draw_string(&mut self, origin: Point, str: &[u8]) {
+    pub fn draw_string(&mut self, origin: Point, attr: u8, str: &[u8]) {
         for (index, byte) in str.iter().enumerate() {
             self.set_name(
                 origin.x + index as isize,
                 origin.y,
-                NameTableEntry::from_index(*byte),
+                NameTableEntry::new(*byte, attr),
             );
         }
     }
@@ -228,22 +252,22 @@ impl Screen {
 
     #[inline]
     pub const fn sprites(&self) -> &[Sprite; MAX_SPRITES] {
-        &self.oam
+        &self.sprites
     }
 
     #[inline]
     pub const fn sprites_mut(&mut self) -> &mut [Sprite; MAX_SPRITES] {
-        &mut self.oam
+        &mut self.sprites
     }
 
     #[inline]
     pub fn get_sprite(&self, index: usize) -> Sprite {
-        unsafe { *self.oam.get_unchecked(index & (MAX_SPRITES - 1)) }
+        unsafe { *self.sprites.get_unchecked(index & (MAX_SPRITES - 1)) }
     }
 
     #[inline]
     pub fn get_sprite_mut(&mut self, index: usize) -> &mut Sprite {
-        unsafe { &mut *self.oam.get_unchecked_mut(index & (MAX_SPRITES - 1)) }
+        unsafe { &mut *self.sprites.get_unchecked_mut(index & (MAX_SPRITES - 1)) }
     }
 
     #[inline]
@@ -259,7 +283,7 @@ impl Screen {
 
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-pub struct NameTableEntry(u8);
+pub struct NameTableEntry(u16);
 
 impl NameTableEntry {
     #[inline]
@@ -268,29 +292,39 @@ impl NameTableEntry {
     }
 
     #[inline]
-    pub const fn from_index(index: PatternIndex) -> Self {
-        Self(index)
+    pub const fn from_index(index: TileIndex) -> Self {
+        Self(index as u16)
     }
 
     #[inline]
-    pub const fn index(&self) -> PatternIndex {
-        self.0 as PatternIndex
+    pub const fn new(index: TileIndex, attr: u8) -> Self {
+        Self(index as u16 | ((attr as u16) << 8))
+    }
+
+    #[inline]
+    pub const fn index(&self) -> TileIndex {
+        self.0 as TileIndex
+    }
+
+    #[inline]
+    pub const fn attr(&self) -> u8 {
+        (self.0 >> 8) as u8
     }
 }
 
-/// Object Attribute Memory (Sprite)
+/// Sprite
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Sprite {
     pub y: u8,
     pub x: u8,
-    pub index: PatternIndex,
+    pub index: u8,
     pub attr: u8,
 }
 
 impl Sprite {
     #[inline]
-    pub const fn new(origin: Point, index: PatternIndex, attr: u8) -> Self {
+    pub const fn new(origin: Point, index: TileIndex, attr: u8) -> Self {
         Self {
             x: origin.x as u8,
             y: origin.y as u8,
@@ -322,24 +356,29 @@ impl Sprite {
     #[inline]
     pub const fn width(&self) -> isize {
         if (self.attr & OAM_ATTR_W16) != 0 {
-            CHAR_SIZE * 2
+            TILE_SIZE * 2
         } else {
-            CHAR_SIZE
+            TILE_SIZE
         }
     }
 
     #[inline]
     pub const fn height(&self) -> isize {
         if (self.attr & OAM_ATTR_H16) != 0 {
-            CHAR_SIZE * 2
+            TILE_SIZE * 2
         } else {
-            CHAR_SIZE
+            TILE_SIZE
         }
     }
 
     #[inline]
     pub const fn frame(&self) -> Rect {
         Rect::new(self.x(), self.y(), self.width(), self.height())
+    }
+
+    #[inline]
+    pub const fn origin(&self) -> Point {
+        Point::new(self.x(), self.y())
     }
 
     #[inline]
@@ -353,7 +392,7 @@ impl Sprite {
     }
 
     #[inline]
-    pub const fn index(&self) -> PatternIndex {
+    pub const fn index(&self) -> TileIndex {
         self.index
     }
 
@@ -377,15 +416,17 @@ impl Sprite {
 pub enum ScaleMode {
     DotByDot,
     Sparse2X,
+    Interlace2X,
     NearestNeighbor2X,
 }
 
 impl ScaleMode {
     #[inline]
     pub const fn scale_factor(&self) -> usize {
+        use ScaleMode::*;
         match self {
-            ScaleMode::DotByDot => 1,
-            ScaleMode::Sparse2X | ScaleMode::NearestNeighbor2X => 2,
+            DotByDot => 1,
+            Sparse2X | Interlace2X | NearestNeighbor2X => 2,
         }
     }
 }
@@ -397,6 +438,8 @@ pub struct Control {
     pub control: u32,
     pub scroll_x: u8,
     pub scroll_y: u8,
+    pub sprite_min: u8,
+    pub sprite_max: u8,
 }
 
 impl Control {
@@ -406,7 +449,18 @@ impl Control {
             control: 0,
             scroll_x: 0,
             scroll_y: 0,
+            sprite_min: 0,
+            sprite_max: 0,
         }
+    }
+
+    #[inline]
+    pub fn reset(&mut self) {
+        self.control = 0; // TBD
+        self.scroll_x = 0;
+        self.scroll_y = 0;
+        self.sprite_min = 0x00;
+        self.sprite_max = 0xFF;
     }
 
     #[inline]

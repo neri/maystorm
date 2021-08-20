@@ -1,5 +1,6 @@
 //! Human Interface Device Manager
 
+use crate::sync::atomicflags::AtomicBitflags;
 use crate::ui::window::*;
 use crate::*;
 use bitflags::*;
@@ -80,12 +81,12 @@ impl KeyEvent {
 
     #[inline]
     pub const fn usage(self) -> Usage {
-        Usage((self.0.get() & 0xFF) as u8)
+        Usage(self.0.get() as u8)
     }
 
     #[inline]
     pub const fn modifier(self) -> Modifier {
-        unsafe { Modifier::from_bits_unchecked(((self.0.get() >> 16) & 0xFF) as u8) }
+        Modifier::from_bits_truncate(((self.0.get() >> 16) & 0xFF) as u8)
     }
 
     #[inline]
@@ -93,10 +94,23 @@ impl KeyEvent {
         unsafe { KeyEventFlags::from_bits_unchecked(((self.0.get() >> 24) & 0xFF) as u8) }
     }
 
+    #[inline]
+    pub fn is_make(&self) -> bool {
+        !self.is_break()
+    }
+
+    #[inline]
+    pub fn is_break(&self) -> bool {
+        self.flags().contains(KeyEventFlags::BREAK)
+    }
+
     /// Returns the data for which a valid key was pressed. Otherwise, it is None.
     #[inline]
     pub fn key_data(self) -> Option<Self> {
-        if self.usage() != Usage::NONE && !self.flags().contains(KeyEventFlags::BREAK) {
+        if self.usage() != Usage::NONE
+            && !(self.usage() >= Usage::MOD_MIN && self.usage() <= Usage::MOD_MAX)
+            && !self.is_break()
+        {
             Some(self)
         } else {
             None
@@ -105,7 +119,7 @@ impl KeyEvent {
 
     #[inline]
     pub fn post(self) {
-        WindowManager::post_key_event(self);
+        HidManager::post_key_event(self);
     }
 }
 
@@ -192,14 +206,18 @@ impl MouseEvent {
 /// HidManager relays between human interface devices and the window event subsystem.
 ///
 /// Keyboard scancodes will be converted to the Usage specified by the USB-HID specification on all platforms.
-pub struct HidManager;
+pub struct HidManager {
+    key_modifier: AtomicBitflags<Modifier>,
+}
 
 static mut HID_MANAGER: UnsafeCell<HidManager> = UnsafeCell::new(HidManager::new());
 
 impl HidManager {
     #[inline]
     const fn new() -> Self {
-        HidManager {}
+        HidManager {
+            key_modifier: AtomicBitflags::empty(),
+        }
     }
 
     #[inline]
@@ -208,9 +226,19 @@ impl HidManager {
     }
 
     #[inline]
-    #[allow(dead_code)]
     fn shared<'a>() -> &'a HidManager {
         unsafe { &*HID_MANAGER.get() }
+    }
+
+    fn post_key_event(event: KeyEvent) {
+        let shared = Self::shared();
+        let usage = event.usage();
+        if usage >= Usage::MOD_MIN && usage <= Usage::MOD_MAX {
+            let bit_position = Modifier::from_bits_truncate(1 << (usage.0 - Usage::MOD_MIN.0));
+            shared.key_modifier.set(bit_position, !event.is_break());
+        }
+        let event = KeyEvent::new(usage, shared.key_modifier.value(), event.flags());
+        WindowManager::post_key_event(event);
     }
 
     #[inline]

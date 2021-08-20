@@ -25,7 +25,7 @@ impl App {
             "GAME BENCH",
             Size::new(Self::WINDOW_WIDTH, Self::WINDOW_HEIGHT),
             v1::ScaleMode::DotByDot,
-            240,
+            500,
         );
         Self { presenter }
     }
@@ -40,44 +40,38 @@ impl App {
 
         let screen = self.screen();
 
-        screen.set_palette(0x05, PackedColor::WHITE);
-        screen.set_palette(0x06, PackedColor::LIGHT_BLUE);
-        screen.set_palette(0x07, PackedColor::BLUE);
-        screen.set_palette(0x09, PackedColor::WHITE);
-        screen.set_palette(0x0A, PackedColor::LIGHT_RED);
-        screen.set_palette(0x0B, PackedColor::RED);
-        screen.set_palette(0x0D, PackedColor::WHITE);
-        screen.set_palette(0x0E, PackedColor::YELLOW);
-        screen.set_palette(0x0F, PackedColor::BROWN);
-        screen.set_palette(0x11, PackedColor::WHITE);
-        screen.set_palette(0x12, PackedColor::LIGHT_GREEN);
-        screen.set_palette(0x13, PackedColor::GREEN);
+        screen.set_palette(0x04, PackedColor::from_safe_rgb(0xCCCCFF));
+
+        screen.set_palette(0x25, PackedColor::WHITE);
+        screen.set_palette(0x26, PackedColor::LIGHT_BLUE);
+        screen.set_palette(0x27, PackedColor::BLUE);
+        screen.set_palette(0x29, PackedColor::WHITE);
+        screen.set_palette(0x2A, PackedColor::LIGHT_RED);
+        screen.set_palette(0x2B, PackedColor::RED);
+        screen.set_palette(0x2D, PackedColor::WHITE);
+        screen.set_palette(0x2E, PackedColor::YELLOW);
+        screen.set_palette(0x2F, PackedColor::BROWN);
+        screen.set_palette(0x31, PackedColor::WHITE);
+        screen.set_palette(0x32, PackedColor::LIGHT_GREEN);
+        screen.set_palette(0x33, PackedColor::GREEN);
+
 
         // basic background patterns
-        screen.set_char_data(0x01, &[
-            0xF0, 0xF0, 0xF0, 0xF0, 0x0F, 0x0F, 0x0F, 0x0F, 0, 0, 0, 0, 0, 0, 0, 0,
-        ]);
-        screen.set_char_data(0x02, &[
-            0x00, 0x00, 0x00, 0x1C, 0x1C, 0x1C, 0x00, 0x00, 0x00, 0x7F, 0x7F, 0x63, 0x63, 0x63, 0x7F, 0x7F,
-        ]);
-        screen.set_char_data(0x03, &[
-            0x00, 0x00, 0x00, 0xF7, 0xC6, 0xE7, 0xC6, 0xC6, 0x00, 0x00, 0x00, 0xF7, 0xC6, 0xE7, 0xC6, 0xC6,
-        ]);
-        screen.set_char_data(0x04, &[
-            0x00, 0x00, 0x00, 0x8F, 0xDC, 0x8E, 0x07, 0x1E, 0x00, 0x00, 0x00, 0x8F, 0xDC, 0x8E, 0x07, 0x1E,
+        screen.set_tile_data(0x01, &[
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ]);
 
         // sprites
-        screen.set_char_data(0x80, &[
+        screen.set_tile_data(0x80, &[
             0x03, 0x0C, 0x10, 0x20, 0x4C, 0x4C, 0x80, 0x80, 0x03, 0x0F, 0x1F, 0x3F, 0x73, 0x73, 0xFF, 0xFF,
         ]);
-        screen.set_char_data(0x81, &[
+        screen.set_tile_data(0x81, &[
             0xC0, 0x30, 0x08, 0x04, 0x02, 0x02, 0x01, 0x01, 0xC0, 0xF0, 0xF8, 0xFC, 0xFE, 0xFE, 0xFF, 0xFF,
         ]);
-        screen.set_char_data(0x90, &[
+        screen.set_tile_data(0x90, &[
             0x80, 0x80, 0x40, 0x40, 0x20, 0x10, 0x0C, 0x03, 0xFF, 0xFF, 0x7F, 0x7F, 0x3F, 0x1F, 0x0F, 0x03,
         ]);
-        screen.set_char_data(0x91, &[
+        screen.set_tile_data(0x91, &[
             0x01, 0x01, 0x02, 0x02, 0x04, 0x08, 0x30, 0xC0, 0xFF, 0xFF, 0xFE, 0xFE, 0xFC, 0xF8, 0xF0, 0xC0,
         ]);
     }
@@ -86,20 +80,17 @@ impl App {
         self.initialize();
         let screen = self.screen();
 
-        screen.fill_all(v1::NameTableEntry::from_index(1));
+        for y in 0..v1::MAX_HEIGHT / v1::TILE_SIZE {
+            for x in 0..v1::MAX_WIDTH / v1::TILE_SIZE {
+                if ((x ^ y) & 1) != 0 {
+                    screen.set_name(x, y, v1::NameTableEntry::new(0, v1::PALETTE_1));
+                }
+            }
+        }
 
-        screen.set_name(
-            Self::WINDOW_WIDTH / v1::CHAR_SIZE - 2,
-            0,
-            v1::NameTableEntry::from_index(3),
-        );
-        screen.set_name(
-            Self::WINDOW_WIDTH / v1::CHAR_SIZE - 1,
-            0,
-            v1::NameTableEntry::from_index(4),
-        );
-
-        let mut marbles = [Marble::empty(); 64]; //v1::MAX_SPRITES];
+        const MAX_SPRITES: usize = 64;
+        screen.control_mut().sprite_max = MAX_SPRITES.wrapping_sub(1) as u8;
+        let mut marbles = [Marble::empty(); MAX_SPRITES];
         for (index, item) in marbles.iter_mut().enumerate() {
             *item = Marble::new(
                 (os_rand() % (Self::WINDOW_WIDTH as u32 - 48)) as isize + 16,
@@ -130,34 +121,15 @@ impl App {
             fps += 1;
             let now = os_monotonic();
             if (now - time) >= 1000_000 {
-                let screen = self.screen();
-                let fps0 = (0x30 + fps % 10) as u8;
+                let fps2 = (0x30 + fps % 10) as u8;
                 let fps1 = (0x30 + (fps / 10) % 10) as u8;
-                let mut fps2 = (fps / 100) as u8;
-                if fps2 > 0 {
-                    fps2 += 0x30;
+                let mut fps0 = (fps / 100) as u8;
+                if fps0 > 0 {
+                    fps0 += 0x30;
                 }
-                screen.set_name(
-                    Self::WINDOW_WIDTH / v1::CHAR_SIZE - 5,
-                    0,
-                    v1::NameTableEntry::from_index(fps2),
-                );
-                screen.set_name(
-                    Self::WINDOW_WIDTH / v1::CHAR_SIZE - 4,
-                    0,
-                    v1::NameTableEntry::from_index(fps1),
-                );
-                screen.set_name(
-                    Self::WINDOW_WIDTH / v1::CHAR_SIZE - 3,
-                    0,
-                    v1::NameTableEntry::from_index(fps0),
-                );
-                self.presenter.invalidate_rect(Rect::new(
-                    Self::WINDOW_WIDTH - v1::CHAR_SIZE * 5,
-                    0,
-                    24,
-                    8,
-                ));
+                let str = [fps0, fps1, fps2, b'F', b'P', b'S'];
+                self.screen().draw_string(Point::new(0, 0), 0, &str);
+                self.presenter.set_needs_display();
                 fps = 0;
                 time = now;
             }

@@ -64,7 +64,7 @@ pub enum Function {
     /// Load system font
     GameV1LoadFont,
 
-    /// Return a random number
+    /// Returns a simple pseudo-random number
     Rand = 100,
     /// Set the seed of the random number
     Srand,

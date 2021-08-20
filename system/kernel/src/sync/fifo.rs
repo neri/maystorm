@@ -2,10 +2,9 @@
 
 use crate::arch::cpu::Cpu;
 use crate::sync::spinlock::SpinLoopWait;
-use alloc::boxed::Box;
+use alloc::{boxed::Box, vec::Vec};
 use core::{
     mem::{self, MaybeUninit},
-    ptr::slice_from_raw_parts_mut,
     {cell::UnsafeCell, sync::atomic::*},
 };
 
@@ -114,12 +113,11 @@ impl<T: Sized> ConcurrentFifo<T> {
 
 impl<T> Drop for ConcurrentFifo<T> {
     fn drop(&mut self) {
-        while let Some(t) = self.dequeue() {
+        while let Some(t) = self._dequeue() {
             drop(t);
         }
         unsafe {
-            let boxed = Box::from_raw(slice_from_raw_parts_mut(self.data, self.one_lap));
-            drop(boxed);
+            Vec::from_raw_parts(self.data, 0, self.one_lap);
         }
         todo!();
     }

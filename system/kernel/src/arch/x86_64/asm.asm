@@ -228,17 +228,19 @@ asm_sch_switch_context:
     mov [rdi + CTX_TSS_RSP0], rax
 
     ; fxrstor [rsi + CTX_FPU_BASE]
+    xor eax, eax
+    xchg rax, [rsi + CTX_SP]
     mov ds, [rsi + CTX_DS]
     mov es, [rsi + CTX_ES]
     mov fs, [rsi + CTX_FS]
     mov gs, [rsi + CTX_GS]
-    mov rsp, [rsi + CTX_SP]
     mov rbp, [rsi + CTX_BP]
     mov rbx, [rsi + CTX_BX]
     mov r12, [rsi + CTX_R12]
     mov r13, [rsi + CTX_R13]
     mov r14, [rsi + CTX_R14]
     mov r15, [rsi + CTX_R15]
+    mov rsp, rax
 
     ; set TS flag
     mov rax, cr0
@@ -262,7 +264,11 @@ asm_sch_switch_context:
     global asm_sch_get_context_status
 asm_sch_get_context_status:
     mov rax, [rdi + CTX_SP]
+    xor ecx, ecx
+    or rax, rax
+    jz .skip
     mov rcx, [rax]
+.skip:
     mov [rsi], rcx
     mov [rsi + 8], rax
     ret
