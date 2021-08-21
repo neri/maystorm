@@ -227,8 +227,8 @@ pub fn game_v1_move_sprite(handle: usize, index: usize, x: usize, y: usize) {
 }
 
 #[inline]
-pub fn game_v1_button(handle: usize) -> u8 {
-    unsafe { svc1(Function::GameV1Button, handle) as u8 }
+pub fn game_v1_button(handle: usize) -> u32 {
+    unsafe { svc1(Function::GameV1Button, handle) as u32 }
 }
 
 #[inline]

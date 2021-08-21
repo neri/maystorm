@@ -72,7 +72,7 @@ pub mod v1 {
         }
 
         #[inline]
-        fn buttons(&self) -> u8 {
+        fn buttons(&self) -> u32 {
             game_v1_button(self.game_handle)
         }
 

@@ -1096,7 +1096,7 @@ struct OsGamePresenter<'a> {
     draw_region: Coordinates,
     timer_div: u64,
     expected_time: u64,
-    pad0: AtomicU8,
+    pad0: AtomicU32,
 }
 
 impl OsGamePresenter<'_> {
@@ -1123,7 +1123,7 @@ impl OsGamePresenter<'_> {
             draw_region: unsafe { Coordinates::from_rect_unchecked(Rect::from(size)) },
             timer_div,
             expected_time: timer_div + Timer::monotonic().as_micros() as u64,
-            pad0: AtomicU8::new(0),
+            pad0: AtomicU32::new(0),
         };
 
         let screen = unsafe { &mut *result.screen(memory).unwrap().get() };
@@ -1233,7 +1233,7 @@ impl OsGamePresenter<'_> {
 
     #[inline]
     fn get_buttons(&self) -> u32 {
-        self.pad0.load(Ordering::Acquire) as u32
+        self.pad0.load(Ordering::Acquire)
     }
 
     fn add_region(&mut self, rect: Rect) {
@@ -1371,21 +1371,20 @@ impl OsGamePresenter<'_> {
                 } else {
                     0
                 };
-                let attr = oam.attr | v1::OAM_PALETTE_BASE;
 
                 let pattern = screen.get_tile_data(oam.index());
-                Self::render_tile(
+                Self::render_sprite(
                     bitmap,
-                    attr,
+                    oam_attr,
                     pattern,
                     oam_rect.origin() + Point::new(base_x, base_y),
                     screen.palettes(),
                 );
                 if (oam_attr & v1::OAM_ATTR_W16) != 0 {
                     let pattern = screen.get_tile_data(oam.index() | 0x01);
-                    Self::render_tile(
+                    Self::render_sprite(
                         bitmap,
-                        attr,
+                        oam_attr,
                         pattern,
                         oam_rect.origin() + Point::new(base_x ^ v1::TILE_SIZE, base_y),
                         screen.palettes(),
@@ -1393,18 +1392,18 @@ impl OsGamePresenter<'_> {
                 }
                 if (oam_attr & v1::OAM_ATTR_H16) != 0 {
                     let pattern = screen.get_tile_data(oam.index() | 0x10);
-                    Self::render_tile(
+                    Self::render_sprite(
                         bitmap,
-                        attr,
+                        oam_attr,
                         pattern,
                         oam_rect.origin() + Point::new(base_x, base_y ^ v1::TILE_SIZE),
                         screen.palettes(),
                     );
                     if oam_attr & (v1::OAM_ATTR_W16) != 0 {
                         let pattern = screen.get_tile_data(oam.index() | 0x11);
-                        Self::render_tile(
+                        Self::render_sprite(
                             bitmap,
-                            attr,
+                            oam_attr,
                             pattern,
                             oam_rect.origin()
                                 + Point::new(base_x ^ v1::TILE_SIZE, base_y ^ v1::TILE_SIZE),
@@ -1488,7 +1487,35 @@ impl OsGamePresenter<'_> {
         }
     }
 
+    #[inline]
     fn render_tile(
+        bitmap: &mut Bitmap32,
+        attr: u8,
+        pattern: &v1::TileData,
+        origin: Point,
+        palette: &[v1::PaletteEntry],
+    ) {
+        Self::render_tile_raw(bitmap, attr & v1::TILE_ATTR_MASK, pattern, origin, palette);
+    }
+
+    #[inline]
+    fn render_sprite(
+        bitmap: &mut Bitmap32,
+        attr: u8,
+        pattern: &v1::TileData,
+        origin: Point,
+        palette: &[v1::PaletteEntry],
+    ) {
+        Self::render_tile_raw(
+            bitmap,
+            (attr & v1::OAM_DRAW_ATTR_MASK) | v1::OAM_PALETTE_BASE,
+            pattern,
+            origin,
+            palette,
+        );
+    }
+
+    fn render_tile_raw(
         bitmap: &mut Bitmap32,
         attr: u8,
         pattern: &v1::TileData,

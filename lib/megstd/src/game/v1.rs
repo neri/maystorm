@@ -39,6 +39,7 @@ pub const TILE_ATTR_VFLIP: u8 = 0b1000_0000;
 pub const TILE_ATTR_HFLIP: u8 = 0b0100_0000;
 // pub const TILE_ATTR_xxxx: u8 = 0b0010_0000;
 // pub const TILE_ATTR_xxxx: u8 = 0b0001_0000;
+pub const TILE_ATTR_MASK: u8 = 0b1100_0111;
 pub const TILE_ATTR_PAL_MASK: u8 = 0b0000_1111;
 
 /// If set, the top and bottom of the sprite will be flipped.
@@ -50,8 +51,9 @@ pub const OAM_ATTR_H16: u8 = 0b0010_0000;
 /// If set, the width of the sprite is 16, otherwise it is 8
 pub const OAM_ATTR_W16: u8 = 0b0001_0000;
 // pub const OAM_ATTR_xxxx: u8 = 0b0000_1000;
-pub const OAM_PALETTE_BASE: u8 = 0b0000_1000;
 pub const OAM_PALETTE_MASK: u8 = 0b0000_0111;
+pub const OAM_PALETTE_BASE: u8 = 0b0000_1000;
+pub const OAM_DRAW_ATTR_MASK: u8 = 0b1100_0111;
 
 pub const PALETTE_0: u8 = 0;
 pub const PALETTE_1: u8 = 1;
@@ -64,10 +66,22 @@ pub const PALETTE_7: u8 = 7;
 
 /// An object that mimics the screen of a retro game.
 ///
+/// You can change the contents of this object directly, but you need to notify GamePresenter in order for the changes to be displayed correctly.
+///
+/// ## Tiles and Sprites
+///
 /// The tile specified in the name table is displayed on the BG screen. It can also display sprites on top of each other.
 /// The tile data can be defined by the application, and the system font data is set in tile data 0x20 to 0x7F by default.
 ///
-/// You can change the contents of this object directly, but you need to notify GamePresenter in order for the changes to be displayed correctly.
+/// ## Palettes
+///
+/// There are 64 palettes in total, 32 for BGs in the first half and 32 for sprites in the second half. The default setting is a gameboy-like black-and-white gradient.
+/// The 0th color in each palette set for sprites is set to transparent by default. Do not set a color other than transparent, as it will be interpreted differently depending on the runtime environment.
+///
+/// BG colors are drawn by selecting from a total of 32 colors: 4 types of indexes specified in the tile data and 8 types of palette sets specified in the attributes.
+///
+/// Sprite colors are drawn by selecting from a total of 24 colors: three indexes specified in the tile data and eight palette sets specified in the attributes.
+///
 #[repr(C)]
 pub struct Screen {
     // 256 x 16 = 4096bytes
@@ -100,7 +114,7 @@ pub trait GamePresenter {
     /// Loads the font data from `start_char` to `end_char` into the character data from `start_index`.
     fn load_font(&self, start_index: u8, start_char: u8, end_char: u8);
     /// Gets the status of some buttons for the game.
-    fn buttons(&self) -> u8;
+    fn buttons(&self) -> u32;
 
     fn dispatch_buttons<F>(&self, mut f: F)
     where
@@ -111,7 +125,7 @@ pub trait GamePresenter {
         for button in &[
             DpadRight, DpadLeft, DpadDown, DpadUp, Start, Select, Fire1, Fire2,
         ] {
-            if (buttons & (1u8 << *button as usize)) != 0 {
+            if (buttons & (1u32 << *button as usize)) != 0 {
                 f(*button);
             }
         }
@@ -130,14 +144,14 @@ pub enum JoyPad {
     Fire2,
 }
 
-pub const DPAD_RIGHT: u8 = 1u8 << JoyPad::DpadRight as u8;
-pub const DPAD_LEFT: u8 = 1u8 << JoyPad::DpadLeft as u8;
-pub const DPAD_DOWN: u8 = 1u8 << JoyPad::DpadDown as u8;
-pub const DPAD_UP: u8 = 1u8 << JoyPad::DpadUp as u8;
-pub const JOYPAD_START: u8 = 1u8 << JoyPad::Start as u8;
-pub const JOYPAD_SELECT: u8 = 1u8 << JoyPad::Select as u8;
-pub const JOYPAD_FIRE_1: u8 = 1u8 << JoyPad::Fire1 as u8;
-pub const JOYPAD_FIRE_2: u8 = 1u8 << JoyPad::Fire2 as u8;
+pub const DPAD_RIGHT: u32 = 1u32 << JoyPad::DpadRight as u32;
+pub const DPAD_LEFT: u32 = 1u32 << JoyPad::DpadLeft as u32;
+pub const DPAD_DOWN: u32 = 1u32 << JoyPad::DpadDown as u32;
+pub const DPAD_UP: u32 = 1u32 << JoyPad::DpadUp as u32;
+pub const JOYPAD_START: u32 = 1u32 << JoyPad::Start as u32;
+pub const JOYPAD_SELECT: u32 = 1u32 << JoyPad::Select as u32;
+pub const JOYPAD_FIRE_1: u32 = 1u32 << JoyPad::Fire1 as u32;
+pub const JOYPAD_FIRE_2: u32 = 1u32 << JoyPad::Fire2 as u32;
 
 impl Screen {
     #[inline]

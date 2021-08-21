@@ -232,7 +232,10 @@ impl Scheduler {
                 let local = Self::local_scheduler().unwrap();
                 let current = local.current_thread();
                 current.update_statistics();
-                current.as_ref().attribute.insert(ThreadAttribute::ASLEEP);
+                current
+                    .as_ref()
+                    .sleep_counter
+                    .fetch_add(1, Ordering::SeqCst);
                 LocalScheduler::switch_context(local, Scheduler::next(local).unwrap_or(local.idle));
             });
         }
@@ -290,7 +293,7 @@ impl Scheduler {
         }
     }
 
-    fn enqueue(&mut self, handle: ThreadHandle) {
+    fn _enqueue(&mut self, handle: ThreadHandle) {
         match handle.as_ref().priority {
             Priority::Realtime => self.queue_realtime.enqueue(handle).unwrap(),
             Priority::High | Priority::Normal | Priority::Low => {
@@ -305,19 +308,17 @@ impl Scheduler {
         let handle = thread;
         let shared = Self::shared();
         let thread = handle.as_ref();
+        thread.attribute.remove(ThreadAttribute::QUEUED);
         if thread.priority == Priority::Idle {
             return;
         } else if thread.attribute.contains(ThreadAttribute::ZOMBIE) {
             ThreadPool::remove(handle);
-        } else if thread.attribute.contains(ThreadAttribute::ASLEEP) {
-            if thread.attribute.test_and_clear(ThreadAttribute::AWAKE) {
-                thread.attribute.remove(ThreadAttribute::ASLEEP);
-                shared.enqueue(handle);
-            } else {
-                thread.attribute.remove(ThreadAttribute::QUEUED);
-            }
+        } else if thread.is_asleep() {
+            //
         } else {
-            shared.enqueue(handle);
+            if !thread.attribute.test_and_set(ThreadAttribute::QUEUED) {
+                shared._enqueue(handle);
+            }
         }
     }
 
@@ -330,10 +331,7 @@ impl Scheduler {
             return;
         }
         if !thread.attribute.test_and_set(ThreadAttribute::QUEUED) {
-            if thread.attribute.test_and_clear(ThreadAttribute::AWAKE) {
-                thread.attribute.remove(ThreadAttribute::ASLEEP);
-            }
-            shared.enqueue(handle);
+            shared._enqueue(handle);
         }
     }
 
@@ -594,12 +592,19 @@ impl Scheduler {
             let thread = thread.clone();
             let thread = unsafe { &mut (*thread.get()) };
 
+            let status_char = if thread.is_asleep() {
+                'S'
+            } else {
+                thread.attribute.to_char()
+            };
+
             write!(
                 sb,
-                "{:3} {:3} {} {:02x}",
+                "{:3} {:3} {} {}{:01x}",
                 thread.handle.as_usize(),
                 thread.pid.0,
                 thread.priority as usize,
+                status_char,
                 thread.attribute.bits(),
             )
             .unwrap();
@@ -679,8 +684,6 @@ impl LocalScheduler {
         let current = self.current_thread();
 
         current.update(|thread| {
-            thread.attribute.remove(ThreadAttribute::AWAKE);
-            thread.attribute.remove(ThreadAttribute::ASLEEP);
             thread.measure.store(Timer::measure().0, Ordering::SeqCst);
         });
         let retired = self.swap_retired(None).unwrap();
@@ -1426,7 +1429,7 @@ impl ThreadHandle {
 
     #[inline]
     pub fn wake(&self) {
-        self.as_ref().attribute.insert(ThreadAttribute::AWAKE);
+        self.as_ref().sleep_counter.fetch_sub(1, Ordering::SeqCst);
         Scheduler::add(*self);
     }
 
@@ -1462,6 +1465,7 @@ struct ThreadContextData {
     sem: Semaphore,
     personality: Option<Box<dyn Personality>>,
     attribute: AtomicBitflags<ThreadAttribute>,
+    sleep_counter: AtomicIsize,
     priority: Priority,
     quantum: Quantum,
 
@@ -1481,8 +1485,6 @@ struct ThreadContextData {
 bitflags! {
     struct ThreadAttribute: usize {
         const QUEUED    = 0b0000_0000_0000_0001;
-        const ASLEEP    = 0b0000_0000_0000_0010;
-        const AWAKE     = 0b0000_0000_0000_0100;
         const ZOMBIE    = 0b0000_0000_0000_1000;
     }
 }
@@ -1497,10 +1499,6 @@ impl AtomicBitflags<ThreadAttribute> {
     fn to_char(&self) -> char {
         if self.contains(ThreadAttribute::ZOMBIE) {
             'z'
-        } else if self.contains(ThreadAttribute::AWAKE) {
-            'w'
-        } else if self.contains(ThreadAttribute::ASLEEP) {
-            'S'
         } else if self.contains(ThreadAttribute::QUEUED) {
             'R'
         } else {
@@ -1538,6 +1536,7 @@ impl ThreadContextData {
             handle,
             sem: Semaphore::new(0),
             attribute: AtomicBitflags::empty(),
+            sleep_counter: AtomicIsize::new(0),
             priority,
             quantum: Quantum::from(priority),
             measure: AtomicUsize::new(0),
@@ -1580,6 +1579,11 @@ impl ThreadContextData {
         self.attribute.insert(ThreadAttribute::ZOMBIE);
         Scheduler::sleep();
         unreachable!();
+    }
+
+    #[inline]
+    fn is_asleep(&self) -> bool {
+        self.sleep_counter.load(Ordering::Relaxed) > 0
     }
 
     fn set_name(&mut self, name: &str) {
