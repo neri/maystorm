@@ -1140,7 +1140,7 @@ impl OsGamePresenter<'_> {
         }
         result.load_font(memory, 0, 0, 0xFF);
         for i in 0..v1::MAX_SPRITES {
-            screen.get_sprite_mut(i).gone();
+            screen.set_sprite(i, 0, 0);
         }
 
         Ok(result)
@@ -1448,6 +1448,7 @@ impl OsGamePresenter<'_> {
                 let _ = self.window.draw_in_rect(rect, |bitmap| match bitmap {
                     Bitmap::Indexed(_) => todo!(),
                     Bitmap::Argb32(bitmap) => {
+                        let back = screen.get_palette(0).as_color().into_true_color();
                         let origin = Point::new(rect.x() / 2, rect.y() / 2);
                         for y in 0..bitmap.height() / 2 {
                             for x in 0..bitmap.width() / 2 {
@@ -1457,6 +1458,8 @@ impl OsGamePresenter<'_> {
                                     let pixel = self.buffer.get_pixel_unchecked(sp);
                                     bitmap.set_pixel_unchecked(dp, pixel);
                                     bitmap.set_pixel_unchecked(dp + Point::new(1, 0), pixel);
+                                    bitmap.set_pixel_unchecked(dp + Point::new(0, 1), back);
+                                    bitmap.set_pixel_unchecked(dp + Point::new(1, 1), back);
                                 }
                             }
                         }

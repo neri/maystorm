@@ -99,8 +99,8 @@ impl App {
                 if (os_rand() & 1) == 0 { 1 } else { -1 },
                 1 + (os_rand() & 1) as isize,
             );
-            *screen.get_sprite_mut(index) = v1::Sprite::new(
-                item.origin(),
+            screen.set_sprite(
+                index,
                 0x80,
                 v1::OAM_ATTR_W16 | v1::OAM_ATTR_H16 | (1 + (3 & index as u8)),
             );

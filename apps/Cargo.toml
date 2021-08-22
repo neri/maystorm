@@ -4,6 +4,7 @@ members = [
   "bench",
   "gbench",
   "ghello",
+  "ghello2",
   "hello",
   "hello2",
   "life",

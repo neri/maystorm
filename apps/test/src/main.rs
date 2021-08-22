@@ -23,7 +23,7 @@ impl App {
         let presenter = GameWindow::with_options(
             "GAME TEST",
             Size::new(Self::WINDOW_WIDTH, Self::WINDOW_HEIGHT),
-            v1::ScaleMode::NearestNeighbor2X,
+            v1::ScaleMode::Interlace2X,
             60,
         );
         Self { presenter }
@@ -37,6 +37,18 @@ impl App {
     #[rustfmt::skip]
     fn initialize(&mut self) {
         let screen = self.screen();
+
+        screen.set_palette(0x00, PackedColor::from_safe_rgb(0x333333));
+        screen.set_palette(0x01, PackedColor::from_safe_rgb(0x999999));
+        screen.set_palette(0x02, PackedColor::from_safe_rgb(0xCCCCCC));
+        screen.set_palette(0x03, PackedColor::from_safe_rgb(0xFFFFFF));
+
+        screen.set_palette(0x21, PackedColor::WHITE);
+        screen.set_palette(0x22, PackedColor::LIGHT_BLUE);
+        screen.set_palette(0x23, PackedColor::BLUE);
+        screen.set_palette(0x25, PackedColor::WHITE);
+        screen.set_palette(0x26, PackedColor::LIGHT_RED);
+        screen.set_palette(0x27, PackedColor::RED);
 
         // basic background patterns
         screen.set_tile_data(0x01, &[
@@ -117,10 +129,9 @@ impl App {
         );
         let mut missile = Missile::new(Point::new(0, v1::MAX_HEIGHT), Direction::Neutral);
 
-        *screen.get_sprite_mut(0) =
-            v1::Sprite::new(player.point, 0x80, v1::OAM_ATTR_W16 | v1::OAM_ATTR_H16 | 4);
+        screen.set_sprite(0, 0x80, v1::OAM_ATTR_W16 | v1::OAM_ATTR_H16 | v1::PALETTE_0);
 
-        *screen.get_sprite_mut(1) = v1::Sprite::new(missile.point, 0xE0, 1);
+        screen.set_sprite(1, 0xE0, v1::PALETTE_1);
 
         screen.draw_string(Point::new(3, 3), 0, b"Hello, world!");
 

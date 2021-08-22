@@ -49,6 +49,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ghello2"
+version = "0.1.0"
+dependencies = [
+ "megoslib",
+]
+
+[[package]]
 name = "hello"
 version = "0.1.0"
 dependencies = [

@@ -76,7 +76,10 @@ pub const PALETTE_7: u8 = 7;
 /// ## Palettes
 ///
 /// There are 64 palettes in total, 32 for BGs in the first half and 32 for sprites in the second half. The default setting is a gameboy-like black-and-white gradient.
-/// The 0th color in each palette set for sprites is set to transparent by default. Do not set a color other than transparent, as it will be interpreted differently depending on the runtime environment.
+///
+/// The 0th color in each palette set for sprites is set to transparent by default.
+/// The behavior when a color other than transparent is set is undefined.
+/// Similarly, the behavior when a non-zero color is set to transparent is undefined.
 ///
 /// BG colors are drawn by selecting from a total of 32 colors: 4 types of indexes specified in the tile data and 8 types of palette sets specified in the attributes.
 ///
@@ -282,6 +285,11 @@ impl Screen {
     #[inline]
     pub fn get_sprite_mut(&mut self, index: usize) -> &mut Sprite {
         unsafe { &mut *self.sprites.get_unchecked_mut(index & (MAX_SPRITES - 1)) }
+    }
+
+    #[inline]
+    pub fn set_sprite(&mut self, index: usize, tile_index: TileIndex, attr: u8) {
+        *self.get_sprite_mut(index) = Sprite::new(Point::new(0, MAX_HEIGHT), tile_index, attr);
     }
 
     #[inline]
