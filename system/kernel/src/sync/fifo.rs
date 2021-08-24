@@ -119,7 +119,6 @@ impl<T> Drop for ConcurrentFifo<T> {
         unsafe {
             Vec::from_raw_parts(self.data, 0, self.one_lap);
         }
-        todo!();
     }
 }
 

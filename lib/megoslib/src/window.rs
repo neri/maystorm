@@ -70,7 +70,7 @@ pub struct DrawingContext {
 
 impl DrawingContext {
     #[inline]
-    pub const unsafe fn context(&self) -> usize {
+    pub const fn raw_context(&self) -> usize {
         self.ctx
     }
 

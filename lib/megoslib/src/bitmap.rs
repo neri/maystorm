@@ -84,7 +84,7 @@ impl OsBitmap1<'_> {
     #[inline]
     pub fn blt(&self, ctx: &DrawingContext, origin: Point, color: WindowColor, mode: usize) {
         os_blt1(
-            unsafe { ctx.context() },
+            ctx.raw_context(),
             origin.x as usize,
             origin.y as usize,
             self as *const _ as usize,
@@ -145,7 +145,7 @@ impl OsMutBitmap1<'_> {
     #[inline]
     pub fn blt(&self, ctx: &DrawingContext, origin: Point, color: WindowColor, mode: usize) {
         os_blt1(
-            unsafe { ctx.context() },
+            ctx.raw_context(),
             origin.x as usize,
             origin.y as usize,
             self as *const _ as usize,

@@ -18,7 +18,7 @@ fn _start() {
         presenter.sync();
 
         for index in 0..chars.len() {
-            let position = ((phase + index as isize) & 31) - 15;
+            let position = ((phase - index as isize) & 31) - 15;
             let value = position * position / 8 - 16;
             presenter.move_sprite(
                 index as v1::SpriteIndex,

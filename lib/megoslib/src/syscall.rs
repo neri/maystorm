@@ -212,11 +212,6 @@ pub fn game_v1_sync(handle: usize) -> usize {
 }
 
 #[inline]
-pub fn game_v1_redraw(handle: usize) {
-    unsafe { svc1(Function::GameV1Redraw, handle) };
-}
-
-#[inline]
 pub fn game_v1_rect(handle: usize, x: usize, y: usize, width: usize, height: usize) {
     unsafe { svc5(Function::GameV1Rect, handle, x, y, width, height) };
 }

@@ -4,13 +4,12 @@ use super::{font::*, text::*, theme::Theme};
 use crate::{
     io::hid::*,
     sync::atomicflags::*,
-    sync::spinlock::Spinlock,
     sync::RwLock,
     sync::{fifo::*, semaphore::*},
     task::scheduler::*,
     *,
 };
-use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc};
+use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
 use bitflags::*;
 use core::{
     cell::UnsafeCell,
@@ -27,6 +26,7 @@ use futures_util::task::AtomicWaker;
 use megstd::io::hid::*;
 use megstd::{drawing::*, string::StringBuffer};
 
+const MAX_WINDOWS: usize = 255;
 const WINDOW_SYSTEM_EVENT_QUEUE_SIZE: usize = 100;
 
 const WINDOW_BORDER_WIDTH: isize = 1;
@@ -104,8 +104,6 @@ const BACK_BUTTON_SOURCE: [u8; BACK_BUTTON_WIDTH * BACK_BUTTON_HEIGHT] = [
 static mut WM: Option<Box<WindowManager<'static>>> = None;
 
 pub struct WindowManager<'a> {
-    lock: Spinlock,
-
     sem_event: Semaphore,
     attributes: AtomicBitflags<WindowManagerAttributes>,
     system_event: ConcurrentFifo<WindowSystemEvent>,
@@ -124,6 +122,7 @@ pub struct WindowManager<'a> {
     resources: Resources<'a>,
 
     window_pool: RwLock<BTreeMap<WindowHandle, Arc<UnsafeCell<Box<RawWindow<'a>>>>>>,
+    window_orders: RwLock<Vec<WindowHandle>>,
 
     root: WindowHandle,
     pointer: WindowHandle,
@@ -157,6 +156,7 @@ impl WindowManager<'static> {
         let pointer_y = screen_size.height() / 2;
         let off_screen = BoxedBitmap32::new(screen_size, TrueColor::TRANSPARENT);
         let mut window_pool = BTreeMap::new();
+        let mut window_orders = Vec::with_capacity(MAX_WINDOWS);
 
         let window_button_width = WINDOW_TITLE_HEIGHT;
         let close_button = OperationalBitmap::with_slice(
@@ -182,6 +182,7 @@ impl WindowManager<'static> {
             window_pool.insert(handle, Arc::new(UnsafeCell::new(window)));
             handle
         };
+        window_orders.push(root);
 
         let pointer = {
             let pointer_size =
@@ -209,7 +210,6 @@ impl WindowManager<'static> {
 
         unsafe {
             WM = Some(Box::new(WindowManager {
-                lock: Spinlock::default(),
                 sem_event: Semaphore::new(0),
                 attributes,
                 pointer_x: AtomicIsize::new(pointer_x),
@@ -230,6 +230,7 @@ impl WindowManager<'static> {
                     label_font: FontManager::ui_font(),
                 },
                 window_pool: RwLock::new(window_pool),
+                window_orders: RwLock::new(window_orders),
                 root,
                 pointer,
                 active: None,
@@ -257,9 +258,13 @@ impl WindowManager<'static> {
             .insert(handle, Arc::new(UnsafeCell::new(window)));
     }
 
-    #[allow(dead_code)]
-    fn remove(_window: &WindowHandle) {
-        // TODO:
+    fn remove(window: &RawWindow) {
+        window.hide();
+        let shared = WindowManager::shared_mut();
+        let window_orders = shared.window_orders.write().unwrap();
+        let handle = window.handle;
+        shared.window_pool.write().unwrap().remove(&handle);
+        drop(window_orders);
     }
 
     #[inline]
@@ -571,71 +576,59 @@ impl WindowManager<'_> {
     }
 
     #[inline]
-    fn synchronized<F, R>(f: F) -> R
-    where
-        F: FnOnce() -> R,
-    {
-        let shared = unsafe { WM.as_ref().unwrap() };
-        shared.lock.synchronized(f)
-    }
-
-    #[inline]
     fn next_window_handle() -> WindowHandle {
         static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
         WindowHandle::new(NEXT_ID.fetch_add(1, Ordering::SeqCst)).unwrap()
     }
 
-    unsafe fn add_hierarchy(window: WindowHandle) {
-        WindowManager::remove_hierarchy(window);
+    fn add_hierarchy(window: WindowHandle) {
+        let window = match window.get() {
+            Some(v) => v,
+            None => return,
+        };
 
-        let shared = WindowManager::shared();
-        let mut cursor = shared.root;
-        let level = window.as_ref().level;
+        Self::remove_hierarchy(window.handle);
+        let mut window_orders = WindowManager::shared_mut().window_orders.write().unwrap();
 
-        loop {
-            if let Some(next) = cursor.as_ref().next {
-                if level < next.as_ref().level {
-                    cursor.update(|cursor| {
-                        cursor.next = Some(window);
-                    });
-                    window.update(|window| {
-                        window.next = Some(next);
-                    });
-                    break;
-                } else {
-                    cursor = next;
-                }
-            } else {
-                cursor.update(|cursor| {
-                    cursor.next = Some(window);
-                });
+        let mut insert_position = None;
+        for (index, lhs) in window_orders.iter().enumerate() {
+            if lhs.as_ref().level > window.level {
+                insert_position = Some(index);
                 break;
             }
         }
+        if let Some(insert_position) = insert_position {
+            window_orders.insert(insert_position, window.handle);
+        } else {
+            window_orders.push(window.handle);
+        }
+
         window.as_ref().attributes.insert(WindowAttributes::VISIBLE);
+
+        drop(window_orders);
     }
 
-    unsafe fn remove_hierarchy(window: WindowHandle) {
-        let shared = WindowManager::shared();
-        let mut cursor = shared.root;
+    fn remove_hierarchy(window: WindowHandle) {
+        let window = match window.get() {
+            Some(v) => v,
+            None => return,
+        };
 
-        window.as_ref().attributes.remove(WindowAttributes::VISIBLE);
-        loop {
-            if let Some(next) = cursor.as_ref().next {
-                if next == window {
-                    cursor.update(|cursor| {
-                        cursor.next = window.as_ref().next;
-                    });
-                    window.update(|window| {
-                        window.next = None;
-                    });
-                    break;
-                }
-                cursor = next;
-            } else {
+        window.attributes.remove(WindowAttributes::VISIBLE);
+
+        let mut window_orders = WindowManager::shared_mut().window_orders.write().unwrap();
+        let mut remove_position = None;
+        for (index, lhs) in window_orders.iter().enumerate() {
+            if *lhs == window.handle {
+                remove_position = Some(index);
                 break;
             }
         }
+        if let Some(remove_position) = remove_position {
+            window_orders.remove(remove_position);
+        }
+
+        drop(window_orders);
     }
 
     #[inline]
@@ -686,24 +679,15 @@ impl WindowManager<'_> {
     }
 
     fn window_at_point(point: Point) -> WindowHandle {
-        WindowManager::synchronized(|| {
-            let shared = Self::shared();
-            let mut found = shared.root;
-            let mut cursor = found;
-            loop {
-                let window = cursor.as_ref();
-                if window.level == WindowLevel::POINTER {
-                    break found;
-                }
-                if point.is_within(window.frame) {
-                    found = cursor;
-                }
-                match window.next {
-                    Some(next) => cursor = next,
-                    None => break found,
-                };
+        let shared = WindowManager::shared();
+        let window_orders = shared.window_orders.read().unwrap();
+        for handle in window_orders.iter().rev().skip(1) {
+            let window = handle.as_ref();
+            if point.is_within(window.frame) {
+                return *handle;
             }
-        })
+        }
+        shared.root
     }
 
     fn pointer(&self) -> Point {
@@ -952,9 +936,6 @@ struct RawWindow<'a> {
     waker: AtomicWaker,
     sem: Semaphore,
     queue: Option<ConcurrentFifo<WindowMessage>>,
-
-    // TODO: Window Hierachies
-    next: Option<WindowHandle>,
 }
 
 bitflags! {
@@ -1055,9 +1036,7 @@ impl RawWindow<'_> {
     fn show(&mut self) {
         self.draw_frame();
         self.update_shadow();
-        WindowManager::synchronized(|| unsafe {
-            WindowManager::add_hierarchy(self.handle);
-        });
+        WindowManager::add_hierarchy(self.handle);
         WindowManager::invalidate_screen(self.shadow_frame());
     }
 
@@ -1065,20 +1044,28 @@ impl RawWindow<'_> {
         let shared = WindowManager::shared_mut();
         let frame = self.shadow_frame();
         let new_active = if shared.active.contains(&self.handle) {
-            self.prev()
+            let window_orders = shared.window_orders.read().unwrap();
+            window_orders
+                .iter()
+                .position(|v| *v == self.handle)
+                .and_then(|v| window_orders.get(v - 1))
+                .map(|&v| v)
         } else {
             None
         };
         if shared.captured.contains(&self.handle) {
             shared.captured = None;
         }
-        WindowManager::synchronized(|| unsafe {
-            WindowManager::remove_hierarchy(self.handle);
-        });
+        WindowManager::remove_hierarchy(self.handle);
         WindowManager::invalidate_screen(frame);
         if new_active.is_some() {
             WindowManager::set_active(new_active);
         }
+    }
+
+    #[inline]
+    pub fn close(&self) {
+        WindowManager::remove(self);
     }
 
     fn set_frame(&mut self, new_frame: Rect) {
@@ -1138,6 +1125,8 @@ impl RawWindow<'_> {
             Err(_) => return false,
         };
 
+        let window_orders = WindowManager::shared().window_orders.read().unwrap();
+
         let is_opaque = self.style.contains(WindowStyle::OPAQUE)
             || self.style.contains(WindowStyle::OPAQUE_CONTENT)
                 && self
@@ -1145,15 +1134,17 @@ impl RawWindow<'_> {
                     .insets_by(self.content_insets)
                     .is_within_rect(frame);
 
-        let mut cursor = if is_opaque {
-            self.handle
+        let first_index = if is_opaque {
+            window_orders
+                .iter()
+                .position(|&v| v == self.handle)
+                .unwrap_or(0)
         } else {
-            WindowManager::shared().root
+            0
         };
 
-        // WindowManager::shared().draw_lock(||
-        loop {
-            let window = cursor.as_ref();
+        for handle in window_orders[first_index..].iter() {
+            let window = handle.as_ref();
             let frame = window.shadow_frame();
             if let Ok(coords2) = Coordinates::from_rect(frame) {
                 if frame.is_within_rect(frame) {
@@ -1199,6 +1190,10 @@ impl RawWindow<'_> {
                                 );
                             }
                             Bitmap::Argb32(bitmap) => {
+                                // let rect = Rect {
+                                //     origin: blt_origin,
+                                //     size: blt_rect.size,
+                                // };
                                 if window.style.contains(WindowStyle::OPAQUE)
                                     || self.handle == window.handle && is_opaque
                                 {
@@ -1217,12 +1212,7 @@ impl RawWindow<'_> {
                     }
                 }
             }
-            cursor = match window.next {
-                Some(next) => next,
-                None => break,
-            };
         }
-        // );
 
         true
     }
@@ -1582,21 +1572,6 @@ impl RawWindow<'_> {
         self.invalidate_rect(self.back_button_frame());
     }
 
-    fn prev(&self) -> Option<WindowHandle> {
-        WindowManager::synchronized(|| {
-            let handle = self.handle;
-            let mut cursor = Some(WindowManager::shared().root);
-            while let Some(current) = cursor {
-                let current = current.as_ref();
-                if current.next.contains(&handle) {
-                    return Some(current.handle);
-                }
-                cursor = current.next;
-            }
-            None
-        })
-    }
-
     #[inline]
     fn shadow_bitmap<'a>(&'a self) -> Option<&'a mut OperationalBitmap> {
         self.shadow_bitmap
@@ -1863,7 +1838,6 @@ impl WindowBuilder {
             waker: AtomicWaker::new(),
             sem: Semaphore::new(0),
             queue,
-            next: None,
         });
 
         match self.bitmap_strategy {
@@ -2144,8 +2118,7 @@ impl WindowHandle {
 
     #[inline]
     pub fn close(&self) {
-        self.hide();
-        WindowManager::remove(self);
+        self.as_ref().close();
     }
 
     #[inline]

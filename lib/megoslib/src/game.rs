@@ -32,7 +32,7 @@ pub mod v1 {
         pub fn with_options(
             title: &str,
             size: Size,
-            scale: v1::ScaleMode,
+            scale: ScaleMode,
             fps: usize,
         ) -> GamePresenterImpl {
             let window = window::WindowBuilder::new()
@@ -57,7 +57,7 @@ pub mod v1 {
         }
 
         #[inline]
-        fn new_long(window: WindowHandle, scale: v1::ScaleMode, fps: usize) -> Self {
+        fn new_long(window: WindowHandle, scale: ScaleMode, fps: usize) -> Self {
             let game_handle = unsafe {
                 game_v1_init_long(window.0, SCREEN.get() as *const c_void, scale as usize, fps)
             };
@@ -79,11 +79,6 @@ pub mod v1 {
         #[inline]
         fn sync(&self) -> usize {
             game_v1_sync(self.game_handle)
-        }
-
-        #[inline]
-        fn display_if_needed(&self) {
-            game_v1_redraw(self.game_handle);
         }
 
         #[inline]

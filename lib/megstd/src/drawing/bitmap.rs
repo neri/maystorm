@@ -9,9 +9,14 @@ use core::cell::UnsafeCell;
 use core::convert::TryFrom;
 use core::mem::swap;
 use core::mem::transmute;
+use num_derive::FromPrimitive;
 
 pub trait Blt<T: Drawable>: Drawable {
     fn blt(&mut self, src: &T, origin: Point, rect: Rect);
+}
+
+pub trait BltScale<T: Drawable>: Drawable {
+    fn blt_scale(&mut self, src: &T, origin: Point, rect: Rect, scale: ScaleMode);
 }
 
 pub trait BasicDrawing: SetPixel {
@@ -2527,4 +2532,23 @@ fn adjust_blt_coords(
     }
 
     (dx, dy, sx, sy, width, height)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+pub enum ScaleMode {
+    DotByDot,
+    Sparse2X,
+    Interlace2X,
+    NearestNeighbor2X,
+}
+
+impl ScaleMode {
+    #[inline]
+    pub const fn scale_factor(&self) -> usize {
+        use ScaleMode::*;
+        match self {
+            DotByDot => 1,
+            Sparse2X | Interlace2X | NearestNeighbor2X => 2,
+        }
+    }
 }

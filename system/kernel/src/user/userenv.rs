@@ -392,9 +392,9 @@ async fn activity_monitor_main() {
 async fn notification_main() {
     let padding = 8;
     let radius = 8;
-    let bg_color = Color::from_argb(0xC0EEEEEE);
+    let bg_color = Color::from_argb(0xFFFFFFCC);
     let fg_color = Color::BLACK;
-    let border_color = Color::from_argb(0x80C0C0C0);
+    let border_color = Color::from_argb(0xFFC0C0C0);
     let window_width = 240;
     let window_height = 120;
     let screen_bounds = WindowManager::user_screen_bounds();
@@ -418,10 +418,10 @@ async fn notification_main() {
         let rect2 = rect.insets_by(EdgeInsets::padding_each(padding));
         let ats = AttributedString::new()
             .font(FontDescriptor::new(FontFamily::SystemUI, 16).unwrap())
-            // .font(FontManager::title_font())
             .color(fg_color)
             .center()
-            .text("Lorem ipsum dolor sit amet, consectetur adipiscing elit,");
+            // .text("Lorem ipsum dolor sit amet, consectetur adipiscing elit,");
+            .text("A USB device has been connected.");
         ats.draw_text(bitmap, rect2, 0);
     });
 
@@ -490,11 +490,11 @@ async fn test_window_main() {
                 .view(rect, |mut bitmap| {
                     let mut offset = 0;
                     for family in [
-                        FontFamily::SansSerif,
-                        FontFamily::SystemUI,
-                        FontFamily::Serif,
-                        // FontFamily::Cursive,
-                        // FontFamily::Japanese,
+                        // FontFamily::SansSerif,
+                        // FontFamily::SystemUI,
+                        // FontFamily::Serif,
+                        // // FontFamily::Cursive,
+                        FontFamily::Japanese,
                     ] {
                         for point in [32, 28, 24, 20, 16, 14, 12, 10, 8] {
                             offset +=

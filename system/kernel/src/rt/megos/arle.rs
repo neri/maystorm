@@ -346,15 +346,6 @@ impl ArleRuntime {
                 self.sense_message(presenter.window);
                 return Ok(WasmValue::from(presenter.sync(memory)));
             }
-            Function::GameV1Redraw => {
-                let _handle = params.get_usize()?;
-                let presenter = self
-                    .game_presenter
-                    .as_ref()
-                    .map(|v| unsafe { &mut *v.get() })
-                    .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
-                presenter.redraw(memory);
-            }
             Function::GameV1Rect => {
                 let _handle = params.get_usize()?;
                 let origin = params.get_point()?;
@@ -1090,7 +1081,7 @@ impl SimpleFreePair {
 struct OsGamePresenter<'a> {
     window: WindowHandle,
     screen: usize,
-    scale: v1::ScaleMode,
+    scale: ScaleMode,
     size: Size,
     buffer: BoxedBitmap32<'a>,
     draw_region: Coordinates,
@@ -1105,7 +1096,7 @@ impl OsGamePresenter<'_> {
         memory: &WasmMemory,
         window: WindowHandle,
         screen: usize,
-        scale: v1::ScaleMode,
+        scale: ScaleMode,
         fps: usize,
     ) -> Result<Self, WasmRuntimeErrorKind> {
         let fps = if fps > 0 && fps <= 500 { fps } else { 60 };
@@ -1421,12 +1412,12 @@ impl OsGamePresenter<'_> {
 
         let rect = rect * self.scale.scale_factor();
         match self.scale {
-            v1::ScaleMode::DotByDot => {
+            ScaleMode::DotByDot => {
                 let _ = self.window.draw_in_rect(rect, |bitmap| {
                     bitmap.blt(self.buffer.as_ref(), Point::new(0, 0), rect);
                 });
             }
-            v1::ScaleMode::Sparse2X => {
+            ScaleMode::Sparse2X => {
                 let _ = self.window.draw_in_rect(rect, |bitmap| match bitmap {
                     Bitmap::Indexed(_) => todo!(),
                     Bitmap::Argb32(bitmap) => {
@@ -1444,7 +1435,7 @@ impl OsGamePresenter<'_> {
                     }
                 });
             }
-            v1::ScaleMode::Interlace2X => {
+            ScaleMode::Interlace2X => {
                 let _ = self.window.draw_in_rect(rect, |bitmap| match bitmap {
                     Bitmap::Indexed(_) => todo!(),
                     Bitmap::Argb32(bitmap) => {
@@ -1466,7 +1457,7 @@ impl OsGamePresenter<'_> {
                     }
                 });
             }
-            v1::ScaleMode::NearestNeighbor2X => {
+            ScaleMode::NearestNeighbor2X => {
                 let _ = self.window.draw_in_rect(rect, |bitmap| match bitmap {
                     Bitmap::Indexed(_) => todo!(),
                     Bitmap::Argb32(bitmap) => {

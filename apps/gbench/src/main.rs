@@ -24,7 +24,7 @@ impl App {
         let presenter = GameWindow::with_options(
             "GAME BENCH",
             Size::new(Self::WINDOW_WIDTH, Self::WINDOW_HEIGHT),
-            v1::ScaleMode::DotByDot,
+            ScaleMode::DotByDot,
             500,
         );
         Self { presenter }
@@ -80,8 +80,8 @@ impl App {
         self.initialize();
         let screen = self.screen();
 
-        for y in 0..v1::MAX_HEIGHT / v1::TILE_SIZE {
-            for x in 0..v1::MAX_WIDTH / v1::TILE_SIZE {
+        for y in 0..v1::MAX_VHEIGHT as isize / v1::TILE_SIZE {
+            for x in 0..v1::MAX_VWIDTH as isize / v1::TILE_SIZE {
                 if ((x ^ y) & 1) != 0 {
                     screen.set_name(x, y, v1::NameTableEntry::new(0, v1::PALETTE_1));
                 }
@@ -117,6 +117,9 @@ impl App {
                 item.step();
                 self.presenter.move_sprite(index as u8, item.origin());
             }
+
+            // self.presenter.screen().control_mut().scroll_y += 1;
+            // self.presenter.set_needs_display();
 
             fps += 1;
             let now = os_monotonic();

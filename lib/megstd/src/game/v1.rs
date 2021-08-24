@@ -1,17 +1,34 @@
-//! MEG-OS Retro Game Framework v1
+//! MEG-OS Game Framework v1
 //!
 //! This framework provides functionality similar to the screen display of retro games.
 //!
-//! # Restrictions
+//! ## Restrictions
 //!
 //! This version of the game framework has a number of tight restrictions, much like a real retro game console.
 //!
 //! * The screen size is within 256x240 pixels.
 //! * The number of tile data is up to 256.
 //! * Each tile data can be used for up to four colors for BGs and up to three colors for sprites.
+//!
+//! ## Tiles, BGs, and Sprites
+//!
+//! The tile specified in the name table is displayed on the BG screen. It can also display sprites on top of each other.
+//! The tile data can be defined by the application, and the system font data is set in tile data 0x20 to 0x7F by default.
+//!
+//! ## Palettes
+//!
+//! There are 64 palettes in total, 32 for BGs in the first half and 32 for sprites in the second half. The default setting is a gameboy-like black-and-white gradient.
+//!
+//! The 0th color in each palette set for sprites is set to transparent by default.
+//! The behavior when a color other than transparent is set is undefined.
+//! Similarly, the behavior when a non-zero color is set to transparent is undefined.
+//!
+//! BG colors are drawn by selecting from a total of 32 colors: 4 types of indexes specified in the tile data and 8 types of palette sets specified in the attributes.
+//!
+//! Sprite colors are drawn by selecting from a total of 24 colors: three indexes specified in the tile data and eight palette sets specified in the attributes.
+//!
 
 use crate::drawing::*;
-use num_derive::FromPrimitive;
 
 pub type TileIndex = u8;
 pub type SpriteIndex = u8;
@@ -67,24 +84,6 @@ pub const PALETTE_7: u8 = 7;
 /// An object that mimics the screen of a retro game.
 ///
 /// You can change the contents of this object directly, but you need to notify GamePresenter in order for the changes to be displayed correctly.
-///
-/// ## Tiles and Sprites
-///
-/// The tile specified in the name table is displayed on the BG screen. It can also display sprites on top of each other.
-/// The tile data can be defined by the application, and the system font data is set in tile data 0x20 to 0x7F by default.
-///
-/// ## Palettes
-///
-/// There are 64 palettes in total, 32 for BGs in the first half and 32 for sprites in the second half. The default setting is a gameboy-like black-and-white gradient.
-///
-/// The 0th color in each palette set for sprites is set to transparent by default.
-/// The behavior when a color other than transparent is set is undefined.
-/// Similarly, the behavior when a non-zero color is set to transparent is undefined.
-///
-/// BG colors are drawn by selecting from a total of 32 colors: 4 types of indexes specified in the tile data and 8 types of palette sets specified in the attributes.
-///
-/// Sprite colors are drawn by selecting from a total of 24 colors: three indexes specified in the tile data and eight palette sets specified in the attributes.
-///
 #[repr(C)]
 pub struct Screen {
     // 256 x 16 = 4096bytes
@@ -106,16 +105,14 @@ pub trait GamePresenter {
     /// Redraws the buffer contents to the window and synchronizes the frames.
     /// Returns the number of skipped frames, if any.
     fn sync(&self) -> usize;
-    /// Transfers the drawing buffer to the window if needed.
-    fn display_if_needed(&self);
     /// Redraws the entire screen buffer.
     fn set_needs_display(&self);
     /// Redraws the drawing buffer of the specified range.
     fn invalidate_rect(&self, rect: Rect);
     /// Moves the sprite and redraw it.
     fn move_sprite(&self, index: SpriteIndex, origin: Point);
-    /// Loads the font data from `start_char` to `end_char` into the character data from `start_index`.
-    fn load_font(&self, start_index: u8, start_char: u8, end_char: u8);
+    /// Loads the system stock fonts from `start_char` to `end_char` into the tile data from `start_index`.
+    fn load_font(&self, start_index: TileIndex, start_char: u8, end_char: u8);
     /// Gets the status of some buttons for the game.
     fn buttons(&self) -> u32;
 
@@ -431,25 +428,6 @@ impl Sprite {
     #[inline]
     pub fn gone(&mut self) {
         self.y = SPRITE_DISABLED;
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
-pub enum ScaleMode {
-    DotByDot,
-    Sparse2X,
-    Interlace2X,
-    NearestNeighbor2X,
-}
-
-impl ScaleMode {
-    #[inline]
-    pub const fn scale_factor(&self) -> usize {
-        use ScaleMode::*;
-        match self {
-            DotByDot => 1,
-            Sparse2X | Interlace2X | NearestNeighbor2X => 2,
-        }
     }
 }
 

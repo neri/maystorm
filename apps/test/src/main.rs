@@ -23,7 +23,7 @@ impl App {
         let presenter = GameWindow::with_options(
             "GAME TEST",
             Size::new(Self::WINDOW_WIDTH, Self::WINDOW_HEIGHT),
-            v1::ScaleMode::Interlace2X,
+            ScaleMode::NearestNeighbor2X,
             60,
         );
         Self { presenter }
@@ -38,10 +38,10 @@ impl App {
     fn initialize(&mut self) {
         let screen = self.screen();
 
-        screen.set_palette(0x00, PackedColor::from_safe_rgb(0x333333));
-        screen.set_palette(0x01, PackedColor::from_safe_rgb(0x999999));
-        screen.set_palette(0x02, PackedColor::from_safe_rgb(0xCCCCCC));
-        screen.set_palette(0x03, PackedColor::from_safe_rgb(0xFFFFFF));
+        // screen.set_palette(0x00, PackedColor::from_safe_rgb(0x333333));
+        // screen.set_palette(0x01, PackedColor::from_safe_rgb(0x999999));
+        // screen.set_palette(0x02, PackedColor::from_safe_rgb(0xCCCCCC));
+        // screen.set_palette(0x03, PackedColor::from_safe_rgb(0xFFFFFF));
 
         screen.set_palette(0x21, PackedColor::WHITE);
         screen.set_palette(0x22, PackedColor::LIGHT_BLUE);
@@ -129,14 +129,24 @@ impl App {
         );
         let mut missile = Missile::new(Point::new(0, v1::MAX_HEIGHT), Direction::Neutral);
 
-        screen.set_sprite(0, 0x80, v1::OAM_ATTR_W16 | v1::OAM_ATTR_H16 | v1::PALETTE_0);
+        screen.set_sprite(
+            0x20,
+            0x80,
+            v1::OAM_ATTR_W16 | v1::OAM_ATTR_H16 | v1::PALETTE_0,
+        );
 
-        screen.set_sprite(1, 0xE0, v1::PALETTE_1);
+        screen.set_sprite(0x21, 0xE0, v1::PALETTE_1);
 
-        screen.draw_string(Point::new(3, 3), 0, b"Hello, world!");
+        let chars = b"Welcome to MYOS";
+        for (index, char) in chars.iter().enumerate() {
+            self.presenter
+                .screen()
+                .set_sprite(index, *char, v1::PALETTE_1);
+        }
 
         let mut fps = 0;
         let mut time = os_monotonic();
+        let mut phase = 0;
         loop {
             self.presenter.sync();
 
@@ -165,13 +175,24 @@ impl App {
                 }
                 _ => (),
             });
-            self.presenter.move_sprite(0, player.point);
+            self.presenter.move_sprite(0x20, player.point);
             missile.step();
-            self.presenter.move_sprite(1, missile.point);
+            self.presenter.move_sprite(0x21, missile.point);
 
-            // self.presenter.screen().control_mut().scroll_x -= 1;
-            // self.presenter.screen().control_mut().scroll_y -= 1;
-            // self.presenter.set_needs_display();
+            let char_width = 10;
+            let len = chars.len();
+            for index in 0..len {
+                let position = ((phase - index as isize) & 31) - 15;
+                let value = position * position / 8 - 16;
+                self.presenter.move_sprite(
+                    index as v1::SpriteIndex,
+                    Point::new(
+                        (Self::WINDOW_WIDTH - len as isize * char_width) / 2
+                            + index as isize * char_width,
+                        Self::WINDOW_HEIGHT / 3 + value,
+                    ),
+                );
+            }
 
             fps += 1;
             let now = os_monotonic();
@@ -207,6 +228,8 @@ impl App {
                 fps = 0;
                 time = now;
             }
+
+            phase += 1;
         }
     }
 }
