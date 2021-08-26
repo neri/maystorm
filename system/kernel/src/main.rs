@@ -67,9 +67,10 @@ impl Shell {
 
         // let device = System::current_device();
         // println!(
-        //     "Processor {} Cores / {} Threads, Memory {} MB",
+        //     "Processor {} Cores / {} Threads [{}],  Memory {} MB",
         //     device.num_of_performance_cpus(),
         //     device.num_of_active_cpus(),
+        //     device.processor_system_type().to_string(),
         //     device.total_memory_size() >> 20,
         // );
 

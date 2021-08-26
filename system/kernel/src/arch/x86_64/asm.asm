@@ -209,7 +209,7 @@ asm_sch_switch_context:
     mov [rdi + CTX_ES], es
     mov [rdi + CTX_FS], fs
     mov [rdi + CTX_GS], gs
-    ; fxsave [rdi + CTX_FPU_BASE]
+    fxsave [rdi + CTX_FPU_BASE]
 
     sgdt [rdi + CTX_GDT_TEMP + 6]
     mov rbx, [rdi + CTX_GDT_TEMP + 8]
@@ -227,7 +227,7 @@ asm_sch_switch_context:
     xchg rax, [rbx + TSS64_RSP0]
     mov [rdi + CTX_TSS_RSP0], rax
 
-    ; fxrstor [rsi + CTX_FPU_BASE]
+    fxrstor [rsi + CTX_FPU_BASE]
     xor eax, eax
     xchg rax, [rsi + CTX_SP]
     mov ds, [rsi + CTX_DS]
@@ -243,9 +243,9 @@ asm_sch_switch_context:
     mov rsp, rax
 
     ; set TS flag
-    mov rax, cr0
-    bts rax, CR0_TS
-    mov cr0, rax
+    ; mov rax, cr0
+    ; bts rax, CR0_TS
+    ; mov cr0, rax
 
     xor eax, eax
     xor ecx, ecx
@@ -290,6 +290,24 @@ asm_sch_make_new_thread:
 
 
 _new_thread:
+    fninit
+    pxor xmm0, xmm0
+    pxor xmm1, xmm1
+    pxor xmm2, xmm2
+    pxor xmm3, xmm3
+    pxor xmm4, xmm4
+    pxor xmm5, xmm5
+    pxor xmm6, xmm6
+    pxor xmm7, xmm7
+    pxor xmm8, xmm8
+    pxor xmm9, xmm9
+    pxor xmm10, xmm10
+    pxor xmm11, xmm11
+    pxor xmm12, xmm12
+    pxor xmm13, xmm13
+    pxor xmm14, xmm14
+    pxor xmm15, xmm15
+
     call sch_setup_new_thread
     sti
     pop rax

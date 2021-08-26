@@ -1076,7 +1076,9 @@ impl TimerEvent {
         match self.timer_type {
             TimerType::OneShot(thread) => thread.wake(),
             TimerType::Window(window, timer_id) => {
-                window.post(WindowMessage::Timer(timer_id)).unwrap()
+                let _ = window
+                    .is_valid()
+                    .map(|v| v.post(WindowMessage::Timer(timer_id)).unwrap());
             }
         }
     }
@@ -1429,8 +1431,11 @@ impl ThreadHandle {
 
     #[inline]
     pub fn wake(&self) {
-        self.as_ref().sleep_counter.fetch_sub(1, Ordering::SeqCst);
-        Scheduler::add(*self);
+        if let Some(thread) = self.get() {
+            thread.sleep_counter.fetch_sub(1, Ordering::SeqCst);
+            drop(thread);
+            Scheduler::add(*self);
+        }
     }
 
     #[inline]

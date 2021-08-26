@@ -638,10 +638,10 @@ impl<'a> Bitmap8<'a> {
         let src_fb = src.slice();
 
         if ds == width && ss == width {
-            memcpy_colors8(dest_fb, dest_cursor, src_fb, src_cursor, width * height);
+            memory_colors::memcpy_colors8(dest_fb, dest_cursor, src_fb, src_cursor, width * height);
         } else {
             for _ in 0..height {
-                memcpy_colors8(dest_fb, dest_cursor, src_fb, src_cursor, width);
+                memory_colors::memcpy_colors8(dest_fb, dest_cursor, src_fb, src_cursor, width);
                 dest_cursor += ds;
                 src_cursor += ss;
             }
@@ -769,10 +769,10 @@ impl BasicDrawing for Bitmap8<'_> {
         let stride = self.stride;
         let mut cursor = dx as usize + dy as usize * stride;
         if stride == width {
-            memset_colors8(self.slice_mut(), cursor, width * height, color);
+            memory_colors::memset_colors8(self.slice_mut(), cursor, width * height, color);
         } else {
             for _ in 0..height {
-                memset_colors8(self.slice_mut(), cursor, width, color);
+                memory_colors::memset_colors8(self.slice_mut(), cursor, width, color);
                 cursor += stride;
             }
         }
@@ -799,7 +799,7 @@ impl BasicDrawing for Bitmap8<'_> {
         }
 
         let cursor = dx as usize + dy as usize * self.stride;
-        memset_colors8(self.slice_mut(), cursor, w as usize, color);
+        memory_colors::memset_colors8(self.slice_mut(), cursor, w as usize, color);
     }
 
     fn draw_vline(&mut self, origin: Point, height: isize, color: Self::ColorType) {
@@ -931,105 +931,6 @@ impl<'a> AsMut<Bitmap8<'a>> for BoxedBitmap8<'a> {
     #[inline]
     fn as_mut(&mut self) -> &mut Bitmap8<'a> {
         self.inner_mut()
-    }
-}
-
-/// Fast fill
-#[inline]
-fn memset_colors8(slice: &mut [IndexedColor], cursor: usize, size: usize, color: IndexedColor) {
-    // let slice = &mut slice[cursor..cursor + size];
-    unsafe {
-        let slice = slice.get_unchecked_mut(cursor);
-        let color = color.0;
-        let mut ptr: *mut u8 = transmute(slice);
-        let mut remain = size;
-
-        let prologue = usize::min(ptr as usize & 0x0F, remain);
-        remain -= prologue;
-        for _ in 0..prologue {
-            ptr.write_volatile(color);
-            ptr = ptr.add(1);
-        }
-
-        if remain > 16 {
-            let color32 =
-                color as u32 | (color as u32) << 8 | (color as u32) << 16 | (color as u32) << 24;
-            let color64 = color32 as u64 | (color32 as u64) << 32;
-            let color128 = color64 as u128 | (color64 as u128) << 64;
-            let count = remain / 16;
-            let mut ptr2 = ptr as *mut u128;
-
-            for _ in 0..count {
-                ptr2.write_volatile(color128);
-                ptr2 = ptr2.add(1);
-            }
-
-            ptr = ptr2 as *mut u8;
-            remain -= count * 16;
-        }
-
-        for _ in 0..remain {
-            ptr.write_volatile(color);
-            ptr = ptr.add(1);
-        }
-    }
-}
-
-/// Fast copy
-#[inline]
-fn memcpy_colors8(
-    dest: &mut [IndexedColor],
-    dest_cursor: usize,
-    src: &[IndexedColor],
-    src_cursor: usize,
-    size: usize,
-) {
-    // let dest = &mut dest[dest_cursor..dest_cursor + size];
-    // let src = &src[src_cursor..src_cursor + size];
-    unsafe {
-        let dest = dest.get_unchecked_mut(dest_cursor);
-        let src = src.get_unchecked(src_cursor);
-        let mut ptr_d: *mut u8 = transmute(dest);
-        let mut ptr_s: *const u8 = transmute(src);
-        let mut remain = size;
-
-        if ((ptr_d as usize) & 0x7) == ((ptr_s as usize) & 0x7) {
-            let prologue = usize::min(ptr_d as usize & 0x07, remain);
-            remain -= prologue;
-            for _ in 0..prologue {
-                ptr_d.write_volatile(ptr_s.read_volatile());
-                ptr_d = ptr_d.add(1);
-                ptr_s = ptr_s.add(1);
-            }
-
-            if remain > 8 {
-                let count = remain / 8;
-                let mut ptr2d = ptr_d as *mut u64;
-                let mut ptr2s = ptr_s as *const u64;
-
-                for _ in 0..count {
-                    ptr2d.write_volatile(ptr2s.read_volatile());
-                    ptr2d = ptr2d.add(1);
-                    ptr2s = ptr2s.add(1);
-                }
-
-                ptr_d = ptr2d as *mut u8;
-                ptr_s = ptr2s as *const u8;
-                remain -= count * 8;
-            }
-
-            for _ in 0..remain {
-                ptr_d.write_volatile(ptr_s.read_volatile());
-                ptr_d = ptr_d.add(1);
-                ptr_s = ptr_s.add(1);
-            }
-        } else {
-            for _ in 0..size {
-                ptr_d.write_volatile(ptr_s.read_volatile());
-                ptr_d = ptr_d.add(1);
-                ptr_s = ptr_s.add(1);
-            }
-        }
     }
 }
 
@@ -1288,10 +1189,10 @@ impl BasicDrawing for Bitmap32<'_> {
         let stride = self.stride;
         let mut cursor = dx as usize + dy as usize * stride;
         if stride == width {
-            memset_colors32(self.slice_mut(), cursor, width * height, color);
+            memory_colors::memset_colors32(self.slice_mut(), cursor, width * height, color);
         } else {
             for _ in 0..height {
-                memset_colors32(self.slice_mut(), cursor, width, color);
+                memory_colors::memset_colors32(self.slice_mut(), cursor, width, color);
                 cursor += stride;
             }
         }
@@ -1318,7 +1219,7 @@ impl BasicDrawing for Bitmap32<'_> {
         }
 
         let cursor = dx as usize + dy as usize * self.stride;
-        memset_colors32(self.slice_mut(), cursor, w as usize, color);
+        memory_colors::memset_colors32(self.slice_mut(), cursor, w as usize, color);
     }
 
     fn draw_vline(&mut self, origin: Point, height: isize, color: Self::ColorType) {
@@ -1386,10 +1287,16 @@ impl<'a> Bitmap32<'a> {
         let src_fb = src.slice();
 
         if ds == width && ss == width {
-            memcpy_colors32(dest_fb, dest_cursor, src_fb, src_cursor, width * height);
+            memory_colors::memcpy_colors32(
+                dest_fb,
+                dest_cursor,
+                src_fb,
+                src_cursor,
+                width * height,
+            );
         } else {
             for _ in 0..height {
-                memcpy_colors32(dest_fb, dest_cursor, src_fb, src_cursor, width);
+                memory_colors::memcpy_colors32(dest_fb, dest_cursor, src_fb, src_cursor, width);
                 dest_cursor += ds;
                 src_cursor += ss;
             }
@@ -1420,7 +1327,7 @@ impl<'a> Bitmap32<'a> {
         let src_fb = src.slice();
 
         for _ in 0..height {
-            blend_line32(dest_fb, dest_cursor, src_fb, src_cursor, width);
+            memory_colors::blend_line32(dest_fb, dest_cursor, src_fb, src_cursor, width);
             dest_cursor += ds;
             src_cursor += ss;
         }
@@ -1628,119 +1535,6 @@ impl<'a> AsMut<Bitmap32<'a>> for BoxedBitmap32<'a> {
     #[inline]
     fn as_mut(&mut self) -> &mut Bitmap32<'a> {
         self.inner_mut()
-    }
-}
-
-/// Fast Fill
-#[inline]
-fn memset_colors32(slice: &mut [TrueColor], cursor: usize, count: usize, color: TrueColor) {
-    // let slice = &mut slice[cursor..cursor + count];
-    unsafe {
-        let slice = slice.get_unchecked_mut(cursor);
-        let color32 = color.argb();
-        let mut ptr: *mut u32 = core::mem::transmute(slice);
-        let mut remain = count;
-
-        let prologue = usize::min(ptr as usize & 0x0F / 4, remain);
-        remain -= prologue;
-        for _ in 0..prologue {
-            ptr.write_volatile(color32);
-            ptr = ptr.add(1);
-        }
-
-        if remain > 4 {
-            let color128 = color32 as u128
-                | (color32 as u128) << 32
-                | (color32 as u128) << 64
-                | (color32 as u128) << 96;
-            let count = remain / 4;
-            let mut ptr2 = ptr as *mut u128;
-
-            for _ in 0..count {
-                ptr2.write_volatile(color128);
-                ptr2 = ptr2.add(1);
-            }
-
-            ptr = ptr2 as *mut u32;
-            remain -= count * 4;
-        }
-
-        for _ in 0..remain {
-            ptr.write_volatile(color32);
-            ptr = ptr.add(1);
-        }
-    }
-}
-
-/// Fast copy
-#[inline]
-fn memcpy_colors32(
-    dest: &mut [TrueColor],
-    dest_cursor: usize,
-    src: &[TrueColor],
-    src_cursor: usize,
-    count: usize,
-) {
-    // let dest = &mut dest[dest_cursor..dest_cursor + count];
-    // let src = &src[src_cursor..src_cursor + count];
-    unsafe {
-        let dest = dest.get_unchecked_mut(dest_cursor);
-        let src = src.get_unchecked(src_cursor);
-        let mut ptr_d: *mut u32 = transmute(dest);
-        let mut ptr_s: *const u32 = transmute(src);
-        let mut remain = count;
-        if ((ptr_d as usize) & 0xF) == ((ptr_s as usize) & 0xF) {
-            let prologue = usize::min(ptr_d as usize & 0x0F, remain);
-            remain -= prologue;
-            for _ in 0..prologue {
-                ptr_d.write_volatile(ptr_s.read_volatile());
-                ptr_d = ptr_d.add(1);
-                ptr_s = ptr_s.add(1);
-            }
-
-            if remain > 4 {
-                let count = remain / 4;
-                let mut ptr2d = ptr_d as *mut u128;
-                let mut ptr2s = ptr_s as *mut u128;
-
-                for _ in 0..count {
-                    ptr2d.write_volatile(ptr2s.read_volatile());
-                    ptr2d = ptr2d.add(1);
-                    ptr2s = ptr2s.add(1);
-                }
-
-                ptr_d = ptr2d as *mut u32;
-                ptr_s = ptr2s as *mut u32;
-                remain -= count * 4;
-            }
-
-            for _ in 0..remain {
-                ptr_d.write_volatile(ptr_s.read_volatile());
-                ptr_d = ptr_d.add(1);
-                ptr_s = ptr_s.add(1);
-            }
-        } else {
-            for _ in 0..count {
-                ptr_d.write_volatile(ptr_s.read_volatile());
-                ptr_d = ptr_d.add(1);
-                ptr_s = ptr_s.add(1);
-            }
-        }
-    }
-}
-
-#[inline]
-fn blend_line32(
-    dest: &mut [TrueColor],
-    dest_cursor: usize,
-    src: &[TrueColor],
-    src_cursor: usize,
-    count: usize,
-) {
-    let dest = &mut dest[dest_cursor..dest_cursor + count];
-    let src = &src[src_cursor..src_cursor + count];
-    for i in 0..count {
-        dest[i] = dest[i].blend_draw(src[i]);
     }
 }
 
@@ -2549,6 +2343,245 @@ impl ScaleMode {
         match self {
             DotByDot => 1,
             Sparse2X | Interlace2X | NearestNeighbor2X => 2,
+        }
+    }
+}
+
+mod memory_colors {
+    use super::*;
+
+    /// Fast fill
+    #[inline]
+    pub fn memset_colors8(
+        slice: &mut [IndexedColor],
+        cursor: usize,
+        size: usize,
+        color: IndexedColor,
+    ) {
+        unsafe {
+            let slice = slice.get_unchecked_mut(cursor);
+            let color = color.0;
+            let mut ptr: *mut u8 = transmute(slice);
+            let mut remain = size;
+
+            let prologue = usize::min(ptr as usize & 0x0F, remain);
+            remain -= prologue;
+            for _ in 0..prologue {
+                ptr.write_volatile(color);
+                ptr = ptr.add(1);
+            }
+
+            if remain > 16 {
+                let color32 = color as u32
+                    | (color as u32) << 8
+                    | (color as u32) << 16
+                    | (color as u32) << 24;
+                let color64 = color32 as u64 | (color32 as u64) << 32;
+                let color128 = color64 as u128 | (color64 as u128) << 64;
+                let count = remain / 16;
+                let mut ptr2 = ptr as *mut u128;
+
+                for _ in 0..count {
+                    ptr2.write_volatile(color128);
+                    ptr2 = ptr2.add(1);
+                }
+
+                ptr = ptr2 as *mut u8;
+                remain -= count * 16;
+            }
+
+            for _ in 0..remain {
+                ptr.write_volatile(color);
+                ptr = ptr.add(1);
+            }
+        }
+    }
+
+    /// Fast copy
+    #[inline]
+    pub fn memcpy_colors8(
+        dest: &mut [IndexedColor],
+        dest_cursor: usize,
+        src: &[IndexedColor],
+        src_cursor: usize,
+        size: usize,
+    ) {
+        unsafe {
+            let dest = dest.get_unchecked_mut(dest_cursor);
+            let src = src.get_unchecked(src_cursor);
+            let mut ptr_d: *mut u8 = transmute(dest);
+            let mut ptr_s: *const u8 = transmute(src);
+            let mut remain = size;
+
+            if ((ptr_d as usize) & 0x7) == ((ptr_s as usize) & 0x7) {
+                let prologue = usize::min(ptr_d as usize & 0x07, remain);
+                remain -= prologue;
+                for _ in 0..prologue {
+                    ptr_d.write_volatile(ptr_s.read_volatile());
+                    ptr_d = ptr_d.add(1);
+                    ptr_s = ptr_s.add(1);
+                }
+
+                if remain > 8 {
+                    let count = remain / 8;
+                    let mut ptr2d = ptr_d as *mut u64;
+                    let mut ptr2s = ptr_s as *const u64;
+
+                    for _ in 0..count {
+                        ptr2d.write_volatile(ptr2s.read_volatile());
+                        ptr2d = ptr2d.add(1);
+                        ptr2s = ptr2s.add(1);
+                    }
+
+                    ptr_d = ptr2d as *mut u8;
+                    ptr_s = ptr2s as *const u8;
+                    remain -= count * 8;
+                }
+
+                for _ in 0..remain {
+                    ptr_d.write_volatile(ptr_s.read_volatile());
+                    ptr_d = ptr_d.add(1);
+                    ptr_s = ptr_s.add(1);
+                }
+            } else {
+                for _ in 0..size {
+                    ptr_d.write_volatile(ptr_s.read_volatile());
+                    ptr_d = ptr_d.add(1);
+                    ptr_s = ptr_s.add(1);
+                }
+            }
+        }
+    }
+
+    /// Faster Fill
+    #[inline]
+    pub fn memset_colors32(slice: &mut [TrueColor], cursor: usize, count: usize, color: TrueColor) {
+        for v in unsafe { slice.get_unchecked_mut(cursor..cursor + count) }.iter_mut() {
+            *v = color;
+        }
+    }
+
+    // pub fn memset_colors32_unroll(slice: &mut [TrueColor], cursor: usize, count: usize, color: TrueColor) {
+    //     unsafe {
+    //         let slice = slice.get_unchecked_mut(cursor);
+    //         let color32 = color.argb();
+    //         let mut ptr: *mut u32 = core::mem::transmute(slice);
+
+    //         let mut remain = count;
+
+    //         let prologue = usize::min(ptr as usize & 0x0F / 4, remain);
+    //         remain -= prologue;
+    //         for _ in 0..prologue {
+    //             ptr.write_volatile(color32);
+    //             ptr = ptr.add(1);
+    //         }
+
+    //         if remain > 4 {
+    //             let color64 = (color32 as u64) | (color32 as u64) << 32;
+    //             let color128 = (color64 as u128) | ((color64 as u128) << 64);
+    //             let count = remain / 4;
+    //             let mut ptr2 = ptr as *mut u128;
+
+    //             for _ in 0..count {
+    //                 ptr2.write_volatile(color128);
+    //                 ptr2 = ptr2.add(1);
+    //             }
+
+    //             ptr = ptr2 as *mut u32;
+    //             remain -= count * 4;
+    //         }
+
+    //         for _ in 0..remain {
+    //             ptr.write_volatile(color32);
+    //             ptr = ptr.add(1);
+    //         }
+    //     }
+    // }
+
+    /// Faster copy
+    #[inline]
+    pub fn memcpy_colors32(
+        dest: &mut [TrueColor],
+        dest_cursor: usize,
+        src: &[TrueColor],
+        src_cursor: usize,
+        count: usize,
+    ) {
+        let src = unsafe { src.get_unchecked(src_cursor..src_cursor + count) };
+        let dest = unsafe { dest.get_unchecked_mut(dest_cursor..dest_cursor + count) };
+        for (dest, src) in dest.iter_mut().zip(src.iter()) {
+            *dest = *src;
+        }
+    }
+
+    // pub fn memcpy_colors32_unroll(
+    //     dest: &mut [TrueColor],
+    //     dest_cursor: usize,
+    //     src: &[TrueColor],
+    //     src_cursor: usize,
+    //     count: usize,
+    // ) {
+    //     // let dest = &mut dest[dest_cursor..dest_cursor + count];
+    //     // let src = &src[src_cursor..src_cursor + count];
+    //     unsafe {
+    //         let dest = dest.get_unchecked_mut(dest_cursor);
+    //         let src = src.get_unchecked(src_cursor);
+    //         let mut ptr_d: *mut u32 = transmute(dest);
+    //         let mut ptr_s: *const u32 = transmute(src);
+    //         let mut remain = count;
+    //         if ((ptr_d as usize) & 0xF) == ((ptr_s as usize) & 0xF) {
+    //             let prologue = usize::min(ptr_d as usize & 0x0F, remain);
+    //             remain -= prologue;
+    //             for _ in 0..prologue {
+    //                 ptr_d.write_volatile(ptr_s.read_volatile());
+    //                 ptr_d = ptr_d.add(1);
+    //                 ptr_s = ptr_s.add(1);
+    //             }
+
+    //             if remain > 4 {
+    //                 let count = remain / 4;
+    //                 let mut ptr2d = ptr_d as *mut u128;
+    //                 let mut ptr2s = ptr_s as *mut u128;
+
+    //                 for _ in 0..count {
+    //                     ptr2d.write_volatile(ptr2s.read_volatile());
+    //                     ptr2d = ptr2d.add(1);
+    //                     ptr2s = ptr2s.add(1);
+    //                 }
+
+    //                 ptr_d = ptr2d as *mut u32;
+    //                 ptr_s = ptr2s as *mut u32;
+    //                 remain -= count * 4;
+    //             }
+
+    //             for _ in 0..remain {
+    //                 ptr_d.write_volatile(ptr_s.read_volatile());
+    //                 ptr_d = ptr_d.add(1);
+    //                 ptr_s = ptr_s.add(1);
+    //             }
+    //         } else {
+    //             for _ in 0..count {
+    //                 ptr_d.write_volatile(ptr_s.read_volatile());
+    //                 ptr_d = ptr_d.add(1);
+    //                 ptr_s = ptr_s.add(1);
+    //             }
+    //         }
+    //     }
+    // }
+
+    // Alpha blending
+    #[inline]
+    pub fn blend_line32(
+        dest: &mut [TrueColor],
+        dest_cursor: usize,
+        src: &[TrueColor],
+        src_cursor: usize,
+        count: usize,
+    ) {
+        let dest = unsafe { &mut dest.get_unchecked_mut(dest_cursor..dest_cursor + count) };
+        let src = unsafe { &src.get_unchecked(src_cursor..src_cursor + count) };
+        for i in 0..count {
+            dest[i] = dest[i].blend_draw(src[i]);
         }
     }
 }

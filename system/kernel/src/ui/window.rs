@@ -152,8 +152,8 @@ impl WindowManager<'static> {
             swap(&mut screen_size.width, &mut screen_size.height);
         }
 
-        let pointer_x = screen_size.width() / 2;
-        let pointer_y = screen_size.height() / 2;
+        let pointer_x = 0;
+        let pointer_y = 0;
         let off_screen = BoxedBitmap32::new(screen_size, TrueColor::TRANSPARENT);
         let mut window_pool = BTreeMap::new();
         let mut window_orders = Vec::with_capacity(MAX_WINDOWS);
@@ -1985,6 +1985,11 @@ impl WindowHandle {
     #[inline]
     pub const fn as_usize(&self) -> usize {
         self.0.get()
+    }
+
+    #[inline]
+    pub fn is_valid(&self) -> Option<Self> {
+        self.get().map(|v| v.handle)
     }
 
     #[inline]

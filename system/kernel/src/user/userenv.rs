@@ -16,7 +16,7 @@ pub struct UserEnv {
 
 impl UserEnv {
     pub fn start(f: fn()) {
-        if true {
+        if false {
             WindowManager::set_desktop_color(Theme::shared().desktop_color());
             if let Ok(mut file) = FileManager::open("wall.bmp") {
                 let stat = file.stat().unwrap();
@@ -490,11 +490,11 @@ async fn test_window_main() {
                 .view(rect, |mut bitmap| {
                     let mut offset = 0;
                     for family in [
-                        // FontFamily::SansSerif,
-                        // FontFamily::SystemUI,
-                        // FontFamily::Serif,
-                        // // FontFamily::Cursive,
-                        FontFamily::Japanese,
+                        FontFamily::SansSerif,
+                        FontFamily::SystemUI,
+                        FontFamily::Serif,
+                        // FontFamily::Cursive,
+                        // FontFamily::Japanese,
                     ] {
                         for point in [32, 28, 24, 20, 16, 14, 12, 10, 8] {
                             offset +=

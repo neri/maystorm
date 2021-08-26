@@ -35,19 +35,27 @@ pub struct Cpu {
 }
 
 #[allow(dead_code)]
-struct SharedCpu {
+pub(crate) struct SharedCpu {
     smt_topology: u32,
     max_cpuid_level_0: u32,
     max_cpuid_level_8: u32,
+    has_smt: bool,
 }
 
 impl SharedCpu {
+    #[inline]
     const fn new() -> Self {
         Self {
             smt_topology: 0,
             max_cpuid_level_0: 0,
             max_cpuid_level_8: 0,
+            has_smt: false,
         }
+    }
+
+    #[inline]
+    pub const fn has_smt(&self) -> bool {
+        self.has_smt
     }
 }
 
@@ -81,6 +89,7 @@ impl Cpu {
         let core_type = if (apic_id.as_u32() & Self::shared().smt_topology) == 0 {
             ProcessorCoreType::Main
         } else {
+            Self::shared().has_smt = true;
             ProcessorCoreType::Sub
         };
 
@@ -99,7 +108,7 @@ impl Cpu {
     }
 
     #[inline]
-    fn shared() -> &'static mut SharedCpu {
+    pub(crate) fn shared() -> &'static mut SharedCpu {
         unsafe { &mut SHARED_CPU }
     }
 
@@ -516,7 +525,7 @@ pub struct CpuContextData {
 }
 
 impl CpuContextData {
-    pub const SIZE_OF_CONTEXT: usize = 512;
+    pub const SIZE_OF_CONTEXT: usize = 1024;
     pub const SIZE_OF_STACK: usize = 0x10000;
 
     #[inline]
