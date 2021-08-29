@@ -121,7 +121,7 @@ impl Pci {
 
         let shared = Self::shared();
 
-        // shared.registrars.push(super::xhci::XhciRegistrar::init());
+        shared.registrars.push(super::xhci::XhciRegistrar::init());
 
         let cpu = System::current_processor();
         let bus = 0;

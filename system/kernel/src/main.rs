@@ -66,7 +66,7 @@ impl Shell {
     async fn repl_main() {
         Self::exec_cmd("ver");
         Self::exec_cmd("sysctl device");
-        // Self::exec_cmd("sysctl drivers");
+        Self::exec_cmd("sysctl drivers");
 
         loop {
             print!("# ");
