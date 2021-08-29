@@ -10,6 +10,7 @@ use alloc::string::*;
 use alloc::vec::*;
 use bootprot::*;
 use core::fmt::Write;
+use kernel::bus::pci::Pci;
 use kernel::fs::*;
 use kernel::mem::*;
 use kernel::rt::*;
@@ -64,22 +65,8 @@ impl Shell {
 
     async fn repl_main() {
         Self::exec_cmd("ver");
-
-        // let device = System::current_device();
-        // println!(
-        //     "Processor {} Cores / {} Threads [{}],  Memory {} MB",
-        //     device.num_of_performance_cpus(),
-        //     device.num_of_active_cpus(),
-        //     device.processor_system_type().to_string(),
-        //     device.total_memory_size() >> 20,
-        // );
-
-        // let manufacturer_name = device.manufacturer_name();
-        // let model_name = device.model_name();
-        // if manufacturer_name.is_some() || model_name.is_some() {
-        //     println!("Manufacturer: {}", manufacturer_name.unwrap_or("Unknown"),);
-        //     println!("Model: {}", model_name.unwrap_or("Unknown"),);
-        // }
+        Self::exec_cmd("sysctl device");
+        // Self::exec_cmd("sysctl drivers");
 
         loop {
             print!("# ");
@@ -337,6 +324,25 @@ impl Shell {
         }
         let subcmd = argv[1];
         match subcmd {
+            "device" => {
+                let device = System::current_device();
+                println!(
+                    "  Memory {} MB, Processor {} Cores / {} Threads {}",
+                    device.total_memory_size() >> 20,
+                    device.num_of_performance_cpus(),
+                    device.num_of_active_cpus(),
+                    device.processor_system_type().to_string(),
+                );
+                let manufacturer_name = device.manufacturer_name();
+                let model_name = device.model_name();
+                if manufacturer_name.is_some() || model_name.is_some() {
+                    println!(
+                        "  Manufacturer [{}] Model [{}]",
+                        manufacturer_name.unwrap_or("Unknown"),
+                        model_name.unwrap_or("Unknown"),
+                    );
+                }
+            }
             "cpu" => {
                 let device = System::current_device();
                 for index in 0..device.num_of_active_cpus() {
@@ -358,6 +364,16 @@ impl Shell {
                 Ok(rand) => println!("{:016x}", rand),
                 Err(_) => println!("# No SecureRandom"),
             },
+            "drivers" => {
+                for driver in Pci::drivers() {
+                    println!(
+                        "PCI {:?} {} {}",
+                        driver.address(),
+                        driver.name(),
+                        driver.current_status()
+                    );
+                }
+            }
             _ => {
                 println!("Unknown command: {}", subcmd);
                 return 1;

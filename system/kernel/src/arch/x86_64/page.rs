@@ -7,11 +7,13 @@ use bootprot::*;
 use core::{
     alloc::Layout,
     mem::transmute,
-    num::NonZeroUsize,
+    num::{NonZeroU64, NonZeroUsize},
     ops::{AddAssign, BitOrAssign, SubAssign},
+    sync::atomic::*,
 };
 
 pub type PhysicalAddress = u64;
+pub type NonNullPhysicalAddress = NonZeroU64;
 type PageTableRepr = u64;
 
 pub struct PageManager {
@@ -23,8 +25,10 @@ impl PageManager {
     const PAGE_SIZE_2M: usize = 0x200000;
     const PAGE_KERNEL_PREFIX: usize = 0xFFFF_0000_0000_0000;
     const PAGE_RECURSIVE: usize = 0x1FE;
+    // const PAGE_KERNEL_HEAP: usize = 0x1FC;
     const PAGE_DIRECT_MAP: usize = 0x180;
     const DIRECT_BASE: usize = Self::PAGE_KERNEL_PREFIX | (Self::PAGE_DIRECT_MAP << 39);
+    // const HEAP_BASE: usize = Self::PAGE_KERNEL_PREFIX | (Self::PAGE_KERNEL_HEAP << 39);
 
     #[inline]
     pub unsafe fn init(_info: &BootInfo) {
@@ -119,7 +123,11 @@ impl PageManager {
     pub(super) unsafe fn map(va: usize, len: NonZeroUsize, template: PageTableEntry) {
         let mask_4k = Self::PAGE_SIZE_MIN - 1;
         let mask_2m = Self::PAGE_SIZE_2M - 1;
-        let len = (len.get() + mask_4k) & !mask_4k;
+        let len = (len.get() + mask_4k - 1) & !mask_4k;
+
+        if (va & mask_4k) != 0 {
+            panic!("INVALID VA: {:016x}", va);
+        }
 
         if template.contains(PageAttributes::LARGE)
             && (va & mask_2m) == 0
@@ -134,6 +142,7 @@ impl PageManager {
             let mut template = template;
             template += PageAttributes::PRESENT;
             template -= PageAttributes::LARGE;
+            let fva = va;
             let mut va = va;
             for _ in 0..count {
                 Self::map_table_if_needed(va, PageLevel::Level4, template);
@@ -141,7 +150,10 @@ impl PageManager {
                 Self::map_table_if_needed(va, PageLevel::Level2, template);
                 let pdte = PageLevel::Level2.pte_of(va).read_volatile();
                 if pdte.contains(PageAttributes::LARGE) {
-                    panic!("LARGE PDT");
+                    panic!(
+                        "LARGE PDT {:016x} {:016x} {:016x} {}",
+                        va, pdte.0, fva, count
+                    );
                 }
                 let pte = PageLevel::Level1.pte_of(va);
                 pte.write_volatile(template);
@@ -174,6 +186,7 @@ impl PageManager {
 
     #[inline]
     unsafe fn invalidate_tlb(p: usize) {
+        fence(Ordering::SeqCst);
         asm!("invlpg [{}]", in(reg) p);
     }
 

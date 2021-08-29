@@ -6,7 +6,7 @@ use alloc::boxed::Box;
 use core::time::Duration;
 
 pub(super) struct Hpet {
-    mmio: Mmio,
+    mmio: MmioSlice,
     main_cnt_period: u64,
     measure_div: u64,
 }
@@ -14,12 +14,12 @@ pub(super) struct Hpet {
 impl Hpet {
     pub unsafe fn new(info: &acpi::HpetInfo) -> Box<Self> {
         let mut hpet = Hpet {
-            mmio: Mmio::from_phys(info.base_address as PhysicalAddress, 0x1000).unwrap(),
+            mmio: MmioSlice::from_phys(info.base_address as PhysicalAddress, 0x1000).unwrap(),
             main_cnt_period: 0,
             measure_div: 0,
         };
 
-        Irq::LPC_TIMER.register(Self::irq_handler).unwrap();
+        Irq::LPC_TIMER.register(Self::irq_handler, 0).unwrap();
 
         hpet.main_cnt_period = hpet.read(0) >> 32;
         hpet.write(0x10, 0);
@@ -44,7 +44,7 @@ impl Hpet {
 
     /// IRQ of HPET
     /// Currently, this system does not require an IRQ for HPET, but it is receiving an interrupt just in case.
-    fn irq_handler(_irq: Irq) {
+    fn irq_handler(_: usize) {
         // TODO:
     }
 }

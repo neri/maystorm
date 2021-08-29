@@ -8,6 +8,48 @@ use core::{
     {cell::UnsafeCell, sync::atomic::*},
 };
 
+use super::semaphore::Semaphore;
+
+pub struct EventQueue<T> {
+    fifo: ConcurrentFifo<T>,
+    sem: Semaphore,
+}
+
+impl<T> EventQueue<T> {
+    #[inline]
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            fifo: ConcurrentFifo::with_capacity(capacity),
+            sem: Semaphore::new(0),
+        }
+    }
+
+    #[inline]
+    pub fn post(&self, event: T) -> Result<(), T> {
+        self.fifo.enqueue(event).map(|_| self.sem.signal())
+    }
+
+    #[inline]
+    pub fn get_event(&self) -> Option<T> {
+        self.fifo.dequeue()
+    }
+
+    #[inline]
+    pub fn wait_event(&self) -> Option<T> {
+        loop {
+            match self.fifo.dequeue() {
+                Some(v) => return Some(v),
+                None => (),
+            }
+            self.sem.wait();
+        }
+    }
+}
+
+unsafe impl<T: Send> Send for EventQueue<T> {}
+
+unsafe impl<T: Send + Sync> Sync for EventQueue<T> {}
+
 /// Concurrent First In First Out
 pub struct ConcurrentFifo<T> {
     head: AtomicUsize,
@@ -23,8 +65,8 @@ unsafe impl<T: Send> Sync for ConcurrentFifo<T> {}
 
 impl<T: Sized> ConcurrentFifo<T> {
     #[inline]
-    pub fn with_capacity(size: usize) -> Self {
-        let capacity = (size + 1).next_power_of_two();
+    pub fn with_capacity(capacity: usize) -> Self {
+        let capacity = (capacity + 1).next_power_of_two();
         let mask = capacity - 1;
 
         let data = {
@@ -113,6 +155,7 @@ impl<T: Sized> ConcurrentFifo<T> {
 
 impl<T> Drop for ConcurrentFifo<T> {
     fn drop(&mut self) {
+        // TODO:
         while let Some(t) = self._dequeue() {
             drop(t);
         }

@@ -79,6 +79,7 @@ pub(super) struct Apic {
     ioapics: Vec<Box<IoApic>>,
     gsi_table: [GsiProps; 256],
     idt: [usize; Irq::MAX.0 as usize],
+    idt_params: [usize; Irq::MAX.0 as usize],
     lapic_timer_value: u32,
     tlb_flush_bitmap: AtomicUsize,
     ipi_mutex: BinarySemaphore,
@@ -95,6 +96,7 @@ impl Apic {
             ioapics: Vec::new(),
             gsi_table: [GsiProps::default(); 256],
             idt: [0; Irq::MAX.0 as usize],
+            idt_params: [0; Irq::MAX.0 as usize],
             lapic_timer_value: 0,
             tlb_flush_bitmap: AtomicUsize::new(0),
             ipi_mutex: BinarySemaphore::new(),
@@ -271,7 +273,7 @@ impl Apic {
         unsafe { &mut *APIC.get() }
     }
 
-    pub unsafe fn register(irq: Irq, f: IrqHandler) -> Result<(), ()> {
+    pub unsafe fn register(irq: Irq, f: IrqHandler, val: usize) -> Result<(), ()> {
         let shared = Self::shared_mut();
         let props = shared.gsi_table[irq.0 as usize];
         let global_irq = props.global_irq;
@@ -287,6 +289,7 @@ impl Apic {
                     return Err(());
                 }
                 shared.idt[global_irq.0 as usize] = f as usize;
+                shared.idt_params[global_irq.0 as usize] = val;
                 let pair = Self::make_redirect_table_entry_pair(
                     global_irq.as_vec(),
                     trigger,
@@ -330,7 +333,7 @@ impl Apic {
     }
 
     #[inline]
-    pub unsafe fn register_msi(f: fn() -> ()) -> Result<(u64, u16), ()> {
+    pub unsafe fn register_msi(f: fn() -> (), val: usize) -> Result<(u64, u16), ()> {
         let shared = Self::shared_mut();
         static NEXT_MSI: AtomicIsize = AtomicIsize::new(0);
         NEXT_MSI
@@ -345,6 +348,7 @@ impl Apic {
                 let msi = Msi(v);
                 let global_irq = msi.as_irq();
                 shared.idt[global_irq.0 as usize] = f as usize;
+                shared.idt_params[global_irq.0 as usize] = val;
                 let vec = msi.as_vec();
                 let addr = Self::MSI_BASE;
                 let data = Self::MSI_DATA | vec.0 as u16;
@@ -404,14 +408,15 @@ impl Apic {
             }
             entry => {
                 let f: IrqHandler = transmute(entry);
-                Irql::DIrql.raise(|| f(irq));
+                let param = shared.idt_params[irq.0 as usize];
+                Irql::DIrql.raise(|| f(param));
                 LocalApic::eoi();
             }
         }
     }
 }
 
-pub type IrqHandler = fn(Irq) -> ();
+pub type IrqHandler = fn(usize) -> ();
 
 seq!(N in 1..64 {
     unsafe extern "x86-interrupt" fn handle_irq_#N () {
@@ -488,8 +493,8 @@ impl Irq {
         InterruptVector(Self::BASE.0 + self.0)
     }
 
-    pub unsafe fn register(self, f: IrqHandler) -> Result<(), ()> {
-        Apic::register(self, f)
+    pub unsafe fn register(self, f: IrqHandler, val: usize) -> Result<(), ()> {
+        Apic::register(self, f, val)
     }
 
     pub unsafe fn enable(self) -> Result<(), ()> {
@@ -604,7 +609,7 @@ impl From<&acpi::platform::interrupt::TriggerMode> for ApicTriggerMode {
 }
 
 static mut LOCAL_APIC_PA: PhysicalAddress = 0;
-static mut LOCAL_APIC: Option<Mmio> = None;
+static mut LOCAL_APIC: Option<MmioSlice> = None;
 
 #[allow(dead_code)]
 #[non_exhaustive]
@@ -633,7 +638,7 @@ impl LocalApic {
     #[inline]
     unsafe fn init(base: PhysicalAddress) {
         LOCAL_APIC_PA = base;
-        LOCAL_APIC = Mmio::from_phys(base, 0x1000);
+        LOCAL_APIC = MmioSlice::from_phys(base, 0x1000);
 
         Msr::ApicBase
             .write(LOCAL_APIC_PA | Self::IA32_APIC_BASE_MSR_ENABLE | Self::IA32_APIC_BASE_MSR_BSP);
@@ -754,7 +759,7 @@ impl IoApicIndex {
 
 #[allow(dead_code)]
 struct IoApic {
-    mmio: Mmio,
+    mmio: MmioSlice,
     global_int: Irq,
     entries: u8,
     id: u8,
@@ -764,7 +769,7 @@ struct IoApic {
 impl IoApic {
     unsafe fn new(acpi_ioapic: &acpi::platform::interrupt::IoApic) -> Self {
         let mut ioapic = IoApic {
-            mmio: Mmio::from_phys(acpi_ioapic.address as PhysicalAddress, 0x14).unwrap(),
+            mmio: MmioSlice::from_phys(acpi_ioapic.address as PhysicalAddress, 0x14).unwrap(),
             global_int: Irq(acpi_ioapic.global_system_interrupt_base as u8),
             entries: 0,
             id: acpi_ioapic.id,

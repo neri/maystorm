@@ -2,7 +2,7 @@
 
 use super::signal::SignallingObject;
 use super::*;
-use alloc::boxed::Box;
+// use alloc::boxed::Box;
 use core::{
     cell::UnsafeCell,
     mem,
@@ -13,15 +13,15 @@ use core::{
 
 /// A reader-writer lock like std::sync::RwLock
 pub struct RwLock<T: ?Sized> {
-    inner: Box<RwLockInner>,
+    inner: RwLockInner,
     data: UnsafeCell<T>,
 }
 
 impl<T> RwLock<T> {
     #[inline]
-    pub fn new(t: T) -> Self {
+    pub const fn new(t: T) -> Self {
         Self {
-            inner: Box::new(RwLockInner::new()),
+            inner: RwLockInner::new(),
             data: UnsafeCell::new(t),
         }
     }

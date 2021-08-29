@@ -312,8 +312,8 @@ impl Cpu {
 
     #[inline]
     #[allow(dead_code)]
-    pub unsafe fn register_msi(f: fn() -> ()) -> Result<(u64, u16), ()> {
-        Apic::register_msi(f)
+    pub unsafe fn register_msi(f: fn() -> (), val: usize) -> Result<(u64, u16), ()> {
+        Apic::register_msi(f, val)
     }
 
     #[inline]

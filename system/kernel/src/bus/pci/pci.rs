@@ -1,65 +1,61 @@
 //! Peripheral Component Interconnect Bus
 
-use crate::arch::cpu::*;
 use crate::system::System;
-use alloc::{boxed::Box, vec::Vec};
+use crate::{arch::cpu::*, sync::RwLock};
+use alloc::string::String;
+use alloc::sync::Arc;
+use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use core::fmt;
+use core::mem::MaybeUninit;
 // use num_derive::FromPrimitive;
 // use num_traits::FromPrimitive;
 
-#[derive(Copy, Clone, Default, Ord, PartialOrd, Eq, PartialEq)]
-pub struct PciConfigAddress {
-    register: u8,
-    dev_fun: u8,
-    bus: u8,
-}
+#[repr(transparent)]
+#[derive(Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PciConfigAddress(u32);
 
 impl PciConfigAddress {
     #[inline]
     pub const fn bus(bus: u8) -> Self {
-        Self {
-            bus,
-            dev_fun: 0,
-            register: 0,
-        }
+        Self((bus as u32) << 24)
     }
 
     #[inline]
     pub const fn dev(mut self, dev: u8) -> Self {
-        self.dev_fun = dev << 3;
+        self.0 |= (dev as u32) << 16;
         self
     }
 
     #[inline]
     pub const fn fun(mut self, fun: u8) -> Self {
-        self.dev_fun = (self.dev_fun & 0xF8) | (fun);
+        self.0 |= (fun as u32) << 8;
         self
     }
 
     #[inline]
     pub const fn register(mut self, register: u8) -> Self {
-        self.register = register;
+        self.0 |= register as u32;
         self
     }
 
     #[inline]
     pub const fn get_bus(&self) -> u8 {
-        self.bus
+        (self.0 >> 24) as u8
     }
 
     #[inline]
     pub const fn get_dev(&self) -> u8 {
-        self.dev_fun >> 3
+        (self.0 >> 16) as u8
     }
 
     #[inline]
     pub const fn get_fun(&self) -> u8 {
-        self.dev_fun & 7
+        (self.0 >> 8) as u8
     }
 
     #[inline]
     pub const fn get_register(&self) -> u8 {
-        self.register
+        self.0 as u8
     }
 }
 
@@ -83,35 +79,46 @@ pub trait PciImpl {
 }
 
 pub trait PciDriverRegistrar {
-    fn instantiate(&self, device: &PciDevice) -> Option<usize>;
+    fn instantiate(&self, device: &PciDevice) -> Option<Arc<dyn PciDriver>>;
 }
 
 pub trait PciDriver {
+    /// Returns the PCI configuration address of this device instance.
+    fn address(&self) -> PciConfigAddress;
+
+    /// Returns the name of the device driver.
     fn name<'a>(&self) -> &'a str;
+
+    /// Returns the current state of the device in a human-readable format.
+    fn current_status(&self) -> String;
 }
 
-static mut PCI: Pci = Pci::new();
+static mut PCI: MaybeUninit<Pci> = MaybeUninit::uninit();
 
 #[allow(dead_code)]
 pub struct Pci {
     devices: Vec<PciDevice>,
     registrars: Vec<Box<dyn PciDriverRegistrar>>,
+    drivers: RwLock<BTreeMap<PciConfigAddress, Arc<dyn PciDriver>>>,
 }
 
 impl Pci {
-    const fn new() -> Self {
+    fn new() -> Self {
         Self {
             devices: Vec::new(),
             registrars: Vec::new(),
+            drivers: RwLock::new(BTreeMap::new()),
         }
     }
 
     #[inline]
     fn shared() -> &'static mut Pci {
-        unsafe { &mut PCI }
+        unsafe { &mut *PCI.as_mut_ptr() }
     }
 
     pub unsafe fn init() {
+        PCI.write(Pci::new());
+
         let shared = Self::shared();
 
         // shared.registrars.push(super::xhci::XhciRegistrar::init());
@@ -124,18 +131,39 @@ impl Pci {
             }
         }
 
-        // for device in &shared.devices {
-        //     for registrar in &shared.registrars {
-        //         match registrar.instantiate(&device) {
-        //             Some(_) => {}
-        //             None => {}
-        //         }
-        //     }
-        // }
+        for device in &shared.devices {
+            for registrar in &shared.registrars {
+                match registrar.instantiate(&device) {
+                    Some(v) => {
+                        shared.drivers.write().unwrap().insert(device.address(), v);
+                    }
+                    None => {}
+                }
+            }
+        }
     }
 
     pub fn devices() -> &'static [PciDevice] {
         Self::shared().devices.as_slice()
+    }
+
+    pub fn device_by_addr(addr: PciConfigAddress) -> Option<&'static PciDevice> {
+        Self::shared()
+            .devices
+            .binary_search_by_key(&addr, |v| v.address())
+            .ok()
+            .and_then(|index| Self::shared().devices.get(index))
+    }
+
+    pub fn drivers<'a>() -> Vec<Arc<dyn PciDriver>> {
+        Self::shared()
+            .drivers
+            .read()
+            .unwrap()
+            .values()
+            .map(|v| v.clone())
+            .into_iter()
+            .collect()
     }
 }
 
@@ -463,6 +491,7 @@ impl From<u8> for PciCapabilityId {
 ///   // code here
 /// }
 /// ```
+#[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct PciClass(u32);
 

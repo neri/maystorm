@@ -216,15 +216,16 @@ impl TrueColor {
     #[inline]
     pub fn blend_draw(&self, rhs: Self) -> Self {
         let r = rhs.components();
+        let l = self.components();
         let alpha_r = r.a as usize;
-        let alpha_l = 255 - alpha_r;
-        self.components()
-            .blend_color(
-                r,
-                |l, r| ((l as usize * alpha_l + r as usize * alpha_r) / 255) as u8,
-                |a, b| a.saturating_add(b),
-            )
-            .into()
+        let alpha_l = l.a as usize * (256 - alpha_r) / 256;
+        let out_a = alpha_r + alpha_l;
+        l.blend_color(
+            r,
+            |l, r| ((l as usize * alpha_l + r as usize * alpha_r) / out_a) as u8,
+            |_a, _b| out_a as u8,
+        )
+        .into()
     }
 }
 

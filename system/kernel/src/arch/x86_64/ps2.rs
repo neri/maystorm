@@ -46,8 +46,8 @@ impl Ps2 {
             let _ = Self::read_data();
         }
 
-        Irq::LPC_PS2K.register(Self::irq_01).unwrap();
-        Irq::LPC_PS2M.register(Self::irq_12).unwrap();
+        Irq::LPC_PS2K.register(Self::irq_01, 0).unwrap();
+        Irq::LPC_PS2M.register(Self::irq_12, 0).unwrap();
 
         Self::send_command(Ps2Command::WRITE_CONFIG, 1).unwrap();
         Self::send_data(Ps2Data(0x47), 1).unwrap();
@@ -136,14 +136,14 @@ impl Ps2 {
     }
 
     // IRQ 01 PS/2 Keyboard
-    fn irq_01(_irq: Irq) {
+    fn irq_01(_: usize) {
         let ps2 = unsafe { &mut PS2 };
         let data = unsafe { Self::read_data() };
         ps2.process_key_data(data);
     }
 
     // IRQ 12 PS/2 Mouse
-    fn irq_12(_irq: Irq) {
+    fn irq_12(_: usize) {
         let ps2 = unsafe { &mut PS2 };
         let data = unsafe { Self::read_data() };
         ps2.process_mouse_data(data);

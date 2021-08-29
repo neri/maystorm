@@ -3,18 +3,73 @@
 use super::*;
 use crate::{arch::page::PhysicalAddress, bus::pci::PciBar};
 use core::{
+    marker::PhantomData,
     mem::{size_of, transmute},
     num::NonZeroUsize,
+    ops::{Deref, DerefMut},
     sync::atomic::*,
 };
 
+// #[derive(Clone, Copy)]
+pub struct Mmio<T> {
+    base: usize,
+    _phantom: PhantomData<T>,
+}
+
+impl<T> Mmio<T> {
+    #[inline]
+    pub unsafe fn from_phys(base: PhysicalAddress) -> Option<Self> {
+        MemoryManager::mmap(MemoryMapRequest::Mmio(base, size_of::<T>())).map(|va| Self {
+            base: va.get(),
+            _phantom: PhantomData,
+        })
+    }
+
+    #[inline]
+    pub unsafe fn from_bar(bar: PciBar) -> Option<Self> {
+        if bar.is_mmio() && size_of::<T>() <= bar.size() {
+            Self::from_phys(bar.base())
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub unsafe fn from_virt(base: NonZeroUsize) -> Self {
+        Self {
+            base: base.get(),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+// impl<T> Drop for Mmio<T> {
+//     fn drop(&mut self) {
+//         // TODO:
+//     }
+// }
+
+impl<T> Deref for Mmio<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*(self.base as *const _) }
+    }
+}
+
+impl<T> DerefMut for Mmio<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *(self.base as *mut _) }
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
-pub struct Mmio {
+pub struct MmioSlice {
     base: usize,
     size: usize,
 }
 
-impl Mmio {
+impl MmioSlice {
     #[inline]
     pub unsafe fn from_phys(base: PhysicalAddress, size: usize) -> Option<Self> {
         MemoryManager::mmap(MemoryMapRequest::Mmio(base, size)).map(|va| Self {
@@ -25,7 +80,11 @@ impl Mmio {
 
     #[inline]
     pub unsafe fn from_bar(bar: PciBar) -> Option<Self> {
-        Self::from_phys(bar.base(), bar.size())
+        if bar.is_mmio() {
+            Self::from_phys(bar.base(), bar.size())
+        } else {
+            None
+        }
     }
 
     #[inline]
@@ -119,7 +178,7 @@ impl Mmio {
 
     #[inline]
     #[track_caller]
-    pub unsafe fn transmute<T>(&self, offset: usize) -> &T
+    pub unsafe fn transmute<T>(&self, offset: usize) -> &'static T
     where
         T: Sized,
     {
@@ -128,14 +187,14 @@ impl Mmio {
         result
     }
 
-    #[inline]
-    #[track_caller]
-    pub unsafe fn transmute_mut<T>(&self, offset: usize) -> &mut T
-    where
-        T: Sized,
-    {
-        let result = transmute((self.base as *const u8).add(offset));
-        self.check_limit(offset, &result);
-        result
-    }
+    // #[inline]
+    // #[track_caller]
+    // pub unsafe fn transmute_mut<T>(&self, offset: usize) -> &mut T
+    // where
+    //     T: Sized,
+    // {
+    //     let result = transmute((self.base as *const u8).add(offset));
+    //     self.check_limit(offset, &result);
+    //     result
+    // }
 }

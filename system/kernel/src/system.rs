@@ -21,10 +21,12 @@ pub struct Version<'a> {
 }
 
 impl Version<'_> {
-    const SYSTEM_NAME: &'static str = "MEG-OS codename Maystorm";
+    // "Curiosity" killed the cat
+    // Cats have nine lives, but curiosity can use up all of them.
+    const SYSTEM_NAME: &'static str = "MEG-OS codename Curiosity";
     const SYSTEM_SHORT_NAME: &'static str = "maystorm";
     const RELEASE: &'static str = "";
-    const VERSION: Version<'static> = Version::new(0, 21, 6, Self::RELEASE);
+    const VERSION: Version<'static> = Version::new(0, 21, 9, Self::RELEASE);
 
     #[inline]
     pub const fn new<'a>(maj: u8, min: u8, patch: u16, rel: &'a str) -> Version<'a> {
@@ -168,11 +170,13 @@ impl System {
 
         mem::MemoryManager::init_first(info);
 
-        shared.main_screen = Some(Bitmap32::from_static(
+        let mut main_screen = Bitmap32::from_static(
             PageManager::direct_map(info.vram_base) as *mut TrueColor,
             Size::new(info.screen_width as isize, info.screen_height as isize),
             info.vram_stride as usize,
-        ));
+        );
+        main_screen.fill_rect(main_screen.bounds(), Color::LIGHT_GRAY.into());
+        shared.main_screen = Some(main_screen);
 
         shared.acpi = Some(Box::new(
             ::acpi::AcpiTables::from_rsdp(MyAcpiHandler::new(), info.acpi_rsdptr as usize).unwrap(),
@@ -195,6 +199,36 @@ impl System {
     fn late_init(args: usize) {
         let shared = Self::shared();
         unsafe {
+            // banner
+            if true {
+                let device = System::current_device();
+                writeln!(
+                    System::em_console(),
+                    "{} v{} - MY FIRST HOBBY OS WRITTEN IN RUST\n  Memory {} MB, Processor {} Cores / {} Threads {}",
+                    System::name(),
+                    System::version(),
+                    device.total_memory_size() >> 20,
+                    device.num_of_performance_cpus(),
+                    device.num_of_active_cpus(),
+                    device.processor_system_type().to_string(),
+                )
+                .unwrap();
+
+                let manufacturer_name = device.manufacturer_name();
+                let model_name = device.model_name();
+                if manufacturer_name.is_some() || model_name.is_some() {
+                    writeln!(
+                        System::em_console(),
+                        "  Manufacturer [{}] Model [{}]",
+                        manufacturer_name.unwrap_or("Unknown"),
+                        model_name.unwrap_or("Unknown"),
+                    )
+                    .unwrap();
+                }
+
+                writeln!(System::em_console(), "").unwrap();
+            }
+
             mem::MemoryManager::late_init();
 
             bus::pci::Pci::init();

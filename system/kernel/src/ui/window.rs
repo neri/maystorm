@@ -341,183 +341,192 @@ impl WindowManager<'_> {
                 .attributes
                 .test_and_clear(WindowManagerAttributes::MOUSE_MOVE)
             {
-                let position = shared.pointer();
-                let current_buttons =
-                    MouseButton::from_bits_truncate(shared.buttons.load(Ordering::Acquire) as u8);
-                let buttons_down = MouseButton::from_bits_truncate(
-                    shared.buttons_down.swap(0, Ordering::SeqCst) as u8,
-                );
-                let buttons_up = MouseButton::from_bits_truncate(
-                    shared.buttons_up.swap(0, Ordering::SeqCst) as u8,
-                );
+                if shared.pointer.is_visible() {
+                    let position = shared.pointer();
+                    let current_buttons = MouseButton::from_bits_truncate(
+                        shared.buttons.load(Ordering::Acquire) as u8,
+                    );
+                    let buttons_down = MouseButton::from_bits_truncate(
+                        shared.buttons_down.swap(0, Ordering::SeqCst) as u8,
+                    );
+                    let buttons_up = MouseButton::from_bits_truncate(
+                        shared.buttons_up.swap(0, Ordering::SeqCst) as u8,
+                    );
 
-                if let Some(captured) = shared.captured {
-                    if current_buttons.contains(MouseButton::LEFT) {
-                        if shared
-                            .attributes
-                            .contains(WindowManagerAttributes::CLOSE_DOWN)
-                        {
-                            captured.update(|window| {
-                                if window.test_frame(position, window.close_button_frame()) {
-                                    window.set_close_state(ViewActionState::Pressed);
+                    if let Some(captured) = shared.captured {
+                        if current_buttons.contains(MouseButton::LEFT) {
+                            if shared
+                                .attributes
+                                .contains(WindowManagerAttributes::CLOSE_DOWN)
+                            {
+                                captured.update(|window| {
+                                    if window.test_frame(position, window.close_button_frame()) {
+                                        window.set_close_state(ViewActionState::Pressed);
+                                    } else {
+                                        window.set_close_state(ViewActionState::Normal);
+                                    }
+                                });
+                            } else if shared
+                                .attributes
+                                .contains(WindowManagerAttributes::BACK_DOWN)
+                            {
+                                captured.update(|window| {
+                                    if window.test_frame(position, window.back_button_frame()) {
+                                        window.set_back_state(ViewActionState::Pressed);
+                                    } else {
+                                        window.set_back_state(ViewActionState::Normal);
+                                    }
+                                });
+                            } else if shared.attributes.contains(WindowManagerAttributes::MOVING) {
+                                // dragging title
+                                let top = if captured.as_ref().level < WindowLevel::FLOATING {
+                                    shared.screen_insets.top
                                 } else {
-                                    window.set_close_state(ViewActionState::Normal);
-                                }
-                            });
-                        } else if shared
-                            .attributes
-                            .contains(WindowManagerAttributes::BACK_DOWN)
-                        {
-                            captured.update(|window| {
-                                if window.test_frame(position, window.back_button_frame()) {
-                                    window.set_back_state(ViewActionState::Pressed);
-                                } else {
-                                    window.set_back_state(ViewActionState::Normal);
-                                }
-                            });
-                        } else if shared.attributes.contains(WindowManagerAttributes::MOVING) {
-                            // dragging title
-                            let top = if captured.as_ref().level < WindowLevel::FLOATING {
-                                shared.screen_insets.top
+                                    0
+                                };
+                                let x = position.x - shared.captured_origin.x;
+                                let y = cmp::max(position.y - shared.captured_origin.y, top);
+                                captured.move_to(Point::new(x, y));
                             } else {
-                                0
-                            };
-                            let x = position.x - shared.captured_origin.x;
-                            let y = cmp::max(position.y - shared.captured_origin.y, top);
-                            captured.move_to(Point::new(x, y));
-                        } else {
-                            let _ = Self::make_mouse_events(
-                                captured,
-                                position,
-                                current_buttons,
-                                buttons_down,
-                                buttons_up,
-                            );
-                        }
-                    } else {
-                        if shared
-                            .attributes
-                            .contains(WindowManagerAttributes::CLOSE_DOWN)
-                        {
-                            captured.update(|window| {
-                                window.set_close_state(ViewActionState::Normal);
-                            });
-                            let target_window = captured.as_ref();
-                            if target_window
-                                .test_frame(position, target_window.close_button_frame())
-                            {
-                                let _ = captured.post(WindowMessage::Close);
-                            }
-                        } else if shared
-                            .attributes
-                            .contains(WindowManagerAttributes::BACK_DOWN)
-                        {
-                            captured.update(|window| {
-                                window.set_back_state(ViewActionState::Normal);
-                            });
-
-                            let target_window = captured.as_ref();
-                            if target_window.test_frame(position, target_window.back_button_frame())
-                            {
-                                let _ = captured.post(WindowMessage::Back);
-                            }
-                        } else {
-                            let _ = Self::make_mouse_events(
-                                captured,
-                                position,
-                                current_buttons,
-                                buttons_down,
-                                buttons_up,
-                            );
-                        }
-
-                        shared.captured = None;
-                        shared.attributes.remove(
-                            WindowManagerAttributes::MOVING
-                                | WindowManagerAttributes::CLOSE_DOWN
-                                | WindowManagerAttributes::BACK_DOWN,
-                        );
-
-                        let target = Self::window_at_point(position);
-                        if let Some(entered) = shared.entered {
-                            if entered != target {
                                 let _ = Self::make_mouse_events(
                                     captured,
-                                    position,
-                                    current_buttons,
-                                    MouseButton::empty(),
-                                    MouseButton::empty(),
-                                );
-                                let _ = entered.post(WindowMessage::MouseLeave);
-                                shared.entered = Some(target);
-                                let _ = target.post(WindowMessage::MouseEnter);
-                            }
-                        }
-                    }
-                } else {
-                    let target = Self::window_at_point(position);
-
-                    if buttons_down.contains(MouseButton::LEFT) {
-                        if let Some(active) = shared.active {
-                            if active != target {
-                                WindowManager::set_active(Some(target));
-                            }
-                        } else {
-                            WindowManager::set_active(Some(target));
-                        }
-
-                        let target_window = target.as_ref();
-                        if target_window.close_button_state != ViewActionState::Disabled
-                            && target_window
-                                .test_frame(position, target_window.close_button_frame())
-                        {
-                            target
-                                .update(|window| window.set_close_state(ViewActionState::Pressed));
-                            shared
-                                .attributes
-                                .insert(WindowManagerAttributes::CLOSE_DOWN);
-                        } else if target_window.back_button_state != ViewActionState::Disabled
-                            && target_window.test_frame(position, target_window.back_button_frame())
-                        {
-                            target.update(|window| window.set_back_state(ViewActionState::Pressed));
-                            shared.attributes.insert(WindowManagerAttributes::BACK_DOWN);
-                        } else if target_window.style.contains(WindowStyle::PINCHABLE) {
-                            shared.attributes.insert(WindowManagerAttributes::MOVING);
-                        } else {
-                            if target_window.test_frame(position, target_window.title_frame()) {
-                                shared.attributes.insert(WindowManagerAttributes::MOVING);
-                            } else {
-                                let _ = Self::make_mouse_events(
-                                    target,
                                     position,
                                     current_buttons,
                                     buttons_down,
                                     buttons_up,
                                 );
                             }
+                        } else {
+                            if shared
+                                .attributes
+                                .contains(WindowManagerAttributes::CLOSE_DOWN)
+                            {
+                                captured.update(|window| {
+                                    window.set_close_state(ViewActionState::Normal);
+                                });
+                                let target_window = captured.as_ref();
+                                if target_window
+                                    .test_frame(position, target_window.close_button_frame())
+                                {
+                                    let _ = captured.post(WindowMessage::Close);
+                                }
+                            } else if shared
+                                .attributes
+                                .contains(WindowManagerAttributes::BACK_DOWN)
+                            {
+                                captured.update(|window| {
+                                    window.set_back_state(ViewActionState::Normal);
+                                });
+
+                                let target_window = captured.as_ref();
+                                if target_window
+                                    .test_frame(position, target_window.back_button_frame())
+                                {
+                                    let _ = captured.post(WindowMessage::Back);
+                                }
+                            } else {
+                                let _ = Self::make_mouse_events(
+                                    captured,
+                                    position,
+                                    current_buttons,
+                                    buttons_down,
+                                    buttons_up,
+                                );
+                            }
+
+                            shared.captured = None;
+                            shared.attributes.remove(
+                                WindowManagerAttributes::MOVING
+                                    | WindowManagerAttributes::CLOSE_DOWN
+                                    | WindowManagerAttributes::BACK_DOWN,
+                            );
+
+                            let target = Self::window_at_point(position);
+                            if let Some(entered) = shared.entered {
+                                if entered != target {
+                                    let _ = Self::make_mouse_events(
+                                        captured,
+                                        position,
+                                        current_buttons,
+                                        MouseButton::empty(),
+                                        MouseButton::empty(),
+                                    );
+                                    let _ = entered.post(WindowMessage::MouseLeave);
+                                    shared.entered = Some(target);
+                                    let _ = target.post(WindowMessage::MouseEnter);
+                                }
+                            }
                         }
-                        shared.captured = Some(target);
-                        shared.captured_origin = position - target_window.visible_frame().origin;
                     } else {
-                        let _ = Self::make_mouse_events(
-                            target,
-                            position,
-                            current_buttons,
-                            buttons_down,
-                            buttons_up,
-                        );
-                    }
+                        let target = Self::window_at_point(position);
 
-                    if let Some(entered) = shared.entered {
-                        if entered != target {
-                            let _ = entered.post(WindowMessage::MouseLeave);
-                            shared.entered = Some(target);
-                            let _ = target.post(WindowMessage::MouseEnter);
+                        if buttons_down.contains(MouseButton::LEFT) {
+                            if let Some(active) = shared.active {
+                                if active != target {
+                                    WindowManager::set_active(Some(target));
+                                }
+                            } else {
+                                WindowManager::set_active(Some(target));
+                            }
+
+                            let target_window = target.as_ref();
+                            if target_window.close_button_state != ViewActionState::Disabled
+                                && target_window
+                                    .test_frame(position, target_window.close_button_frame())
+                            {
+                                target.update(|window| {
+                                    window.set_close_state(ViewActionState::Pressed)
+                                });
+                                shared
+                                    .attributes
+                                    .insert(WindowManagerAttributes::CLOSE_DOWN);
+                            } else if target_window.back_button_state != ViewActionState::Disabled
+                                && target_window
+                                    .test_frame(position, target_window.back_button_frame())
+                            {
+                                target.update(|window| {
+                                    window.set_back_state(ViewActionState::Pressed)
+                                });
+                                shared.attributes.insert(WindowManagerAttributes::BACK_DOWN);
+                            } else if target_window.style.contains(WindowStyle::PINCHABLE) {
+                                shared.attributes.insert(WindowManagerAttributes::MOVING);
+                            } else {
+                                if target_window.test_frame(position, target_window.title_frame()) {
+                                    shared.attributes.insert(WindowManagerAttributes::MOVING);
+                                } else {
+                                    let _ = Self::make_mouse_events(
+                                        target,
+                                        position,
+                                        current_buttons,
+                                        buttons_down,
+                                        buttons_up,
+                                    );
+                                }
+                            }
+                            shared.captured = Some(target);
+                            shared.captured_origin =
+                                position - target_window.visible_frame().origin;
+                        } else {
+                            let _ = Self::make_mouse_events(
+                                target,
+                                position,
+                                current_buttons,
+                                buttons_down,
+                                buttons_up,
+                            );
+                        }
+
+                        if let Some(entered) = shared.entered {
+                            if entered != target {
+                                let _ = entered.post(WindowMessage::MouseLeave);
+                                shared.entered = Some(target);
+                                let _ = target.post(WindowMessage::MouseEnter);
+                            }
                         }
                     }
-                }
 
-                shared.pointer.move_to(position);
+                    shared.pointer.move_to(position);
+                }
             }
         }
     }

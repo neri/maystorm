@@ -26,8 +26,8 @@ impl EmConsole {
         Self {
             x: 0,
             y: 0,
-            fg_color: IndexedColor::WHITE,
-            bg_color: IndexedColor::BLACK,
+            fg_color: IndexedColor::DARK_GRAY,
+            bg_color: IndexedColor::LIGHT_GRAY,
             font,
         }
     }
@@ -137,8 +137,9 @@ impl TtyWrite for EmConsole {
         0
     }
 
-    fn set_attribute(&mut self, _attribute: u8) {
-        //
+    fn set_attribute(&mut self, attribute: u8) {
+        self.fg_color = IndexedColor(attribute & 0x0F);
+        self.bg_color = IndexedColor(attribute >> 4);
     }
 }
 

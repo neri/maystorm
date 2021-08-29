@@ -16,8 +16,11 @@ pub struct UserEnv {
 
 impl UserEnv {
     pub fn start(f: fn()) {
-        if false {
-            WindowManager::set_desktop_color(Theme::shared().desktop_color());
+        // loop {
+        //     Timer::sleep(Duration::from_secs(1));
+        // }
+        WindowManager::set_desktop_color(Theme::shared().desktop_color());
+        if true {
             if let Ok(mut file) = FileManager::open("wall.bmp") {
                 let stat = file.stat().unwrap();
                 let mut vec = Vec::with_capacity(stat.len() as usize);
@@ -26,13 +29,10 @@ impl UserEnv {
                     WindowManager::set_desktop_bitmap(&dib.into_bitmap());
                 }
             }
-            WindowManager::set_pointer_visible(true);
-            Timer::sleep(Duration::from_millis(1000));
-        } else {
-            WindowManager::set_desktop_color(Theme::shared().desktop_color());
-            WindowManager::set_pointer_visible(true);
-            Timer::sleep(Duration::from_millis(1000));
         }
+        WindowManager::set_pointer_visible(true);
+        Timer::sleep(Duration::from_millis(1000));
+
         Scheduler::spawn_async(Task::new(status_bar_main()));
         Scheduler::spawn_async(Task::new(activity_monitor_main()));
         Scheduler::spawn_async(Task::new(shell_launcher(f)));
@@ -392,7 +392,7 @@ async fn activity_monitor_main() {
 async fn notification_main() {
     let padding = 8;
     let radius = 8;
-    let bg_color = Color::from_argb(0xFFFFFFCC);
+    let bg_color = Color::from_argb(0xC0FFFFCC);
     let fg_color = Color::BLACK;
     let border_color = Color::from_argb(0xFFC0C0C0);
     let window_width = 240;
@@ -420,8 +420,8 @@ async fn notification_main() {
             .font(FontDescriptor::new(FontFamily::SystemUI, 16).unwrap())
             .color(fg_color)
             .center()
-            // .text("Lorem ipsum dolor sit amet, consectetur adipiscing elit,");
-            .text("A USB device has been connected.");
+            .text("Lorem ipsum dolor sit amet, consectetur adipiscing elit,");
+        // .text("A USB device has been connected.");
         ats.draw_text(bitmap, rect2, 0);
     });
 
