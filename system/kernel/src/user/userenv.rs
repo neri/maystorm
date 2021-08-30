@@ -396,7 +396,7 @@ async fn notification_main() {
     let fg_color = Color::BLACK;
     let border_color = Color::from_argb(0xFFC0C0C0);
     let window_width = 240;
-    let window_height = 120;
+    let window_height = 64;
     let screen_bounds = WindowManager::user_screen_bounds();
 
     let window = WindowBuilder::new()
@@ -417,11 +417,11 @@ async fn notification_main() {
 
         let rect2 = rect.insets_by(EdgeInsets::padding_each(padding));
         let ats = AttributedString::new()
-            .font(FontDescriptor::new(FontFamily::SystemUI, 16).unwrap())
+            .font(FontDescriptor::new(FontFamily::SansSerif, 12).unwrap())
             .color(fg_color)
             .center()
-            .text("Lorem ipsum dolor sit amet, consectetur adipiscing elit,");
-        // .text("A USB device has been connected.");
+            // .text("Lorem ipsum dolor sit amet, consectetur adipiscing elit,");
+            .text("A USB device has been connected.");
         ats.draw_text(bitmap, rect2, 0);
     });
 

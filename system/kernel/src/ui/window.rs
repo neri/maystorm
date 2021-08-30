@@ -30,7 +30,8 @@ const MAX_WINDOWS: usize = 255;
 const WINDOW_SYSTEM_EVENT_QUEUE_SIZE: usize = 100;
 
 const WINDOW_BORDER_WIDTH: isize = 1;
-const WINDOW_THICK_BORDER_WIDTH: isize = 4;
+const WINDOW_THICK_BORDER_WIDTH_V: isize = WINDOW_CORNER_RADIUS / 2;
+const WINDOW_THICK_BORDER_WIDTH_H: isize = WINDOW_CORNER_RADIUS / 2;
 const WINDOW_CORNER_RADIUS: isize = 8;
 const WINDOW_TITLE_HEIGHT: isize = 24;
 const WINDOW_TITLE_LENGTH: usize = 32;
@@ -994,12 +995,17 @@ impl WindowStyle {
                 if self.contains(Self::TITLE) {
                     EdgeInsets::new(
                         WINDOW_BORDER_WIDTH + WINDOW_TITLE_HEIGHT,
-                        WINDOW_THICK_BORDER_WIDTH,
-                        WINDOW_THICK_BORDER_WIDTH,
-                        WINDOW_THICK_BORDER_WIDTH,
+                        WINDOW_THICK_BORDER_WIDTH_H,
+                        WINDOW_THICK_BORDER_WIDTH_V,
+                        WINDOW_THICK_BORDER_WIDTH_H,
                     )
                 } else {
-                    EdgeInsets::padding_each(WINDOW_THICK_BORDER_WIDTH)
+                    EdgeInsets::new(
+                        WINDOW_THICK_BORDER_WIDTH_V,
+                        WINDOW_THICK_BORDER_WIDTH_H,
+                        WINDOW_THICK_BORDER_WIDTH_V,
+                        WINDOW_THICK_BORDER_WIDTH_H,
+                    )
                 }
             }
         } else {

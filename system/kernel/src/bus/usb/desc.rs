@@ -1,0 +1,391 @@
+//! USB Descriptors
+
+use core::{fmt, num::NonZeroU8};
+
+use num_derive::FromPrimitive;
+// use num_traits::FromPrimitive;
+
+/// 16-bit word type used in the USB descriptor.
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct UsbWord(pub [u8; 2]);
+
+impl UsbWord {
+    #[inline]
+    pub const fn as_u16(&self) -> u16 {
+        self.0[0] as u16 + (self.0[1] as u16) * 256
+    }
+}
+
+impl From<UsbWord> for u16 {
+    #[inline]
+    fn from(v: UsbWord) -> Self {
+        v.as_u16()
+    }
+}
+
+impl fmt::Debug for UsbWord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:04x}", self.as_u16())
+    }
+}
+
+/// USB Vendor Id
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UsbVendorId(pub u16);
+
+/// USB Product Id
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UsbProductId(pub u16);
+
+/// Vendor Id and Product Id pair
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UsbVidPid(pub u32);
+
+impl UsbVidPid {
+    #[inline]
+    pub const fn vid_pid(vid: UsbVendorId, pid: UsbProductId) -> Self {
+        Self((vid.0 as u32) * 0x10000 | (pid.0 as u32))
+    }
+
+    #[inline]
+    pub const fn vid(&self) -> UsbVendorId {
+        UsbVendorId((self.0 >> 16) as u16)
+    }
+
+    #[inline]
+    pub const fn pid(&self) -> UsbProductId {
+        UsbProductId(self.0 as u16)
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UsbBaseClassCode(pub u8);
+
+impl UsbBaseClassCode {
+    pub const COMPOSITE: Self = Self(0x00);
+    pub const AUDIO: Self = Self(0x01);
+    pub const COMM: Self = Self(0x02);
+    pub const HID: Self = Self(0x03);
+    pub const PHYSICAL: Self = Self(0x05);
+    pub const IMAGE: Self = Self(0x06);
+    pub const PRINTER: Self = Self(0x07);
+    pub const STORAGE: Self = Self(0x08);
+    pub const HUB: Self = Self(0x09);
+    pub const CDC_DATA: Self = Self(0x0A);
+    pub const SMART_CARD: Self = Self(0x0B);
+    pub const CONTENT_SECURITY: Self = Self(0x0C);
+    pub const VIDEO: Self = Self(0x0E);
+    pub const PERSONAL_HEALTHCARE: Self = Self(0x0F);
+    pub const AUDIO_VIDEO: Self = Self(0x10);
+    pub const BILLBOARD: Self = Self(0x11);
+    pub const TYPE_C_BRIDGE: Self = Self(0x12);
+    pub const DIAGNOSTIC: Self = Self(0xDC);
+    pub const WIRELESS: Self = Self(0xE0);
+    pub const MISCELLANEOUS: Self = Self(0xEF);
+    pub const APPLICATION_SPECIFIC: Self = Self(0xFE);
+    pub const VENDOR_SPECIFIC: Self = Self(0xFF);
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UsbSubClassCode(pub u8);
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UsbProtocolCode(pub u8);
+
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UsbClass(u32);
+
+impl UsbClass {
+    pub const MIDI_STREAMING: Self = Self(0x010300);
+    pub const HID_GENERIC: Self = Self(0x030000);
+    pub const HID_KEYBOARD: Self = Self(0x030101);
+    pub const HID_MOUSE: Self = Self(0x030102);
+    pub const STORAGE_BULK: Self = Self(0x080650);
+    pub const FLOPPY: Self = Self(0x080400);
+    pub const HUB_FS: Self = Self(0x090000);
+    pub const HUB_HS_STT: Self = Self(0x090001);
+    pub const HUB_HS_MTT: Self = Self(0x090002);
+    pub const HUB_SS: Self = Self(0x090003);
+    pub const BLUETOOTH: Self = Self(0xE00101);
+    pub const XINPUT: Self = Self(0xFF5D01);
+    pub const XINPUT_HEADSET: Self = Self(0xFF5D02);
+    pub const XINPUT_IF2: Self = Self(0xFF5D03);
+    pub const XINPUT_IF3: Self = Self(0xFF5D04);
+
+    #[inline]
+    pub const fn new(
+        base: UsbBaseClassCode,
+        sub: UsbSubClassCode,
+        protocol: UsbProtocolCode,
+    ) -> Self {
+        Self(((base.0 as u32) << 16) | ((sub.0 as u32) << 8) | (protocol.0 as u32))
+    }
+
+    #[inline]
+    pub const fn base(base: u8) -> Self {
+        Self((base as u32) << 16)
+    }
+
+    #[inline]
+    pub const fn sub(mut self, sub: u8) -> Self {
+        self.0 |= (sub as u32) << 8;
+        self
+    }
+
+    #[inline]
+    pub const fn protocol(mut self, protocol: u8) -> Self {
+        self.0 |= protocol as u32;
+        self
+    }
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+pub enum UsbDescriptorType {
+    Device = 1,
+    Configuration,
+    String,
+    Interface,
+    Endpoint,
+    DeviceQualifier,
+    HidClass = 0x21,
+    HidReport,
+    Hub = 0x29,
+    SsHub = 0x2A,
+}
+
+#[repr(C, packed)]
+#[allow(non_snake_case)]
+#[derive(Debug)]
+pub struct UsbDeviceDescriptor {
+    bLength: u8,
+    bDescriptorType: UsbDescriptorType,
+    bcdUSB: UsbWord,
+    bDeviceClass: UsbBaseClassCode,
+    bDeviceSubClass: UsbSubClassCode,
+    bDeviceProtocol: UsbProtocolCode,
+    bMaxPacketSize0: u8,
+    idVendor: UsbWord,
+    idProduct: UsbWord,
+    bcdDevice: UsbWord,
+    iManufacturer: u8,
+    iProduct: u8,
+    iSerialNumber: u8,
+    bNumConfigurations: u8,
+}
+
+#[repr(C, packed)]
+#[allow(non_snake_case)]
+pub struct UsbConfigurationDescriptor {
+    bLength: u8,
+    bDescriptorType: UsbDescriptorType,
+    wTotalLength: UsbWord,
+    bNumInterface: u8,
+    bConfigurationValue: u8,
+    iConfiguration: u8,
+    bmAttributes: u8,
+    bMaxPower: u8,
+}
+
+#[repr(C, packed)]
+#[allow(non_snake_case)]
+pub struct UsbInterfaceDescriptor {
+    bLength: u8,
+    bDescriptorType: UsbDescriptorType,
+    bInterfaceNumber: u8,
+    bAlternateSetting: u8,
+    bNumEndpoints: u8,
+    bInterfaceClass: UsbBaseClassCode,
+    bInterfaceSubClass: UsbSubClassCode,
+    bInterfaceProtocol: UsbProtocolCode,
+    iInterface: u8,
+}
+
+#[repr(C, packed)]
+#[allow(non_snake_case)]
+pub struct UsbEndpointDescriptor {
+    bLength: u8,
+    bDescriptorType: UsbDescriptorType,
+    bEndpointAddress: u8,
+    bmAttributes: u8,
+    wMaxPacketSize: UsbWord,
+    bInterval: u8,
+}
+
+#[repr(C, packed)]
+#[allow(non_snake_case)]
+pub struct UsbDeviceQualifierDescriptor {
+    bLength: u8,
+    bDescriptorType: UsbDescriptorType,
+    bcdUSB: UsbWord,
+    bDeviceClass: UsbBaseClassCode,
+    bDeviceSubClass: UsbSubClassCode,
+    bDeviceProtocol: UsbProtocolCode,
+    bMaxPacketSize0: u8,
+    bNumConfigurations: u8,
+    bReserved: u8,
+}
+
+#[repr(C, packed)]
+#[allow(non_snake_case)]
+pub struct UsbStringDescriptor {
+    bLength: u8,
+    bDescriptorType: UsbDescriptorType,
+    data: [u16; 127],
+}
+
+#[repr(C, packed)]
+#[allow(non_snake_case)]
+pub struct UsbHidReportDescriptor {
+    bDescriptorType: UsbDescriptorType,
+    wDescriptorLength: UsbWord,
+}
+
+#[repr(C, packed)]
+#[allow(non_snake_case)]
+pub struct UsbHidClassDescriptor {
+    bLength: u8,
+    bDescriptorType: UsbDescriptorType,
+    bcdHID: UsbWord,
+    bCountryCode: u8,
+    bNumDescriptors: u8,
+    reports: [u8; 250],
+}
+
+#[repr(C, packed)]
+#[allow(non_snake_case)]
+pub struct UsbHubDescriptor {
+    bLength: u8,
+    bDescriptorType: UsbDescriptorType,
+    bNbrPorts: u8,
+    wHubCharacteristics: UsbWord,
+    bPwrOn2PwrGood: u8,
+    bHubContrCurrent: u8,
+    DeviceRemovable: UsbWord,
+}
+
+/// USB3 Route String
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub struct RouteString(u32);
+
+impl RouteString {
+    /// Empty route (root)
+    pub const EMPTY: Self = Self(0);
+    /// Since a valid Route String is 20 bits, a valid mask is 0xFFFFF.
+    pub const VALID_MASK: u32 = 0xF_FFFF;
+    /// Max level is 5
+    pub const MAX_LEVEL: usize = 5;
+
+    #[inline]
+    pub const fn from_raw(raw: u32) -> Self {
+        Self(raw & Self::VALID_MASK)
+    }
+
+    #[inline]
+    pub const fn as_u32(&self) -> u32 {
+        self.0
+    }
+
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        self.0 == 0
+    }
+
+    pub const fn level(&self) -> usize {
+        match self.0 {
+            0 => 0,
+            0x0_0001..=0x0_000F => 1,
+            0x0_0010..=0x0_00FF => 2,
+            0x0_0100..=0x0_0FFF => 3,
+            0x0_1000..=0x0_FFFF => 4,
+            _ => 5,
+        }
+    }
+
+    #[inline]
+    pub const fn appending(&self, component: RouteStringPathComponent) -> Result<Self, Self> {
+        let raw = self.0;
+        let level = self.level();
+        if level < Self::MAX_LEVEL {
+            Ok(Self(raw | ((component.0.get() as u32) << (level * 4))))
+        } else {
+            Err(*self)
+        }
+    }
+
+    #[inline]
+    pub const fn append(&mut self, component: RouteStringPathComponent) -> Result<(), ()> {
+        match self.appending(component) {
+            Ok(v) => {
+                *self = v;
+                Ok(())
+            }
+            Err(_) => Err(()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RouteStringPathComponent(NonZeroU8);
+
+impl RouteStringPathComponent {
+    #[inline]
+    pub fn new(value: u8) -> Option<Self> {
+        NonZeroU8::new(value).and_then(|v| if v.get() < 0x10 { Some(Self(v)) } else { None })
+    }
+
+    #[inline]
+    pub const fn value(&self) -> NonZeroU8 {
+        self.0
+    }
+}
+
+/////
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+pub enum UrbTranfserType {
+    NoData = 0,
+    ControlOut = 2,
+    ControlIn = 3,
+}
+
+#[repr(C)]
+#[allow(non_snake_case)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UsbControlSetupData {
+    pub bmRequestType: u8,
+    pub bRequest: UsbControlRequestKind,
+    pub wValue: u16,
+    pub wIndex: u16,
+    pub wLength: u16,
+}
+
+#[repr(u8)]
+#[allow(non_camel_case_types)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum UsbControlRequestKind {
+    GET_STATUS = 0,
+    CLEAR_FEATURE = 1,
+    SET_FEATURE = 3,
+    // SET_ADDRESS = 5,
+    GET_DESCRIPTOR = 6,
+    SET_DESCRIPTOR = 7,
+    GET_CONFIGURATION = 8,
+    SET_CONFIGURATION = 9,
+    GET_INTERFACE = 0x0A,
+    SET_INTERFACE = 0x0B,
+    // SYNC_FRAME = 0x0C,
+    SET_SEL = 0x30,
+    SET_ISOCH_DELAY = 0x31,
+    // HID_GET_REPORT = 1,
+    // HID_SET_REPORT = 9,
+    // HID_SET_PROTOCOL = 11,
+}

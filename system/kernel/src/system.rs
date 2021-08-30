@@ -24,7 +24,7 @@ impl Version<'_> {
     // "Curiosity" killed the cat
     // Cats have nine lives, but curiosity can use up all of them.
     const SYSTEM_NAME: &'static str = "MEG-OS codename Curiosity";
-    const SYSTEM_SHORT_NAME: &'static str = "maystorm";
+    const SYSTEM_SHORT_NAME: &'static str = "megos";
     const RELEASE: &'static str = "";
     const VERSION: Version<'static> = Version::new(0, 21, 9, Self::RELEASE);
 

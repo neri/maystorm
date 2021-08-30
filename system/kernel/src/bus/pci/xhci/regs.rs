@@ -104,9 +104,9 @@ impl CapabilityRegisters {
     }
 
     #[inline]
-    pub fn ports(&self) -> &'static [UsbPort] {
+    pub fn ports(&self) -> &'static [PortRegisters] {
         unsafe {
-            let data: *const UsbPort =
+            let data: *const PortRegisters =
                 transmute((self as *const _ as *const c_void).add(self.length() + 0x400));
             let len = self.max_ports();
             slice::from_raw_parts(data, len)
@@ -114,9 +114,9 @@ impl CapabilityRegisters {
     }
 
     #[inline]
-    pub fn doorbells(&self) -> &'static [Doorbell] {
+    pub fn doorbells(&self) -> &'static [DoorbellRegister] {
         unsafe {
-            let data: *const Doorbell =
+            let data: *const DoorbellRegister =
                 transmute((self as *const _ as *const c_void).add(self.db_off()));
             let len = self.max_device_slots();
             slice::from_raw_parts(data, len)
@@ -293,14 +293,14 @@ bitflags! {
 /// xHC USB Port Register Set
 #[repr(C)]
 #[allow(dead_code)]
-pub struct UsbPort {
+pub struct PortRegisters {
     portsc: AtomicU32,
     portpmsc: AtomicU32,
     portli: AtomicU32,
     porthlpmc: AtomicU32,
 }
 
-impl UsbPort {
+impl PortRegisters {
     #[inline]
     pub fn portsc(&self) -> PortSc {
         PortSc::from_bits_truncate(self.portsc.load(Ordering::SeqCst))
@@ -452,9 +452,9 @@ impl Drop for EventRingGuard<'_> {
 /// xHC Doorbell Register
 #[repr(transparent)]
 #[allow(dead_code)]
-pub struct Doorbell(AtomicU32);
+pub struct DoorbellRegister(AtomicU32);
 
-impl Doorbell {
+impl DoorbellRegister {
     #[inline]
     pub fn raw(&self) -> u32 {
         self.0.load(Ordering::SeqCst)
@@ -466,12 +466,12 @@ impl Doorbell {
     }
 
     #[inline]
-    pub fn target(&self) -> Option<EpNo> {
-        NonZeroU8::new((self.raw() & 0xFF) as u8).map(|v| EpNo(v))
+    pub fn target(&self) -> Option<DCI> {
+        NonZeroU8::new((self.raw() & 0xFF) as u8).map(|v| DCI(v))
     }
 
     #[inline]
-    pub fn set_target(&self, val: Option<EpNo>) {
+    pub fn set_target(&self, val: Option<DCI>) {
         self.set_raw(val.map(|v| v.0.get() as u32).unwrap_or_default());
     }
 }

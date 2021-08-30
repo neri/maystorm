@@ -1,6 +1,7 @@
 //! xHCI: Extensible Host Controller Interface
 
 use super::{data::*, regs::*};
+use crate::bus::usb::*;
 use crate::{
     arch::cpu::Cpu,
     arch::page::{NonNullPhysicalAddress, PageManager, PhysicalAddress},
@@ -12,7 +13,12 @@ use crate::{
     system::System,
     task::scheduler::*,
 };
-use alloc::{boxed::Box, format, string::String, sync::Arc};
+use alloc::{
+    boxed::Box,
+    format,
+    string::String,
+    sync::{Arc, Weak},
+};
 use core::{
     cell::UnsafeCell, ffi::c_void, fmt::Write, mem::size_of, num::NonZeroU64, slice,
     sync::atomic::*, time::Duration,
@@ -57,6 +63,8 @@ impl PciDriverRegistrar for XhciRegistrar {
 }
 
 /// Extensible Host Controller Interface
+///
+/// Many methods are made public for documentation purposes, but are not intended to be called from the outside.
 #[allow(dead_code)]
 pub struct Xhci {
     addr: PciConfigAddress,
@@ -64,8 +72,8 @@ pub struct Xhci {
 
     cap: &'static CapabilityRegisters,
     opr: &'static OperationalRegisters,
-    ports: &'static [UsbPort],
-    doorbells: &'static [Doorbell],
+    ports: &'static [PortRegisters],
+    doorbells: &'static [DoorbellRegister],
     rts: &'static RuntimeRegisters,
 
     max_device_slots: usize,
@@ -78,7 +86,7 @@ pub struct Xhci {
     event_cycle: CycleBit,
     port_status_change_queue: EventQueue<PortId>,
     port2slot: RwLock<[Option<SlotId>; 256]>,
-    urbs: [UnsafeCell<UsbRequestBlock>; Self::MAX_URB],
+    urbs: [UnsafeCell<XhciRequestBlock>; Self::MAX_URB],
     ics: [UnsafeCell<InputContext>; Self::MAX_DEVICE_SLOTS],
 }
 
@@ -145,7 +153,7 @@ impl Xhci {
             ers,
             port_status_change_queue: EventQueue::new(Self::MAX_PORT_CHANGE),
             port2slot: RwLock::new([None; 256]),
-            urbs: [UsbRequestBlock::EMPTY; Self::MAX_URB],
+            urbs: [XhciRequestBlock::EMPTY; Self::MAX_URB],
             ics: [InputContext::EMPTY; Self::MAX_DEVICE_SLOTS],
         });
 
@@ -252,13 +260,14 @@ impl Xhci {
         *self.dcbaa().get_mut(slot_id.0.get() as usize).unwrap() = value;
     }
 
-    pub fn doorbell(&self, slot_id: Option<SlotId>) -> &Doorbell {
+    pub fn ring_a_doorbell(&self, slot_id: Option<SlotId>, dci: Option<DCI>) {
         self.doorbells
             .get(slot_id.map(|v| v.0.get() as usize).unwrap_or_default())
             .unwrap()
+            .set_target(dci);
     }
 
-    pub fn port_by(&self, port_id: PortId) -> &UsbPort {
+    pub fn port_by(&self, port_id: PortId) -> &PortRegisters {
         self.ports.get(port_id.0.get() as usize - 1).unwrap()
     }
 
@@ -277,13 +286,13 @@ impl Xhci {
         }
     }
 
-    pub fn find_ep_ring(&self, slot_id: Option<SlotId>, epno: Option<EpNo>) -> Option<usize> {
+    pub fn find_ep_ring(&self, slot_id: Option<SlotId>, dci: Option<DCI>) -> Option<usize> {
         let slot_id = slot_id.map(|v| v.0.get()).unwrap_or_default();
-        let epno = epno.map(|v| v.0.get()).unwrap_or_default();
+        let dci = dci.map(|v| v.0.get()).unwrap_or_default();
         for (index, ctx) in self.ring_context.read().unwrap().iter().enumerate() {
             let ctx_slot_id = ctx.slot_id().map(|v| v.0.get()).unwrap_or_default();
-            let ctx_epno = ctx.epno().map(|v| v.0.get()).unwrap_or_default();
-            if ctx.tr_base() != 0 && ctx_slot_id == slot_id && ctx_epno == epno {
+            let ctx_dci = ctx.dci().map(|v| v.0.get()).unwrap_or_default();
+            if ctx.tr_base() != 0 && ctx_slot_id == slot_id && ctx_dci == dci {
                 return Some(index);
             }
         }
@@ -293,23 +302,23 @@ impl Xhci {
     pub fn alloc_ep_ring(
         &self,
         slot_id: Option<SlotId>,
-        epno: Option<EpNo>,
+        dci: Option<DCI>,
     ) -> Option<NonNullPhysicalAddress> {
-        if let Some(index) = self.find_ep_ring(slot_id, epno) {
+        if let Some(index) = self.find_ep_ring(slot_id, dci) {
             let ctx = &mut self.ring_context.write().unwrap()[index];
             ctx.reset();
             return ctx.tr_value();
         }
         for ctx in self.ring_context.write().unwrap().iter_mut() {
             if ctx.tr_base() == 0 {
-                ctx.alloc(slot_id, epno);
+                ctx.alloc(slot_id, dci);
                 return ctx.tr_value();
             }
         }
         None
     }
 
-    pub fn allocate_urb<'a>(&'a self) -> Option<&'a mut UsbRequestBlock> {
+    pub fn allocate_urb<'a>(&'a self) -> Option<&'a mut XhciRequestBlock> {
         for urb in &self.urbs {
             let urb = unsafe { &mut *urb.get() };
             if urb.try_to_acquire() {
@@ -322,12 +331,12 @@ impl Xhci {
     pub fn find_urb<'a>(
         &'a self,
         scheduled_trb: ScheduledTrb,
-        state: Option<UrbState>,
-    ) -> Option<&'a mut UsbRequestBlock> {
+        state: Option<XrbState>,
+    ) -> Option<&'a mut XhciRequestBlock> {
         for urb in &self.urbs {
             let urb = unsafe { &mut *urb.get() };
             let urb_state = urb.state();
-            if urb_state != UrbState::Available && urb.scheduled_trb == scheduled_trb {
+            if urb_state != XrbState::Available && urb.scheduled_trb == scheduled_trb {
                 match state {
                     Some(state) => {
                         if urb_state == state {
@@ -341,16 +350,16 @@ impl Xhci {
         None
     }
 
-    pub fn schedule_trb<T: TrbCommon>(
+    pub fn issue_trb<T: TrbCommon>(
         &self,
-        urb: Option<&mut UsbRequestBlock>,
+        urb: Option<&mut XhciRequestBlock>,
         trb: &T,
         slot_id: Option<SlotId>,
-        epno: Option<EpNo>,
+        dci: Option<DCI>,
         need_to_notify: bool,
     ) -> ScheduledTrb {
         let trb = trb.as_common_trb();
-        let index = match self.find_ep_ring(slot_id, epno) {
+        let index = match self.find_ep_ring(slot_id, dci) {
             Some(index) => index,
             None => todo!(),
         };
@@ -384,30 +393,80 @@ impl Xhci {
 
         if need_to_notify {
             self.wait_cnr(0);
-            self.doorbell(slot_id).set_target(epno);
+            self.ring_a_doorbell(slot_id, dci);
         }
 
         scheduled_trb
     }
 
+    /// Issue trb command
     pub fn execute_command<T: TrbCommon>(&self, trb: &T) -> Result<TrbCce, TrbCce> {
         let urb = self.allocate_urb().unwrap();
-        self.schedule_trb(Some(urb), trb, None, None, true);
+        self.issue_trb(Some(urb), trb, None, None, true);
         urb.sem.wait();
-        let result = urb.response.copied();
-        let state = urb.state();
+        let result = match urb.response.as_event() {
+            Some(TrbEvent::CommandCompletion(v)) => Some(v.copied()),
+            _ => None,
+        };
         urb.release();
-        match state {
-            UrbState::Completed => Ok(result),
-            UrbState::Failed => Err(result),
-            _ => unreachable!(),
+        match result {
+            Some(result) => {
+                if result.completion_code() == Some(TrbCompletionCode::SUCCESS) {
+                    Ok(result)
+                } else {
+                    Err(result)
+                }
+            }
+            None => Err(TrbCce::empty()),
+        }
+    }
+
+    /// Execute control transfer
+    pub fn execute_control(
+        &self,
+        slot_id: SlotId,
+        trt: UrbTranfserType,
+        setup: &UsbControlSetupData,
+        buffer: u64,
+    ) -> Result<usize, TrbTxe> {
+        let dci = Some(DCI::CONTROL);
+        let slot_id = Some(slot_id);
+        let setup_trb = TrbSetupStage::new(trt, setup);
+        self.issue_trb(None, &setup_trb, slot_id, dci, false);
+
+        let dir = trt == UrbTranfserType::ControlIn;
+        if setup.wLength > 0 {
+            let data_trb = TrbDataStage::new(buffer, setup.wLength as usize, dir);
+            self.issue_trb(None, &data_trb, slot_id, dci, false);
+        }
+
+        let urb = self.allocate_urb().unwrap();
+        let status_trb = TrbStatusStage::new(!dir, true);
+        self.issue_trb(Some(urb), &status_trb, slot_id, dci, true);
+
+        urb.sem.wait();
+
+        let result = match urb.response.as_event() {
+            Some(TrbEvent::TransferEvent(v)) => Some(v.copied()),
+            _ => None,
+        };
+        urb.release();
+        match result {
+            Some(result) => {
+                if result.completion_code() == Some(TrbCompletionCode::SUCCESS) {
+                    Ok(setup.wLength as usize - result.transfer_length())
+                } else {
+                    Err(result)
+                }
+            }
+            None => Err(TrbTxe::empty()),
         }
     }
 
     pub fn configure_endpoint(
         &self,
         slot_id: SlotId,
-        epno: EpNo,
+        dci: DCI,
         ep_type: EpType,
         max_packet_size: usize,
         interval: usize,
@@ -416,16 +475,16 @@ impl Xhci {
         let input_context = self.input_context(slot_id);
         let control = input_context.control();
         let slot = input_context.slot();
-        let endpoint = input_context.endpoint(epno);
+        let endpoint = input_context.endpoint(dci);
 
         control.clear();
-        control.set_add(1 | 1u32 << epno.0.get());
+        control.set_add(1 | 1u32 << dci.0.get());
 
         if copy_dc {
             // TODO:
         }
 
-        slot.set_context_entries(usize::max(epno.0.get() as usize, slot.context_entries()));
+        slot.set_context_entries(usize::max(dci.0.get() as usize, slot.context_entries()));
 
         endpoint.set_ep_type(ep_type);
 
@@ -448,11 +507,11 @@ impl Xhci {
         }
         endpoint.set_error_count(3);
 
-        let tr = self.alloc_ep_ring(Some(slot_id), Some(epno)).unwrap().get();
+        let tr = self.alloc_ep_ring(Some(slot_id), Some(dci)).unwrap().get();
         endpoint.set_trdp(tr);
     }
 
-    pub fn reset_port(&self, port: &UsbPort) -> PortSc {
+    pub fn reset_port(&self, port: &PortRegisters) -> PortSc {
         self.wait_cnr(0);
         let status = port.portsc();
         let ccs_csc = PortSc::CCS | PortSc::CSC;
@@ -515,14 +574,14 @@ impl Xhci {
                 slot.set_speed(port.portsc().speed_raw());
                 slot.set_context_entries(1);
 
-                self.configure_endpoint(slot_id, EpNo::CONTROL, EpType::Control, 0, 0, false);
+                self.configure_endpoint(slot_id, DCI::CONTROL, EpType::Control, 0, 0, false);
 
                 Timer::sleep(Duration::from_millis(100));
 
                 let trb = TrbAddressDeviceCommand::new(slot_id, input_context_pa);
                 match self.execute_command(&trb) {
                     Ok(_result) => {
-                        println!("ADDRESS_DEVICE OK {:?}", slot_id);
+                        println!("ADDRESS DEVICE: {:?} = {:?}", port_id, slot_id);
                     }
                     Err(err) => {
                         println!("ADDRESS_DEVICE ERROR {:?}", err.completion_code());
@@ -532,6 +591,7 @@ impl Xhci {
                 return Some(slot_id);
             } else {
                 // Detached USB device
+                port.write_portsc(status & PortSc::PRESERVE_MASK | PortSc::CSC);
             }
         }
         None
@@ -548,15 +608,15 @@ impl Xhci {
             match event {
                 TrbEvent::CommandCompletion(event) => {
                     let scheduled_trb = ScheduledTrb(event.ptr());
-                    if let Some(urb) = self.find_urb(scheduled_trb, Some(UrbState::Scheduled)) {
-                        urb.set_response(event);
+                    if let Some(urb) = self.find_urb(scheduled_trb, Some(XrbState::Scheduled)) {
+                        urb.set_response(event.as_common_trb());
                     }
-                    println!(
-                        "XHCI: COMMAND_COMPLETION {:?} {:?} {:016x}",
-                        event.slot_id(),
-                        event.completion_code(),
-                        event.ptr(),
-                    );
+                    // println!(
+                    //     "XHCI: COMMAND_COMPLETION {:?} {:?} {:016x}",
+                    //     event.slot_id(),
+                    //     event.completion_code(),
+                    //     event.ptr(),
+                    // );
                 }
                 TrbEvent::PortStatusChange(event) => {
                     let port_id = event.port_id().unwrap();
@@ -564,11 +624,15 @@ impl Xhci {
                     self.port_status_change_queue.post(port_id).unwrap();
                 }
                 TrbEvent::TransferEvent(event) => {
-                    println!(
-                        "XHCI: TRANSFER {:?} {:?}",
-                        event.slot_id(),
-                        event.completion_code()
-                    );
+                    let scheduled_trb = ScheduledTrb(event.ptr());
+                    if let Some(urb) = self.find_urb(scheduled_trb, Some(XrbState::Scheduled)) {
+                        urb.set_response(event.as_common_trb());
+                    }
+                    // println!(
+                    //     "XHCI: TRANSFER {:?} {:?}",
+                    //     event.slot_id(),
+                    //     event.completion_code()
+                    // );
                 }
             }
         }
@@ -600,7 +664,21 @@ impl Xhci {
 
         loop {
             while let Some(port_id) = self.port_status_change_queue.wait_event() {
-                self.port_initialize(port_id);
+                if let Some(slot_id) = self.port_initialize(port_id) {
+                    let buffer = unsafe { MemoryManager::alloc_pages(MemoryManager::PAGE_SIZE_MIN) }
+                        .unwrap()
+                        .get() as u64;
+                    let device = HciDeviceContext {
+                        parent_slot_id: None,
+                        port_id,
+                        slot_id,
+                        route_string: RouteString::EMPTY,
+                        buffer,
+                    };
+                    let ctx = Box::new(HciContext::new(Arc::downgrade(&self), device));
+                    let usb_device = UsbDevice::new(ctx as Box<dyn UsbHostInterface>);
+                    usb_device.initialize();
+                }
             }
         }
     }
@@ -633,10 +711,11 @@ impl PciDriver for Xhci {
         };
 
         format!(
-            "{} ports {} slots {}",
+            "{} ports {} slots {} ctx {}",
             status,
             self.cap.max_ports(),
             self.cap.max_device_slots(),
+            self.context_size,
         )
     }
 }
@@ -645,7 +724,7 @@ struct EpRingContext {
     tr_base: PhysicalAddress,
     response: Trb,
     slot_id: Option<SlotId>,
-    epno: Option<EpNo>,
+    dci: Option<DCI>,
     index: usize,
     pcs: CycleBit,
 }
@@ -659,7 +738,7 @@ impl EpRingContext {
             tr_base: 0,
             response: Trb::new(TrbType::RESERVED),
             slot_id: None,
-            epno: None,
+            dci: None,
             index: 0,
             pcs: CycleBit::new(),
         }
@@ -676,8 +755,8 @@ impl EpRingContext {
     }
 
     #[inline]
-    pub const fn epno(&self) -> Option<EpNo> {
-        self.epno
+    pub const fn dci(&self) -> Option<DCI> {
+        self.dci
     }
 
     #[inline]
@@ -709,12 +788,12 @@ impl EpRingContext {
     }
 
     #[inline]
-    pub fn alloc(&mut self, slot_id: Option<SlotId>, epno: Option<EpNo>) {
+    pub fn alloc(&mut self, slot_id: Option<SlotId>, dci: Option<DCI>) {
         self.tr_base = unsafe { MemoryManager::alloc_pages(Self::size()) }
             .unwrap()
             .get() as PhysicalAddress;
         self.slot_id = slot_id;
-        self.epno = epno;
+        self.dci = dci;
         self.pcs.reset();
         self.index = 0;
     }
@@ -725,16 +804,16 @@ impl EpRingContext {
 pub struct ScheduledTrb(pub u64);
 
 #[allow(dead_code)]
-pub struct UsbRequestBlock {
+pub struct XhciRequestBlock {
     state: AtomicUsize,
     scheduled_trb: ScheduledTrb,
     sem: Semaphore,
     reuse_delay: Timer,
     request: Trb,
-    response: TrbCce,
+    response: Trb,
 }
 
-impl UsbRequestBlock {
+impl XhciRequestBlock {
     pub const EMPTY: UnsafeCell<Self> = UnsafeCell::new(Self::new());
 
     #[inline]
@@ -745,22 +824,22 @@ impl UsbRequestBlock {
             sem: Semaphore::new(0),
             reuse_delay: Timer::JUST,
             request: Trb::empty(),
-            response: TrbCce::empty(),
+            response: Trb::empty(),
         }
     }
 
     #[inline]
-    pub fn state(&self) -> UrbState {
+    pub fn state(&self) -> XrbState {
         FromPrimitive::from_usize(self.state.load(Ordering::SeqCst)).unwrap_or_default()
     }
 
     #[inline]
-    pub fn set_state(&self, val: UrbState) {
+    pub fn set_state(&self, val: XrbState) {
         self.state.store(val as usize, Ordering::SeqCst);
     }
 
     #[inline]
-    pub fn compare_exchange_state(&self, current: UrbState, new: UrbState) -> Result<(), UrbState> {
+    pub fn compare_exchange_state(&self, current: XrbState, new: XrbState) -> Result<(), XrbState> {
         match self.state.compare_exchange_weak(
             current as usize,
             new as usize,
@@ -776,9 +855,9 @@ impl UsbRequestBlock {
     pub fn schedule(&mut self, request: &Trb, scheduled_trb: ScheduledTrb) {
         self.scheduled_trb = scheduled_trb;
         self.request.raw_copy_from(request);
-        self.response = TrbCce::empty();
+        self.response = Trb::empty();
         fence(Ordering::SeqCst);
-        self.set_state(UrbState::Scheduled);
+        self.set_state(XrbState::Scheduled);
     }
 
     #[inline]
@@ -786,24 +865,28 @@ impl UsbRequestBlock {
         if self.reuse_delay.until() {
             return false;
         }
-        self.compare_exchange_state(UrbState::Available, UrbState::Acquired)
+        self.compare_exchange_state(XrbState::Available, XrbState::Acquired)
             .is_ok()
     }
 
     #[inline]
     pub fn release(&mut self) {
         self.reuse_delay = Timer::new(Duration::from_millis(10));
-        self.set_state(UrbState::Available);
+        self.set_state(XrbState::Available);
     }
 
     #[inline]
-    pub fn set_response(&mut self, response: &TrbCce) {
+    pub fn set_response(&mut self, response: &Trb) {
         self.response.raw_copy_from(response);
         self.set_state(
-            if response.completion_code() == Some(TrbCompletionCode::SUCCESS) {
-                UrbState::Completed
+            if response
+                .as_event()
+                .map(|v| v.completion_code() == Some(TrbCompletionCode::SUCCESS))
+                .unwrap_or(false)
+            {
+                XrbState::Completed
             } else {
-                UrbState::Failed
+                XrbState::Failed
             },
         );
         self.sem.signal();
@@ -811,7 +894,7 @@ impl UsbRequestBlock {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
-pub enum UrbState {
+pub enum XrbState {
     Available = 0,
     Acquired,
     Scheduled,
@@ -819,7 +902,7 @@ pub enum UrbState {
     Failed,
 }
 
-impl Default for UrbState {
+impl Default for XrbState {
     #[inline]
     fn default() -> Self {
         Self::Available
@@ -870,11 +953,83 @@ impl InputContext {
     }
 
     #[inline]
-    pub fn endpoint<'a>(&self, dci: EpNo) -> &'a mut EndpointContext {
+    pub fn endpoint<'a>(&self, dci: DCI) -> &'a mut EndpointContext {
         unsafe {
             &mut *((PageManager::direct_map(self.raw_data() as PhysicalAddress)
                 + self.context_size * (1 + dci.0.get() as usize))
                 as *mut EndpointContext)
+        }
+    }
+}
+
+/// Host Controller Interface Device Context
+pub struct HciContext {
+    host: Weak<Xhci>,
+    device: UnsafeCell<HciDeviceContext>,
+}
+
+pub struct HciDeviceContext {
+    parent_slot_id: Option<SlotId>,
+    port_id: PortId,
+    slot_id: SlotId,
+    route_string: RouteString,
+    buffer: u64,
+}
+
+impl HciContext {
+    #[inline]
+    pub const fn new(host: Weak<Xhci>, device: HciDeviceContext) -> Self {
+        Self {
+            host,
+            device: UnsafeCell::new(device),
+        }
+    }
+
+    #[inline]
+    fn device<'a>(&self) -> &'a mut HciDeviceContext {
+        unsafe { &mut *self.device.get() }
+    }
+}
+
+impl UsbHostInterface for HciContext {
+    // fn configure_endpoint(&self, desc: &crate::bus::usb::UsbEndpointDescriptor) {
+    //     todo!()
+    // }
+
+    // fn reset_endpoint(&self) {
+    //     todo!()
+    // }
+
+    // fn set_max_packet_size(&self, value: usize) {
+    //     todo!()
+    // }
+
+    // fn get_max_packet_size(&self) -> usize {
+    //     todo!()
+    // }
+
+    fn control<'a>(
+        &self,
+        trt: UrbTranfserType,
+        setup: &UsbControlSetupData,
+    ) -> Result<&'a [u8], ()> {
+        let host = match self.host.upgrade() {
+            Some(v) => v.clone(),
+            None => return Err(()),
+        };
+        let device = self.device();
+
+        match host.execute_control(device.slot_id, trt, setup, device.buffer) {
+            Ok(result) => {
+                let result = unsafe {
+                    slice::from_raw_parts(
+                        PageManager::direct_map(device.buffer as PhysicalAddress) as *const u8,
+                        result,
+                    )
+                };
+                Ok(result)
+            }
+            Err(_err) => Err(()),
         }
     }
 }

@@ -1,30 +1,34 @@
 //! xHC Data Structures
 
+use crate::bus::usb::*;
 use core::mem::transmute;
 use core::num::NonZeroU8;
 use core::sync::atomic::*;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
+/// xHCI Port Id
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PortId(pub NonZeroU8);
 
+/// xHCI Slot Id
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SlotId(pub NonZeroU8);
 
+/// xHCI Device Context Index (Endpoint Id)
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct EpNo(pub NonZeroU8);
+pub struct DCI(pub NonZeroU8);
 
-impl EpNo {
+impl DCI {
     pub const CONTROL: Self = Self(unsafe { NonZeroU8::new_unchecked(1) });
 
     #[inline]
-    pub const fn ep_out(ep: u8) -> Option<Self> {
-        if ep >= 1 && ep <= 15 {
-            match NonZeroU8::new(ep * 2) {
+    pub const fn ep_out(epno: u8) -> Option<Self> {
+        if epno >= 1 && epno <= 15 {
+            match NonZeroU8::new(epno * 2) {
                 Some(v) => Some(Self(v)),
                 None => None,
             }
@@ -34,9 +38,9 @@ impl EpNo {
     }
 
     #[inline]
-    pub const fn ep_in(ep: u8) -> Option<Self> {
-        if ep >= 1 && ep <= 15 {
-            match NonZeroU8::new(ep * 2 + 1) {
+    pub const fn ep_in(epno: u8) -> Option<Self> {
+        if epno >= 1 && epno <= 15 {
+            match NonZeroU8::new(epno * 2 + 1) {
                 Some(v) => Some(Self(v)),
                 None => None,
             }
@@ -51,12 +55,12 @@ impl EpNo {
     }
 
     #[inline]
-    pub const fn dir(&self) -> bool {
+    pub const fn is_dir_in(&self) -> bool {
         (self.0.get() & 1) != 0
     }
 
     #[inline]
-    pub const fn end_point(&self) -> usize {
+    pub const fn endpoint_number(&self) -> usize {
         (self.0.get() / 2) as usize
     }
 }
@@ -117,7 +121,7 @@ impl PartialEq for CycleBit {
 
 pub type TrbRawData = [AtomicU32; 4];
 
-/// Common Transfer Request Block
+/// xHCI Common Transfer Request Block
 #[repr(transparent)]
 pub struct Trb(TrbRawData);
 
@@ -257,6 +261,76 @@ pub trait TrbSlotId: TrbCommon {
     }
 }
 
+pub trait TrbXferLen: TrbCommon {
+    #[inline]
+    fn xfer_len(&self) -> usize {
+        (self.raw_data()[2].load(Ordering::SeqCst) & 0x0001_FFFF) as usize
+    }
+
+    #[inline]
+    fn set_xfer_len(&self, xfer_len: usize) {
+        self.raw_data()[2].store(
+            self.raw_data()[2].load(Ordering::SeqCst) & 0xFFFE_0000
+                | ((xfer_len & 0x0001_FFFF) as u32),
+            Ordering::SeqCst,
+        );
+    }
+}
+
+/// Interrupt on Completion
+pub trait TrbIoC: TrbCommon {
+    #[inline]
+    fn ioc(&self) -> bool {
+        (self.raw_data()[3].load(Ordering::SeqCst) & 0x0000_0020) != 0
+    }
+
+    #[inline]
+    fn set_ioc(&self, value: bool) {
+        let bit = 0x0000_0020;
+        if value {
+            self.raw_data()[3].fetch_or(bit, Ordering::SeqCst);
+        } else {
+            self.raw_data()[3].fetch_and(!bit, Ordering::SeqCst);
+        }
+    }
+}
+
+/// Immediate Data
+pub trait TrbIDt: TrbCommon {
+    #[inline]
+    fn idt(&self) -> bool {
+        (self.raw_data()[3].load(Ordering::SeqCst) & 0x0000_0040) != 0
+    }
+
+    #[inline]
+    fn set_idt(&self, value: bool) {
+        let bit = 0x0000_0040;
+        if value {
+            self.raw_data()[3].fetch_or(bit, Ordering::SeqCst);
+        } else {
+            self.raw_data()[3].fetch_and(!bit, Ordering::SeqCst);
+        }
+    }
+}
+
+/// Direction is device to host
+pub trait TrbDir: TrbCommon {
+    #[inline]
+    fn dir(&self) -> bool {
+        (self.raw_data()[3].load(Ordering::SeqCst) & 0x0001_0000) != 0
+    }
+
+    #[inline]
+    fn set_dir(&self, value: bool) {
+        let bit = 0x0001_0000;
+        if value {
+            self.raw_data()[3].fetch_or(bit, Ordering::SeqCst);
+        } else {
+            self.raw_data()[3].fetch_and(!bit, Ordering::SeqCst);
+        }
+    }
+}
+
 /// TRB Types
 #[allow(non_camel_case_types)]
 #[allow(dead_code)]
@@ -352,6 +426,7 @@ pub enum TrbCompletionCode {
     SPLIT_TRANSACTION,
 }
 
+/// TRB for LINK
 pub struct TrbLink(TrbRawData);
 
 impl TrbLink {
@@ -374,6 +449,86 @@ impl TrbCommon for TrbLink {
 }
 
 impl TrbPtr for TrbLink {}
+
+/// TRB for SETUP
+pub struct TrbSetupStage(TrbRawData);
+
+impl TrbSetupStage {
+    pub fn new(trt: UrbTranfserType, setup: &UsbControlSetupData) -> Self {
+        let result: Self = unsafe { transmute(Trb::new(TrbType::SETUP)) };
+        unsafe {
+            (&result as *const Self as *mut u32).copy_from(setup as *const _ as *const u32, 2);
+        }
+        result.set_xfer_len(8);
+        result.set_idt(true);
+        result.raw_data()[3].fetch_or((trt as u32) << 16, Ordering::SeqCst);
+        result
+    }
+}
+
+impl TrbCommon for TrbSetupStage {
+    #[inline]
+    fn raw_data(&self) -> &TrbRawData {
+        &self.0
+    }
+}
+
+impl TrbXferLen for TrbSetupStage {}
+
+impl TrbIoC for TrbSetupStage {}
+
+impl TrbIDt for TrbSetupStage {}
+
+/// TRB for DATA
+pub struct TrbDataStage(TrbRawData);
+
+impl TrbDataStage {
+    pub fn new(ptr: u64, xfer_len: usize, dir: bool) -> Self {
+        let result: Self = unsafe { transmute(Trb::new(TrbType::DATA)) };
+        result.set_ptr(ptr);
+        result.set_xfer_len(xfer_len);
+        result.set_dir(dir);
+        result
+    }
+}
+
+impl TrbCommon for TrbDataStage {
+    #[inline]
+    fn raw_data(&self) -> &TrbRawData {
+        &self.0
+    }
+}
+
+impl TrbPtr for TrbDataStage {}
+
+impl TrbXferLen for TrbDataStage {}
+
+impl TrbIoC for TrbDataStage {}
+
+impl TrbDir for TrbDataStage {}
+
+/// TRB for STATUS
+pub struct TrbStatusStage(TrbRawData);
+
+impl TrbStatusStage {
+    pub fn new(dir: bool, ioc: bool) -> Self {
+        let result: Self = unsafe { transmute(Trb::new(TrbType::STATUS)) };
+        result.set_dir(dir);
+        result.set_ioc(ioc);
+        result
+    }
+}
+
+impl TrbCommon for TrbStatusStage {
+    #[inline]
+    fn raw_data(&self) -> &TrbRawData {
+        &self.0
+    }
+}
+
+impl TrbIoC for TrbStatusStage {}
+
+impl TrbDir for TrbStatusStage {}
 
 pub enum TrbEvent<'a> {
     CommandCompletion(&'a TrbCce),
@@ -438,6 +593,25 @@ impl TrbPortId for TrbPsc {}
 
 /// TRB for TRANSFER_EVENT
 pub struct TrbTxe(TrbRawData);
+
+impl TrbTxe {
+    #[inline]
+    pub const fn empty() -> Self {
+        unsafe { transmute(Trb::empty()) }
+    }
+
+    #[inline]
+    pub fn copied(&self) -> Self {
+        let result = Self::empty();
+        result.raw_copy_from(self);
+        result
+    }
+
+    #[inline]
+    pub fn transfer_length(&self) -> usize {
+        (self.raw_data()[2].load(Ordering::SeqCst) & 0x00FF_FFFF) as usize
+    }
+}
 
 impl TrbCommon for TrbTxe {
     #[inline]
@@ -542,6 +716,21 @@ pub struct SlotContext {
 
 impl SlotContext {
     #[inline]
+    pub const fn route_string(&self) -> RouteString {
+        RouteString::from_raw(self.data[0])
+    }
+
+    #[inline]
+    pub fn set_speed(&mut self, speed: usize) {
+        self.data[0] = self.data[0] & 0xFF0F_FFFF | ((speed as u32) << 20)
+    }
+
+    #[inline]
+    pub fn speed_raw(&self) -> usize {
+        (self.data[0] >> 20) as usize & 15
+    }
+
+    #[inline]
     pub const fn context_entries(&self) -> usize {
         (self.data[0] as usize) >> 27
     }
@@ -559,16 +748,6 @@ impl SlotContext {
     #[inline]
     pub fn set_root_hub_port(&mut self, port_id: PortId) {
         self.data[1] = self.data[1] & 0xFF00_FFFF | ((port_id.0.get() as u32) << 16)
-    }
-
-    #[inline]
-    pub fn set_speed(&mut self, speed: usize) {
-        self.data[0] = self.data[0] & 0xFF0F_FFFF | ((speed as u32) << 20)
-    }
-
-    #[inline]
-    pub fn speed_raw(&self) -> usize {
-        (self.data[0] >> 20) as usize & 15
     }
 }
 
@@ -604,6 +783,7 @@ impl EndpointContext {
     }
 }
 
+/// Endpoint Type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EpType {
     Invalid = 0,

@@ -117,7 +117,7 @@ impl Theme {
 
     #[inline]
     pub const fn window_title_inactive_foreground_dark(&self) -> Color {
-        Color::LIGHT_GRAY
+        Color::from_argb(0xFF757575)
     }
 
     #[inline]
