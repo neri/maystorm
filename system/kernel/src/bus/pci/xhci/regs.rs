@@ -3,15 +3,20 @@
 use super::data::*;
 use crate::{
     arch::page::{PageManager, PhysicalAddress},
+    bus::usb::*,
     mem::MemoryManager,
 };
-use _core::num::NonZeroUsize;
 use bitflags::*;
 use core::{
-    ffi::c_void, intrinsics::size_of, mem::transmute, num::NonZeroU64, num::NonZeroU8, ops::Deref,
-    slice, sync::atomic::*,
+    ffi::c_void,
+    intrinsics::size_of,
+    mem::transmute,
+    num::{NonZeroU64, NonZeroU8, NonZeroUsize},
+    ops::Deref,
+    slice,
+    sync::atomic::*,
 };
-// use num_traits::FromPrimitive;
+use num_traits::FromPrimitive;
 
 /// xHC Capability Registers
 #[repr(C)]
@@ -340,6 +345,11 @@ impl PortSc {
     pub fn speed_raw(&self) -> usize {
         ((*self & Self::SPEED).bits() as usize) >> 10
     }
+
+    #[inline]
+    pub fn speed(&self) -> Option<PSIV> {
+        FromPrimitive::from_usize(self.speed_raw())
+    }
 }
 
 /// xHC Runtime Registers
@@ -405,6 +415,8 @@ impl InterrupterRegisterSet {
         let erdp_va = PageManager::direct_map(erdp & !15) as *const Trb;
         let event = unsafe { &*erdp_va };
         if event.cycle_bit() == cycle {
+            self.iman
+                .store(self.iman.load(Ordering::SeqCst) | 1, Ordering::SeqCst);
             Some(EventRingGuard {
                 event,
                 irs: self,

@@ -170,12 +170,12 @@ impl System {
 
         mem::MemoryManager::init_first(info);
 
-        let mut main_screen = Bitmap32::from_static(
+        let main_screen = Bitmap32::from_static(
             PageManager::direct_map(info.vram_base) as *mut TrueColor,
             Size::new(info.screen_width as isize, info.screen_height as isize),
             info.vram_stride as usize,
         );
-        main_screen.fill_rect(main_screen.bounds(), Color::LIGHT_GRAY.into());
+        // main_screen.fill_rect(main_screen.bounds(), Color::BLUE.into());
         shared.main_screen = Some(main_screen);
 
         shared.acpi = Some(Box::new(
@@ -201,36 +201,18 @@ impl System {
         unsafe {
             // banner
             if true {
-                let device = System::current_device();
                 writeln!(
                     System::em_console(),
-                    "{} v{} - MY FIRST HOBBY OS WRITTEN IN RUST\n  Memory {} MB, Processor {} Cores / {} Threads {}",
+                    "{} v{} - MY FIRST HOBBY OS WRITTEN IN RUST",
                     System::name(),
                     System::version(),
-                    device.total_memory_size() >> 20,
-                    device.num_of_performance_cpus(),
-                    device.num_of_active_cpus(),
-                    device.processor_system_type().to_string(),
                 )
                 .unwrap();
-
-                let manufacturer_name = device.manufacturer_name();
-                let model_name = device.model_name();
-                if manufacturer_name.is_some() || model_name.is_some() {
-                    writeln!(
-                        System::em_console(),
-                        "  Manufacturer [{}] Model [{}]",
-                        manufacturer_name.unwrap_or("Unknown"),
-                        model_name.unwrap_or("Unknown"),
-                    )
-                    .unwrap();
-                }
-
-                writeln!(System::em_console(), "").unwrap();
             }
 
             mem::MemoryManager::late_init();
 
+            bus::usb::UsbManager::init();
             bus::pci::Pci::init();
 
             fs::FileManager::init(

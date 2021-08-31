@@ -26,6 +26,17 @@ pub struct KeyReportRaw {
     pub keydata: [Usage; 6],
 }
 
+impl KeyReportRaw {
+    #[inline]
+    pub const fn empty() -> Self {
+        Self {
+            modifier: Modifier::empty(),
+            _reserved_1: 0,
+            keydata: [Usage::NONE; 6],
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct KeyboardState {
     pub current: KeyReportRaw,
@@ -33,28 +44,39 @@ pub struct KeyboardState {
 }
 
 impl KeyboardState {
+    #[inline]
+    pub const fn new() -> Self {
+        Self {
+            current: KeyReportRaw::empty(),
+            prev: KeyReportRaw::empty(),
+        }
+    }
+
     pub fn process_key_report(&mut self, report: KeyReportRaw) {
-        let modifier = report.modifier;
         self.prev = self.current;
         self.current = report;
+        for modifier in Usage::MOD_MIN.0..Usage::MOD_MAX.0 {
+            let bit = 1u8 << (modifier - Usage::MOD_MIN.0);
+            if (self.current.modifier.bits() & bit) == 0 && (self.prev.modifier.bits() & bit) != 0 {
+                KeyEvent::new(Usage(modifier), Modifier::empty(), KeyEventFlags::BREAK).post();
+            }
+        }
+        for modifier in Usage::MOD_MIN.0..Usage::MOD_MAX.0 {
+            let bit = 1u8 << (modifier - Usage::MOD_MIN.0);
+            if (self.current.modifier.bits() & bit) != 0 && (self.prev.modifier.bits() & bit) == 0 {
+                KeyEvent::new(Usage(modifier), Modifier::empty(), KeyEventFlags::empty()).post();
+            }
+        }
         for usage in &self.prev.keydata {
             let usage = *usage;
-            if usage != Usage::NONE
-                && usage < Usage::MOD_MIN
-                && usage > Usage::MOD_MAX
-                && !self.current.keydata.contains(&usage)
-            {
-                KeyEvent::new(usage, modifier, KeyEventFlags::BREAK).post();
+            if usage != Usage::NONE && !self.current.keydata.contains(&usage) {
+                KeyEvent::new(usage, Modifier::empty(), KeyEventFlags::BREAK).post();
             }
         }
         for usage in &self.current.keydata {
             let usage = *usage;
-            if usage != Usage::NONE
-                && usage < Usage::MOD_MIN
-                && usage > Usage::MOD_MAX
-                && !self.prev.keydata.contains(&usage)
-            {
-                KeyEvent::new(usage, modifier, KeyEventFlags::empty()).post();
+            if usage != Usage::NONE && !self.prev.keydata.contains(&usage) {
+                KeyEvent::new(usage, Modifier::empty(), KeyEventFlags::empty()).post();
             }
         }
     }

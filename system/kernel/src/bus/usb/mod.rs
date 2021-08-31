@@ -1,5 +1,6 @@
 //! Universal Serial Bus
-mod desc;
+mod types;
 mod usb;
-pub use desc::*;
+pub use types::*;
 pub use usb::*;
+pub mod class;

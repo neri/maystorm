@@ -2,6 +2,7 @@
 
 use super::{data::*, regs::*};
 use crate::bus::usb::*;
+use crate::sync::semaphore::BinarySemaphore;
 use crate::{
     arch::cpu::Cpu,
     arch::page::{NonNullPhysicalAddress, PageManager, PhysicalAddress},
@@ -88,6 +89,9 @@ pub struct Xhci {
     port2slot: RwLock<[Option<SlotId>; 256]>,
     urbs: [UnsafeCell<XhciRequestBlock>; Self::MAX_URB],
     ics: [UnsafeCell<InputContext>; Self::MAX_DEVICE_SLOTS],
+
+    lock_config: BinarySemaphore,
+    lock_control: BinarySemaphore,
 }
 
 unsafe impl Send for Xhci {}
@@ -155,6 +159,8 @@ impl Xhci {
             port2slot: RwLock::new([None; 256]),
             urbs: [XhciRequestBlock::EMPTY; Self::MAX_URB],
             ics: [InputContext::EMPTY; Self::MAX_DEVICE_SLOTS],
+            lock_config: BinarySemaphore::new(),
+            lock_control: BinarySemaphore::new(),
         });
 
         let p = driver.clone();
@@ -425,24 +431,64 @@ impl Xhci {
     pub fn execute_control(
         &self,
         slot_id: SlotId,
-        trt: UrbTranfserType,
-        setup: &UsbControlSetupData,
+        setup: UsbControlSetupData,
         buffer: u64,
     ) -> Result<usize, TrbTxe> {
-        let dci = Some(DCI::CONTROL);
-        let slot_id = Some(slot_id);
-        let setup_trb = TrbSetupStage::new(trt, setup);
-        self.issue_trb(None, &setup_trb, slot_id, dci, false);
+        self.lock_control.synchronized(|| {
+            let trt = if setup.wLength > 0 {
+                if setup.bmRequestType.is_device_to_host() {
+                    UrbTranfserType::ControlIn
+                } else {
+                    UrbTranfserType::ControlOut
+                }
+            } else {
+                UrbTranfserType::NoData
+            };
+            let dci = Some(DCI::CONTROL);
+            let slot_id = Some(slot_id);
+            let setup_trb = TrbSetupStage::new(trt, setup);
+            self.issue_trb(None, &setup_trb, slot_id, dci, false);
 
-        let dir = trt == UrbTranfserType::ControlIn;
-        if setup.wLength > 0 {
-            let data_trb = TrbDataStage::new(buffer, setup.wLength as usize, dir);
-            self.issue_trb(None, &data_trb, slot_id, dci, false);
-        }
+            let dir = trt == UrbTranfserType::ControlIn;
+            if setup.wLength > 0 {
+                let data_trb = TrbDataStage::new(buffer, setup.wLength as usize, dir);
+                self.issue_trb(None, &data_trb, slot_id, dci, false);
+            }
 
+            let urb = self.allocate_urb().unwrap();
+            let status_trb = TrbStatusStage::new(!dir, true);
+            self.issue_trb(Some(urb), &status_trb, slot_id, dci, true);
+
+            urb.sem.wait();
+
+            let result = match urb.response.as_event() {
+                Some(TrbEvent::TransferEvent(v)) => Some(v.copied()),
+                _ => None,
+            };
+            urb.release();
+            match result {
+                Some(result) => {
+                    if result.completion_code() == Some(TrbCompletionCode::SUCCESS) {
+                        Ok(setup.wLength as usize - result.transfer_length())
+                    } else {
+                        Err(result)
+                    }
+                }
+                None => Err(TrbTxe::empty()),
+            }
+        })
+    }
+
+    pub fn data_transfer(
+        &self,
+        slot_id: SlotId,
+        dci: DCI,
+        ptr: u64,
+        len: usize,
+    ) -> Result<usize, UsbError> {
+        let trb = TrbNormal::new(ptr, len, true, true);
         let urb = self.allocate_urb().unwrap();
-        let status_trb = TrbStatusStage::new(!dir, true);
-        self.issue_trb(Some(urb), &status_trb, slot_id, dci, true);
+        self.issue_trb(Some(urb), &trb, Some(slot_id), Some(dci), true);
 
         urb.sem.wait();
 
@@ -452,14 +498,13 @@ impl Xhci {
         };
         urb.release();
         match result {
-            Some(result) => {
-                if result.completion_code() == Some(TrbCompletionCode::SUCCESS) {
-                    Ok(setup.wLength as usize - result.transfer_length())
-                } else {
-                    Err(result)
+            Some(result) => match result.completion_code() {
+                Some(TrbCompletionCode::SUCCESS) | Some(TrbCompletionCode::SHORT_PACKET) => {
+                    Ok(len as usize - result.transfer_length())
                 }
-            }
-            None => Err(TrbTxe::empty()),
+                _ => Err(UsbError::General),
+            },
+            None => Err(UsbError::General),
         }
     }
 
@@ -469,46 +514,79 @@ impl Xhci {
         dci: DCI,
         ep_type: EpType,
         max_packet_size: usize,
-        interval: usize,
+        interval: u8,
         copy_dc: bool,
     ) {
         let input_context = self.input_context(slot_id);
         let control = input_context.control();
         let slot = input_context.slot();
         let endpoint = input_context.endpoint(dci);
+        let psiv: PSIV = FromPrimitive::from_usize(slot.speed_raw()).unwrap_or(PSIV::SS);
 
         control.clear();
-        control.set_add(1 | 1u32 << dci.0.get());
+        control.set_add(1 | (1u32 << dci.0.get()));
 
         if copy_dc {
-            // TODO:
+            unsafe {
+                let slot = slot as *const _ as *mut u8;
+                let dc = PageManager::direct_map(self.get_device_context(slot_id)) as *const u8;
+                slot.copy_from(dc, self.context_size);
+            }
         }
 
         slot.set_context_entries(usize::max(dci.0.get() as usize, slot.context_entries()));
+        // let psiv = FromPrimitive::from_usize(slot.speed_raw()).unwrap_or(PSIV::SS);
 
         endpoint.set_ep_type(ep_type);
 
         if max_packet_size > 0 {
-            // TODO:
+            endpoint.set_max_packet_size(max_packet_size & 0x07FF);
+            endpoint.set_max_burst_size((max_packet_size & 0x1800) >> 11)
         } else {
-            let speed: Option<PSIV> = FromPrimitive::from_usize(slot.speed_raw());
-            match speed {
-                Some(speed) => {
-                    endpoint.set_max_packet_size(speed.max_packet_size());
-                }
-                None => {
-                    endpoint.set_max_packet_size(512);
-                }
-            }
+            endpoint.set_max_packet_size(psiv.max_packet_size());
             endpoint.set_average_trb_len(8);
         }
         if interval > 0 {
-            // TODO:
+            match psiv {
+                PSIV::LS | PSIV::FS => {
+                    if ep_type.is_interrupt() {
+                        endpoint
+                            .set_interval(interval.next_power_of_two().trailing_zeros() as u8 + 3);
+                    } else {
+                        endpoint.set_interval(interval + 2);
+                    }
+                }
+                _ => {
+                    endpoint.set_interval(interval - 1);
+                }
+            }
         }
-        endpoint.set_error_count(3);
+        if !ep_type.is_isochronous() {
+            endpoint.set_error_count(3);
+        }
 
         let tr = self.alloc_ep_ring(Some(slot_id), Some(dci)).unwrap().get();
         endpoint.set_trdp(tr);
+    }
+
+    pub fn set_max_packet_size(&self, slot_id: SlotId, max_packet_size: usize) -> Result<(), ()> {
+        let input_context = self.input_context(slot_id);
+        input_context.control().set_add(3);
+
+        unsafe {
+            let slot = input_context.slot() as *const _ as *mut u8;
+            let dc = PageManager::direct_map(self.get_device_context(slot_id)) as *const u8;
+            slot.copy_from(dc, self.context_size * 2);
+        }
+
+        let endpoint = input_context.endpoint(DCI::CONTROL);
+        endpoint.set_max_packet_size(max_packet_size);
+
+        let trb = TrbEvaluateContextCommand::new(slot_id, input_context.raw_data());
+        match self.execute_command(&trb) {
+            Ok(_) => Ok(()),
+            Err(_) => todo!(),
+        }
     }
 
     pub fn reset_port(&self, port: &PortRegisters) -> PortSc {
@@ -526,75 +604,80 @@ impl Xhci {
     }
 
     pub fn port_initialize(&self, port_id: PortId) -> Option<SlotId> {
-        let port = self.port_by(port_id);
-        self.wait_cnr(0);
-        let status = port.portsc();
-        if status.contains(PortSc::CSC) {
-            if status.contains(PortSc::CCS) {
-                // Attached USB device
-                port.write_portsc(status & PortSc::PRESERVE_MASK | PortSc::CSC | PortSc::PR);
-                while !port.portsc().contains(PortSc::PED) {
-                    Timer::sleep(Duration::from_millis(10));
-                }
-                let status = port.portsc();
-                if status.contains(PortSc::PRC) {
-                    port.write_portsc(status & PortSc::PRESERVE_MASK | PortSc::PRC);
-                }
-                if status.contains(PortSc::PR) || !status.contains(PortSc::PED) {
-                    println!("XHCI: PORT RESET TIMEDOUT {}", port_id.0.get());
-                    return None;
-                }
-
-                let trb = Trb::new(TrbType::ENABLE_SLOT_COMMAND);
-                let slot_id = match self.execute_command(&trb) {
-                    Ok(result) => result.slot_id().unwrap(),
-                    Err(err) => {
-                        println!("ENABLE_SLOT ERROR {:?}", err.completion_code());
+        self.lock_control.synchronized(|| {
+            let port = self.port_by(port_id);
+            self.wait_cnr(0);
+            let status = port.portsc();
+            if status.contains(PortSc::CSC) {
+                if status.contains(PortSc::CCS) {
+                    // Attached USB device
+                    port.write_portsc(status & PortSc::PRESERVE_MASK | PortSc::CSC | PortSc::PR);
+                    while !port.portsc().contains(PortSc::PED) {
+                        Timer::sleep(Duration::from_millis(10));
+                    }
+                    let status = port.portsc();
+                    if status.contains(PortSc::PRC) {
+                        port.write_portsc(status & PortSc::PRESERVE_MASK | PortSc::PRC);
+                    }
+                    if status.contains(PortSc::PR) || !status.contains(PortSc::PED) {
+                        println!("XHCI: PORT RESET TIMEDOUT {}", port_id.0.get());
                         return None;
                     }
-                };
 
-                self.port2slot.write().unwrap()[port_id.0.get() as usize] = Some(slot_id);
+                    let trb = Trb::new(TrbType::ENABLE_SLOT_COMMAND);
+                    let slot_id = match self.execute_command(&trb) {
+                        Ok(result) => result.slot_id().unwrap(),
+                        Err(err) => {
+                            println!("ENABLE_SLOT ERROR {:?}", err.completion_code());
+                            return None;
+                        }
+                    };
 
-                let device_context_size = self.context_size * 32;
-                let device_context = unsafe { MemoryManager::alloc_pages(device_context_size) }
-                    .unwrap()
-                    .get() as u64;
-                self.set_device_context(slot_id, device_context);
+                    self.port2slot.write().unwrap()[port_id.0.get() as usize] = Some(slot_id);
 
-                let input_context_size = self.context_size * 33;
-                let input_context_pa = unsafe { MemoryManager::alloc_pages(input_context_size) }
-                    .unwrap()
-                    .get() as u64;
-                let input_context = self.input_context(slot_id);
-                input_context.init(input_context_pa, self.context_size);
+                    let device_context_size = self.context_size * 32;
+                    let device_context = unsafe { MemoryManager::alloc_pages(device_context_size) }
+                        .unwrap()
+                        .get() as u64;
+                    self.set_device_context(slot_id, device_context);
 
-                let slot = input_context.slot();
-                slot.set_root_hub_port(port_id);
-                slot.set_speed(port.portsc().speed_raw());
-                slot.set_context_entries(1);
+                    let input_context_size = self.context_size * 33;
+                    let input_context_pa = unsafe { MemoryManager::alloc_pages(input_context_size) }
+                        .unwrap()
+                        .get() as u64;
+                    let input_context = self.input_context(slot_id);
+                    input_context.init(input_context_pa, self.context_size);
 
-                self.configure_endpoint(slot_id, DCI::CONTROL, EpType::Control, 0, 0, false);
+                    let slot = input_context.slot();
+                    slot.set_root_hub_port(port_id);
+                    slot.set_speed(port.portsc().speed_raw());
+                    slot.set_context_entries(1);
 
-                Timer::sleep(Duration::from_millis(100));
+                    self.configure_endpoint(slot_id, DCI::CONTROL, EpType::Control, 0, 0, false);
 
-                let trb = TrbAddressDeviceCommand::new(slot_id, input_context_pa);
-                match self.execute_command(&trb) {
-                    Ok(_result) => {
-                        println!("ADDRESS DEVICE: {:?} = {:?}", port_id, slot_id);
+                    Timer::sleep(Duration::from_millis(100));
+
+                    let trb = TrbAddressDeviceCommand::new(slot_id, input_context_pa);
+                    match self.execute_command(&trb) {
+                        Ok(_result) => {
+                            // println!(
+                            //     "ADDRESS DEVICE {:?} {:?} DC {:016x}",
+                            //     port_id, slot_id, device_context,
+                            // );
+                        }
+                        Err(err) => {
+                            println!("ADDRESS_DEVICE ERROR {:?}", err.completion_code());
+                        }
                     }
-                    Err(err) => {
-                        println!("ADDRESS_DEVICE ERROR {:?}", err.completion_code());
-                    }
+
+                    return Some(slot_id);
+                } else {
+                    // Detached USB device
+                    port.write_portsc(status & PortSc::PRESERVE_MASK | PortSc::CSC);
                 }
-
-                return Some(slot_id);
-            } else {
-                // Detached USB device
-                port.write_portsc(status & PortSc::PRESERVE_MASK | PortSc::CSC);
             }
-        }
-        None
+            None
+        })
     }
 
     pub fn process_event(&self) {
@@ -629,9 +712,10 @@ impl Xhci {
                         urb.set_response(event.as_common_trb());
                     }
                     // println!(
-                    //     "XHCI: TRANSFER {:?} {:?}",
+                    //     "XHCI: TRANSFER {:?} {:?} {:016x}",
                     //     event.slot_id(),
-                    //     event.completion_code()
+                    //     event.completion_code(),
+                    //     event.ptr(),
                     // );
                 }
             }
@@ -658,27 +742,60 @@ impl Xhci {
 
     /// xHCI Configuration thread
     fn _config_thread(self: Arc<Self>) {
+        // Because QEMU does not generate the PORT_STATUS_CHANGE event without a dummy reset for each port.
         for port in self.ports {
             self.reset_port(port);
         }
 
         loop {
             while let Some(port_id) = self.port_status_change_queue.wait_event() {
-                if let Some(slot_id) = self.port_initialize(port_id) {
-                    let buffer = unsafe { MemoryManager::alloc_pages(MemoryManager::PAGE_SIZE_MIN) }
-                        .unwrap()
-                        .get() as u64;
-                    let device = HciDeviceContext {
-                        parent_slot_id: None,
-                        port_id,
-                        slot_id,
-                        route_string: RouteString::EMPTY,
-                        buffer,
-                    };
-                    let ctx = Box::new(HciContext::new(Arc::downgrade(&self), device));
-                    let usb_device = UsbDevice::new(ctx as Box<dyn UsbHostInterface>);
-                    usb_device.initialize();
-                }
+                self.lock_config.synchronized(|| {
+                    if let Some(slot_id) = self.port_initialize(port_id) {
+                        let buffer =
+                            unsafe { MemoryManager::alloc_pages(MemoryManager::PAGE_SIZE_MIN) }
+                                .unwrap()
+                                .get() as u64;
+                        let device = HciDeviceContext {
+                            parent_slot_id: None,
+                            port_id,
+                            slot_id,
+                            route_string: RouteString::EMPTY,
+                            buffer,
+                        };
+                        let ctx = Box::new(HciContext::new(Arc::downgrade(&self), device));
+
+                        if self.port_by(port_id).portsc().speed() == Some(PSIV::FS) {
+                            // FullSpeed devices have to read the first 8 bytes of the device descriptor first and re-set the maximum packet size.
+                            let mut max_packet_size = 0;
+                            for _ in 0..5 {
+                                Timer::sleep(Duration::from_millis(50));
+                                match ctx.control(UsbControlSetupData {
+                                    bmRequestType: UsbControlRequestBitmap::GET_DEVICE,
+                                    bRequest: UsbControlRequest::GET_DESCRIPTOR,
+                                    wValue: (UsbDescriptorType::Device as u16) << 8,
+                                    wIndex: 0,
+                                    wLength: 8,
+                                }) {
+                                    Ok(v) => {
+                                        max_packet_size = v[7] as usize;
+                                        break;
+                                    }
+                                    Err(_) => (),
+                                }
+                            }
+                            if max_packet_size > 0 {
+                                let _ = self.set_max_packet_size(slot_id, max_packet_size);
+                            }
+                            Timer::sleep(Duration::from_millis(10));
+                        }
+
+                        UsbManager::instantiate(
+                            UsbDeviceAddress(slot_id.0),
+                            ctx as Box<dyn UsbHostInterface>,
+                        );
+                        Timer::sleep(Duration::from_millis(10));
+                    }
+                })
             }
         }
     }
@@ -968,6 +1085,7 @@ pub struct HciContext {
     device: UnsafeCell<HciDeviceContext>,
 }
 
+#[allow(dead_code)]
 pub struct HciDeviceContext {
     parent_slot_id: Option<SlotId>,
     port_id: PortId,
@@ -992,34 +1110,49 @@ impl HciContext {
 }
 
 impl UsbHostInterface for HciContext {
-    // fn configure_endpoint(&self, desc: &crate::bus::usb::UsbEndpointDescriptor) {
-    //     todo!()
-    // }
-
-    // fn reset_endpoint(&self) {
-    //     todo!()
-    // }
-
-    // fn set_max_packet_size(&self, value: usize) {
-    //     todo!()
-    // }
-
-    // fn get_max_packet_size(&self) -> usize {
-    //     todo!()
-    // }
-
-    fn control<'a>(
-        &self,
-        trt: UrbTranfserType,
-        setup: &UsbControlSetupData,
-    ) -> Result<&'a [u8], ()> {
+    fn configure_endpoint(&self, desc: &UsbEndpointDescriptor) -> Result<(), UsbError> {
         let host = match self.host.upgrade() {
             Some(v) => v.clone(),
-            None => return Err(()),
+            None => return Err(UsbError::HostUnavailable),
+        };
+        let device = self.device();
+        let slot_id = device.slot_id;
+
+        let ep = match desc.endpoint_address() {
+            Some(v) => v,
+            None => return Err(UsbError::InvalidParameter),
+        };
+        let ep_type = match desc.attributes() {
+            Some(v) => v,
+            None => return Err(UsbError::InvalidParameter),
+        };
+        let ep_type = EpType::from_usb_ep_type(ep_type, ep.is_dir_in());
+        let dci = ep.into();
+
+        host.configure_endpoint(
+            slot_id,
+            dci,
+            ep_type,
+            desc.max_packet_size() as usize,
+            desc.interval(),
+            true,
+        );
+
+        let trb = TrbConfigureEndpointCommand::new(slot_id, host.input_context(slot_id).raw_data());
+        match host.execute_command(&trb) {
+            Ok(_) => Ok(()),
+            Err(_err) => Err(UsbError::General),
+        }
+    }
+
+    fn control<'a>(&self, setup: UsbControlSetupData) -> Result<&'a [u8], UsbError> {
+        let host = match self.host.upgrade() {
+            Some(v) => v.clone(),
+            None => return Err(UsbError::HostUnavailable),
         };
         let device = self.device();
 
-        match host.execute_control(device.slot_id, trt, setup, device.buffer) {
+        match host.execute_control(device.slot_id, setup, device.buffer) {
             Ok(result) => {
                 let result = unsafe {
                     slice::from_raw_parts(
@@ -1029,7 +1162,38 @@ impl UsbHostInterface for HciContext {
                 };
                 Ok(result)
             }
-            Err(_err) => Err(()),
+            Err(_err) => Err(UsbError::General),
         }
+    }
+
+    fn write(
+        &self,
+        ep: UsbEndpointAddress,
+        buffer: *const u8,
+        len: usize,
+    ) -> Result<usize, UsbError> {
+        todo!()
+    }
+
+    fn read(&self, ep: UsbEndpointAddress, buffer: *mut u8, len: usize) -> Result<usize, UsbError> {
+        let host = match self.host.upgrade() {
+            Some(v) => v.clone(),
+            None => return Err(UsbError::HostUnavailable),
+        };
+        let dci = DCI::from(ep);
+        if !dci.is_dir_in() {
+            return Err(UsbError::InvalidParameter);
+        }
+        let device = self.device();
+        let slot_id = device.slot_id;
+
+        host.data_transfer(slot_id, dci, device.buffer, len)
+            .map(|result| {
+                unsafe {
+                    let p = PageManager::direct_map(device.buffer) as *const u8;
+                    buffer.copy_from(p, result);
+                }
+                result
+            })
     }
 }

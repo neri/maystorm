@@ -66,7 +66,6 @@ impl Shell {
     async fn repl_main() {
         Self::exec_cmd("ver");
         Self::exec_cmd("sysctl device");
-        Self::exec_cmd("sysctl drivers");
 
         loop {
             print!("# ");
@@ -297,13 +296,14 @@ impl Shell {
         None
     }
 
-    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> isize, &'static str); 6] = [
+    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> isize, &'static str); 7] = [
         ("dir", Self::cmd_dir, "Show directory"),
         ("help", Self::cmd_help, "Show Help"),
         ("type", Self::cmd_type, "Show file"),
         //
         ("ps", Self::cmd_ps, ""),
         ("lspci", Self::cmd_lspci, "Show List of PCI Devices"),
+        ("lsusb", Self::cmd_lsusb, "Show List of USB Devices"),
         ("sysctl", Self::cmd_sysctl, "System Control"),
     ];
 
@@ -429,6 +429,30 @@ impl Shell {
         let mut sb = StringBuffer::with_capacity(1024);
         Scheduler::print_statistics(&mut sb);
         print!("{}", sb.as_str());
+        0
+    }
+
+    fn cmd_lsusb(argv: &[&str]) -> isize {
+        let opt_all = argv.len() > 1;
+        for device in bus::usb::UsbManager::devices() {
+            let props = device.props();
+            println!(
+                "ADDR {:02x} VID {:04x} PID {:04x} CLASS {:06x}",
+                device.addr().0.get(),
+                props.device().vid().0,
+                props.device().pid().0,
+                props.device().class().0,
+            );
+            if opt_all {
+                for interface in props.interfaces() {
+                    println!(
+                        " INTERFACE #{} CLASS {:06x}",
+                        interface.if_no(),
+                        interface.class().0
+                    );
+                }
+            }
+        }
         0
     }
 

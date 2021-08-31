@@ -60,8 +60,19 @@ impl DCI {
     }
 
     #[inline]
-    pub const fn endpoint_number(&self) -> usize {
+    pub const fn ep_no(&self) -> usize {
         (self.0.get() / 2) as usize
+    }
+}
+
+impl From<UsbEndpointAddress> for DCI {
+    #[inline]
+    fn from(val: UsbEndpointAddress) -> Self {
+        unsafe {
+            Self(NonZeroU8::new_unchecked(
+                (val.is_dir_in() as u8) | ((val.ep_no() as u8) << 1),
+            ))
+        }
     }
 }
 
@@ -150,7 +161,7 @@ pub trait TrbCommon {
     fn raw_data(&self) -> &TrbRawData;
 
     #[inline]
-    fn is_valid(&self) -> bool {
+    fn is_known_type(&self) -> bool {
         self.trb_type()
             .map(|v| v != TrbType::RESERVED)
             .unwrap_or(false)
@@ -274,6 +285,24 @@ pub trait TrbXferLen: TrbCommon {
                 | ((xfer_len & 0x0001_FFFF) as u32),
             Ordering::SeqCst,
         );
+    }
+}
+
+/// Interrupt on Short Packet
+pub trait TrbIsp: TrbCommon {
+    #[inline]
+    fn isp(&self) -> bool {
+        (self.raw_data()[3].load(Ordering::SeqCst) & 0x0000_0004) != 0
+    }
+
+    #[inline]
+    fn set_isp(&self, value: bool) {
+        let bit = 0x0000_0004;
+        if value {
+            self.raw_data()[3].fetch_or(bit, Ordering::SeqCst);
+        } else {
+            self.raw_data()[3].fetch_and(!bit, Ordering::SeqCst);
+        }
     }
 }
 
@@ -450,14 +479,45 @@ impl TrbCommon for TrbLink {
 
 impl TrbPtr for TrbLink {}
 
+/// TRB for NORMAL
+pub struct TrbNormal(TrbRawData);
+
+impl TrbNormal {
+    pub fn new(ptr: u64, xfer_len: usize, ioc: bool, isp: bool) -> Self {
+        let result: Self = unsafe { transmute(Trb::new(TrbType::NORMAL)) };
+        result.set_ptr(ptr);
+        result.set_xfer_len(xfer_len);
+        result.set_ioc(ioc);
+        result.set_isp(isp);
+        result
+    }
+}
+
+impl TrbCommon for TrbNormal {
+    #[inline]
+    fn raw_data(&self) -> &TrbRawData {
+        &self.0
+    }
+}
+
+impl TrbPtr for TrbNormal {}
+
+impl TrbXferLen for TrbNormal {}
+
+impl TrbIsp for TrbNormal {}
+
+impl TrbIoC for TrbNormal {}
+
+impl TrbIDt for TrbNormal {}
+
 /// TRB for SETUP
 pub struct TrbSetupStage(TrbRawData);
 
 impl TrbSetupStage {
-    pub fn new(trt: UrbTranfserType, setup: &UsbControlSetupData) -> Self {
+    pub fn new(trt: UrbTranfserType, setup: UsbControlSetupData) -> Self {
         let result: Self = unsafe { transmute(Trb::new(TrbType::SETUP)) };
         unsafe {
-            (&result as *const Self as *mut u32).copy_from(setup as *const _ as *const u32, 2);
+            (&result as *const Self as *mut u32).copy_from(&setup as *const _ as *const u32, 2);
         }
         result.set_xfer_len(8);
         result.set_idt(true);
@@ -502,6 +562,8 @@ impl TrbCommon for TrbDataStage {
 impl TrbPtr for TrbDataStage {}
 
 impl TrbXferLen for TrbDataStage {}
+
+impl TrbIsp for TrbDataStage {}
 
 impl TrbIoC for TrbDataStage {}
 
@@ -650,6 +712,54 @@ impl TrbSlotId for TrbAddressDeviceCommand {}
 
 impl TrbPtr for TrbAddressDeviceCommand {}
 
+/// TRB for CONFIGURE_ENDPOINT_COMMAND
+pub struct TrbConfigureEndpointCommand(TrbRawData);
+
+impl TrbConfigureEndpointCommand {
+    #[inline]
+    pub fn new(slot_id: SlotId, input_context_ptr: u64) -> Self {
+        let result: Self = unsafe { transmute(Trb::new(TrbType::CONFIGURE_ENDPOINT_COMMAND)) };
+        result.set_slot_id(slot_id);
+        result.set_ptr(input_context_ptr);
+        result
+    }
+}
+
+impl TrbCommon for TrbConfigureEndpointCommand {
+    #[inline]
+    fn raw_data(&self) -> &TrbRawData {
+        &self.0
+    }
+}
+
+impl TrbSlotId for TrbConfigureEndpointCommand {}
+
+impl TrbPtr for TrbConfigureEndpointCommand {}
+
+/// TRB for EVALUATE_CONTEXT_COMMAND
+pub struct TrbEvaluateContextCommand(TrbRawData);
+
+impl TrbEvaluateContextCommand {
+    #[inline]
+    pub fn new(slot_id: SlotId, input_context_ptr: u64) -> Self {
+        let result: Self = unsafe { transmute(Trb::new(TrbType::EVALUATE_CONTEXT_COMMAND)) };
+        result.set_slot_id(slot_id);
+        result.set_ptr(input_context_ptr);
+        result
+    }
+}
+
+impl TrbCommon for TrbEvaluateContextCommand {
+    #[inline]
+    fn raw_data(&self) -> &TrbRawData {
+        &self.0
+    }
+}
+
+impl TrbSlotId for TrbEvaluateContextCommand {}
+
+impl TrbPtr for TrbEvaluateContextCommand {}
+
 /// xHC Event Ring Segment Table Entry
 #[allow(dead_code)]
 #[repr(C)]
@@ -757,6 +867,11 @@ pub struct EndpointContext {
 
 impl EndpointContext {
     #[inline]
+    pub fn set_interval(&mut self, value: u8) {
+        self.data[0] = self.data[0] & 0xFF00_FFFF | ((value as u32) << 16);
+    }
+
+    #[inline]
     pub fn set_ep_type(&mut self, ep_type: EpType) {
         self.data[1] = self.data[1] & 0xFFFF_FFC7 | ((ep_type as u32) << 3)
     }
@@ -764,6 +879,11 @@ impl EndpointContext {
     #[inline]
     pub fn set_max_packet_size(&mut self, max_packet_size: usize) {
         self.data[1] = self.data[1] & 0x0000_FFFF | ((max_packet_size as u32) << 16);
+    }
+
+    #[inline]
+    pub fn set_max_burst_size(&mut self, max_burst_size: usize) {
+        self.data[1] = self.data[1] & 0xFFFF_00FF | ((max_burst_size as u32) << 8);
     }
 
     #[inline]
@@ -784,7 +904,7 @@ impl EndpointContext {
 }
 
 /// Endpoint Type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
 pub enum EpType {
     Invalid = 0,
     IsochOut,
@@ -796,33 +916,49 @@ pub enum EpType {
     InterruptIn,
 }
 
-/// Protocol Speed Identifier
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
-pub enum PSIV {
-    FS = 1,
-    LS = 2,
-    HS = 3,
-    SS = 4,
-    PSIV5,
-    PSIV6,
-    PSIV7,
-    PSIV8,
-    PSIV9,
-    PSIV10,
-    PSIV11,
-    PSIV12,
-    PSIV13,
-    PSIV14,
-    PSIV15,
-}
-
-impl PSIV {
+impl EpType {
     #[inline]
-    pub const fn max_packet_size(&self) -> usize {
+    pub fn from_usb_ep_type(usb_ep_type: UsbEndpointType, dir: bool) -> Self {
+        FromPrimitive::from_usize((dir as usize * 4) + usb_ep_type as usize)
+            .unwrap_or(Self::Invalid)
+    }
+
+    #[inline]
+    pub const fn is_control(&self) -> bool {
         match self {
-            PSIV::FS | PSIV::LS => 8,
-            PSIV::HS => 64,
-            _ => 512,
+            EpType::Control => true,
+            _ => false,
         }
     }
+
+    #[inline]
+    pub const fn is_isochronous(&self) -> bool {
+        match self {
+            EpType::IsochOut | EpType::IsochIn => true,
+            _ => false,
+        }
+    }
+
+    #[inline]
+    pub const fn is_bulk(&self) -> bool {
+        match self {
+            EpType::BulkOut | EpType::BulkIn => true,
+            _ => false,
+        }
+    }
+
+    #[inline]
+    pub const fn is_interrupt(&self) -> bool {
+        match self {
+            EpType::InterruptOut | EpType::InterruptIn => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+pub enum UrbTranfserType {
+    NoData = 0,
+    ControlOut = 2,
+    ControlIn = 3,
 }

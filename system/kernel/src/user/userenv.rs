@@ -16,9 +16,9 @@ pub struct UserEnv {
 
 impl UserEnv {
     pub fn start(f: fn()) {
-        loop {
-            Timer::sleep(Duration::from_secs(1));
-        }
+        // loop {
+        //     Timer::sleep(Duration::from_secs(1));
+        // }
         WindowManager::set_desktop_color(Theme::shared().desktop_color());
         if true {
             if let Ok(mut file) = FileManager::open("wall.bmp") {

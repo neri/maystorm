@@ -26,8 +26,8 @@ impl EmConsole {
         Self {
             x: 0,
             y: 0,
-            fg_color: IndexedColor::DARK_GRAY,
-            bg_color: IndexedColor::LIGHT_GRAY,
+            fg_color: IndexedColor::LIGHT_GRAY,
+            bg_color: IndexedColor::BLACK,
             font,
         }
     }
