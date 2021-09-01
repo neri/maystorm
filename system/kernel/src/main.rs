@@ -11,6 +11,7 @@ use alloc::vec::*;
 use bootprot::*;
 use core::fmt::Write;
 use kernel::bus::pci::Pci;
+use kernel::bus::usb::*;
 use kernel::fs::*;
 use kernel::mem::*;
 use kernel::rt::*;
@@ -435,21 +436,37 @@ impl Shell {
     fn cmd_lsusb(argv: &[&str]) -> isize {
         let opt_all = argv.len() > 1;
         for device in bus::usb::UsbManager::devices() {
-            let props = device.props();
+            let class_string = Self::find_usb_class_string(device.class()).to_string();
+
             println!(
-                "ADDR {:02x} VID {:04x} PID {:04x} CLASS {:06x}",
+                "{:02x} VID {:04x} PID {:04x} class {:06x} {}",
                 device.addr().0.get(),
-                props.device().vid().0,
-                props.device().pid().0,
-                props.device().class().0,
+                device.vid().0,
+                device.pid().0,
+                device.class().0,
+                device.product_string().unwrap_or(&class_string),
             );
             if opt_all {
-                for interface in props.interfaces() {
-                    println!(
-                        " INTERFACE #{} CLASS {:06x}",
-                        interface.if_no(),
-                        interface.class().0
-                    );
+                for config in device.configurations() {
+                    println!(" CONFIG #{}", config.configuration_value().0);
+                    for interface in config.interfaces() {
+                        println!(
+                            "  INTERFACE #{}.{} class {:06x} {}",
+                            interface.if_no().0,
+                            interface.alternate_setting().0,
+                            interface.class().0,
+                            Self::find_usb_class_string(interface.class())
+                        );
+                        for endpoint in interface.endpoints() {
+                            println!(
+                                "   ENDPOINT {:02x} {:?} size {} interval {}",
+                                endpoint.address().0,
+                                endpoint.ep_type(),
+                                endpoint.descriptor().max_packet_size(),
+                                endpoint.descriptor().interval(),
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -460,7 +477,7 @@ impl Shell {
         let opt_all = argv.len() > 1;
         for device in bus::pci::Pci::devices() {
             let addr = device.address();
-            let class_string = Self::find_class_string(device.class_code());
+            let class_string = Self::find_pci_class_string(device.class_code());
             println!(
                 "{:02x}:{:02x}.{} {:04x}:{:04x} {}",
                 addr.get_bus(),
@@ -473,7 +490,7 @@ impl Shell {
             if opt_all {
                 for function in device.functions() {
                     let addr = function.address();
-                    let class_string = Self::find_class_string(function.class_code());
+                    let class_string = Self::find_pci_class_string(function.class_code());
                     println!(
                         "     .{} {:04x}:{:04x} {}",
                         addr.get_fun(),
@@ -487,7 +504,7 @@ impl Shell {
         0
     }
 
-    fn find_class_string(cc: PciClass) -> &'static str {
+    fn find_pci_class_string(cc: PciClass) -> &'static str {
         #[rustfmt::skip]
         let entries = [
             (PciClass::code(0x00).sub(0x00), "Non-VGA-Compatible devices"),
@@ -570,5 +587,52 @@ impl Shell {
             }
         }
         "(Unknown Device)"
+    }
+
+    fn find_usb_class_string(class: UsbClass) -> &'static str {
+        #[rustfmt::skip]
+        let base_class_entries = [
+            ( UsbBaseClass::AUDIO, "Audio Device" ),
+            ( UsbBaseClass::COMM, "Communication Device" ),
+            ( UsbBaseClass::HID, "Human Interface Device" ),
+            ( UsbBaseClass::PRINTER, "Printer" ),
+            ( UsbBaseClass::STORAGE, "Storage Device" ),
+            ( UsbBaseClass::HUB, "USB Hub" ),
+            ( UsbBaseClass::VIDEO, "Video Device" ),
+            ( UsbBaseClass::AUDIO_VIDEO, "Audio/Video Device" ),
+            ( UsbBaseClass::BILLBOARD, "Billboard Device" ),
+            ( UsbBaseClass::TYPE_C_BRIDGE, "Type-C Bridge" ),
+            ( UsbBaseClass::DIAGNOSTIC, "Diagnostic Device" ),
+            ( UsbBaseClass::WIRELESS, "Wireless Device" ),
+            ( UsbBaseClass::APPLICATION_SPECIFIC, "Application Specific" ),
+            ( UsbBaseClass::VENDOR_SPECIFIC, "Vendor Specific" ),
+        ];
+
+        #[rustfmt::skip]
+        let full_class_entries = [
+            (UsbClass::COMPOSITE, "USB Composite Device"),
+            (UsbClass::MIDI_STREAMING, "USB MIDI Streaming" ),
+            (UsbClass::HID_BIOS_KEYBOARD, "HID Keyboard" ),
+            (UsbClass::HID_BIOS_MOUSE, "HID Mouse" ),
+            (UsbClass::STORAGE_BULK, "Mass Storage Device" ),
+            (UsbClass::FLOPPY, "Floppy Drive"),
+            (UsbClass::HUB_HS_STT, "USB 2.0 Hub"),
+            (UsbClass::HUB_HS_MTT, "USB 2.0 Hub with multi TT"),
+            (UsbClass::HUB_SS, "USB 3.0 Hub"),
+            (UsbClass::BLUETOOTH, "Bluetooth Interface"),
+            (UsbClass::XINPUT, "XInput Device"),
+        ];
+
+        match full_class_entries.binary_search_by_key(&class, |v| v.0) {
+            Ok(index) => full_class_entries.get(index).map(|v| v.1),
+            Err(_) => None,
+        }
+        .or_else(
+            || match base_class_entries.binary_search_by_key(&class.base(), |v| v.0) {
+                Ok(index) => base_class_entries.get(index).map(|v| v.1),
+                Err(_) => None,
+            },
+        )
+        .unwrap_or("(Unknown Device)")
     }
 }

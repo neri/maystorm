@@ -137,7 +137,7 @@ impl CapabilityRegisters {
     pub fn xecp(&self) -> Option<NonZeroUsize> {
         let xecp = self.hcc_params1().xecp();
         if xecp > 0 {
-            NonZeroUsize::new((self as *const _ as usize) + (xecp * 2))
+            NonZeroUsize::new((self as *const _ as usize) + (xecp * 4))
         } else {
             None
         }
@@ -213,7 +213,7 @@ impl OperationalRegisters {
 
     #[inline]
     pub fn page_size(&self) -> usize {
-        let bitmap = self.pagesize.load(Ordering::Relaxed) & 0xFFFF;
+        let bitmap = self.page_size_raw() & 0xFFFF;
         1usize << (12 + bitmap.trailing_zeros())
     }
 
@@ -454,10 +454,11 @@ impl Drop for EventRingGuard<'_> {
             self.cycle.toggle();
         }
         let new_erdp = (self.erdp & !0xFF0) | index * size_of::<Trb>() as u64 | 8;
-        self.irs
-            .erdp
-            .compare_exchange_weak(self.erdp, new_erdp, Ordering::SeqCst, Ordering::Relaxed)
-            .unwrap();
+        self.irs.erdp.store(new_erdp, Ordering::SeqCst);
+        // self.irs
+        //     .erdp
+        //     .compare_exchange_weak(self.erdp, new_erdp, Ordering::SeqCst, Ordering::Relaxed)
+        //     .unwrap();
     }
 }
 

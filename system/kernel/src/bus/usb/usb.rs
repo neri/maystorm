@@ -1,16 +1,13 @@
 //! Universal Serial Bus
 
 use super::types::*;
-use crate::{
-    sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard},
-    task::scheduler::{Priority, SpawnOption, Timer},
-};
-use alloc::{boxed::Box, collections::binary_heap::Iter, sync::Arc, vec::Vec};
+use crate::sync::RwLock;
+use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use core::{
     cell::UnsafeCell,
-    marker::PhantomData,
     mem::{size_of, MaybeUninit},
-    time::Duration,
+    num::NonZeroU8,
+    slice,
 };
 use num_traits::FromPrimitive;
 
@@ -76,18 +73,20 @@ impl UsbManager {
         unsafe { &*USB_MANAGER.get() }
     }
 
+    /// Initialize the USB device and tie it to the appropriate class driver.
     pub fn instantiate(addr: UsbDeviceAddress, ctx: Box<dyn UsbHostInterface>) {
-        let device = UsbDevice::new(addr, ctx);
-        match device.initialize() {
-            Ok(_) => {
+        match UsbDevice::new(addr, ctx) {
+            Ok(device) => {
                 let device = Arc::new(device);
                 Self::shared().devices.write().unwrap().push(device.clone());
 
-                // dummy driver
-                let props = device.props();
-                for interface in props.interfaces() {
-                    if interface.class().base_class() == UsbBaseClassCode::HID {
-                        super::class::usb_hid::UsbHid::start(device.clone(), interface.if_no());
+                for interface in device.current_configuration().interfaces() {
+                    let class = interface.class();
+                    let if_no = interface.if_no();
+                    if class == UsbClass::XINPUT {
+                        super::class::xinput::XInput::start(&device, if_no);
+                    } else if class.base() == UsbBaseClass::HID {
+                        super::class::usb_hid::UsbHid::start(&device, if_no);
                     }
                 }
             }
@@ -143,54 +142,47 @@ impl Iterator for UsbDeviceIter {
 }
 
 pub struct UsbDevice {
+    host: Box<dyn UsbHostInterface>,
     addr: UsbDeviceAddress,
-    ctx: Box<dyn UsbHostInterface>,
-    props: RwLock<UsbDeviceProps>,
+    parent: Option<UsbDeviceAddress>,
+    vid: UsbVendorId,
+    pid: UsbProductId,
+    class: UsbClass,
+    manufacturer_string: Option<String>,
+    product_string: Option<String>,
+    serial_number: Option<String>,
+    device_desc: UsbDeviceDescriptor,
+
+    current_configuration: UsbConfigurationValue,
+    configurations: Vec<UsbConfiguration>,
 }
-
-unsafe impl Sync for UsbDevice {}
-
-unsafe impl Send for UsbDevice {}
 
 impl UsbDevice {
     #[inline]
-    const fn new(addr: UsbDeviceAddress, ctx: Box<dyn UsbHostInterface>) -> Self {
-        Self {
-            addr,
-            ctx,
-            props: RwLock::new(UsbDeviceProps::empty()),
-        }
-    }
-
-    #[inline]
-    pub fn host(&self) -> &Box<dyn UsbHostInterface> {
-        &self.ctx
-    }
-
-    #[inline]
-    pub fn addr(&self) -> UsbDeviceAddress {
-        self.addr
-    }
-
-    #[inline]
-    pub fn props(&self) -> RwLockReadGuard<UsbDeviceProps> {
-        self.props.read().unwrap()
-    }
-
-    fn initialize(&self) -> Result<(), UsbError> {
+    fn new(addr: UsbDeviceAddress, host: Box<dyn UsbHostInterface>) -> Result<Self, UsbError> {
         let device_desc: UsbDeviceDescriptor =
-            match self.get_descriptor(UsbDescriptorType::Device, 0) {
+            match Self::get_descriptor(&host, UsbDescriptorType::Device, 0) {
                 Ok(v) => v,
                 Err(err) => return Err(err),
             };
+
+        let manufacturer_string = device_desc
+            .manufacturer_index()
+            .and_then(|index| Self::get_string(&host, index).ok());
+        let product_string = device_desc
+            .product_index()
+            .and_then(|index| Self::get_string(&host, index).ok());
+        let serial_number = device_desc
+            .serial_number_index()
+            .and_then(|index| Self::get_string(&host, index).ok());
 
         let config_desc: UsbConfigurationDescriptor =
-            match self.get_descriptor(UsbDescriptorType::Configuration, 0) {
+            match Self::get_descriptor(&host, UsbDescriptorType::Configuration, 0) {
                 Ok(v) => v,
                 Err(err) => return Err(err),
             };
 
-        let blob = match self.ctx.control(UsbControlSetupData {
+        let blob = match host.control(UsbControlSetupData {
             bmRequestType: UsbControlRequestBitmap::GET_DEVICE,
             bRequest: UsbControlRequest::GET_DESCRIPTOR,
             wValue: (UsbDescriptorType::Configuration as u16) << 8,
@@ -203,13 +195,11 @@ impl UsbDevice {
                 return Err(err);
             }
         };
-        let mut current_configuration = None;
-        let mut configurations = Vec::new();
-        let mut interfaces = Vec::new();
-        let mut endpoints = Vec::new();
-        let mut ep_bmps = Vec::new();
-        let mut ep_bitmap = 0;
+
         let mut cursor = 0;
+        let mut configurations = Vec::new();
+        let mut current_configuration = None;
+        let mut current_interface = None;
         while cursor < blob.len() {
             let len = blob[cursor] as usize;
             let desc_type_raw = blob[cursor + 1];
@@ -224,62 +214,181 @@ impl UsbDevice {
 
             match desc_type {
                 UsbDescriptorType::Configuration => {
-                    let desc = unsafe {
+                    let descriptor = unsafe {
                         &*(&blob[cursor] as *const _ as *const UsbConfigurationDescriptor)
                     };
-                    configurations.push(*desc);
+                    if let Some(current_configuration) = current_configuration {
+                        configurations.push(current_configuration);
+                    }
+                    current_configuration = Some(UsbConfiguration {
+                        descriptor: *descriptor,
+                        configuration_value: descriptor.configuration_value(),
+                        interfaces: Vec::new(),
+                    });
+                    current_interface = None;
                 }
                 UsbDescriptorType::Interface => {
-                    let desc =
+                    let descriptor =
                         unsafe { &*(&blob[cursor] as *const _ as *const UsbInterfaceDescriptor) };
-                    if interfaces.len() > 0 {
-                        ep_bmps.push(ep_bitmap);
+                    let current_configuration = match current_configuration {
+                        Some(ref mut v) => v,
+                        None => {
+                            println!("BAD USB Descriptor {:?}", addr);
+                            return Err(UsbError::InvalidDescriptor);
+                        }
+                    };
+                    if let Some(current_interface) = current_interface {
+                        current_configuration.interfaces.push(current_interface);
                     }
-                    interfaces.push(*desc);
-                    ep_bitmap = 0;
+                    current_interface = Some(UsbInterface {
+                        descriptor: *descriptor,
+                        class: descriptor.class(),
+                        if_no: descriptor.if_no(),
+                        alternate_setting: descriptor.alternate_setting(),
+                        endpoints: Vec::new(),
+                    });
                 }
                 UsbDescriptorType::Endpoint => {
-                    let desc =
+                    let descriptor =
                         unsafe { &*(&blob[cursor] as *const _ as *const UsbEndpointDescriptor) };
-                    ep_bitmap |= 1u32 << desc.endpoint_address().unwrap().compact();
-                    endpoints.push(*desc);
+                    let current_interface = match current_interface {
+                        Some(ref mut v) => v,
+                        None => {
+                            return Err(UsbError::InvalidDescriptor);
+                        }
+                    };
+                    let address = match descriptor.endpoint_address() {
+                        Some(v) => v,
+                        None => {
+                            return Err(UsbError::InvalidDescriptor);
+                        }
+                    };
+                    let ep_type = match descriptor.attributes() {
+                        Some(v) => v,
+                        None => {
+                            return Err(UsbError::InvalidDescriptor);
+                        }
+                    };
+                    current_interface.endpoints.push(UsbEndpoint {
+                        descriptor: *descriptor,
+                        address,
+                        ep_type,
+                    });
                 }
                 _ => (),
             }
-
             cursor += len;
         }
-        ep_bmps.push(ep_bitmap);
 
-        if let Some(configuration) = configurations.first() {
-            self.set_configuration(configuration.configuration_value())?;
-            current_configuration = Some(*configuration);
-        }
+        let mut current_configuration = match current_configuration {
+            Some(v) => v,
+            None => {
+                return Err(UsbError::InvalidDescriptor);
+            }
+        };
+        let current_interface = match current_interface {
+            Some(v) => v,
+            None => {
+                return Err(UsbError::InvalidDescriptor);
+            }
+        };
+        current_configuration.interfaces.push(current_interface);
+        configurations.push(current_configuration);
 
-        for endpoint in &endpoints {
-            Timer::sleep(Duration::from_millis(10));
-            self.ctx.configure_endpoint(endpoint)?;
-        }
+        let current_configuration = configurations.first().unwrap();
+        Self::set_configuration(&host, current_configuration.configuration_value())?;
 
-        let mut props = self.props.write().unwrap();
-        props.device.write(device_desc);
-        props.current_configuration = current_configuration;
-        props.configurations = configurations;
-        props.interfaces = interfaces;
-        props.endpoints = endpoints;
-        props.ep_bmps = ep_bmps;
+        Ok(Self {
+            host,
+            addr,
+            parent: None,
+            device_desc,
+            vid: device_desc.vid(),
+            pid: device_desc.pid(),
+            class: device_desc.class(),
+            manufacturer_string,
+            product_string,
+            serial_number,
+            current_configuration: current_configuration.configuration_value(),
+            configurations,
+        })
+    }
 
-        Ok(())
+    /// Get an instance of the USB host controller interface that implements the [UsbHostInterface] trait.
+    #[inline]
+    pub fn host(&self) -> &Box<dyn UsbHostInterface> {
+        &self.host
+    }
+
+    /// Get the USB address of this device.
+    #[inline]
+    pub const fn addr(&self) -> UsbDeviceAddress {
+        self.addr
+    }
+
+    /// Get the vendor ID for this device.
+    #[inline]
+    pub const fn vid(&self) -> UsbVendorId {
+        self.vid
+    }
+
+    /// Get the product ID for this device.
+    #[inline]
+    pub const fn pid(&self) -> UsbProductId {
+        self.pid
+    }
+
+    /// Get the device class of this device.
+    #[inline]
+    pub const fn class(&self) -> UsbClass {
+        self.class
+    }
+
+    /// Get the manufacturer's string for this device if possible.
+    #[inline]
+    pub fn manufacturer_string(&self) -> Option<&String> {
+        self.manufacturer_string.as_ref()
+    }
+
+    /// Get the product name string for this device, if possible.
+    #[inline]
+    pub fn product_string(&self) -> Option<&String> {
+        self.product_string.as_ref()
+    }
+
+    /// Get the serial number string of this device, if possible.
+    #[inline]
+    pub fn serial_number(&self) -> Option<&String> {
+        self.serial_number.as_ref()
+    }
+
+    #[inline]
+    pub fn device_desc(&self) -> &UsbDeviceDescriptor {
+        &self.device_desc
+    }
+
+    #[inline]
+    pub fn current_configuration(&self) -> &UsbConfiguration {
+        self.configurations
+            .binary_search_by_key(&self.current_configuration, |v| v.configuration_value)
+            .ok()
+            .and_then(|index| self.configurations.get(index))
+            .unwrap()
+    }
+
+    #[inline]
+    pub fn configurations(&self) -> &[UsbConfiguration] {
+        self.configurations.as_slice()
     }
 
     /// Get descriptor
     pub fn get_descriptor<T: UsbDescriptor>(
-        &self,
+        host: &Box<dyn UsbHostInterface>,
         desc_type: UsbDescriptorType,
         index: u8,
     ) -> Result<T, UsbError> {
         let mut result = MaybeUninit::<T>::zeroed();
-        match self.ctx.control(UsbControlSetupData {
+        match host.control(UsbControlSetupData {
             bmRequestType: UsbControlRequestBitmap::GET_DEVICE,
             bRequest: UsbControlRequest::GET_DESCRIPTOR,
             wValue: (desc_type as u16) << 8 | index as u16,
@@ -303,16 +412,47 @@ impl UsbDevice {
         }
     }
 
-    pub fn set_configuration(&self, index: u8) -> Result<(), UsbError> {
-        self.ctx
-            .control(UsbControlSetupData {
-                bmRequestType: UsbControlRequestBitmap::SET_DEVICE,
-                bRequest: UsbControlRequest::SET_CONFIGURATION,
-                wValue: index as u16,
-                wIndex: 0,
-                wLength: 0,
-            })
-            .map(|_| ())
+    /// Get string descriptor
+    pub fn get_string(
+        host: &Box<dyn UsbHostInterface>,
+        index: NonZeroU8,
+    ) -> Result<String, UsbError> {
+        let mut setup = UsbControlSetupData {
+            bmRequestType: UsbControlRequestBitmap::GET_DEVICE,
+            bRequest: UsbControlRequest::GET_DESCRIPTOR,
+            wValue: (UsbDescriptorType::String as u16) << 8 | index.get() as u16,
+            wIndex: 0,
+            wLength: 8,
+        };
+
+        let v = host.control(setup)?;
+        let v = if v[0] > 8 {
+            setup.wLength = v[0] as u16;
+            host.control(setup)?
+        } else {
+            v
+        };
+        if v[1] != UsbDescriptorType::String as u8 {
+            return Err(UsbError::InvalidDescriptor);
+        }
+        let len = v[0] as usize / 2 - 1;
+        let v = unsafe { slice::from_raw_parts(&v[2] as *const _ as *const u16, len) };
+        String::from_utf16(v).map_err(|_| UsbError::InvalidDescriptor)
+    }
+
+    /// set configuration
+    pub fn set_configuration(
+        host: &Box<dyn UsbHostInterface>,
+        value: UsbConfigurationValue,
+    ) -> Result<(), UsbError> {
+        host.control(UsbControlSetupData {
+            bmRequestType: UsbControlRequestBitmap::SET_DEVICE,
+            bRequest: UsbControlRequest::SET_CONFIGURATION,
+            wValue: value.0 as u16,
+            wIndex: 0,
+            wLength: 0,
+        })
+        .map(|_| ())
     }
 
     pub fn read<T: Sized>(
@@ -322,102 +462,109 @@ impl UsbDevice {
     ) -> Result<usize, UsbError> {
         let len = size_of::<T>();
         let buffer = buffer as *const _ as *mut u8;
-        self.ctx.read(ep, buffer, len)
+        self.host.read(ep, buffer, len)
+    }
+
+    pub fn write<T: Sized>(&self, ep: UsbEndpointAddress, buffer: &T) -> Result<usize, UsbError> {
+        let len = size_of::<T>();
+        let buffer = buffer as *const _ as *const u8;
+        self.host.write(ep, buffer, len)
     }
 }
 
-pub struct UsbDeviceProps {
-    device: MaybeUninit<UsbDeviceDescriptor>,
-    current_configuration: Option<UsbConfigurationDescriptor>,
-    configurations: Vec<UsbConfigurationDescriptor>,
-    interfaces: Vec<UsbInterfaceDescriptor>,
-    endpoints: Vec<UsbEndpointDescriptor>,
-    ep_bmps: Vec<u32>,
+pub struct UsbConfiguration {
+    descriptor: UsbConfigurationDescriptor,
+    configuration_value: UsbConfigurationValue,
+    interfaces: Vec<UsbInterface>,
 }
 
-impl UsbDeviceProps {
+impl UsbConfiguration {
     #[inline]
-    const fn empty() -> Self {
-        Self {
-            device: MaybeUninit::uninit(),
-            current_configuration: None,
-            configurations: Vec::new(),
-            interfaces: Vec::new(),
-            endpoints: Vec::new(),
-            ep_bmps: Vec::new(),
-        }
+    pub const fn descriptor(&self) -> &UsbConfigurationDescriptor {
+        &self.descriptor
     }
 
     #[inline]
-    pub fn device<'a>(&self) -> &'a UsbDeviceDescriptor {
-        unsafe { &*self.device.as_ptr() }
+    pub const fn configuration_value(&self) -> UsbConfigurationValue {
+        self.configuration_value
     }
 
     #[inline]
-    pub const fn current_configuration(&self) -> Option<&UsbConfigurationDescriptor> {
-        self.current_configuration.as_ref()
-    }
-
-    #[inline]
-    pub fn configurations(&self) -> &[UsbConfigurationDescriptor] {
-        self.configurations.as_slice()
-    }
-
-    #[inline]
-    pub fn interface<'a>(&'a self, if_no: u8) -> Option<UsbInterface<'a>> {
-        for (desc, ep_bitmap) in self.interfaces.iter().zip(self.ep_bmps.iter()) {
-            if desc.if_no() == if_no {
-                return Some(UsbInterface {
-                    desc,
-                    ep_bitmap: *ep_bitmap,
-                });
-            }
-        }
-        None
-    }
-
-    #[inline]
-    pub fn interfaces(&self) -> &[UsbInterfaceDescriptor] {
+    pub fn interfaces(&self) -> &[UsbInterface] {
         self.interfaces.as_slice()
     }
 
     #[inline]
-    pub fn endpoints(&self) -> &[UsbEndpointDescriptor] {
-        self.endpoints.as_slice()
-    }
-
-    #[inline]
-    pub fn endpoint_by_bitmap(
+    pub fn find_interface(
         &self,
-        bitmap: u32,
-        is_dir_in: bool,
-    ) -> Option<&UsbEndpointDescriptor> {
-        let mask = if is_dir_in { 0xFFFF_0000 } else { 0x0000_FFFF };
-        let ep_addr =
-            UsbEndpointAddress::new((bitmap & mask).trailing_zeros() as u8, is_dir_in).unwrap();
-        match self
-            .endpoints
-            .binary_search_by_key(&ep_addr, |v| v.endpoint_address().unwrap())
-        {
-            Ok(index) => self.endpoints.get(index),
-            Err(_) => None,
+        if_no: UsbInterfaceNumber,
+        alt: Option<UsbAlternateSettingNumber>,
+    ) -> Option<&UsbInterface> {
+        for interface in self.interfaces.iter() {
+            if interface.if_no() == if_no
+                && (alt == None || alt == Some(interface.alternate_setting()))
+            {
+                return Some(interface);
+            }
         }
+        None
     }
 }
 
-pub struct UsbInterface<'a> {
-    desc: &'a UsbInterfaceDescriptor,
-    ep_bitmap: u32,
+pub struct UsbInterface {
+    descriptor: UsbInterfaceDescriptor,
+    class: UsbClass,
+    if_no: UsbInterfaceNumber,
+    alternate_setting: UsbAlternateSettingNumber,
+    endpoints: Vec<UsbEndpoint>,
 }
 
-impl UsbInterface<'_> {
+impl UsbInterface {
     #[inline]
     pub const fn descriptor(&self) -> &UsbInterfaceDescriptor {
-        self.desc
+        &self.descriptor
     }
 
     #[inline]
-    pub const fn endpoint_bitmap(&self) -> u32 {
-        self.ep_bitmap
+    pub const fn if_no(&self) -> UsbInterfaceNumber {
+        self.if_no
+    }
+
+    #[inline]
+    pub const fn alternate_setting(&self) -> UsbAlternateSettingNumber {
+        self.alternate_setting
+    }
+
+    #[inline]
+    pub const fn class(&self) -> UsbClass {
+        self.class
+    }
+
+    #[inline]
+    pub fn endpoints(&self) -> &[UsbEndpoint] {
+        self.endpoints.as_slice()
+    }
+}
+
+pub struct UsbEndpoint {
+    descriptor: UsbEndpointDescriptor,
+    address: UsbEndpointAddress,
+    ep_type: UsbEndpointType,
+}
+
+impl UsbEndpoint {
+    #[inline]
+    pub const fn descriptor(&self) -> &UsbEndpointDescriptor {
+        &self.descriptor
+    }
+
+    #[inline]
+    pub const fn address(&self) -> UsbEndpointAddress {
+        self.address
+    }
+
+    #[inline]
+    pub const fn ep_type(&self) -> UsbEndpointType {
+        self.ep_type
     }
 }

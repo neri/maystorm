@@ -12,7 +12,7 @@ use byteorder::*;
 use core::{
     alloc::Layout, intrinsics::transmute, num::NonZeroU32, sync::atomic::*, time::Duration,
 };
-use megstd::{drawing::*, game::v1, io::hid::Usage, rand::*};
+use megstd::{drawing::*, game::v1, rand::*};
 use num_traits::FromPrimitive;
 use wasm::{wasmintr::*, *};
 
@@ -372,12 +372,9 @@ impl ArleRuntime {
             }
             Function::GameV1Button => {
                 let _handle = params.get_usize()?;
-                let presenter = self
-                    .game_presenter
-                    .as_ref()
-                    .map(|v| unsafe { &mut *v.get() })
-                    .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
-                return Ok(WasmValue::from(presenter.get_buttons()));
+                return Ok(WasmValue::from(
+                    GameInputManager::current_input().buttons() as u32
+                ));
             }
             Function::GameV1LoadFont => {
                 let _handle = params.get_usize()?;
@@ -570,8 +567,8 @@ impl ArleRuntime {
                     .as_ref()
                     .map(|v| unsafe { &mut *v.get() })
                 {
-                    Some(presenter) => {
-                        presenter.handle_key(event);
+                    Some(_presenter) => {
+                        GameInputManager::send_key(event);
                     }
                     None => {
                         event
@@ -1087,7 +1084,6 @@ struct OsGamePresenter<'a> {
     draw_region: Coordinates,
     timer_div: u64,
     expected_time: u64,
-    pad0: AtomicU32,
 }
 
 impl OsGamePresenter<'_> {
@@ -1114,7 +1110,6 @@ impl OsGamePresenter<'_> {
             draw_region: unsafe { Coordinates::from_rect_unchecked(Rect::from(size)) },
             timer_div,
             expected_time: timer_div + Timer::monotonic().as_micros() as u64,
-            pad0: AtomicU32::new(0),
         };
 
         let screen = unsafe { &mut *result.screen(memory).unwrap().get() };
@@ -1168,42 +1163,6 @@ impl OsGamePresenter<'_> {
         }
     }
 
-    fn handle_key(&self, event: KeyEvent) {
-        let bit = match event.usage() {
-            Usage::NUMPAD_2 => v1::DPAD_DOWN,
-            Usage::NUMPAD_4 => v1::DPAD_LEFT,
-            Usage::NUMPAD_6 => v1::DPAD_RIGHT,
-            Usage::NUMPAD_8 => v1::DPAD_UP,
-            Usage::KEY_UP_ARROW => v1::DPAD_UP,
-            Usage::KEY_DOWN_ARROW => v1::DPAD_DOWN,
-            Usage::KEY_RIGHT_ARROW => v1::DPAD_RIGHT,
-            Usage::KEY_LEFT_ARROW => v1::DPAD_LEFT,
-            Usage::KEY_W => v1::DPAD_UP,
-            Usage::KEY_A => v1::DPAD_LEFT,
-            Usage::KEY_S => v1::DPAD_DOWN,
-            Usage::KEY_D => v1::DPAD_RIGHT,
-
-            Usage::KEY_ENTER => v1::JOYPAD_START,
-            Usage::KEY_SPACE => v1::JOYPAD_SELECT,
-
-            Usage::KEY_Z => v1::JOYPAD_FIRE_1,
-            Usage::KEY_X => v1::JOYPAD_FIRE_2,
-            Usage::KEY_LEFT_CONTROL => v1::JOYPAD_FIRE_2,
-            Usage::KEY_LEFT_SHIFT => v1::JOYPAD_FIRE_1,
-            Usage::KEY_RIGHT_CONTROL => v1::JOYPAD_FIRE_2,
-            Usage::KEY_RIGHT_SHIFT => v1::JOYPAD_FIRE_1,
-
-            _ => 0,
-        };
-        if bit != 0 {
-            if event.is_break() {
-                self.pad0.fetch_and(!bit, Ordering::SeqCst);
-            } else {
-                self.pad0.fetch_or(bit, Ordering::SeqCst);
-            }
-        }
-    }
-
     #[inline]
     fn sync(&mut self, memory: &WasmMemory) -> u32 {
         self.redraw(memory);
@@ -1220,11 +1179,6 @@ impl OsGamePresenter<'_> {
             Timer::sleep(Duration::from_micros(1));
             lost_frames as u32
         }
-    }
-
-    #[inline]
-    fn get_buttons(&self) -> u32 {
-        self.pad0.load(Ordering::Acquire)
     }
 
     fn add_region(&mut self, rect: Rect) {

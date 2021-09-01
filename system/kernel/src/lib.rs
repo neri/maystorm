@@ -17,6 +17,7 @@
 #![feature(option_result_contains)]
 #![feature(panic_info_message)]
 #![feature(try_reserve)]
+#![feature(const_btree_new)]
 
 #[macro_use]
 pub mod arch;

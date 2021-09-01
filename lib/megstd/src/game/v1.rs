@@ -123,7 +123,7 @@ pub trait GamePresenter {
         use JoyPad::*;
         let buttons = self.buttons();
         for button in &[
-            DpadRight, DpadLeft, DpadDown, DpadUp, Start, Select, Fire1, Fire2,
+            DpadRight, DpadLeft, DpadDown, DpadUp, Start, Select, Fire1, Fire2, Menu,
         ] {
             if (buttons & (1u32 << *button as usize)) != 0 {
                 f(*button);
@@ -134,14 +134,22 @@ pub trait GamePresenter {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum JoyPad {
-    DpadRight = 0,
-    DpadLeft,
+    DpadUp = 0,
     DpadDown,
-    DpadUp,
+    DpadLeft,
+    DpadRight,
     Start,
     Select,
+    ThumbL,
+    RhumbR,
+    LButton,
+    RButton,
+    Menu,
+    _Reserved,
     Fire1,
     Fire2,
+    Fire3,
+    Fire4,
 }
 
 pub const DPAD_RIGHT: u32 = 1u32 << JoyPad::DpadRight as u32;

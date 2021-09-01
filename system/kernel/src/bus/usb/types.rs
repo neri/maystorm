@@ -83,9 +83,9 @@ impl UsbVidPid {
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct UsbBaseClassCode(pub u8);
+pub struct UsbBaseClass(pub u8);
 
-impl UsbBaseClassCode {
+impl UsbBaseClass {
     pub const COMPOSITE: Self = Self(0x00);
     pub const AUDIO: Self = Self(0x01);
     pub const COMM: Self = Self(0x02);
@@ -112,7 +112,7 @@ impl UsbBaseClassCode {
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct UsbSubClassCode(pub u8);
+pub struct UsbSubClass(pub u8);
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -142,46 +142,37 @@ impl UsbClass {
     pub const XINPUT_IF3: Self = Self(0xFF_5D_04);
 
     #[inline]
-    pub const fn new(
-        base: UsbBaseClassCode,
-        sub: UsbSubClassCode,
-        protocol: UsbProtocolCode,
-    ) -> Self {
+    pub const fn new(base: UsbBaseClass, sub: UsbSubClass, protocol: UsbProtocolCode) -> Self {
         Self(((base.0 as u32) << 16) | ((sub.0 as u32) << 8) | (protocol.0 as u32))
     }
 
     #[inline]
-    pub const fn base(base: u8) -> Self {
-        Self((base as u32) << 16)
+    pub const fn base(&self) -> UsbBaseClass {
+        UsbBaseClass((self.0 >> 16) as u8)
     }
 
     #[inline]
-    pub const fn sub(mut self, sub: u8) -> Self {
-        self.0 |= (sub as u32) << 8;
-        self
+    pub const fn sub(&self) -> UsbSubClass {
+        UsbSubClass((self.0 >> 8) as u8)
     }
 
     #[inline]
-    pub const fn protocol(mut self, protocol: u8) -> Self {
-        self.0 |= protocol as u32;
-        self
-    }
-
-    #[inline]
-    pub const fn base_class(&self) -> UsbBaseClassCode {
-        UsbBaseClassCode((self.0 >> 16) as u8)
-    }
-
-    #[inline]
-    pub const fn sub_class(&self) -> UsbSubClassCode {
-        UsbSubClassCode((self.0 >> 8) as u8)
-    }
-
-    #[inline]
-    pub const fn protocol_code(&self) -> UsbProtocolCode {
+    pub const fn protocol(&self) -> UsbProtocolCode {
         UsbProtocolCode(self.0 as u8)
     }
 }
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UsbConfigurationValue(pub u8);
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UsbInterfaceNumber(pub u8);
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UsbAlternateSettingNumber(pub u8);
 
 /// USB Descriptor type
 #[repr(u8)]
@@ -212,8 +203,8 @@ pub struct UsbDeviceDescriptor {
     bLength: u8,
     bDescriptorType: UsbDescriptorType,
     bcdUSB: UsbWord,
-    bDeviceClass: UsbBaseClassCode,
-    bDeviceSubClass: UsbSubClassCode,
+    bDeviceClass: UsbBaseClass,
+    bDeviceSubClass: UsbSubClass,
     bDeviceProtocol: UsbProtocolCode,
     bMaxPacketSize0: u8,
     idVendor: UsbWord,
@@ -264,6 +255,11 @@ impl UsbDeviceDescriptor {
     pub const fn product_index(&self) -> Option<NonZeroU8> {
         NonZeroU8::new(self.iProduct)
     }
+
+    #[inline]
+    pub const fn serial_number_index(&self) -> Option<NonZeroU8> {
+        NonZeroU8::new(self.iSerialNumber)
+    }
 }
 
 impl UsbDescriptor for UsbDeviceDescriptor {
@@ -287,7 +283,7 @@ pub struct UsbConfigurationDescriptor {
     bDescriptorType: UsbDescriptorType,
     wTotalLength: UsbWord,
     bNumInterface: u8,
-    bConfigurationValue: u8,
+    bConfigurationValue: UsbConfigurationValue,
     iConfiguration: u8,
     bmAttributes: u8,
     bMaxPower: u8,
@@ -305,7 +301,7 @@ impl UsbConfigurationDescriptor {
     }
 
     #[inline]
-    pub const fn configuration_value(&self) -> u8 {
+    pub const fn configuration_value(&self) -> UsbConfigurationValue {
         self.bConfigurationValue
     }
 
@@ -339,23 +335,23 @@ impl UsbDescriptor for UsbConfigurationDescriptor {
 pub struct UsbInterfaceDescriptor {
     bLength: u8,
     bDescriptorType: UsbDescriptorType,
-    bInterfaceNumber: u8,
-    bAlternateSetting: u8,
+    bInterfaceNumber: UsbInterfaceNumber,
+    bAlternateSetting: UsbAlternateSettingNumber,
     bNumEndpoints: u8,
-    bInterfaceClass: UsbBaseClassCode,
-    bInterfaceSubClass: UsbSubClassCode,
+    bInterfaceClass: UsbBaseClass,
+    bInterfaceSubClass: UsbSubClass,
     bInterfaceProtocol: UsbProtocolCode,
     iInterface: u8,
 }
 
 impl UsbInterfaceDescriptor {
     #[inline]
-    pub const fn if_no(&self) -> u8 {
+    pub const fn if_no(&self) -> UsbInterfaceNumber {
         self.bInterfaceNumber
     }
 
     #[inline]
-    pub const fn alternate_setting(&self) -> u8 {
+    pub const fn alternate_setting(&self) -> UsbAlternateSettingNumber {
         self.bAlternateSetting
     }
 
@@ -446,8 +442,8 @@ pub struct UsbDeviceQualifierDescriptor {
     bLength: u8,
     bDescriptorType: UsbDescriptorType,
     bcdUSB: UsbWord,
-    bDeviceClass: UsbBaseClassCode,
-    bDeviceSubClass: UsbSubClassCode,
+    bDeviceClass: UsbBaseClass,
+    bDeviceSubClass: UsbSubClass,
     bDeviceProtocol: UsbProtocolCode,
     bMaxPacketSize0: u8,
     bNumConfigurations: u8,

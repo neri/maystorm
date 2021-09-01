@@ -3,10 +3,14 @@
 // use crate::arch::page::*;
 use super::slab::*;
 use crate::{
-    arch::cpu::Cpu, arch::page::*, sync::semaphore::Semaphore, system::System, task::scheduler::*,
+    arch::cpu::Cpu,
+    arch::page::*,
+    sync::{fifo::EventQueue, semaphore::Semaphore},
+    system::System,
+    task::scheduler::*,
 };
-use _core::ffi::c_void;
-use alloc::boxed::Box;
+use _core::{ffi::c_void, mem::MaybeUninit};
+use alloc::{boxed::Box, sync::Arc};
 use bitflags::*;
 use bootprot::*;
 use core::{
@@ -30,6 +34,7 @@ pub struct MemoryManager {
     pairs: [MemFreePair; Self::MAX_FREE_PAIRS],
     slab: Option<Box<SlabAllocator>>,
     real_bitmap: [u32; 8],
+    fifo: MaybeUninit<EventQueue<Arc<AsyncMmapRequest>>>,
 }
 
 impl MemoryManager {
@@ -45,6 +50,7 @@ impl MemoryManager {
             pairs: [MemFreePair::empty(); Self::MAX_FREE_PAIRS],
             slab: None,
             real_bitmap: [0; 8],
+            fifo: MaybeUninit::uninit(),
         }
     }
 
@@ -73,6 +79,8 @@ impl MemoryManager {
         PageManager::init(info);
 
         shared.slab = Some(Box::new(SlabAllocator::new()));
+
+        shared.fifo.write(EventQueue::new(100));
     }
 
     pub unsafe fn late_init() {
@@ -82,10 +90,13 @@ impl MemoryManager {
 
     #[allow(dead_code)]
     fn page_thread(_args: usize) {
-        // TODO:
-        let sem = Semaphore::new(0);
-        loop {
-            sem.wait();
+        let shared = Self::shared();
+        let fifo = unsafe { &*shared.fifo.as_ptr() };
+        while let Some(event) = fifo.wait_event() {
+            let result = unsafe { PageManager::mmap(event.request) };
+            PageManager::broadcast_invalidate_tlb().unwrap();
+            event.result.store(result, Ordering::SeqCst);
+            event.sem.signal();
         }
     }
 
@@ -101,11 +112,19 @@ impl MemoryManager {
 
     #[inline]
     pub unsafe fn mmap(request: MemoryMapRequest) -> Option<NonZeroUsize> {
-        let va = NonZeroUsize::new(PageManager::mmap(request));
         if Scheduler::is_enabled() {
-            PageManager::broadcast_invalidate_tlb().unwrap();
+            let fifo = &*Self::shared().fifo.as_ptr();
+            let event = Arc::new(AsyncMmapRequest {
+                request,
+                result: AtomicUsize::new(0),
+                sem: Semaphore::new(0),
+            });
+            let _ = fifo.post(event.clone());
+            event.sem.wait();
+            NonZeroUsize::new(event.result.load(Ordering::SeqCst))
+        } else {
+            NonZeroUsize::new(PageManager::mmap(request))
         }
-        va
     }
 
     #[inline]
@@ -247,6 +266,12 @@ impl MemoryManager {
             writeln!(sb, "").unwrap();
         }
     }
+}
+
+struct AsyncMmapRequest {
+    request: MemoryMapRequest,
+    result: AtomicUsize,
+    sem: Semaphore,
 }
 
 #[derive(Debug, Clone, Copy)]

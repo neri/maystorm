@@ -173,6 +173,9 @@ impl App {
                         missile.dir = player.dir;
                     }
                 }
+                v1::JoyPad::Menu => {
+                    os_exit();
+                }
                 _ => (),
             });
             self.presenter.move_sprite(0x20, player.point);

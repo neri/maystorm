@@ -1,11 +1,15 @@
 //! Human Interface Device Manager
 
 use crate::sync::atomicflags::AtomicBitflags;
+use crate::sync::RwLock;
 use crate::ui::window::*;
 use crate::*;
+use alloc::collections::BTreeMap;
+use alloc::sync::Arc;
 use bitflags::*;
 use core::cell::UnsafeCell;
 use core::num::*;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use megstd::drawing::*;
 use megstd::io::hid::*;
 
@@ -230,6 +234,9 @@ impl MouseEvent {
 /// Keyboard scancodes will be converted to the Usage specified by the USB-HID specification on all platforms.
 pub struct HidManager {
     key_modifier: AtomicBitflags<Modifier>,
+    simulated_game_input: RwLock<GameInput>,
+    game_inputs: RwLock<BTreeMap<GameInputHandle, Arc<RwLock<GameInput>>>>,
+    current_game_inputs: RwLock<Option<GameInputHandle>>,
 }
 
 static mut HID_MANAGER: UnsafeCell<HidManager> = UnsafeCell::new(HidManager::new());
@@ -239,6 +246,9 @@ impl HidManager {
     const fn new() -> Self {
         HidManager {
             key_modifier: AtomicBitflags::empty(),
+            simulated_game_input: RwLock::new(GameInput::empty()),
+            game_inputs: RwLock::new(BTreeMap::new()),
+            current_game_inputs: RwLock::new(None),
         }
     }
 
@@ -321,3 +331,141 @@ static USAGE_TO_CHAR_NON_ALPLABET_109: [char; 27] = [
 static USAGE_TO_CHAR_NUMPAD: [char; 16] = [
     '/', '*', '-', '+', '\x0D', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '.',
 ];
+
+pub struct GameInputManager;
+
+impl GameInputManager {
+    pub fn current_input() -> GameInput {
+        let shared = HidManager::shared();
+
+        let game_input = shared.game_inputs.read().unwrap();
+        shared
+            .current_game_inputs
+            .read()
+            .unwrap()
+            .and_then(|key| game_input.get(&key))
+            .map(|v| v.read().unwrap().clone())
+            .unwrap_or(shared.simulated_game_input.read().unwrap().clone())
+    }
+
+    #[inline]
+    fn next_game_input_handle() -> Option<GameInputHandle> {
+        static NEXT_HANDLE: AtomicUsize = AtomicUsize::new(1);
+        NonZeroUsize::new(NEXT_HANDLE.fetch_add(1, Ordering::AcqRel)).map(|v| GameInputHandle(v))
+    }
+
+    pub fn connect_new_input(input: Arc<RwLock<GameInput>>) -> Option<GameInputHandle> {
+        Self::next_game_input_handle().map(|handle| {
+            let shared = HidManager::shared();
+            shared
+                .game_inputs
+                .write()
+                .unwrap()
+                .insert(handle, input.clone());
+            *shared.current_game_inputs.write().unwrap() = Some(handle);
+            handle
+        })
+    }
+
+    pub fn send_key(event: KeyEvent) {
+        let position = match event.usage() {
+            Usage::NUMPAD_2 => Some(GameInputButtonType::DpadDown),
+            Usage::NUMPAD_4 => Some(GameInputButtonType::DpadLeft),
+            Usage::NUMPAD_6 => Some(GameInputButtonType::DpadRight),
+            Usage::NUMPAD_8 => Some(GameInputButtonType::DpadUp),
+            Usage::KEY_UP_ARROW => Some(GameInputButtonType::DpadUp),
+            Usage::KEY_DOWN_ARROW => Some(GameInputButtonType::DpadDown),
+            Usage::KEY_RIGHT_ARROW => Some(GameInputButtonType::DpadRight),
+            Usage::KEY_LEFT_ARROW => Some(GameInputButtonType::DpadLeft),
+            Usage::KEY_W => Some(GameInputButtonType::DpadUp),
+            Usage::KEY_A => Some(GameInputButtonType::DpadLeft),
+            Usage::KEY_S => Some(GameInputButtonType::DpadDown),
+            Usage::KEY_D => Some(GameInputButtonType::DpadRight),
+
+            Usage::KEY_ESCAPE => Some(GameInputButtonType::Menu),
+            Usage::KEY_ENTER => Some(GameInputButtonType::Start),
+            Usage::KEY_SPACE => Some(GameInputButtonType::Select),
+
+            Usage::KEY_Z => Some(GameInputButtonType::A),
+            Usage::KEY_X => Some(GameInputButtonType::B),
+            Usage::KEY_LEFT_CONTROL => Some(GameInputButtonType::B),
+            Usage::KEY_LEFT_SHIFT => Some(GameInputButtonType::A),
+            Usage::KEY_RIGHT_CONTROL => Some(GameInputButtonType::B),
+            Usage::KEY_RIGHT_SHIFT => Some(GameInputButtonType::A),
+
+            _ => None,
+        };
+        if let Some(position) = position {
+            let position = 1u16 << (position as usize);
+            let mut buttons = HidManager::shared().simulated_game_input.write().unwrap();
+            if event.is_break() {
+                buttons.bitmap &= !position;
+            } else {
+                buttons.bitmap |= position;
+            }
+        }
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct GameInputHandle(pub NonZeroUsize);
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct GameInput {
+    bitmap: u16,
+    lt: u8,
+    rt: u8,
+    x1: u16,
+    y1: u16,
+    x2: u16,
+    y2: u16,
+}
+
+impl GameInput {
+    #[inline]
+    pub const fn empty() -> Self {
+        Self {
+            bitmap: 0,
+            lt: 0,
+            rt: 0,
+            x1: 0,
+            y1: 0,
+            x2: 0,
+            y2: 0,
+        }
+    }
+
+    #[inline]
+    pub const fn buttons(&self) -> u16 {
+        self.bitmap
+    }
+
+    #[inline]
+    pub fn copy_from(&mut self, other: &Self) {
+        unsafe {
+            (self as *mut Self).copy_from(other as *const Self, 1);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum GameInputButtonType {
+    DpadUp = 0,
+    DpadDown,
+    DpadLeft,
+    DpadRight,
+    Start,
+    Select,
+    ThumbL,
+    ThumbR,
+    LButton,
+    RButton,
+    Menu,
+    _Reserved,
+    A,
+    B,
+    X,
+    Y,
+}

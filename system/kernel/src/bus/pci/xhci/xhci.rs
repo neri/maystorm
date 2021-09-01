@@ -79,7 +79,6 @@ pub struct Xhci {
 
     max_device_slots: usize,
     dcbaa_len: usize,
-    min_page_size: usize,
     context_size: usize,
     ers: PhysicalAddress,
 
@@ -128,7 +127,6 @@ impl Xhci {
         let max_device_slots = usize::min(Self::MAX_DEVICE_SLOTS, cap.max_device_slots());
         let dcbaa_len = 1 + max_device_slots;
         let hcc_params1 = cap.hcc_params1();
-        let min_page_size = opr.page_size();
         let context_size = if hcc_params1.contains(HccParams1::CSZ) {
             64
         } else {
@@ -150,7 +148,6 @@ impl Xhci {
             rts,
             max_device_slots,
             dcbaa_len,
-            min_page_size,
             context_size,
             ring_context: RwLock::new([EpRingContext::EMPTY; Self::MAX_TR]),
             event_cycle: CycleBit::from(true),
@@ -205,8 +202,6 @@ impl Xhci {
             }
         }
 
-        println!("Starting XHCI...");
-
         // reset xHC
         self.opr.write_cmd(UsbCmd::HCRST);
         // The xHC shall halt within 16ms.
@@ -228,7 +223,7 @@ impl Xhci {
         // make Scratchpad
         let max_scratchpad_size = self.cap.max_scratchpad_size();
         if max_scratchpad_size > 0 {
-            let size = max_scratchpad_size * self.min_page_size;
+            let size = max_scratchpad_size * self.opr.page_size();
             unsafe {
                 let scratchpad = MemoryManager::alloc_pages(size).unwrap().get() as u64;
                 self.dcbaa()[0] = scratchpad;
@@ -247,6 +242,8 @@ impl Xhci {
         while self.opr.status().contains(UsbSts::HCH) {
             Timer::sleep(Duration::from_millis(10));
         }
+
+        println!("XHCI Started");
     }
 
     fn dcbaa(&self) -> &'static mut [u64] {
@@ -409,12 +406,12 @@ impl Xhci {
     pub fn execute_command<T: TrbCommon>(&self, trb: &T) -> Result<TrbCce, TrbCce> {
         let urb = self.allocate_urb().unwrap();
         self.issue_trb(Some(urb), trb, None, None, true);
-        urb.sem.wait();
+        urb.wait();
         let result = match urb.response.as_event() {
             Some(TrbEvent::CommandCompletion(v)) => Some(v.copied()),
             _ => None,
         };
-        urb.release();
+        urb.dispose();
         match result {
             Some(result) => {
                 if result.completion_code() == Some(TrbCompletionCode::SUCCESS) {
@@ -459,13 +456,13 @@ impl Xhci {
             let status_trb = TrbStatusStage::new(!dir, true);
             self.issue_trb(Some(urb), &status_trb, slot_id, dci, true);
 
-            urb.sem.wait();
+            urb.wait();
 
             let result = match urb.response.as_event() {
                 Some(TrbEvent::TransferEvent(v)) => Some(v.copied()),
                 _ => None,
             };
-            urb.release();
+            urb.dispose();
             match result {
                 Some(result) => {
                     if result.completion_code() == Some(TrbCompletionCode::SUCCESS) {
@@ -479,7 +476,7 @@ impl Xhci {
         })
     }
 
-    pub fn data_transfer(
+    pub fn transfer_data(
         &self,
         slot_id: SlotId,
         dci: DCI,
@@ -490,13 +487,13 @@ impl Xhci {
         let urb = self.allocate_urb().unwrap();
         self.issue_trb(Some(urb), &trb, Some(slot_id), Some(dci), true);
 
-        urb.sem.wait();
+        urb.wait();
 
         let result = match urb.response.as_event() {
             Some(TrbEvent::TransferEvent(v)) => Some(v.copied()),
             _ => None,
         };
-        urb.release();
+        urb.dispose();
         match result {
             Some(result) => match result.completion_code() {
                 Some(TrbCompletionCode::SUCCESS) | Some(TrbCompletionCode::SHORT_PACKET) => {
@@ -703,7 +700,7 @@ impl Xhci {
                 }
                 TrbEvent::PortStatusChange(event) => {
                     let port_id = event.port_id().unwrap();
-                    println!("XHCI: PORT_STATUS_CHANGE {}", port_id.0.get());
+                    println!("XHCI: PORT_STATUS_CHANGE {:?}", port_id);
                     self.port_status_change_queue.post(port_id).unwrap();
                 }
                 TrbEvent::TransferEvent(event) => {
@@ -987,9 +984,14 @@ impl XhciRequestBlock {
     }
 
     #[inline]
-    pub fn release(&mut self) {
+    pub fn dispose(&mut self) {
         self.reuse_delay = Timer::new(Duration::from_millis(10));
         self.set_state(XrbState::Available);
+    }
+
+    #[inline]
+    pub fn wait(&self) {
+        self.sem.wait()
     }
 
     #[inline]
@@ -1172,7 +1174,23 @@ impl UsbHostInterface for HciContext {
         buffer: *const u8,
         len: usize,
     ) -> Result<usize, UsbError> {
-        todo!()
+        let host = match self.host.upgrade() {
+            Some(v) => v.clone(),
+            None => return Err(UsbError::HostUnavailable),
+        };
+        let dci = DCI::from(ep);
+        if dci.is_dir_in() {
+            return Err(UsbError::InvalidParameter);
+        }
+        let device = self.device();
+        let slot_id = device.slot_id;
+
+        unsafe {
+            let p = PageManager::direct_map(device.buffer) as *mut u8;
+            p.copy_from(buffer, len);
+        }
+
+        host.transfer_data(slot_id, dci, device.buffer, len)
     }
 
     fn read(&self, ep: UsbEndpointAddress, buffer: *mut u8, len: usize) -> Result<usize, UsbError> {
@@ -1187,7 +1205,7 @@ impl UsbHostInterface for HciContext {
         let device = self.device();
         let slot_id = device.slot_id;
 
-        host.data_transfer(slot_id, dci, device.buffer, len)
+        host.transfer_data(slot_id, dci, device.buffer, len)
             .map(|result| {
                 unsafe {
                     let p = PageManager::direct_map(device.buffer) as *const u8;

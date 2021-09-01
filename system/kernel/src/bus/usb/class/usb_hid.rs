@@ -2,16 +2,11 @@
 
 use super::super::*;
 use crate::io::hid::*;
-use crate::task::scheduler::{SpawnOption, Timer};
-use alloc::format;
-use alloc::sync::Arc;
-use megstd::io::hid::MouseButton;
-use megstd::string::Sb255;
+use crate::task::scheduler::SpawnOption;
 
 // for debug
 use crate::System;
 use core::fmt::Write;
-use core::time::Duration;
 
 macro_rules! print {
     ($($arg:tt)*) => {
@@ -28,55 +23,57 @@ macro_rules! println {
     };
 }
 
-pub struct UsbHid {
-    //
-}
+pub struct UsbHid;
 
 impl UsbHid {
-    pub fn start(device: Arc<UsbDevice>, if_no: u8) {
+    pub fn start(device: &UsbDevice, if_no: UsbInterfaceNumber) {
+        let addr = device.addr();
+        let interface = device
+            .current_configuration()
+            .find_interface(if_no, None)
+            .unwrap();
+        let class = interface.class();
+        let endpoint = interface.endpoints().first().unwrap();
+        let ep = endpoint.address();
+        let ps = endpoint.descriptor().max_packet_size();
+        if ps > 8 {
+            // There is probably no HID device with a packet size larger than 8 bytes
+            return;
+        }
+        device
+            .host()
+            .configure_endpoint(endpoint.descriptor())
+            .unwrap();
+
         SpawnOption::new().spawn(
             move || {
-                Self::_usb_hid_thread(device, if_no);
+                UsbHidDevice::_usb_hid_thread(addr, if_no, ep, class, ps);
             },
             "usb.hid",
         );
     }
+}
 
-    fn set_boot_protocol(device: &UsbDevice, if_no: u8, is_boot: bool) -> Result<(), UsbError> {
-        device
-            .host()
-            .control(UsbControlSetupData {
-                bmRequestType: UsbControlRequestBitmap(0x21),
-                bRequest: UsbControlRequest::HID_SET_PROTOCOL,
-                wValue: (!is_boot) as u16,
-                wIndex: if_no as u16,
-                wLength: 0,
-            })
-            .map(|_| ())
-    }
+pub struct UsbHidDevice;
 
-    fn _usb_hid_thread(device: Arc<UsbDevice>, if_no: u8) {
-        let addr = device.addr();
-        let props = device.props();
-        let interface = props.interface(if_no).unwrap();
-        let endpoint = props
-            .endpoint_by_bitmap(interface.endpoint_bitmap(), true)
-            .unwrap();
-        let ep = endpoint.endpoint_address().unwrap();
-        let ps = endpoint.max_packet_size();
-
-        match interface.descriptor().class() {
+impl UsbHidDevice {
+    fn _usb_hid_thread(
+        addr: UsbDeviceAddress,
+        if_no: UsbInterfaceNumber,
+        ep: UsbEndpointAddress,
+        class: UsbClass,
+        ps: u16,
+    ) {
+        let device = UsbManager::device_by_addr(addr).unwrap();
+        match class {
             UsbClass::HID_BIOS_KEYBOARD => {
                 println!(
-                    "USB KEYBOARD {} IF#{} EP {:08x} {:02x}",
+                    "USB HID BIOS KEYBOARD {} IF#{} EP {:02x}",
                     addr.0.get(),
-                    if_no,
-                    interface.endpoint_bitmap(),
+                    if_no.0,
                     ep.0
                 );
-
                 Self::set_boot_protocol(&device, if_no, true).unwrap();
-
                 let mut key_state = KeyboardState::new();
                 let mut buffer = KeyReportRaw::default();
                 loop {
@@ -85,7 +82,7 @@ impl UsbHid {
                             key_state.process_key_report(buffer);
                         }
                         Err(err) => {
-                            println!("HID READ ERROR {:?}", err);
+                            println!("HID KEYBOARD READ ERROR {:?} {:?}", addr.0.get(), err);
                         }
                         _ => (),
                     }
@@ -93,32 +90,45 @@ impl UsbHid {
             }
             UsbClass::HID_BIOS_MOUSE => {
                 println!(
-                    "USB MOUSE {} IF#{} EP {:08x} {:02x}",
+                    "USB HID BIOS MOUSE {} IF#{} EP {:02x}",
                     addr.0.get(),
-                    if_no,
-                    interface.endpoint_bitmap(),
+                    if_no.0,
                     ep.0
                 );
-
                 Self::set_boot_protocol(&device, if_no, true).unwrap();
-
-                let mut buffer = 0u64;
+                let buffer = 0u64;
                 let mut mouse_state = MouseState::empty();
                 loop {
                     let buffer = &buffer as *const _ as *mut u8;
                     match device.host().read(ep, buffer, ps as usize) {
-                        Ok(size) => {
+                        Ok(_size) => {
                             let report = unsafe { (buffer as *const MouseReportRaw).read() };
                             mouse_state.process_mouse_report(report);
                         }
                         Err(err) => {
-                            println!("HID READ ERROR {:?}", err);
+                            println!("HID MOUSE READ ERROR {:?} {:?}", addr.0.get(), err);
                         }
-                        _ => (),
                     }
                 }
             }
             _ => {}
         }
+    }
+
+    fn set_boot_protocol(
+        device: &UsbDevice,
+        if_no: UsbInterfaceNumber,
+        is_boot: bool,
+    ) -> Result<(), UsbError> {
+        device
+            .host()
+            .control(UsbControlSetupData {
+                bmRequestType: UsbControlRequestBitmap(0x21),
+                bRequest: UsbControlRequest::HID_SET_PROTOCOL,
+                wValue: (!is_boot) as u16,
+                wIndex: if_no.0 as u16,
+                wLength: 0,
+            })
+            .map(|_| ())
     }
 }
