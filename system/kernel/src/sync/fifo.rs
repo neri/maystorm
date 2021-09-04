@@ -1,14 +1,17 @@
 //! Concurrent First In First Out
 
-use crate::arch::cpu::Cpu;
-use crate::sync::spinlock::SpinLoopWait;
-use alloc::{boxed::Box, vec::Vec};
+use crate::{
+    arch::cpu::Cpu,
+    sync::{semaphore::Semaphore, spinlock::SpinLoopWait},
+};
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use core::{
     mem::{self, MaybeUninit},
+    pin::Pin,
     {cell::UnsafeCell, sync::atomic::*},
 };
 
-use super::semaphore::Semaphore;
+use super::semaphore::AsyncSemaphore;
 
 pub struct EventQueue<T> {
     fifo: ConcurrentFifo<T>,
@@ -49,6 +52,46 @@ impl<T> EventQueue<T> {
 unsafe impl<T: Send> Send for EventQueue<T> {}
 
 unsafe impl<T: Send + Sync> Sync for EventQueue<T> {}
+
+pub struct AsyncEventQueue<T> {
+    fifo: ConcurrentFifo<T>,
+    sem: Pin<Arc<AsyncSemaphore>>,
+}
+
+impl<T> AsyncEventQueue<T> {
+    #[inline]
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            fifo: ConcurrentFifo::with_capacity(capacity),
+            sem: AsyncSemaphore::new(0),
+        }
+    }
+
+    #[inline]
+    pub fn post(&self, event: T) -> Result<(), T> {
+        self.fifo.enqueue(event).map(|_| self.sem.signal())
+    }
+
+    #[inline]
+    pub fn get_event(&self) -> Option<T> {
+        self.fifo.dequeue()
+    }
+
+    #[inline]
+    pub async fn wait_event(&self) -> Option<T> {
+        loop {
+            match self.fifo.dequeue() {
+                Some(v) => return Some(v),
+                None => (),
+            }
+            self.sem.clone().wait().await;
+        }
+    }
+}
+
+unsafe impl<T: Send> Send for AsyncEventQueue<T> {}
+
+unsafe impl<T: Send + Sync> Sync for AsyncEventQueue<T> {}
 
 /// Concurrent First In First Out
 pub struct ConcurrentFifo<T> {

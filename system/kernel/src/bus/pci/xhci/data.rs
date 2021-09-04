@@ -514,7 +514,7 @@ impl TrbIDt for TrbNormal {}
 pub struct TrbSetupStage(TrbRawData);
 
 impl TrbSetupStage {
-    pub fn new(trt: UrbTranfserType, setup: UsbControlSetupData) -> Self {
+    pub fn new(trt: TrbTranfserType, setup: UsbControlSetupData) -> Self {
         let result: Self = unsafe { transmute(Trb::new(TrbType::SETUP)) };
         unsafe {
             (&result as *const Self as *mut u32).copy_from(&setup as *const _ as *const u32, 2);
@@ -957,7 +957,7 @@ impl EpType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
-pub enum UrbTranfserType {
+pub enum TrbTranfserType {
     NoData = 0,
     ControlOut = 2,
     ControlIn = 3,

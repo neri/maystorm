@@ -1,41 +1,54 @@
 // Task Executor
 
 use super::{Task, TaskId};
-use crate::{sync::fifo::*, sync::semaphore::*};
+use crate::{
+    sync::fifo::*,
+    sync::{semaphore::*, RwLock},
+};
 use alloc::{collections::BTreeMap, sync::Arc, task::Wake};
 use core::task::{Context, Poll, Waker};
 
 pub struct Executor {
-    tasks: BTreeMap<TaskId, Task>,
+    tasks: RwLock<BTreeMap<TaskId, Task>>,
     task_queue: Arc<TaskQueue>,
-    waker_cache: BTreeMap<TaskId, Waker>,
+    waker_cache: RwLock<BTreeMap<TaskId, Waker>>,
+    spawn_queue: ConcurrentFifo<Task>,
 }
 
 impl Executor {
     pub fn new() -> Self {
         Executor {
-            tasks: BTreeMap::new(),
+            tasks: RwLock::new(BTreeMap::new()),
             task_queue: TaskQueue::new(),
-            waker_cache: BTreeMap::new(),
+            waker_cache: RwLock::new(BTreeMap::new()),
+            spawn_queue: ConcurrentFifo::with_capacity(100),
         }
     }
 
-    pub fn spawn(&mut self, task: Task) {
+    pub fn spawn(&self, task: Task) {
+        let _ = self.spawn_queue.enqueue(task);
+    }
+
+    fn spawn_internal(&self, task: Task) {
         let task_id = task.id;
-        if self.tasks.insert(task.id, task).is_some() {
+        if self.tasks.write().unwrap().insert(task.id, task).is_some() {
             panic!();
         }
-        self.task_queue.push(task_id).expect("queue full");
+        self.task_queue.push(task_id).expect("task queue full");
     }
 
-    fn run_ready_task(&mut self) {
+    fn run_ready_task(&self) {
         let Self {
             tasks,
             task_queue,
             waker_cache,
+            spawn_queue: _,
         } = self;
 
         while let Some(task_id) = task_queue.pop() {
+            let mut tasks = tasks.write().unwrap();
+            let mut waker_cache = waker_cache.write().unwrap();
+
             let task = match tasks.get_mut(&task_id) {
                 Some(task) => task,
                 None => continue,
@@ -51,11 +64,18 @@ impl Executor {
                 }
                 Poll::Pending => {}
             }
+
+            drop(tasks);
+            drop(waker_cache);
         }
     }
 
-    pub fn run(&mut self) -> ! {
+    pub fn run(&self) -> ! {
         loop {
+            self.run_ready_task();
+            while let Some(task) = self.spawn_queue.dequeue() {
+                self.spawn_internal(task);
+            }
             self.run_ready_task();
             self.task_queue.wait();
         }

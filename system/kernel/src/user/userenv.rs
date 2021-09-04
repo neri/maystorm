@@ -16,6 +16,7 @@ pub struct UserEnv {
 
 impl UserEnv {
     pub fn start(f: fn()) {
+        Timer::sleep(Duration::from_millis(1000));
         // loop {
         //     Timer::sleep(Duration::from_secs(1));
         // }
@@ -31,7 +32,6 @@ impl UserEnv {
             }
         }
         WindowManager::set_pointer_visible(true);
-        Timer::sleep(Duration::from_millis(1000));
 
         Scheduler::spawn_async(Task::new(status_bar_main()));
         Scheduler::spawn_async(Task::new(activity_monitor_main()));

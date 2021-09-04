@@ -43,8 +43,7 @@ impl fmt::Debug for UsbVersion {
         let part1 = (self.0 >> 12) & 0x0F;
         let part2 = (self.0 >> 8) & 0x0F;
         let part3 = (self.0 >> 4) & 0x0F;
-        let part4 = self.0 & 0x0F;
-
+        // let part4 = self.0 & 0x0F;
         write!(f, "{}.{}", part1 * 10 + part2, part3)
     }
 }
@@ -127,8 +126,8 @@ impl UsbClass {
     pub const COMPOSITE: Self = Self(0x00_00_00);
     pub const MIDI_STREAMING: Self = Self(0x01_03_00);
     pub const HID_GENERIC: Self = Self(0x03_00_00);
-    pub const HID_BIOS_KEYBOARD: Self = Self(0x03_01_01);
-    pub const HID_BIOS_MOUSE: Self = Self(0x03_01_02);
+    pub const HID_BOOT_KEYBOARD: Self = Self(0x03_01_01);
+    pub const HID_BOOT_MOUSE: Self = Self(0x03_01_02);
     pub const STORAGE_BULK: Self = Self(0x08_06_50);
     pub const FLOPPY: Self = Self(0x08_04_00);
     pub const HUB_FS: Self = Self(0x09_00_00);
@@ -190,8 +189,11 @@ pub enum UsbDescriptorType {
     SsHub = 0x2A,
 }
 
+/// A type compatible with standard USB descriptors
 pub trait UsbDescriptor {
+    /// bLength
     fn len(&self) -> usize;
+    /// bDescriptorType
     fn descriptor_type(&self) -> UsbDescriptorType;
 }
 
@@ -407,7 +409,7 @@ impl UsbEndpointDescriptor {
     }
 
     #[inline]
-    pub fn attributes(&self) -> Option<UsbEndpointType> {
+    pub fn ep_type(&self) -> Option<UsbEndpointType> {
         FromPrimitive::from_u8(self.bmAttributes as u8 & 3)
     }
 
@@ -473,26 +475,14 @@ impl UsbDescriptor for UsbDeviceQualifierDescriptor {
     }
 }
 
-/// USB String Descriptor
-#[repr(C, packed)]
-#[allow(non_snake_case)]
-pub struct UsbStringDescriptor {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    data: [u16; 127],
-}
-
-impl UsbDescriptor for UsbStringDescriptor {
-    #[inline]
-    fn len(&self) -> usize {
-        self.bLength as usize
-    }
-
-    #[inline]
-    fn descriptor_type(&self) -> UsbDescriptorType {
-        self.bDescriptorType
-    }
-}
+// /// USB String Descriptor
+// #[repr(C, packed)]
+// #[allow(non_snake_case)]
+// pub struct UsbStringDescriptor {
+//     bLength: u8,
+//     bDescriptorType: UsbDescriptorType,
+//     data: [u16; 127],
+// }
 
 /// USB HID Report Descriptor
 #[repr(C, packed)]
@@ -524,7 +514,26 @@ pub struct UsbHidClassDescriptor {
     bcdHID: UsbWord,
     bCountryCode: u8,
     bNumDescriptors: u8,
-    reports: [u8; 250],
+    bDescriptorType_: u8,
+    wDescriptorLength_: UsbWord,
+    reports: [u8; 246],
+}
+
+impl UsbHidClassDescriptor {
+    #[inline]
+    pub const fn num_descriptors(&self) -> usize {
+        self.bNumDescriptors as usize
+    }
+
+    #[inline]
+    pub fn first_descriptor(&self) -> (u8, u16) {
+        (self.bDescriptorType_, self.wDescriptorLength_.as_u16())
+    }
+
+    #[inline]
+    pub fn descriptor(&self, nth: usize) -> Option<(u8, u16)> {
+        todo!()
+    }
 }
 
 impl UsbDescriptor for UsbHidClassDescriptor {
@@ -592,6 +601,7 @@ impl RouteString {
         self.0 == 0
     }
 
+    #[inline]
     pub const fn level(&self) -> usize {
         match self.0 {
             0 => 0,
@@ -791,5 +801,7 @@ pub enum UsbError {
     HostUnavailable,
     InvalidParameter,
     InvalidDescriptor,
+    UnexpectedToken,
+    ShortPacket,
     UsbTransactionError,
 }

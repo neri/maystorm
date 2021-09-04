@@ -2,7 +2,13 @@
 
 use super::signal::SignallingObject;
 use crate::arch::cpu::Cpu;
-use core::sync::atomic::*;
+use alloc::{boxed::Box, sync::Arc};
+use core::{
+    pin::Pin,
+    sync::atomic::*,
+    task::{Context, Poll},
+};
+use futures_util::{task::AtomicWaker, Future};
 
 /// counting semaphore
 pub struct Semaphore {
@@ -107,5 +113,73 @@ impl Default for BinarySemaphore {
     #[inline]
     fn default() -> Self {
         Self::new()
+    }
+}
+
+pub struct AsyncSemaphore {
+    value: AtomicUsize,
+    waker: AtomicWaker,
+}
+
+impl AsyncSemaphore {
+    #[inline]
+    pub fn new(value: usize) -> Pin<Arc<Self>> {
+        Arc::pin(Self {
+            value: AtomicUsize::new(value),
+            waker: AtomicWaker::new(),
+        })
+    }
+
+    #[inline]
+    pub fn try_lock(&self) -> bool {
+        Cpu::interlocked_fetch_update(&self.value, |v| if v >= 1 { Some(v - 1) } else { None })
+            .is_ok()
+    }
+
+    #[inline]
+    pub fn wait(self: Pin<Arc<Self>>) -> Pin<Box<dyn Future<Output = ()>>> {
+        Box::pin(AsyncSemaphoreObserver { sem: self.clone() })
+    }
+
+    pub fn poll(&self, cx: &mut Context<'_>) -> bool {
+        self.waker.register(cx.waker());
+        let result = self.try_lock();
+        if result {
+            self.waker.take();
+        }
+        result
+    }
+
+    #[inline]
+    pub fn signal(&self) {
+        let _ = Cpu::interlocked_increment(&self.value);
+        let _ = self.waker.wake();
+    }
+
+    #[inline]
+    pub async fn synchronized<F, R>(self: Pin<Arc<Self>>, f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        self.clone().wait().await;
+        let result = f();
+        self.signal();
+        result
+    }
+}
+
+struct AsyncSemaphoreObserver {
+    sem: Pin<Arc<AsyncSemaphore>>,
+}
+
+impl Future for AsyncSemaphoreObserver {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.sem.poll(cx) {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
     }
 }

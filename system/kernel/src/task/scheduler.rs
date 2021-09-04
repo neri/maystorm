@@ -498,19 +498,17 @@ impl Scheduler {
 
     /// Spawning asynchronous tasks
     pub fn spawn_async(task: Task) {
-        Self::current_thread().unwrap().update(|thread| {
-            if thread.executor.is_none() {
-                thread.executor = Some(Executor::new());
-            }
-            thread.executor.as_mut().unwrap().spawn(task);
-        });
+        let thread = unsafe { Self::current_thread().unwrap().unsafe_weak().unwrap() };
+        if thread.executor.is_none() {
+            thread.executor = Some(Executor::new());
+        }
+        thread.executor.as_ref().unwrap().spawn(task);
     }
 
     /// Performing Asynchronous Tasks
     pub fn perform_tasks() -> ! {
-        Self::current_thread().unwrap().update(|thread| {
-            thread.executor.as_mut().map(|v| v.run());
-        });
+        let thread = unsafe { Self::current_thread().unwrap().unsafe_weak().unwrap() };
+        thread.executor.as_ref().map(|v| v.run());
         Self::exit();
     }
 
@@ -980,6 +978,24 @@ impl Timer {
         }
     }
 
+    pub async fn sleep_async(duration: Duration) {
+        let timer = Timer::new(duration);
+        let sem = AsyncSemaphore::new(0);
+        let mut event = TimerEvent::async_timer(timer, sem.clone());
+        while timer.until() {
+            match Scheduler::schedule_timer(event) {
+                Ok(()) => {
+                    sem.wait().await;
+                    return;
+                }
+                Err(e) => {
+                    event = e;
+                    Scheduler::yield_thread();
+                }
+            }
+        }
+    }
+
     #[inline]
     pub fn usleep(us: u64) {
         Self::sleep(Duration::from_micros(us));
@@ -1046,8 +1062,9 @@ pub struct TimerEvent {
     timer_type: TimerType,
 }
 
-#[derive(Debug, Copy, Clone)]
+// #[derive(Debug, Copy, Clone)]
 pub enum TimerType {
+    Async(Pin<Arc<AsyncSemaphore>>),
     OneShot(ThreadHandle),
     Window(WindowHandle, usize),
 }
@@ -1058,6 +1075,13 @@ impl TimerEvent {
         Self {
             timer,
             timer_type: TimerType::OneShot(Scheduler::current_thread().unwrap()),
+        }
+    }
+
+    pub fn async_timer(timer: Timer, sem: Pin<Arc<AsyncSemaphore>>) -> Self {
+        Self {
+            timer,
+            timer_type: TimerType::Async(sem),
         }
     }
 
@@ -1075,6 +1099,7 @@ impl TimerEvent {
     pub fn fire(self) {
         match self.timer_type {
             TimerType::OneShot(thread) => thread.wake(),
+            TimerType::Async(sem) => sem.signal(),
             TimerType::Window(window, timer_id) => {
                 let _ = window
                     .is_valid()

@@ -212,6 +212,7 @@ impl System {
 
             mem::MemoryManager::late_init();
 
+            io::hid::HidManager::init();
             bus::usb::UsbManager::init();
             bus::pci::Pci::init();
 
@@ -220,16 +221,14 @@ impl System {
                 shared.initrd_size,
             );
 
-            rt::RuntimeEnvironment::init();
-
             if let Some(main_screen) = shared.main_screen.as_mut() {
                 FontManager::init();
                 ui::window::WindowManager::init(main_screen.clone());
             }
 
-            io::hid::HidManager::init();
-
             arch::Arch::late_init();
+
+            rt::RuntimeEnvironment::init();
 
             user::userenv::UserEnv::start(core::mem::transmute(args));
         }

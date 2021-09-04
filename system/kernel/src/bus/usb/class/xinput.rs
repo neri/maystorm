@@ -4,7 +4,7 @@ use super::super::*;
 use crate::{
     io::hid::{GameInput, GameInputManager},
     sync::RwLock,
-    task::scheduler::SpawnOption,
+    task::Task,
 };
 use alloc::sync::Arc;
 
@@ -27,16 +27,23 @@ macro_rules! println {
     };
 }
 
-pub struct XInput;
+pub struct XInputStarter;
 
-impl XInput {
-    pub fn start(device: &UsbDevice, if_no: UsbInterfaceNumber) {
-        let addr = device.addr();
-        let interface = device
-            .current_configuration()
-            .find_interface(if_no, None)
-            .unwrap();
+impl XInputStarter {
+    #[inline]
+    pub fn new() -> Arc<dyn UsbInterfaceDriverStarter> {
+        Arc::new(Self {})
+    }
+}
+
+impl UsbInterfaceDriverStarter for XInputStarter {
+    fn instantiate(&self, device: &UsbDevice, interface: &UsbInterface) -> bool {
         let class = interface.class();
+        if class != UsbClass::XINPUT {
+            return false;
+        }
+        let addr = device.addr();
+        let if_no = interface.if_no();
         let endpoint = interface.endpoints().first().unwrap();
         let ep = endpoint.address();
         let ps = endpoint.descriptor().max_packet_size();
@@ -45,46 +52,34 @@ impl XInput {
             .configure_endpoint(endpoint.descriptor())
             .unwrap();
 
-        SpawnOption::new().spawn(
-            move || {
-                XInputDevice::_xinput_thread(addr, if_no, ep, class, ps);
-            },
-            "usb.xinput",
-        );
+        UsbManager::register_xfer_task(Task::new(XInputDriver::_xinput_task(
+            addr, if_no, ep, class, ps,
+        )));
+
+        true
     }
 }
 
-pub struct XInputDevice {
-    //
-}
+struct XInputDriver;
 
-impl XInputDevice {
-    pub fn _xinput_thread(
+impl XInputDriver {
+    async fn _xinput_task(
         addr: UsbDeviceAddress,
-        if_no: UsbInterfaceNumber,
+        _if_no: UsbInterfaceNumber,
         ep: UsbEndpointAddress,
         _class: UsbClass,
         ps: u16,
     ) {
         let device = UsbManager::device_by_addr(addr).unwrap();
-
-        println!(
-            "XINPUT {} IF#{} EP {:02x} PS {}",
-            addr.0.get(),
-            if_no.0,
-            ep.0,
-            ps
-        );
-
         let input = Arc::new(RwLock::new(GameInput::empty()));
         let _handle = GameInputManager::connect_new_input(input.clone());
-        let buffer = [0u8; 512];
+        let mut buffer = [0u8; 512];
         loop {
             match device
-                .host()
-                .read(ep, &buffer[0] as *const _ as *mut u8, ps as usize)
+                .read_slice(ep, &mut buffer, XInputMsg14::MIN_LEN as usize, ps as usize)
+                .await
             {
-                Ok(_len) => {
+                Ok(_) => {
                     if buffer[0] == XInputMsg14::VALID_TYPE && buffer[1] == XInputMsg14::VALID_LEN {
                         let data = unsafe { *(&buffer[2] as *const _ as *const GameInput) };
                         input.write().unwrap().copy_from(&data);
@@ -116,4 +111,5 @@ pub struct XInputMsg14 {
 impl XInputMsg14 {
     pub const VALID_TYPE: u8 = 0;
     pub const VALID_LEN: u8 = 0x14;
+    pub const MIN_LEN: usize = 14;
 }

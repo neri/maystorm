@@ -1,14 +1,23 @@
 //! Universal Serial Bus
+//!
+//!   ┏━○
+//! ○┻┳━|＞
+//! ┗■
 
 use super::types::*;
-use crate::sync::RwLock;
+use crate::{
+    sync::{fifo::AsyncEventQueue, RwLock},
+    task::{scheduler::*, Task},
+};
 use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use core::{
     cell::UnsafeCell,
     mem::{size_of, MaybeUninit},
     num::NonZeroU8,
+    pin::Pin,
     slice,
 };
+use futures_util::Future;
 use num_traits::FromPrimitive;
 
 // for debug
@@ -38,34 +47,64 @@ pub trait UsbHostInterface {
     /// Performs a control transfer
     fn control<'a>(&self, setup: UsbControlSetupData) -> Result<&'a [u8], UsbError>;
 
-    fn write(
-        &self,
+    fn control_send(&self, setup: UsbControlSetupData, data: &[u8]) -> Result<usize, UsbError>;
+
+    unsafe fn read(
+        self: Arc<Self>,
+        ep: UsbEndpointAddress,
+        buffer: *mut u8,
+        len: usize,
+    ) -> Pin<Box<dyn Future<Output = Result<usize, UsbError>>>>;
+
+    unsafe fn write(
+        self: Arc<Self>,
         ep: UsbEndpointAddress,
         buffer: *const u8,
         len: usize,
-    ) -> Result<usize, UsbError>;
-
-    fn read(&self, ep: UsbEndpointAddress, buffer: *mut u8, len: usize) -> Result<usize, UsbError>;
+    ) -> Pin<Box<dyn Future<Output = Result<usize, UsbError>>>>;
 
     // fn enter_configuration(&self);
     // fn leave_configuration(&self);
+}
+
+pub trait UsbClassDriverStarter {
+    fn instantiate(&self, device: &UsbDevice) -> bool;
+}
+
+pub trait UsbInterfaceDriverStarter {
+    fn instantiate(&self, device: &UsbDevice, interface: &UsbInterface) -> bool;
 }
 
 static mut USB_MANAGER: UnsafeCell<UsbManager> = UnsafeCell::new(UsbManager::new());
 
 pub struct UsbManager {
     devices: RwLock<Vec<Arc<UsbDevice>>>,
+    specific_driver_starters: RwLock<Vec<Arc<dyn UsbClassDriverStarter>>>,
+    class_driver_starters: RwLock<Vec<Arc<dyn UsbClassDriverStarter>>>,
+    interface_driver_starters: RwLock<Vec<Arc<dyn UsbInterfaceDriverStarter>>>,
+    request_queue: MaybeUninit<AsyncEventQueue<Task>>,
 }
 
 impl UsbManager {
     const fn new() -> Self {
         Self {
             devices: RwLock::new(Vec::new()),
+            specific_driver_starters: RwLock::new(Vec::new()),
+            class_driver_starters: RwLock::new(Vec::new()),
+            interface_driver_starters: RwLock::new(Vec::new()),
+            request_queue: MaybeUninit::uninit(),
         }
     }
 
     pub unsafe fn init() {
-        // SpawnOption::with_priority(Priority::High).spawn(Self::_usb_thread, "usb");
+        let shared = &mut *USB_MANAGER.get();
+        shared.request_queue.write(AsyncEventQueue::new(100));
+
+        SpawnOption::with_priority(Priority::High).spawn(Self::_usb_xfer_task_thread, "usb.xfer");
+
+        let mut vec = Self::shared().interface_driver_starters.write().unwrap();
+        vec.push(super::class::usb_hid::UsbHidStarter::new());
+        vec.push(super::class::xinput::XInputStarter::new());
     }
 
     #[inline]
@@ -74,19 +113,36 @@ impl UsbManager {
     }
 
     /// Initialize the USB device and tie it to the appropriate class driver.
-    pub fn instantiate(addr: UsbDeviceAddress, ctx: Box<dyn UsbHostInterface>) {
+    pub fn instantiate(addr: UsbDeviceAddress, ctx: Arc<dyn UsbHostInterface>) {
         match UsbDevice::new(addr, ctx) {
             Ok(device) => {
+                let shared = Self::shared();
                 let device = Arc::new(device);
-                Self::shared().devices.write().unwrap().push(device.clone());
+                shared.devices.write().unwrap().push(device.clone());
 
-                for interface in device.current_configuration().interfaces() {
-                    let class = interface.class();
-                    let if_no = interface.if_no();
-                    if class == UsbClass::XINPUT {
-                        super::class::xinput::XInput::start(&device, if_no);
-                    } else if class.base() == UsbBaseClass::HID {
-                        super::class::usb_hid::UsbHid::start(&device, if_no);
+                let mut issued = false;
+                for driver in shared.specific_driver_starters.read().unwrap().iter() {
+                    if driver.instantiate(&device) {
+                        issued = true;
+                        break;
+                    }
+                }
+                if !issued {
+                    for driver in shared.class_driver_starters.read().unwrap().iter() {
+                        if driver.instantiate(&device) {
+                            issued = true;
+                            break;
+                        }
+                    }
+                }
+                if !issued {
+                    for interface in device.current_configuration().interfaces() {
+                        for driver in shared.interface_driver_starters.read().unwrap().iter() {
+                            if driver.instantiate(&device, interface) {
+                                // issued = true;
+                                break;
+                            }
+                        }
                     }
                 }
             }
@@ -109,11 +165,27 @@ impl UsbManager {
             .map(|v| v.clone())
     }
 
-    // fn _usb_thread() {
-    //     loop {
-    //         Timer::sleep(Duration::from_millis(1000));
-    //     }
-    // }
+    /// Register a task for USB transfer.
+    pub fn register_xfer_task(task: Task) {
+        let shared = Self::shared();
+        let queue = unsafe { shared.request_queue.as_ptr().as_ref().unwrap() };
+        let _ = queue.post(task);
+    }
+
+    fn _usb_xfer_task_thread() {
+        Scheduler::spawn_async(Task::new(Self::_usb_xfer_observer()));
+        Scheduler::perform_tasks();
+    }
+
+    async fn _usb_xfer_observer() {
+        let shared = Self::shared();
+        let queue = unsafe { shared.request_queue.as_ptr().as_ref().unwrap() };
+        loop {
+            while let Some(new_task) = queue.wait_event().await {
+                Scheduler::spawn_async(new_task);
+            }
+        }
+    }
 }
 
 pub struct UsbDeviceIter {
@@ -141,8 +213,9 @@ impl Iterator for UsbDeviceIter {
     }
 }
 
+/// USB device instance type
 pub struct UsbDevice {
-    host: Box<dyn UsbHostInterface>,
+    host: Arc<dyn UsbHostInterface>,
     addr: UsbDeviceAddress,
     parent: Option<UsbDeviceAddress>,
     vid: UsbVendorId,
@@ -151,7 +224,7 @@ pub struct UsbDevice {
     manufacturer_string: Option<String>,
     product_string: Option<String>,
     serial_number: Option<String>,
-    device_desc: UsbDeviceDescriptor,
+    descriptor: UsbDeviceDescriptor,
 
     current_configuration: UsbConfigurationValue,
     configurations: Vec<UsbConfiguration>,
@@ -159,7 +232,7 @@ pub struct UsbDevice {
 
 impl UsbDevice {
     #[inline]
-    fn new(addr: UsbDeviceAddress, host: Box<dyn UsbHostInterface>) -> Result<Self, UsbError> {
+    fn new(addr: UsbDeviceAddress, host: Arc<dyn UsbHostInterface>) -> Result<Self, UsbError> {
         let device_desc: UsbDeviceDescriptor =
             match Self::get_descriptor(&host, UsbDescriptorType::Device, 0) {
                 Ok(v) => v,
@@ -246,6 +319,7 @@ impl UsbDevice {
                         if_no: descriptor.if_no(),
                         alternate_setting: descriptor.alternate_setting(),
                         endpoints: Vec::new(),
+                        hids: Vec::new(),
                     });
                 }
                 UsbDescriptorType::Endpoint => {
@@ -263,7 +337,7 @@ impl UsbDevice {
                             return Err(UsbError::InvalidDescriptor);
                         }
                     };
-                    let ep_type = match descriptor.attributes() {
+                    let ep_type = match descriptor.ep_type() {
                         Some(v) => v,
                         None => {
                             return Err(UsbError::InvalidDescriptor);
@@ -275,6 +349,15 @@ impl UsbDevice {
                         ep_type,
                     });
                 }
+                // UsbDescriptorType::HidClass => {
+                //     let descriptor =
+                //         unsafe { &*(&blob[cursor] as *const _ as *const UsbHidClassDescriptor) };
+                //     println!(
+                //         "HID {} {:?}",
+                //         descriptor.num_descriptors(),
+                //         descriptor.first_descriptor()
+                //     );
+                // }
                 _ => (),
             }
             cursor += len;
@@ -302,7 +385,7 @@ impl UsbDevice {
             host,
             addr,
             parent: None,
-            device_desc,
+            descriptor: device_desc,
             vid: device_desc.vid(),
             pid: device_desc.pid(),
             class: device_desc.class(),
@@ -316,8 +399,8 @@ impl UsbDevice {
 
     /// Get an instance of the USB host controller interface that implements the [UsbHostInterface] trait.
     #[inline]
-    pub fn host(&self) -> &Box<dyn UsbHostInterface> {
-        &self.host
+    pub fn host(&self) -> Arc<dyn UsbHostInterface> {
+        self.host.clone()
     }
 
     /// Get the USB address of this device.
@@ -336,6 +419,11 @@ impl UsbDevice {
     #[inline]
     pub const fn pid(&self) -> UsbProductId {
         self.pid
+    }
+
+    #[inline]
+    pub const fn vid_pid_raw(&self) -> (u16, u16) {
+        (self.vid().0, self.pid().0)
     }
 
     /// Get the device class of this device.
@@ -363,8 +451,8 @@ impl UsbDevice {
     }
 
     #[inline]
-    pub fn device_desc(&self) -> &UsbDeviceDescriptor {
-        &self.device_desc
+    pub fn descriptor(&self) -> &UsbDeviceDescriptor {
+        &self.descriptor
     }
 
     #[inline]
@@ -383,7 +471,7 @@ impl UsbDevice {
 
     /// Get descriptor
     pub fn get_descriptor<T: UsbDescriptor>(
-        host: &Box<dyn UsbHostInterface>,
+        host: &Arc<dyn UsbHostInterface>,
         desc_type: UsbDescriptorType,
         index: u8,
     ) -> Result<T, UsbError> {
@@ -414,7 +502,7 @@ impl UsbDevice {
 
     /// Get string descriptor
     pub fn get_string(
-        host: &Box<dyn UsbHostInterface>,
+        host: &Arc<dyn UsbHostInterface>,
         index: NonZeroU8,
     ) -> Result<String, UsbError> {
         let mut setup = UsbControlSetupData {
@@ -442,7 +530,7 @@ impl UsbDevice {
 
     /// set configuration
     pub fn set_configuration(
-        host: &Box<dyn UsbHostInterface>,
+        host: &Arc<dyn UsbHostInterface>,
         value: UsbConfigurationValue,
     ) -> Result<(), UsbError> {
         host.control(UsbControlSetupData {
@@ -455,23 +543,67 @@ impl UsbDevice {
         .map(|_| ())
     }
 
-    pub fn read<T: Sized>(
+    pub async fn read<T: Sized>(
         &self,
         ep: UsbEndpointAddress,
         buffer: &mut T,
-    ) -> Result<usize, UsbError> {
+    ) -> Result<(), UsbError> {
         let len = size_of::<T>();
-        let buffer = buffer as *const _ as *mut u8;
-        self.host.read(ep, buffer, len)
+        unsafe { self.host().read(ep, buffer as *const _ as *mut u8, len) }
+            .await
+            .and_then(|result| {
+                if result == len {
+                    Ok(())
+                } else {
+                    Err(UsbError::ShortPacket)
+                }
+            })
     }
 
-    pub fn write<T: Sized>(&self, ep: UsbEndpointAddress, buffer: &T) -> Result<usize, UsbError> {
+    pub async fn read_slice(
+        &self,
+        ep: UsbEndpointAddress,
+        buffer: &mut [u8],
+        min_len: usize,
+        max_len: usize,
+    ) -> Result<usize, UsbError> {
+        let raw_buffer = match buffer.get(0) {
+            Some(v) => v as *const _ as *mut u8,
+            None => return Err(UsbError::InvalidParameter),
+        };
+        if max_len > buffer.len() || min_len > max_len {
+            return Err(UsbError::InvalidParameter);
+        }
+        unsafe { self.host().read(ep, raw_buffer, max_len) }
+            .await
+            .and_then(|result| {
+                if result >= min_len {
+                    Ok(result)
+                } else {
+                    Err(UsbError::ShortPacket)
+                }
+            })
+    }
+
+    pub async fn write<T: Sized>(
+        &self,
+        ep: UsbEndpointAddress,
+        buffer: &T,
+    ) -> Result<(), UsbError> {
         let len = size_of::<T>();
-        let buffer = buffer as *const _ as *const u8;
-        self.host.write(ep, buffer, len)
+        unsafe { self.host().write(ep, buffer as *const _ as *const u8, len) }
+            .await
+            .and_then(|result| {
+                if result == len {
+                    Ok(())
+                } else {
+                    Err(UsbError::ShortPacket)
+                }
+            })
     }
 }
 
+/// USB configuration instance type
 pub struct UsbConfiguration {
     descriptor: UsbConfigurationDescriptor,
     configuration_value: UsbConfigurationValue,
@@ -511,12 +643,14 @@ impl UsbConfiguration {
     }
 }
 
+/// USB interface instance type
 pub struct UsbInterface {
     descriptor: UsbInterfaceDescriptor,
     class: UsbClass,
     if_no: UsbInterfaceNumber,
     alternate_setting: UsbAlternateSettingNumber,
     endpoints: Vec<UsbEndpoint>,
+    hids: Vec<(u8, u16)>,
 }
 
 impl UsbInterface {
@@ -544,8 +678,14 @@ impl UsbInterface {
     pub fn endpoints(&self) -> &[UsbEndpoint] {
         self.endpoints.as_slice()
     }
+
+    #[inline]
+    pub fn hids(&self) -> &[(u8, u16)] {
+        self.hids.as_slice()
+    }
 }
 
+/// USB endpoint instance type
 pub struct UsbEndpoint {
     descriptor: UsbEndpointDescriptor,
     address: UsbEndpointAddress,

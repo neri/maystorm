@@ -6,13 +6,11 @@ use core::num::NonZeroUsize;
 #[global_allocator]
 static mut ALLOCATOR: CustomAlloc = CustomAlloc::new();
 
-pub struct CustomAlloc {
-    _dummy: (),
-}
+pub struct CustomAlloc;
 
 impl CustomAlloc {
     const fn new() -> Self {
-        CustomAlloc { _dummy: () }
+        CustomAlloc {}
     }
 }
 

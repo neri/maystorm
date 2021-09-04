@@ -21,7 +21,7 @@ bitflags! {
     }
 }
 
-/// USB HID BIOS Keyboard Raw Report
+/// USB HID BOOT Keyboard Raw Report
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone, Default)]
 pub struct KeyReportRaw {
@@ -156,7 +156,7 @@ impl Into<char> for KeyEvent {
     }
 }
 
-/// USB HID BIOS Mouse Raw Report
+/// USB HID BOOT Mouse Raw Report
 pub type MouseReportRaw = MouseReport<i8>;
 
 #[derive(Debug, Copy, Clone, Default)]

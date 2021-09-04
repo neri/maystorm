@@ -2,7 +2,7 @@
 
 use super::{data::*, regs::*};
 use crate::bus::usb::*;
-use crate::sync::semaphore::BinarySemaphore;
+use crate::sync::semaphore::{AsyncSemaphore, BinarySemaphore};
 use crate::{
     arch::cpu::Cpu,
     arch::page::{NonNullPhysicalAddress, PageManager, PhysicalAddress},
@@ -20,10 +20,13 @@ use alloc::{
     string::String,
     sync::{Arc, Weak},
 };
+use core::pin::Pin;
+use core::task::Poll;
 use core::{
     cell::UnsafeCell, ffi::c_void, fmt::Write, mem::size_of, num::NonZeroU64, slice,
     sync::atomic::*, time::Duration,
 };
+use futures_util::Future;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
@@ -86,7 +89,7 @@ pub struct Xhci {
     event_cycle: CycleBit,
     port_status_change_queue: EventQueue<PortId>,
     port2slot: RwLock<[Option<SlotId>; 256]>,
-    urbs: [UnsafeCell<XhciRequestBlock>; Self::MAX_URB],
+    xrbs: [UnsafeCell<XhciRequestBlock>; Self::MAX_XRB],
     ics: [UnsafeCell<InputContext>; Self::MAX_DEVICE_SLOTS],
 
     lock_config: BinarySemaphore,
@@ -104,7 +107,7 @@ impl Xhci {
     const MAX_DEVICE_SLOTS: usize = 64;
     const MAX_TR: usize = 256;
     const MAX_TR_INDEX: usize = 64;
-    const MAX_URB: usize = 256;
+    const MAX_XRB: usize = 1024;
 
     const MAX_PORT_CHANGE: usize = 64;
 
@@ -154,7 +157,7 @@ impl Xhci {
             ers,
             port_status_change_queue: EventQueue::new(Self::MAX_PORT_CHANGE),
             port2slot: RwLock::new([None; 256]),
-            urbs: [XhciRequestBlock::EMPTY; Self::MAX_URB],
+            xrbs: [XhciRequestBlock::EMPTY; Self::MAX_XRB],
             ics: [InputContext::EMPTY; Self::MAX_DEVICE_SLOTS],
             lock_config: BinarySemaphore::new(),
             lock_control: BinarySemaphore::new(),
@@ -321,32 +324,32 @@ impl Xhci {
         None
     }
 
-    pub fn allocate_urb<'a>(&'a self) -> Option<&'a mut XhciRequestBlock> {
-        for urb in &self.urbs {
-            let urb = unsafe { &mut *urb.get() };
-            if urb.try_to_acquire() {
-                return Some(urb);
+    pub fn allocate_xrb<'a>(&'a self) -> Option<&'a mut XhciRequestBlock> {
+        for xrb in &self.xrbs {
+            let xrb = unsafe { &mut *xrb.get() };
+            if xrb.try_to_acquire() {
+                return Some(xrb);
             }
         }
         None
     }
 
-    pub fn find_urb<'a>(
+    pub fn find_xrb<'a>(
         &'a self,
         scheduled_trb: ScheduledTrb,
         state: Option<XrbState>,
     ) -> Option<&'a mut XhciRequestBlock> {
-        for urb in &self.urbs {
-            let urb = unsafe { &mut *urb.get() };
-            let urb_state = urb.state();
-            if urb_state != XrbState::Available && urb.scheduled_trb == scheduled_trb {
+        for xrb in &self.xrbs {
+            let xrb = unsafe { &mut *xrb.get() };
+            let xrb_state = xrb.state();
+            if xrb_state != XrbState::Available && xrb.scheduled_trb == scheduled_trb {
                 match state {
                     Some(state) => {
-                        if urb_state == state {
-                            return Some(urb);
+                        if xrb_state == state {
+                            return Some(xrb);
                         }
                     }
-                    None => return Some(urb),
+                    None => return Some(xrb),
                 }
             }
         }
@@ -355,7 +358,7 @@ impl Xhci {
 
     pub fn issue_trb<T: TrbCommon>(
         &self,
-        urb: Option<&mut XhciRequestBlock>,
+        xrb: Option<&mut XhciRequestBlock>,
         trb: &T,
         slot_id: Option<SlotId>,
         dci: Option<DCI>,
@@ -373,8 +376,8 @@ impl Xhci {
         let mut index = ctx.index;
 
         let scheduled_trb = ScheduledTrb(tr_base + (size_of::<Trb>() * index) as u64);
-        if let Some(urb) = urb {
-            urb.schedule(trb, scheduled_trb);
+        if let Some(xrb) = xrb {
+            xrb.schedule(trb, scheduled_trb);
         }
 
         unsafe {
@@ -404,14 +407,14 @@ impl Xhci {
 
     /// Issue trb command
     pub fn execute_command<T: TrbCommon>(&self, trb: &T) -> Result<TrbCce, TrbCce> {
-        let urb = self.allocate_urb().unwrap();
-        self.issue_trb(Some(urb), trb, None, None, true);
-        urb.wait();
-        let result = match urb.response.as_event() {
+        let xrb = self.allocate_xrb().unwrap();
+        self.issue_trb(Some(xrb), trb, None, None, true);
+        xrb.wait();
+        let result = match xrb.response.as_event() {
             Some(TrbEvent::CommandCompletion(v)) => Some(v.copied()),
             _ => None,
         };
-        urb.dispose();
+        xrb.dispose();
         match result {
             Some(result) => {
                 if result.completion_code() == Some(TrbCompletionCode::SUCCESS) {
@@ -434,35 +437,35 @@ impl Xhci {
         self.lock_control.synchronized(|| {
             let trt = if setup.wLength > 0 {
                 if setup.bmRequestType.is_device_to_host() {
-                    UrbTranfserType::ControlIn
+                    TrbTranfserType::ControlIn
                 } else {
-                    UrbTranfserType::ControlOut
+                    TrbTranfserType::ControlOut
                 }
             } else {
-                UrbTranfserType::NoData
+                TrbTranfserType::NoData
             };
             let dci = Some(DCI::CONTROL);
             let slot_id = Some(slot_id);
             let setup_trb = TrbSetupStage::new(trt, setup);
             self.issue_trb(None, &setup_trb, slot_id, dci, false);
 
-            let dir = trt == UrbTranfserType::ControlIn;
+            let dir = trt == TrbTranfserType::ControlIn;
             if setup.wLength > 0 {
                 let data_trb = TrbDataStage::new(buffer, setup.wLength as usize, dir);
                 self.issue_trb(None, &data_trb, slot_id, dci, false);
             }
 
-            let urb = self.allocate_urb().unwrap();
+            let xrb = self.allocate_xrb().unwrap();
             let status_trb = TrbStatusStage::new(!dir, true);
-            self.issue_trb(Some(urb), &status_trb, slot_id, dci, true);
+            self.issue_trb(Some(xrb), &status_trb, slot_id, dci, true);
 
-            urb.wait();
+            xrb.wait();
 
-            let result = match urb.response.as_event() {
+            let result = match xrb.response.as_event() {
                 Some(TrbEvent::TransferEvent(v)) => Some(v.copied()),
                 _ => None,
             };
-            urb.dispose();
+            xrb.dispose();
             match result {
                 Some(result) => {
                     if result.completion_code() == Some(TrbCompletionCode::SUCCESS) {
@@ -474,35 +477,6 @@ impl Xhci {
                 None => Err(TrbTxe::empty()),
             }
         })
-    }
-
-    pub fn transfer_data(
-        &self,
-        slot_id: SlotId,
-        dci: DCI,
-        ptr: u64,
-        len: usize,
-    ) -> Result<usize, UsbError> {
-        let trb = TrbNormal::new(ptr, len, true, true);
-        let urb = self.allocate_urb().unwrap();
-        self.issue_trb(Some(urb), &trb, Some(slot_id), Some(dci), true);
-
-        urb.wait();
-
-        let result = match urb.response.as_event() {
-            Some(TrbEvent::TransferEvent(v)) => Some(v.copied()),
-            _ => None,
-        };
-        urb.dispose();
-        match result {
-            Some(result) => match result.completion_code() {
-                Some(TrbCompletionCode::SUCCESS) | Some(TrbCompletionCode::SHORT_PACKET) => {
-                    Ok(len as usize - result.transfer_length())
-                }
-                _ => Err(UsbError::General),
-            },
-            None => Err(UsbError::General),
-        }
     }
 
     pub fn configure_endpoint(
@@ -688,8 +662,8 @@ impl Xhci {
             match event {
                 TrbEvent::CommandCompletion(event) => {
                     let scheduled_trb = ScheduledTrb(event.ptr());
-                    if let Some(urb) = self.find_urb(scheduled_trb, Some(XrbState::Scheduled)) {
-                        urb.set_response(event.as_common_trb());
+                    if let Some(xrb) = self.find_xrb(scheduled_trb, Some(XrbState::Scheduled)) {
+                        xrb.set_response(event.as_common_trb());
                     }
                     // println!(
                     //     "XHCI: COMMAND_COMPLETION {:?} {:?} {:016x}",
@@ -700,13 +674,13 @@ impl Xhci {
                 }
                 TrbEvent::PortStatusChange(event) => {
                     let port_id = event.port_id().unwrap();
-                    println!("XHCI: PORT_STATUS_CHANGE {:?}", port_id);
+                    // println!("XHCI: PORT_STATUS_CHANGE {:?}", port_id);
                     self.port_status_change_queue.post(port_id).unwrap();
                 }
                 TrbEvent::TransferEvent(event) => {
                     let scheduled_trb = ScheduledTrb(event.ptr());
-                    if let Some(urb) = self.find_urb(scheduled_trb, Some(XrbState::Scheduled)) {
-                        urb.set_response(event.as_common_trb());
+                    if let Some(xrb) = self.find_xrb(scheduled_trb, Some(XrbState::Scheduled)) {
+                        xrb.set_response(event.as_common_trb());
                     }
                     // println!(
                     //     "XHCI: TRANSFER {:?} {:?} {:016x}",
@@ -759,7 +733,7 @@ impl Xhci {
                             route_string: RouteString::EMPTY,
                             buffer,
                         };
-                        let ctx = Box::new(HciContext::new(Arc::downgrade(&self), device));
+                        let ctx = Arc::new(HciContext::new(Arc::downgrade(&self), device));
 
                         if self.port_by(port_id).portsc().speed() == Some(PSIV::FS) {
                             // FullSpeed devices have to read the first 8 bytes of the device descriptor first and re-set the maximum packet size.
@@ -788,7 +762,7 @@ impl Xhci {
 
                         UsbManager::instantiate(
                             UsbDeviceAddress(slot_id.0),
-                            ctx as Box<dyn UsbHostInterface>,
+                            ctx as Arc<dyn UsbHostInterface>,
                         );
                         Timer::sleep(Duration::from_millis(10));
                     }
@@ -921,10 +895,15 @@ pub struct ScheduledTrb(pub u64);
 pub struct XhciRequestBlock {
     state: AtomicUsize,
     scheduled_trb: ScheduledTrb,
-    sem: Semaphore,
+    signal: XrbSignalObject,
     reuse_delay: Timer,
     request: Trb,
     response: Trb,
+}
+
+pub enum XrbSignalObject {
+    Sync(Semaphore),
+    Async(Pin<Arc<AsyncSemaphore>>),
 }
 
 impl XhciRequestBlock {
@@ -935,7 +914,7 @@ impl XhciRequestBlock {
         Self {
             state: AtomicUsize::new(0),
             scheduled_trb: ScheduledTrb(0),
-            sem: Semaphore::new(0),
+            signal: XrbSignalObject::Sync(Semaphore::new(0)),
             reuse_delay: Timer::JUST,
             request: Trb::empty(),
             response: Trb::empty(),
@@ -986,32 +965,35 @@ impl XhciRequestBlock {
     #[inline]
     pub fn dispose(&mut self) {
         self.reuse_delay = Timer::new(Duration::from_millis(10));
+        self.signal = XrbSignalObject::Sync(Semaphore::new(0));
         self.set_state(XrbState::Available);
     }
 
     #[inline]
     pub fn wait(&self) {
-        self.sem.wait()
+        match self.signal {
+            XrbSignalObject::Sync(ref sem) => sem.wait(),
+            XrbSignalObject::Async(_) => unreachable!(),
+        }
+    }
+
+    #[inline]
+    pub fn prepare_async(&mut self) {
+        self.signal = XrbSignalObject::Async(AsyncSemaphore::new(0));
     }
 
     #[inline]
     pub fn set_response(&mut self, response: &Trb) {
         self.response.raw_copy_from(response);
-        self.set_state(
-            if response
-                .as_event()
-                .map(|v| v.completion_code() == Some(TrbCompletionCode::SUCCESS))
-                .unwrap_or(false)
-            {
-                XrbState::Completed
-            } else {
-                XrbState::Failed
-            },
-        );
-        self.sem.signal();
+        self.set_state(XrbState::Completed);
+        match self.signal {
+            XrbSignalObject::Sync(ref sem) => sem.signal(),
+            XrbSignalObject::Async(ref asem) => asem.signal(),
+        }
     }
 }
 
+/// XHCI Request Block State
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
 pub enum XrbState {
     Available = 0,
@@ -1124,7 +1106,7 @@ impl UsbHostInterface for HciContext {
             Some(v) => v,
             None => return Err(UsbError::InvalidParameter),
         };
-        let ep_type = match desc.attributes() {
+        let ep_type = match desc.ep_type() {
             Some(v) => v,
             None => return Err(UsbError::InvalidParameter),
         };
@@ -1168,50 +1150,213 @@ impl UsbHostInterface for HciContext {
         }
     }
 
-    fn write(
-        &self,
-        ep: UsbEndpointAddress,
-        buffer: *const u8,
-        len: usize,
-    ) -> Result<usize, UsbError> {
+    fn control_send(&self, setup: UsbControlSetupData, buffer: &[u8]) -> Result<usize, UsbError> {
         let host = match self.host.upgrade() {
             Some(v) => v.clone(),
             None => return Err(UsbError::HostUnavailable),
         };
-        let dci = DCI::from(ep);
-        if dci.is_dir_in() {
+        let len = setup.wLength as usize;
+        if len == 0 || buffer.len() < len {
             return Err(UsbError::InvalidParameter);
         }
         let device = self.device();
-        let slot_id = device.slot_id;
 
         unsafe {
             let p = PageManager::direct_map(device.buffer) as *mut u8;
-            p.copy_from(buffer, len);
+            p.copy_from(&buffer[0] as *const u8, len);
         }
 
-        host.transfer_data(slot_id, dci, device.buffer, len)
+        match host.execute_control(device.slot_id, setup, device.buffer) {
+            Ok(result) => Ok(result),
+            Err(_err) => Err(UsbError::General),
+        }
     }
 
-    fn read(&self, ep: UsbEndpointAddress, buffer: *mut u8, len: usize) -> Result<usize, UsbError> {
+    unsafe fn read(
+        self: Arc<Self>,
+        ep: UsbEndpointAddress,
+        buffer: *mut u8,
+        len: usize,
+    ) -> Pin<Box<dyn Future<Output = Result<usize, UsbError>>>> {
         let host = match self.host.upgrade() {
             Some(v) => v.clone(),
-            None => return Err(UsbError::HostUnavailable),
+            None => return Box::pin(AsyncUsbError(UsbError::HostUnavailable)),
         };
         let dci = DCI::from(ep);
         if !dci.is_dir_in() {
-            return Err(UsbError::InvalidParameter);
+            return Box::pin(AsyncUsbError(UsbError::InvalidParameter));
+        }
+        let device = self.device();
+        let slot_id = device.slot_id;
+        let trb = TrbNormal::new(device.buffer, len, true, true);
+        let xrb = host.allocate_xrb().unwrap();
+        xrb.prepare_async();
+        let scheduled_trb = host.issue_trb(Some(xrb), &trb, Some(slot_id), Some(dci), true);
+
+        Box::pin(AsyncUsbReader {
+            ctx: self.clone(),
+            scheduled_trb,
+            xfer_buffer: buffer as usize,
+            xfer_len: len,
+        })
+    }
+
+    unsafe fn write(
+        self: Arc<Self>,
+        ep: UsbEndpointAddress,
+        buffer: *const u8,
+        len: usize,
+    ) -> Pin<Box<dyn Future<Output = Result<usize, UsbError>>>> {
+        let host = match self.host.upgrade() {
+            Some(v) => v.clone(),
+            None => return Box::pin(AsyncUsbError(UsbError::HostUnavailable)),
+        };
+        let dci = DCI::from(ep);
+        if dci.is_dir_in() {
+            return Box::pin(AsyncUsbError(UsbError::InvalidParameter));
         }
         let device = self.device();
         let slot_id = device.slot_id;
 
-        host.transfer_data(slot_id, dci, device.buffer, len)
-            .map(|result| {
-                unsafe {
-                    let p = PageManager::direct_map(device.buffer) as *const u8;
-                    buffer.copy_from(p, result);
+        // unsafe {
+        let p = PageManager::direct_map(device.buffer) as *mut u8;
+        p.copy_from(buffer, len);
+        // }
+
+        let trb = TrbNormal::new(device.buffer, len, true, true);
+        let xrb = host.allocate_xrb().unwrap();
+        xrb.prepare_async();
+        let scheduled_trb = host.issue_trb(Some(xrb), &trb, Some(slot_id), Some(dci), true);
+
+        Box::pin(AsyncUsbWriter {
+            ctx: self.clone(),
+            scheduled_trb,
+            xfer_len: len,
+        })
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy)]
+struct AsyncUsbError(UsbError);
+
+impl Future for AsyncUsbError {
+    type Output = Result<usize, UsbError>;
+
+    fn poll(
+        self: Pin<&mut Self>,
+        _cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Self::Output> {
+        Poll::Ready(Err(self.0))
+    }
+}
+
+struct AsyncUsbReader {
+    ctx: Arc<HciContext>,
+    scheduled_trb: ScheduledTrb,
+    xfer_buffer: usize,
+    xfer_len: usize,
+}
+
+impl Future for AsyncUsbReader {
+    type Output = Result<usize, UsbError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> Poll<Self::Output> {
+        let host = match self.ctx.clone().host.upgrade() {
+            Some(v) => v.clone(),
+            None => return Poll::Ready(Err(UsbError::HostUnavailable)),
+        };
+        let xrb = match host.find_xrb(self.scheduled_trb, None) {
+            Some(v) => v,
+            None => return Poll::Ready(Err(UsbError::InvalidParameter)),
+        };
+        let asem = match xrb.signal {
+            XrbSignalObject::Sync(_) => unreachable!(),
+            XrbSignalObject::Async(ref asem) => asem,
+        };
+        if asem.poll(cx) {
+            match xrb.state() {
+                XrbState::Available | XrbState::Acquired | XrbState::Scheduled => unreachable!(),
+                XrbState::Completed => {
+                    let result = match xrb.response.as_event() {
+                        Some(TrbEvent::TransferEvent(v)) => v.copied(),
+                        _ => {
+                            xrb.dispose();
+                            return Poll::Ready(Err(UsbError::UnexpectedToken));
+                        }
+                    };
+                    xrb.dispose();
+                    match result.completion_code() {
+                        Some(TrbCompletionCode::SUCCESS)
+                        | Some(TrbCompletionCode::SHORT_PACKET) => {
+                            let len = self.xfer_len - result.transfer_length();
+                            unsafe {
+                                let p = PageManager::direct_map(
+                                    self.ctx.device().buffer as PhysicalAddress,
+                                ) as *const u8;
+                                let q = self.xfer_buffer as *mut u8;
+                                q.copy_from(p, len);
+                            }
+                            Poll::Ready(Ok(len))
+                        }
+                        _ => Poll::Ready(Err(UsbError::General)),
+                    }
                 }
-                result
-            })
+                XrbState::Failed => todo!(),
+            }
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
+struct AsyncUsbWriter {
+    ctx: Arc<HciContext>,
+    scheduled_trb: ScheduledTrb,
+    xfer_len: usize,
+}
+
+impl Future for AsyncUsbWriter {
+    type Output = Result<usize, UsbError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> Poll<Self::Output> {
+        let host = match self.ctx.clone().host.upgrade() {
+            Some(v) => v.clone(),
+            None => return Poll::Ready(Err(UsbError::HostUnavailable)),
+        };
+        let xrb = match host.find_xrb(self.scheduled_trb, None) {
+            Some(v) => v,
+            None => return Poll::Ready(Err(UsbError::InvalidParameter)),
+        };
+        let asem = match xrb.signal {
+            XrbSignalObject::Sync(_) => unreachable!(),
+            XrbSignalObject::Async(ref asem) => asem,
+        };
+        if asem.poll(cx) {
+            match xrb.state() {
+                XrbState::Available | XrbState::Acquired | XrbState::Scheduled => unreachable!(),
+                XrbState::Completed => {
+                    let result = match xrb.response.as_event() {
+                        Some(TrbEvent::TransferEvent(v)) => v.copied(),
+                        _ => {
+                            xrb.dispose();
+                            return Poll::Ready(Err(UsbError::UnexpectedToken));
+                        }
+                    };
+                    xrb.dispose();
+                    match result.completion_code() {
+                        Some(TrbCompletionCode::SUCCESS)
+                        | Some(TrbCompletionCode::SHORT_PACKET) => {
+                            let len = self.xfer_len - result.transfer_length();
+                            Poll::Ready(Ok(len))
+                        }
+                        _ => Poll::Ready(Err(UsbError::General)),
+                    }
+                }
+                XrbState::Failed => todo!(),
+            }
+        } else {
+            Poll::Pending
+        }
     }
 }
