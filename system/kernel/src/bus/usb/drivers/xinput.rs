@@ -85,6 +85,7 @@ impl XInputDriver {
                         input.write().unwrap().copy_from(&data);
                     }
                 }
+                Err(UsbError::Aborted) => break,
                 Err(err) => {
                     println!("XINPUT READ ERROR {:?} {:?}", addr.0.get(), err);
                 }

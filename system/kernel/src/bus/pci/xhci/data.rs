@@ -831,6 +831,11 @@ impl SlotContext {
     }
 
     #[inline]
+    pub fn set_route_string(&mut self, route: RouteString) {
+        self.data[0] = self.data[0] & 0xFFF0_0000 | route.as_u32();
+    }
+
+    #[inline]
     pub fn set_speed(&mut self, speed: usize) {
         self.data[0] = self.data[0] & 0xFF0F_FFFF | ((speed as u32) << 20)
     }
@@ -838,6 +843,26 @@ impl SlotContext {
     #[inline]
     pub fn speed_raw(&self) -> usize {
         (self.data[0] >> 20) as usize & 15
+    }
+
+    #[inline]
+    pub const fn set_is_mtt(&mut self, value: bool) {
+        let bit = 1 << 25;
+        if value {
+            self.data[0] |= bit;
+        } else {
+            self.data[0] &= !bit;
+        }
+    }
+
+    #[inline]
+    pub const fn set_is_hub(&mut self, value: bool) {
+        let bit = 1 << 26;
+        if value {
+            self.data[0] |= bit;
+        } else {
+            self.data[0] &= !bit;
+        }
     }
 
     #[inline]
@@ -858,6 +883,31 @@ impl SlotContext {
     #[inline]
     pub fn set_root_hub_port(&mut self, port_id: PortId) {
         self.data[1] = self.data[1] & 0xFF00_FFFF | ((port_id.0.get() as u32) << 16)
+    }
+
+    #[inline]
+    pub fn num_ports(&mut self) -> usize {
+        (self.data[1] >> 24) as usize
+    }
+
+    #[inline]
+    pub fn set_num_ports(&mut self, num: usize) {
+        self.data[1] = self.data[1] & 0x00FF_FFFF | ((num as u32) << 24);
+    }
+
+    #[inline]
+    pub fn set_parent_hub_slot_id(&mut self, slot_id: SlotId) {
+        self.data[2] = self.data[2] & 0xFFFF_FF00 | (slot_id.0.get() as u32);
+    }
+
+    #[inline]
+    pub fn set_parent_port_id(&mut self, port_id: UsbHubPortNumber) {
+        self.data[2] = self.data[2] & 0xFFFF_00FF | ((port_id.0.get() as u32) << 8);
+    }
+
+    #[inline]
+    pub fn set_ttt(&mut self, ttt: usize) {
+        self.data[2] = self.data[2] & 0xFFFC_FFFF | ((ttt as u32) << 16);
     }
 }
 

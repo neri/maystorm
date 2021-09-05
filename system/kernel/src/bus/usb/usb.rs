@@ -16,6 +16,8 @@ use core::{
     num::NonZeroU8,
     pin::Pin,
     slice,
+    sync::atomic::*,
+    time::Duration,
 };
 use futures_util::Future;
 use num_traits::FromPrimitive;
@@ -42,7 +44,25 @@ macro_rules! println {
 
 /// USB Driver to Host interface
 pub trait UsbHostInterface {
+    fn parent_device_address(&self) -> Option<UsbDeviceAddress>;
+
+    fn speed(&self) -> PSIV;
+
+    fn set_max_packet_size(&self, max_packet_size: usize) -> Result<(), UsbError>;
+
+    fn enter_configuration(&self) -> Pin<Box<dyn Future<Output = Result<(), UsbError>>>>;
+
+    fn leave_configuration(&self) -> Result<(), UsbError>;
+
     fn configure_endpoint(&self, desc: &UsbEndpointDescriptor) -> Result<(), UsbError>;
+
+    fn configure_hub2(&self, hub_desc: &UsbHub2Descriptor, is_mtt: bool) -> Result<(), UsbError>;
+
+    fn attach_device(
+        &self,
+        port_id: UsbHubPortNumber,
+        speed: PSIV,
+    ) -> Result<UsbDeviceAddress, UsbError>;
 
     /// Performs a control transfer
     fn control<'a>(&self, setup: UsbControlSetupData) -> Result<&'a [u8], UsbError>;
@@ -62,9 +82,6 @@ pub trait UsbHostInterface {
         buffer: *const u8,
         len: usize,
     ) -> Pin<Box<dyn Future<Output = Result<usize, UsbError>>>>;
-
-    // fn enter_configuration(&self);
-    // fn leave_configuration(&self);
 }
 
 pub trait UsbClassDriverStarter {
@@ -102,9 +119,15 @@ impl UsbManager {
 
         SpawnOption::with_priority(Priority::High).spawn(Self::_usb_xfer_task_thread, "usb.xfer");
 
+        let mut vec = Self::shared().specific_driver_starters.write().unwrap();
+        vec.push(super::drivers::gpd::GpdUsbStarter::new());
+
+        let mut vec = Self::shared().class_driver_starters.write().unwrap();
+        vec.push(super::drivers::usb_hub::UsbHubStarter::new());
+
         let mut vec = Self::shared().interface_driver_starters.write().unwrap();
-        vec.push(super::class::usb_hid::UsbHidStarter::new());
-        vec.push(super::class::xinput::XInputStarter::new());
+        vec.push(super::drivers::usb_hid::UsbHidStarter::new());
+        vec.push(super::drivers::xinput::XInputStarter::new());
     }
 
     #[inline]
@@ -118,6 +141,14 @@ impl UsbManager {
             Ok(device) => {
                 let shared = Self::shared();
                 let device = Arc::new(device);
+                println!(
+                    "USB connected: {} {:04x} {:04x} {:06x} {:?}",
+                    addr.0,
+                    device.vid().0,
+                    device.pid().0,
+                    device.class().0,
+                    device.product_string()
+                );
                 shared.devices.write().unwrap().push(device.clone());
 
                 let mut issued = false;
@@ -139,11 +170,14 @@ impl UsbManager {
                     for interface in device.current_configuration().interfaces() {
                         for driver in shared.interface_driver_starters.read().unwrap().iter() {
                             if driver.instantiate(&device, interface) {
-                                // issued = true;
+                                issued = true;
                                 break;
                             }
                         }
                     }
+                }
+                if issued {
+                    device.is_configured.store(true, Ordering::SeqCst);
                 }
             }
             Err(err) => {
@@ -152,7 +186,20 @@ impl UsbManager {
         }
     }
 
-    pub fn devices() -> UsbDeviceIter {
+    pub fn detach_device(addr: UsbDeviceAddress) {
+        let shared = Self::shared();
+        let mut vec = shared.devices.write().unwrap();
+        let index = match vec.binary_search_by_key(&addr, |v| v.addr()) {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        let device = vec.remove(index);
+        drop(vec);
+
+        println!("USB disconnected: {}", addr.0);
+    }
+
+    pub fn devices() -> impl Iterator<Item = Arc<UsbDevice>> {
         UsbDeviceIter { index: 0 }
     }
 
@@ -217,10 +264,13 @@ impl Iterator for UsbDeviceIter {
 pub struct UsbDevice {
     host: Arc<dyn UsbHostInterface>,
     addr: UsbDeviceAddress,
+
     parent: Option<UsbDeviceAddress>,
+    // children: Vec<UsbDeviceAddress>,
     vid: UsbVendorId,
     pid: UsbProductId,
     class: UsbClass,
+    is_configured: AtomicBool,
     manufacturer_string: Option<String>,
     product_string: Option<String>,
     serial_number: Option<String>,
@@ -233,8 +283,33 @@ pub struct UsbDevice {
 impl UsbDevice {
     #[inline]
     fn new(addr: UsbDeviceAddress, host: Arc<dyn UsbHostInterface>) -> Result<Self, UsbError> {
+        if host.speed() == PSIV::FS {
+            // FullSpeed devices have to read the first 8 bytes of the device descriptor first and re-set the maximum packet size.
+            let mut max_packet_size = 0;
+            for _ in 0..5 {
+                Timer::sleep(Duration::from_millis(50));
+                match host.control(UsbControlSetupData {
+                    bmRequestType: UsbControlRequestBitmap::GET_DEVICE,
+                    bRequest: UsbControlRequest::GET_DESCRIPTOR,
+                    wValue: (UsbDescriptorType::Device as u16) << 8,
+                    wIndex: 0,
+                    wLength: 8,
+                }) {
+                    Ok(v) => {
+                        max_packet_size = v[7] as usize;
+                        break;
+                    }
+                    Err(_) => (),
+                }
+            }
+            if max_packet_size > 0 {
+                let _ = host.set_max_packet_size(max_packet_size);
+            }
+            Timer::sleep(Duration::from_millis(10));
+        }
+
         let device_desc: UsbDeviceDescriptor =
-            match Self::get_descriptor(&host, UsbDescriptorType::Device, 0) {
+            match Self::get_device_descriptor(&host, UsbDescriptorType::Device, 0) {
                 Ok(v) => v,
                 Err(err) => return Err(err),
             };
@@ -250,7 +325,7 @@ impl UsbDevice {
             .and_then(|index| Self::get_string(&host, index).ok());
 
         let config_desc: UsbConfigurationDescriptor =
-            match Self::get_descriptor(&host, UsbDescriptorType::Configuration, 0) {
+            match Self::get_device_descriptor(&host, UsbDescriptorType::Configuration, 0) {
                 Ok(v) => v,
                 Err(err) => return Err(err),
             };
@@ -319,7 +394,7 @@ impl UsbDevice {
                         if_no: descriptor.if_no(),
                         alternate_setting: descriptor.alternate_setting(),
                         endpoints: Vec::new(),
-                        hids: Vec::new(),
+                        hid_reports: Vec::new(),
                     });
                 }
                 UsbDescriptorType::Endpoint => {
@@ -349,15 +424,19 @@ impl UsbDevice {
                         ep_type,
                     });
                 }
-                // UsbDescriptorType::HidClass => {
-                //     let descriptor =
-                //         unsafe { &*(&blob[cursor] as *const _ as *const UsbHidClassDescriptor) };
-                //     println!(
-                //         "HID {} {:?}",
-                //         descriptor.num_descriptors(),
-                //         descriptor.first_descriptor()
-                //     );
-                // }
+                UsbDescriptorType::HidClass => {
+                    let descriptor =
+                        unsafe { &*(&blob[cursor] as *const _ as *const UsbHidClassDescriptor) };
+                    let current_interface = match current_interface {
+                        Some(ref mut v) => v,
+                        None => {
+                            return Err(UsbError::InvalidDescriptor);
+                        }
+                    };
+                    for report in descriptor.children() {
+                        current_interface.hid_reports.push(report);
+                    }
+                }
                 _ => (),
             }
             cursor += len;
@@ -381,14 +460,17 @@ impl UsbDevice {
         let current_configuration = configurations.first().unwrap();
         Self::set_configuration(&host, current_configuration.configuration_value())?;
 
+        let parent = host.parent_device_address();
+
         Ok(Self {
             host,
             addr,
-            parent: None,
+            parent,
             descriptor: device_desc,
             vid: device_desc.vid(),
             pid: device_desc.pid(),
             class: device_desc.class(),
+            is_configured: AtomicBool::new(false),
             manufacturer_string,
             product_string,
             serial_number,
@@ -401,6 +483,11 @@ impl UsbDevice {
     #[inline]
     pub fn host(&self) -> Arc<dyn UsbHostInterface> {
         self.host.clone()
+    }
+
+    #[inline]
+    pub const fn parent_device_address(&self) -> Option<UsbDeviceAddress> {
+        self.parent
     }
 
     /// Get the USB address of this device.
@@ -430,6 +517,11 @@ impl UsbDevice {
     #[inline]
     pub const fn class(&self) -> UsbClass {
         self.class
+    }
+
+    #[inline]
+    pub fn is_configured(&self) -> bool {
+        self.is_configured.load(Ordering::Relaxed)
     }
 
     /// Get the manufacturer's string for this device if possible.
@@ -469,15 +561,26 @@ impl UsbDevice {
         self.configurations.as_slice()
     }
 
-    /// Get descriptor
+    /// Get the descriptor associated with a device
+    #[inline]
+    pub fn get_device_descriptor<T: UsbDescriptor>(
+        host: &Arc<dyn UsbHostInterface>,
+        desc_type: UsbDescriptorType,
+        index: u8,
+    ) -> Result<T, UsbError> {
+        Self::get_descriptor(host, UsbControlRequestBitmap::GET_DEVICE, desc_type, index)
+    }
+
+    /// Get the descriptor associated with a device
     pub fn get_descriptor<T: UsbDescriptor>(
         host: &Arc<dyn UsbHostInterface>,
+        request_type: UsbControlRequestBitmap,
         desc_type: UsbDescriptorType,
         index: u8,
     ) -> Result<T, UsbError> {
         let mut result = MaybeUninit::<T>::zeroed();
         match host.control(UsbControlSetupData {
-            bmRequestType: UsbControlRequestBitmap::GET_DEVICE,
+            bmRequestType: request_type,
             bRequest: UsbControlRequest::GET_DESCRIPTOR,
             wValue: (desc_type as u16) << 8 | index as u16,
             wIndex: 0,
@@ -650,7 +753,7 @@ pub struct UsbInterface {
     if_no: UsbInterfaceNumber,
     alternate_setting: UsbAlternateSettingNumber,
     endpoints: Vec<UsbEndpoint>,
-    hids: Vec<(u8, u16)>,
+    hid_reports: Vec<(u8, u16)>,
 }
 
 impl UsbInterface {
@@ -680,8 +783,8 @@ impl UsbInterface {
     }
 
     #[inline]
-    pub fn hids(&self) -> &[(u8, u16)] {
-        self.hids.as_slice()
+    pub fn hid_reports(&self) -> &[(u8, u16)] {
+        self.hid_reports.as_slice()
     }
 }
 

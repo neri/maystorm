@@ -4,6 +4,7 @@ use super::signal::SignallingObject;
 use crate::arch::cpu::Cpu;
 use alloc::{boxed::Box, sync::Arc};
 use core::{
+    marker::PhantomData,
     pin::Pin,
     sync::atomic::*,
     task::{Context, Poll},
@@ -141,6 +142,16 @@ impl AsyncSemaphore {
         Box::pin(AsyncSemaphoreObserver { sem: self.clone() })
     }
 
+    #[inline]
+    pub fn wait_ok<T: 'static>(
+        self: Pin<Arc<Self>>,
+    ) -> Pin<Box<dyn Future<Output = Result<(), T>>>> {
+        Box::pin(AsyncSemaphoreResultObserver {
+            sem: self.clone(),
+            _phantom: PhantomData,
+        })
+    }
+
     pub fn poll(&self, cx: &mut Context<'_>) -> bool {
         self.waker.register(cx.waker());
         let result = self.try_lock();
@@ -156,16 +167,16 @@ impl AsyncSemaphore {
         let _ = self.waker.wake();
     }
 
-    #[inline]
-    pub async fn synchronized<F, R>(self: Pin<Arc<Self>>, f: F) -> R
-    where
-        F: FnOnce() -> R,
-    {
-        self.clone().wait().await;
-        let result = f();
-        self.signal();
-        result
-    }
+    // #[inline]
+    // pub async fn synchronized<F, R>(self: Pin<Arc<Self>>, f: F) -> R
+    // where
+    //     F: FnOnce() -> impl Future<Output = ()>,
+    // {
+    //     self.clone().wait().await;
+    //     let result = f().await;
+    //     self.signal();
+    //     result
+    // }
 }
 
 struct AsyncSemaphoreObserver {
@@ -178,6 +189,23 @@ impl Future for AsyncSemaphoreObserver {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if self.sem.poll(cx) {
             Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
+struct AsyncSemaphoreResultObserver<T> {
+    sem: Pin<Arc<AsyncSemaphore>>,
+    _phantom: PhantomData<T>,
+}
+
+impl<T> Future for AsyncSemaphoreResultObserver<T> {
+    type Output = Result<(), T>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.sem.poll(cx) {
+            Poll::Ready(Ok(()))
         } else {
             Poll::Pending
         }

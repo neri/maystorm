@@ -1,14 +1,32 @@
 //! USB-HID Class Driver
 
-use core::{mem::size_of, time::Duration};
-
 use super::super::*;
 use crate::{
     io::hid::*,
     task::{scheduler::Timer, Task},
 };
-use alloc::sync::Arc;
+use alloc::{sync::Arc, vec::Vec};
+use core::{mem::size_of, time::Duration};
 use megstd::io::hid::MouseButton;
+
+// for debug
+use crate::System;
+use core::fmt::Write;
+
+macro_rules! print {
+    ($($arg:tt)*) => {
+        write!(System::em_console(), $($arg)*).unwrap()
+    };
+}
+
+macro_rules! println {
+    ($fmt:expr) => {
+        print!(concat!($fmt, "\r\n"))
+    };
+    ($fmt:expr, $($arg:tt)*) => {
+        print!(concat!($fmt, "\r\n"), $($arg)*)
+    };
+}
 
 pub struct UsbHidStarter;
 
@@ -84,6 +102,7 @@ impl UsbHidDriver {
                         Ok(_) => {
                             key_state.process_key_report(buffer);
                         }
+                        Err(UsbError::Aborted) => break,
                         Err(_err) => {
                             // TODO: error
                         }
@@ -110,6 +129,7 @@ impl UsbHidDriver {
                             };
                             mouse_state.process_mouse_report(report);
                         }
+                        Err(UsbError::Aborted) => break,
                         Err(_err) => {
                             // TODO: error
                         }
@@ -125,7 +145,10 @@ impl UsbHidDriver {
                 let mut buffer = [0u8; 64];
                 loop {
                     match device.read_slice(ep, &mut buffer, 0, ps as usize).await {
-                        Ok(_) => (),
+                        Ok(_size) => {
+                            // TODO:
+                        }
+                        Err(UsbError::Aborted) => break,
                         Err(_err) => (),
                     }
                 }
@@ -148,6 +171,30 @@ impl UsbHidDriver {
                 wLength: 0,
             })
             .map(|_| ())
+    }
+
+    pub fn get_report_desc(
+        device: &UsbDevice,
+        if_no: UsbInterfaceNumber,
+        report_type: u8,
+        report_id: u8,
+        len: usize,
+        vec: &mut Vec<u8>,
+    ) -> Result<(), UsbError> {
+        match device.host().control(UsbControlSetupData {
+            bmRequestType: UsbControlRequestBitmap(0x81),
+            bRequest: UsbControlRequest::GET_DESCRIPTOR,
+            wValue: (report_type as u16) * 256 + (report_id as u16),
+            wIndex: if_no.0 as u16,
+            wLength: len as u16,
+        }) {
+            Ok(result) => {
+                vec.resize(result.len(), 0);
+                vec.copy_from_slice(result);
+                Ok(())
+            }
+            Err(err) => Err(err),
+        }
     }
 
     pub fn set_report(

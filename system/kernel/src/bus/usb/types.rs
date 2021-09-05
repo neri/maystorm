@@ -1,9 +1,8 @@
 //! USB Types & Descriptors
 
-use core::{fmt, num::NonZeroU8};
+use core::{fmt, num::NonZeroU8, time::Duration};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
-// use num_traits::FromPrimitive;
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -516,7 +515,6 @@ pub struct UsbHidClassDescriptor {
     bNumDescriptors: u8,
     bDescriptorType_: u8,
     wDescriptorLength_: UsbWord,
-    reports: [u8; 246],
 }
 
 impl UsbHidClassDescriptor {
@@ -526,13 +524,16 @@ impl UsbHidClassDescriptor {
     }
 
     #[inline]
-    pub fn first_descriptor(&self) -> (u8, u16) {
+    pub fn first_child(&self) -> (u8, u16) {
         (self.bDescriptorType_, self.wDescriptorLength_.as_u16())
     }
 
     #[inline]
-    pub fn descriptor(&self, nth: usize) -> Option<(u8, u16)> {
-        todo!()
+    pub fn children<'a>(&'a self) -> impl Iterator<Item = (u8, u16)> + 'a {
+        UsbHidClassDescriptorIter {
+            base: self,
+            index: 0,
+        }
     }
 }
 
@@ -548,11 +549,40 @@ impl UsbDescriptor for UsbHidClassDescriptor {
     }
 }
 
-/// USB Hub Descriptor
+struct UsbHidClassDescriptorIter<'a> {
+    base: &'a UsbHidClassDescriptor,
+    index: usize,
+}
+
+impl Iterator for UsbHidClassDescriptorIter<'_> {
+    type Item = (u8, u16);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        unsafe {
+            if self.index < self.base.num_descriptors() {
+                let p = self.base as *const _ as *const u8;
+                let offset = self.index * 3 + 6;
+                let p = p.add(offset);
+                let ty = p.read();
+                let len = (p.add(1).read() as u16) + (p.add(2).read() as u16 * 256);
+                self.index += 1;
+                Some((ty, len))
+            } else {
+                None
+            }
+        }
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UsbHubPortNumber(pub NonZeroU8);
+
+/// USB2 Hub Descriptor
 #[repr(C, packed)]
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
-pub struct UsbHubDescriptor {
+pub struct UsbHub2Descriptor {
     bLength: u8,
     bDescriptorType: UsbDescriptorType,
     bNbrPorts: u8,
@@ -562,7 +592,74 @@ pub struct UsbHubDescriptor {
     DeviceRemovable: UsbWord,
 }
 
-impl UsbDescriptor for UsbHubDescriptor {
+impl UsbHub2Descriptor {
+    #[inline]
+    pub const fn num_ports(&self) -> usize {
+        self.bNbrPorts as usize
+    }
+
+    #[inline]
+    pub const fn characteristics(&self) -> UsbHub2Characterisrics {
+        UsbHub2Characterisrics(self.wHubCharacteristics.as_u16())
+    }
+
+    /// Time (in 2 ms intervals) from the time the power-on sequence begins on a port until power is good on that port. The USB System Software uses this value to determine how long to wait before accessing a powered-on port.
+    #[inline]
+    pub const fn power_on_to_power_good(&self) -> Duration {
+        Duration::from_millis(self.bPwrOn2PwrGood as u64 * 2)
+    }
+
+    #[inline]
+    pub const fn device_removable(&self) -> u16 {
+        self.DeviceRemovable.as_u16()
+    }
+}
+
+impl UsbDescriptor for UsbHub2Descriptor {
+    #[inline]
+    fn len(&self) -> usize {
+        self.bLength as usize
+    }
+
+    #[inline]
+    fn descriptor_type(&self) -> UsbDescriptorType {
+        self.bDescriptorType
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UsbHub2Characterisrics(pub u16);
+
+impl UsbHub2Characterisrics {
+    // #[inline]
+    // pub const fn hoge(&self) -> usize {
+    //     self.0
+    // }
+
+    #[inline]
+    pub const fn ttt(&self) -> usize {
+        ((self.0 >> 5) & 3) as usize
+    }
+}
+
+/// USB3 Hub Descriptor
+#[repr(C, packed)]
+#[allow(non_snake_case)]
+#[derive(Debug, Clone, Copy)]
+pub struct UsbHub3Descriptor {
+    bLength: u8,
+    bDescriptorType: UsbDescriptorType,
+    bNbrPorts: u8,
+    wHubCharacteristics: UsbWord,
+    bPwrOn2PwrGood: u8,
+    bHubContrCurrent: u8,
+    bHubHdrDecLat: u8,
+    wHubDelay: UsbWord,
+    DeviceRemovable: UsbWord,
+}
+
+impl UsbDescriptor for UsbHub3Descriptor {
     #[inline]
     fn len(&self) -> usize {
         self.bLength as usize
@@ -614,7 +711,7 @@ impl RouteString {
     }
 
     #[inline]
-    pub const fn appending(&self, component: RouteStringPathComponent) -> Result<Self, Self> {
+    pub const fn appending(&self, component: UsbHubPortNumber) -> Result<Self, Self> {
         let raw = self.0;
         let level = self.level();
         if level < Self::MAX_LEVEL {
@@ -625,7 +722,7 @@ impl RouteString {
     }
 
     #[inline]
-    pub const fn append(&mut self, component: RouteStringPathComponent) -> Result<(), ()> {
+    pub const fn append(&mut self, component: UsbHubPortNumber) -> Result<(), ()> {
         match self.appending(component) {
             Ok(v) => {
                 *self = v;
@@ -633,21 +730,6 @@ impl RouteString {
             }
             Err(_) => Err(()),
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct RouteStringPathComponent(NonZeroU8);
-
-impl RouteStringPathComponent {
-    #[inline]
-    pub fn new(value: u8) -> Option<Self> {
-        NonZeroU8::new(value).and_then(|v| if v.get() < 0x10 { Some(Self(v)) } else { None })
-    }
-
-    #[inline]
-    pub const fn value(&self) -> NonZeroU8 {
-        self.0
     }
 }
 
@@ -667,8 +749,14 @@ pub struct UsbControlSetupData {
 pub struct UsbControlRequestBitmap(pub u8);
 
 impl UsbControlRequestBitmap {
+    /// Device to host standard request
     pub const GET_DEVICE: Self = Self(0x80);
+    /// Host to device standard request
     pub const SET_DEVICE: Self = Self(0x00);
+    /// Device to host class specific request
+    pub const GET_CLASS: Self = Self(0xA0);
+    /// Host to device class specific request
+    pub const SET_CLASS: Self = Self(0x20);
 
     #[inline]
     pub const fn new(
@@ -802,6 +890,7 @@ pub enum UsbError {
     InvalidParameter,
     InvalidDescriptor,
     UnexpectedToken,
+    Aborted,
     ShortPacket,
     UsbTransactionError,
 }

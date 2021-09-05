@@ -10,6 +10,7 @@ use alloc::string::*;
 use alloc::vec::*;
 use bootprot::*;
 use core::fmt::Write;
+use core::num::NonZeroU8;
 use kernel::bus::pci::Pci;
 use kernel::bus::usb::*;
 use kernel::fs::*;
@@ -434,10 +435,17 @@ impl Shell {
     }
 
     fn cmd_lsusb(argv: &[&str]) -> isize {
-        let opt_all = argv.len() > 1;
-        for device in bus::usb::UsbManager::devices() {
-            let class_string = Self::find_usb_class_string(device.class(), false).to_string();
+        if let Some(addr) = argv.get(1).and_then(|v| v.parse::<NonZeroU8>().ok()) {
+            let addr = UsbDeviceAddress(addr);
+            let device = match UsbManager::device_by_addr(addr) {
+                Some(v) => v,
+                None => {
+                    println!("Error: Device not found");
+                    return 1;
+                }
+            };
 
+            let class_string = Self::find_usb_class_string(device.class(), false).to_string();
             println!(
                 "{:02x} VID {:04x} PID {:04x} class {:06x} {}",
                 device.addr().0.get(),
@@ -446,31 +454,53 @@ impl Shell {
                 device.class().0,
                 device.product_string().unwrap_or(&class_string),
             );
-            if opt_all {
-                for config in device.configurations() {
-                    println!(" CONFIG #{}", config.configuration_value().0);
-                    for interface in config.interfaces() {
+
+            for config in device.configurations() {
+                println!(" CONFIG #{}", config.configuration_value().0);
+                for interface in config.interfaces() {
+                    println!(
+                        "  INTERFACE #{}.{} class {:06x} {}",
+                        interface.if_no().0,
+                        interface.alternate_setting().0,
+                        interface.class().0,
+                        Self::find_usb_class_string(interface.class(), true)
+                    );
+                    for endpoint in interface.endpoints() {
                         println!(
-                            "  INTERFACE #{}.{} class {:06x} {}",
-                            interface.if_no().0,
-                            interface.alternate_setting().0,
-                            interface.class().0,
-                            Self::find_usb_class_string(interface.class(), true)
+                            "   ENDPOINT {:02x} {:?} size {} interval {}",
+                            endpoint.address().0,
+                            endpoint.ep_type(),
+                            endpoint.descriptor().max_packet_size(),
+                            endpoint.descriptor().interval(),
                         );
-                        for endpoint in interface.endpoints() {
-                            println!(
-                                "   ENDPOINT {:02x} {:?} size {} interval {}",
-                                endpoint.address().0,
-                                endpoint.ep_type(),
-                                endpoint.descriptor().max_packet_size(),
-                                endpoint.descriptor().interval(),
-                            );
-                        }
                     }
                 }
             }
+        } else {
+            Self::print_usb_device(0, None);
         }
         0
+    }
+
+    fn print_usb_device(nest: usize, parent: Option<UsbDeviceAddress>) {
+        for device in bus::usb::UsbManager::devices() {
+            if device.parent_device_address() == parent {
+                for _ in 0..nest {
+                    print!("  ");
+                }
+                let class_string = Self::find_usb_class_string(device.class(), false).to_string();
+                println!(
+                    "{:02x} VID {:04x} PID {:04x} class {:06x} {}{}",
+                    device.addr().0.get(),
+                    device.vid().0,
+                    device.pid().0,
+                    device.class().0,
+                    if device.is_configured() { "" } else { "? " },
+                    device.product_string().unwrap_or(&class_string),
+                );
+                Self::print_usb_device(nest + 1, Some(device.addr()));
+            }
+        }
     }
 
     fn cmd_lspci(argv: &[&str]) -> isize {
@@ -616,6 +646,7 @@ impl Shell {
             (UsbClass::HID_BOOT_MOUSE, "HID Boot Mouse" ),
             (UsbClass::STORAGE_BULK, "Mass Storage Device" ),
             (UsbClass::FLOPPY, "Floppy Drive"),
+            (UsbClass::HUB_FS, "USB Hub"),
             (UsbClass::HUB_HS_STT, "USB 2.0 Hub"),
             (UsbClass::HUB_HS_MTT, "USB 2.0 Hub with multi TT"),
             (UsbClass::HUB_SS, "USB 3.0 Hub"),

@@ -4,8 +4,10 @@
 #![feature(abi_x86_interrupt)]
 #![feature(alloc_error_handler)]
 #![feature(asm)]
+#![feature(async_closure)]
 #![feature(box_into_inner)]
 #![feature(cfg_target_has_atomic)]
+#![feature(const_btree_new)]
 #![feature(const_fn_trait_bound)]
 #![feature(const_mut_refs)]
 #![feature(core_intrinsics)]
@@ -17,7 +19,6 @@
 #![feature(option_result_contains)]
 #![feature(panic_info_message)]
 #![feature(try_reserve)]
-#![feature(const_btree_new)]
 
 #[macro_use]
 pub mod arch;
