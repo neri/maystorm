@@ -355,7 +355,7 @@ impl WindowManager<'_> {
                     );
 
                     if let Some(captured) = shared.captured {
-                        if current_buttons.contains(MouseButton::LEFT) {
+                        if current_buttons.contains(MouseButton::PRIMARY) {
                             if shared
                                 .attributes
                                 .contains(WindowManagerAttributes::CLOSE_DOWN)
@@ -461,7 +461,7 @@ impl WindowManager<'_> {
                     } else {
                         let target = Self::window_at_point(position);
 
-                        if buttons_down.contains(MouseButton::LEFT) {
+                        if buttons_down.contains(MouseButton::PRIMARY) {
                             if let Some(active) = shared.active {
                                 if active != target {
                                     WindowManager::set_active(Some(target));
@@ -994,7 +994,7 @@ impl WindowStyle {
             } else {
                 if self.contains(Self::TITLE) {
                     EdgeInsets::new(
-                        WINDOW_BORDER_WIDTH + WINDOW_TITLE_HEIGHT,
+                        WINDOW_THICK_BORDER_WIDTH_V + WINDOW_TITLE_HEIGHT,
                         WINDOW_THICK_BORDER_WIDTH_H,
                         WINDOW_THICK_BORDER_WIDTH_V,
                         WINDOW_THICK_BORDER_WIDTH_H,
@@ -1788,9 +1788,17 @@ impl WindowBuilder {
         };
 
         let bg_color = self.bg_color;
+
+        if bg_color.brightness().unwrap_or(255) < 128 {
+            self.style.insert(WindowStyle::DARK_BORDER);
+        }
+        let is_dark_mode = self.style.contains(WindowStyle::DARK_BORDER);
+
         let accent_color = Theme::shared().window_default_accent();
         let active_title_color = self.active_title_color.unwrap_or(if is_thin {
             Theme::shared().window_title_active_background()
+        } else if is_dark_mode {
+            Theme::shared().window_title_active_background_dark()
         } else {
             bg_color
         });
@@ -1799,9 +1807,6 @@ impl WindowBuilder {
         } else {
             bg_color
         });
-        if bg_color.brightness().unwrap_or(255) < 128 {
-            self.style.insert(WindowStyle::DARK_BORDER);
-        }
         if active_title_color.brightness().unwrap_or(255) < 192 {
             self.style.insert(WindowStyle::DARK_ACTIVE);
         }

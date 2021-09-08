@@ -96,12 +96,10 @@ pub enum ProcessorCoreType {
 pub enum ProcessorSystemType {
     /// The system is equipped with a uniprocessor. (deprecated)
     UP,
-    /// The system is equipped with a symmetrical multiprocessor.
+    /// The system is equipped with a symmetric multiprocessing processor.
     SMP,
     /// The system is equipped with one or more simultaneous multi-threading processors.
     SMT,
-    /// The system is equipped with high-efficiency and high-performance processors.
-    ASMP,
 }
 
 impl ToString for ProcessorSystemType {
@@ -110,7 +108,6 @@ impl ToString for ProcessorSystemType {
             ProcessorSystemType::UP => "UP",
             ProcessorSystemType::SMP => "SMP",
             ProcessorSystemType::SMT => "SMT",
-            ProcessorSystemType::ASMP => "ASMP",
         };
         s.to_string()
     }
@@ -201,11 +198,17 @@ impl System {
         unsafe {
             // banner
             if true {
+                let device = System::current_device();
+
                 writeln!(
                     System::em_console(),
-                    "{} v{} - MY FIRST HOBBY OS WRITTEN IN RUST",
+                    "{} v{} Processor {} / {} {:?}, Memory {} MB",
                     System::name(),
                     System::version(),
+                    device.num_of_performance_cpus(),
+                    device.num_of_active_cpus(),
+                    device.processor_system_type(),
+                    device.total_memory_size() >> 20,
                 )
                 .unwrap();
             }

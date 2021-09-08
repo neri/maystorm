@@ -21,8 +21,9 @@ use core::{
     slice,
     sync::atomic::*,
 };
-
 use megstd::string::*;
+
+pub use crate::arch::page::{NonNullPhysicalAddress, PhysicalAddress};
 
 static mut MM: MemoryManager = MemoryManager::new();
 
@@ -125,6 +126,11 @@ impl MemoryManager {
         } else {
             NonZeroUsize::new(PageManager::mmap(request))
         }
+    }
+
+    #[inline]
+    pub fn direct_map(pa: PhysicalAddress) -> usize {
+        PageManager::direct_map(pa)
     }
 
     #[inline]

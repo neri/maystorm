@@ -60,7 +60,7 @@ impl UsbInterfaceDriverStarter for XInputStarter {
     }
 }
 
-struct XInputDriver;
+pub struct XInputDriver;
 
 impl XInputDriver {
     async fn _xinput_task(

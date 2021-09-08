@@ -15,6 +15,8 @@ pub mod rtc;
 
 use crate::dev::uart::*;
 use crate::system::*;
+use acpi::fadt::Fadt;
+use acpi::sdt::Signature;
 use alloc::boxed::Box;
 use comport::*;
 use megstd::time::SystemTime;
@@ -24,6 +26,10 @@ pub struct Arch;
 impl Arch {
     pub unsafe fn init() {
         cpu::Cpu::init();
+
+        // let acpi = System::acpi();
+        // let fadt = acpi.get_sdt::<Fadt>(Signature::FADT).unwrap().unwrap();
+        // asm!("out dx, al", in ("edx") fadt.smi_cmd_port, in ("al") fadt.acpi_enable);
 
         if let acpi::InterruptModel::Apic(apic) = System::acpi_platform().interrupt_model {
             apic::Apic::init(&apic);

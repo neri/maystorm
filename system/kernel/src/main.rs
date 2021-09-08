@@ -329,11 +329,11 @@ impl Shell {
             "device" => {
                 let device = System::current_device();
                 println!(
-                    "  Memory {} MB, Processor {} Cores / {} Threads {}",
-                    device.total_memory_size() >> 20,
+                    "  Processor {} Cores / {} Threads {}, Memory {} MB",
                     device.num_of_performance_cpus(),
                     device.num_of_active_cpus(),
                     device.processor_system_type().to_string(),
+                    device.total_memory_size() >> 20,
                 );
                 let manufacturer_name = device.manufacturer_name();
                 let model_name = device.model_name();
@@ -646,10 +646,10 @@ impl Shell {
             (UsbClass::HID_BOOT_MOUSE, "HID Boot Mouse" ),
             (UsbClass::STORAGE_BULK, "Mass Storage Device" ),
             (UsbClass::FLOPPY, "Floppy Drive"),
-            (UsbClass::HUB_FS, "USB Hub"),
-            (UsbClass::HUB_HS_STT, "USB 2.0 Hub"),
-            (UsbClass::HUB_HS_MTT, "USB 2.0 Hub with multi TT"),
-            (UsbClass::HUB_SS, "USB 3.0 Hub"),
+            (UsbClass::HUB_FS, "Full Speed Hub"),
+            (UsbClass::HUB_HS_STT, "High Speed Hub"),
+            (UsbClass::HUB_HS_MTT, "High Speed Hub with multi TTs"),
+            (UsbClass::HUB_SS, "Super Speed Hub"),
             (UsbClass::BLUETOOTH, "Bluetooth Interface"),
             (UsbClass::XINPUT, "XInput Device"),
         ];

@@ -73,13 +73,19 @@ impl KeyboardState {
         }
         for usage in &self.prev.keydata {
             let usage = *usage;
-            if usage != Usage::NONE && !self.current.keydata.contains(&usage) {
+            if usage != Usage::NONE
+                && usage != Usage::ERR_ROLL_OVER
+                && !self.current.keydata.contains(&usage)
+            {
                 KeyEvent::new(usage, Modifier::empty(), KeyEventFlags::BREAK).post();
             }
         }
         for usage in &self.current.keydata {
             let usage = *usage;
-            if usage != Usage::NONE && !self.prev.keydata.contains(&usage) {
+            if usage != Usage::NONE
+                && usage != Usage::ERR_ROLL_OVER
+                && !self.prev.keydata.contains(&usage)
+            {
                 KeyEvent::new(usage, Modifier::empty(), KeyEventFlags::empty()).post();
             }
         }

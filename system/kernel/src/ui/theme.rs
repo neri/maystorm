@@ -57,7 +57,7 @@ impl Theme {
 
     #[inline]
     pub const fn window_default_border_dark(&self) -> Color {
-        Color::DARK_GRAY
+        Color::from_rgb(0x546e7a)
     }
 
     #[inline]
@@ -106,18 +106,23 @@ impl Theme {
     }
 
     #[inline]
+    pub const fn window_title_active_background_dark(&self) -> Color {
+        Color::from_rgb(0x29434e)
+    }
+
+    #[inline]
     pub const fn window_title_active_foreground_dark(&self) -> Color {
         Color::WHITE
     }
 
     #[inline]
     pub const fn window_title_active_shadow_dark(&self) -> Color {
-        Color::from_argb(0x80616161)
+        Color::from_argb(0x80546e7a)
     }
 
     #[inline]
     pub const fn window_title_inactive_foreground_dark(&self) -> Color {
-        Color::from_argb(0xFF757575)
+        Color::from_rgb(0x819ca9)
     }
 
     #[inline]

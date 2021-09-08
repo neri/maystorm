@@ -13,8 +13,8 @@ use megstd::drawing::*;
 pub struct EmConsole {
     x: usize,
     y: usize,
-    fg_color: IndexedColor,
-    bg_color: IndexedColor,
+    fg_color: Color,
+    bg_color: Color,
     font: &'static FixedFontDriver<'static>,
 }
 
@@ -26,8 +26,8 @@ impl EmConsole {
         Self {
             x: 0,
             y: 0,
-            fg_color: IndexedColor::LIGHT_GRAY,
-            bg_color: IndexedColor::BLACK,
+            fg_color: Color::LIGHT_GRAY,
+            bg_color: Color::from_rgb(0x000000),
             font,
         }
     }
@@ -138,8 +138,8 @@ impl TtyWrite for EmConsole {
     }
 
     fn set_attribute(&mut self, attribute: u8) {
-        self.fg_color = IndexedColor(attribute & 0x0F);
-        self.bg_color = IndexedColor(attribute >> 4);
+        self.fg_color = IndexedColor(attribute & 0x0F).into();
+        self.bg_color = IndexedColor(attribute >> 4).into();
     }
 }
 

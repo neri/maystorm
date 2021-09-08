@@ -27,6 +27,7 @@ pub mod dev;
 pub mod fs;
 pub mod fw;
 pub mod io;
+pub mod log;
 pub mod mem;
 pub mod rt;
 pub mod sync;
@@ -61,6 +62,13 @@ macro_rules! println {
     };
     ($fmt:expr, $($arg:tt)*) => {
         print!(concat!($fmt, "\r\n"), $($arg)*)
+    };
+}
+
+#[macro_export]
+macro_rules! log {
+    ($($arg:tt)*) => {
+        let _ = writeln!(log::Log::new(), $($arg)*).unwrap();
     };
 }
 

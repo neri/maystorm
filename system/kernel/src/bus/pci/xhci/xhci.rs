@@ -3,18 +3,13 @@
 use super::{data::*, regs::*};
 use crate::{
     arch::cpu::Cpu,
-    arch::page::{NonNullPhysicalAddress, PageManager, PhysicalAddress},
     bus::pci::*,
     bus::usb::*,
     mem::mmio::*,
-    mem::MemoryManager,
-    sync::{
-        fifo::{AsyncEventQueue, EventQueue},
-        semaphore::*,
-        RwLock,
-    },
-    system::System,
+    mem::{MemoryManager, NonNullPhysicalAddress, PhysicalAddress},
+    sync::{fifo::AsyncEventQueue, semaphore::*, RwLock},
     task::{scheduler::*, Task},
+    *,
 };
 use alloc::{
     boxed::Box,
@@ -23,30 +18,12 @@ use alloc::{
     sync::{Arc, Weak},
 };
 use core::{
-    cell::UnsafeCell, ffi::c_void, marker::PhantomData, mem::size_of, num::NonZeroU64, pin::Pin,
-    slice, sync::atomic::*, task::Poll, time::Duration,
+    cell::UnsafeCell, ffi::c_void, fmt::Write, marker::PhantomData, mem::size_of, num::NonZeroU64,
+    pin::Pin, slice, sync::atomic::*, task::Poll, time::Duration,
 };
 use futures_util::Future;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
-
-// for debug
-use core::fmt::Write;
-
-macro_rules! print {
-    ($($arg:tt)*) => {
-        write!(System::em_console(), $($arg)*).unwrap()
-    };
-}
-
-macro_rules! println {
-    ($fmt:expr) => {
-        print!(concat!($fmt, "\r\n"))
-    };
-    ($fmt:expr, $($arg:tt)*) => {
-        print!(concat!($fmt, "\r\n"), $($arg)*)
-    };
-}
 
 pub struct XhciRegistrar {}
 
@@ -71,9 +48,9 @@ impl PciDriverRegistrar for XhciRegistrar {
 /// Extensible Host Controller Interface
 ///
 /// Many methods are made public for documentation purposes, but are not intended to be called from the outside.
-#[allow(dead_code)]
 pub struct Xhci {
     addr: PciConfigAddress,
+    #[allow(dead_code)]
     mmio: MmioSlice,
 
     cap: &'static CapabilityRegisters,
@@ -248,13 +225,13 @@ impl Xhci {
             Timer::sleep(Duration::from_millis(10));
         }
 
-        println!("XHCI Started");
+        log!("XHCI Started");
     }
 
     fn dcbaa(&self) -> &'static mut [u64] {
         unsafe {
             slice::from_raw_parts_mut(
-                PageManager::direct_map(self.opr.dcbaap() & !63) as *mut u64,
+                MemoryManager::direct_map(self.opr.dcbaap() & !63) as *mut u64,
                 self.dcbaa_len,
             )
         }
@@ -374,7 +351,7 @@ impl Xhci {
         let ctx = &mut self.ring_context.write().unwrap()[index];
 
         let tr_base = ctx.tr_base();
-        let tr = PageManager::direct_map(tr_base) as *const Trb as *mut Trb;
+        let tr = MemoryManager::direct_map(tr_base) as *const Trb as *mut Trb;
         let mut index = ctx.index;
 
         let scheduled_trb = ScheduledTrb(tr_base + (size_of::<Trb>() * index) as u64);
@@ -502,7 +479,7 @@ impl Xhci {
         if copy_dc {
             unsafe {
                 let slot = slot as *const _ as *mut u8;
-                let dc = PageManager::direct_map(self.get_device_context(slot_id)) as *const u8;
+                let dc = MemoryManager::direct_map(self.get_device_context(slot_id)) as *const u8;
                 slot.copy_from(dc, self.context_size);
             }
         }
@@ -553,7 +530,7 @@ impl Xhci {
 
         unsafe {
             let slot = input_context.slot() as *const _ as *mut u8;
-            let dc = PageManager::direct_map(self.get_device_context(slot_id)) as *const u8;
+            let dc = MemoryManager::direct_map(self.get_device_context(slot_id)) as *const u8;
             slot.copy_from(dc, self.context_size * 2);
         }
 
@@ -586,7 +563,7 @@ impl Xhci {
         let trb = Trb::new(TrbType::ENABLE_SLOT_COMMAND);
         let slot_id = match self.execute_command(&trb) {
             Ok(result) => result.slot_id().unwrap(),
-            Err(err) => {
+            Err(_err) => {
                 // TODO:
                 return Err(UsbError::General);
             }
@@ -623,7 +600,7 @@ impl Xhci {
 
         Timer::sleep(Duration::from_millis(100));
 
-        println!(
+        log!(
             "ATTACH HUB DEVICE: ROOT {} ROUTE {:05x} SLOT {}",
             device.root_port_id.0.get(),
             new_route.as_u32(),
@@ -636,7 +613,7 @@ impl Xhci {
                 //
             }
             Err(err) => {
-                println!("ADDRESS_DEVICE ERROR {:?}", err.completion_code());
+                log!("ADDRESS_DEVICE ERROR {:?}", err.completion_code());
                 return Err(UsbError::UsbTransactionError);
             }
         }
@@ -668,7 +645,7 @@ impl Xhci {
 
         unsafe {
             let slot = input_context.slot() as *const _ as *mut u8;
-            let dc = PageManager::direct_map(self.get_device_context(slot_id)) as *const u8;
+            let dc = MemoryManager::direct_map(self.get_device_context(slot_id)) as *const u8;
             slot.copy_from(dc, self.context_size * 2);
         }
 
@@ -713,7 +690,7 @@ impl Xhci {
                         port.write_portsc(status & PortSc::PRESERVE_MASK | PortSc::PRC);
                     }
                     if status.contains(PortSc::PR) || !status.contains(PortSc::PED) {
-                        println!("XHCI: PORT RESET TIMEDOUT {}", port_id.0.get());
+                        log!("XHCI: PORT RESET TIMEDOUT {}", port_id.0.get());
                         return None;
                     }
 
@@ -721,7 +698,7 @@ impl Xhci {
                     let slot_id = match self.execute_command(&trb) {
                         Ok(result) => result.slot_id().unwrap(),
                         Err(err) => {
-                            println!("ENABLE_SLOT ERROR {:?}", err.completion_code());
+                            log!("ENABLE_SLOT ERROR {:?}", err.completion_code());
                             return None;
                         }
                     };
@@ -748,18 +725,18 @@ impl Xhci {
 
                     self.configure_endpoint(slot_id, DCI::CONTROL, EpType::Control, 0, 0, false);
 
-                    Timer::sleep(Duration::from_millis(100));
+                    Timer::sleep(Duration::from_millis(10));
 
                     let trb = TrbAddressDeviceCommand::new(slot_id, input_context_pa);
                     match self.execute_command(&trb) {
                         Ok(_result) => {
-                            // println!(
+                            // log!(
                             //     "ADDRESS DEVICE {:?} {:?} DC {:016x}",
                             //     port_id, slot_id, device_context,
                             // );
                         }
                         Err(err) => {
-                            println!("ADDRESS_DEVICE ERROR {:?}", err.completion_code());
+                            log!("ADDRESS_DEVICE ERROR {:?}", err.completion_code());
                         }
                     }
 
@@ -797,16 +774,9 @@ impl Xhci {
                     if let Some(xrb) = self.find_xrb(scheduled_trb, Some(XrbState::Scheduled)) {
                         xrb.set_response(event.as_common_trb());
                     }
-                    // println!(
-                    //     "XHCI: COMMAND_COMPLETION {:?} {:?} {:016x}",
-                    //     event.slot_id(),
-                    //     event.completion_code(),
-                    //     event.ptr(),
-                    // );
                 }
                 TrbEvent::PortStatusChange(event) => {
                     let port_id = event.port_id().unwrap();
-                    // println!("XHCI: PORT_STATUS_CHANGE {:?}", port_id);
                     self.port_status_change_queue.post(port_id).unwrap();
                 }
                 TrbEvent::TransferEvent(event) => {
@@ -814,12 +784,6 @@ impl Xhci {
                     if let Some(xrb) = self.find_xrb(scheduled_trb, Some(XrbState::Scheduled)) {
                         xrb.set_response(event.as_common_trb());
                     }
-                    // println!(
-                    //     "XHCI: TRANSFER {:?} {:?} {:016x}",
-                    //     event.slot_id(),
-                    //     event.completion_code(),
-                    //     event.ptr(),
-                    // );
                 }
             }
         }
@@ -856,7 +820,7 @@ impl Xhci {
                         port_id,
                         slot_id,
                         parent_slot_id: None,
-                        route_string: RouteString::EMPTY,
+                        route_string: UsbRouteString::EMPTY,
                         psiv: self.port_by(port_id).portsc().speed().unwrap(),
                         buffer,
                     };
@@ -968,7 +932,7 @@ impl EpRingContext {
     pub fn reset(&mut self) {
         if self.tr_base != 0 {
             unsafe {
-                let p = PageManager::direct_map(self.tr_base) as *const c_void as *mut c_void;
+                let p = MemoryManager::direct_map(self.tr_base) as *const c_void as *mut c_void;
                 p.write_bytes(0, Self::size());
             }
         }
@@ -993,7 +957,6 @@ impl EpRingContext {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ScheduledTrb(pub u64);
 
-#[allow(dead_code)]
 pub struct XhciRequestBlock {
     state: AtomicUsize,
     scheduled_trb: ScheduledTrb,
@@ -1087,10 +1050,14 @@ impl XhciRequestBlock {
     #[inline]
     pub fn set_response(&mut self, response: &Trb) {
         self.response.raw_copy_from(response);
-        self.set_state(XrbState::Completed);
-        match self.signal {
-            XrbSignalObject::Sync(ref sem) => sem.signal(),
-            XrbSignalObject::Async(ref asem) => asem.signal(),
+        match self.compare_exchange_state(XrbState::Scheduled, XrbState::Completed) {
+            Ok(_) => match self.signal {
+                XrbSignalObject::Sync(ref sem) => sem.signal(),
+                XrbSignalObject::Async(ref asem) => asem.signal(),
+            },
+            Err(_err) => {
+                // TODO:
+            }
         }
     }
 }
@@ -1142,7 +1109,7 @@ impl InputContext {
     #[inline]
     pub fn control<'a>(&self) -> &'a mut InputControlContext {
         unsafe {
-            &mut *(PageManager::direct_map(self.raw_data() as PhysicalAddress)
+            &mut *(MemoryManager::direct_map(self.raw_data() as PhysicalAddress)
                 as *mut InputControlContext)
         }
     }
@@ -1150,15 +1117,15 @@ impl InputContext {
     #[inline]
     pub fn slot<'a>(&self) -> &'a mut SlotContext {
         unsafe {
-            &mut *((PageManager::direct_map(self.raw_data() as PhysicalAddress) + self.context_size)
-                as *mut SlotContext)
+            &mut *((MemoryManager::direct_map(self.raw_data() as PhysicalAddress)
+                + self.context_size) as *mut SlotContext)
         }
     }
 
     #[inline]
     pub fn endpoint<'a>(&self, dci: DCI) -> &'a mut EndpointContext {
         unsafe {
-            &mut *((PageManager::direct_map(self.raw_data() as PhysicalAddress)
+            &mut *((MemoryManager::direct_map(self.raw_data() as PhysicalAddress)
                 + self.context_size * (1 + dci.0.get() as usize))
                 as *mut EndpointContext)
         }
@@ -1171,13 +1138,13 @@ pub struct HciContext {
     device: UnsafeCell<HciDeviceContext>,
 }
 
-#[allow(dead_code)]
 pub struct HciDeviceContext {
     root_port_id: PortId,
+    #[allow(dead_code)]
     port_id: PortId,
     slot_id: SlotId,
     parent_slot_id: Option<SlotId>,
-    route_string: RouteString,
+    route_string: UsbRouteString,
     psiv: PSIV,
     buffer: u64,
 }
@@ -1254,7 +1221,7 @@ impl UsbHostInterface for HciContext {
             Some(v) => v.clone(),
             None => return Err(UsbError::HostUnavailable),
         };
-        let device = self.device();
+        // let device = self.device();
         host.attach_device(self, port_id, speed)
     }
 
@@ -1304,7 +1271,7 @@ impl UsbHostInterface for HciContext {
             Ok(result) => {
                 let result = unsafe {
                     slice::from_raw_parts(
-                        PageManager::direct_map(device.buffer as PhysicalAddress) as *const u8,
+                        MemoryManager::direct_map(device.buffer as PhysicalAddress) as *const u8,
                         result,
                     )
                 };
@@ -1326,7 +1293,7 @@ impl UsbHostInterface for HciContext {
         let device = self.device();
 
         unsafe {
-            let p = PageManager::direct_map(device.buffer) as *mut u8;
+            let p = MemoryManager::direct_map(device.buffer) as *mut u8;
             p.copy_from(&buffer[0] as *const u8, len);
         }
 
@@ -1383,7 +1350,7 @@ impl UsbHostInterface for HciContext {
         let slot_id = device.slot_id;
 
         // unsafe {
-        let p = PageManager::direct_map(device.buffer) as *mut u8;
+        let p = MemoryManager::direct_map(device.buffer) as *mut u8;
         p.copy_from(buffer, len);
         // }
 
@@ -1466,7 +1433,7 @@ impl Future for AsyncUsbReader {
                         | Some(TrbCompletionCode::SHORT_PACKET) => {
                             let len = self.xfer_len - result.transfer_length();
                             unsafe {
-                                let p = PageManager::direct_map(
+                                let p = MemoryManager::direct_map(
                                     self.ctx.device().buffer as PhysicalAddress,
                                 ) as *const u8;
                                 let q = self.xfer_buffer as *mut u8;

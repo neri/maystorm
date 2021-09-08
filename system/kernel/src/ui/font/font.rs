@@ -9,13 +9,16 @@ use megstd::drawing::*;
 
 #[allow(dead_code)]
 mod embedded {
-    // include!("megbtan.rs");
     include!("megh0816.rs");
+    // include!("megh0810.rs");
+    // include!("megg0808.rs");
     include!("megh0710.rs");
     include!("megh0608.rs");
 }
 const SYSTEM_FONT: FixedFontDriver = FixedFontDriver::new(8, 16, &embedded::FONT_MEGH0816_DATA);
+// const TERMINAL_FONT: FixedFontDriver = FixedFontDriver::new(8, 8, &embedded::FONT_MEGG0808_DATA);
 const TERMINAL_FONT: FixedFontDriver = FixedFontDriver::new(7, 10, &embedded::FONT_MEGH0710_DATA);
+// const TERMINAL_FONT: FixedFontDriver = FixedFontDriver::new(8, 10, &embedded::FONT_MEGH0810_DATA);
 const SMALL_FONT: FixedFontDriver = FixedFontDriver::new(6, 8, &embedded::FONT_MEGH0608_DATA);
 
 static mut FONT_MANAGER: FontManager = FontManager::new();

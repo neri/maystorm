@@ -826,12 +826,12 @@ pub struct SlotContext {
 
 impl SlotContext {
     #[inline]
-    pub const fn route_string(&self) -> RouteString {
-        RouteString::from_raw(self.data[0])
+    pub const fn route_string(&self) -> UsbRouteString {
+        UsbRouteString::from_raw(self.data[0])
     }
 
     #[inline]
-    pub fn set_route_string(&mut self, route: RouteString) {
+    pub fn set_route_string(&mut self, route: UsbRouteString) {
         self.data[0] = self.data[0] & 0xFFF0_0000 | route.as_u32();
     }
 

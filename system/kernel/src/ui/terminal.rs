@@ -11,7 +11,7 @@ use core::{
 use megstd::drawing::*;
 
 const DEFAULT_INSETS: EdgeInsets = EdgeInsets::new(0, 0, 0, 0);
-const DEFAULT_ATTRIBUTE: u8 = 0xF8;
+const DEFAULT_ATTRIBUTE: u8 = 0x07;
 const BG_ALPHA: u8 = 0xE0;
 
 static mut TA: TerminalAgent = TerminalAgent::new();
@@ -81,7 +81,7 @@ impl Terminal {
         let n_instances = TerminalAgent::next_instance();
         let screen_insets = WindowManager::screen_insets();
         let window_size = Size::new(
-            font.width_of(' ') * cols as isize,
+            font.width_of('m') * cols as isize,
             font.line_height() * rows as isize,
         ) + insets;
 
@@ -150,7 +150,7 @@ impl Terminal {
                 None
             }
             _ => {
-                let w = self.font.width_of(' ');
+                let w = self.font.width_of('m');
                 let h = self.font.line_height();
 
                 if self.x >= self.cols {
@@ -200,7 +200,7 @@ impl Terminal {
     }
 
     fn set_needs_update_cursor(&mut self) {
-        let w = self.font.width_of(' ');
+        let w = self.font.width_of('m');
         let h = self.font.line_height();
         let dims = self.dims();
         if self.x >= dims.0 as usize || self.y >= dims.1 as usize {

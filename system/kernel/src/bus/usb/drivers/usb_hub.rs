@@ -1,15 +1,10 @@
 //! USB Hub Class Driver
 
 use super::super::*;
-use crate::{
-    io::hid::*,
-    task::{scheduler::Timer, Task},
-};
-use _core::num::NonZeroU8;
+use crate::task::{scheduler::Timer, Task};
 use alloc::{sync::Arc, vec::Vec};
 use bitflags::*;
-use core::{mem::size_of, time::Duration};
-use megstd::io::hid::MouseButton;
+use core::{mem::size_of, num::NonZeroU8, time::Duration};
 
 // for debug
 use crate::System;
@@ -49,14 +44,18 @@ impl UsbClassDriverStarter for UsbHubStarter {
 
         let addr = device.addr();
         let config = device.current_configuration();
-        let mut current_interface = None;
-        for interface in config.interfaces() {
-            if interface.class() == class {
-                current_interface = Some(interface);
-                break;
-            }
-        }
-        let interface = match current_interface.or(config.interfaces().first()) {
+        // let mut current_interface = None;
+        // for interface in config.interfaces() {
+        //     if interface.class() == class {
+        //         current_interface = Some(interface);
+        //         break;
+        //     }
+        // }
+        // let interface = match current_interface.or(config.interfaces().first()) {
+        //     Some(v) => v,
+        //     None => return false,
+        // };
+        let interface = match config.interfaces().first() {
             Some(v) => v,
             None => return false,
         };
@@ -83,12 +82,12 @@ impl UsbClassDriverStarter for UsbHubStarter {
     }
 }
 
-struct UsbHubDriver;
+pub struct UsbHubDriver;
 
 impl UsbHubDriver {
     async fn _usb_hub_task(
         addr: UsbDeviceAddress,
-        if_no: UsbInterfaceNumber,
+        _if_no: UsbInterfaceNumber,
         ep: UsbEndpointAddress,
         class: UsbClass,
         ps: u16,
@@ -313,19 +312,44 @@ pub enum UsbHubFeatureSel {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum UsbHubPortFeatureSel {
     PORT_CONNECTION = 0,
+    /// USB2
     PORT_ENABLE = 1,
+    /// USB2
     PORT_SUSPEND = 2,
     PORT_OVER_CURRENT = 3,
     PORT_RESET = 4,
+    /// USB 3
+    PORT_LINK_STATE = 5,
     PORT_POWER = 8,
+    /// USB2
     PORT_LOW_SPEED = 9,
     C_PORT_CONNECTION = 16,
+    /// USB2
     C_PORT_ENABLE = 17,
+    /// USB2
     C_PORT_SUSPEND = 18,
     C_PORT_OVER_CURRENT = 19,
     C_PORT_RESET = 20,
+    /// RESERVED
     PORT_TEST = 21,
+    /// USB2
     PORT_INDICATOR = 22,
+    /// USB 3
+    PORT_U1_TIMEOUT = 23,
+    /// USB 3
+    PORT_U2_TIMEOUT = 24,
+    /// USB 3
+    C_PORT_LINK_STATE = 25,
+    /// USB 3
+    C_PORT_CONFIG_ERROR = 26,
+    /// USB 3
+    PORT_REMOTE_WAKE_MASK = 27,
+    /// USB 3
+    BH_PORT_RESET = 28,
+    /// USB 3
+    C_BH_PORT_RESET = 29,
+    /// USB 3
+    FORCE_LINKPM_ACCEPT = 30,
 }
 
 bitflags! {

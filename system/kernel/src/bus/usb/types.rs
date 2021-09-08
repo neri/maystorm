@@ -184,6 +184,7 @@ pub enum UsbDescriptorType {
     DeviceQualifier,
     HidClass = 0x21,
     HidReport,
+    HidPhysical,
     Hub = 0x29,
     SsHub = 0x2A,
 }
@@ -513,7 +514,7 @@ pub struct UsbHidClassDescriptor {
     bcdHID: UsbWord,
     bCountryCode: u8,
     bNumDescriptors: u8,
-    bDescriptorType_: u8,
+    bDescriptorType_: UsbDescriptorType,
     wDescriptorLength_: UsbWord,
 }
 
@@ -524,12 +525,12 @@ impl UsbHidClassDescriptor {
     }
 
     #[inline]
-    pub fn first_child(&self) -> (u8, u16) {
+    pub fn first_child(&self) -> (UsbDescriptorType, u16) {
         (self.bDescriptorType_, self.wDescriptorLength_.as_u16())
     }
 
     #[inline]
-    pub fn children<'a>(&'a self) -> impl Iterator<Item = (u8, u16)> + 'a {
+    pub fn children<'a>(&'a self) -> impl Iterator<Item = (UsbDescriptorType, u16)> + 'a {
         UsbHidClassDescriptorIter {
             base: self,
             index: 0,
@@ -555,7 +556,7 @@ struct UsbHidClassDescriptorIter<'a> {
 }
 
 impl Iterator for UsbHidClassDescriptorIter<'_> {
-    type Item = (u8, u16);
+    type Item = (UsbDescriptorType, u16);
 
     fn next(&mut self) -> Option<Self::Item> {
         unsafe {
@@ -563,7 +564,10 @@ impl Iterator for UsbHidClassDescriptorIter<'_> {
                 let p = self.base as *const _ as *const u8;
                 let offset = self.index * 3 + 6;
                 let p = p.add(offset);
-                let ty = p.read();
+                let ty = match FromPrimitive::from_u8(p.read()) {
+                    Some(v) => v,
+                    None => return None,
+                };
                 let len = (p.add(1).read() as u16) + (p.add(2).read() as u16 * 256);
                 self.index += 1;
                 Some((ty, len))
@@ -673,9 +677,9 @@ impl UsbDescriptor for UsbHub3Descriptor {
 
 /// USB3 Route String
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
-pub struct RouteString(u32);
+pub struct UsbRouteString(u32);
 
-impl RouteString {
+impl UsbRouteString {
     /// Empty route (root)
     pub const EMPTY: Self = Self(0);
     /// Since a valid Route String is 20 bits, a valid mask is 0xFFFFF.
