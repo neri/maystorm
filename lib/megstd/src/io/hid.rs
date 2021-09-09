@@ -13,8 +13,10 @@ pub struct UsagePage(pub u16);
 impl UsagePage {
     pub const GENERIC_DESKTOP: Self = Self(0x0001);
     pub const KEYBOARD: Self = Self(0x0007);
+    pub const LED: Self = Self(0x0008);
     pub const BUTTON: Self = Self(0x0009);
     pub const CONSUMER: Self = Self(0x000C);
+    pub const DIGITIZERS: Self = Self(0x000D);
 }
 
 #[repr(transparent)]
@@ -22,6 +24,8 @@ impl UsagePage {
 pub struct HidUsage(pub u32);
 
 impl HidUsage {
+    pub const NONE: Self = Self(0);
+
     pub const POINTER: Self = Self::generic(0x0001);
     pub const MOUSE: Self = Self::generic(0x0002);
     pub const JOYSTICK: Self = Self::generic(0x0004);
@@ -132,15 +136,105 @@ impl HidUsage {
     pub const DOCKABLE_DEVICE_DISPLAY_OCCULUSION: Self = Self::generic(0x00D5);
     pub const DOCKABLE_DEVICE_OBJECT_TYPE: Self = Self::generic(0x00D6);
 
-    #[inline]
-    pub const fn generic(usage: u16) -> Self {
-        Self::new(UsagePage::GENERIC_DESKTOP, usage)
-        // Self(usage as u32 + (UsagePage::GENERIC_DESKTOP.0 as u32) * 0x10000)
-    }
+    pub const CONSUMER_CONTROL: Self = Self::consumer(0x0001);
+    pub const NUMERIC_KEY_PAD: Self = Self::consumer(0x0002);
+    pub const PROGRAMMABLE_BUTTONS: Self = Self::consumer(0x0003);
+    pub const MICROPHONE: Self = Self::consumer(0x0004);
+    pub const HEADPHONE: Self = Self::consumer(0x0005);
+    pub const GRAPHIC_EQUALIZER: Self = Self::consumer(0x0006);
+    pub const FUNCTION_BUTTONS: Self = Self::consumer(0x0036);
+    pub const SELECTION: Self = Self::consumer(0x0080);
+    pub const MEDIA_SELECTION: Self = Self::consumer(0x0087);
+    pub const SELECT_DISC: Self = Self::consumer(0x00BA);
+    pub const PLAYBACK_SPEED: Self = Self::consumer(0x00F1);
+    pub const SPEAKER_SYSTEM: Self = Self::consumer(0x0160);
+    pub const CHANNEL_LEFT: Self = Self::consumer(0x0161);
+    pub const CHANNEL_RIGHT: Self = Self::consumer(0x0162);
+    pub const CHANNEL_CENTER: Self = Self::consumer(0x0163);
+    pub const CHANNEL_FRONT: Self = Self::consumer(0x0164);
+    pub const CHANNEL_CENTER_FRONT: Self = Self::consumer(0x0165);
+    pub const CHANNEL_SIDE: Self = Self::consumer(0x0166);
+    pub const CHANNEL_SURROUND: Self = Self::consumer(0x0167);
+    pub const CHANNEL_LOW_FREQUENCY_ENHANCEMENT: Self = Self::consumer(0x0168);
+    pub const CHANNEL_TOP: Self = Self::consumer(0x0169);
+    pub const CHANNEL_UNKNOWN: Self = Self::consumer(0x016A);
+    pub const APPLICATION_LAUNCH_BUTTONS: Self = Self::consumer(0x0180);
+    pub const GENERIC_GUI_APPLICATION_CONTROLS: Self = Self::consumer(0x0200);
+
+    pub const DIGITIZER: Self = Self::digitizers(0x0001);
+    pub const PEN: Self = Self::digitizers(0x0002);
+    pub const LIGHT_PEN: Self = Self::digitizers(0x0003);
+    pub const TOUCH_SCREEN: Self = Self::digitizers(0x0004);
+    pub const TOUCH_PAD: Self = Self::digitizers(0x0005);
+    pub const WHITEBOARD: Self = Self::digitizers(0x0006);
+    pub const COORDINATE_MEASURING_MACHINE: Self = Self::digitizers(0x0007);
+    pub const _3D_DIGITIZER: Self = Self::digitizers(0x0008);
+    pub const STEREO_PLOTTER: Self = Self::digitizers(0x0009);
+    pub const ARTICULATED_ARM: Self = Self::digitizers(0x000A);
+    pub const ARMATURE: Self = Self::digitizers(0x000B);
+    pub const MULTIPLE_POINT_DIGITIZER: Self = Self::digitizers(0x000C);
+    pub const FREE_SPACE_WAND: Self = Self::digitizers(0x000D);
+    pub const DEVICE_CONFIGURATION: Self = Self::digitizers(0x000E);
+    pub const CAPACTIVE_HEAT_MAP_DIGITIZER: Self = Self::digitizers(0x000F);
+    pub const STYLUS: Self = Self::digitizers(0x0020);
+    pub const PUCK: Self = Self::digitizers(0x0021);
+    pub const FINGER: Self = Self::digitizers(0x0022);
+    pub const DEVICE_SETTINGS: Self = Self::digitizers(0x0023);
+    pub const CHARACTER_GESTURE: Self = Self::digitizers(0x0024);
+    pub const TABLET_FUNCTION_KEYS: Self = Self::digitizers(0x0039);
+    pub const PROGRAM_CHANGE_KEYS: Self = Self::digitizers(0x003A);
+    pub const GESTURE_CHARACTER_ENCODING: Self = Self::digitizers(0x0064);
+    pub const PREFERRED_LINE_STYLE: Self = Self::digitizers(0x0070);
+    pub const DIGITIZER_DIAGNOSTIC: Self = Self::digitizers(0x0080);
+    pub const DIGITIZER_ERROR: Self = Self::digitizers(0x0081);
+    pub const TRANSDUCER_SOFTWARE_INFO: Self = Self::digitizers(0x0090);
+    pub const DEVICE_SUPPORTED_PROTOCOLS: Self = Self::digitizers(0x0093);
+    pub const TRANSDUCER_SUPPORTED_PROTOCOLS: Self = Self::digitizers(0x0094);
+    pub const SUPPORTED_REPORT_RATES: Self = Self::digitizers(0x00A0);
+
+    pub const NUM_LOCK: Self = Self::led(0x0001);
+    pub const CAPS_LOCK: Self = Self::led(0x0002);
+    pub const SCROLL_LOCK: Self = Self::led(0x0003);
+    pub const COMPOSE: Self = Self::led(0x0004);
+    pub const KANA: Self = Self::led(0x0005);
+    pub const POWER: Self = Self::led(0x0006);
+    pub const SHIFT: Self = Self::led(0x0007);
+    pub const DO_NOT_DISTURB: Self = Self::led(0x0008);
+    pub const MUTE: Self = Self::led(0x0009);
 
     #[inline]
     pub const fn new(page: UsagePage, usage: u16) -> Self {
         Self(usage as u32 + (page.0 as u32) * 0x10000)
+    }
+
+    #[inline]
+    pub const fn usage_page(&self) -> UsagePage {
+        UsagePage((self.0 >> 16) as u16)
+    }
+
+    #[inline]
+    pub const fn usage(&self) -> u16 {
+        (self.0 & 0xFFFF) as u16
+    }
+
+    #[inline]
+    pub const fn generic(usage: u16) -> Self {
+        Self::new(UsagePage::GENERIC_DESKTOP, usage)
+    }
+
+    #[inline]
+    pub const fn consumer(usage: u16) -> Self {
+        Self::new(UsagePage::CONSUMER, usage)
+    }
+
+    #[inline]
+    pub const fn digitizers(usage: u16) -> Self {
+        Self::new(UsagePage::DIGITIZERS, usage)
+    }
+
+    #[inline]
+    pub const fn led(usage: u16) -> Self {
+        Self::new(UsagePage::LED, usage)
     }
 }
 
@@ -405,12 +499,15 @@ impl HidReporteReader<'_> {
         }
     }
 
-    pub fn read_param(&mut self, lead_byte: HidReportLeadByte) -> Option<usize> {
+    pub fn read_param(
+        &mut self,
+        lead_byte: HidReportLeadByte,
+    ) -> Option<HidReportAmbiguousSignedValue> {
         match lead_byte.data_size() {
-            0 => Some(0),
-            1 => self.next().map(|v| v as usize),
-            2 => self.next_u16().map(|v| v as usize),
-            _ => self.next_u32().map(|v| v as usize),
+            0 => Some(HidReportAmbiguousSignedValue::Zero),
+            1 => self.next().map(|v| v.into()),
+            2 => self.next_u16().map(|v| v.into()),
+            _ => self.next_u32().map(|v| v.into()),
         }
     }
 }
@@ -559,12 +656,63 @@ pub enum HidReportCollectionType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum HidReportAmbiguousSignedValue {
+    Zero,
+    U8(u8),
+    U16(u16),
+    U32(u32),
+}
+
+impl HidReportAmbiguousSignedValue {
+    #[inline]
+    pub const fn usize(&self) -> usize {
+        match *self {
+            Self::Zero => 0,
+            Self::U8(v) => v as usize,
+            Self::U16(v) => v as usize,
+            Self::U32(v) => v as usize,
+        }
+    }
+
+    #[inline]
+    pub const fn isize(&self) -> isize {
+        match *self {
+            Self::Zero => 0,
+            Self::U8(v) => v as i8 as isize,
+            Self::U16(v) => v as i16 as isize,
+            Self::U32(v) => v as i32 as isize,
+        }
+    }
+}
+
+impl From<u8> for HidReportAmbiguousSignedValue {
+    #[inline]
+    fn from(val: u8) -> Self {
+        Self::U8(val)
+    }
+}
+
+impl From<u16> for HidReportAmbiguousSignedValue {
+    #[inline]
+    fn from(val: u16) -> Self {
+        Self::U16(val)
+    }
+}
+
+impl From<u32> for HidReportAmbiguousSignedValue {
+    #[inline]
+    fn from(val: u32) -> Self {
+        Self::U32(val)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct HidReportGlobalState {
     pub usage_page: UsagePage,
-    pub logical_minimum: isize,
-    pub logical_maximum: isize,
-    pub physical_minimum: isize,
-    pub physical_maximum: isize,
+    pub logical_minimum: HidReportAmbiguousSignedValue,
+    pub logical_maximum: HidReportAmbiguousSignedValue,
+    pub physical_minimum: HidReportAmbiguousSignedValue,
+    pub physical_maximum: HidReportAmbiguousSignedValue,
     pub unit_exponent: isize,
     pub unit: usize,
     pub report_size: usize,
@@ -577,10 +725,10 @@ impl HidReportGlobalState {
     pub const fn new() -> Self {
         Self {
             usage_page: UsagePage(0),
-            logical_minimum: 0,
-            logical_maximum: 0,
-            physical_minimum: 0,
-            physical_maximum: 0,
+            logical_minimum: HidReportAmbiguousSignedValue::Zero,
+            logical_maximum: HidReportAmbiguousSignedValue::Zero,
+            physical_minimum: HidReportAmbiguousSignedValue::Zero,
+            physical_maximum: HidReportAmbiguousSignedValue::Zero,
             unit_exponent: 0,
             unit: 0,
             report_size: 0,
@@ -610,7 +758,7 @@ impl HidReportLocalState {
     }
 
     #[inline]
-    pub fn clear(&mut self) {
+    pub fn reset(&mut self) {
         self.usage = Vec::new();
         self.usage_minimum = 0;
         self.usage_maximum = 0;
