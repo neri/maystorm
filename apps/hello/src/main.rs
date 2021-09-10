@@ -6,5 +6,5 @@ use megoslib::*;
 
 #[no_mangle]
 fn _start() {
-    os_print("Hello, world!\n");
+    os_print("hello, world\n");
 }

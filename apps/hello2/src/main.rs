@@ -7,5 +7,5 @@ use megoslib::*;
 
 #[no_mangle]
 fn _start() {
-    println!("Hello, world!");
+    println!("hello, world");
 }
