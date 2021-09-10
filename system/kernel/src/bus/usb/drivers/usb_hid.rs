@@ -7,12 +7,7 @@ use crate::{
     *,
 };
 use alloc::{boxed::Box, collections::BTreeMap, sync::Arc, vec::Vec};
-use bitflags::*;
-use core::{
-    mem::size_of,
-    num::{NonZeroU8, NonZeroUsize},
-    time::Duration,
-};
+use core::{num::NonZeroU8, time::Duration};
 use megstd::io::hid::*;
 use num_traits::FromPrimitive;
 
@@ -88,7 +83,7 @@ pub struct UsbHidDriver;
 impl UsbHidDriver {
     async fn _usb_hid_task(
         addr: UsbDeviceAddress,
-        _if_no: UsbInterfaceNumber,
+        if_no: UsbInterfaceNumber,
         ep: UsbEndpointAddress,
         _class: UsbClass,
         ps: u16,
@@ -104,6 +99,11 @@ impl UsbHidDriver {
             }
         };
         // log!("REPORT {:?}", report_desc);
+
+        match Self::set_boot_protocol(&device, if_no, false) {
+            Ok(_) => (),
+            Err(_) => (),
+        }
 
         let mut key_state = KeyboardState::new();
         let mut mouse_state = MouseState::empty();
@@ -199,11 +199,11 @@ impl UsbHidDriver {
                                 mouse_state.process_mouse_report(report);
                             }
                             _ => {
-                                // log!("UNKNOWN {:?}", BoxedBlob::new(&buffer, size));
+                                // other app
                             }
                         }
                     } else {
-                        // TODO: unknown report_id
+                        // unknown report_id - ignore
                     }
                 }
                 Err(UsbError::Aborted) => break,
@@ -255,6 +255,30 @@ impl UsbHidDriver {
         }
     }
 
+    pub fn get_report(
+        device: &UsbDevice,
+        if_no: UsbInterfaceNumber,
+        report_type: HidReportType,
+        report_id: u8,
+        len: usize,
+        vec: &mut Vec<u8>,
+    ) -> Result<(), UsbError> {
+        match device.host().control(UsbControlSetupData {
+            bmRequestType: UsbControlRequestBitmap(0xA1),
+            bRequest: UsbControlRequest::GET_DESCRIPTOR,
+            wValue: (report_type as u16) * 256 + (report_id as u16),
+            wIndex: if_no.0 as u16,
+            wLength: len as u16,
+        }) {
+            Ok(result) => {
+                vec.resize(result.len(), 0);
+                vec.copy_from_slice(result);
+                Ok(())
+            }
+            Err(err) => Err(err),
+        }
+    }
+
     pub fn set_report(
         device: &UsbDevice,
         if_no: UsbInterfaceNumber,
@@ -266,7 +290,7 @@ impl UsbHidDriver {
             UsbControlSetupData {
                 bmRequestType: UsbControlRequestBitmap(0x21),
                 bRequest: UsbControlRequest::HID_SET_REPORT,
-                wValue: ((report_type as u16) << 8) | report_id as u16,
+                wValue: (report_type as u16) * 256 + (report_id as u16),
                 wIndex: if_no.0 as u16,
                 wLength: data.len() as u16,
             },
@@ -662,29 +686,6 @@ impl core::fmt::Debug for HidParsedReportEntry {
             }
         }
 
-        Ok(())
-    }
-}
-
-// for debug
-struct BoxedBlob<'a> {
-    data: &'a [u8],
-    max_len: usize,
-}
-
-impl<'a> BoxedBlob<'a> {
-    #[allow(dead_code)]
-    pub const fn new(data: &'a [u8], max_len: usize) -> Self {
-        Self { data, max_len }
-    }
-}
-
-impl core::fmt::Debug for BoxedBlob<'_> {
-    fn fmt(&self, f: &mut _core::fmt::Formatter<'_>) -> _core::fmt::Result {
-        let len = usize::min(self.max_len, self.data.len());
-        for byte in self.data[0..len].iter() {
-            let _ = write!(f, " {:02x}", *byte);
-        }
         Ok(())
     }
 }
