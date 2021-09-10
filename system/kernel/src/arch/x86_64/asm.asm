@@ -12,6 +12,8 @@
 %define CR4_PAE             5
 %define EFER_LME            8
 %define EFER_LMA            10
+%define EFER_NXE            11
+%define MISC_XD_DISABLE     2
 
 %define TSS64_RSP0          0x04
 
@@ -242,11 +244,6 @@ asm_sch_switch_context:
     mov r15, [rsi + CTX_R15]
     mov rsp, rax
 
-    ; set TS flag
-    ; mov rax, cr0
-    ; bts rax, CR0_TS
-    ; mov cr0, rax
-
     xor eax, eax
     xor ecx, ecx
     xor edx, edx
@@ -353,10 +350,6 @@ asm_apic_setup_sipi:
     rdmsr
     btr eax, EFER_LMA
     mov [r10 + SMPINFO_EFER], eax
-    ; mov ecx, IA32_MISC
-    ; rdmsr
-    ; mov [r10 + IA32_MISC], eax
-    ; mov [r10 + IA32_MISC + 4], edx
 
     lea ecx, [r11 + _startup64 - _smp_rm_payload]
     mov edx, KERNEL_CS64
@@ -370,12 +363,12 @@ asm_apic_setup_sipi:
 
 
 _ap_startup:
-    lidt [rbx + SMPINFO_IDT]
+    lidt [rdi + SMPINFO_IDT]
 
     ; init stack pointer
     mov eax, ebp
-    imul eax, [rbx + SMPINFO_STACK_SIZE]
-    mov rcx, [rbx + SMPINFO_STACK_BASE]
+    imul eax, [rdi + SMPINFO_STACK_SIZE]
+    mov rcx, [rdi + SMPINFO_STACK_BASE]
     lea rsp, [rcx + rax]
 
     ; init APIC
@@ -425,12 +418,12 @@ _smp_rm_payload:
     cli
     xor ax, ax
     mov ds, ax
-    mov ebx, SMPINFO
+    mov edi, SMPINFO
 
     ; acquire a temporary core-id
     mov ax, 1
-    lock xadd [bx], ax
-    cmp ax, [bx + SMPINFO_MAX_CPU]
+    lock xadd [di], ax
+    cmp ax, [di + SMPINFO_MAX_CPU]
     jae .fail
     jmp .core_ok
 .fail:
@@ -441,7 +434,7 @@ _smp_rm_payload:
 .core_ok:
     movzx ebp, ax
 
-    lgdt [bx + SMPINFO_GDTR]
+    lgdt [di + SMPINFO_GDTR]
 
     ; enter to minimal PM
     mov eax, cr0
@@ -455,20 +448,29 @@ _smp_rm_payload:
     mov fs, ax
     mov gs, ax
 
-    ; restore BSP's system registers
-    mov eax, [bx + SMPINFO_CR4]
-    mov cr4, eax
-    mov eax, [bx + SMPINFO_CR3]
-    mov cr3 ,eax
+    xor eax, eax
+    cpuid
+    cmp ebx, 0x756e6547
+    jnz .nointel
+    cmp edx, 0x49656e69
+    jnz .nointel
+    cmp ecx, 0x6c65746e
+    jnz .nointel
+    mov ecx, IA32_MISC
+    rdmsr
+    btr edx, MISC_XD_DISABLE
+    wrmsr
+.nointel:
 
-    ; mov eax, [bx + SMPINFO_MSR_MISC]
-    ; mov edx, [bx + SMPINFO_MSR_MISC + 4]
-    ; mov ecx, IA32_MISC
-    ; wrmsr
+    ; restore BSP's system registers
+    mov eax, [di + SMPINFO_CR4]
+    mov cr4, eax
+    mov eax, [di + SMPINFO_CR3]
+    mov cr3 ,eax
 
     mov ecx, IA32_EFER
     xor edx, edx
-    mov eax, [bx+ SMPINFO_EFER]
+    mov eax, [di+ SMPINFO_EFER]
     wrmsr
 
     ; enter to LM
@@ -476,13 +478,13 @@ _smp_rm_payload:
     bts eax, CR0_PG
     mov cr0, eax
 
-    jmp far dword [bx + SMPINFO_START64]
+    jmp far dword [di + SMPINFO_START64]
 
 [BITS 64]
     ;; This is a buffer zone for jumping from a 16-bit segment to a 4GB
     ;; or larger address in a 64-bit segment.
 _startup64:
-    jmp [rbx + SMPINFO_AP_STARTUP]
+    jmp [rdi + SMPINFO_AP_STARTUP]
 
 _end_smp_rm_payload:
 

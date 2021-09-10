@@ -3,12 +3,13 @@
 use crate::page::*;
 use bootprot::*;
 // #[cfg(any(target_arch = "x86_64"))]
-// use core::arch::x86_64::__cpuid_count;
+use core::arch::x86_64::__cpuid;
 
 pub struct Invocation {}
 
 impl Invocation {
     const IA32_EFER_MSR: u32 = 0xC000_0080;
+    const IA32_MISC_ENABLE_MSR: u32 = 0x0000_01A0;
 
     /// Invoke kernel
     pub unsafe fn invoke_kernel(
@@ -16,6 +17,17 @@ impl Invocation {
         entry: VirtualAddress,
         new_sp: VirtualAddress,
     ) -> ! {
+        let cpuid = core::arch::x86_64::__cpuid(0);
+        // GenuineIntel
+        if cpuid.ebx == 0x756e6547 && cpuid.edx == 0x49656e69 && cpuid.ecx == 0x6c65746e {
+            // If Intel, then unlock NXE disable
+            asm!("
+                rdmsr
+                btr edx, 2
+                wrmsr
+                ",in("ecx") Self::IA32_MISC_ENABLE_MSR, lateout("eax")_, lateout("edx") _);
+        }
+
         // Enable NXE
         asm!("
             rdmsr
