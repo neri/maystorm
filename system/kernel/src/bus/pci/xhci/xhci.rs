@@ -71,6 +71,7 @@ pub struct Xhci {
     xrbs: [UnsafeCell<XhciRequestBlock>; Self::MAX_XRB],
     ics: [UnsafeCell<InputContext>; Self::MAX_DEVICE_SLOTS],
 
+    sem_event_thread: Semaphore,
     lock_config: Pin<Arc<AsyncSemaphore>>,
     lock_control: BinarySemaphore,
 }
@@ -138,9 +139,12 @@ impl Xhci {
             port2slot: RwLock::new([None; 256]),
             xrbs: [XhciRequestBlock::EMPTY; Self::MAX_XRB],
             ics: [InputContext::EMPTY; Self::MAX_DEVICE_SLOTS],
+            sem_event_thread: Semaphore::new(0),
             lock_config: AsyncSemaphore::new(1),
             lock_control: BinarySemaphore::new(),
         });
+
+        driver.clone().initialize(device);
 
         let p = driver.clone();
         SpawnOption::with_priority(Priority::Realtime).spawn(
@@ -150,11 +154,13 @@ impl Xhci {
             "xhci.event",
         );
 
+        UsbManager::register_xfer_task(Task::new(Self::_config_task(driver.clone())));
+
         Some(driver as Arc<dyn PciDriver>)
     }
 
     ///  xHCI Initialize
-    fn initialize(&self) {
+    unsafe fn initialize(self: Arc<Self>, pci: &PciDevice) {
         if let Some(xecp) = self.cap.xecp() {
             unsafe {
                 let mut xecp_base = xecp.get() as *mut u32;
@@ -196,11 +202,9 @@ impl Xhci {
         self.opr.set_config(self.max_device_slots, false, false);
 
         // make Device Context Base Address Array
-        unsafe {
-            let dcbaa_size = self.dcbaa_len * 8;
-            let pa_dcbaa = MemoryManager::alloc_pages(dcbaa_size).unwrap().get() as u64;
-            self.opr.set_dcbaap(NonZeroU64::new(pa_dcbaa).unwrap());
-        };
+        let dcbaa_size = self.dcbaa_len * 8;
+        let pa_dcbaa = MemoryManager::alloc_pages(dcbaa_size).unwrap().get() as u64;
+        self.opr.set_dcbaap(NonZeroU64::new(pa_dcbaa).unwrap());
 
         // make Scratchpad
         let max_scratchpad_size = self.cap.max_scratchpad_size();
@@ -218,6 +222,13 @@ impl Xhci {
         // Event Ring Segment Table
         self.rts.irs0().init(self.ers);
 
+        // Interrupt
+        self.rts.irs0().set_iman(3);
+        self.opr.set_cmd(UsbCmd::INTE);
+        let p = Arc::as_ptr(&self);
+        Arc::increment_strong_count(p);
+        pci.register_msi(Self::_msi_handler, p as usize).unwrap();
+
         // start xHC
         self.wait_cnr(0);
         self.opr.set_cmd(UsbCmd::RUN);
@@ -234,6 +245,19 @@ impl Xhci {
                 MemoryManager::direct_map(self.opr.dcbaap() & !63) as *mut u64,
                 self.dcbaa_len,
             )
+        }
+    }
+
+    fn _msi_handler(p: usize) {
+        let this = unsafe { &*(p as *const Self) };
+        this.sem_event_thread.signal();
+    }
+
+    /// xHCI Main event loop
+    fn _event_thread(self: Arc<Self>) {
+        loop {
+            self.sem_event_thread.wait();
+            self.process_event();
         }
     }
 
@@ -547,6 +571,31 @@ impl Xhci {
         }
     }
 
+    pub fn configure_hub3(
+        &self,
+        slot_id: SlotId,
+        hub_desc: &UsbHub3Descriptor,
+    ) -> Result<(), UsbError> {
+        let input_context = self.input_context(slot_id);
+        input_context.control().set_add(1);
+
+        unsafe {
+            let slot = input_context.slot() as *const _ as *mut u8;
+            let dc = MemoryManager::direct_map(self.get_device_context(slot_id)) as *const u8;
+            slot.copy_from(dc, self.context_size * 2);
+        }
+
+        let slot = input_context.slot();
+        slot.set_is_hub(true);
+        slot.set_num_ports(hub_desc.num_ports());
+
+        let trb = TrbEvaluateContextCommand::new(slot_id, input_context.raw_data());
+        match self.execute_command(&trb) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(UsbError::General),
+        }
+    }
+
     pub fn attach_device(
         self: Arc<Self>,
         hub: &HciContext,
@@ -659,18 +708,11 @@ impl Xhci {
         }
     }
 
-    pub fn reset_port(&self, port: &PortRegisters) -> PortSc {
+    pub fn reset_port(&self, port: &PortRegisters) {
         self.wait_cnr(0);
+        port.write_portsc(PortSc::empty());
         let status = port.portsc();
-        let ccs_csc = PortSc::CCS | PortSc::CSC;
-        if (status & ccs_csc) == ccs_csc {
-            port.write_portsc(status & PortSc::PRESERVE_MASK | PortSc::CSC | PortSc::PR);
-            self.wait_cnr(0);
-            while port.portsc().contains(PortSc::PR) {
-                Cpu::spin_loop_hint();
-            }
-        }
-        port.portsc()
+        port.write_portsc(status & PortSc::PRESERVE_MASK | PortSc::PP | PortSc::PR);
     }
 
     pub fn port_initialize(&self, port_id: PortId) -> Option<SlotId> {
@@ -678,6 +720,7 @@ impl Xhci {
             let port = self.port_by(port_id);
             self.wait_cnr(0);
             let status = port.portsc();
+
             if status.contains(PortSc::CSC) {
                 if status.contains(PortSc::CCS) {
                     // Attached USB device
@@ -729,12 +772,7 @@ impl Xhci {
 
                     let trb = TrbAddressDeviceCommand::new(slot_id, input_context_pa);
                     match self.execute_command(&trb) {
-                        Ok(_result) => {
-                            // log!(
-                            //     "ADDRESS DEVICE {:?} {:?} DC {:016x}",
-                            //     port_id, slot_id, device_context,
-                            // );
-                        }
+                        Ok(_result) => (),
                         Err(err) => {
                             log!("ADDRESS_DEVICE ERROR {:?}", err.completion_code());
                         }
@@ -747,15 +785,24 @@ impl Xhci {
 
                     let mut slice = self.port2slot.write().unwrap();
                     let slot = slice.get_mut(port_id.0.get() as usize).unwrap();
-                    let slot_id = match *slot {
-                        Some(v) => v,
-                        None => return None,
-                    };
-                    *slot = None;
-
-                    UsbManager::detach_device(UsbDeviceAddress(slot_id.0));
+                    if let Some(slot_id) = slot {
+                        UsbManager::detach_device(UsbDeviceAddress(slot_id.0));
+                        *slot = None;
+                    }
                 }
             }
+
+            let mut set_bits = PortSc::empty();
+            let status = port.portsc();
+            for bit in [PortSc::PRC, PortSc::PLC] {
+                if status.contains(bit) {
+                    set_bits |= bit
+                }
+            }
+            if !set_bits.is_empty() {
+                port.write_portsc(status & PortSc::PRESERVE_MASK | set_bits);
+            }
+
             None
         })
     }
@@ -786,18 +833,6 @@ impl Xhci {
                     }
                 }
             }
-        }
-    }
-
-    /// xHCI Main event loop
-    fn _event_thread(self: Arc<Self>) {
-        self.initialize();
-
-        UsbManager::register_xfer_task(Task::new(Self::_config_task(self.clone())));
-
-        loop {
-            self.process_event();
-            Timer::sleep(Duration::from_millis(10));
         }
     }
 
@@ -1210,6 +1245,17 @@ impl UsbHostInterface for HciContext {
         let slot_id = device.slot_id;
 
         host.configure_hub2(slot_id, hub_desc, is_mtt)
+    }
+
+    fn configure_hub3(&self, hub_desc: &UsbHub3Descriptor) -> Result<(), UsbError> {
+        let host = match self.host.upgrade() {
+            Some(v) => v.clone(),
+            None => return Err(UsbError::HostUnavailable),
+        };
+        let device = self.device();
+        let slot_id = device.slot_id;
+
+        host.configure_hub3(slot_id, hub_desc)
     }
 
     fn attach_device(

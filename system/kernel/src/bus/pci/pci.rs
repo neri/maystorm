@@ -1,14 +1,12 @@
 //! Peripheral Component Interconnect Bus
 
-use crate::system::System;
-use crate::{arch::cpu::*, sync::RwLock};
-use alloc::string::String;
-use alloc::sync::Arc;
-use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
-use core::fmt;
-use core::mem::MaybeUninit;
-// use num_derive::FromPrimitive;
-// use num_traits::FromPrimitive;
+use crate::{arch::cpu::*, sync::RwLock, system::System};
+use alloc::{boxed::Box, collections::BTreeMap, string::String, sync::Arc, vec::Vec};
+use core::{
+    fmt,
+    mem::MaybeUninit,
+    ops::{Add, ControlFlow},
+};
 
 #[repr(transparent)]
 #[derive(Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -56,6 +54,15 @@ impl PciConfigAddress {
     #[inline]
     pub const fn get_register(&self) -> u8 {
         self.0 as u8
+    }
+}
+
+impl Add<u8> for PciConfigAddress {
+    type Output = Self;
+
+    fn add(self, rhs: u8) -> Self::Output {
+        let register = self.get_register().wrapping_add(rhs);
+        self.register(register)
     }
 }
 
@@ -315,6 +322,34 @@ impl PciDevice {
     #[inline]
     pub fn capabilities(&self) -> &[(PciCapabilityId, u8)] {
         self.capabilities.as_ref()
+    }
+
+    #[inline]
+    pub unsafe fn register_msi(&self, f: fn(usize) -> (), val: usize) -> Result<(), ()> {
+        let msi_reg = match self.capabilities.iter().try_for_each(|(id, offset)| {
+            if *id == PciCapabilityId::MSI {
+                ControlFlow::Break(*offset)
+            } else {
+                ControlFlow::CONTINUE
+            }
+        }) {
+            ControlFlow::Continue(_) => return Err(()),
+            ControlFlow::Break(v) => v,
+        };
+        let (msi_addr, msi_data) = match Cpu::register_msi(f, val) {
+            Ok(v) => v,
+            Err(_) => return Err(()),
+        };
+        let base = self.addr.register(msi_reg);
+
+        // TODO: exclusive control
+        let cpu = System::current_processor();
+        cpu.write_pci(base + 1, msi_addr as u32);
+        cpu.write_pci(base + 2, (msi_addr >> 32) as u32);
+        cpu.write_pci(base + 3, msi_data as u32);
+        cpu.write_pci(base, (cpu.read_pci(base) & 0xFF8FFFFF) | 0x00010000);
+
+        Ok(())
     }
 }
 

@@ -322,33 +322,85 @@ bitflags! {
     pub struct PortSc: u32 {
         /// A magic word to preserve mask
         const PRESERVE_MASK = 0x0E00C3E0;
-
-        /// Current Connect Status
+        /// ROS Current Connect Status
         const CCS   = 0x0000_0001;
-        /// Port Enabled
+        /// RW1CS Port Enabled
         const PED   = 0x0000_0002;
-        /// Port Reset
+        /// RO Over current Active
+        const OCA   = 0x0000_0008;
+        /// RW1S Port Reset
         const PR    = 0x0000_0010;
-        /// Connect Status Change
-        const CSC   = 0x0002_0000;
-        /// Port Enabled/Disabled Change
-        const PEC   = 0x0004_0000;
-        /// Port Reset Change
-        const PRC   = 0x0020_0000;
-
+        /// RWS Port Link State
+        const PLS   = 0x0000_01E0;
+        /// RWS Port Power
+        const PP    = 0x0000_0200;
+        /// ROW Port Speed
         const SPEED = 0x0000_3C00;
+        /// RWS Port Indicator
+        const PIC   = 0x0000_C000;
+        /// RW Port Link State Write Strobe
+        const LWS   = 0x0001_0000;
+        /// RW1CS Connect Status Change
+        const CSC   = 0x0002_0000;
+        /// RW1CS Port Enabled/Disabled Change
+        const PEC   = 0x0004_0000;
+        /// RW1CS Warm Port Reset Change
+        const WRC   = 0x0008_0000;
+        /// RW1CS Over current Change
+        const OCC   = 0x0010_0000;
+        /// RW1CS Port Reset Change
+        const PRC   = 0x0020_0000;
+        /// RW1CS Port Link State Change
+        const PLC   = 0x0040_0000;
+        /// RW1CS Port Config Error Change
+        const CEC   = 0x0080_0000;
+        /// RO Cold Attach Status
+        const CAS   = 0x0100_0000;
+        /// RWS Wake on Connect Enable
+        const WCE   = 0x0200_0000;
+        /// RWS Wake on Disconnect Enable
+        const WDE   = 0x0400_0000;
+        /// RWS Wake on Over current Enable
+        const WOE   = 0x0800_0000;
+        /// RO Device Removable
+        const DR    = 0x4000_0000;
+        /// RW1S Warm Port Reset
+        const WPR   = 0x8000_0000;
     }
 }
 
 impl PortSc {
     #[inline]
-    pub fn speed_raw(&self) -> usize {
-        ((*self & Self::SPEED).bits() as usize) >> 10
+    pub const fn link_state_raw(&self) -> usize {
+        ((self.bits() & Self::PLS.bits()) as usize) >> 5
+    }
+
+    #[inline]
+    pub const fn speed_raw(&self) -> usize {
+        ((self.bits() & Self::SPEED.bits()) as usize) >> 10
+    }
+
+    #[inline]
+    pub const fn port_indicator_raw(&self) -> usize {
+        ((self.bits() & Self::PIC.bits()) as usize) >> 14
     }
 
     #[inline]
     pub fn speed(&self) -> Option<PSIV> {
         FromPrimitive::from_usize(self.speed_raw())
+    }
+
+    #[inline]
+    pub fn link_state(&self) -> Option<Usb3LinkState> {
+        FromPrimitive::from_usize(self.link_state_raw())
+    }
+
+    #[inline]
+    pub fn is_usb3(&self) -> bool {
+        match self.speed() {
+            Some(PSIV::LS) | Some(PSIV::FS) | Some(PSIV::HS) => false,
+            _ => true,
+        }
     }
 }
 
@@ -409,14 +461,17 @@ impl InterrupterRegisterSet {
         self.erstba.store(base, Ordering::SeqCst);
     }
 
+    #[inline]
+    pub fn set_iman(&self, val: u32) {
+        self.iman.store(val, Ordering::SeqCst);
+    }
+
     pub fn dequeue_event<'a>(&'a self, event_cycle: &'a CycleBit) -> Option<EventRingGuard<'a>> {
         let erdp = self.erdp.load(Ordering::SeqCst);
         let cycle = event_cycle.value();
         let erdp_va = PageManager::direct_map(erdp & !15) as *const Trb;
         let event = unsafe { &*erdp_va };
         if event.cycle_bit() == cycle {
-            self.iman
-                .store(self.iman.load(Ordering::SeqCst) | 1, Ordering::SeqCst);
             Some(EventRingGuard {
                 event,
                 irs: self,

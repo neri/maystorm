@@ -5,10 +5,10 @@
 //! ┗■
 
 use super::types::*;
-use crate::*;
 use crate::{
     sync::{fifo::AsyncEventQueue, RwLock},
     task::{scheduler::*, Task},
+    *,
 };
 use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use core::{
@@ -38,6 +38,8 @@ pub trait UsbHostInterface {
     fn configure_endpoint(&self, desc: &UsbEndpointDescriptor) -> Result<(), UsbError>;
 
     fn configure_hub2(&self, hub_desc: &UsbHub2Descriptor, is_mtt: bool) -> Result<(), UsbError>;
+
+    fn configure_hub3(&self, hub_desc: &UsbHub3Descriptor) -> Result<(), UsbError>;
 
     fn attach_device(
         &self,

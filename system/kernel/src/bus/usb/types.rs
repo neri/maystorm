@@ -186,7 +186,7 @@ pub enum UsbDescriptorType {
     HidReport,
     HidPhysical,
     Hub = 0x29,
-    SsHub = 0x2A,
+    Hub3 = 0x2A,
 }
 
 /// A type compatible with standard USB descriptors
@@ -636,14 +636,19 @@ impl UsbDescriptor for UsbHub2Descriptor {
 pub struct UsbHub2Characterisrics(pub u16);
 
 impl UsbHub2Characterisrics {
-    // #[inline]
-    // pub const fn hoge(&self) -> usize {
-    //     self.0
-    // }
+    #[inline]
+    pub const fn is_compound_device(&self) -> bool {
+        (self.0 & 0x0004) != 0
+    }
 
     #[inline]
     pub const fn ttt(&self) -> usize {
         ((self.0 >> 5) & 3) as usize
+    }
+
+    #[inline]
+    pub const fn are_port_indicators_supported(&self) -> bool {
+        (self.0 & 0x0080) != 0
     }
 }
 
@@ -663,6 +668,29 @@ pub struct UsbHub3Descriptor {
     DeviceRemovable: UsbWord,
 }
 
+impl UsbHub3Descriptor {
+    #[inline]
+    pub const fn num_ports(&self) -> usize {
+        self.bNbrPorts as usize
+    }
+
+    #[inline]
+    pub const fn characteristics(&self) -> UsbHub3Characterisrics {
+        UsbHub3Characterisrics(self.wHubCharacteristics.as_u16())
+    }
+
+    /// Time (in 2 ms intervals) from the time the power-on sequence begins on a port until power is good on that port. The USB System Software uses this value to determine how long to wait before accessing a powered-on port.
+    #[inline]
+    pub const fn power_on_to_power_good(&self) -> Duration {
+        Duration::from_millis(self.bPwrOn2PwrGood as u64 * 2)
+    }
+
+    #[inline]
+    pub const fn device_removable(&self) -> u16 {
+        self.DeviceRemovable.as_u16()
+    }
+}
+
 impl UsbDescriptor for UsbHub3Descriptor {
     #[inline]
     fn len(&self) -> usize {
@@ -672,6 +700,17 @@ impl UsbDescriptor for UsbHub3Descriptor {
     #[inline]
     fn descriptor_type(&self) -> UsbDescriptorType {
         self.bDescriptorType
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UsbHub3Characterisrics(pub u16);
+
+impl UsbHub3Characterisrics {
+    #[inline]
+    pub const fn is_compound_device(&self) -> bool {
+        (self.0 & 0x0004) != 0
     }
 }
 
@@ -846,6 +885,23 @@ impl PSIV {
             _ => 512,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+pub enum Usb3LinkState {
+    U0 = 0,
+    U1,
+    U2,
+    U3,
+    Disabled,
+    RxDetect,
+    Inactive,
+    Polling,
+    Recovery,
+    HotReset,
+    ComplianceMode,
+    TestMode,
+    Resume = 15,
 }
 
 #[repr(transparent)]

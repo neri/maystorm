@@ -10,6 +10,7 @@
 #![feature(const_btree_new)]
 #![feature(const_fn_trait_bound)]
 #![feature(const_mut_refs)]
+#![feature(control_flow_enum)]
 #![feature(core_intrinsics)]
 #![feature(global_asm)]
 #![feature(lang_items)]

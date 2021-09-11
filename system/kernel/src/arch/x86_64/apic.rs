@@ -333,7 +333,7 @@ impl Apic {
     }
 
     #[inline]
-    pub unsafe fn register_msi(f: fn() -> (), val: usize) -> Result<(u64, u16), ()> {
+    pub unsafe fn register_msi(f: fn(usize) -> (), val: usize) -> Result<(u64, u16), ()> {
         let shared = Self::shared_mut();
         static NEXT_MSI: AtomicIsize = AtomicIsize::new(0);
         NEXT_MSI
