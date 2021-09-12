@@ -4,6 +4,7 @@ use core::{fmt, num::NonZeroU8, time::Duration};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
+/// Valid USB bus addresses are 1 to 127.
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UsbDeviceAddress(pub NonZeroU8);
@@ -14,6 +15,11 @@ pub struct UsbDeviceAddress(pub NonZeroU8);
 pub struct UsbWord(pub [u8; 2]);
 
 impl UsbWord {
+    #[inline]
+    pub const fn from_u16(val: u16) -> Self {
+        Self([val as u8, (val >> 8) as u8])
+    }
+
     #[inline]
     pub const fn as_u16(&self) -> u16 {
         self.0[0] as u16 + (self.0[1] as u16) * 256
@@ -56,28 +62,6 @@ pub struct UsbVendorId(pub u16);
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UsbProductId(pub u16);
-
-/// Vendor Id and Product Id pair
-#[repr(transparent)]
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct UsbVidPid(pub u32);
-
-impl UsbVidPid {
-    #[inline]
-    pub const fn vid_pid(vid: UsbVendorId, pid: UsbProductId) -> Self {
-        Self((vid.0 as u32) * 0x10000 | (pid.0 as u32))
-    }
-
-    #[inline]
-    pub const fn vid(&self) -> UsbVendorId {
-        UsbVendorId((self.0 >> 16) as u16)
-    }
-
-    #[inline]
-    pub const fn pid(&self) -> UsbProductId {
-        UsbProductId(self.0 as u16)
-    }
-}
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -182,11 +166,38 @@ pub enum UsbDescriptorType {
     Interface,
     Endpoint,
     DeviceQualifier,
+    InterfaceAssociation = 11,
+    Bos = 15,
+    DeviceCapability,
     HidClass = 0x21,
     HidReport,
     HidPhysical,
     Hub = 0x29,
     Hub3 = 0x2A,
+    SuperspeedUsbEndpointCompanion = 48,
+    SuperspeedplusIsochronousEndpointCompanion = 49,
+}
+
+/// USB Device Capability type
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+pub enum UsbDeviceCapabilityType {
+    WirelessUsb = 1,
+    Usb2_0Extention,
+    SuperspeedUsb,
+    ContainerId,
+    Platform,
+    PowerDelivery,
+    BatteryInfo,
+    PdConsumerPort,
+    PdProviderPort,
+    SuperspeedPlus,
+    PrecisionTimeMeasurement,
+    WirelessUsbExt,
+    Billboard,
+    Authentication,
+    BillboardEx,
+    ConfigurationSummary,
 }
 
 /// A type compatible with standard USB descriptors
@@ -475,14 +486,126 @@ impl UsbDescriptor for UsbDeviceQualifierDescriptor {
     }
 }
 
-// /// USB String Descriptor
-// #[repr(C, packed)]
-// #[allow(non_snake_case)]
-// pub struct UsbStringDescriptor {
-//     bLength: u8,
-//     bDescriptorType: UsbDescriptorType,
-//     data: [u16; 127],
-// }
+/// USB Decive Qualifier Descriptor
+#[repr(C, packed)]
+#[allow(non_snake_case)]
+#[derive(Debug, Clone, Copy)]
+pub struct UsbBinaryObjectStoreDescriptor {
+    bLength: u8,
+    bDescriptorType: UsbDescriptorType,
+    wTotalLength: UsbWord,
+    bNumDeviceCaps: u8,
+}
+
+impl UsbBinaryObjectStoreDescriptor {
+    #[inline]
+    pub const fn total_length(&self) -> u16 {
+        self.wTotalLength.as_u16()
+    }
+
+    #[inline]
+    pub const fn num_children(&self) -> usize {
+        self.bNumDeviceCaps as usize
+    }
+}
+
+impl UsbDescriptor for UsbBinaryObjectStoreDescriptor {
+    #[inline]
+    fn len(&self) -> usize {
+        self.bLength as usize
+    }
+
+    #[inline]
+    fn descriptor_type(&self) -> UsbDescriptorType {
+        self.bDescriptorType
+    }
+}
+
+pub trait UsbDeviceCapabilityDescriptor: UsbDescriptor {
+    fn capability_type(&self) -> UsbDeviceCapabilityType;
+}
+
+#[repr(C, packed)]
+#[allow(non_snake_case)]
+#[derive(Debug, Clone, Copy)]
+pub struct UsbSuperspeedUsbDeviceCapability {
+    bLength: u8,
+    bDescriptorType: UsbDescriptorType,
+    bDevCapabilityType: UsbDeviceCapabilityType,
+    bmAttributes: u8,
+    wSpeedSupported: UsbWord,
+    bFunctionalitySupport: u8,
+    bU1DevExitLat: u8,
+    wU2DevExitLat: UsbWord,
+}
+
+impl UsbSuperspeedUsbDeviceCapability {
+    #[inline]
+    pub const fn u1_dev_exit_lat(&self) -> usize {
+        self.bU1DevExitLat as usize
+    }
+
+    #[inline]
+    pub const fn u2_dev_exit_lat(&self) -> usize {
+        self.wU2DevExitLat.as_u16() as usize
+    }
+}
+
+impl UsbDescriptor for UsbSuperspeedUsbDeviceCapability {
+    #[inline]
+    fn len(&self) -> usize {
+        self.bLength as usize
+    }
+
+    #[inline]
+    fn descriptor_type(&self) -> UsbDescriptorType {
+        self.bDescriptorType
+    }
+}
+
+impl UsbDeviceCapabilityDescriptor for UsbSuperspeedUsbDeviceCapability {
+    #[inline]
+    fn capability_type(&self) -> UsbDeviceCapabilityType {
+        self.bDevCapabilityType
+    }
+}
+
+#[repr(C, packed)]
+#[allow(non_snake_case)]
+#[derive(Debug, Clone, Copy)]
+pub struct UsbContainerIdCapability {
+    bLength: u8,
+    bDescriptorType: UsbDescriptorType,
+    bDevCapabilityType: UsbDeviceCapabilityType,
+    bReserved: u8,
+    ContainerID: [u8; 16],
+}
+
+impl UsbContainerIdCapability {
+    #[inline]
+    pub const fn uuid(&self) -> &[u8; 16] {
+        &self.ContainerID
+    }
+}
+
+impl UsbDescriptor for UsbContainerIdCapability {
+    #[inline]
+    fn len(&self) -> usize {
+        self.bLength as usize
+    }
+
+    #[inline]
+    fn descriptor_type(&self) -> UsbDescriptorType {
+        self.bDescriptorType
+    }
+}
+
+impl UsbDeviceCapabilityDescriptor for UsbContainerIdCapability {
+    #[inline]
+    fn capability_type(&self) -> UsbDeviceCapabilityType {
+        self.bDevCapabilityType
+    }
+}
 
 /// USB HID Report Descriptor
 #[repr(C, packed)]
@@ -631,7 +754,7 @@ impl UsbDescriptor for UsbHub2Descriptor {
     }
 }
 
-#[repr(C)]
+#[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UsbHub2Characterisrics(pub u16);
 
@@ -647,7 +770,7 @@ impl UsbHub2Characterisrics {
     }
 
     #[inline]
-    pub const fn are_port_indicators_supported(&self) -> bool {
+    pub const fn supports_port_indicators(&self) -> bool {
         (self.0 & 0x0080) != 0
     }
 }
@@ -703,7 +826,7 @@ impl UsbDescriptor for UsbHub3Descriptor {
     }
 }
 
-#[repr(C)]
+#[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UsbHub3Characterisrics(pub u16);
 
@@ -715,6 +838,7 @@ impl UsbHub3Characterisrics {
 }
 
 /// USB3 Route String
+#[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct UsbRouteString(u32);
 
@@ -902,6 +1026,27 @@ pub enum Usb3LinkState {
     ComplianceMode,
     TestMode,
     Resume = 15,
+}
+
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
+pub struct Usb3ExitLatencyValues {
+    pub u1sel: u8,
+    pub u1pel: u8,
+    pub u2sel: UsbWord,
+    pub u2pel: UsbWord,
+}
+
+impl Usb3ExitLatencyValues {
+    #[inline]
+    pub const fn from_ss_dev_cap(ss_dev_cap: &UsbSuperspeedUsbDeviceCapability) -> Self {
+        Self {
+            u1sel: ss_dev_cap.bU1DevExitLat,
+            u1pel: ss_dev_cap.bU1DevExitLat,
+            u2sel: ss_dev_cap.wU2DevExitLat,
+            u2pel: ss_dev_cap.wU2DevExitLat,
+        }
+    }
 }
 
 #[repr(transparent)]

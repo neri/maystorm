@@ -111,7 +111,7 @@ impl Scheduler {
         SpawnOption::with_priority(Priority::Normal).start_process(f, args, "System");
 
         SpawnOption::with_priority(Priority::Realtime).start_process(
-            Self::scheduler_thread,
+            Self::_scheduler_thread,
             0,
             "Scheduler",
         );
@@ -345,7 +345,7 @@ impl Scheduler {
     }
 
     /// Scheduler
-    fn scheduler_thread(_args: usize) {
+    fn _scheduler_thread(_args: usize) {
         let shared = Self::shared();
 
         SpawnOption::with_priority(Priority::Realtime).start(
@@ -990,7 +990,7 @@ impl Timer {
                 }
                 Err(e) => {
                     event = e;
-                    Scheduler::yield_thread();
+                    todo!();
                 }
             }
         }

@@ -181,12 +181,12 @@ bitflags! {
 
 impl HccParams1 {
     #[inline]
-    pub fn max_psa_size(&self) -> usize {
+    pub const fn max_psa_size(&self) -> usize {
         ((self.bits() & Self::MAX_PSA_SIZE.bits()) >> 12) as usize
     }
 
     #[inline]
-    pub fn xecp(&self) -> usize {
+    pub const fn xecp(&self) -> usize {
         ((self.bits() & Self::XECP.bits()) >> 16) as usize
     }
 }
@@ -396,11 +396,16 @@ impl PortSc {
     }
 
     #[inline]
-    pub fn is_usb3(&self) -> bool {
+    pub fn is_usb2(&self) -> bool {
         match self.speed() {
-            Some(PSIV::LS) | Some(PSIV::FS) | Some(PSIV::HS) => false,
-            _ => true,
+            Some(PSIV::LS) | Some(PSIV::FS) | Some(PSIV::HS) => true,
+            _ => false,
         }
+    }
+
+    #[inline]
+    pub fn is_usb3(&self) -> bool {
+        !self.is_usb2()
     }
 }
 
@@ -421,7 +426,7 @@ impl RuntimeRegisters {
 
     #[inline]
     pub fn irs0(&self) -> &InterrupterRegisterSet {
-        &self.irs[0]
+        unsafe { self.irs.get_unchecked(0) }
     }
 
     #[inline]
@@ -445,17 +450,13 @@ pub struct InterrupterRegisterSet {
 impl InterrupterRegisterSet {
     pub const SIZE_EVENT_RING: usize = 64;
 
-    pub fn init(&self, initial_dp: PhysicalAddress) {
-        let base = unsafe {
-            MemoryManager::alloc_pages(MemoryManager::PAGE_SIZE_MIN)
-                .unwrap()
-                .get() as u64
-        };
-        unsafe {
-            let erst =
-                PageManager::direct_map(base) as *const c_void as *mut EventRingSegmentTableEntry;
-            *erst = EventRingSegmentTableEntry::new(initial_dp, Self::SIZE_EVENT_RING as u16);
-        }
+    pub unsafe fn init(&self, initial_dp: PhysicalAddress) {
+        let base = MemoryManager::alloc_pages(MemoryManager::PAGE_SIZE_MIN)
+            .unwrap()
+            .get() as u64;
+        let erst =
+            PageManager::direct_map(base) as *const c_void as *mut EventRingSegmentTableEntry;
+        *erst = EventRingSegmentTableEntry::new(initial_dp, Self::SIZE_EVENT_RING as u16);
         self.erstsz.store(1, Ordering::SeqCst);
         self.erdp.store(initial_dp, Ordering::SeqCst);
         self.erstba.store(base, Ordering::SeqCst);

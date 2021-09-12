@@ -85,7 +85,7 @@ impl UsbHidDriver {
         addr: UsbDeviceAddress,
         if_no: UsbInterfaceNumber,
         ep: UsbEndpointAddress,
-        _class: UsbClass,
+        class: UsbClass,
         ps: u16,
         report_desc: Box<[u8]>,
     ) {
@@ -100,9 +100,12 @@ impl UsbHidDriver {
         };
         // log!("REPORT {:?}", report_desc);
 
-        match Self::set_boot_protocol(&device, if_no, false) {
-            Ok(_) => (),
-            Err(_) => (),
+        // disable boot protocol
+        if class.sub() == UsbSubClass(0x01) {
+            match Self::set_boot_protocol(&device, if_no, false) {
+                Ok(_) => (),
+                Err(_) => (),
+            }
         }
 
         let mut key_state = KeyboardState::new();
@@ -209,6 +212,7 @@ impl UsbHidDriver {
                 Err(UsbError::Aborted) => break,
                 Err(_err) => {
                     // TODO: error
+                    log!("USB HID error {} {:?}", addr.0, _err);
                 }
             }
         }
@@ -279,24 +283,24 @@ impl UsbHidDriver {
         }
     }
 
-    pub fn set_report(
-        device: &UsbDevice,
-        if_no: UsbInterfaceNumber,
-        report_type: HidReportType,
-        report_id: u8,
-        data: &[u8],
-    ) -> Result<usize, UsbError> {
-        device.host().control_send(
-            UsbControlSetupData {
-                bmRequestType: UsbControlRequestBitmap(0x21),
-                bRequest: UsbControlRequest::HID_SET_REPORT,
-                wValue: (report_type as u16) * 256 + (report_id as u16),
-                wIndex: if_no.0 as u16,
-                wLength: data.len() as u16,
-            },
-            data,
-        )
-    }
+    // pub fn set_report(
+    //     device: &UsbDevice,
+    //     if_no: UsbInterfaceNumber,
+    //     report_type: HidReportType,
+    //     report_id: u8,
+    //     data: &[u8],
+    // ) -> Result<usize, UsbError> {
+    //     device.host().control_send(
+    //         UsbControlSetupData {
+    //             bmRequestType: UsbControlRequestBitmap(0x21),
+    //             bRequest: UsbControlRequest::HID_SET_REPORT,
+    //             wValue: (report_type as u16) * 256 + (report_id as u16),
+    //             wIndex: if_no.0 as u16,
+    //             wLength: data.len() as u16,
+    //         },
+    //         data,
+    //     )
+    // }
 
     pub fn read_bits(blob: &[u8], position: usize, size: usize) -> Option<u64> {
         let range = (position / 8)..((position + size + 7) / 8);

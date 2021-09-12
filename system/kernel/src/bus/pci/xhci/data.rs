@@ -541,11 +541,12 @@ impl TrbIDt for TrbSetupStage {}
 pub struct TrbDataStage(TrbRawData);
 
 impl TrbDataStage {
-    pub fn new(ptr: u64, xfer_len: usize, dir: bool) -> Self {
+    pub fn new(ptr: u64, xfer_len: usize, dir: bool, isp: bool) -> Self {
         let result: Self = unsafe { transmute(Trb::new(TrbType::DATA)) };
         result.set_ptr(ptr);
         result.set_xfer_len(xfer_len);
         result.set_dir(dir);
+        result.set_isp(isp);
         result
     }
 }
@@ -871,6 +872,16 @@ impl SlotContext {
     #[inline]
     pub fn set_context_entries(&mut self, val: usize) {
         self.data[0] = self.data[0] & 0x07FF_FFFF | ((val as u32) << 27);
+    }
+
+    #[inline]
+    pub fn max_exit_latency(&mut self) -> usize {
+        (self.data[1] & 0xFFFF) as usize
+    }
+
+    #[inline]
+    pub fn set_max_exit_latency(&mut self, val: usize) {
+        self.data[1] = self.data[1] & 0xFFFF_0000 | ((val & 0xFFFF) as u32);
     }
 
     #[inline]
