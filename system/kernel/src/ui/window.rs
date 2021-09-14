@@ -707,7 +707,7 @@ impl WindowManager<'_> {
         )
     }
 
-    fn update_coord(
+    fn update_relative_coord(
         coord: &AtomicIsize,
         movement: isize,
         min_value: isize,
@@ -726,7 +726,26 @@ impl WindowManager<'_> {
         }
     }
 
-    pub fn post_mouse_event(mouse_state: &mut MouseState) {
+    fn update_absolute_coord(
+        coord: &AtomicIsize,
+        new_value: isize,
+        min_value: isize,
+        max_value: isize,
+    ) -> bool {
+        match coord.fetch_update(Ordering::SeqCst, Ordering::Relaxed, |old_value| {
+            let new_value = cmp::min(cmp::max(new_value, min_value), max_value);
+            if old_value == new_value {
+                None
+            } else {
+                Some(new_value)
+            }
+        }) {
+            Ok(_) => true,
+            Err(_) => false,
+        }
+    }
+
+    pub fn post_relative_pointer(pointer_state: &mut MouseState) {
         let shared = match Self::shared_opt() {
             Some(v) => v,
             None => return,
@@ -734,16 +753,16 @@ impl WindowManager<'_> {
         let screen_bounds: Rect = shared.screen_size.into();
 
         let mut pointer = Point::new(0, 0);
-        swap(&mut mouse_state.x, &mut pointer.x);
-        swap(&mut mouse_state.y, &mut pointer.y);
-        let button_changes = mouse_state.current_buttons ^ mouse_state.prev_buttons;
-        let button_down = button_changes & mouse_state.current_buttons;
-        let button_up = button_changes & mouse_state.prev_buttons;
+        swap(&mut pointer_state.x, &mut pointer.x);
+        swap(&mut pointer_state.y, &mut pointer.y);
+        let button_changes = pointer_state.current_buttons ^ pointer_state.prev_buttons;
+        let button_down = button_changes & pointer_state.current_buttons;
+        let button_up = button_changes & pointer_state.prev_buttons;
         let button_changed = !button_changes.is_empty();
 
         if button_changed {
             shared.buttons.store(
-                mouse_state.current_buttons.bits() as usize,
+                pointer_state.current_buttons.bits() as usize,
                 Ordering::SeqCst,
             );
             shared
@@ -754,14 +773,61 @@ impl WindowManager<'_> {
                 .fetch_or(button_up.bits() as usize, Ordering::SeqCst);
         }
 
-        let moved = Self::update_coord(
+        let moved = Self::update_relative_coord(
             &shared.pointer_x,
             pointer.x,
             screen_bounds.x(),
             screen_bounds.width() - 1,
-        ) | Self::update_coord(
+        ) | Self::update_relative_coord(
             &shared.pointer_y,
             pointer.y,
+            screen_bounds.y(),
+            screen_bounds.height() - 1,
+        );
+
+        if button_changed | moved {
+            shared
+                .attributes
+                .insert(WindowManagerAttributes::MOUSE_MOVE);
+            shared.sem_event.signal();
+        }
+    }
+
+    pub fn post_absolute_pointer(pointer_state: &mut MouseState) {
+        let shared = match Self::shared_opt() {
+            Some(v) => v,
+            None => return,
+        };
+        let screen_bounds: Rect = shared.screen_size.into();
+        let button_changes = pointer_state.current_buttons ^ pointer_state.prev_buttons;
+        let button_down = button_changes & pointer_state.current_buttons;
+        let button_up = button_changes & pointer_state.prev_buttons;
+        let button_changed = !button_changes.is_empty();
+
+        if button_changed {
+            shared.buttons.store(
+                pointer_state.current_buttons.bits() as usize,
+                Ordering::SeqCst,
+            );
+            shared
+                .buttons_down
+                .fetch_or(button_down.bits() as usize, Ordering::SeqCst);
+            shared
+                .buttons_up
+                .fetch_or(button_up.bits() as usize, Ordering::SeqCst);
+        }
+
+        let pointer_x = screen_bounds.width() * pointer_state.x / pointer_state.max_x;
+        let pointer_y = screen_bounds.height() * pointer_state.y / pointer_state.max_y;
+
+        let moved = Self::update_absolute_coord(
+            &shared.pointer_x,
+            pointer_x,
+            screen_bounds.x(),
+            screen_bounds.width() - 1,
+        ) | Self::update_absolute_coord(
+            &shared.pointer_y,
+            pointer_y,
             screen_bounds.y(),
             screen_bounds.height() - 1,
         );

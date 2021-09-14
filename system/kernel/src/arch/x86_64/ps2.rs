@@ -206,8 +206,9 @@ impl Ps2 {
                     buttons: lead.into(),
                     x,
                     y,
+                    wheel: 0,
                 };
-                self.mouse_state.process_mouse_report(report);
+                self.mouse_state.process_relative_report(report);
             }
         }
     }

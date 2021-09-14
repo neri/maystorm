@@ -462,32 +462,32 @@ impl UsbHubCommon {
         device: &UsbDevice,
         feature_sel: UsbHubFeatureSel,
     ) -> Result<(), UsbError> {
-        device
-            .host()
-            .control(UsbControlSetupData {
-                bmRequestType: UsbControlRequestBitmap(0x20),
+        UsbDevice::control_nodata(
+            &device.host(),
+            UsbControlSetupData {
+                bmRequestType: UsbControlRequestBitmap::SET_CLASS,
                 bRequest: UsbControlRequest::SET_FEATURE,
                 wValue: feature_sel as u16,
                 wIndex: 0,
                 wLength: 0,
-            })
-            .map(|_| ())
+            },
+        )
     }
 
     pub fn clear_hub_feature(
         device: &UsbDevice,
         feature_sel: UsbHubFeatureSel,
     ) -> Result<(), UsbError> {
-        device
-            .host()
-            .control(UsbControlSetupData {
-                bmRequestType: UsbControlRequestBitmap(0x20),
+        UsbDevice::control_nodata(
+            &device.host(),
+            UsbControlSetupData {
+                bmRequestType: UsbControlRequestBitmap::SET_CLASS,
                 bRequest: UsbControlRequest::CLEAR_FEATURE,
                 wValue: feature_sel as u16,
                 wIndex: 0,
                 wLength: 0,
-            })
-            .map(|_| ())
+            },
+        )
     }
 
     pub fn set_port_feature<T>(
@@ -498,16 +498,16 @@ impl UsbHubCommon {
     where
         T: Into<u16>,
     {
-        device
-            .host()
-            .control(UsbControlSetupData {
+        UsbDevice::control_nodata(
+            &device.host(),
+            UsbControlSetupData {
                 bmRequestType: UsbControlRequestBitmap(0x23),
                 bRequest: UsbControlRequest::SET_FEATURE,
                 wValue: feature_sel.into(),
                 wIndex: port.0.get() as u16,
                 wLength: 0,
-            })
-            .map(|_| ())
+            },
+        )
     }
 
     pub fn clear_port_feature<T>(
@@ -518,32 +518,37 @@ impl UsbHubCommon {
     where
         T: Into<u16>,
     {
-        device
-            .host()
-            .control(UsbControlSetupData {
+        UsbDevice::control_nodata(
+            &device.host(),
+            UsbControlSetupData {
                 bmRequestType: UsbControlRequestBitmap(0x23),
                 bRequest: UsbControlRequest::CLEAR_FEATURE,
                 wValue: feature_sel.into(),
                 wIndex: port.0.get() as u16,
                 wLength: 0,
-            })
-            .map(|_| ())
+            },
+        )
     }
 
     pub fn get_port_status<T: Copy>(
         device: &UsbDevice,
         port: UsbHubPortNumber,
     ) -> Result<T, UsbError> {
-        match device.host().control(UsbControlSetupData {
-            bmRequestType: UsbControlRequestBitmap(0xA3),
-            bRequest: UsbControlRequest::GET_STATUS,
-            wValue: 0,
-            wIndex: port.0.get() as u16,
-            wLength: 4,
-        }) {
-            Ok(result) => {
+        let mut data = [0; 4];
+        match UsbDevice::control_slice(
+            &device.host(),
+            UsbControlSetupData {
+                bmRequestType: UsbControlRequestBitmap(0xA3),
+                bRequest: UsbControlRequest::GET_STATUS,
+                wValue: 0,
+                wIndex: port.0.get() as u16,
+                wLength: 4,
+            },
+            &mut data,
+        ) {
+            Ok(_) => {
                 let result = unsafe {
-                    let p = &result[0] as *const _ as *const T;
+                    let p = &data[0] as *const _ as *const T;
                     *p
                 };
                 Ok(result)

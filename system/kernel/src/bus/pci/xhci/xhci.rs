@@ -1328,7 +1328,7 @@ impl UsbHostInterface for HciContext {
         }
     }
 
-    fn control<'a>(&self, setup: UsbControlSetupData) -> Result<&'a [u8], UsbError> {
+    unsafe fn control<'a>(&self, setup: UsbControlSetupData) -> Result<&'a [u8], UsbError> {
         let host = match self.host.upgrade() {
             Some(v) => v.clone(),
             None => return Err(UsbError::HostUnavailable),
@@ -1337,12 +1337,10 @@ impl UsbHostInterface for HciContext {
 
         match host.execute_control(device.slot_id, setup, device.buffer) {
             Ok(result) => {
-                let result = unsafe {
-                    slice::from_raw_parts(
-                        MemoryManager::direct_map(device.buffer as PhysicalAddress) as *const u8,
-                        result,
-                    )
-                };
+                let result = slice::from_raw_parts(
+                    MemoryManager::direct_map(device.buffer as PhysicalAddress) as *const u8,
+                    result,
+                );
                 Ok(result)
             }
             Err(_err) => {

@@ -123,7 +123,7 @@ impl UsbClass {
     pub const HID_GENERIC: Self = Self(0x03_00_00);
     pub const HID_BOOT_KEYBOARD: Self = Self(0x03_01_01);
     pub const HID_BOOT_MOUSE: Self = Self(0x03_01_02);
-    pub const STORAGE_BULK: Self = Self(0x08_06_50);
+    pub const MSD_BULK_ONLY: Self = Self(0x08_06_50);
     pub const FLOPPY: Self = Self(0x08_04_00);
     pub const HUB_FS: Self = Self(0x09_00_00);
     pub const HUB_HS_STT: Self = Self(0x09_00_01);
@@ -225,20 +225,20 @@ pub trait UsbDescriptor {
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
 pub struct UsbDeviceDescriptor {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    bcdUSB: UsbWord,
-    bDeviceClass: UsbBaseClass,
-    bDeviceSubClass: UsbSubClass,
-    bDeviceProtocol: UsbProtocolCode,
-    bMaxPacketSize0: u8,
-    idVendor: UsbWord,
-    idProduct: UsbWord,
-    bcdDevice: UsbWord,
-    iManufacturer: u8,
-    iProduct: u8,
-    iSerialNumber: u8,
-    bNumConfigurations: u8,
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub bcdUSB: UsbWord,
+    pub bDeviceClass: UsbBaseClass,
+    pub bDeviceSubClass: UsbSubClass,
+    pub bDeviceProtocol: UsbProtocolCode,
+    pub bMaxPacketSize0: u8,
+    pub idVendor: UsbWord,
+    pub idProduct: UsbWord,
+    pub bcdDevice: UsbWord,
+    pub iManufacturer: u8,
+    pub iProduct: u8,
+    pub iSerialNumber: u8,
+    pub bNumConfigurations: u8,
 }
 
 impl UsbDeviceDescriptor {
@@ -304,14 +304,14 @@ impl UsbDescriptor for UsbDeviceDescriptor {
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
 pub struct UsbConfigurationDescriptor {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    wTotalLength: UsbWord,
-    bNumInterface: u8,
-    bConfigurationValue: UsbConfigurationValue,
-    iConfiguration: u8,
-    bmAttributes: u8,
-    bMaxPower: u8,
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub wTotalLength: UsbWord,
+    pub bNumInterface: u8,
+    pub bConfigurationValue: UsbConfigurationValue,
+    pub iConfiguration: u8,
+    pub bmAttributes: u8,
+    pub bMaxPower: u8,
 }
 
 impl UsbConfigurationDescriptor {
@@ -358,15 +358,15 @@ impl UsbDescriptor for UsbConfigurationDescriptor {
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
 pub struct UsbInterfaceDescriptor {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    bInterfaceNumber: UsbInterfaceNumber,
-    bAlternateSetting: UsbAlternateSettingNumber,
-    bNumEndpoints: u8,
-    bInterfaceClass: UsbBaseClass,
-    bInterfaceSubClass: UsbSubClass,
-    bInterfaceProtocol: UsbProtocolCode,
-    iInterface: u8,
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub bInterfaceNumber: UsbInterfaceNumber,
+    pub bAlternateSetting: UsbAlternateSettingNumber,
+    pub bNumEndpoints: u8,
+    pub bInterfaceClass: UsbBaseClass,
+    pub bInterfaceSubClass: UsbSubClass,
+    pub bInterfaceProtocol: UsbProtocolCode,
+    pub iInterface: u8,
 }
 
 impl UsbInterfaceDescriptor {
@@ -417,12 +417,12 @@ impl UsbDescriptor for UsbInterfaceDescriptor {
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
 pub struct UsbEndpointDescriptor {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    bEndpointAddress: u8,
-    bmAttributes: u8,
-    wMaxPacketSize: UsbWord,
-    bInterval: u8,
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub bEndpointAddress: u8,
+    pub bmAttributes: u8,
+    pub wMaxPacketSize: UsbWord,
+    pub bInterval: u8,
 }
 
 impl UsbEndpointDescriptor {
@@ -464,15 +464,15 @@ impl UsbDescriptor for UsbEndpointDescriptor {
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
 pub struct UsbDeviceQualifierDescriptor {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    bcdUSB: UsbWord,
-    bDeviceClass: UsbBaseClass,
-    bDeviceSubClass: UsbSubClass,
-    bDeviceProtocol: UsbProtocolCode,
-    bMaxPacketSize0: u8,
-    bNumConfigurations: u8,
-    bReserved: u8,
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub bcdUSB: UsbWord,
+    pub bDeviceClass: UsbBaseClass,
+    pub bDeviceSubClass: UsbSubClass,
+    pub bDeviceProtocol: UsbProtocolCode,
+    pub bMaxPacketSize0: u8,
+    pub bNumConfigurations: u8,
+    pub bReserved: u8,
 }
 
 impl UsbDeviceQualifierDescriptor {
@@ -503,10 +503,10 @@ impl UsbDescriptor for UsbDeviceQualifierDescriptor {
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
 pub struct UsbBinaryObjectStoreDescriptor {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    wTotalLength: UsbWord,
-    bNumDeviceCaps: u8,
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub wTotalLength: UsbWord,
+    pub bNumDeviceCaps: u8,
 }
 
 impl UsbBinaryObjectStoreDescriptor {
@@ -543,14 +543,14 @@ pub trait UsbDeviceCapabilityDescriptor: UsbDescriptor {
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
 pub struct UsbSsDeviceCapability {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    bDevCapabilityType: UsbDeviceCapabilityType,
-    bmAttributes: u8,
-    wSpeedSupported: UsbWord,
-    bFunctionalitySupport: u8,
-    bU1DevExitLat: u8,
-    wU2DevExitLat: UsbWord,
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub bDevCapabilityType: UsbDeviceCapabilityType,
+    pub bmAttributes: u8,
+    pub wSpeedSupported: UsbWord,
+    pub bFunctionalitySupport: u8,
+    pub bU1DevExitLat: u8,
+    pub wU2DevExitLat: UsbWord,
 }
 
 impl UsbSsDeviceCapability {
@@ -589,11 +589,11 @@ impl UsbDeviceCapabilityDescriptor for UsbSsDeviceCapability {
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
 pub struct UsbContainerIdCapability {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    bDevCapabilityType: UsbDeviceCapabilityType,
-    bReserved: u8,
-    ContainerID: [u8; 16],
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub bDevCapabilityType: UsbDeviceCapabilityType,
+    pub bReserved: u8,
+    pub ContainerID: [u8; 16],
 }
 
 impl UsbContainerIdCapability {
@@ -626,8 +626,8 @@ impl UsbDeviceCapabilityDescriptor for UsbContainerIdCapability {
 #[repr(C, packed)]
 #[allow(non_snake_case)]
 pub struct UsbHidReportDescriptor {
-    bDescriptorType: UsbDescriptorType,
-    wDescriptorLength: UsbWord,
+    pub bDescriptorType: UsbDescriptorType,
+    pub wDescriptorLength: UsbWord,
 }
 
 impl UsbDescriptor for UsbHidReportDescriptor {
@@ -647,13 +647,13 @@ impl UsbDescriptor for UsbHidReportDescriptor {
 #[allow(non_snake_case)]
 #[derive(Debug)]
 pub struct UsbHidClassDescriptor {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    bcdHID: UsbWord,
-    bCountryCode: u8,
-    bNumDescriptors: u8,
-    bDescriptorType_: UsbDescriptorType,
-    wDescriptorLength_: UsbWord,
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub bcdHID: UsbWord,
+    pub bCountryCode: u8,
+    pub bNumDescriptors: u8,
+    pub bDescriptorType_: UsbDescriptorType,
+    pub wDescriptorLength_: UsbWord,
 }
 
 impl UsbHidClassDescriptor {
@@ -725,13 +725,13 @@ pub struct UsbHubPortNumber(pub NonZeroU8);
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
 pub struct UsbHub2Descriptor {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    bNbrPorts: u8,
-    wHubCharacteristics: UsbWord,
-    bPwrOn2PwrGood: u8,
-    bHubContrCurrent: u8,
-    DeviceRemovable: UsbWord,
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub bNbrPorts: u8,
+    pub wHubCharacteristics: UsbWord,
+    pub bPwrOn2PwrGood: u8,
+    pub bHubContrCurrent: u8,
+    pub DeviceRemovable: UsbWord,
 }
 
 impl UsbHub2Descriptor {
@@ -795,15 +795,15 @@ impl UsbHub2Characterisrics {
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
 pub struct UsbHub3Descriptor {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    bNbrPorts: u8,
-    wHubCharacteristics: UsbWord,
-    bPwrOn2PwrGood: u8,
-    bHubContrCurrent: u8,
-    bHubHdrDecLat: u8,
-    wHubDelay: UsbWord,
-    DeviceRemovable: UsbWord,
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub bNbrPorts: u8,
+    pub wHubCharacteristics: UsbWord,
+    pub bPwrOn2PwrGood: u8,
+    pub bHubContrCurrent: u8,
+    pub bHubHdrDecLat: u8,
+    pub wHubDelay: UsbWord,
+    pub DeviceRemovable: UsbWord,
 }
 
 impl UsbHub3Descriptor {

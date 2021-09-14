@@ -33,8 +33,8 @@ $(EFI_BOOT):
 $(EFI_VENDOR):
 	mkdir -p $(EFI_VENDOR)
 
-run: 
-	qemu-system-x86_64 -machine q35 -cpu max -smp 4,cores=2,threads=2 -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -rtc base=localtime,clock=host -monitor stdio -device nec-usb-xhci,id=xhci -device usb-mouse -device usb-kbd 
+run:
+	qemu-system-x86_64 -machine q35 -cpu max -smp 4,cores=2,threads=2 -bios $(OVMF) -drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -rtc base=localtime,clock=host -monitor stdio -device nec-usb-xhci,id=xhci -device usb-tablet -device usb-kbd -device usb-storage,drive=stick
 
 runs:
 	qemu-system-x86_64 -machine q35 -cpu max -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -rtc base=localtime,clock=host -monitor stdio -device nec-usb-xhci,id=xhci

@@ -112,13 +112,11 @@ impl UsbHidDriver {
                             HidUsage::KEYBOARD => {
                                 let mut report = KeyReportRaw::default();
                                 for entry in &app.inputs {
-                                    if !entry.flag.contains(HidReportMainFlag::CONSTANT)
-                                        && entry.usage_page == UsagePage::KEYBOARD
-                                    {
+                                    if !entry.flag.contains(HidReportMainFlag::CONSTANT) {
                                         if entry.flag.contains(HidReportMainFlag::VARIABLE)
                                             && entry.report_size == 1
-                                            && entry.usage_min == 0xE0
-                                            && entry.usage_max == 0xE7
+                                            && entry.usage_min() == Usage::MOD_MIN.full_usage()
+                                            && entry.usage_max() == Usage::MOD_MAX.full_usage()
                                         {
                                             report.modifier = Self::read_bits(
                                                 &buffer,
@@ -128,6 +126,7 @@ impl UsbHidDriver {
                                             .map(|v| Modifier::from_bits_truncate(v as u8))
                                             .unwrap();
                                         } else if entry.report_size == 8
+                                            && entry.usage_min().usage_page() == UsagePage::KEYBOARD
                                             && !entry.flag.contains(HidReportMainFlag::VARIABLE)
                                         {
                                             let limit = usize::min(
@@ -145,15 +144,11 @@ impl UsbHidDriver {
                                 key_state.process_key_report(report);
                             }
                             HidUsage::MOUSE => {
-                                let mut report = MouseReport {
-                                    buttons: MouseButton::empty(),
-                                    x: 0,
-                                    y: 0,
-                                };
+                                let mut is_absolute = false;
+                                let mut report = MouseReport::default();
                                 for entry in &app.inputs {
                                     if !entry.flag.contains(HidReportMainFlag::CONSTANT) {
-                                        if entry.usage_page == UsagePage::BUTTON
-                                            && entry.usage_min == 1
+                                        if entry.usage_min() == HidUsage::button(1)
                                             && entry.flag.contains(HidReportMainFlag::VARIABLE)
                                             && entry.report_size == 1
                                         {
@@ -164,29 +159,75 @@ impl UsbHidDriver {
                                             )
                                             .map(|v| MouseButton::from_bits_truncate(v as u8))
                                             .unwrap();
-                                        } else if entry.usage_min() == HidUsage::X {
-                                            report.x = match Self::read_bits_signed(
-                                                &buffer,
-                                                bit_position,
-                                                entry.report_size(),
-                                            ) {
-                                                Some(v) => v as isize,
-                                                None => todo!(),
+                                        } else if entry.usage_min() == HidUsage::X
+                                            && entry.report_size > 0
+                                        {
+                                            if entry.flag.contains(HidReportMainFlag::RELATIVE) {
+                                                report.x = match Self::read_bits_signed(
+                                                    &buffer,
+                                                    bit_position,
+                                                    entry.report_size(),
+                                                ) {
+                                                    Some(v) => v,
+                                                    None => todo!(),
+                                                }
+                                            } else {
+                                                is_absolute = true;
+                                                mouse_state.max_x = entry.logical_max as isize;
+                                                report.x = match Self::read_bits(
+                                                    &buffer,
+                                                    bit_position,
+                                                    entry.report_size(),
+                                                ) {
+                                                    Some(v) => v as isize,
+                                                    None => todo!(),
+                                                }
                                             }
-                                        } else if entry.usage_min() == HidUsage::Y {
-                                            report.y = match Self::read_bits_signed(
+                                        } else if entry.usage_min() == HidUsage::Y
+                                            && entry.report_size > 0
+                                        {
+                                            if entry.flag.contains(HidReportMainFlag::RELATIVE) {
+                                                report.y = match Self::read_bits_signed(
+                                                    &buffer,
+                                                    bit_position,
+                                                    entry.report_size(),
+                                                ) {
+                                                    Some(v) => v,
+                                                    None => todo!(),
+                                                }
+                                            } else {
+                                                is_absolute = true;
+                                                mouse_state.max_y = entry.logical_max as isize;
+                                                report.y = match Self::read_bits(
+                                                    &buffer,
+                                                    bit_position,
+                                                    entry.report_size(),
+                                                ) {
+                                                    Some(v) => v as isize,
+                                                    None => todo!(),
+                                                }
+                                            }
+                                        } else if entry.usage_min() == HidUsage::WHEEL
+                                            && entry.report_size > 0
+                                            && entry.flag.contains(HidReportMainFlag::RELATIVE)
+                                        {
+                                            report.wheel = match Self::read_bits_signed(
                                                 &buffer,
                                                 bit_position,
                                                 entry.report_size(),
                                             ) {
-                                                Some(v) => v as isize,
+                                                Some(v) => v,
                                                 None => todo!(),
                                             }
                                         }
                                     }
                                     bit_position += entry.bit_count();
                                 }
-                                mouse_state.process_mouse_report(report);
+                                if is_absolute {
+                                    mouse_state.process_absolute_report(report);
+                                } else {
+                                    mouse_state.process_relative_report(report);
+                                }
                             }
                             _ => {
                                 // other app
@@ -210,16 +251,16 @@ impl UsbHidDriver {
         if_no: UsbInterfaceNumber,
         is_boot: bool,
     ) -> Result<(), UsbError> {
-        device
-            .host()
-            .control(UsbControlSetupData {
+        UsbDevice::control_nodata(
+            &device.host(),
+            UsbControlSetupData {
                 bmRequestType: UsbControlRequestBitmap(0x21),
                 bRequest: UsbControlRequest::HID_SET_PROTOCOL,
                 wValue: (!is_boot) as u16,
                 wIndex: if_no.0 as u16,
                 wLength: 0,
-            })
-            .map(|_| ())
+            },
+        )
     }
 
     pub fn get_report(
@@ -230,42 +271,20 @@ impl UsbHidDriver {
         len: usize,
         vec: &mut Vec<u8>,
     ) -> Result<(), UsbError> {
-        match device.host().control(UsbControlSetupData {
-            bmRequestType: UsbControlRequestBitmap(0xA1),
-            bRequest: UsbControlRequest::GET_DESCRIPTOR,
-            wValue: (report_type as u16) * 256 + (report_id as u16),
-            wIndex: if_no.0 as u16,
-            wLength: len as u16,
-        }) {
-            Ok(result) => {
-                vec.resize(result.len(), 0);
-                vec.copy_from_slice(result);
-                Ok(())
-            }
-            Err(err) => Err(err),
-        }
+        UsbDevice::control_vec(
+            &device.host(),
+            UsbControlSetupData {
+                bmRequestType: UsbControlRequestBitmap(0xA1),
+                bRequest: UsbControlRequest::GET_DESCRIPTOR,
+                wValue: (report_type as u16) * 256 + (report_id as u16),
+                wIndex: if_no.0 as u16,
+                wLength: len as u16,
+            },
+            vec,
+        )
     }
 
-    // pub fn set_report(
-    //     device: &UsbDevice,
-    //     if_no: UsbInterfaceNumber,
-    //     report_type: HidReportType,
-    //     report_id: u8,
-    //     data: &[u8],
-    // ) -> Result<usize, UsbError> {
-    //     device.host().control_send(
-    //         UsbControlSetupData {
-    //             bmRequestType: UsbControlRequestBitmap(0x21),
-    //             bRequest: UsbControlRequest::HID_SET_REPORT,
-    //             wValue: (report_type as u16) * 256 + (report_id as u16),
-    //             wIndex: if_no.0 as u16,
-    //             wLength: data.len() as u16,
-    //         },
-    //         data,
-    //     )
-    // }
-
-    pub fn read_bits(blob: &[u8], position: usize, size: usize) -> Option<u64> {
+    pub fn read_bits(blob: &[u8], position: usize, size: usize) -> Option<usize> {
         let range = (position / 8)..((position + size + 7) / 8);
         blob.get(range).map(|slice| {
             let mask = if size > 63 {
@@ -297,17 +316,17 @@ impl UsbHidDriver {
                         + (*slice.get_unchecked(4) as u64) * 0x100_00_00_00
                 }
             };
-            (data >> position7) & mask
+            ((data >> position7) & mask) as usize
         })
     }
 
-    pub fn read_bits_signed(blob: &[u8], position: usize, size: usize) -> Option<i64> {
+    pub fn read_bits_signed(blob: &[u8], position: usize, size: usize) -> Option<isize> {
         Self::read_bits(blob, position, size).map(|v| {
             let mask = 1 << (size - 1);
             if (v & mask) == 0 {
-                v as i64
+                v as isize
             } else {
-                (!(mask - 1) | v) as i64
+                (!(mask - 1) | v) as isize
             }
         })
     }
@@ -364,12 +383,23 @@ impl UsbHidDriver {
                     match collection_type {
                         HidReportCollectionType::Application => {
                             current_app.clear();
-                            current_app.usage = HidUsage::new(
-                                global.usage_page,
-                                local.usage.first().map(|v| *v).unwrap_or_default(),
-                            );
+                            let usage = local.usage.first().map(|v| *v).unwrap_or_default();
+                            current_app.usage = if usage < 0x10000 {
+                                HidUsage::new(global.usage_page, usage as u16)
+                            } else {
+                                HidUsage(usage)
+                            };
                         }
-                        _ => (),
+                        _ => {
+                            let entry = ParsedReportEntry::collection(collection_type);
+                            current_app.inputs.push(entry);
+                            if current_app.outputs.len() > 0 {
+                                current_app.outputs.push(entry);
+                            }
+                            if current_app.features.len() > 0 {
+                                current_app.features.push(entry);
+                            }
+                        }
                     }
 
                     local.reset();
@@ -377,7 +407,7 @@ impl UsbHidDriver {
 
                 HidReportItemTag::EndCollection => {
                     match collection_ctx.pop() {
-                        Some(v) => match v {
+                        Some(collection_type) => match collection_type {
                             HidReportCollectionType::Application => {
                                 let report_id = current_app.report_id;
                                 if report_id > 0 {
@@ -387,7 +417,16 @@ impl UsbHidDriver {
                                 }
                                 current_app.clear();
                             }
-                            _ => (),
+                            _ => {
+                                let entry = ParsedReportEntry::end_collection(collection_type);
+                                current_app.inputs.push(entry);
+                                if current_app.outputs.len() > 0 {
+                                    current_app.outputs.push(entry);
+                                }
+                                if current_app.features.len() > 0 {
+                                    current_app.features.push(entry);
+                                }
+                            }
                         },
                         None => return Err(reader.position()),
                     }
@@ -432,9 +471,9 @@ impl UsbHidDriver {
                         None => return Err(reader.position()),
                     }
                 }
-                HidReportItemTag::Usage => local.usage.push(param.usize() as u16),
-                HidReportItemTag::UsageMinimum => local.usage_minimum = param.usize() as u16,
-                HidReportItemTag::UsageMaximum => local.usage_maximum = param.usize() as u16,
+                HidReportItemTag::Usage => local.usage.push(param.usize() as u32),
+                HidReportItemTag::UsageMinimum => local.usage_minimum = param.usize() as u32,
+                HidReportItemTag::UsageMaximum => local.usage_maximum = param.usize() as u32,
 
                 _ => todo!(),
             }
@@ -511,14 +550,45 @@ pub struct ParsedReportEntry {
     flag: HidReportMainFlag,
     report_size: u8,
     report_count: u8,
-    usage_page: UsagePage,
-    usage_min: u16,
-    usage_max: u16,
+    usage_min: HidUsage,
+    usage_max: HidUsage,
     logical_min: u32,
     logical_max: u32,
+    physical_min: u32,
+    physical_max: u32,
 }
 
 impl ParsedReportEntry {
+    #[inline]
+    pub const fn empty() -> Self {
+        Self {
+            flag: HidReportMainFlag::empty(),
+            report_size: 0,
+            report_count: 0,
+            usage_min: HidUsage::NONE,
+            usage_max: HidUsage::NONE,
+            logical_min: 0,
+            logical_max: 0,
+            physical_min: 0,
+            physical_max: 0,
+        }
+    }
+
+    #[inline]
+    pub fn collection(collection_type: HidReportCollectionType) -> Self {
+        let mut result = Self::empty();
+        result.physical_min = collection_type as u32;
+        result
+    }
+
+    #[inline]
+    pub fn end_collection(collection_type: HidReportCollectionType) -> Self {
+        let mut result = Self::empty();
+        result.physical_min = collection_type as u32;
+        result.physical_max = 1;
+        result
+    }
+
     pub fn parse(
         vec: &mut Vec<ParsedReportEntry>,
         flag: HidReportMainFlag,
@@ -540,13 +610,23 @@ impl ParsedReportEntry {
         flag: HidReportMainFlag,
         global: &HidReportGlobalState,
         local: &HidReportLocalState,
-        usage: Option<u16>,
+        usage: Option<u32>,
         report_count: usize,
     ) -> Self {
         let (usage_min, usage_max) = if let Some(usage) = usage {
             (usage, 0)
         } else {
             (local.usage_minimum, local.usage_maximum)
+        };
+        let usage_max = if usage_min < 0x10000 {
+            HidUsage::new(global.usage_page, usage_max as u16)
+        } else {
+            HidUsage(usage_max)
+        };
+        let usage_min = if usage_min < 0x10000 {
+            HidUsage::new(global.usage_page, usage_min as u16)
+        } else {
+            HidUsage(usage_min)
         };
         let report_count = if report_count > 0 {
             report_count
@@ -563,26 +643,37 @@ impl ParsedReportEntry {
         } else {
             global.logical_maximum.usize() as u32
         };
+        let physical_min = if flag.contains(HidReportMainFlag::RELATIVE) {
+            global.physical_minimum.isize() as u32
+        } else {
+            global.physical_minimum.usize() as u32
+        };
+        let physical_max = if flag.contains(HidReportMainFlag::RELATIVE) {
+            global.physical_maximum.isize() as u32
+        } else {
+            global.physical_maximum.usize() as u32
+        };
         Self {
             flag,
             report_size: global.report_size as u8,
             report_count,
-            usage_page: global.usage_page,
             usage_min,
             usage_max,
             logical_min,
             logical_max,
+            physical_min,
+            physical_max,
         }
     }
 
     #[inline]
     pub const fn usage_min(&self) -> HidUsage {
-        HidUsage::new(self.usage_page, self.usage_min)
+        self.usage_min
     }
 
     #[inline]
     pub const fn usage_max(&self) -> HidUsage {
-        HidUsage::new(self.usage_page, self.usage_max)
+        self.usage_max
     }
 
     #[inline]
@@ -603,13 +694,7 @@ impl ParsedReportEntry {
 
 impl core::fmt::Debug for ParsedReportApplication {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let _ = writeln!(
-            f,
-            "APP_{:02x} UP{:04x}_{:04x}",
-            self.report_id,
-            self.usage.usage_page().0,
-            self.usage.usage(),
-        );
+        let _ = writeln!(f, "application {:02x} usage {}", self.report_id, self.usage,);
 
         for input in &self.inputs {
             let _ = writeln!(f, "INPUT {:?}", input);
@@ -627,29 +712,45 @@ impl core::fmt::Debug for ParsedReportApplication {
 
 impl core::fmt::Debug for ParsedReportEntry {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let _ = write!(
-            f,
-            "{:?} size {} {}",
-            self.flag, self.report_size, self.report_count
-        );
-        if !self.flag.contains(HidReportMainFlag::CONSTANT) {
-            if self.usage_max > self.usage_min {
-                let _ = write!(
-                    f,
-                    " usage {:04x} ({:04x}..{:04x})",
-                    self.usage_page.0, self.usage_min, self.usage_max
-                );
-            } else {
-                let _ = write!(f, " usage {:04x} {:04x}", self.usage_page.0, self.usage_min);
+        if self.report_size() > 0 {
+            let _ = write!(
+                f,
+                "{:?} size {} {}",
+                self.flag, self.report_size, self.report_count
+            );
+            if !self.flag.contains(HidReportMainFlag::CONSTANT) {
+                if self.usage_max > self.usage_min {
+                    let _ = write!(f, " usage {}..{}", self.usage_min, self.usage_max);
+                } else {
+                    let _ = write!(f, " usage {}", self.usage_min);
+                }
+                if self.flag.contains(HidReportMainFlag::RELATIVE) {
+                    let _ = write!(
+                        f,
+                        " log {}..{} phy {}..{}",
+                        self.logical_min as i32,
+                        self.logical_max as i32,
+                        self.physical_min as i32,
+                        self.physical_max as i32,
+                    );
+                } else {
+                    let _ = write!(
+                        f,
+                        " log {}..{} phy {}..{}",
+                        self.logical_min, self.logical_max, self.physical_min, self.physical_max
+                    );
+                }
             }
-            if self.flag.contains(HidReportMainFlag::RELATIVE) {
-                let _ = write!(
-                    f,
-                    " logical {}..{}",
-                    self.logical_min as i32, self.logical_max as i32
-                );
-            } else {
-                let _ = write!(f, " logical {}..{}", self.logical_min, self.logical_max);
+        } else {
+            let collection: HidReportCollectionType =
+                FromPrimitive::from_u32(self.physical_min).unwrap();
+            match self.physical_max {
+                1 => {
+                    let _ = write!(f, "END_COLLECTION {:?}", collection);
+                }
+                _ => {
+                    let _ = write!(f, "COLLECTION {:?}", collection);
+                }
             }
         }
 

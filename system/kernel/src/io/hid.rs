@@ -162,15 +162,15 @@ impl Into<char> for KeyEvent {
     }
 }
 
-/// USB HID BOOT Mouse Raw Report
-pub type MouseReportRaw = MouseReport<i8>;
-
 #[derive(Debug, Copy, Clone, Default)]
 pub struct MouseState {
     pub current_buttons: MouseButton,
     pub prev_buttons: MouseButton,
     pub x: isize,
     pub y: isize,
+    pub wheel: isize,
+    pub max_x: isize,
+    pub max_y: isize,
 }
 
 impl MouseState {
@@ -181,11 +181,14 @@ impl MouseState {
             prev_buttons: MouseButton::empty(),
             x: 0,
             y: 0,
+            wheel: 0,
+            max_x: 0,
+            max_y: 0,
         }
     }
 
     #[inline]
-    pub fn process_mouse_report<T>(&mut self, report: MouseReport<T>)
+    pub fn process_relative_report<T>(&mut self, report: MouseReport<T>)
     where
         T: Into<isize> + Copy,
     {
@@ -193,7 +196,19 @@ impl MouseState {
         self.current_buttons = report.buttons;
         self.x += report.x.into();
         self.y += report.y.into();
-        WindowManager::post_mouse_event(self);
+        WindowManager::post_relative_pointer(self);
+    }
+
+    #[inline]
+    pub fn process_absolute_report<T>(&mut self, report: MouseReport<T>)
+    where
+        T: Into<isize> + Copy,
+    {
+        self.prev_buttons = self.current_buttons;
+        self.current_buttons = report.buttons;
+        self.x = report.x.into();
+        self.y = report.y.into();
+        WindowManager::post_absolute_pointer(self);
     }
 }
 

@@ -456,14 +456,21 @@ impl Shell {
             );
 
             for config in device.configurations() {
-                println!(" CONFIG #{}", config.configuration_value().0);
+                let emptry = "".to_string();
+                println!(
+                    " CONFIG #{} {}",
+                    config.configuration_value().0,
+                    config.name().unwrap_or(&emptry),
+                );
                 for interface in config.interfaces() {
+                    let if_string =
+                        Self::find_usb_class_string(interface.class(), true).to_string();
                     println!(
                         "  INTERFACE #{}.{} class {:06x} {}",
                         interface.if_no().0,
                         interface.alternate_setting().0,
                         interface.class().0,
-                        Self::find_usb_class_string(interface.class(), true)
+                        interface.name().unwrap_or(&if_string),
                     );
                     for endpoint in interface.endpoints() {
                         println!(
@@ -645,7 +652,7 @@ impl Shell {
             (UsbClass::MIDI_STREAMING, "USB MIDI Streaming" ),
             (UsbClass::HID_BOOT_KEYBOARD, "HID Boot Keyboard" ),
             (UsbClass::HID_BOOT_MOUSE, "HID Boot Mouse" ),
-            (UsbClass::STORAGE_BULK, "Mass Storage Device" ),
+            (UsbClass::MSD_BULK_ONLY, "Mass Storage Device" ),
             (UsbClass::FLOPPY, "Floppy Drive"),
             (UsbClass::HUB_FS, "Full Speed Hub"),
             (UsbClass::HUB_HS_STT, "High Speed Hub"),

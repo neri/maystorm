@@ -150,7 +150,7 @@ impl System {
             smbios: None,
             boot_flags: BootFlags::empty(),
             main_screen: None,
-            em_console: EmConsole::new(FontManager::fixed_system_font()),
+            em_console: EmConsole::new(FontManager::preferred_console_font()),
             stdout: None,
             initrd_base: 0,
             initrd_size: 0,
