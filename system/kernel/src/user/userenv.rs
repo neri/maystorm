@@ -20,6 +20,7 @@ impl UserEnv {
         // loop {
         //     Timer::sleep(Duration::from_secs(1));
         // }
+
         WindowManager::set_desktop_color(Theme::shared().desktop_color());
         if true {
             if let Ok(mut file) = FileManager::open("wall.bmp") {
@@ -32,6 +33,7 @@ impl UserEnv {
             }
         }
         WindowManager::set_pointer_visible(true);
+        Timer::sleep(Duration::from_millis(500));
 
         Scheduler::spawn_async(Task::new(status_bar_main()));
         Scheduler::spawn_async(Task::new(activity_monitor_main()));
@@ -43,6 +45,7 @@ impl UserEnv {
 }
 
 async fn shell_launcher(f: fn()) {
+    Timer::sleep_async(Duration::from_millis(500)).await;
     {
         // Main Terminal
         let terminal = Terminal::new(80, 24);

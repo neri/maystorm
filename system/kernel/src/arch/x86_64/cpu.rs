@@ -989,37 +989,97 @@ impl InterruptVector {
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, FromPrimitive)]
 pub enum ExceptionType {
+    /// #DE
     DivideError = 0,
+    /// #DB
     Debug = 1,
+    /// NMI
     NonMaskable = 2,
+    /// #BP
     Breakpoint = 3,
+    /// #OF
     Overflow = 4,
     //Deprecated = 5,
+    /// #UD
     InvalidOpcode = 6,
+    /// #NM
     DeviceNotAvailable = 7,
+    /// #DF
     DoubleFault = 8,
     //Deprecated = 9,
+    /// #TS
     InvalidTss = 10,
+    /// #NP
     SegmentNotPresent = 11,
+    /// #SS
     StackException = 12,
+    /// #GP
     GeneralProtection = 13,
+    /// #PF
     PageFault = 14,
     //Unavailable = 15,
+    /// #MF
     FloatingPointException = 16,
+    /// #AC
     AlignmentCheck = 17,
+    /// #MC
     MachineCheck = 18,
+    /// #XM
     SimdException = 19,
+    /// #CE
     Virtualization = 20,
     //Reserved
+    /// #SX
     Security = 30,
     //Reserved = 31,
-    MaxReserved = 32,
+    MAX = 32,
 }
 
 impl ExceptionType {
     #[inline]
     pub const fn as_vec(self) -> InterruptVector {
         InterruptVector(self as u8)
+    }
+
+    #[inline]
+    pub const fn has_error_code(&self) -> bool {
+        match self {
+            ExceptionType::DoubleFault
+            | ExceptionType::InvalidTss
+            | ExceptionType::SegmentNotPresent
+            | ExceptionType::StackException
+            | ExceptionType::GeneralProtection
+            | ExceptionType::PageFault
+            | ExceptionType::AlignmentCheck
+            | ExceptionType::Security => true,
+            _ => false,
+        }
+    }
+
+    #[inline]
+    pub const fn mnemonic(&self) -> &'static str {
+        match self {
+            ExceptionType::DivideError => "#DE",
+            ExceptionType::Debug => "#DB",
+            ExceptionType::NonMaskable => "NMI",
+            ExceptionType::Breakpoint => "#BP",
+            ExceptionType::Overflow => "#OV",
+            ExceptionType::InvalidOpcode => "#UD",
+            ExceptionType::DeviceNotAvailable => "#NM",
+            ExceptionType::DoubleFault => "#DF",
+            ExceptionType::InvalidTss => "#TS",
+            ExceptionType::SegmentNotPresent => "#NP",
+            ExceptionType::StackException => "#SS",
+            ExceptionType::GeneralProtection => "#GP",
+            ExceptionType::PageFault => "#PF",
+            ExceptionType::FloatingPointException => "#MF",
+            ExceptionType::AlignmentCheck => "#AC",
+            ExceptionType::MachineCheck => "#MC",
+            ExceptionType::SimdException => "#XM",
+            ExceptionType::Virtualization => "#VE",
+            ExceptionType::Security => "#SX",
+            ExceptionType::MAX => "",
+        }
     }
 }
 
@@ -1270,7 +1330,7 @@ impl InterruptDescriptorTable {
 
     unsafe fn init() {
         Self::load();
-        for vec in 0..(ExceptionType::MaxReserved as u8) {
+        for vec in 0..(ExceptionType::MAX as u8) {
             let vec = InterruptVector(vec);
             let offset = asm_handle_exception(vec);
             if offset != 0 {
@@ -1374,6 +1434,7 @@ impl Msr {
 #[allow(dead_code)]
 #[repr(C)]
 pub(super) struct X64StackContext {
+    // xmm: [u128; 16],
     cr2: u64,
     _gs: u64,
     _fs: u64,
@@ -1456,6 +1517,7 @@ pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext)
         } else {
             System::em_console() as &mut dyn Tty
         };
+        stdout.set_attribute(0x0F);
         let ctx = ctx.as_ref().unwrap();
         let cpu = System::current_processor();
         let cs_desc = cpu.gdt.item(ctx.cs()).unwrap();
@@ -1481,8 +1543,8 @@ pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext)
                     _ => {
                         writeln!(
                             stdout,
-                            "\n#### {:?} err {:04x} EIP {:02x}:{:08x} ESP {:02x}:{:08x}",
-                            ex,
+                            "\n#### EXCEPTION {} err {:04x} EIP {:02x}:{:08x} ESP {:02x}:{:08x}",
+                            ex.mnemonic(),
                             ctx.error_code(),
                             ctx.cs().0,
                             ctx.rip & mask32,
@@ -1529,17 +1591,30 @@ pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext)
                         .unwrap();
                     }
                     _ => {
-                        writeln!(
-                            stdout,
-                            "\n#### {:?} err {:04x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
-                            ex,
-                            ctx.error_code(),
-                            ctx.cs().0,
-                            ctx.rip & va_mask,
-                            ctx.ss().0,
-                            ctx.rsp & va_mask,
-                        )
-                        .unwrap();
+                        if ex.has_error_code() {
+                            writeln!(
+                                stdout,
+                                "\n#### EXCEPTION {} err {:04x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
+                                ex.mnemonic(),
+                                ctx.error_code(),
+                                ctx.cs().0,
+                                ctx.rip & va_mask,
+                                ctx.ss().0,
+                                ctx.rsp & va_mask,
+                            )
+                            .unwrap();
+                        } else {
+                            writeln!(
+                                stdout,
+                                "\n#### EXCEPTION {} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
+                                ex.mnemonic(),
+                                ctx.cs().0,
+                                ctx.rip & va_mask,
+                                ctx.ss().0,
+                                ctx.rsp & va_mask,
+                            )
+                            .unwrap();
+                        }
                     }
                 }
 
@@ -1575,6 +1650,7 @@ rbp {:016x} r10 {:016x} r15 {:016x} gs {:04x}",
             }
         }
 
+        stdout.set_attribute(0x00);
         is_user
     });
 

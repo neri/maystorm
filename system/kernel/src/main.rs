@@ -622,12 +622,14 @@ impl Shell {
     fn find_usb_class_string(class: UsbClass, is_interface: bool) -> &'static str {
         #[rustfmt::skip]
         let base_class_entries = [
+            ( UsbBaseClass::COMPOSITE, 0x01, "USB Composite Device" ),
             ( UsbBaseClass::AUDIO, 0x02, "Audio Device" ),
             ( UsbBaseClass::COMM, 0x03, "Communication Device" ),
             ( UsbBaseClass::HID, 0x02, "Human Interface Device" ),
             ( UsbBaseClass::PRINTER, 0x02, "Printer" ),
             ( UsbBaseClass::STORAGE, 0x02, "Storage Device" ),
             ( UsbBaseClass::HUB, 0x01, "USB Hub" ),
+            ( UsbBaseClass::CDC_DATA, 0x02, "CDC Data"),
             ( UsbBaseClass::VIDEO, 0x02, "Video Device" ),
             ( UsbBaseClass::AUDIO_VIDEO, 0x02, "Audio/Video Device" ),
             ( UsbBaseClass::BILLBOARD, 0x01, "Billboard Device" ),
@@ -640,7 +642,6 @@ impl Shell {
 
         #[rustfmt::skip]
         let full_class_entries = [
-            (UsbClass::COMPOSITE, "USB Composite Device"),
             (UsbClass::MIDI_STREAMING, "USB MIDI Streaming" ),
             (UsbClass::HID_BOOT_KEYBOARD, "HID Boot Keyboard" ),
             (UsbClass::HID_BOOT_MOUSE, "HID Boot Mouse" ),

@@ -293,6 +293,11 @@ impl TtyWrite for Terminal {
     }
 
     fn set_attribute(&mut self, attribute: u8) {
+        let attribute = if attribute > 0 {
+            attribute
+        } else {
+            DEFAULT_ATTRIBUTE
+        };
         self.attribute = attribute;
         let (fg_color, bg_color) = Self::split_attr(attribute);
         self.fg_color = fg_color;

@@ -1,4 +1,4 @@
-//! XInput Class Driver
+//! XInput Class Driver (FF_5D_01)
 
 use super::super::*;
 use crate::{

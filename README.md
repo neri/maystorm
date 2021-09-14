@@ -1,6 +1,6 @@
 # MEG-OS codename Maystorm
 
-My first hobby OS written in Rust, one version of which is about 20,000 lines of code and supports multitasking, windows, WebAssembly runtime, and simple applications.
+My hobby operating system written in Rust, which Supports multitasking, multi-window, WebAssembly and simple applications.
 
 * [Documentation](https://meg-os.github.io/maystorm/kernel/)
 
@@ -14,11 +14,12 @@ My first hobby OS written in Rust, one version of which is about 20,000 lines of
 
 ### UEFI PC Platform
 
-* 64bit UEFI v2.X+ / ACPI v2.X+
+* 64bit UEFI v2.X+
+* ACPI v2.X+
+* SMBIOS v2.X+ (optional)
 * x64 processor with up to 64 cores
 * ??? MB of system memory
 * 800 x 600 pixel resolution
-* SMBIOS v2.X+ (optional)
 
 ## Build Environment
 
@@ -43,9 +44,14 @@ linker = "/opt/homebrew/opt/llvm/bin/ld.lld"
 
 ### To run on qemu
 
-```
-$ make run
-```
+1. Copy qemu's OVMF for x64 to `var/ovmfx64.fd`.
+2. Follow the build instructions to finish the installation.
+3. `make run`
+
+### To run on real hardware
+
+* Copy the files in the path `mnt/efi` created by the build to a USB memory stick and reboot your computer.
+* You may need to change settings such as SecureBoot.
 
 ## HOE: Haribote-OS Emulation Subsystem
 

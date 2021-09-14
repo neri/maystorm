@@ -43,6 +43,18 @@ impl fmt::Debug for UsbWord {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UsbVersion(pub u16);
 
+impl UsbVersion {
+    pub const USB1_0: Self = Self(0x0100);
+    pub const USB1_1: Self = Self(0x0110);
+    pub const USB2_0: Self = Self(0x0200);
+    pub const USB3_0: Self = Self(0x0300);
+    pub const USB3_1: Self = Self(0x0310);
+    pub const USB3_2: Self = Self(0x0320);
+
+    /// BOS descriptors are only supported for version number 0x0201 and above.
+    pub const BOS_MIN: Self = Self(0x0201);
+}
+
 impl fmt::Debug for UsbVersion {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let part1 = (self.0 >> 12) & 0x0F;
@@ -486,7 +498,7 @@ impl UsbDescriptor for UsbDeviceQualifierDescriptor {
     }
 }
 
-/// USB Decive Qualifier Descriptor
+/// BOS USB Binary Device Object Store Descriptor
 #[repr(C, packed)]
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
@@ -521,14 +533,16 @@ impl UsbDescriptor for UsbBinaryObjectStoreDescriptor {
     }
 }
 
+/// A type compatible with standard USB device capabilities
 pub trait UsbDeviceCapabilityDescriptor: UsbDescriptor {
     fn capability_type(&self) -> UsbDeviceCapabilityType;
 }
 
+/// USB Superspeed USB Device Capability
 #[repr(C, packed)]
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
-pub struct UsbSuperspeedUsbDeviceCapability {
+pub struct UsbSsDeviceCapability {
     bLength: u8,
     bDescriptorType: UsbDescriptorType,
     bDevCapabilityType: UsbDeviceCapabilityType,
@@ -539,7 +553,7 @@ pub struct UsbSuperspeedUsbDeviceCapability {
     wU2DevExitLat: UsbWord,
 }
 
-impl UsbSuperspeedUsbDeviceCapability {
+impl UsbSsDeviceCapability {
     #[inline]
     pub const fn u1_dev_exit_lat(&self) -> usize {
         self.bU1DevExitLat as usize
@@ -551,7 +565,7 @@ impl UsbSuperspeedUsbDeviceCapability {
     }
 }
 
-impl UsbDescriptor for UsbSuperspeedUsbDeviceCapability {
+impl UsbDescriptor for UsbSsDeviceCapability {
     #[inline]
     fn len(&self) -> usize {
         self.bLength as usize
@@ -563,13 +577,14 @@ impl UsbDescriptor for UsbSuperspeedUsbDeviceCapability {
     }
 }
 
-impl UsbDeviceCapabilityDescriptor for UsbSuperspeedUsbDeviceCapability {
+impl UsbDeviceCapabilityDescriptor for UsbSsDeviceCapability {
     #[inline]
     fn capability_type(&self) -> UsbDeviceCapabilityType {
         self.bDevCapabilityType
     }
 }
 
+/// USB Container Id capability
 #[repr(C, packed)]
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
@@ -847,8 +862,8 @@ impl UsbRouteString {
     pub const EMPTY: Self = Self(0);
     /// Since a valid Route String is 20 bits, a valid mask is 0xFFFFF.
     pub const VALID_MASK: u32 = 0xF_FFFF;
-    /// Max level is 5
-    pub const MAX_LEVEL: usize = 5;
+    /// Max depth is 5
+    pub const MAX_DEPTH: usize = 5;
 
     #[inline]
     pub const fn from_raw(raw: u32) -> Self {
@@ -866,7 +881,7 @@ impl UsbRouteString {
     }
 
     #[inline]
-    pub const fn level(&self) -> usize {
+    pub const fn depth(&self) -> usize {
         match self.0 {
             0 => 0,
             0x0_0001..=0x0_000F => 1,
@@ -879,10 +894,14 @@ impl UsbRouteString {
 
     #[inline]
     pub const fn appending(&self, component: UsbHubPortNumber) -> Result<Self, Self> {
+        let lpc = component.0.get() as u32;
+        if lpc > 15 {
+            return Err(*self);
+        }
         let raw = self.0;
-        let level = self.level();
-        if level < Self::MAX_LEVEL {
-            Ok(Self(raw | ((component.0.get() as u32) << (level * 4))))
+        let depth = self.depth();
+        if depth < Self::MAX_DEPTH {
+            Ok(Self(raw | (lpc << (depth * 4))))
         } else {
             Err(*self)
         }
@@ -920,6 +939,12 @@ impl UsbControlRequestBitmap {
     pub const GET_DEVICE: Self = Self(0x80);
     /// Host to device standard request
     pub const SET_DEVICE: Self = Self(0x00);
+
+    /// Device to host interface specific request
+    pub const GET_INTERFACE: Self = Self(0x81);
+    /// Host to device interface specific request
+    pub const SET_INTERFACE: Self = Self(0x01);
+
     /// Device to host class specific request
     pub const GET_CLASS: Self = Self(0xA0);
     /// Host to device class specific request
@@ -983,9 +1008,13 @@ impl UsbControlRequest {
 /// Protocol Speed Identifier
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
 pub enum PSIV {
+    /// USB1 FullSpeed 12Mbps
     FS = 1,
+    /// USB1 LowSpeed 1.5Mbps
     LS = 2,
+    /// USB2 HighSpeed 480Mbps
     HS = 3,
+    /// USB3 SuperSpeed 5Gbps
     SS = 4,
     PSIV5,
     PSIV6,
@@ -1039,7 +1068,7 @@ pub struct Usb3ExitLatencyValues {
 
 impl Usb3ExitLatencyValues {
     #[inline]
-    pub const fn from_ss_dev_cap(ss_dev_cap: &UsbSuperspeedUsbDeviceCapability) -> Self {
+    pub const fn from_ss_dev_cap(ss_dev_cap: &UsbSsDeviceCapability) -> Self {
         Self {
             u1sel: ss_dev_cap.bU1DevExitLat,
             u1pel: ss_dev_cap.bU1DevExitLat,

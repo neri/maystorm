@@ -1,4 +1,4 @@
-//! USB HID Class Driver
+//! USB HID Class Driver (03_xx_xx)
 
 use super::super::*;
 use crate::{
@@ -38,25 +38,12 @@ impl UsbInterfaceDriverStarter for UsbHidStarter {
             return false;
         }
 
-        let mut report_desc = None;
-        for report in interface.hid_reports() {
-            if report.0 == UsbDescriptorType::HidReport {
+        let report_desc = match interface.hid_reports_by(UsbDescriptorType::HidReport) {
+            Some(v) => {
                 let mut vec = Vec::new();
-                UsbHidDriver::get_report_desc(
-                    &device,
-                    if_no,
-                    report.0,
-                    0,
-                    report.1 as usize,
-                    &mut vec,
-                )
-                .unwrap();
-                report_desc = Some(vec);
-                break;
+                vec.extend_from_slice(v);
+                vec.into_boxed_slice()
             }
-        }
-        let report_desc = match report_desc {
-            Some(v) => v.into_boxed_slice(),
             None => Box::new([]),
         };
 
@@ -235,30 +222,6 @@ impl UsbHidDriver {
             .map(|_| ())
     }
 
-    pub fn get_report_desc(
-        device: &UsbDevice,
-        if_no: UsbInterfaceNumber,
-        report_type: UsbDescriptorType,
-        report_id: u8,
-        len: usize,
-        vec: &mut Vec<u8>,
-    ) -> Result<(), UsbError> {
-        match device.host().control(UsbControlSetupData {
-            bmRequestType: UsbControlRequestBitmap(0x81),
-            bRequest: UsbControlRequest::GET_DESCRIPTOR,
-            wValue: (report_type as u16) * 256 + (report_id as u16),
-            wIndex: if_no.0 as u16,
-            wLength: len as u16,
-        }) {
-            Ok(result) => {
-                vec.resize(result.len(), 0);
-                vec.copy_from_slice(result);
-                Ok(())
-            }
-            Err(err) => Err(err),
-        }
-    }
-
     pub fn get_report(
         device: &UsbDevice,
         if_no: UsbInterfaceNumber,
@@ -349,10 +312,10 @@ impl UsbHidDriver {
         })
     }
 
-    fn parse_report(report_desc: &[u8]) -> Result<HidParsedReport, usize> {
-        let mut parsed_report = HidParsedReport::new();
+    fn parse_report(report_desc: &[u8]) -> Result<ParsedReport, usize> {
+        let mut parsed_report = ParsedReport::new();
 
-        let mut current_app = HidParsedReportApplication::empty();
+        let mut current_app = ParsedReportApplication::empty();
         let mut collection_ctx = Vec::new();
 
         let mut reader = HidReporteReader::new(report_desc);
@@ -376,17 +339,17 @@ impl UsbHidDriver {
             match tag {
                 HidReportItemTag::Input => {
                     let flag = HidReportMainFlag::from_bits_truncate(param.usize());
-                    HidParsedReportEntry::parse(&mut current_app.inputs, flag, &global, &local);
+                    ParsedReportEntry::parse(&mut current_app.inputs, flag, &global, &local);
                     local.reset();
                 }
                 HidReportItemTag::Output => {
                     let flag = HidReportMainFlag::from_bits_truncate(param.usize());
-                    HidParsedReportEntry::parse(&mut current_app.outputs, flag, &global, &local);
+                    ParsedReportEntry::parse(&mut current_app.outputs, flag, &global, &local);
                     local.reset();
                 }
                 HidReportItemTag::Feature => {
                     let flag = HidReportMainFlag::from_bits_truncate(param.usize());
-                    HidParsedReportEntry::parse(&mut current_app.features, flag, &global, &local);
+                    ParsedReportEntry::parse(&mut current_app.features, flag, &global, &local);
                     local.reset();
                 }
 
@@ -482,13 +445,13 @@ impl UsbHidDriver {
 }
 
 #[derive(Debug)]
-pub struct HidParsedReport {
+pub struct ParsedReport {
     report_ids: Vec<u8>,
-    primary: Option<HidParsedReportApplication>,
-    tagged: BTreeMap<u8, HidParsedReportApplication>,
+    primary: Option<ParsedReportApplication>,
+    tagged: BTreeMap<u8, ParsedReportApplication>,
 }
 
-impl HidParsedReport {
+impl ParsedReport {
     #[inline]
     pub const fn new() -> Self {
         Self {
@@ -504,21 +467,21 @@ impl HidParsedReport {
     }
 
     #[inline]
-    pub fn app_by_report_id(&self, report_id: u8) -> Option<&HidParsedReportApplication> {
+    pub fn app_by_report_id(&self, report_id: u8) -> Option<&ParsedReportApplication> {
         self.tagged.get(&report_id)
     }
 }
 
 #[derive(Clone)]
-pub struct HidParsedReportApplication {
+pub struct ParsedReportApplication {
     report_id: u8,
     usage: HidUsage,
-    inputs: Vec<HidParsedReportEntry>,
-    outputs: Vec<HidParsedReportEntry>,
-    features: Vec<HidParsedReportEntry>,
+    inputs: Vec<ParsedReportEntry>,
+    outputs: Vec<ParsedReportEntry>,
+    features: Vec<ParsedReportEntry>,
 }
 
-impl HidParsedReportApplication {
+impl ParsedReportApplication {
     #[inline]
     pub const fn empty() -> Self {
         Self {
@@ -544,7 +507,7 @@ impl HidParsedReportApplication {
 }
 
 #[derive(Clone, Copy)]
-pub struct HidParsedReportEntry {
+pub struct ParsedReportEntry {
     flag: HidReportMainFlag,
     report_size: u8,
     report_count: u8,
@@ -555,9 +518,9 @@ pub struct HidParsedReportEntry {
     logical_max: u32,
 }
 
-impl HidParsedReportEntry {
+impl ParsedReportEntry {
     pub fn parse(
-        vec: &mut Vec<HidParsedReportEntry>,
+        vec: &mut Vec<ParsedReportEntry>,
         flag: HidReportMainFlag,
         global: &HidReportGlobalState,
         local: &HidReportLocalState,
@@ -638,7 +601,7 @@ impl HidParsedReportEntry {
     }
 }
 
-impl core::fmt::Debug for HidParsedReportApplication {
+impl core::fmt::Debug for ParsedReportApplication {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let _ = writeln!(
             f,
@@ -662,7 +625,7 @@ impl core::fmt::Debug for HidParsedReportApplication {
     }
 }
 
-impl core::fmt::Debug for HidParsedReportEntry {
+impl core::fmt::Debug for ParsedReportEntry {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let _ = write!(
             f,

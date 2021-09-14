@@ -1,4 +1,4 @@
-//! USB Hub Class Driver
+//! USB Hub Class Driver (09_xx_xx)
 
 use super::super::*;
 use crate::{
@@ -267,7 +267,7 @@ impl Usb3HubDriver {
                     return;
                 }
             };
-        let ss_dev_cap = match device.ss_dev_cap() {
+        let ss_dev_cap = match device.bos().ss_dev_cap() {
             Some(v) => v,
             None => {
                 // TODO:

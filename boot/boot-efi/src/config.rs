@@ -19,9 +19,6 @@ pub struct BootSettings {
     force_single: bool,
 
     #[serde(default)]
-    aslr: bool,
-
-    #[serde(default)]
     headless: bool,
 
     #[serde(default)]
