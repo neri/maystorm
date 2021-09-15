@@ -11,6 +11,7 @@ use core::{
     cell::UnsafeCell,
     mem::{size_of, MaybeUninit},
     num::NonZeroU8,
+    ops::ControlFlow,
     pin::Pin,
     slice,
     sync::atomic::*,
@@ -273,9 +274,7 @@ impl UsbDevice {
     fn new(addr: UsbDeviceAddress, host: Arc<dyn UsbHostInterface>) -> Result<Self, UsbError> {
         if host.speed() == PSIV::FS {
             // FullSpeed devices have to read the first 8 bytes of the device descriptor first and re-set the maximum packet size.
-            let mut max_packet_size = 0;
-            for _ in 0..5 {
-                Timer::sleep(Duration::from_millis(50));
+            match (0..5).try_for_each(|_| {
                 let mut packet = [0; 8];
                 match Self::control_slice(
                     &host,
@@ -288,17 +287,22 @@ impl UsbDevice {
                     },
                     &mut packet,
                 ) {
-                    Ok(_) => {
-                        max_packet_size = packet[7] as usize;
-                        break;
+                    Ok(_) => ControlFlow::Break(packet[7] as usize),
+                    Err(err) => {
+                        Timer::sleep(Duration::from_millis(50));
+                        ControlFlow::CONTINUE
                     }
-                    Err(_) => (),
+                }
+            }) {
+                ControlFlow::Continue(_) => {
+                    log!("FS DEVICE {} PACKET ERROR", addr.0);
+                    return Err(UsbError::InvalidDescriptor);
+                }
+                ControlFlow::Break(max_packet_size) => {
+                    let _ = host.set_max_packet_size(max_packet_size);
+                    Timer::sleep(Duration::from_millis(50));
                 }
             }
-            if max_packet_size > 0 {
-                let _ = host.set_max_packet_size(max_packet_size);
-            }
-            Timer::sleep(Duration::from_millis(10));
         }
 
         let device_desc: UsbDeviceDescriptor =
@@ -451,7 +455,8 @@ impl UsbDevice {
                         ) {
                             Ok(_) => (),
                             Err(_err) => {
-                                return Err(UsbError::InvalidDescriptor);
+                                // log!("ERR HID {:02x} {:?}", report_type as usize, _err);
+                                // return Err(UsbError::InvalidDescriptor);
                             }
                         };
                         current_interface.hid_reports.insert(report_type, vec);
@@ -698,14 +703,38 @@ impl UsbDevice {
         unsafe { host.control(setup).map(|_| ()) }
     }
 
+    pub fn control_var(
+        host: &Arc<dyn UsbHostInterface>,
+        mut setup: UsbControlSetupData,
+        vec: &mut Vec<u8>,
+        min_len: usize,
+        max_len: usize,
+    ) -> Result<(), UsbError> {
+        vec.resize(0, 0);
+        setup.wLength = max_len as u16;
+        unsafe { host.control(setup) }.and_then(|p| {
+            if p.len() >= min_len {
+                vec.extend_from_slice(p);
+                Ok(())
+            } else {
+                Err(UsbError::ShortPacket)
+            }
+        })
+    }
+
     pub fn control_vec(
         host: &Arc<dyn UsbHostInterface>,
         setup: UsbControlSetupData,
         vec: &mut Vec<u8>,
     ) -> Result<(), UsbError> {
         vec.resize(0, 0);
-        unsafe { host.control(setup) }.map(|p| {
-            vec.extend_from_slice(p);
+        unsafe { host.control(setup) }.and_then(|p| {
+            if p.len() == setup.wLength as usize {
+                vec.extend_from_slice(p);
+                Ok(())
+            } else {
+                Err(UsbError::ShortPacket)
+            }
         })
     }
 
@@ -715,9 +744,9 @@ impl UsbDevice {
         data: &mut [u8],
     ) -> Result<(), UsbError> {
         setup.wLength = data.len() as u16;
-        unsafe { host.control(setup) }.and_then(|v| {
-            if v.len() == data.len() {
-                data.copy_from_slice(v);
+        unsafe { host.control(setup) }.and_then(|p| {
+            if p.len() == data.len() {
+                data.copy_from_slice(p);
                 Ok(())
             } else {
                 Err(UsbError::ShortPacket)
@@ -884,25 +913,18 @@ impl UsbDevice {
         host: &Arc<dyn UsbHostInterface>,
         index: NonZeroU8,
     ) -> Result<String, UsbError> {
-        let mut setup = UsbControlSetupData {
-            bmRequestType: UsbControlRequestBitmap::GET_DEVICE,
-            bRequest: UsbControlRequest::GET_DESCRIPTOR,
-            wValue: (UsbDescriptorType::String as u16) << 8 | index.get() as u16,
-            wIndex: 0,
-            wLength: 8,
-        };
+        let setup = UsbControlSetupData::request(
+            UsbControlRequestBitmap::GET_DEVICE,
+            UsbControlRequest::GET_DESCRIPTOR,
+        )
+        .value((UsbDescriptorType::String as u16) << 8 | index.get() as u16);
 
         let mut vec = Vec::new();
-        Self::control_vec(host, setup, &mut vec)?;
-
-        if vec[0] > 8 {
-            setup.wLength = vec[0] as u16;
-            Self::control_vec(host, setup, &mut vec)?;
-        };
-
+        Self::control_var(host, setup, &mut vec, 4, 255)?;
         if vec[1] != UsbDescriptorType::String as u8 {
             return Err(UsbError::InvalidDescriptor);
         }
+
         let len = vec[0] as usize / 2 - 1;
         let vec = unsafe { slice::from_raw_parts(&vec[2] as *const _ as *const u16, len) };
         String::from_utf16(vec).map_err(|_| UsbError::InvalidDescriptor)

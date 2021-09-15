@@ -99,7 +99,7 @@ impl FontManager {
 
     #[inline]
     pub const fn preferred_console_font() -> &'static FixedFontDriver<'static> {
-        &SMALL_FONT
+        &SYSTEM_FONT
     }
 
     #[inline]

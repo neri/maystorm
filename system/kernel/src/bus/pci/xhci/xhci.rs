@@ -231,8 +231,6 @@ impl Xhci {
         while self.opr.status().contains(UsbSts::HCH) {
             Timer::sleep(Duration::from_millis(10));
         }
-
-        log!("XHCI Started");
     }
 
     fn dcbaa(&self) -> &'static mut [u64] {
@@ -311,7 +309,7 @@ impl Xhci {
     ) -> Option<NonNullPhysicalAddress> {
         if let Some(index) = self.find_ep_ring(slot_id, dci) {
             let ctx = &mut self.ring_context.write().unwrap()[index];
-            ctx.reset();
+            ctx.clear();
             return ctx.tr_value();
         }
         for ctx in self.ring_context.write().unwrap().iter_mut() {
@@ -371,7 +369,7 @@ impl Xhci {
         let ctx = &mut self.ring_context.write().unwrap()[index];
 
         let tr_base = ctx.tr_base();
-        let tr = MemoryManager::direct_map(tr_base) as *const Trb as *mut Trb;
+        let tr = MemoryManager::direct_map(tr_base) as *mut Trb;
         let mut index = ctx.index;
 
         let scheduled_trb = ScheduledTrb(tr_base + (size_of::<Trb>() * index) as u64);
@@ -443,19 +441,20 @@ impl Xhci {
             } else {
                 TrbTranfserType::NoData
             };
+            let dir = trt == TrbTranfserType::ControlIn;
             let dci = Some(DCI::CONTROL);
             let slot_id = Some(slot_id);
+
             let setup_trb = TrbSetupStage::new(trt, setup);
             self.issue_trb(None, &setup_trb, slot_id, dci, false);
 
-            let dir = trt == TrbTranfserType::ControlIn;
             if setup.wLength > 0 {
-                let data_trb = TrbDataStage::new(buffer, setup.wLength as usize, dir, true);
+                let data_trb = TrbDataStage::new(buffer, setup.wLength as usize, dir, false);
                 self.issue_trb(None, &data_trb, slot_id, dci, false);
             }
 
             let xrb = self.allocate_xrb().unwrap();
-            let status_trb = TrbStatusStage::new(!dir, true);
+            let status_trb = TrbStatusStage::new(!dir);
             self.issue_trb(Some(xrb), &status_trb, slot_id, dci, true);
 
             xrb.wait();
@@ -466,16 +465,26 @@ impl Xhci {
             };
             xrb.dispose();
             match result {
-                Some(result) => {
-                    if result.completion_code() == Some(TrbCompletionCode::SUCCESS) {
+                Some(result) => match result.completion_code() {
+                    Some(TrbCompletionCode::SUCCESS) => {
                         Ok(setup.wLength as usize - result.transfer_length())
-                    } else {
+                    }
+                    Some(TrbCompletionCode::STALL) => {
+                        let _ = self.reset_endpoint(slot_id.unwrap(), dci.unwrap());
                         Err(result)
                     }
-                }
+                    Some(_) => Err(result),
+                    None => Err(TrbTxe::empty()),
+                },
                 None => Err(TrbTxe::empty()),
             }
         })
+    }
+
+    #[inline]
+    pub fn reset_endpoint(&self, slot_id: SlotId, dci: DCI) -> Result<TrbCce, TrbCce> {
+        let trb = TrbResetEndpointCommand::new(slot_id, dci);
+        self.execute_command(&trb)
     }
 
     pub fn configure_endpoint(
@@ -833,21 +842,77 @@ impl Xhci {
                 }
             };
             match event {
+                TrbEvent::TransferEvent(event) => {
+                    let event_trb = ScheduledTrb(event.ptr());
+                    // log!(
+                    //     "TRANSFER EVENT {:?} {:?}",
+                    // unsafe { event_trb.peek().trb_type() },
+                    // event.completion_code(),
+                    // );
+                    if let Some(xrb) = self.find_xrb(event_trb, Some(XrbState::Scheduled)) {
+                        xrb.set_response(event.as_common_trb());
+                    } else if event.completion_code() == Some(TrbCompletionCode::STALL) {
+                        // If a STALL error occurs in the control transfer DATA stage
+                        let next_trb = unsafe {
+                            let next_trb = event_trb.next();
+                            if next_trb.peek().trb_type() != Some(TrbType::LINK) {
+                                next_trb
+                            } else {
+                                todo!()
+                            }
+                        };
+                        if let Some(xrb) = self.find_xrb(next_trb, Some(XrbState::Scheduled)) {
+                            if unsafe {
+                                event_trb.peek().trb_type() == Some(TrbType::DATA)
+                                    && next_trb.peek().trb_type() == Some(TrbType::STATUS)
+                            } {
+                                log!(
+                                    "FIXED STALL {:?} {:?} {:?}",
+                                    event.slot_id(),
+                                    unsafe { event_trb.peek().trb_type() },
+                                    event.completion_code(),
+                                );
+
+                                unsafe {
+                                    event_trb.peek().set_trb_type(TrbType::NOP);
+                                    next_trb.peek().set_trb_type(TrbType::NOP);
+                                }
+                                xrb.set_response(event.as_common_trb());
+                            } else {
+                                todo!()
+                            }
+                        } else {
+                            todo!()
+                        }
+                    } else {
+                        // Replaced NOP is no operation
+                        if unsafe { event_trb.peek() }.trb_type() != Some(TrbType::NOP) {
+                            log!(
+                                "UNKNOWN TRB {:?} {:?} {:?}",
+                                event.slot_id(),
+                                unsafe { event_trb.peek().trb_type() },
+                                event.completion_code(),
+                            );
+                            todo!()
+                        }
+                    }
+                }
                 TrbEvent::CommandCompletion(event) => {
                     let scheduled_trb = ScheduledTrb(event.ptr());
+                    // log!(
+                    //     "COMMAND COMPLETION {:?} {:?}",
+                    // unsafe { event_trb.peek().trb_type() },
+                    // event.completion_code(),
+                    // );
                     if let Some(xrb) = self.find_xrb(scheduled_trb, Some(XrbState::Scheduled)) {
                         xrb.set_response(event.as_common_trb());
+                    } else {
+                        todo!()
                     }
                 }
                 TrbEvent::PortStatusChange(event) => {
                     let port_id = event.port_id().unwrap();
                     self.port_status_change_queue.post(port_id).unwrap();
-                }
-                TrbEvent::TransferEvent(event) => {
-                    let scheduled_trb = ScheduledTrb(event.ptr());
-                    if let Some(xrb) = self.find_xrb(scheduled_trb, Some(XrbState::Scheduled)) {
-                        xrb.set_response(event.as_common_trb());
-                    }
                 }
             }
             drop(event)
@@ -928,7 +993,6 @@ impl PciDriver for Xhci {
 
 struct EpRingContext {
     tr_base: PhysicalAddress,
-    response: Trb,
     slot_id: Option<SlotId>,
     dci: Option<DCI>,
     index: usize,
@@ -942,7 +1006,6 @@ impl EpRingContext {
     const fn new() -> Self {
         Self {
             tr_base: 0,
-            response: Trb::new(TrbType::RESERVED),
             slot_id: None,
             dci: None,
             index: 0,
@@ -981,14 +1044,13 @@ impl EpRingContext {
     }
 
     #[inline]
-    pub fn reset(&mut self) {
+    pub fn clear(&mut self) {
         if self.tr_base != 0 {
             unsafe {
                 let p = MemoryManager::direct_map(self.tr_base) as *const c_void as *mut c_void;
                 p.write_bytes(0, Self::size());
             }
         }
-        self.response = Trb::new(TrbType::RESERVED);
         self.pcs.reset();
         self.index = 0;
     }
@@ -1008,6 +1070,19 @@ impl EpRingContext {
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ScheduledTrb(pub u64);
+
+impl ScheduledTrb {
+    #[inline]
+    pub fn next(&self) -> Self {
+        Self(self.0 + size_of::<Trb>() as u64)
+    }
+
+    #[inline]
+    pub unsafe fn peek(&self) -> &mut Trb {
+        let p = MemoryManager::direct_map(self.0) as usize as *mut Trb;
+        &mut *p
+    }
+}
 
 pub struct XhciRequestBlock {
     state: AtomicUsize,

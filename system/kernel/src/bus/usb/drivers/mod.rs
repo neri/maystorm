@@ -11,12 +11,12 @@ pub(super) fn install_drivers(
     // TODO: Device Specific Drivers
     let _ = specific_drivers;
 
-    // ## Class Drivers
+    // ## Device Class Drivers
 
     // 09_xx_xx HUB
     class_drivers.push(usb_hub::UsbHubStarter::new());
 
-    // ## Interface Drivers
+    // ## Interface Class Drivers
 
     // 03_xx_xx HID
     interface_drivers.push(usb_hid::UsbHidStarter::new());

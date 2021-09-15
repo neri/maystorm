@@ -930,6 +930,40 @@ pub struct UsbControlSetupData {
     pub wLength: u16,
 }
 
+impl UsbControlSetupData {
+    #[inline]
+    pub const fn request(
+        request_type: UsbControlRequestBitmap,
+        request: UsbControlRequest,
+    ) -> Self {
+        Self {
+            bmRequestType: request_type,
+            bRequest: request,
+            wValue: 0,
+            wIndex: 0,
+            wLength: 0,
+        }
+    }
+
+    #[inline]
+    pub const fn value(mut self, value: u16) -> Self {
+        self.wValue = value;
+        self
+    }
+
+    #[inline]
+    pub const fn index(mut self, index: u16) -> Self {
+        self.wIndex = index;
+        self
+    }
+
+    #[inline]
+    pub const fn length(mut self, length: u16) -> Self {
+        self.wLength = length;
+        self
+    }
+}
+
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UsbControlRequestBitmap(pub u8);

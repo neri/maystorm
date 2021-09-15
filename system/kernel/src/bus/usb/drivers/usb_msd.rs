@@ -54,6 +54,25 @@ impl UsbMsdDriver {
         ep: UsbEndpointAddress,
         ps: u16,
     ) {
-        // todo!()
+        let device = UsbManager::device_by_addr(addr).unwrap();
+
+        let max_lun = Self::get_max_lun(&device, if_no).unwrap();
+        log!("MAX_LUN {}", max_lun);
+    }
+
+    fn get_max_lun(device: &UsbDevice, if_no: UsbInterfaceNumber) -> Result<u8, UsbError> {
+        let mut result = [0; 1];
+        UsbDevice::control_slice(
+            &device.host(),
+            UsbControlSetupData {
+                bmRequestType: UsbControlRequestBitmap(0xA1),
+                bRequest: UsbControlRequest(0xFE),
+                wValue: 0,
+                wIndex: if_no.0 as u16,
+                wLength: 1,
+            },
+            &mut result,
+        )
+        .map(|_| result[0])
     }
 }
