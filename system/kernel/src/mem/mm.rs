@@ -134,6 +134,11 @@ impl MemoryManager {
     }
 
     #[inline]
+    pub unsafe fn invalidate_cache(p: usize) {
+        PageManager::invalidate_cache(p);
+    }
+
+    #[inline]
     pub fn page_size_min(&self) -> usize {
         self.page_size_min
     }

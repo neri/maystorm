@@ -136,6 +136,15 @@ impl HidUsage {
     pub const DOCKABLE_DEVICE_DISPLAY_OCCULUSION: Self = Self::generic(0x00D5);
     pub const DOCKABLE_DEVICE_OBJECT_TYPE: Self = Self::generic(0x00D6);
 
+    pub const BUTTON_1: Self = Self::button(1);
+    pub const BUTTON_2: Self = Self::button(2);
+    pub const BUTTON_3: Self = Self::button(3);
+    pub const BUTTON_4: Self = Self::button(4);
+    pub const BUTTON_5: Self = Self::button(5);
+    pub const BUTTON_6: Self = Self::button(6);
+    pub const BUTTON_7: Self = Self::button(7);
+    pub const BUTTON_8: Self = Self::button(8);
+
     pub const CONSUMER_CONTROL: Self = Self::consumer(0x0001);
     pub const NUMERIC_KEY_PAD: Self = Self::consumer(0x0002);
     pub const PROGRAMMABLE_BUTTONS: Self = Self::consumer(0x0003);
@@ -664,6 +673,28 @@ bitflags! {
         const VOLATILE          = 0x0080;
         /// Bit field / Buffered Bytes
         const BUFFERED_BYTES    = 0x0100;
+    }
+}
+
+impl HidReportMainFlag {
+    #[inline]
+    pub fn is_const(&self) -> bool {
+        self.contains(Self::CONSTANT)
+    }
+
+    #[inline]
+    pub fn is_array(&self) -> bool {
+        !self.is_variable()
+    }
+
+    #[inline]
+    pub fn is_variable(&self) -> bool {
+        self.contains(Self::VARIABLE)
+    }
+
+    #[inline]
+    pub fn is_relative(&self) -> bool {
+        self.contains(Self::RELATIVE)
     }
 }
 

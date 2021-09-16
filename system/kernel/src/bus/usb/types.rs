@@ -958,6 +958,11 @@ impl UsbControlSetupData {
     }
 
     #[inline]
+    pub const fn index_if(self, if_no: UsbInterfaceNumber) -> Self {
+        self.index(if_no.0 as u16)
+    }
+
+    #[inline]
     pub const fn length(mut self, length: u16) -> Self {
         self.wLength = length;
         self

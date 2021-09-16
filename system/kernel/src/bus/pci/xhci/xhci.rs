@@ -380,6 +380,7 @@ impl Xhci {
         unsafe {
             let p = tr.add(index);
             (&*p).copy_from(trb, ctx.pcs());
+            MemoryManager::invalidate_cache(p as usize);
         }
         index += 1;
         if index == Xhci::MAX_TR_INDEX - 1 {
@@ -387,6 +388,7 @@ impl Xhci {
             unsafe {
                 let p = tr.add(index);
                 (&*p).copy_from(&trb_link, ctx.pcs());
+                MemoryManager::invalidate_cache(p as usize);
             }
 
             index = 0;
@@ -594,7 +596,7 @@ impl Xhci {
         let slot = input_context.slot();
         slot.set_is_hub(true);
         slot.set_num_ports(hub_desc.num_ports());
-        slot.set_max_exit_latency(max_exit_latency);
+        // slot.set_max_exit_latency(max_exit_latency);
 
         let trb = TrbEvaluateContextCommand::new(slot_id, input_context.raw_data());
         match self.execute_command(&trb) {
@@ -888,10 +890,11 @@ impl Xhci {
                         // Replaced NOP is no operation
                         if unsafe { event_trb.peek() }.trb_type() != Some(TrbType::NOP) {
                             log!(
-                                "UNKNOWN TRB {:?} {:?} {:?}",
+                                "UNKNOWN TRB {:?} {:?} {:?} {:016x}",
                                 event.slot_id(),
                                 unsafe { event_trb.peek().trb_type() },
                                 event.completion_code(),
+                                event.ptr(),
                             );
                             todo!()
                         }

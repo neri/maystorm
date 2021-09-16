@@ -47,10 +47,7 @@ impl UsbInterfaceDriverStarter for XInputStarter {
         let endpoint = interface.endpoints().first().unwrap();
         let ep = endpoint.address();
         let ps = endpoint.descriptor().max_packet_size();
-        device
-            .host()
-            .configure_endpoint(endpoint.descriptor())
-            .unwrap();
+        device.configure_endpoint(endpoint.descriptor()).unwrap();
 
         UsbManager::register_xfer_task(Task::new(XInputDriver::_xinput_task(
             addr, if_no, ep, class, ps,

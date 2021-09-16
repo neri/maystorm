@@ -32,10 +32,7 @@ impl UsbInterfaceDriverStarter for UsbMsdStarter {
         let ep = endpoint.address();
         let ps = endpoint.descriptor().max_packet_size();
 
-        device
-            .host()
-            .configure_endpoint(endpoint.descriptor())
-            .unwrap();
+        device.configure_endpoint(endpoint.descriptor()).unwrap();
 
         UsbManager::register_xfer_task(Task::new(UsbMsdDriver::_usb_msd_task(addr, if_no, ep, ps)));
 
@@ -62,17 +59,16 @@ impl UsbMsdDriver {
 
     fn get_max_lun(device: &UsbDevice, if_no: UsbInterfaceNumber) -> Result<u8, UsbError> {
         let mut result = [0; 1];
-        UsbDevice::control_slice(
-            &device.host(),
-            UsbControlSetupData {
-                bmRequestType: UsbControlRequestBitmap(0xA1),
-                bRequest: UsbControlRequest(0xFE),
-                wValue: 0,
-                wIndex: if_no.0 as u16,
-                wLength: 1,
-            },
-            &mut result,
-        )
-        .map(|_| result[0])
+        device
+            .control_slice(
+                UsbControlSetupData::request(
+                    UsbControlRequestBitmap(0xA1),
+                    UsbControlRequest(0xFE),
+                )
+                .index_if(if_no)
+                .length(1),
+                &mut result,
+            )
+            .map(|_| result[0])
     }
 }

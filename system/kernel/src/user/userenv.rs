@@ -10,9 +10,7 @@ use megstd::drawing::img::*;
 use megstd::drawing::*;
 use megstd::string::*;
 
-pub struct UserEnv {
-    _phantom: (),
-}
+pub struct UserEnv;
 
 impl UserEnv {
     pub fn start(f: fn()) {
@@ -33,7 +31,7 @@ impl UserEnv {
             }
         }
         WindowManager::set_pointer_visible(true);
-        Timer::sleep(Duration::from_millis(500));
+        // Timer::sleep(Duration::from_millis(500));
 
         Scheduler::spawn_async(Task::new(status_bar_main()));
         Scheduler::spawn_async(Task::new(activity_monitor_main()));
@@ -45,7 +43,7 @@ impl UserEnv {
 }
 
 async fn shell_launcher(f: fn()) {
-    Timer::sleep_async(Duration::from_millis(500)).await;
+    // Timer::sleep_async(Duration::from_millis(500)).await;
     {
         // Main Terminal
         let terminal = Terminal::new(80, 24);
@@ -440,7 +438,7 @@ async fn notification_main() {
 #[allow(dead_code)]
 async fn test_window_main() {
     let width = 320;
-    let height = 480;
+    let height = 240;
     let window = WindowBuilder::new()
         .size(Size::new(width, height))
         .bg_color(Color::from_argb(0x80FFFFFF))

@@ -2,14 +2,13 @@
 
 use super::data::*;
 use crate::{
-    arch::page::{PageManager, PhysicalAddress},
     bus::usb::*,
-    mem::MemoryManager,
+    mem::{MemoryManager, PhysicalAddress},
 };
 use bitflags::*;
 use core::{
     ffi::c_void,
-    intrinsics::size_of,
+    mem::size_of,
     mem::transmute,
     num::{NonZeroU64, NonZeroU8, NonZeroUsize},
     ops::Deref,
@@ -448,14 +447,14 @@ pub struct InterrupterRegisterSet {
 }
 
 impl InterrupterRegisterSet {
-    pub const SIZE_EVENT_RING: usize = 64;
+    pub const SIZE_EVENT_RING: usize = MemoryManager::PAGE_SIZE_MIN / size_of::<Trb>();
 
     pub unsafe fn init(&self, initial_dp: PhysicalAddress) {
         let base = MemoryManager::alloc_pages(MemoryManager::PAGE_SIZE_MIN)
             .unwrap()
             .get() as u64;
         let erst =
-            PageManager::direct_map(base) as *const c_void as *mut EventRingSegmentTableEntry;
+            MemoryManager::direct_map(base) as *const c_void as *mut EventRingSegmentTableEntry;
         *erst = EventRingSegmentTableEntry::new(initial_dp, Self::SIZE_EVENT_RING as u16);
         self.erstsz.store(1, Ordering::SeqCst);
         self.erdp.store(initial_dp, Ordering::SeqCst);
@@ -470,7 +469,10 @@ impl InterrupterRegisterSet {
     pub fn dequeue_event<'a>(&'a self, event_cycle: &'a CycleBit) -> Option<EventRingGuard<'a>> {
         let erdp = self.erdp.load(Ordering::SeqCst);
         let cycle = event_cycle.value();
-        let erdp_va = PageManager::direct_map(erdp & !15) as *const Trb;
+        let erdp_va = MemoryManager::direct_map(erdp & !15) as *const Trb;
+        unsafe {
+            MemoryManager::invalidate_cache(erdp_va as usize);
+        }
         let event = unsafe { &*erdp_va };
         if event.cycle_bit() == cycle {
             Some(EventRingGuard {
