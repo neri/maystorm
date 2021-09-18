@@ -1,8 +1,10 @@
 //! Universal Serial Bus
 //!
+//! ```text
 //!   ┏━○
 //! ○┻┳━|＞
 //! ┗■
+//! ```
 
 mod types;
 mod usb;

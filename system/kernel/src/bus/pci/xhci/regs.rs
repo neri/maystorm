@@ -11,7 +11,6 @@ use core::{
     mem::size_of,
     mem::transmute,
     num::{NonZeroU64, NonZeroU8, NonZeroUsize},
-    ops::Deref,
     slice,
     sync::atomic::*,
 };
@@ -321,6 +320,8 @@ bitflags! {
     pub struct PortSc: u32 {
         /// A magic word to preserve mask
         const PRESERVE_MASK = 0x0E00C3E0;
+
+        const RESET_ALL_CHANGES = 0x00FE_0000;
         /// ROS Current Connect Status
         const CCS   = 0x0000_0001;
         /// RW1CS Port Enabled
@@ -466,7 +467,7 @@ impl InterrupterRegisterSet {
         self.iman.store(val, Ordering::SeqCst);
     }
 
-    pub fn dequeue_event<'a>(&'a self, event_cycle: &'a CycleBit) -> Option<EventRingGuard<'a>> {
+    pub fn dequeue_event<'a>(&'a self, event_cycle: &'a CycleBit) -> Option<&'a Trb> {
         let erdp = self.erdp.load(Ordering::SeqCst);
         let cycle = event_cycle.value();
         let erdp_va = MemoryManager::direct_map(erdp & !15) as *const Trb;
@@ -475,48 +476,19 @@ impl InterrupterRegisterSet {
         }
         let event = unsafe { &*erdp_va };
         if event.cycle_bit() == cycle {
-            Some(EventRingGuard {
-                event,
-                irs: self,
-                cycle: event_cycle,
-                erdp,
-            })
+            let er_base = erdp & !0xFFF;
+            let mut index = 1 + (erdp - er_base) / size_of::<Trb>() as u64;
+            if index == InterrupterRegisterSet::SIZE_EVENT_RING as u64 {
+                index = 0;
+                event_cycle.toggle();
+            }
+            let new_erdp = er_base | index * size_of::<Trb>() as u64 | 8;
+            self.erdp.store(new_erdp, Ordering::SeqCst);
+
+            Some(event)
         } else {
             None
         }
-    }
-}
-
-pub struct EventRingGuard<'a> {
-    event: &'a Trb,
-    irs: &'a InterrupterRegisterSet,
-    cycle: &'a CycleBit,
-    erdp: u64,
-}
-
-impl Deref for EventRingGuard<'_> {
-    type Target = Trb;
-
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.event
-    }
-}
-
-impl Drop for EventRingGuard<'_> {
-    fn drop(&mut self) {
-        let er_base = self.erdp & !0xFFF;
-        let mut index = 1 + (self.erdp - er_base) / size_of::<Trb>() as u64;
-        if index == InterrupterRegisterSet::SIZE_EVENT_RING as u64 {
-            index = 0;
-            self.cycle.toggle();
-        }
-        let new_erdp = (self.erdp & !0xFF0) | index * size_of::<Trb>() as u64 | 8;
-        self.irs.erdp.store(new_erdp, Ordering::SeqCst);
-        // self.irs
-        //     .erdp
-        //     .compare_exchange_weak(self.erdp, new_erdp, Ordering::SeqCst, Ordering::Relaxed)
-        //     .unwrap();
     }
 }
 

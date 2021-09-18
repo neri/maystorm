@@ -141,17 +141,11 @@ impl Usb2HubDriver {
             match device.read_slice(ep, &mut port_event, 1, ps as usize).await {
                 Ok(_) => {
                     let port_change_bitmap = (port_event[0] as u16) | ((port_event[1] as u16) << 8);
-                    for i in 1..n_ports {
+                    for i in 1..=n_ports {
                         if (port_change_bitmap & (1 << i)) != 0 {
                             let port =
                                 UsbHubPortNumber(unsafe { NonZeroU8::new_unchecked(i as u8) });
                             let status = Self::get_port_status(&device, port).unwrap();
-                            log!(
-                                "ADDR {} HUB2 PORT {} STATUS CHANGE {:08x}",
-                                addr.0,
-                                i,
-                                status.as_u32()
-                            );
                             if status
                                 .change
                                 .contains(UsbHub2PortChangeBit::C_PORT_CONNECTION)
@@ -174,15 +168,25 @@ impl Usb2HubDriver {
                                     log!("ADDR {} HUB2 PORT {} DETACHED", addr.0, i);
                                     // Detached
                                 }
-                            } else if status.change.contains(UsbHub2PortChangeBit::C_PORT_RESET) {
-                                Self::clear_port_feature(
-                                    &device,
-                                    UsbHub2PortFeatureSel::C_PORT_RESET,
-                                    port,
-                                )
-                                .unwrap();
                             } else {
-                                // TODO:
+                                use UsbHub2PortFeatureSel::*;
+                                if status.change.contains(UsbHub2PortChangeBit::C_PORT_ENABLE) {
+                                    Self::clear_port_feature(&device, C_PORT_ENABLE, port).unwrap();
+                                }
+                                if status.change.contains(UsbHub2PortChangeBit::C_PORT_SUSPEND) {
+                                    Self::clear_port_feature(&device, C_PORT_SUSPEND, port)
+                                        .unwrap();
+                                }
+                                if status
+                                    .change
+                                    .contains(UsbHub2PortChangeBit::C_PORT_OVER_CURRENT)
+                                {
+                                    Self::clear_port_feature(&device, C_PORT_OVER_CURRENT, port)
+                                        .unwrap();
+                                }
+                                if status.change.contains(UsbHub2PortChangeBit::C_PORT_RESET) {
+                                    Self::clear_port_feature(&device, C_PORT_RESET, port).unwrap();
+                                }
                             }
                         }
                     }
@@ -203,19 +207,46 @@ impl Usb2HubDriver {
         hub_desc: &UsbHub2Descriptor,
         port: UsbHubPortNumber,
     ) {
-        device.host().enter_configuration().await.unwrap();
+        let handle = device.enter_configuration().await.unwrap();
 
         Self::set_port_feature(&device, UsbHub2PortFeatureSel::PORT_RESET, port).unwrap();
-        Timer::sleep_async(Duration::from_millis(10)).await;
-
-        Self::clear_port_feature(&device, UsbHub2PortFeatureSel::C_PORT_RESET, port).unwrap();
         Timer::sleep_async(hub_desc.power_on_to_power_good()).await;
 
         let status = Self::get_port_status(&device, port).unwrap();
-        let speed = status.status.speed();
-        let _child = device.host().attach_device(port, speed, 0).unwrap();
+        if status
+            .change
+            .contains(UsbHub2PortChangeBit::C_PORT_CONNECTION)
+        {
+            Self::clear_port_feature(&device, UsbHub2PortFeatureSel::C_PORT_CONNECTION, port)
+                .unwrap();
+        }
+        if status.change.contains(UsbHub2PortChangeBit::C_PORT_ENABLE) {
+            Self::clear_port_feature(&device, UsbHub2PortFeatureSel::C_PORT_ENABLE, port).unwrap();
+        }
+        if status.change.contains(UsbHub2PortChangeBit::C_PORT_SUSPEND) {
+            Self::clear_port_feature(&device, UsbHub2PortFeatureSel::C_PORT_SUSPEND, port).unwrap();
+        }
+        if status
+            .change
+            .contains(UsbHub2PortChangeBit::C_PORT_OVER_CURRENT)
+        {
+            Self::clear_port_feature(&device, UsbHub2PortFeatureSel::C_PORT_OVER_CURRENT, port)
+                .unwrap();
+        }
+        if status.change.contains(UsbHub2PortChangeBit::C_PORT_RESET) {
+            Self::clear_port_feature(&device, UsbHub2PortFeatureSel::C_PORT_RESET, port).unwrap();
+        }
+        Timer::sleep_async(hub_desc.power_on_to_power_good()).await;
 
-        device.host().leave_configuration().unwrap();
+        if status
+            .status
+            .contains(UsbHub2PortStatusBit::PORT_CONNECTION)
+        {
+            let speed = status.status.speed();
+            let _child = device.host().attach_device(port, speed, 0).unwrap();
+        }
+
+        drop(handle);
     }
 
     pub fn get_port_status(
@@ -316,7 +347,7 @@ impl Usb3HubDriver {
             match device.read_slice(ep, &mut port_event, 1, ps as usize).await {
                 Ok(_) => {
                     let port_change_bitmap = (port_event[0] as u16) | ((port_event[1] as u16) << 8);
-                    for i in 1..n_ports {
+                    for i in 1..=n_ports {
                         if (port_change_bitmap & (1 << i)) != 0 {
                             let port =
                                 UsbHubPortNumber(unsafe { NonZeroU8::new_unchecked(i as u8) });
@@ -350,15 +381,39 @@ impl Usb3HubDriver {
                                     log!("ADDR {} HUB3 PORT {} DETACHED", addr.0, i);
                                     // Detached
                                 }
-                            } else if status.change.contains(UsbHub3PortChangeBit::C_PORT_RESET) {
-                                Self::clear_port_feature(
-                                    &device,
-                                    UsbHub3PortFeatureSel::C_PORT_RESET,
-                                    port,
-                                )
-                                .unwrap();
                             } else {
-                                // TODO:
+                                use UsbHub3PortFeatureSel::*;
+                                if status
+                                    .change
+                                    .contains(UsbHub3PortChangeBit::C_BH_PORT_RESET)
+                                {
+                                    Self::clear_port_feature(&device, C_BH_PORT_RESET, port)
+                                        .unwrap();
+                                }
+                                if status.change.contains(UsbHub3PortChangeBit::C_PORT_RESET) {
+                                    Self::clear_port_feature(&device, C_PORT_RESET, port).unwrap();
+                                }
+                                if status
+                                    .change
+                                    .contains(UsbHub3PortChangeBit::C_PORT_OVER_CURRENT)
+                                {
+                                    Self::clear_port_feature(&device, C_PORT_OVER_CURRENT, port)
+                                        .unwrap();
+                                }
+                                if status
+                                    .change
+                                    .contains(UsbHub3PortChangeBit::C_PORT_LINK_STATE)
+                                {
+                                    Self::clear_port_feature(&device, C_PORT_LINK_STATE, port)
+                                        .unwrap();
+                                }
+                                if status
+                                    .change
+                                    .contains(UsbHub3PortChangeBit::C_PORT_CONFIG_ERROR)
+                                {
+                                    Self::clear_port_feature(&device, C_PORT_CONFIG_ERROR, port)
+                                        .unwrap();
+                                }
                             }
                         }
                     }
@@ -380,23 +435,51 @@ impl Usb3HubDriver {
         port: UsbHubPortNumber,
         max_exit_latency: usize,
     ) {
-        device.host().enter_configuration().await.unwrap();
-
-        Self::clear_port_feature(&device, UsbHub3PortFeatureSel::C_PORT_CONNECTION, port).unwrap();
+        let handle = device.enter_configuration().await.unwrap();
 
         Self::set_port_feature(&device, UsbHub3PortFeatureSel::PORT_RESET, port).unwrap();
-        Timer::sleep_async(Duration::from_millis(10)).await;
-
-        Self::clear_port_feature(&device, UsbHub3PortFeatureSel::C_PORT_RESET, port).unwrap();
         Timer::sleep_async(hub_desc.power_on_to_power_good()).await;
 
-        // let status = Self::get_port_status(&device, port).unwrap();
+        let status = Self::get_port_status(&device, port).unwrap();
+        if status
+            .change
+            .contains(UsbHub3PortChangeBit::C_BH_PORT_RESET)
+        {
+            Self::clear_port_feature(&device, UsbHub3PortFeatureSel::C_BH_PORT_RESET, port)
+                .unwrap();
+        }
+        if status.change.contains(UsbHub3PortChangeBit::C_PORT_RESET) {
+            Self::clear_port_feature(&device, UsbHub3PortFeatureSel::C_PORT_RESET, port).unwrap();
+        }
+        if status
+            .change
+            .contains(UsbHub3PortChangeBit::C_PORT_OVER_CURRENT)
+        {
+            Self::clear_port_feature(&device, UsbHub3PortFeatureSel::C_PORT_OVER_CURRENT, port)
+                .unwrap();
+        }
+        if status
+            .change
+            .contains(UsbHub3PortChangeBit::C_PORT_LINK_STATE)
+        {
+            Self::clear_port_feature(&device, UsbHub3PortFeatureSel::C_PORT_LINK_STATE, port)
+                .unwrap();
+        }
+        if status
+            .change
+            .contains(UsbHub3PortChangeBit::C_PORT_CONFIG_ERROR)
+        {
+            Self::clear_port_feature(&device, UsbHub3PortFeatureSel::C_PORT_CONFIG_ERROR, port)
+                .unwrap();
+        }
+        Timer::sleep_async(hub_desc.power_on_to_power_good()).await;
+
         let _child = device
             .host()
             .attach_device(port, PSIV::SS, max_exit_latency)
             .unwrap();
 
-        device.host().leave_configuration().unwrap();
+        drop(handle);
     }
 
     pub fn get_port_status(

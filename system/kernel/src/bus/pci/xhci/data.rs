@@ -692,6 +692,11 @@ impl TrbTxe {
     pub fn transfer_length(&self) -> usize {
         (self.raw_data()[2].load(Ordering::SeqCst) & 0x00FF_FFFF) as usize
     }
+
+    #[inline]
+    pub fn is_event_data(&self) -> bool {
+        (self.raw_data()[3].load(Ordering::Relaxed) & 4) != 0
+    }
 }
 
 impl TrbCommon for TrbTxe {

@@ -55,7 +55,7 @@ impl UsbVersion {
     pub const BOS_MIN: Self = Self(0x0201);
 }
 
-impl fmt::Debug for UsbVersion {
+impl fmt::Display for UsbVersion {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let part1 = (self.0 >> 12) & 0x0F;
         let part2 = (self.0 >> 8) & 0x0F;
@@ -70,47 +70,22 @@ impl fmt::Debug for UsbVersion {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UsbVendorId(pub u16);
 
+impl fmt::Display for UsbVendorId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:04x}", self.0)
+    }
+}
+
 /// USB Product Id
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UsbProductId(pub u16);
 
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct UsbBaseClass(pub u8);
-
-impl UsbBaseClass {
-    pub const COMPOSITE: Self = Self(0x00);
-    pub const AUDIO: Self = Self(0x01);
-    pub const COMM: Self = Self(0x02);
-    pub const HID: Self = Self(0x03);
-    pub const PHYSICAL: Self = Self(0x05);
-    pub const IMAGE: Self = Self(0x06);
-    pub const PRINTER: Self = Self(0x07);
-    pub const STORAGE: Self = Self(0x08);
-    pub const HUB: Self = Self(0x09);
-    pub const CDC_DATA: Self = Self(0x0A);
-    pub const SMART_CARD: Self = Self(0x0B);
-    pub const CONTENT_SECURITY: Self = Self(0x0C);
-    pub const VIDEO: Self = Self(0x0E);
-    pub const PERSONAL_HEALTHCARE: Self = Self(0x0F);
-    pub const AUDIO_VIDEO: Self = Self(0x10);
-    pub const BILLBOARD: Self = Self(0x11);
-    pub const TYPE_C_BRIDGE: Self = Self(0x12);
-    pub const DIAGNOSTIC: Self = Self(0xDC);
-    pub const WIRELESS: Self = Self(0xE0);
-    pub const MISCELLANEOUS: Self = Self(0xEF);
-    pub const APPLICATION_SPECIFIC: Self = Self(0xFE);
-    pub const VENDOR_SPECIFIC: Self = Self(0xFF);
+impl fmt::Display for UsbProductId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:04x}", self.0)
+    }
 }
-
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct UsbSubClass(pub u8);
-
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct UsbProtocolCode(pub u8);
 
 /// USB Class code (BaseClass - SubClass - Protocol)
 #[repr(transparent)]
@@ -155,6 +130,49 @@ impl UsbClass {
         UsbProtocolCode(self.0 as u8)
     }
 }
+
+impl fmt::Display for UsbClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:06x}", self.0)
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UsbBaseClass(pub u8);
+
+impl UsbBaseClass {
+    pub const COMPOSITE: Self = Self(0x00);
+    pub const AUDIO: Self = Self(0x01);
+    pub const COMM: Self = Self(0x02);
+    pub const HID: Self = Self(0x03);
+    pub const PHYSICAL: Self = Self(0x05);
+    pub const IMAGE: Self = Self(0x06);
+    pub const PRINTER: Self = Self(0x07);
+    pub const STORAGE: Self = Self(0x08);
+    pub const HUB: Self = Self(0x09);
+    pub const CDC_DATA: Self = Self(0x0A);
+    pub const SMART_CARD: Self = Self(0x0B);
+    pub const CONTENT_SECURITY: Self = Self(0x0C);
+    pub const VIDEO: Self = Self(0x0E);
+    pub const PERSONAL_HEALTHCARE: Self = Self(0x0F);
+    pub const AUDIO_VIDEO: Self = Self(0x10);
+    pub const BILLBOARD: Self = Self(0x11);
+    pub const TYPE_C_BRIDGE: Self = Self(0x12);
+    pub const DIAGNOSTIC: Self = Self(0xDC);
+    pub const WIRELESS: Self = Self(0xE0);
+    pub const MISCELLANEOUS: Self = Self(0xEF);
+    pub const APPLICATION_SPECIFIC: Self = Self(0xFE);
+    pub const VENDOR_SPECIFIC: Self = Self(0xFF);
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UsbSubClass(pub u8);
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UsbProtocolCode(pub u8);
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -1042,6 +1060,13 @@ impl UsbControlRequest {
     pub const HID_GET_REPORT: Self = Self(1);
     pub const HID_SET_REPORT: Self = Self(9);
     pub const HID_SET_PROTOCOL: Self = Self(11);
+}
+
+#[repr(u16)]
+#[allow(non_camel_case_types)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum UsbDeviceFeatureSel {
+    DEVICE_REMOTE_WAKEUP = 1,
 }
 
 /// Protocol Speed Identifier

@@ -93,9 +93,21 @@ fn panic(info: &PanicInfo) -> ! {
             }
             let _ = writeln!(stdout, "{}", info);
         });
-        Cpu::stop()
+        Cpu::stop();
     }
 }
 
 #[lang = "eh_personality"]
 extern "C" fn eh_personality() {}
+
+#[repr(transparent)]
+pub struct HexDump<'a>(pub &'a [u8]);
+
+impl core::fmt::Debug for HexDump<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for c in self.0.iter() {
+            let _ = write!(f, " {:02x}", *c);
+        }
+        writeln!(f, "")
+    }
+}

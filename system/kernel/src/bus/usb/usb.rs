@@ -28,9 +28,9 @@ pub trait UsbHostInterface {
 
     fn set_max_packet_size(&self, max_packet_size: usize) -> Result<(), UsbError>;
 
-    fn enter_configuration(&self) -> Pin<Box<dyn Future<Output = Result<(), UsbError>>>>;
+    unsafe fn enter_configuration(&self) -> Pin<Box<dyn Future<Output = Result<(), UsbError>>>>;
 
-    fn leave_configuration(&self) -> Result<(), UsbError>;
+    unsafe fn leave_configuration(&self) -> Result<(), UsbError>;
 
     fn configure_endpoint(&self, desc: &UsbEndpointDescriptor) -> Result<(), UsbError>;
 
@@ -108,10 +108,14 @@ impl UsbManager {
 
         SpawnOption::with_priority(Priority::High).spawn(Self::_usb_xfer_task_thread, "usb.xfer");
 
-        let mut vec1 = Self::shared().specific_driver_starters.write().unwrap();
-        let mut vec2 = Self::shared().class_driver_starters.write().unwrap();
-        let mut vec3 = Self::shared().interface_driver_starters.write().unwrap();
-        super::drivers::install_drivers(&mut vec1, &mut vec2, &mut vec3);
+        let mut specific_drivers = Self::shared().specific_driver_starters.write().unwrap();
+        let mut class_drivers = Self::shared().class_driver_starters.write().unwrap();
+        let mut interface_drivers = Self::shared().interface_driver_starters.write().unwrap();
+        super::drivers::install_drivers(
+            &mut specific_drivers,
+            &mut class_drivers,
+            &mut interface_drivers,
+        );
     }
 
     #[inline]
@@ -120,18 +124,18 @@ impl UsbManager {
     }
 
     /// Initialize the USB device and tie it to the appropriate class driver.
-    pub fn instantiate(addr: UsbDeviceAddress, ctx: Arc<dyn UsbHostInterface>) {
+    pub fn instantiate(addr: UsbDeviceAddress, ctx: Arc<dyn UsbHostInterface>) -> bool {
         match UsbDevice::new(addr, ctx) {
             Ok(device) => {
                 let shared = Self::shared();
                 let device = Arc::new(device);
                 // let uuid = device.uuid();
                 log!(
-                    "USB connected: {} {:04x} {:04x} {:06x} {:?}",
+                    "USB connected: {} {} {} {} {:?}",
                     addr.0,
-                    device.vid().0,
-                    device.pid().0,
-                    device.class().0,
+                    device.vid(),
+                    device.pid(),
+                    device.class(),
                     device.product_string(),
                 );
                 shared.devices.write().unwrap().push(device.clone());
@@ -164,9 +168,11 @@ impl UsbManager {
                 if issued {
                     device.is_configured.store(true, Ordering::SeqCst);
                 }
+                true
             }
             Err(err) => {
                 log!("USB Device Initialize Error {:?}", err);
+                false
             }
         }
     }
@@ -307,6 +313,15 @@ impl UsbDevice {
                 Ok(v) => v,
                 Err(err) => return Err(err),
             };
+
+        // log!(
+        //     "DEVICE {} {} {} {} v{}",
+        //     addr.0.get(),
+        //     device_desc.vid(),
+        //     device_desc.pid(),
+        //     device_desc.class(),
+        //     device_desc.usb_version(),
+        // );
 
         let manufacturer_string = device_desc
             .manufacturer_index()
@@ -996,6 +1011,30 @@ impl UsbDevice {
         )
     }
 
+    #[inline]
+    pub fn clear_device_feature(&self, feature_sel: UsbDeviceFeatureSel) -> Result<(), UsbError> {
+        Self::_control_nodata(
+            &self.host_clone(),
+            UsbControlSetupData::request(
+                UsbControlRequestBitmap::SET_DEVICE,
+                UsbControlRequest::CLEAR_FEATURE,
+            )
+            .value(feature_sel as u16),
+        )
+    }
+
+    #[inline]
+    pub fn set_device_feature(&self, feature_sel: UsbDeviceFeatureSel) -> Result<(), UsbError> {
+        Self::_control_nodata(
+            &self.host_clone(),
+            UsbControlSetupData::request(
+                UsbControlRequestBitmap::SET_DEVICE,
+                UsbControlRequest::SET_FEATURE,
+            )
+            .value(feature_sel as u16),
+        )
+    }
+
     /// Set exit latency values
     pub fn set_sel(&self, values: &Usb3ExitLatencyValues) -> Result<(), UsbError> {
         Self::_set_sel(&self.host_clone(), values)
@@ -1009,13 +1048,11 @@ impl UsbDevice {
         let data = values as *const _ as *const u8;
         unsafe {
             host.control_send(
-                UsbControlSetupData {
-                    bmRequestType: UsbControlRequestBitmap(0x00),
-                    bRequest: UsbControlRequest::SET_SEL,
-                    wValue: 0,
-                    wIndex: 0,
-                    wLength: length,
-                },
+                UsbControlSetupData::request(
+                    UsbControlRequestBitmap::SET_DEVICE,
+                    UsbControlRequest::SET_SEL,
+                )
+                .length(length),
                 data,
             )
         }
@@ -1050,6 +1087,23 @@ impl UsbDevice {
             wLength: len as u16,
         };
         Self::_control_vec(host, setup, vec)
+    }
+
+    #[must_use]
+    pub async fn enter_configuration<'a>(&'a self) -> Result<ConfigurationGuard<'a>, UsbError> {
+        unsafe { self.host().enter_configuration() }
+            .await
+            .map(|_| ConfigurationGuard { device: self })
+    }
+}
+
+pub struct ConfigurationGuard<'a> {
+    device: &'a UsbDevice,
+}
+
+impl Drop for ConfigurationGuard<'_> {
+    fn drop(&mut self) {
+        let _ = unsafe { self.device.host().leave_configuration() };
     }
 }
 

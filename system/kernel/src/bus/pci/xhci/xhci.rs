@@ -68,6 +68,7 @@ pub struct Xhci {
     event_cycle: CycleBit,
     port_status_change_queue: AsyncEventQueue<PortId>,
     port2slot: RwLock<[Option<SlotId>; 256]>,
+    slot2port: RwLock<[Option<PortId>; 256]>,
     xrbs: [UnsafeCell<XhciRequestBlock>; Self::MAX_XRB],
     ics: [UnsafeCell<InputContext>; Self::MAX_DEVICE_SLOTS],
 
@@ -137,6 +138,7 @@ impl Xhci {
             ers,
             port_status_change_queue: AsyncEventQueue::new(Self::MAX_PORT_CHANGE),
             port2slot: RwLock::new([None; 256]),
+            slot2port: RwLock::new([None; 256]),
             xrbs: [XhciRequestBlock::EMPTY; Self::MAX_XRB],
             ics: [InputContext::EMPTY; Self::MAX_DEVICE_SLOTS],
             sem_event_thread: Semaphore::new(0),
@@ -167,23 +169,40 @@ impl Xhci {
                 let xecp = xecp_base.read_volatile();
                 match xecp & 0xFF {
                     0x01 => {
-                        // USB Legacy
-                        const USBLEGSUP_BIOS_OWNED: u32 = 0x00010000;
-                        const USBLEGSUP_OS_OWNED: u32 = 0x01000000;
-                        xecp_base.write_volatile(xecp | USBLEGSUP_OS_OWNED);
-                        while (xecp_base.read_volatile() & USBLEGSUP_BIOS_OWNED) != 0 {
-                            Timer::sleep(Duration::from_millis(10));
+                        // USB Legacy Support
+                        const USBLEGSUP_BIOS_OWNED: u32 = 0x0001_0000;
+                        const USBLEGSUP_OS_OWNED: u32 = 0x0100_0000;
+                        let usb_leg_sup = xecp_base;
+                        let usb_leg_ctl_sts = xecp_base.add(1);
+
+                        // Hand over ownership from BIOS to OS
+                        usb_leg_sup.write_volatile(xecp | USBLEGSUP_OS_OWNED);
+
+                        if (usb_leg_sup.read_volatile() & USBLEGSUP_BIOS_OWNED) != 0 {
+                            for _ in 0..20 {
+                                if (usb_leg_sup.read_volatile() & USBLEGSUP_BIOS_OWNED) == 0 {
+                                    break;
+                                }
+                                Timer::sleep(Duration::from_millis(50));
+                            }
+                            // Force BIOS ownership to be disabled.
+                            usb_leg_sup.write_volatile(
+                                usb_leg_sup.read_volatile() & !USBLEGSUP_BIOS_OWNED,
+                            );
                         }
-                        let data = xecp_base.add(1);
-                        data.write_volatile((data.read_volatile() & 0x000E1FEE) | 0xE0000000);
+
+                        // Adjusting SMI settings
+                        usb_leg_ctl_sts.write_volatile(
+                            (usb_leg_ctl_sts.read_volatile() & 0x000E_1FEE) | 0xE000_0000,
+                        );
                     }
                     _ => (),
                 }
-                let xecp_ptr = ((xecp >> 8) & 0xFF) as usize;
-                if xecp_ptr == 0 {
-                    break;
-                } else {
-                    xecp_base = xecp_base.add(xecp_ptr as usize);
+                match ((xecp >> 8) & 0xFF) as usize {
+                    0 => break,
+                    xecp_ptr => {
+                        xecp_base = xecp_base.add(xecp_ptr);
+                    }
                 }
             }
         }
@@ -207,9 +226,17 @@ impl Xhci {
         // make Scratchpad
         let max_scratchpad_size = self.cap.max_scratchpad_size();
         if max_scratchpad_size > 0 {
-            let size = max_scratchpad_size * self.opr.page_size();
-            let scratchpad = MemoryManager::alloc_pages(size).unwrap().get() as u64;
-            self.dcbaa()[0] = scratchpad;
+            let array_size = max_scratchpad_size * 8;
+            let sp_array = MemoryManager::alloc_pages(array_size).unwrap().get() as u64;
+            let sp_size = max_scratchpad_size * self.opr.page_size();
+            let scratchpad = MemoryManager::alloc_pages(sp_size).unwrap().get() as u64;
+            let spava = MemoryManager::direct_map(sp_array) as *mut u64;
+            for i in 0..max_scratchpad_size {
+                spava
+                    .add(i)
+                    .write_volatile(scratchpad + (i * self.opr.page_size()) as u64);
+            }
+            self.dcbaa()[0] = sp_array;
         }
 
         // Command Ring Control Register
@@ -270,6 +297,29 @@ impl Xhci {
             .set_target(dci);
     }
 
+    #[inline]
+    pub fn port_by_slot(&self, slot_id: SlotId) -> Option<PortId> {
+        unsafe {
+            *self
+                .slot2port
+                .read()
+                .unwrap()
+                .get_unchecked(slot_id.0.get() as usize)
+        }
+    }
+
+    #[inline]
+    pub fn slot_by_port(&self, port_id: PortId) -> Option<SlotId> {
+        unsafe {
+            *self
+                .port2slot
+                .read()
+                .unwrap()
+                .get_unchecked(port_id.0.get() as usize)
+        }
+    }
+
+    #[inline]
     pub fn port_by(&self, port_id: PortId) -> &PortRegisters {
         self.ports.get(port_id.0.get() as usize - 1).unwrap()
     }
@@ -457,7 +507,19 @@ impl Xhci {
 
             let xrb = self.allocate_xrb().unwrap();
             let status_trb = TrbStatusStage::new(!dir);
-            self.issue_trb(Some(xrb), &status_trb, slot_id, dci, true);
+            let _scheduled_trb = self.issue_trb(Some(xrb), &status_trb, slot_id, dci, true);
+
+            // log!(
+            //     "CONTROL {} {:?} {:02x} {:02x} {:04x} {:04x} {:04x} {:012x}",
+            //     slot_id.unwrap().0.get(),
+            //     trt,
+            //     setup.bmRequestType.0,
+            //     setup.bRequest.0,
+            //     setup.wValue,
+            //     setup.wIndex,
+            //     setup.wLength,
+            //     scheduled_trb.0,
+            // );
 
             xrb.wait();
 
@@ -475,7 +537,7 @@ impl Xhci {
                         let _ = self.reset_endpoint(slot_id.unwrap(), dci.unwrap());
                         Err(result)
                     }
-                    Some(_) => Err(result),
+                    Some(_err) => Err(result),
                     None => Err(TrbTxe::empty()),
                 },
                 None => Err(TrbTxe::empty()),
@@ -696,7 +758,7 @@ impl Xhci {
             buffer,
         };
         let ctx = Arc::new(HciContext::new(Arc::downgrade(&self), device));
-        UsbManager::instantiate(
+        let _ = UsbManager::instantiate(
             UsbDeviceAddress(slot_id.0),
             ctx as Arc<dyn UsbHostInterface>,
         );
@@ -724,12 +786,24 @@ impl Xhci {
         }
     }
 
-    pub fn reset_port(&self, port: &PortRegisters) {
+    pub fn reset_port(&self, index: usize, port: &PortRegisters) {
         self.wait_cnr(0);
+        // let status = port.portsc();
+        // if status.contains(PortSc::CCS) {
+        //     log!(
+        //         "PORTSC {} {:08x} {:?} {:?}",
+        //         index,
+        //         status.bits(),
+        //         status.speed(),
+        //         status.link_state()
+        //     );
+        // }
         port.write_portsc(PortSc::empty());
         let status = port.portsc();
         self.wait_cnr(0);
-        port.write_portsc(status & PortSc::PRESERVE_MASK | PortSc::PP | PortSc::PR);
+        port.write_portsc(
+            status & PortSc::PRESERVE_MASK | PortSc::PP | PortSc::PR | PortSc::RESET_ALL_CHANGES,
+        );
     }
 
     pub fn port_initialize(&self, port_id: PortId) -> Option<(SlotId, PSIV)> {
@@ -737,6 +811,14 @@ impl Xhci {
             let port = self.port_by(port_id);
             self.wait_cnr(0);
             let status = port.portsc();
+
+            // log!(
+            //     "PORT STATUS CHANGE {} {:08x} {:?} {:?}",
+            //     port_id.0.get(),
+            //     status,
+            //     status.speed(),
+            //     status.link_state()
+            // );
 
             if status.contains(PortSc::CSC) {
                 if status.contains(PortSc::CCS) {
@@ -764,6 +846,7 @@ impl Xhci {
                     };
 
                     self.port2slot.write().unwrap()[port_id.0.get() as usize] = Some(slot_id);
+                    self.slot2port.write().unwrap()[slot_id.0.get() as usize] = Some(port_id);
 
                     let device_context_size = self.context_size * 32;
                     let device_context = unsafe { MemoryManager::alloc_pages(device_context_size) }
@@ -886,15 +969,71 @@ impl Xhci {
                         } else {
                             todo!()
                         }
+                    } else if event.completion_code()
+                        == Some(TrbCompletionCode::USB_TRANSACTION_ERROR)
+                        && unsafe { event_trb.peek() }.trb_type() == Some(TrbType::SETUP)
+                    {
+                        // USB Transaction Error in SETUP of Control transfer
+                        let next_trb = unsafe {
+                            let next_trb = event_trb.next();
+                            if next_trb.peek().trb_type() != Some(TrbType::LINK) {
+                                next_trb
+                            } else {
+                                todo!()
+                            }
+                        };
+                        let last_trb = unsafe {
+                            let last_trb = next_trb.next();
+                            if last_trb.peek().trb_type() != Some(TrbType::LINK) {
+                                last_trb
+                            } else {
+                                todo!()
+                            }
+                        };
+                        if unsafe { next_trb.peek() }.trb_type() == Some(TrbType::STATUS) {
+                            // SETUP - STATUS
+                            if let Some(xrb) = self.find_xrb(next_trb, Some(XrbState::Scheduled)) {
+                                unsafe {
+                                    event_trb.peek().set_trb_type(TrbType::NOP);
+                                    next_trb.peek().set_trb_type(TrbType::NOP);
+                                }
+                                xrb.set_response(event.as_common_trb());
+                            } else {
+                                todo!()
+                            }
+                        } else if unsafe { next_trb.peek() }.trb_type() == Some(TrbType::DATA)
+                            && unsafe { last_trb.peek() }.trb_type() == Some(TrbType::STATUS)
+                        {
+                            // SETUP - DATA - STATUS
+                            if let Some(xrb) = self.find_xrb(last_trb, Some(XrbState::Scheduled)) {
+                                unsafe {
+                                    event_trb.peek().set_trb_type(TrbType::NOP);
+                                    next_trb.peek().set_trb_type(TrbType::NOP);
+                                    last_trb.peek().set_trb_type(TrbType::NOP);
+                                }
+                                xrb.set_response(event.as_common_trb());
+                            } else {
+                                todo!()
+                            }
+                        } else {
+                            todo!()
+                        }
                     } else {
                         // Replaced NOP is no operation
                         if unsafe { event_trb.peek() }.trb_type() != Some(TrbType::NOP) {
+                            let port_id = self.port_by_slot(event.slot_id().unwrap());
+                            let portsc = port_id.map(|v| self.port_by(v)).unwrap();
+                            let status = portsc.portsc();
                             log!(
-                                "UNKNOWN TRB {:?} {:?} {:?} {:016x}",
+                                "UNKNOWN TRB {:?} {:?} {:?} {} {:012x} {:08x} {:?} {:?}",
                                 event.slot_id(),
                                 unsafe { event_trb.peek().trb_type() },
                                 event.completion_code(),
+                                event.is_event_data(),
                                 event.ptr(),
+                                status.bits(),
+                                status.speed(),
+                                status.link_state(),
                             );
                             todo!()
                         }
@@ -924,8 +1063,8 @@ impl Xhci {
 
     /// xHCI Configuration task
     async fn _config_task(self: Arc<Self>) {
-        for port in self.ports.iter().rev() {
-            self.reset_port(port);
+        for (index, port) in self.ports.iter().enumerate() {
+            self.reset_port(index + 1, port);
         }
 
         loop {
@@ -946,11 +1085,18 @@ impl Xhci {
                     };
                     let ctx = Arc::new(HciContext::new(Arc::downgrade(&self), device));
 
-                    UsbManager::instantiate(
+                    if UsbManager::instantiate(
                         UsbDeviceAddress(slot_id.0),
                         ctx as Arc<dyn UsbHostInterface>,
-                    );
-                    Timer::sleep_async(Duration::from_millis(10)).await;
+                    ) {
+                        Timer::sleep_async(Duration::from_millis(10)).await;
+                    } else {
+                        let port = self.port_by(port_id);
+                        let status = port.portsc();
+                        port.write_portsc(
+                            status & PortSc::PRESERVE_MASK | PortSc::PRC | PortSc::PR,
+                        );
+                    }
                 }
                 self.lock_config.clone().signal();
             }
@@ -1314,7 +1460,7 @@ impl UsbHostInterface for HciContext {
             .map_err(|_| UsbError::General)
     }
 
-    fn enter_configuration(&self) -> Pin<Box<dyn Future<Output = Result<(), UsbError>>>> {
+    unsafe fn enter_configuration(&self) -> Pin<Box<dyn Future<Output = Result<(), UsbError>>>> {
         let host = match self.host.upgrade() {
             Some(v) => v.clone(),
             None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
@@ -1322,7 +1468,7 @@ impl UsbHostInterface for HciContext {
         host.lock_config.clone().wait_ok()
     }
 
-    fn leave_configuration(&self) -> Result<(), UsbError> {
+    unsafe fn leave_configuration(&self) -> Result<(), UsbError> {
         let host = match self.host.upgrade() {
             Some(v) => v.clone(),
             None => return Err(UsbError::HostUnavailable),
@@ -1488,11 +1634,23 @@ impl UsbHostInterface for HciContext {
             return Box::pin(AsyncUsbError::new(UsbError::InvalidParameter));
         }
         let device = self.device();
+
+        let p = MemoryManager::direct_map(device.buffer) as *mut u8;
+        p.write_bytes(0, len);
+
         let slot_id = device.slot_id;
         let trb = TrbNormal::new(device.buffer, len, true, true);
         let xrb = host.allocate_xrb().unwrap();
         xrb.prepare_async();
         let scheduled_trb = host.issue_trb(Some(xrb), &trb, Some(slot_id), Some(dci), true);
+
+        // log!(
+        //     "READ {} {} {:012x} {}",
+        //     slot_id.0.get(),
+        //     dci.0.get(),
+        //     scheduled_trb.0,
+        //     len
+        // );
 
         Box::pin(AsyncUsbReader {
             ctx: self.clone(),
@@ -1528,6 +1686,14 @@ impl UsbHostInterface for HciContext {
         let xrb = host.allocate_xrb().unwrap();
         xrb.prepare_async();
         let scheduled_trb = host.issue_trb(Some(xrb), &trb, Some(slot_id), Some(dci), true);
+
+        log!(
+            "WRITE {} {} {:012x} {}",
+            slot_id.0.get(),
+            dci.0.get(),
+            scheduled_trb.0,
+            len
+        );
 
         Box::pin(AsyncUsbWriter {
             ctx: self.clone(),

@@ -406,7 +406,15 @@ impl UsbHidDriver {
 
                     match collection_type {
                         HidReportCollectionType::Application => {
-                            current_app.clear();
+                            if collection_ctx.contains(&HidReportCollectionType::Application) {
+                                let report_id = current_app.report_id;
+                                if report_id > 0 {
+                                    parsed_report.tagged.insert(report_id, current_app.clone());
+                                } else {
+                                    parsed_report.primary = Some(current_app.clone());
+                                }
+                            }
+                            current_app.clear_stream();
                             let usage = local.usage.first().map(|v| *v).unwrap_or_default();
                             current_app.usage = if usage < 0x10000 {
                                 HidUsage::new(global.usage_page, usage as u16)
@@ -455,6 +463,7 @@ impl UsbHidDriver {
                 HidReportItemTag::UnitExponent => global.unit_exponent = param.isize(),
                 HidReportItemTag::Unit => global.unit = param.usize(),
                 HidReportItemTag::ReportSize => global.report_size = param.usize(),
+
                 HidReportItemTag::ReportId => {
                     let report_id = param.usize() as u8;
                     if !parsed_report.report_ids.contains(&report_id) {
@@ -477,6 +486,7 @@ impl UsbHidDriver {
 
                     global.report_id = NonZeroU8::new(report_id);
                 }
+
                 HidReportItemTag::ReportCount => global.report_count = param.usize(),
                 HidReportItemTag::Push => stack.push(global),
                 HidReportItemTag::Pop => {

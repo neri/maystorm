@@ -447,11 +447,11 @@ impl Shell {
 
             let class_string = Self::find_usb_class_string(device.class(), false).to_string();
             println!(
-                "{:02x} VID {:04x} PID {:04x} class {:06x} {}",
+                "{:02x} VID {} PID {} class {} {}",
                 device.addr().0.get(),
-                device.vid().0,
-                device.pid().0,
-                device.class().0,
+                device.vid(),
+                device.pid(),
+                device.class(),
                 device.product_string().unwrap_or(&class_string),
             );
 
@@ -497,11 +497,11 @@ impl Shell {
                 }
                 let class_string = Self::find_usb_class_string(device.class(), false).to_string();
                 println!(
-                    "{:02x} VID {:04x} PID {:04x} class {:06x} {}{}",
+                    "{:02x} VID {} PID {} class {} {}{}",
                     device.addr().0.get(),
-                    device.vid().0,
-                    device.pid().0,
-                    device.class().0,
+                    device.vid(),
+                    device.pid(),
+                    device.class(),
                     if device.is_configured() { "" } else { "? " },
                     device.product_string().unwrap_or(&class_string),
                 );
