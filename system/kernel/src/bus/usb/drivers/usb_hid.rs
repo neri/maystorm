@@ -2,7 +2,7 @@
 
 use super::super::*;
 use crate::{
-    io::hid::*,
+    io::hid_mgr::*,
     task::{scheduler::Timer, Task},
     *,
 };
@@ -89,6 +89,48 @@ impl UsbHidDriver {
             match Self::set_boot_protocol(&device, if_no, false) {
                 Ok(_) => (),
                 Err(_) => (),
+            }
+        }
+
+        if let Some(app) = report_desc.primary_app() {
+            let mut data = [0; 64];
+            let mut bit_position = 0;
+            match app.usage {
+                HidUsage::KEYBOARD => {
+                    // Flashing LED on the keyboard
+                    for entry in &app.entries {
+                        let item = match entry {
+                            ParsedReportEntry::Output(item) => {
+                                if item.flag.is_const() {
+                                    bit_position += item.bit_count();
+                                    continue;
+                                } else {
+                                    item
+                                }
+                            }
+                            _ => continue,
+                        };
+                        if item.report_size() == 1
+                            && item.usage_min().usage_page() == UsagePage::LED
+                        {
+                            for i in 0..item.report_count() {
+                                let _ = Self::write_bits(&mut data, bit_position + i, 1, 1);
+                            }
+                        }
+                        bit_position += item.bit_count();
+                    }
+                    let len = (bit_position + 7) / 8;
+                    if len > 0 {
+                        let _ =
+                            Self::set_report(&device, if_no, HidReportType::Output, 0, len, &data);
+                        Timer::sleep_async(Duration::from_millis(100)).await;
+                        data.fill(0);
+                        let _ =
+                            Self::set_report(&device, if_no, HidReportType::Output, 0, len, &data);
+                        Timer::sleep_async(Duration::from_millis(50)).await;
+                    }
+                }
+                _ => (),
             }
         }
 
@@ -255,6 +297,7 @@ impl UsbHidDriver {
         }
     }
 
+    #[inline]
     pub fn set_boot_protocol(
         device: &UsbDevice,
         if_no: UsbInterfaceNumber,
@@ -270,6 +313,7 @@ impl UsbHidDriver {
         )
     }
 
+    #[inline]
     pub fn get_report(
         device: &UsbDevice,
         if_no: UsbInterfaceNumber,
@@ -279,15 +323,55 @@ impl UsbHidDriver {
         vec: &mut Vec<u8>,
     ) -> Result<(), UsbError> {
         device.control_vec(
-            UsbControlSetupData::request(
-                UsbControlRequestBitmap(0xA1),
-                UsbControlRequest::GET_DESCRIPTOR,
-            )
-            .value((report_type as u16) * 256 + (report_id as u16))
-            .index_if(if_no)
-            .length(len as u16),
+            UsbControlSetupData::request(UsbControlRequestBitmap(0xA1), UsbControlRequest(0x01))
+                .value((report_type as u16) * 256 + (report_id as u16))
+                .index_if(if_no)
+                .length(len as u16),
             vec,
         )
+    }
+
+    #[inline]
+    pub fn set_report(
+        device: &UsbDevice,
+        if_no: UsbInterfaceNumber,
+        report_type: HidReportType,
+        report_id: u8,
+        max_len: usize,
+        data: &[u8],
+    ) -> Result<(), UsbError> {
+        device.control_send(
+            UsbControlSetupData::request(UsbControlRequestBitmap(0x21), UsbControlRequest(0x09))
+                .value((report_type as u16) * 256 + (report_id as u16))
+                .index_if(if_no),
+            max_len,
+            data,
+        )
+    }
+
+    pub fn write_bits(blob: &mut [u8], position: usize, size: usize, value: usize) -> Option<()> {
+        let range = (position / 8)..((position + size + 7) / 8);
+        blob.get_mut(range).map(|slice| {
+            let mask = if size > 31 {
+                0xFFFF_FFFF
+            } else {
+                (1 << size) - 1
+            };
+            let value = value & mask;
+            let position7 = position & 7;
+            slice[0] |= (value << position7) as u8;
+            let mut rest_bits = (size - position7) as isize;
+            if rest_bits > 0 {
+                let mut value = value >> position7;
+                let mut cursor = 0;
+                while rest_bits > 0 {
+                    slice[cursor] |= value as u8;
+                    value >>= 8;
+                    cursor += 1;
+                    rest_bits -= 8;
+                }
+            }
+        })
     }
 
     pub fn read_bits(blob: &[u8], position: usize, size: usize) -> Option<usize> {

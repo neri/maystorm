@@ -54,7 +54,7 @@ impl UsbMsdDriver {
         let device = UsbManager::device_by_addr(addr).unwrap();
 
         let max_lun = Self::get_max_lun(&device, if_no).unwrap();
-        log!("MAX_LUN {}", max_lun);
+        // log!("MAX_LUN {}", max_lun);
     }
 
     fn get_max_lun(device: &UsbDevice, if_no: UsbInterfaceNumber) -> Result<u8, UsbError> {

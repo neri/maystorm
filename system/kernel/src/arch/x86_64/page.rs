@@ -193,7 +193,7 @@ impl PageManager {
     #[inline]
     pub(crate) unsafe fn invalidate_cache(p: usize) {
         fence(Ordering::SeqCst);
-        // asm!("clflush [{}]", in(reg) p);
+        asm!("clflush [{}]", in(reg) p);
     }
 
     #[inline]

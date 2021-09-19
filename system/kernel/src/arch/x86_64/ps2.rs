@@ -1,7 +1,7 @@
 // PS/2 Device Driver
 
 use crate::arch::apic::*;
-use crate::io::hid::*;
+use crate::io::hid_mgr::*;
 use crate::sync::spinlock::SpinLoopWait;
 use crate::task::scheduler::*;
 use crate::*;

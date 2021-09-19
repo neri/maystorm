@@ -215,7 +215,9 @@ impl System {
 
             mem::MemoryManager::late_init();
 
-            io::hid::HidManager::init();
+            log::EventManager::init();
+
+            io::hid_mgr::HidManager::init();
             bus::usb::UsbManager::init();
             bus::pci::Pci::init();
 

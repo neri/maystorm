@@ -129,6 +129,62 @@ impl UsbClass {
     pub const fn protocol(&self) -> UsbProtocolCode {
         UsbProtocolCode(self.0 as u8)
     }
+
+    #[inline]
+    pub fn class_string(&self, is_interface: bool) -> Option<&'static str> {
+        #[rustfmt::skip]
+        let base_class_entries = [
+            ( UsbBaseClass::COMPOSITE, 0x01, "USB Composite Device" ),
+            ( UsbBaseClass::AUDIO, 0x02, "Audio Device" ),
+            ( UsbBaseClass::COMM, 0x03, "Communication Device" ),
+            ( UsbBaseClass::HID, 0x02, "Human Interface Device" ),
+            ( UsbBaseClass::PRINTER, 0x02, "Printer" ),
+            ( UsbBaseClass::STORAGE, 0x02, "Storage Device" ),
+            ( UsbBaseClass::HUB, 0x01, "USB Hub" ),
+            ( UsbBaseClass::CDC_DATA, 0x02, "CDC Data"),
+            ( UsbBaseClass::VIDEO, 0x02, "Video Device" ),
+            ( UsbBaseClass::AUDIO_VIDEO, 0x02, "Audio/Video Device" ),
+            ( UsbBaseClass::BILLBOARD, 0x01, "Billboard Device" ),
+            ( UsbBaseClass::TYPE_C_BRIDGE, 0x02, "Type-C Bridge" ),
+            ( UsbBaseClass::DIAGNOSTIC, 0x03, "Diagnostic Device" ),
+            ( UsbBaseClass::WIRELESS, 0x02, "Wireless Device" ),
+            ( UsbBaseClass::APPLICATION_SPECIFIC, 0x02, "Application Specific" ),
+            ( UsbBaseClass::VENDOR_SPECIFIC, 0x03, "Vendor Specific" ),
+        ];
+
+        #[rustfmt::skip]
+        let full_class_entries = [
+            (UsbClass::MIDI_STREAMING, "USB MIDI Streaming" ),
+            (UsbClass::HID_BOOT_KEYBOARD, "HID Boot Keyboard" ),
+            (UsbClass::HID_BOOT_MOUSE, "HID Boot Mouse" ),
+            (UsbClass::MSD_BULK_ONLY, "Mass Storage Device" ),
+            (UsbClass::FLOPPY, "Floppy Drive"),
+            (UsbClass::HUB_FS, "Full Speed Hub"),
+            (UsbClass::HUB_HS_STT, "High Speed Hub"),
+            (UsbClass::HUB_HS_MTT, "High Speed Hub with multi TTs"),
+            (UsbClass::HUB_SS, "Super Speed Hub"),
+            (UsbClass::BLUETOOTH, "Bluetooth Interface"),
+            (UsbClass::XINPUT, "XInput Device"),
+        ];
+
+        let bitmap = 1u8 << (is_interface as usize);
+        match full_class_entries.binary_search_by_key(self, |v| v.0) {
+            Ok(index) => full_class_entries.get(index).map(|v| v.1),
+            Err(_) => None,
+        }
+        .or_else(
+            || match base_class_entries.binary_search_by_key(&self.base(), |v| v.0) {
+                Ok(index) => base_class_entries.get(index).and_then(|v| {
+                    if (v.1 & bitmap) != 0 {
+                        Some(v.2)
+                    } else {
+                        None
+                    }
+                }),
+                Err(_) => None,
+            },
+        )
+    }
 }
 
 impl fmt::Display for UsbClass {

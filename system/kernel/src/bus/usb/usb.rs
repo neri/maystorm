@@ -2,6 +2,7 @@
 
 use super::types::*;
 use crate::{
+    log::EventManager,
     sync::{fifo::AsyncEventQueue, RwLock},
     task::{scheduler::*, Task},
     *,
@@ -129,45 +130,67 @@ impl UsbManager {
             Ok(device) => {
                 let shared = Self::shared();
                 let device = Arc::new(device);
-                // let uuid = device.uuid();
-                log!(
-                    "USB connected: {} {} {} {} {:?}",
-                    addr.0,
-                    device.vid(),
-                    device.pid(),
-                    device.class(),
-                    device.product_string(),
-                );
+
+                // log!(
+                //     "USB connected: {} {} {} {} {:?}",
+                //     addr.0,
+                //     device.vid(),
+                //     device.pid(),
+                //     device.class(),
+                //     device.product_string(),
+                // );
+
                 shared.devices.write().unwrap().push(device.clone());
 
-                let mut issued = false;
+                let mut is_configured = false;
                 for driver in shared.specific_driver_starters.read().unwrap().iter() {
                     if driver.instantiate(&device) {
-                        issued = true;
+                        is_configured = true;
                         break;
                     }
                 }
-                if !issued {
+                if !is_configured {
                     for driver in shared.class_driver_starters.read().unwrap().iter() {
                         if driver.instantiate(&device) {
-                            issued = true;
+                            is_configured = true;
                             break;
                         }
                     }
                 }
-                if !issued {
+                if !is_configured {
                     for interface in device.current_configuration().interfaces() {
                         for driver in shared.interface_driver_starters.read().unwrap().iter() {
                             if driver.instantiate(&device, interface) {
-                                issued = true;
+                                is_configured = true;
                                 break;
                             }
                         }
                     }
                 }
-                if issued {
+
+                if is_configured {
                     device.is_configured.store(true, Ordering::SeqCst);
+                    if let Some(product_string) = device.product_string() {
+                        notify!("USB Device \"{}\" has been configured.", product_string);
+                    } else {
+                        if let Some(name) = device.class().class_string(false) {
+                            notify!("USB Device \"{}\" has been configured.", name);
+                        } else {
+                            notify!("A USB Device has been configured.");
+                        }
+                    }
+                } else {
+                    if let Some(product_string) = device.product_string() {
+                        notify!("USB Device \"{}\" was found.", product_string);
+                    } else {
+                        if let Some(name) = device.class().class_string(false) {
+                            notify!("USB Device \"{}\" was found.", name);
+                        } else {
+                            notify!("A USB Device was found.");
+                        }
+                    }
                 }
+
                 true
             }
             Err(err) => {
@@ -275,44 +298,44 @@ pub struct UsbDevice {
 impl UsbDevice {
     #[inline]
     fn new(addr: UsbDeviceAddress, host: Arc<dyn UsbHostInterface>) -> Result<Self, UsbError> {
-        if host.speed() == PSIV::FS {
-            // FullSpeed devices have to read the first 8 bytes of the device descriptor first and re-set the maximum packet size.
-            match (0..5).try_for_each(|_| {
+        let mut device_desc: Option<UsbDeviceDescriptor> = None;
+        for _ in 0..5 {
+            if host.speed() == PSIV::FS {
+                // FullSpeed devices have to read the first 8 bytes of the device descriptor first and re-set the maximum packet size.
                 let mut packet = [0; 8];
                 match Self::_control_slice(
                     &host,
-                    UsbControlSetupData {
-                        bmRequestType: UsbControlRequestBitmap::GET_DEVICE,
-                        bRequest: UsbControlRequest::GET_DESCRIPTOR,
-                        wValue: (UsbDescriptorType::Device as u16) << 8,
-                        wIndex: 0,
-                        wLength: 8,
-                    },
+                    UsbControlSetupData::request(
+                        UsbControlRequestBitmap::GET_DEVICE,
+                        UsbControlRequest::GET_DESCRIPTOR,
+                    )
+                    .value((UsbDescriptorType::Device as u16) << 8)
+                    .length(8),
                     &mut packet,
                 ) {
-                    Ok(_) => ControlFlow::Break(packet[7] as usize),
-                    Err(_err) => {
-                        Timer::sleep(Duration::from_millis(50));
-                        ControlFlow::CONTINUE
+                    Ok(_) => {
+                        let max_packet_size = packet[7] as usize;
+                        let _ = host.set_max_packet_size(max_packet_size);
                     }
+                    Err(_) => (),
                 }
-            }) {
-                ControlFlow::Continue(_) => {
-                    log!("FS DEVICE {} PACKET ERROR", addr.0);
-                    return Err(UsbError::InvalidDescriptor);
-                }
-                ControlFlow::Break(max_packet_size) => {
-                    let _ = host.set_max_packet_size(max_packet_size);
-                    Timer::sleep(Duration::from_millis(50));
-                }
+                Timer::sleep(Duration::from_millis(10));
             }
-        }
-
-        let device_desc: UsbDeviceDescriptor =
             match Self::_get_device_descriptor(&host, UsbDescriptorType::Device, 0) {
-                Ok(v) => v,
-                Err(err) => return Err(err),
+                Ok(v) => {
+                    device_desc = Some(v);
+                    break;
+                }
+                Err(_err) => (),
             };
+        }
+        let device_desc = match device_desc {
+            Some(v) => v,
+            None => {
+                log!("DEVICE DESCRIPTOR ERROR {}", addr.0.get());
+                return Err(UsbError::InvalidDescriptor);
+            }
+        };
 
         // log!(
         //     "DEVICE {} {} {} {} v{}",
@@ -852,6 +875,26 @@ impl UsbDevice {
         data: &mut [u8],
     ) -> Result<(), UsbError> {
         Self::_control_slice(&self.host_clone(), setup, data)
+    }
+
+    pub fn control_send(
+        &self,
+        mut setup: UsbControlSetupData,
+        max_len: usize,
+        data: &[u8],
+    ) -> Result<(), UsbError> {
+        if max_len > data.len() {
+            return Err(UsbError::InvalidParameter);
+        }
+        setup.wLength = max_len as u16;
+        let data = match data.get(0) {
+            Some(v) => v as *const _ as *const u8,
+            None => return Err(UsbError::InvalidParameter),
+        };
+        match unsafe { self.host().control_send(setup, data) } {
+            Ok(_v) => Ok(()),
+            Err(err) => Err(err),
+        }
     }
 
     fn _control_nodata(

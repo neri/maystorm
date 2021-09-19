@@ -1,9 +1,13 @@
 // User Environment
 
+use crate::log::EventManager;
+use crate::sync::fifo::{AsyncEventQueue, ConcurrentFifo};
 use crate::{
     arch::cpu::*, fs::*, mem::*, system::*, task::scheduler::*, task::*, ui::font::*,
     ui::terminal::Terminal, ui::text::*, ui::theme::Theme, ui::window::*, *,
 };
+use ::alloc::string::String;
+use ::alloc::sync::Arc;
 use ::alloc::vec::*;
 use core::{fmt::Write, time::Duration};
 use megstd::drawing::img::*;
@@ -14,9 +18,8 @@ pub struct UserEnv;
 
 impl UserEnv {
     pub fn start(f: fn()) {
-        Timer::sleep(Duration::from_millis(1000));
         // loop {
-        //     Timer::sleep(Duration::from_secs(1));
+        //     Timer::sleep(Duration::from_millis(1000));
         // }
 
         WindowManager::set_desktop_color(Theme::shared().desktop_color());
@@ -31,19 +34,17 @@ impl UserEnv {
             }
         }
         WindowManager::set_pointer_visible(true);
-        // Timer::sleep(Duration::from_millis(500));
 
         Scheduler::spawn_async(Task::new(status_bar_main()));
         Scheduler::spawn_async(Task::new(activity_monitor_main()));
         Scheduler::spawn_async(Task::new(shell_launcher(f)));
-        // Scheduler::spawn_async(Task::new(notification_main()));
+        Scheduler::spawn_async(Task::new(_notification_task()));
         // Scheduler::spawn_async(Task::new(test_window_main()));
         Scheduler::perform_tasks();
     }
 }
 
 async fn shell_launcher(f: fn()) {
-    // Timer::sleep_async(Duration::from_millis(500)).await;
     {
         // Main Terminal
         let terminal = Terminal::new(80, 24);
@@ -389,19 +390,20 @@ async fn activity_monitor_main() {
     }
 }
 
-#[allow(dead_code)]
-async fn notification_main() {
+/// Simple Notification Task
+async fn _notification_task() {
     let padding = 8;
     let radius = 8;
-    let bg_color = Color::from_argb(0xC0FFFFCC);
+    let bg_color = Color::from_argb(0xE0FFF9C4);
     let fg_color = Color::BLACK;
-    let border_color = Color::from_argb(0xFFC0C0C0);
+    let border_color = Color::from_rgb(0xCBC693);
     let window_width = 240;
-    let window_height = 64;
+    let window_height = 90;
     let screen_bounds = WindowManager::user_screen_bounds();
 
     let window = WindowBuilder::new()
         .style(WindowStyle::FLOATING | WindowStyle::SUSPENDED)
+        .level(WindowLevel::POPUP)
         .frame(Rect::new(
             screen_bounds.max_x() - window_width,
             screen_bounds.min_y(),
@@ -411,37 +413,67 @@ async fn notification_main() {
         .bg_color(Color::TRANSPARENT)
         .build("Notification Center");
 
-    window.draw(|bitmap| {
-        let rect = bitmap.bounds().insets_by(EdgeInsets::padding_each(padding));
-        bitmap.fill_round_rect(rect, radius, bg_color);
-        bitmap.draw_round_rect(rect, radius, border_color);
+    let message_buffer = Arc::new(ConcurrentFifo::with_capacity(100));
+    Scheduler::spawn_async(Task::new(_notification_observer(
+        window,
+        message_buffer.clone(),
+    )));
 
-        let rect2 = rect.insets_by(EdgeInsets::padding_each(padding));
-        let ats = AttributedString::new()
-            .font(FontDescriptor::new(FontFamily::SansSerif, 12).unwrap())
-            .color(fg_color)
-            .center()
-            // .text("Lorem ipsum dolor sit amet, consectetur adipiscing elit,");
-            .text("A USB device has been connected.");
-        ats.draw_text(bitmap, rect2, 0);
-    });
-
-    window.show();
+    let dismiss_time = Duration::from_millis(5000);
+    let mut last_timer = Timer::new(dismiss_time);
 
     while let Some(message) = window.get_message().await {
         match message {
+            WindowMessage::Timer(_) => {
+                if last_timer.is_expired() {
+                    window.hide();
+                }
+            }
+            WindowMessage::User(_) => {
+                if let Some(message) = message_buffer.dequeue() {
+                    window.draw(|bitmap| {
+                        bitmap.clear();
+                        let rect = bitmap.bounds().insets_by(EdgeInsets::padding_each(padding));
+                        bitmap.fill_round_rect(rect, radius, bg_color);
+                        bitmap.draw_round_rect(rect, radius, border_color);
+
+                        let rect2 = rect.insets_by(EdgeInsets::padding_each(padding));
+                        let ats = AttributedString::new()
+                            .font(FontDescriptor::new(FontFamily::SansSerif, 14).unwrap())
+                            .color(fg_color)
+                            .center()
+                            .text(message.as_str());
+                        ats.draw_text(bitmap, rect2, 0);
+                    });
+                    window.show();
+                    last_timer = Timer::new(dismiss_time);
+                    window.create_timer(0, dismiss_time);
+                }
+            }
             _ => window.handle_default_message(message),
         }
     }
 }
 
+async fn _notification_observer(window: WindowHandle, buffer: Arc<ConcurrentFifo<String>>) {
+    Timer::sleep_async(Duration::from_millis(1000)).await;
+    while let Some(message) = EventManager::monitor_notification().await {
+        buffer.enqueue(message).unwrap();
+        window.post(WindowMessage::User(0)).unwrap();
+        Timer::sleep_async(Duration::from_millis(3000)).await;
+    }
+}
+
 #[allow(dead_code)]
 async fn test_window_main() {
+    Timer::sleep_async(Duration::from_millis(500)).await;
+
     let width = 320;
     let height = 240;
     let window = WindowBuilder::new()
         .size(Size::new(width, height))
         .bg_color(Color::from_argb(0x80FFFFFF))
+        .level(WindowLevel::POPUP)
         .build("");
     window.set_back_button_enabled(true);
 
@@ -565,8 +597,15 @@ async fn test_window_main() {
         }
     });
 
+    WindowManager::set_barrier_opacity(0x80);
+
     while let Some(message) = window.get_message().await {
         match message {
+            WindowMessage::Close => {
+                WindowManager::set_barrier_opacity(0);
+                window.close();
+                return;
+            }
             _ => window.handle_default_message(message),
         }
     }

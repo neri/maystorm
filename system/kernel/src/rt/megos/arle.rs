@@ -5,7 +5,7 @@ use crate::{
     sync::Mutex,
     ui::theme::Theme,
     *,
-    {io::hid::*, ui::text::*, ui::window::*},
+    {io::hid_mgr::*, ui::text::*, ui::window::*},
 };
 use alloc::collections::BTreeMap;
 use byteorder::*;

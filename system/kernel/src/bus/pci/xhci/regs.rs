@@ -321,7 +321,7 @@ bitflags! {
         /// A magic word to preserve mask
         const PRESERVE_MASK = 0x0E00C3E0;
 
-        const RESET_ALL_CHANGES = 0x00FE_0000;
+        const ALL_CHANGE_BITS = 0x00FE_0000;
         /// ROS Current Connect Status
         const CCS   = 0x0000_0001;
         /// RW1CS Port Enabled
@@ -471,9 +471,6 @@ impl InterrupterRegisterSet {
         let erdp = self.erdp.load(Ordering::SeqCst);
         let cycle = event_cycle.value();
         let erdp_va = MemoryManager::direct_map(erdp & !15) as *const Trb;
-        unsafe {
-            MemoryManager::invalidate_cache(erdp_va as usize);
-        }
         let event = unsafe { &*erdp_va };
         if event.cycle_bit() == cycle {
             let er_base = erdp & !0xFFF;

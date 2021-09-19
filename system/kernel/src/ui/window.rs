@@ -2,7 +2,7 @@
 
 use super::{font::*, text::*, theme::Theme};
 use crate::{
-    io::hid::*,
+    io::hid_mgr::*,
     sync::atomicflags::*,
     sync::RwLock,
     sync::{fifo::*, semaphore::*},
@@ -127,6 +127,7 @@ pub struct WindowManager<'a> {
 
     root: WindowHandle,
     pointer: WindowHandle,
+    barrier: WindowHandle,
     active: Option<WindowHandle>,
     captured: Option<WindowHandle>,
     captured_origin: Point,
@@ -209,6 +210,21 @@ impl WindowManager<'static> {
             handle
         };
 
+        let barrier = {
+            let window = WindowBuilder::new()
+                .style(WindowStyle::NO_SHADOW)
+                .level(WindowLevel::POPUP_BARRIER)
+                .frame(Rect::from(screen_size))
+                .bg_color(Color::from_rgb(0))
+                .without_message_queue()
+                .bitmap_strategy(BitmapStrategy::NonBitmap)
+                .build_inner("Barrier");
+
+            let handle = window.handle;
+            window_pool.insert(handle, Arc::new(UnsafeCell::new(window)));
+            handle
+        };
+
         unsafe {
             WM = Some(Box::new(WindowManager {
                 sem_event: Semaphore::new(0),
@@ -234,6 +250,7 @@ impl WindowManager<'static> {
                 window_orders: RwLock::new(window_orders),
                 root,
                 pointer,
+                barrier,
                 active: None,
                 captured: None,
                 captured_origin: Point::default(),
@@ -943,6 +960,20 @@ impl WindowManager<'_> {
                 window.title().unwrap_or("")
             )
             .unwrap();
+        }
+    }
+
+    pub fn set_barrier_opacity(opacity: u8) {
+        let shared = Self::shared();
+        let barrier = shared.barrier;
+        if opacity > 0 {
+            let color = TrueColor::from_gray(0, opacity);
+            barrier.set_bg_color(color.into());
+            if !barrier.is_visible() {
+                barrier.show();
+            }
+        } else {
+            barrier.hide();
         }
     }
 }
@@ -1843,7 +1874,7 @@ impl WindowBuilder {
             frame.origin.y += screen_bounds.max_y() - (content_insets.top + content_insets.bottom);
         }
 
-        if self.style.contains(WindowStyle::FLOATING) {
+        if self.style.contains(WindowStyle::FLOATING) && self.level <= WindowLevel::NORMAL {
             self.level = WindowLevel::FLOATING;
         }
 
@@ -1957,7 +1988,7 @@ impl WindowBuilder {
     }
 
     #[inline]
-    const fn level(mut self, level: WindowLevel) -> Self {
+    pub const fn level(mut self, level: WindowLevel) -> Self {
         self.level = level;
         self
     }
@@ -2359,7 +2390,11 @@ impl WindowHandle {
 
     /// Supports asynchronous reading of window messages.
     pub fn poll_message(&self, cx: &mut Context<'_>) -> Option<WindowMessage> {
-        self.as_ref().waker.register(cx.waker());
+        let window = match self.get() {
+            Some(v) => v.as_ref(),
+            None => return None,
+        };
+        window.waker.register(cx.waker());
         self.read_message().map(|message| {
             self.as_ref().waker.take();
             message

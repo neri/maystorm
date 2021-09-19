@@ -2,7 +2,7 @@
 
 use super::super::*;
 use crate::{
-    io::hid::{GameInput, GameInputManager},
+    io::hid_mgr::{GameInput, GameInputManager},
     sync::RwLock,
     task::Task,
 };
