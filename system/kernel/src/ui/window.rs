@@ -2,7 +2,7 @@
 
 use super::{font::*, text::*, theme::Theme};
 use crate::{
-    io::hid::*,
+    io::hid_mgr::*,
     sync::atomicflags::*,
     sync::RwLock,
     sync::{fifo::*, semaphore::*},
@@ -127,6 +127,7 @@ pub struct WindowManager<'a> {
 
     root: WindowHandle,
     pointer: WindowHandle,
+    barrier: WindowHandle,
     active: Option<WindowHandle>,
     captured: Option<WindowHandle>,
     captured_origin: Point,
@@ -209,6 +210,21 @@ impl WindowManager<'static> {
             handle
         };
 
+        let barrier = {
+            let window = WindowBuilder::new()
+                .style(WindowStyle::NO_SHADOW)
+                .level(WindowLevel::POPUP_BARRIER)
+                .frame(Rect::from(screen_size))
+                .bg_color(Color::from_rgb(0))
+                .without_message_queue()
+                .bitmap_strategy(BitmapStrategy::NonBitmap)
+                .build_inner("Barrier");
+
+            let handle = window.handle;
+            window_pool.insert(handle, Arc::new(UnsafeCell::new(window)));
+            handle
+        };
+
         unsafe {
             WM = Some(Box::new(WindowManager {
                 sem_event: Semaphore::new(0),
@@ -234,6 +250,7 @@ impl WindowManager<'static> {
                 window_orders: RwLock::new(window_orders),
                 root,
                 pointer,
+                barrier,
                 active: None,
                 captured: None,
                 captured_origin: Point::default(),
@@ -707,7 +724,7 @@ impl WindowManager<'_> {
         )
     }
 
-    fn update_coord(
+    fn update_relative_coord(
         coord: &AtomicIsize,
         movement: isize,
         min_value: isize,
@@ -726,7 +743,26 @@ impl WindowManager<'_> {
         }
     }
 
-    pub fn post_mouse_event(mouse_state: &mut MouseState) {
+    fn update_absolute_coord(
+        coord: &AtomicIsize,
+        new_value: isize,
+        min_value: isize,
+        max_value: isize,
+    ) -> bool {
+        match coord.fetch_update(Ordering::SeqCst, Ordering::Relaxed, |old_value| {
+            let new_value = cmp::min(cmp::max(new_value, min_value), max_value);
+            if old_value == new_value {
+                None
+            } else {
+                Some(new_value)
+            }
+        }) {
+            Ok(_) => true,
+            Err(_) => false,
+        }
+    }
+
+    pub fn post_relative_pointer(pointer_state: &mut MouseState) {
         let shared = match Self::shared_opt() {
             Some(v) => v,
             None => return,
@@ -734,16 +770,16 @@ impl WindowManager<'_> {
         let screen_bounds: Rect = shared.screen_size.into();
 
         let mut pointer = Point::new(0, 0);
-        swap(&mut mouse_state.x, &mut pointer.x);
-        swap(&mut mouse_state.y, &mut pointer.y);
-        let button_changes = mouse_state.current_buttons ^ mouse_state.prev_buttons;
-        let button_down = button_changes & mouse_state.current_buttons;
-        let button_up = button_changes & mouse_state.prev_buttons;
+        swap(&mut pointer_state.x, &mut pointer.x);
+        swap(&mut pointer_state.y, &mut pointer.y);
+        let button_changes = pointer_state.current_buttons ^ pointer_state.prev_buttons;
+        let button_down = button_changes & pointer_state.current_buttons;
+        let button_up = button_changes & pointer_state.prev_buttons;
         let button_changed = !button_changes.is_empty();
 
         if button_changed {
             shared.buttons.store(
-                mouse_state.current_buttons.bits() as usize,
+                pointer_state.current_buttons.bits() as usize,
                 Ordering::SeqCst,
             );
             shared
@@ -754,14 +790,61 @@ impl WindowManager<'_> {
                 .fetch_or(button_up.bits() as usize, Ordering::SeqCst);
         }
 
-        let moved = Self::update_coord(
+        let moved = Self::update_relative_coord(
             &shared.pointer_x,
             pointer.x,
             screen_bounds.x(),
             screen_bounds.width() - 1,
-        ) | Self::update_coord(
+        ) | Self::update_relative_coord(
             &shared.pointer_y,
             pointer.y,
+            screen_bounds.y(),
+            screen_bounds.height() - 1,
+        );
+
+        if button_changed | moved {
+            shared
+                .attributes
+                .insert(WindowManagerAttributes::MOUSE_MOVE);
+            shared.sem_event.signal();
+        }
+    }
+
+    pub fn post_absolute_pointer(pointer_state: &mut MouseState) {
+        let shared = match Self::shared_opt() {
+            Some(v) => v,
+            None => return,
+        };
+        let screen_bounds: Rect = shared.screen_size.into();
+        let button_changes = pointer_state.current_buttons ^ pointer_state.prev_buttons;
+        let button_down = button_changes & pointer_state.current_buttons;
+        let button_up = button_changes & pointer_state.prev_buttons;
+        let button_changed = !button_changes.is_empty();
+
+        if button_changed {
+            shared.buttons.store(
+                pointer_state.current_buttons.bits() as usize,
+                Ordering::SeqCst,
+            );
+            shared
+                .buttons_down
+                .fetch_or(button_down.bits() as usize, Ordering::SeqCst);
+            shared
+                .buttons_up
+                .fetch_or(button_up.bits() as usize, Ordering::SeqCst);
+        }
+
+        let pointer_x = screen_bounds.width() * pointer_state.x / pointer_state.max_x;
+        let pointer_y = screen_bounds.height() * pointer_state.y / pointer_state.max_y;
+
+        let moved = Self::update_absolute_coord(
+            &shared.pointer_x,
+            pointer_x,
+            screen_bounds.x(),
+            screen_bounds.width() - 1,
+        ) | Self::update_absolute_coord(
+            &shared.pointer_y,
+            pointer_y,
             screen_bounds.y(),
             screen_bounds.height() - 1,
         );
@@ -877,6 +960,20 @@ impl WindowManager<'_> {
                 window.title().unwrap_or("")
             )
             .unwrap();
+        }
+    }
+
+    pub fn set_barrier_opacity(opacity: u8) {
+        let shared = Self::shared();
+        let barrier = shared.barrier;
+        if opacity > 0 {
+            let color = TrueColor::from_gray(0, opacity);
+            barrier.set_bg_color(color.into());
+            if !barrier.is_visible() {
+                barrier.show();
+            }
+        } else {
+            barrier.hide();
         }
     }
 }
@@ -1777,7 +1874,7 @@ impl WindowBuilder {
             frame.origin.y += screen_bounds.max_y() - (content_insets.top + content_insets.bottom);
         }
 
-        if self.style.contains(WindowStyle::FLOATING) {
+        if self.style.contains(WindowStyle::FLOATING) && self.level <= WindowLevel::NORMAL {
             self.level = WindowLevel::FLOATING;
         }
 
@@ -1891,7 +1988,7 @@ impl WindowBuilder {
     }
 
     #[inline]
-    const fn level(mut self, level: WindowLevel) -> Self {
+    pub const fn level(mut self, level: WindowLevel) -> Self {
         self.level = level;
         self
     }
@@ -2293,7 +2390,11 @@ impl WindowHandle {
 
     /// Supports asynchronous reading of window messages.
     pub fn poll_message(&self, cx: &mut Context<'_>) -> Option<WindowMessage> {
-        self.as_ref().waker.register(cx.waker());
+        let window = match self.get() {
+            Some(v) => v.as_ref(),
+            None => return None,
+        };
+        window.waker.register(cx.waker());
         self.read_message().map(|message| {
             self.as_ref().waker.take();
             message

@@ -43,7 +43,19 @@ impl fmt::Debug for UsbWord {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UsbVersion(pub u16);
 
-impl fmt::Debug for UsbVersion {
+impl UsbVersion {
+    pub const USB1_0: Self = Self(0x0100);
+    pub const USB1_1: Self = Self(0x0110);
+    pub const USB2_0: Self = Self(0x0200);
+    pub const USB3_0: Self = Self(0x0300);
+    pub const USB3_1: Self = Self(0x0310);
+    pub const USB3_2: Self = Self(0x0320);
+
+    /// BOS descriptors are only supported for version number 0x0201 and above.
+    pub const BOS_MIN: Self = Self(0x0201);
+}
+
+impl fmt::Display for UsbVersion {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let part1 = (self.0 >> 12) & 0x0F;
         let part2 = (self.0 >> 8) & 0x0F;
@@ -58,10 +70,128 @@ impl fmt::Debug for UsbVersion {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UsbVendorId(pub u16);
 
+impl fmt::Display for UsbVendorId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:04x}", self.0)
+    }
+}
+
 /// USB Product Id
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UsbProductId(pub u16);
+
+impl fmt::Display for UsbProductId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:04x}", self.0)
+    }
+}
+
+/// USB Class code (BaseClass - SubClass - Protocol)
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UsbClass(pub u32);
+
+impl UsbClass {
+    pub const COMPOSITE: Self = Self(0x00_00_00);
+    pub const MIDI_STREAMING: Self = Self(0x01_03_00);
+    pub const HID_GENERIC: Self = Self(0x03_00_00);
+    pub const HID_BOOT_KEYBOARD: Self = Self(0x03_01_01);
+    pub const HID_BOOT_MOUSE: Self = Self(0x03_01_02);
+    pub const MSD_BULK_ONLY: Self = Self(0x08_06_50);
+    pub const FLOPPY: Self = Self(0x08_04_00);
+    pub const HUB_FS: Self = Self(0x09_00_00);
+    pub const HUB_HS_STT: Self = Self(0x09_00_01);
+    pub const HUB_HS_MTT: Self = Self(0x09_00_02);
+    pub const HUB_SS: Self = Self(0x09_00_03);
+    pub const BLUETOOTH: Self = Self(0xE0_01_01);
+    pub const XINPUT: Self = Self(0xFF_5D_01);
+    pub const XINPUT_HEADSET: Self = Self(0xFF_5D_02);
+    pub const XINPUT_IF2: Self = Self(0xFF_5D_03);
+    pub const XINPUT_IF3: Self = Self(0xFF_5D_04);
+
+    #[inline]
+    pub const fn new(base: UsbBaseClass, sub: UsbSubClass, protocol: UsbProtocolCode) -> Self {
+        Self(((base.0 as u32) << 16) | ((sub.0 as u32) << 8) | (protocol.0 as u32))
+    }
+
+    #[inline]
+    pub const fn base(&self) -> UsbBaseClass {
+        UsbBaseClass((self.0 >> 16) as u8)
+    }
+
+    #[inline]
+    pub const fn sub(&self) -> UsbSubClass {
+        UsbSubClass((self.0 >> 8) as u8)
+    }
+
+    #[inline]
+    pub const fn protocol(&self) -> UsbProtocolCode {
+        UsbProtocolCode(self.0 as u8)
+    }
+
+    #[inline]
+    pub fn class_string(&self, is_interface: bool) -> Option<&'static str> {
+        #[rustfmt::skip]
+        let base_class_entries = [
+            ( UsbBaseClass::COMPOSITE, 0x01, "USB Composite Device" ),
+            ( UsbBaseClass::AUDIO, 0x02, "Audio Device" ),
+            ( UsbBaseClass::COMM, 0x03, "Communication Device" ),
+            ( UsbBaseClass::HID, 0x02, "Human Interface Device" ),
+            ( UsbBaseClass::PRINTER, 0x02, "Printer" ),
+            ( UsbBaseClass::STORAGE, 0x02, "Storage Device" ),
+            ( UsbBaseClass::HUB, 0x01, "USB Hub" ),
+            ( UsbBaseClass::CDC_DATA, 0x02, "CDC Data"),
+            ( UsbBaseClass::VIDEO, 0x02, "Video Device" ),
+            ( UsbBaseClass::AUDIO_VIDEO, 0x02, "Audio/Video Device" ),
+            ( UsbBaseClass::BILLBOARD, 0x01, "Billboard Device" ),
+            ( UsbBaseClass::TYPE_C_BRIDGE, 0x02, "Type-C Bridge" ),
+            ( UsbBaseClass::DIAGNOSTIC, 0x03, "Diagnostic Device" ),
+            ( UsbBaseClass::WIRELESS, 0x02, "Wireless Device" ),
+            ( UsbBaseClass::APPLICATION_SPECIFIC, 0x02, "Application Specific" ),
+            ( UsbBaseClass::VENDOR_SPECIFIC, 0x03, "Vendor Specific" ),
+        ];
+
+        #[rustfmt::skip]
+        let full_class_entries = [
+            (UsbClass::MIDI_STREAMING, "USB MIDI Streaming" ),
+            (UsbClass::HID_BOOT_KEYBOARD, "HID Boot Keyboard" ),
+            (UsbClass::HID_BOOT_MOUSE, "HID Boot Mouse" ),
+            (UsbClass::MSD_BULK_ONLY, "Mass Storage Device" ),
+            (UsbClass::FLOPPY, "Floppy Drive"),
+            (UsbClass::HUB_FS, "Full Speed Hub"),
+            (UsbClass::HUB_HS_STT, "High Speed Hub"),
+            (UsbClass::HUB_HS_MTT, "High Speed Hub with multi TTs"),
+            (UsbClass::HUB_SS, "Super Speed Hub"),
+            (UsbClass::BLUETOOTH, "Bluetooth Interface"),
+            (UsbClass::XINPUT, "XInput Device"),
+        ];
+
+        let bitmap = 1u8 << (is_interface as usize);
+        match full_class_entries.binary_search_by_key(self, |v| v.0) {
+            Ok(index) => full_class_entries.get(index).map(|v| v.1),
+            Err(_) => None,
+        }
+        .or_else(
+            || match base_class_entries.binary_search_by_key(&self.base(), |v| v.0) {
+                Ok(index) => base_class_entries.get(index).and_then(|v| {
+                    if (v.1 & bitmap) != 0 {
+                        Some(v.2)
+                    } else {
+                        None
+                    }
+                }),
+                Err(_) => None,
+            },
+        )
+    }
+}
+
+impl fmt::Display for UsbClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:06x}", self.0)
+    }
+}
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -99,50 +229,6 @@ pub struct UsbSubClass(pub u8);
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UsbProtocolCode(pub u8);
-
-/// USB Class code (BaseClass - SubClass - Protocol)
-#[repr(transparent)]
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct UsbClass(pub u32);
-
-impl UsbClass {
-    pub const COMPOSITE: Self = Self(0x00_00_00);
-    pub const MIDI_STREAMING: Self = Self(0x01_03_00);
-    pub const HID_GENERIC: Self = Self(0x03_00_00);
-    pub const HID_BOOT_KEYBOARD: Self = Self(0x03_01_01);
-    pub const HID_BOOT_MOUSE: Self = Self(0x03_01_02);
-    pub const STORAGE_BULK: Self = Self(0x08_06_50);
-    pub const FLOPPY: Self = Self(0x08_04_00);
-    pub const HUB_FS: Self = Self(0x09_00_00);
-    pub const HUB_HS_STT: Self = Self(0x09_00_01);
-    pub const HUB_HS_MTT: Self = Self(0x09_00_02);
-    pub const HUB_SS: Self = Self(0x09_00_03);
-    pub const BLUETOOTH: Self = Self(0xE0_01_01);
-    pub const XINPUT: Self = Self(0xFF_5D_01);
-    pub const XINPUT_HEADSET: Self = Self(0xFF_5D_02);
-    pub const XINPUT_IF2: Self = Self(0xFF_5D_03);
-    pub const XINPUT_IF3: Self = Self(0xFF_5D_04);
-
-    #[inline]
-    pub const fn new(base: UsbBaseClass, sub: UsbSubClass, protocol: UsbProtocolCode) -> Self {
-        Self(((base.0 as u32) << 16) | ((sub.0 as u32) << 8) | (protocol.0 as u32))
-    }
-
-    #[inline]
-    pub const fn base(&self) -> UsbBaseClass {
-        UsbBaseClass((self.0 >> 16) as u8)
-    }
-
-    #[inline]
-    pub const fn sub(&self) -> UsbSubClass {
-        UsbSubClass((self.0 >> 8) as u8)
-    }
-
-    #[inline]
-    pub const fn protocol(&self) -> UsbProtocolCode {
-        UsbProtocolCode(self.0 as u8)
-    }
-}
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -213,20 +299,20 @@ pub trait UsbDescriptor {
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
 pub struct UsbDeviceDescriptor {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    bcdUSB: UsbWord,
-    bDeviceClass: UsbBaseClass,
-    bDeviceSubClass: UsbSubClass,
-    bDeviceProtocol: UsbProtocolCode,
-    bMaxPacketSize0: u8,
-    idVendor: UsbWord,
-    idProduct: UsbWord,
-    bcdDevice: UsbWord,
-    iManufacturer: u8,
-    iProduct: u8,
-    iSerialNumber: u8,
-    bNumConfigurations: u8,
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub bcdUSB: UsbWord,
+    pub bDeviceClass: UsbBaseClass,
+    pub bDeviceSubClass: UsbSubClass,
+    pub bDeviceProtocol: UsbProtocolCode,
+    pub bMaxPacketSize0: u8,
+    pub idVendor: UsbWord,
+    pub idProduct: UsbWord,
+    pub bcdDevice: UsbWord,
+    pub iManufacturer: u8,
+    pub iProduct: u8,
+    pub iSerialNumber: u8,
+    pub bNumConfigurations: u8,
 }
 
 impl UsbDeviceDescriptor {
@@ -292,14 +378,14 @@ impl UsbDescriptor for UsbDeviceDescriptor {
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
 pub struct UsbConfigurationDescriptor {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    wTotalLength: UsbWord,
-    bNumInterface: u8,
-    bConfigurationValue: UsbConfigurationValue,
-    iConfiguration: u8,
-    bmAttributes: u8,
-    bMaxPower: u8,
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub wTotalLength: UsbWord,
+    pub bNumInterface: u8,
+    pub bConfigurationValue: UsbConfigurationValue,
+    pub iConfiguration: u8,
+    pub bmAttributes: u8,
+    pub bMaxPower: u8,
 }
 
 impl UsbConfigurationDescriptor {
@@ -346,15 +432,15 @@ impl UsbDescriptor for UsbConfigurationDescriptor {
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
 pub struct UsbInterfaceDescriptor {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    bInterfaceNumber: UsbInterfaceNumber,
-    bAlternateSetting: UsbAlternateSettingNumber,
-    bNumEndpoints: u8,
-    bInterfaceClass: UsbBaseClass,
-    bInterfaceSubClass: UsbSubClass,
-    bInterfaceProtocol: UsbProtocolCode,
-    iInterface: u8,
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub bInterfaceNumber: UsbInterfaceNumber,
+    pub bAlternateSetting: UsbAlternateSettingNumber,
+    pub bNumEndpoints: u8,
+    pub bInterfaceClass: UsbBaseClass,
+    pub bInterfaceSubClass: UsbSubClass,
+    pub bInterfaceProtocol: UsbProtocolCode,
+    pub iInterface: u8,
 }
 
 impl UsbInterfaceDescriptor {
@@ -405,12 +491,12 @@ impl UsbDescriptor for UsbInterfaceDescriptor {
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
 pub struct UsbEndpointDescriptor {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    bEndpointAddress: u8,
-    bmAttributes: u8,
-    wMaxPacketSize: UsbWord,
-    bInterval: u8,
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub bEndpointAddress: u8,
+    pub bmAttributes: u8,
+    pub wMaxPacketSize: UsbWord,
+    pub bInterval: u8,
 }
 
 impl UsbEndpointDescriptor {
@@ -452,15 +538,15 @@ impl UsbDescriptor for UsbEndpointDescriptor {
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
 pub struct UsbDeviceQualifierDescriptor {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    bcdUSB: UsbWord,
-    bDeviceClass: UsbBaseClass,
-    bDeviceSubClass: UsbSubClass,
-    bDeviceProtocol: UsbProtocolCode,
-    bMaxPacketSize0: u8,
-    bNumConfigurations: u8,
-    bReserved: u8,
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub bcdUSB: UsbWord,
+    pub bDeviceClass: UsbBaseClass,
+    pub bDeviceSubClass: UsbSubClass,
+    pub bDeviceProtocol: UsbProtocolCode,
+    pub bMaxPacketSize0: u8,
+    pub bNumConfigurations: u8,
+    pub bReserved: u8,
 }
 
 impl UsbDeviceQualifierDescriptor {
@@ -486,15 +572,15 @@ impl UsbDescriptor for UsbDeviceQualifierDescriptor {
     }
 }
 
-/// USB Decive Qualifier Descriptor
+/// BOS USB Binary Device Object Store Descriptor
 #[repr(C, packed)]
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
 pub struct UsbBinaryObjectStoreDescriptor {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    wTotalLength: UsbWord,
-    bNumDeviceCaps: u8,
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub wTotalLength: UsbWord,
+    pub bNumDeviceCaps: u8,
 }
 
 impl UsbBinaryObjectStoreDescriptor {
@@ -521,25 +607,27 @@ impl UsbDescriptor for UsbBinaryObjectStoreDescriptor {
     }
 }
 
+/// A type compatible with standard USB device capabilities
 pub trait UsbDeviceCapabilityDescriptor: UsbDescriptor {
     fn capability_type(&self) -> UsbDeviceCapabilityType;
 }
 
+/// USB Superspeed USB Device Capability
 #[repr(C, packed)]
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
-pub struct UsbSuperspeedUsbDeviceCapability {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    bDevCapabilityType: UsbDeviceCapabilityType,
-    bmAttributes: u8,
-    wSpeedSupported: UsbWord,
-    bFunctionalitySupport: u8,
-    bU1DevExitLat: u8,
-    wU2DevExitLat: UsbWord,
+pub struct UsbSsDeviceCapability {
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub bDevCapabilityType: UsbDeviceCapabilityType,
+    pub bmAttributes: u8,
+    pub wSpeedSupported: UsbWord,
+    pub bFunctionalitySupport: u8,
+    pub bU1DevExitLat: u8,
+    pub wU2DevExitLat: UsbWord,
 }
 
-impl UsbSuperspeedUsbDeviceCapability {
+impl UsbSsDeviceCapability {
     #[inline]
     pub const fn u1_dev_exit_lat(&self) -> usize {
         self.bU1DevExitLat as usize
@@ -551,7 +639,7 @@ impl UsbSuperspeedUsbDeviceCapability {
     }
 }
 
-impl UsbDescriptor for UsbSuperspeedUsbDeviceCapability {
+impl UsbDescriptor for UsbSsDeviceCapability {
     #[inline]
     fn len(&self) -> usize {
         self.bLength as usize
@@ -563,22 +651,23 @@ impl UsbDescriptor for UsbSuperspeedUsbDeviceCapability {
     }
 }
 
-impl UsbDeviceCapabilityDescriptor for UsbSuperspeedUsbDeviceCapability {
+impl UsbDeviceCapabilityDescriptor for UsbSsDeviceCapability {
     #[inline]
     fn capability_type(&self) -> UsbDeviceCapabilityType {
         self.bDevCapabilityType
     }
 }
 
+/// USB Container Id capability
 #[repr(C, packed)]
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
 pub struct UsbContainerIdCapability {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    bDevCapabilityType: UsbDeviceCapabilityType,
-    bReserved: u8,
-    ContainerID: [u8; 16],
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub bDevCapabilityType: UsbDeviceCapabilityType,
+    pub bReserved: u8,
+    pub ContainerID: [u8; 16],
 }
 
 impl UsbContainerIdCapability {
@@ -611,8 +700,8 @@ impl UsbDeviceCapabilityDescriptor for UsbContainerIdCapability {
 #[repr(C, packed)]
 #[allow(non_snake_case)]
 pub struct UsbHidReportDescriptor {
-    bDescriptorType: UsbDescriptorType,
-    wDescriptorLength: UsbWord,
+    pub bDescriptorType: UsbDescriptorType,
+    pub wDescriptorLength: UsbWord,
 }
 
 impl UsbDescriptor for UsbHidReportDescriptor {
@@ -632,13 +721,13 @@ impl UsbDescriptor for UsbHidReportDescriptor {
 #[allow(non_snake_case)]
 #[derive(Debug)]
 pub struct UsbHidClassDescriptor {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    bcdHID: UsbWord,
-    bCountryCode: u8,
-    bNumDescriptors: u8,
-    bDescriptorType_: UsbDescriptorType,
-    wDescriptorLength_: UsbWord,
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub bcdHID: UsbWord,
+    pub bCountryCode: u8,
+    pub bNumDescriptors: u8,
+    pub bDescriptorType_: UsbDescriptorType,
+    pub wDescriptorLength_: UsbWord,
 }
 
 impl UsbHidClassDescriptor {
@@ -710,13 +799,13 @@ pub struct UsbHubPortNumber(pub NonZeroU8);
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
 pub struct UsbHub2Descriptor {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    bNbrPorts: u8,
-    wHubCharacteristics: UsbWord,
-    bPwrOn2PwrGood: u8,
-    bHubContrCurrent: u8,
-    DeviceRemovable: UsbWord,
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub bNbrPorts: u8,
+    pub wHubCharacteristics: UsbWord,
+    pub bPwrOn2PwrGood: u8,
+    pub bHubContrCurrent: u8,
+    pub DeviceRemovable: UsbWord,
 }
 
 impl UsbHub2Descriptor {
@@ -780,15 +869,15 @@ impl UsbHub2Characterisrics {
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
 pub struct UsbHub3Descriptor {
-    bLength: u8,
-    bDescriptorType: UsbDescriptorType,
-    bNbrPorts: u8,
-    wHubCharacteristics: UsbWord,
-    bPwrOn2PwrGood: u8,
-    bHubContrCurrent: u8,
-    bHubHdrDecLat: u8,
-    wHubDelay: UsbWord,
-    DeviceRemovable: UsbWord,
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub bNbrPorts: u8,
+    pub wHubCharacteristics: UsbWord,
+    pub bPwrOn2PwrGood: u8,
+    pub bHubContrCurrent: u8,
+    pub bHubHdrDecLat: u8,
+    pub wHubDelay: UsbWord,
+    pub DeviceRemovable: UsbWord,
 }
 
 impl UsbHub3Descriptor {
@@ -847,8 +936,8 @@ impl UsbRouteString {
     pub const EMPTY: Self = Self(0);
     /// Since a valid Route String is 20 bits, a valid mask is 0xFFFFF.
     pub const VALID_MASK: u32 = 0xF_FFFF;
-    /// Max level is 5
-    pub const MAX_LEVEL: usize = 5;
+    /// Max depth is 5
+    pub const MAX_DEPTH: usize = 5;
 
     #[inline]
     pub const fn from_raw(raw: u32) -> Self {
@@ -866,7 +955,7 @@ impl UsbRouteString {
     }
 
     #[inline]
-    pub const fn level(&self) -> usize {
+    pub const fn depth(&self) -> usize {
         match self.0 {
             0 => 0,
             0x0_0001..=0x0_000F => 1,
@@ -879,10 +968,14 @@ impl UsbRouteString {
 
     #[inline]
     pub const fn appending(&self, component: UsbHubPortNumber) -> Result<Self, Self> {
+        let lpc = component.0.get() as u32;
+        if lpc > 15 {
+            return Err(*self);
+        }
         let raw = self.0;
-        let level = self.level();
-        if level < Self::MAX_LEVEL {
-            Ok(Self(raw | ((component.0.get() as u32) << (level * 4))))
+        let depth = self.depth();
+        if depth < Self::MAX_DEPTH {
+            Ok(Self(raw | (lpc << (depth * 4))))
         } else {
             Err(*self)
         }
@@ -911,6 +1004,45 @@ pub struct UsbControlSetupData {
     pub wLength: u16,
 }
 
+impl UsbControlSetupData {
+    #[inline]
+    pub const fn request(
+        request_type: UsbControlRequestBitmap,
+        request: UsbControlRequest,
+    ) -> Self {
+        Self {
+            bmRequestType: request_type,
+            bRequest: request,
+            wValue: 0,
+            wIndex: 0,
+            wLength: 0,
+        }
+    }
+
+    #[inline]
+    pub const fn value(mut self, value: u16) -> Self {
+        self.wValue = value;
+        self
+    }
+
+    #[inline]
+    pub const fn index(mut self, index: u16) -> Self {
+        self.wIndex = index;
+        self
+    }
+
+    #[inline]
+    pub const fn index_if(self, if_no: UsbInterfaceNumber) -> Self {
+        self.index(if_no.0 as u16)
+    }
+
+    #[inline]
+    pub const fn length(mut self, length: u16) -> Self {
+        self.wLength = length;
+        self
+    }
+}
+
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UsbControlRequestBitmap(pub u8);
@@ -920,6 +1052,12 @@ impl UsbControlRequestBitmap {
     pub const GET_DEVICE: Self = Self(0x80);
     /// Host to device standard request
     pub const SET_DEVICE: Self = Self(0x00);
+
+    /// Device to host interface specific request
+    pub const GET_INTERFACE: Self = Self(0x81);
+    /// Host to device interface specific request
+    pub const SET_INTERFACE: Self = Self(0x01);
+
     /// Device to host class specific request
     pub const GET_CLASS: Self = Self(0xA0);
     /// Host to device class specific request
@@ -980,12 +1118,23 @@ impl UsbControlRequest {
     pub const HID_SET_PROTOCOL: Self = Self(11);
 }
 
+#[repr(u16)]
+#[allow(non_camel_case_types)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum UsbDeviceFeatureSel {
+    DEVICE_REMOTE_WAKEUP = 1,
+}
+
 /// Protocol Speed Identifier
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
 pub enum PSIV {
+    /// USB1 FullSpeed 12Mbps
     FS = 1,
+    /// USB1 LowSpeed 1.5Mbps
     LS = 2,
+    /// USB2 HighSpeed 480Mbps
     HS = 3,
+    /// USB3 SuperSpeed 5Gbps
     SS = 4,
     PSIV5,
     PSIV6,
@@ -1039,7 +1188,7 @@ pub struct Usb3ExitLatencyValues {
 
 impl Usb3ExitLatencyValues {
     #[inline]
-    pub const fn from_ss_dev_cap(ss_dev_cap: &UsbSuperspeedUsbDeviceCapability) -> Self {
+    pub const fn from_ss_dev_cap(ss_dev_cap: &UsbSsDeviceCapability) -> Self {
         Self {
             u1sel: ss_dev_cap.bU1DevExitLat,
             u1pel: ss_dev_cap.bU1DevExitLat,

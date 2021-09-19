@@ -445,25 +445,39 @@ impl Shell {
                 }
             };
 
-            let class_string = Self::find_usb_class_string(device.class(), false).to_string();
+            let class_string = device
+                .class()
+                .class_string(false)
+                .unwrap_or("Unknoen Device")
+                .to_string();
             println!(
-                "{:02x} VID {:04x} PID {:04x} class {:06x} {}",
+                "{:02x} VID {} PID {} class {} {}",
                 device.addr().0.get(),
-                device.vid().0,
-                device.pid().0,
-                device.class().0,
+                device.vid(),
+                device.pid(),
+                device.class(),
                 device.product_string().unwrap_or(&class_string),
             );
 
             for config in device.configurations() {
-                println!(" CONFIG #{}", config.configuration_value().0);
+                let emptry = "".to_string();
+                println!(
+                    " CONFIG #{} {}",
+                    config.configuration_value().0,
+                    config.name().unwrap_or(&emptry),
+                );
                 for interface in config.interfaces() {
+                    let if_string = interface
+                        .class()
+                        .class_string(true)
+                        .unwrap_or("Unknoen Interface")
+                        .to_string();
                     println!(
                         "  INTERFACE #{}.{} class {:06x} {}",
                         interface.if_no().0,
                         interface.alternate_setting().0,
                         interface.class().0,
-                        Self::find_usb_class_string(interface.class(), true)
+                        interface.name().unwrap_or(&if_string),
                     );
                     for endpoint in interface.endpoints() {
                         println!(
@@ -488,13 +502,17 @@ impl Shell {
                 for _ in 0..nest {
                     print!("  ");
                 }
-                let class_string = Self::find_usb_class_string(device.class(), false).to_string();
+                let class_string = device
+                    .class()
+                    .class_string(false)
+                    .unwrap_or("Unknoen Device")
+                    .to_string();
                 println!(
-                    "{:02x} VID {:04x} PID {:04x} class {:06x} {}{}",
+                    "{:02x} VID {} PID {} class {} {}{}",
                     device.addr().0.get(),
-                    device.vid().0,
-                    device.pid().0,
-                    device.class().0,
+                    device.vid(),
+                    device.pid(),
+                    device.class(),
                     if device.is_configured() { "" } else { "? " },
                     device.product_string().unwrap_or(&class_string),
                 );
@@ -617,60 +635,5 @@ impl Shell {
             }
         }
         "(Unknown Device)"
-    }
-
-    fn find_usb_class_string(class: UsbClass, is_interface: bool) -> &'static str {
-        #[rustfmt::skip]
-        let base_class_entries = [
-            ( UsbBaseClass::AUDIO, 0x02, "Audio Device" ),
-            ( UsbBaseClass::COMM, 0x03, "Communication Device" ),
-            ( UsbBaseClass::HID, 0x02, "Human Interface Device" ),
-            ( UsbBaseClass::PRINTER, 0x02, "Printer" ),
-            ( UsbBaseClass::STORAGE, 0x02, "Storage Device" ),
-            ( UsbBaseClass::HUB, 0x01, "USB Hub" ),
-            ( UsbBaseClass::VIDEO, 0x02, "Video Device" ),
-            ( UsbBaseClass::AUDIO_VIDEO, 0x02, "Audio/Video Device" ),
-            ( UsbBaseClass::BILLBOARD, 0x01, "Billboard Device" ),
-            ( UsbBaseClass::TYPE_C_BRIDGE, 0x02, "Type-C Bridge" ),
-            ( UsbBaseClass::DIAGNOSTIC, 0x03, "Diagnostic Device" ),
-            ( UsbBaseClass::WIRELESS, 0x02, "Wireless Device" ),
-            ( UsbBaseClass::APPLICATION_SPECIFIC, 0x02, "Application Specific" ),
-            ( UsbBaseClass::VENDOR_SPECIFIC, 0x03, "Vendor Specific" ),
-        ];
-
-        #[rustfmt::skip]
-        let full_class_entries = [
-            (UsbClass::COMPOSITE, "USB Composite Device"),
-            (UsbClass::MIDI_STREAMING, "USB MIDI Streaming" ),
-            (UsbClass::HID_BOOT_KEYBOARD, "HID Boot Keyboard" ),
-            (UsbClass::HID_BOOT_MOUSE, "HID Boot Mouse" ),
-            (UsbClass::STORAGE_BULK, "Mass Storage Device" ),
-            (UsbClass::FLOPPY, "Floppy Drive"),
-            (UsbClass::HUB_FS, "Full Speed Hub"),
-            (UsbClass::HUB_HS_STT, "High Speed Hub"),
-            (UsbClass::HUB_HS_MTT, "High Speed Hub with multi TTs"),
-            (UsbClass::HUB_SS, "Super Speed Hub"),
-            (UsbClass::BLUETOOTH, "Bluetooth Interface"),
-            (UsbClass::XINPUT, "XInput Device"),
-        ];
-
-        let bitmap = 1u8 << (is_interface as usize);
-        match full_class_entries.binary_search_by_key(&class, |v| v.0) {
-            Ok(index) => full_class_entries.get(index).map(|v| v.1),
-            Err(_) => None,
-        }
-        .or_else(
-            || match base_class_entries.binary_search_by_key(&class.base(), |v| v.0) {
-                Ok(index) => base_class_entries.get(index).and_then(|v| {
-                    if (v.1 & bitmap) != 0 {
-                        Some(v.2)
-                    } else {
-                        None
-                    }
-                }),
-                Err(_) => None,
-            },
-        )
-        .unwrap_or("(Unknown Device)")
     }
 }

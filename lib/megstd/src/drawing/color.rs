@@ -3,10 +3,10 @@
 use core::mem::transmute;
 
 /// Common color trait
-pub trait ColorTrait: Sized + Copy + Clone + PartialEq + Eq {}
+pub trait ColorTrait: Sized + Copy + Clone + PartialEq + Eq + Default {}
 
 #[repr(transparent)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct IndexedColor(pub u8);
 
 impl ColorTrait for IndexedColor {}
@@ -109,7 +109,7 @@ impl From<IndexedColor> for TrueColor {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub struct TrueColor(u32);
 
 impl ColorTrait for TrueColor {}
@@ -316,7 +316,7 @@ impl Into<u32> for ColorComponents {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct DeepColor30 {
     rgb: u32,
 }
@@ -464,6 +464,13 @@ impl Color {
     }
 }
 
+impl Default for Color {
+    #[inline]
+    fn default() -> Self {
+        Self::TRANSPARENT
+    }
+}
+
 impl Into<IndexedColor> for Color {
     #[inline]
     fn into(self) -> IndexedColor {
@@ -496,7 +503,7 @@ impl From<TrueColor> for Color {
 ///
 /// The [PackedColor] type is convertible to the [Color] type and each other, with some exceptions.
 #[repr(transparent)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq,Default)]
 pub struct PackedColor(pub u32);
 
 impl ColorTrait for PackedColor {}
@@ -608,7 +615,7 @@ impl From<PackedColor> for Color {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct RGB555(pub u16);
 
 impl ColorTrait for RGB555 {}

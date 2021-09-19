@@ -4314,6 +4314,7 @@ struct WasmBlockContext {
     pub stack_level: usize,
     pub start_position: usize,
     pub end_position: usize,
+    #[allow(dead_code)]
     pub else_position: usize,
 }
 

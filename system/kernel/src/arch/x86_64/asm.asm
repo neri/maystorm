@@ -125,11 +125,46 @@ _exception:
     push rax
     mov rbp, rsp
     and rsp, byte 0xF0
+    ; sub rsp, 0x100
+    ; lea rax, [rsp + 0x80]
+    ; movaps [rax + 0x70], xmm15
+    ; movaps [rax + 0x60], xmm14
+    ; movaps [rax + 0x50], xmm13
+    ; movaps [rax + 0x40], xmm12
+    ; movaps [rax + 0x30], xmm11
+    ; movaps [rax + 0x20], xmm10
+    ; movaps [rax + 0x10], xmm9
+    ; movaps [rax], xmm8
+    ; movaps [rax - 0x10], xmm7
+    ; movaps [rax - 0x20], xmm6
+    ; movaps [rax - 0x30], xmm5
+    ; movaps [rax - 0x40], xmm4
+    ; movaps [rax - 0x50], xmm3
+    ; movaps [rax - 0x60], xmm2
+    ; movaps [rax - 0x70], xmm1
+    ; movaps [rax - 0x80], xmm0
     cld
 
     mov rdi, rbp
     call cpu_default_exception
 
+    ; lea rax, [rbp - 0x80]
+    ; movaps xmm0, [rax - 0x80]
+    ; movaps xmm1, [rax - 0x70]
+    ; movaps xmm2, [rax - 0x60]
+    ; movaps xmm3, [rax - 0x50]
+    ; movaps xmm4, [rax - 0x40]
+    ; movaps xmm5, [rax - 0x30]
+    ; movaps xmm6, [rax - 0x20]
+    ; movaps xmm7, [rax - 0x10]
+    ; movaps xmm8, [rax]
+    ; movaps xmm9, [rax + 0x10]
+    ; movaps xmm10, [rax + 0x20]
+    ; movaps xmm11, [rax + 0x30]
+    ; movaps xmm12, [rax + 0x40]
+    ; movaps xmm13, [rax + 0x50]
+    ; movaps xmm14, [rax + 0x60]
+    ; movaps xmm15, [rax + 0x70]
     lea rsp, [rbp + 8 * 5]
     pop r15
     pop r14

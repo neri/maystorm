@@ -191,6 +191,12 @@ impl PageManager {
     }
 
     #[inline]
+    pub(crate) unsafe fn invalidate_cache(p: usize) {
+        fence(Ordering::SeqCst);
+        asm!("clflush [{}]", in(reg) p);
+    }
+
+    #[inline]
     unsafe fn read_pdbr() -> u64 {
         let result: u64;
         asm!("mov {}, cr3", out(reg) result);

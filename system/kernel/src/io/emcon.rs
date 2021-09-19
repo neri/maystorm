@@ -19,6 +19,8 @@ pub struct EmConsole {
 }
 
 impl EmConsole {
+    const DEFAULT_FG_COLOR: Color = Color::LIGHT_GRAY;
+    const DEFAULT_BG_COLOR: Color = Color::from_rgb(0x000000);
     const PADDING: isize = 8;
 
     #[inline]
@@ -26,8 +28,8 @@ impl EmConsole {
         Self {
             x: 0,
             y: 0,
-            fg_color: Color::LIGHT_GRAY,
-            bg_color: Color::from_rgb(0x000000),
+            fg_color: Self::DEFAULT_FG_COLOR,
+            bg_color: Self::DEFAULT_BG_COLOR,
             font,
         }
     }
@@ -138,8 +140,18 @@ impl TtyWrite for EmConsole {
     }
 
     fn set_attribute(&mut self, attribute: u8) {
-        self.fg_color = IndexedColor(attribute & 0x0F).into();
-        self.bg_color = IndexedColor(attribute >> 4).into();
+        if attribute > 0 {
+            self.fg_color = IndexedColor(attribute & 0x0F).into();
+            let bg_color = attribute >> 4;
+            if bg_color > 0 {
+                self.bg_color = IndexedColor(bg_color).into();
+            } else {
+                self.bg_color = Color::from_rgb(0x000000);
+            }
+        } else {
+            self.fg_color = Self::DEFAULT_FG_COLOR;
+            self.bg_color = Self::DEFAULT_BG_COLOR;
+        }
     }
 }
 

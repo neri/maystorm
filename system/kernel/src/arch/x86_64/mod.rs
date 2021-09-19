@@ -4,8 +4,6 @@ pub mod cpu;
 #[doc(hidden)]
 pub mod apic;
 #[doc(hidden)]
-pub mod comport;
-#[doc(hidden)]
 pub mod hpet;
 pub mod page;
 #[doc(hidden)]
@@ -13,12 +11,9 @@ pub mod ps2;
 #[doc(hidden)]
 pub mod rtc;
 
-use crate::dev::uart::*;
 use crate::system::*;
 use acpi::fadt::Fadt;
 use acpi::sdt::Signature;
-use alloc::boxed::Box;
-use comport::*;
 use megstd::time::SystemTime;
 
 pub struct Arch;
@@ -41,7 +36,6 @@ impl Arch {
     }
 
     pub unsafe fn late_init() {
-        ComPort::late_init();
         let _ = ps2::Ps2::init();
 
         let device = System::current_device();
@@ -80,18 +74,6 @@ impl Arch {
             }
             asm!("pause");
         }
-    }
-
-    #[inline]
-    #[allow(dead_code)]
-    pub unsafe fn master_uart() -> Option<&'static Box<dyn Uart>> {
-        ComPort::init_first()
-    }
-
-    #[inline]
-    #[allow(dead_code)]
-    pub fn uarts<'a>() -> &'a [Box<dyn Uart>] {
-        ComPort::ports()
     }
 
     #[inline]

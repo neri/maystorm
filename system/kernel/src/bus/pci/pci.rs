@@ -8,6 +8,8 @@ use core::{
     ops::{Add, ControlFlow},
 };
 
+use super::install_drivers;
+
 #[repr(transparent)]
 #[derive(Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PciConfigAddress(u32);
@@ -127,8 +129,7 @@ impl Pci {
         PCI.write(Pci::new());
 
         let shared = Self::shared();
-
-        shared.registrars.push(super::xhci::XhciRegistrar::init());
+        install_drivers(&mut shared.registrars);
 
         let cpu = System::current_processor();
         let bus = 0;

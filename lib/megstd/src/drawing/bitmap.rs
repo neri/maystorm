@@ -24,6 +24,10 @@ pub trait BasicDrawing: SetPixel {
     fn draw_hline(&mut self, origin: Point, width: isize, color: Self::ColorType);
     fn draw_vline(&mut self, origin: Point, height: isize, color: Self::ColorType);
 
+    fn clear(&mut self) {
+        self.fill_rect(self.bounds(), Default::default());
+    }
+
     fn draw_rect(&mut self, rect: Rect, color: Self::ColorType) {
         let coords = match Coordinates::from_rect(rect) {
             Ok(v) => v,

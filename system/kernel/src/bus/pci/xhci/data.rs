@@ -146,6 +146,13 @@ impl Trb {
     pub const fn empty() -> Self {
         Self::new(TrbType::RESERVED)
     }
+
+    #[inline]
+    pub fn set_trb_type(&mut self, trb_type: TrbType) {
+        let val =
+            (self.raw_data()[3].load(Ordering::SeqCst) & 0xFFFF_03FF) | ((trb_type as u32) << 10);
+        self.raw_data()[3].store(val, Ordering::SeqCst)
+    }
 }
 
 impl TrbCommon for Trb {
@@ -265,6 +272,21 @@ pub trait TrbSlotId: TrbCommon {
         self.raw_data()[3].store(
             self.raw_data()[3].load(Ordering::SeqCst) & 0x00FF_FFFF
                 | ((slot_id.0.get() as u32) << 24),
+            Ordering::SeqCst,
+        );
+    }
+}
+
+pub trait TrbDci: TrbCommon {
+    #[inline]
+    fn dci(&self) -> Option<DCI> {
+        NonZeroU8::new((self.raw_data()[3].load(Ordering::SeqCst) >> 16) as u8).map(|v| DCI(v))
+    }
+
+    #[inline]
+    fn set_dci(&self, dci: DCI) {
+        self.raw_data()[3].store(
+            self.raw_data()[3].load(Ordering::SeqCst) & 0xFFE0_FFFF | ((dci.0.get() as u32) << 16),
             Ordering::SeqCst,
         );
     }
@@ -533,8 +555,6 @@ impl TrbCommon for TrbSetupStage {
 
 impl TrbXferLen for TrbSetupStage {}
 
-impl TrbIoC for TrbSetupStage {}
-
 impl TrbIDt for TrbSetupStage {}
 
 /// TRB for DATA
@@ -572,10 +592,10 @@ impl TrbDir for TrbDataStage {}
 pub struct TrbStatusStage(TrbRawData);
 
 impl TrbStatusStage {
-    pub fn new(dir: bool, ioc: bool) -> Self {
+    pub fn new(dir: bool) -> Self {
         let result: Self = unsafe { transmute(Trb::new(TrbType::STATUS)) };
         result.set_dir(dir);
-        result.set_ioc(ioc);
+        result.set_ioc(true);
         result
     }
 }
@@ -672,6 +692,11 @@ impl TrbTxe {
     pub fn transfer_length(&self) -> usize {
         (self.raw_data()[2].load(Ordering::SeqCst) & 0x00FF_FFFF) as usize
     }
+
+    #[inline]
+    pub fn is_event_data(&self) -> bool {
+        (self.raw_data()[3].load(Ordering::Relaxed) & 4) != 0
+    }
 }
 
 impl TrbCommon for TrbTxe {
@@ -758,6 +783,30 @@ impl TrbCommon for TrbEvaluateContextCommand {
 impl TrbSlotId for TrbEvaluateContextCommand {}
 
 impl TrbPtr for TrbEvaluateContextCommand {}
+
+/// TRB for RESET_ENDPOINT_COMMAND
+pub struct TrbResetEndpointCommand(TrbRawData);
+
+impl TrbResetEndpointCommand {
+    #[inline]
+    pub fn new(slot_id: SlotId, dci: DCI) -> Self {
+        let result: Self = unsafe { transmute(Trb::new(TrbType::RESET_ENDPOINT_COMMAND)) };
+        result.set_slot_id(slot_id);
+        result.set_dci(dci);
+        result
+    }
+}
+
+impl TrbCommon for TrbResetEndpointCommand {
+    #[inline]
+    fn raw_data(&self) -> &TrbRawData {
+        &self.0
+    }
+}
+
+impl TrbSlotId for TrbResetEndpointCommand {}
+
+impl TrbDci for TrbResetEndpointCommand {}
 
 /// xHC Event Ring Segment Table Entry
 #[allow(dead_code)]
@@ -959,6 +1008,11 @@ impl EndpointContext {
     pub fn set_trdp(&mut self, dp: u64) {
         self.data[2] = dp as u32;
         self.data[3] = (dp >> 32) as u32;
+    }
+
+    #[inline]
+    pub const fn trdp(&self) -> u64 {
+        (self.data[2] as u64) + (self.data[3] as u64) * 0x10000
     }
 }
 

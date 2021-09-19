@@ -938,6 +938,11 @@ impl Timer {
     }
 
     #[inline]
+    pub fn is_expired(&self) -> bool {
+        !self.until()
+    }
+
+    #[inline]
     pub fn repeat_until<F>(&self, mut f: F)
     where
         F: FnMut(),

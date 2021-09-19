@@ -98,6 +98,11 @@ impl FontManager {
     }
 
     #[inline]
+    pub const fn preferred_console_font() -> &'static FixedFontDriver<'static> {
+        &SYSTEM_FONT
+    }
+
+    #[inline]
     #[track_caller]
     pub fn system_font() -> FontDescriptor {
         FontDescriptor::new(FontFamily::FixedSystem, 0).unwrap()

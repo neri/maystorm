@@ -20,7 +20,7 @@ impl UsagePage {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct HidUsage(pub u32);
 
 impl HidUsage {
@@ -136,6 +136,15 @@ impl HidUsage {
     pub const DOCKABLE_DEVICE_DISPLAY_OCCULUSION: Self = Self::generic(0x00D5);
     pub const DOCKABLE_DEVICE_OBJECT_TYPE: Self = Self::generic(0x00D6);
 
+    pub const BUTTON_1: Self = Self::button(1);
+    pub const BUTTON_2: Self = Self::button(2);
+    pub const BUTTON_3: Self = Self::button(3);
+    pub const BUTTON_4: Self = Self::button(4);
+    pub const BUTTON_5: Self = Self::button(5);
+    pub const BUTTON_6: Self = Self::button(6);
+    pub const BUTTON_7: Self = Self::button(7);
+    pub const BUTTON_8: Self = Self::button(8);
+
     pub const CONSUMER_CONTROL: Self = Self::consumer(0x0001);
     pub const NUMERIC_KEY_PAD: Self = Self::consumer(0x0002);
     pub const PROGRAMMABLE_BUTTONS: Self = Self::consumer(0x0003);
@@ -223,6 +232,11 @@ impl HidUsage {
     }
 
     #[inline]
+    pub const fn button(usage: u16) -> Self {
+        Self::new(UsagePage::BUTTON, usage)
+    }
+
+    #[inline]
     pub const fn consumer(usage: u16) -> Self {
         Self::new(UsagePage::CONSUMER, usage)
     }
@@ -235,6 +249,12 @@ impl HidUsage {
     #[inline]
     pub const fn led(usage: u16) -> Self {
         Self::new(UsagePage::LED, usage)
+    }
+}
+
+impl core::fmt::Display for HidUsage {
+    fn fmt(&self, f: &mut _core::fmt::Formatter<'_>) -> _core::fmt::Result {
+        write!(f, "{:04x}_{:04x}", self.usage_page().0, self.usage())
     }
 }
 
@@ -350,6 +370,11 @@ impl Usage {
     pub const NUMPAD_MAX: Self = Self(0x63);
     pub const MOD_MIN: Self = Self(0xE0);
     pub const MOD_MAX: Self = Self(0xE7);
+
+    #[inline]
+    pub const fn full_usage(&self) -> HidUsage {
+        HidUsage::new(UsagePage::KEYBOARD, self.0 as u16)
+    }
 }
 
 bitflags! {
@@ -406,19 +431,25 @@ impl Default for Modifier {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct MouseReport<T>
-where
-    T: Into<isize> + Copy,
-{
+pub struct MouseReport<T> {
     pub buttons: MouseButton,
     pub x: T,
     pub y: T,
+    pub wheel: T,
 }
 
-impl<T> MouseReport<T>
-where
-    T: Into<isize> + Copy,
-{
+impl<T: Default> Default for MouseReport<T> {
+    fn default() -> Self {
+        Self {
+            buttons: Default::default(),
+            x: Default::default(),
+            y: Default::default(),
+            wheel: Default::default(),
+        }
+    }
+}
+
+impl<T: Into<isize> + Copy> MouseReport<T> {
     /// Returns the mouse report in a canonical format.
     #[inline]
     pub fn normalize(self) -> MouseReport<isize> {
@@ -426,6 +457,7 @@ where
             buttons: self.buttons,
             x: self.x.into(),
             y: self.y.into(),
+            wheel: self.wheel.into(),
         }
     }
 }
@@ -644,6 +676,28 @@ bitflags! {
     }
 }
 
+impl HidReportMainFlag {
+    #[inline]
+    pub fn is_const(&self) -> bool {
+        self.contains(Self::CONSTANT)
+    }
+
+    #[inline]
+    pub fn is_array(&self) -> bool {
+        !self.is_variable()
+    }
+
+    #[inline]
+    pub fn is_variable(&self) -> bool {
+        self.contains(Self::VARIABLE)
+    }
+
+    #[inline]
+    pub fn is_relative(&self) -> bool {
+        self.contains(Self::RELATIVE)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
 pub enum HidReportCollectionType {
     Physical = 0,
@@ -740,9 +794,9 @@ impl HidReportGlobalState {
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct HidReportLocalState {
-    pub usage: Vec<u16>,
-    pub usage_minimum: u16,
-    pub usage_maximum: u16,
+    pub usage: Vec<u32>,
+    pub usage_minimum: u32,
+    pub usage_maximum: u32,
     pub delimiter: usize,
 }
 

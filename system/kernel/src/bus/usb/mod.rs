@@ -1,4 +1,11 @@
 //! Universal Serial Bus
+//!
+//! ```text
+//!   ┏━○
+//! ○┻┳━|＞
+//! ┗■
+//! ```
+
 mod types;
 mod usb;
 pub use types::*;
