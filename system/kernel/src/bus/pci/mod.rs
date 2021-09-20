@@ -5,7 +5,5 @@ pub use pci::*;
 
 pub(super) fn install_drivers(drivers: &mut Vec<Box<dyn PciDriverRegistrar>>) {
     // XHCI
-    drivers.push(xhci::XhciRegistrar::init());
+    drivers.push(super::usb::xhci::XhciRegistrar::init());
 }
-
-pub mod xhci;

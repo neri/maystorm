@@ -34,10 +34,24 @@ $(EFI_VENDOR):
 	mkdir -p $(EFI_VENDOR)
 
 run:
-	qemu-system-x86_64 -machine q35 -cpu max -smp 4,cores=2,threads=2 -bios $(OVMF) -drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -rtc base=localtime,clock=host -monitor stdio -device nec-usb-xhci,id=xhci -device usb-tablet -device usb-kbd -device usb-storage,drive=stick
+	qemu-system-x86_64 -machine q35 \
+		-cpu max -smp 4,cores=2,threads=2 \
+		-bios $(OVMF) \
+		-rtc base=localtime,clock=host \
+		-device nec-usb-xhci,id=xhci -device usb-tablet -device usb-kbd \
+		-drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
+		-device intel-hda -device hda-duplex \
+		-monitor stdio
 
-runs:
-	qemu-system-x86_64 -machine q35 -cpu max -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -rtc base=localtime,clock=host -monitor stdio -device nec-usb-xhci,id=xhci
+run_up:
+	qemu-system-x86_64 -machine q35 \
+		-cpu max \
+		-bios $(OVMF) \
+		-rtc base=localtime,clock=host \
+		-device nec-usb-xhci,id=xhci -device usb-tablet -device usb-kbd \
+		-drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
+		-device intel-hda -device hda-duplex \
+		-monitor stdio
 
 boot:
 	(cd boot; cargo build -Zbuild-std --release --target $(EFI_ARCH).json)

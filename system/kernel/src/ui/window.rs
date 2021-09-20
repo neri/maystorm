@@ -1429,7 +1429,7 @@ impl RawWindow<'_> {
 
                     if let Some(text) = self.title() {
                         let font = shared.resources.title_font;
-                        let rect = rect.insets_by(EdgeInsets::new(2, left, 0, right));
+                        let rect = rect.insets_by(EdgeInsets::new(0, left, 0, right));
 
                         if is_active {
                             let rect2 = rect + Point::new(1, 1);

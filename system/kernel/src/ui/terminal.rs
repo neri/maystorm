@@ -69,7 +69,7 @@ pub struct Terminal {
 
 impl Terminal {
     pub fn new(cols: usize, rows: usize) -> Self {
-        let font = if false {
+        let font = if true {
             FontManager::system_font()
         } else {
             FontDescriptor::new(FontFamily::Terminal, 0).unwrap()
@@ -82,7 +82,7 @@ impl Terminal {
         let screen_insets = WindowManager::screen_insets();
         let window_size = Size::new(
             font.width_of('m') * cols as isize,
-            font.line_height() * rows as isize,
+            font.height() * rows as isize,
         ) + insets;
 
         let window = WindowBuilder::new()
@@ -118,7 +118,7 @@ impl Terminal {
     }
 
     fn scroll_up(&mut self) {
-        let h = self.font.line_height();
+        let h = self.font.height();
 
         let frame = Rect::from(self.window.content_size()).insets_by(self.insets);
         let rect = Rect::new(0, h, frame.width(), frame.height() - h);
@@ -151,7 +151,7 @@ impl Terminal {
             }
             _ => {
                 let w = self.font.width_of('m');
-                let h = self.font.line_height();
+                let h = self.font.height();
 
                 if self.x >= self.cols {
                     self.x = 0;
@@ -201,7 +201,7 @@ impl Terminal {
 
     fn set_needs_update_cursor(&mut self) {
         let w = self.font.width_of('m');
-        let h = self.font.line_height();
+        let h = self.font.height();
         let dims = self.dims();
         if self.x >= dims.0 as usize || self.y >= dims.1 as usize {
             return;

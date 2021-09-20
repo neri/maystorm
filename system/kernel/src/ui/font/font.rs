@@ -167,6 +167,11 @@ impl FontDescriptor {
     }
 
     #[inline]
+    pub const fn height(&self) -> isize {
+        self.point()
+    }
+
+    #[inline]
     pub const fn line_height(&self) -> isize {
         self.line_height as isize
     }
@@ -214,7 +219,6 @@ pub trait FontDriver {
 pub struct FixedFontDriver<'a> {
     size: Size,
     data: &'a [u8],
-    leading: isize,
     line_height: isize,
     stride: usize,
 }
@@ -224,12 +228,10 @@ impl FixedFontDriver<'_> {
         let width = width as isize;
         let height = height as isize;
         let line_height = height * 5 / 4;
-        let leading = (line_height - height) / 2;
         let stride = ((width as usize + 7) >> 3) * height as usize;
         FixedFontDriver {
             size: Size::new(width, height),
             line_height,
-            leading,
             stride,
             data,
         }
@@ -288,7 +290,7 @@ impl FontDriver for FixedFontDriver<'_> {
         color: Color,
     ) {
         if let Some(font) = self.glyph_for(character) {
-            let origin = Point::new(origin.x, origin.y + self.leading);
+            let origin = Point::new(origin.x, origin.y);
             let size = Size::new(self.width_of(character), self.size.height());
             bitmap.draw_font(font, size, origin, color);
         }

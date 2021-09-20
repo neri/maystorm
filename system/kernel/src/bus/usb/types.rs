@@ -427,6 +427,38 @@ impl UsbDescriptor for UsbConfigurationDescriptor {
     }
 }
 
+#[repr(C, packed)]
+#[allow(non_snake_case)]
+#[derive(Debug, Clone, Copy)]
+pub struct UsbStringDescriptor {
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub wLangId: UsbWord,
+}
+
+impl UsbStringDescriptor {
+    #[inline]
+    pub const fn lang_id(&self) -> UsbLangId {
+        UsbLangId(self.wLangId.as_u16())
+    }
+}
+
+impl UsbDescriptor for UsbStringDescriptor {
+    #[inline]
+    fn len(&self) -> usize {
+        self.bLength as usize
+    }
+
+    #[inline]
+    fn descriptor_type(&self) -> UsbDescriptorType {
+        self.bDescriptorType
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UsbLangId(pub u16);
+
 /// USB Interface Descriptor
 #[repr(C, packed)]
 #[allow(non_snake_case)]

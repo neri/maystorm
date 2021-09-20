@@ -287,6 +287,7 @@ pub struct UsbDevice {
     product_string: Option<String>,
     serial_number: Option<String>,
     descriptor: UsbDeviceDescriptor,
+    lang_id: UsbLangId,
 
     config_blob: Vec<u8>,
 
@@ -346,15 +347,25 @@ impl UsbDevice {
         //     device_desc.usb_version(),
         // );
 
+        let lang_id = match Self::_get_descriptor::<UsbStringDescriptor>(
+            &host,
+            UsbControlRequestBitmap::GET_DEVICE,
+            UsbDescriptorType::String,
+            0,
+        ) {
+            Ok(v) => v.lang_id(),
+            Err(_) => UsbLangId(0),
+        };
+
         let manufacturer_string = device_desc
             .manufacturer_index()
-            .and_then(|index| Self::_get_string(&host, index).ok());
+            .and_then(|index| Self::_get_string(&host, index, lang_id).ok());
         let product_string = device_desc
             .product_index()
-            .and_then(|index| Self::_get_string(&host, index).ok());
+            .and_then(|index| Self::_get_string(&host, index, lang_id).ok());
         let serial_number = device_desc
             .serial_number_index()
-            .and_then(|index| Self::_get_string(&host, index).ok());
+            .and_then(|index| Self::_get_string(&host, index, lang_id).ok());
 
         let prot_config_desc: UsbConfigurationDescriptor =
             match Self::_get_device_descriptor(&host, UsbDescriptorType::Configuration, 0) {
@@ -407,7 +418,7 @@ impl UsbDevice {
                     }
                     let name = descriptor
                         .configuration_index()
-                        .and_then(|index| Self::_get_string(&host, index).ok());
+                        .and_then(|index| Self::_get_string(&host, index, lang_id).ok());
                     current_configuration = Some(UsbConfiguration {
                         descriptor: *descriptor,
                         configuration_value: descriptor.configuration_value(),
@@ -431,7 +442,7 @@ impl UsbDevice {
                     }
                     let name = descriptor
                         .interface_index()
-                        .and_then(|index| Self::_get_string(&host, index).ok());
+                        .and_then(|index| Self::_get_string(&host, index, lang_id).ok());
                     current_interface = Some(UsbInterface {
                         descriptor: *descriptor,
                         endpoints: Vec::new(),
@@ -614,6 +625,7 @@ impl UsbDevice {
             addr,
             uuid,
             parent,
+            lang_id,
             descriptor: device_desc,
             is_configured: AtomicBool::new(false),
             manufacturer_string,
@@ -670,6 +682,11 @@ impl UsbDevice {
     #[inline]
     pub const fn class(&self) -> UsbClass {
         self.descriptor.class()
+    }
+
+    #[inline]
+    pub const fn preferred_lang_id(&self) -> UsbLangId {
+        self.lang_id
     }
 
     #[inline]
@@ -1011,16 +1028,21 @@ impl UsbDevice {
     }
 
     /// Get string descriptor
-    pub fn get_string(&self, index: NonZeroU8) -> Result<String, UsbError> {
-        Self::_get_string(&self.host_clone(), index)
+    pub fn get_string(&self, index: NonZeroU8, lang_id: UsbLangId) -> Result<String, UsbError> {
+        Self::_get_string(&self.host_clone(), index, lang_id)
     }
 
-    fn _get_string(host: &Arc<dyn UsbHostInterface>, index: NonZeroU8) -> Result<String, UsbError> {
+    fn _get_string(
+        host: &Arc<dyn UsbHostInterface>,
+        index: NonZeroU8,
+        lang_id: UsbLangId,
+    ) -> Result<String, UsbError> {
         let setup = UsbControlSetupData::request(
             UsbControlRequestBitmap::GET_DEVICE,
             UsbControlRequest::GET_DESCRIPTOR,
         )
-        .value((UsbDescriptorType::String as u16) << 8 | index.get() as u16);
+        .value((UsbDescriptorType::String as u16) << 8 | index.get() as u16)
+        .index(lang_id.0);
 
         let mut vec = Vec::new();
         Self::_control_var(host, setup, &mut vec, 4, 255)?;

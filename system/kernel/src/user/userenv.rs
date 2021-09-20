@@ -36,9 +36,9 @@ impl UserEnv {
         WindowManager::set_pointer_visible(true);
 
         Scheduler::spawn_async(Task::new(status_bar_main()));
+        Scheduler::spawn_async(Task::new(_notification_task()));
         Scheduler::spawn_async(Task::new(activity_monitor_main()));
         Scheduler::spawn_async(Task::new(shell_launcher(f)));
-        Scheduler::spawn_async(Task::new(_notification_task()));
         // Scheduler::spawn_async(Task::new(test_window_main()));
         Scheduler::perform_tasks();
     }
@@ -181,7 +181,7 @@ fn format_bytes(sb: &mut dyn Write, val: usize) -> core::fmt::Result {
 
 #[allow(dead_code)]
 async fn activity_monitor_main() {
-    let bg_alpha = 0xC0;
+    let bg_alpha = 0xE0;
     let bg_color32 = TrueColor::from(IndexedColor::BLACK);
     let bg_color = Color::Argb32(bg_color32.with_opacity(bg_alpha));
     let fg_color2 = Color::DARK_GRAY;
@@ -397,7 +397,7 @@ async fn _notification_task() {
     let bg_color = Color::from_argb(0xE0FFF9C4);
     let fg_color = Color::BLACK;
     let border_color = Color::from_rgb(0xCBC693);
-    let window_width = 240;
+    let window_width = 280;
     let window_height = 90;
     let screen_bounds = WindowManager::user_screen_bounds();
 

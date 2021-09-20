@@ -1,10 +1,9 @@
 //! xHCI: Extensible Host Controller Interface
 
-use super::{data::*, regs::*};
+use super::{super::*, data::*, regs::*};
 use crate::{
     arch::cpu::Cpu,
     bus::pci::*,
-    bus::usb::*,
     mem::mmio::*,
     mem::{MemoryManager, NonNullPhysicalAddress, PhysicalAddress},
     sync::{fifo::AsyncEventQueue, semaphore::*, RwLock},
@@ -974,12 +973,12 @@ impl Xhci {
                                 event_trb.peek().trb_type() == Some(TrbType::DATA)
                                     && next_trb.peek().trb_type() == Some(TrbType::STATUS)
                             } {
-                                log!(
-                                    "FIXED STALL {:?} {:?} {:?}",
-                                    event.slot_id(),
-                                    unsafe { event_trb.peek().trb_type() },
-                                    event.completion_code(),
-                                );
+                                // log!(
+                                //     "FIXED STALL {:?} {:?} {:?}",
+                                //     event.slot_id(),
+                                //     unsafe { event_trb.peek().trb_type() },
+                                //     event.completion_code(),
+                                // );
 
                                 unsafe {
                                     event_trb.peek().set_trb_type(TrbType::NOP);
@@ -1809,6 +1808,10 @@ impl Future for AsyncUsbReader {
                                 q.copy_from(p, len);
                             }
                             Poll::Ready(Ok(len))
+                        }
+                        Some(err) => {
+                            log!("READ ERROR {} {:?}", self.ctx.device().slot_id.0.get(), err);
+                            Poll::Ready(Err(UsbError::General))
                         }
                         _ => Poll::Ready(Err(UsbError::General)),
                     }

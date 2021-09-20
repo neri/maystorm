@@ -68,6 +68,7 @@ partition UEFI {
 partition /EFI/BOOT/BOOTX64.EFI {
     :load configuration from /EFI/MEGOS/CONFIG.JSON;
     :find ACPI RSDPTR from EFI_CONFIGURATION_TABLE;
+    :find SMBIOS entry point from EFI_CONFIGURATION_TABLE;
     :init GOP;
     :load kernel;
     note right
@@ -78,9 +79,9 @@ partition /EFI/BOOT/BOOTX64.EFI {
         default /EFI/MEGOS/INITRD.IMG
     end note
     :invoke BootServices->ExitBootServices();
-    :Initialize the page table for startup;
+    :initialize the page table for startup;
     :relocate Kernel;
-    :start Paging;
+    :start paging and switch CPU mode.;
     :invoke Kernel;
 }
 :Kernel entry point;

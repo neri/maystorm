@@ -36,7 +36,7 @@ impl EmConsole {
 
     pub fn write_char(&mut self, c: char) {
         let font = self.font;
-        let font_size = Size::new(font.width(), font.line_height());
+        let font_size = Size::new(font.width(), font.base_height());
         let mut bitmap = System::main_screen();
         let bitmap = &mut bitmap;
 
@@ -111,7 +111,7 @@ impl TtyWrite for EmConsole {
 
     fn dims(&self) -> (isize, isize) {
         let font = self.font;
-        let font_size = Size::new(font.width(), font.line_height());
+        let font_size = Size::new(font.width(), font.base_height());
         let bitmap = System::main_screen();
         let cols = (bitmap.width() as isize - Self::PADDING * 2) / font_size.width();
         let rows = (bitmap.height() as isize - Self::PADDING * 2) / font_size.height();
