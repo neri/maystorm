@@ -1001,9 +1001,7 @@ impl UsbRouteString {
     #[inline]
     pub const fn appending(&self, component: UsbHubPortNumber) -> Result<Self, Self> {
         let lpc = component.0.get() as u32;
-        if lpc > 15 {
-            return Err(*self);
-        }
+        let lpc = if lpc < 15 { lpc } else { 15 };
         let raw = self.0;
         let depth = self.depth();
         if depth < Self::MAX_DEPTH {
@@ -1148,6 +1146,7 @@ impl UsbControlRequest {
     pub const HID_GET_REPORT: Self = Self(1);
     pub const HID_SET_REPORT: Self = Self(9);
     pub const HID_SET_PROTOCOL: Self = Self(11);
+    pub const SET_HUB_DEPTH: Self = Self(12);
 }
 
 #[repr(u16)]
@@ -1273,6 +1272,7 @@ pub enum UsbEndpointType {
 pub enum UsbError {
     General,
     HostUnavailable,
+    ControllerError,
     InvalidParameter,
     InvalidDescriptor,
     UnexpectedToken,

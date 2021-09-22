@@ -35,7 +35,7 @@ $(EFI_VENDOR):
 
 run:
 	qemu-system-x86_64 -machine q35 \
-		-cpu max -smp 4,cores=2,threads=2 \
+		-cpu Haswell -smp 4,cores=2,threads=2 \
 		-bios $(OVMF) \
 		-rtc base=localtime,clock=host \
 		-device nec-usb-xhci,id=xhci -device usb-tablet -device usb-kbd \
@@ -45,7 +45,7 @@ run:
 
 run_up:
 	qemu-system-x86_64 -machine q35 \
-		-cpu max \
+		-cpu IvyBridge \
 		-bios $(OVMF) \
 		-rtc base=localtime,clock=host \
 		-device nec-usb-xhci,id=xhci -device usb-tablet -device usb-kbd \

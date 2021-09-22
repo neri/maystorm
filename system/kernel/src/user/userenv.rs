@@ -431,20 +431,22 @@ async fn _notification_task() {
             }
             WindowMessage::User(_) => {
                 if let Some(message) = message_buffer.dequeue() {
-                    window.draw(|bitmap| {
-                        bitmap.clear();
-                        let rect = bitmap.bounds().insets_by(EdgeInsets::padding_each(padding));
-                        bitmap.fill_round_rect(rect, radius, bg_color);
-                        bitmap.draw_round_rect(rect, radius, border_color);
+                    window
+                        .draw_in_rect(Rect::from(window.content_size()), |bitmap| {
+                            bitmap.clear();
+                            let rect = bitmap.bounds().insets_by(EdgeInsets::padding_each(padding));
+                            bitmap.fill_round_rect(rect, radius, bg_color);
+                            bitmap.draw_round_rect(rect, radius, border_color);
 
-                        let rect2 = rect.insets_by(EdgeInsets::padding_each(padding));
-                        let ats = AttributedString::new()
-                            .font(FontDescriptor::new(FontFamily::SansSerif, 14).unwrap())
-                            .color(fg_color)
-                            .center()
-                            .text(message.as_str());
-                        ats.draw_text(bitmap, rect2, 0);
-                    });
+                            let rect2 = rect.insets_by(EdgeInsets::padding_each(padding));
+                            let ats = AttributedString::new()
+                                .font(FontDescriptor::new(FontFamily::SansSerif, 14).unwrap())
+                                .color(fg_color)
+                                .center()
+                                .text(message.as_str());
+                            ats.draw_text(bitmap, rect2, 0);
+                        })
+                        .unwrap();
                     window.show();
                     last_timer = Timer::new(dismiss_time);
                     window.create_timer(0, dismiss_time);

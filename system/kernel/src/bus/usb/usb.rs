@@ -25,6 +25,8 @@ use num_traits::FromPrimitive;
 pub trait UsbHostInterface {
     fn parent_device_address(&self) -> Option<UsbDeviceAddress>;
 
+    fn route_string(&self) -> UsbRouteString;
+
     fn speed(&self) -> PSIV;
 
     fn set_max_packet_size(&self, max_packet_size: usize) -> Result<(), UsbError>;
@@ -47,7 +49,6 @@ pub trait UsbHostInterface {
         &self,
         port_id: UsbHubPortNumber,
         speed: PSIV,
-        max_exit_latency: usize,
     ) -> Result<UsbDeviceAddress, UsbError>;
 
     /// Performs a control transfer
@@ -338,15 +339,6 @@ impl UsbDevice {
             }
         };
 
-        // log!(
-        //     "DEVICE {} {} {} {} v{}",
-        //     addr.0.get(),
-        //     device_desc.vid(),
-        //     device_desc.pid(),
-        //     device_desc.class(),
-        //     device_desc.usb_version(),
-        // );
-
         let lang_id = match Self::_get_descriptor::<UsbStringDescriptor>(
             &host,
             UsbControlRequestBitmap::GET_DEVICE,
@@ -366,6 +358,83 @@ impl UsbDevice {
         let serial_number = device_desc
             .serial_number_index()
             .and_then(|index| Self::_get_string(&host, index, lang_id).ok());
+
+        // Binary Device Object Storage
+        let mut bos = UsbBinaryObjectStore::empty();
+        let mut uuid = [0u8; 16];
+        if let Some(bos_desc) = (device_desc.usb_version() >= UsbVersion::BOS_MIN)
+            .then(|| {
+                Self::_get_device_descriptor::<UsbBinaryObjectStoreDescriptor>(
+                    &host,
+                    UsbDescriptorType::Bos,
+                    0,
+                )
+                .ok()
+            })
+            .flatten()
+        {
+            let mut bos_blob = Vec::new();
+            match Self::_control_vec(
+                &host,
+                UsbControlSetupData {
+                    bmRequestType: UsbControlRequestBitmap::GET_DEVICE,
+                    bRequest: UsbControlRequest::GET_DESCRIPTOR,
+                    wValue: (UsbDescriptorType::Bos as u16) << 8,
+                    wIndex: 0,
+                    wLength: bos_desc.total_length(),
+                },
+                &mut bos_blob,
+            ) {
+                Ok(_) => (),
+                Err(err) => {
+                    log!("BOS DESCRIPTOR FAILED {}", addr.0);
+                    return Err(err);
+                }
+            }
+
+            let mut cursor = 0;
+            while cursor < bos_blob.len() {
+                let len = bos_blob[cursor] as usize;
+                let cap_type: UsbDeviceCapabilityType = match (bos_blob[cursor + 1]
+                    == UsbDescriptorType::DeviceCapability as u8)
+                    .then(|| FromPrimitive::from_u8(bos_blob[cursor + 2]))
+                    .flatten()
+                {
+                    Some(v) => v,
+                    None => {
+                        cursor += len;
+                        continue;
+                    }
+                };
+
+                match cap_type {
+                    UsbDeviceCapabilityType::SuperspeedUsb => {
+                        let descriptor = unsafe {
+                            &*(&bos_blob[cursor] as *const _ as *const UsbSsDeviceCapability)
+                        };
+                        bos.ss_dev_cap = Some(*descriptor);
+                    }
+                    UsbDeviceCapabilityType::ContainerId => {
+                        let descriptor = unsafe {
+                            &*(&bos_blob[cursor] as *const _ as *const UsbContainerIdCapability)
+                        };
+                        uuid.copy_from_slice(descriptor.uuid());
+                        bos.container_id = Some(*descriptor);
+                    }
+                    _ => {
+                        // log!(
+                        //     "USB {} UNKNOWN CAPABILITY {} {:02x}",
+                        //     addr.0,
+                        //     bos[cursor],
+                        //     bos[cursor + 2],
+                        // );
+                    }
+                }
+                cursor += len;
+            }
+
+            bos.raw = bos_blob;
+        }
 
         let prot_config_desc: UsbConfigurationDescriptor =
             match Self::_get_device_descriptor(&host, UsbDescriptorType::Configuration, 0) {
@@ -433,7 +502,7 @@ impl UsbDevice {
                     let current_configuration = match current_configuration {
                         Some(ref mut v) => v,
                         None => {
-                            log!("BAD USB Descriptor {:?}", addr);
+                            log!("BAD CONFIG Descriptor {:?}", addr);
                             return Err(UsbError::InvalidDescriptor);
                         }
                     };
@@ -535,83 +604,6 @@ impl UsbDevice {
         let current_configuration = configurations.first().unwrap();
         Self::_set_configuration(&host, current_configuration.configuration_value())?;
 
-        // Binary Device Object Storage
-        let mut bos = UsbBinaryObjectStore::empty();
-        let mut uuid = [0u8; 16];
-        if let Some(bos_desc) = (device_desc.usb_version() >= UsbVersion::BOS_MIN)
-            .then(|| {
-                Self::_get_device_descriptor::<UsbBinaryObjectStoreDescriptor>(
-                    &host,
-                    UsbDescriptorType::Bos,
-                    0,
-                )
-                .ok()
-            })
-            .flatten()
-        {
-            let mut bos_blob = Vec::new();
-            match Self::_control_vec(
-                &host,
-                UsbControlSetupData {
-                    bmRequestType: UsbControlRequestBitmap::GET_DEVICE,
-                    bRequest: UsbControlRequest::GET_DESCRIPTOR,
-                    wValue: (UsbDescriptorType::Bos as u16) << 8,
-                    wIndex: 0,
-                    wLength: bos_desc.total_length(),
-                },
-                &mut bos_blob,
-            ) {
-                Ok(_) => (),
-                Err(err) => {
-                    log!("BOS DESCRIPTOR FAILED {}", addr.0);
-                    return Err(err);
-                }
-            }
-
-            let mut cursor = 0;
-            while cursor < bos_blob.len() {
-                let len = bos_blob[cursor] as usize;
-                let cap_type: UsbDeviceCapabilityType = match (bos_blob[cursor + 1]
-                    == UsbDescriptorType::DeviceCapability as u8)
-                    .then(|| FromPrimitive::from_u8(bos_blob[cursor + 2]))
-                    .flatten()
-                {
-                    Some(v) => v,
-                    None => {
-                        cursor += len;
-                        continue;
-                    }
-                };
-
-                match cap_type {
-                    UsbDeviceCapabilityType::SuperspeedUsb => {
-                        let descriptor = unsafe {
-                            &*(&config[cursor] as *const _ as *const UsbSsDeviceCapability)
-                        };
-                        bos.ss_dev_cap = Some(*descriptor);
-                    }
-                    UsbDeviceCapabilityType::ContainerId => {
-                        let descriptor = unsafe {
-                            &*(&config[cursor] as *const _ as *const UsbContainerIdCapability)
-                        };
-                        uuid.copy_from_slice(descriptor.uuid());
-                        bos.container_id = Some(*descriptor);
-                    }
-                    _ => {
-                        // log!(
-                        //     "USB {} UNKNOWN CAPABILITY {} {:02x}",
-                        //     addr.0,
-                        //     bos[cursor],
-                        //     bos[cursor + 2],
-                        // );
-                    }
-                }
-                cursor += len;
-            }
-
-            bos.raw = bos_blob;
-        }
-
         // if let Some(ss_dev_cap) = ss_dev_cap.as_ref() {
         //     if host.speed() == PSIV::SS {
         //         Self::set_sel(&host, &Usb3ExitLatencyValues::from_ss_dev_cap(ss_dev_cap)).unwrap();
@@ -652,6 +644,11 @@ impl UsbDevice {
     #[inline]
     pub const fn parent_device_address(&self) -> Option<UsbDeviceAddress> {
         self.parent
+    }
+
+    #[inline]
+    pub fn route_string(&self) -> UsbRouteString {
+        self.host.route_string()
     }
 
     /// Gets the USB address of this device.

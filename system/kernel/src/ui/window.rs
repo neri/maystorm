@@ -2199,7 +2199,7 @@ impl WindowHandle {
     #[inline]
     pub fn content_rect(&self) -> Rect {
         let window = self.as_ref();
-        Rect::from(window.frame.size()).insets_by(window.content_insets)
+        window.frame.bounds().insets_by(window.content_insets)
     }
 
     #[inline]

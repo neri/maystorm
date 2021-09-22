@@ -3,7 +3,7 @@
 use super::{super::*, data::*, regs::*};
 use crate::{
     arch::cpu::Cpu,
-    bus::pci::*,
+    bus::{pci::*, usb::UsbRouteString},
     mem::mmio::*,
     mem::{MemoryManager, NonNullPhysicalAddress, PhysicalAddress},
     sync::{fifo::AsyncEventQueue, semaphore::*, RwLock},
@@ -257,6 +257,9 @@ impl Xhci {
         let p = Arc::as_ptr(&self);
         Arc::increment_strong_count(p);
         pci.register_msi(Self::_msi_handler, p as usize).unwrap();
+
+        // self.opr
+        //     .set_device_notification_bitmap(DeviceNotificationBitmap::FUNCTION_WAKE);
 
         // start xHC
         self.wait_cnr(0);
@@ -512,18 +515,6 @@ impl Xhci {
         let status_trb = TrbStatusStage::new(!dir);
         let _scheduled_trb = self.issue_trb(Some(xrb), &status_trb, slot_id, dci, true);
 
-        // log!(
-        //     "CONTROL {} {:?} {:02x} {:02x} {:04x} {:04x} {:04x} {:012x}",
-        //     slot_id.unwrap().0.get(),
-        //     trt,
-        //     setup.bmRequestType.0,
-        //     setup.bRequest.0,
-        //     setup.wValue,
-        //     setup.wIndex,
-        //     setup.wLength,
-        //     scheduled_trb.0,
-        // );
-
         xrb.wait();
 
         let result = match xrb.response.as_event() {
@@ -674,7 +665,6 @@ impl Xhci {
         hub: &HciContext,
         port_id: UsbHubPortNumber,
         speed: PSIV,
-        max_exit_latency: usize,
     ) -> Result<UsbDeviceAddress, UsbError> {
         let device = hub.device();
 
@@ -688,7 +678,7 @@ impl Xhci {
             Ok(result) => result.slot_id().unwrap(),
             Err(_err) => {
                 // TODO:
-                return Err(UsbError::General);
+                return Err(UsbError::ControllerError);
             }
         };
 
@@ -709,19 +699,11 @@ impl Xhci {
         slot.set_root_hub_port(device.root_port_id);
         slot.set_context_entries(1);
         slot.set_route_string(new_route);
+        slot.set_speed(speed as usize);
 
-        match speed {
-            PSIV::FS | PSIV::LS => {
-                slot.set_speed(speed as usize);
-                slot.set_parent_hub_slot_id(device.slot_id);
-                slot.set_parent_port_id(port_id);
-            }
-            PSIV::SS => {
-                // slot.set_max_exit_latency(max_exit_latency);
-                // slot.set_parent_hub_slot_id(device.slot_id);
-                // slot.set_parent_port_id(port_id);
-            }
-            _ => (),
+        if hub.device().psiv > speed {
+            slot.set_parent_hub_slot_id(device.slot_id);
+            slot.set_parent_port_id(port_id);
         }
 
         self.configure_endpoint(slot_id, DCI::CONTROL, EpType::Control, 0, 0, false);
@@ -729,18 +711,16 @@ impl Xhci {
         Timer::sleep(Duration::from_millis(100));
 
         // log!(
-        //     "ATTACH HUB DEVICE: ROOT {} ROUTE {:05x} SLOT {} PSIV {:?}",
+        //     "ATTACH HUB DEVICE: SLOT {} ROOT {} ROUTE {:05x} PSIV {:?}",
+        //     slot_id.0.get(),
         //     device.root_port_id.0.get(),
         //     new_route.as_u32(),
-        //     slot_id.0.get(),
         //     speed,
         // );
 
         let trb = TrbAddressDeviceCommand::new(slot_id, input_context_pa);
         match self.execute_command(&trb) {
-            Ok(_result) => {
-                // log!("ADDRESS DEVICE PORT {} SLOT {}", port_id.0, slot_id.0,);
-            }
+            Ok(_) => (),
             Err(err) => {
                 log!("ADDRESS_DEVICE ERROR {:?}", err.completion_code());
                 return Err(UsbError::UsbTransactionError);
@@ -812,17 +792,7 @@ impl Xhci {
 
         let trb = TrbAddressDeviceCommand::new(slot_id, input_context_pa);
         match self.execute_command(&trb) {
-            Ok(_result) => {
-                // let status = port.portsc();
-                // log!(
-                //     "ADDRESS DEVICE PORT {} SLOT {} PORT {:08x} {:?} {:?}",
-                //     port_id.0,
-                //     slot_id.0,
-                //     status.bits(),
-                //     status.speed(),
-                //     status.link_state()
-                // );
-            }
+            Ok(_result) => (),
             Err(err) => {
                 log!("ADDRESS_DEVICE ERROR {:?}", err.completion_code());
             }
@@ -909,6 +879,10 @@ impl Xhci {
                     port.write_portsc(status & PortSc::PRESERVE_MASK | PortSc::PRC);
                 }
                 if !status.contains(PortSc::CCS | PortSc::PED) {
+                    port.write_portsc(
+                        status & PortSc::PRESERVE_MASK & !PortSc::PP | PortSc::ALL_CHANGE_BITS,
+                    );
+                    port.write_portsc(status & PortSc::PRESERVE_MASK | PortSc::PP | PortSc::PR);
                     log!("XHCI: PORT RESET TIMED OUT {}", port_id.0.get());
                     return None;
                 }
@@ -973,13 +947,6 @@ impl Xhci {
                                 event_trb.peek().trb_type() == Some(TrbType::DATA)
                                     && next_trb.peek().trb_type() == Some(TrbType::STATUS)
                             } {
-                                // log!(
-                                //     "FIXED STALL {:?} {:?} {:?}",
-                                //     event.slot_id(),
-                                //     unsafe { event_trb.peek().trb_type() },
-                                //     event.completion_code(),
-                                // );
-
                                 unsafe {
                                     event_trb.peek().set_trb_type(TrbType::NOP);
                                     next_trb.peek().set_trb_type(TrbType::NOP);
@@ -1062,13 +1029,8 @@ impl Xhci {
                     }
                 }
                 TrbEvent::CommandCompletion(event) => {
-                    let scheduled_trb = ScheduledTrb(event.ptr());
-                    // log!(
-                    //     "COMMAND COMPLETION {:?} {:?}",
-                    // unsafe { event_trb.peek().trb_type() },
-                    // event.completion_code(),
-                    // );
-                    if let Some(xrb) = self.find_xrb(scheduled_trb, Some(XrbState::Scheduled)) {
+                    let event_trb = ScheduledTrb(event.ptr());
+                    if let Some(xrb) = self.find_xrb(event_trb, Some(XrbState::Scheduled)) {
                         xrb.set_response(event.as_common_trb());
                     } else {
                         todo!()
@@ -1077,6 +1039,13 @@ impl Xhci {
                 TrbEvent::PortStatusChange(event) => {
                     let port_id = event.port_id().unwrap();
                     self.port_status_change_queue.post(port_id).unwrap();
+                }
+                TrbEvent::DeviceNotification(event) => {
+                    log!(
+                        "DEVICE_NOTIFICATION {} {:?}",
+                        event.slot_id().unwrap().0.get(),
+                        event.completion_code()
+                    );
                 }
             }
             drop(event)
@@ -1477,6 +1446,10 @@ impl UsbHostInterface for HciContext {
         self.device().parent_slot_id.map(|v| UsbDeviceAddress(v.0))
     }
 
+    fn route_string(&self) -> UsbRouteString {
+        self.device().route_string
+    }
+
     fn speed(&self) -> PSIV {
         self.device().psiv
     }
@@ -1497,7 +1470,7 @@ impl UsbHostInterface for HciContext {
             Some(v) => v.clone(),
             None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
         };
-        host.lock_config.clone().wait_ok()
+        host.lock_config.wait_ok()
     }
 
     unsafe fn leave_configuration(&self) -> Result<(), UsbError> {
@@ -1539,14 +1512,13 @@ impl UsbHostInterface for HciContext {
         &self,
         port_id: UsbHubPortNumber,
         speed: PSIV,
-        max_exit_latency: usize,
     ) -> Result<UsbDeviceAddress, UsbError> {
         let host = match self.host.upgrade() {
             Some(v) => v.clone(),
             None => return Err(UsbError::HostUnavailable),
         };
         // let device = self.device();
-        host.attach_child_device(self, port_id, speed, max_exit_latency)
+        host.attach_child_device(self, port_id, speed)
     }
 
     fn configure_endpoint(&self, desc: &UsbEndpointDescriptor) -> Result<(), UsbError> {
@@ -1676,14 +1648,6 @@ impl UsbHostInterface for HciContext {
         xrb.prepare_async();
         let scheduled_trb = host.issue_trb(Some(xrb), &trb, Some(slot_id), Some(dci), true);
 
-        // log!(
-        //     "READ {} {} {:012x} {}",
-        //     slot_id.0.get(),
-        //     dci.0.get(),
-        //     scheduled_trb.0,
-        //     len
-        // );
-
         Box::pin(AsyncUsbReader {
             ctx: self.clone(),
             scheduled_trb,
@@ -1718,14 +1682,6 @@ impl UsbHostInterface for HciContext {
         let xrb = host.allocate_xrb().unwrap();
         xrb.prepare_async();
         let scheduled_trb = host.issue_trb(Some(xrb), &trb, Some(slot_id), Some(dci), true);
-
-        // log!(
-        //     "WRITE {} {} {:012x} {}",
-        //     slot_id.0.get(),
-        //     dci.0.get(),
-        //     scheduled_trb.0,
-        //     len
-        // );
 
         Box::pin(AsyncUsbWriter {
             ctx: self.clone(),

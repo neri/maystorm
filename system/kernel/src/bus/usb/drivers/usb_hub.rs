@@ -59,11 +59,11 @@ impl UsbClassDriverStarter for UsbHubStarter {
                     addr, if_no, ep, class, ps,
                 )));
             }
-            // UsbClass::HUB_SS => {
-            //     UsbManager::register_xfer_task(Task::new(Usb3HubDriver::_usb_hub_task(
-            //         addr, if_no, ep, class, ps,
-            //     )));
-            // }
+            UsbClass::HUB_SS => {
+                UsbManager::register_xfer_task(Task::new(Usb3HubDriver::_usb_hub_task(
+                    addr, if_no, ep, class, ps,
+                )));
+            }
             _ => (),
         }
 
@@ -243,7 +243,7 @@ impl Usb2HubDriver {
             .contains(UsbHub2PortStatusBit::PORT_CONNECTION)
         {
             let speed = status.status.speed();
-            let _child = device.host().attach_device(port, speed, 0).unwrap();
+            let _child = device.host().attach_device(port, speed).unwrap();
         }
 
         drop(handle);
@@ -286,6 +286,14 @@ impl Usb3HubDriver {
     ) {
         let device = UsbManager::device_by_addr(addr).unwrap();
 
+        let _ = device.control_nodata(
+            UsbControlSetupData::request(
+                UsbControlRequestBitmap::SET_CLASS,
+                UsbControlRequest::SET_HUB_DEPTH,
+            )
+            .value(device.route_string().depth() as u16),
+        );
+
         let hub_desc: UsbHub3Descriptor =
             match UsbHubCommon::get_hub_descriptor(&device, UsbDescriptorType::Hub3, 0) {
                 Ok(v) => v,
@@ -315,32 +323,19 @@ impl Usb3HubDriver {
         }
         let n_ports = hub_desc.num_ports();
 
-        log!(
-            "ADR {} HUB3 ports {} pwr2good {} ",
-            addr.0,
-            n_ports,
-            hub_desc.power_on_to_power_good().as_millis(),
-        );
-
         for i in 1..=n_ports {
             let port = UsbHubPortNumber(unsafe { NonZeroU8::new_unchecked(i as u8) });
             let status = Self::get_port_status(&device, port).unwrap();
-            log!(
-                "HUB3 {}.{} status1 {:08x} {:?}",
-                addr.0,
-                port.0,
-                status.as_u32(),
-                status.status.link_state()
-            );
+            Self::set_port_feature(&device, UsbHub3PortFeatureSel::PORT_POWER, port).unwrap();
             Timer::sleep_async(Duration::from_millis(10)).await;
+            // Timer::sleep_async(hub_desc.power_on_to_power_good()).await;
             if status
                 .status
                 .contains(UsbHub3PortStatusBit::PORT_CONNECTION | UsbHub3PortStatusBit::PORT_ENABLE)
             {
-                Self::attach_device(&device, &hub_desc, port, max_exit_latency).await;
+                Self::attach_device(&device, &hub_desc, port).await;
             }
         }
-        Timer::sleep_async(hub_desc.power_on_to_power_good() * 2).await;
 
         let mut port_event = [0u8; 8];
         loop {
@@ -352,12 +347,6 @@ impl Usb3HubDriver {
                             let port =
                                 UsbHubPortNumber(unsafe { NonZeroU8::new_unchecked(i as u8) });
                             let status = Self::get_port_status(&device, port).unwrap();
-                            log!(
-                                "ADDR {} HUB3 PORT {} STATUS CHANGE {:08x}",
-                                addr.0,
-                                i,
-                                status.as_u32()
-                            );
                             if status
                                 .change
                                 .contains(UsbHub3PortChangeBit::C_PORT_CONNECTION)
@@ -375,8 +364,7 @@ impl Usb3HubDriver {
                                     .contains(UsbHub3PortStatusBit::PORT_CONNECTION)
                                 {
                                     // Attached
-                                    Self::attach_device(&device, &hub_desc, port, max_exit_latency)
-                                        .await;
+                                    Self::attach_device(&device, &hub_desc, port).await;
                                 } else {
                                     log!("ADDR {} HUB3 PORT {} DETACHED", addr.0, i);
                                     // Detached
@@ -433,12 +421,24 @@ impl Usb3HubDriver {
         device: &UsbDevice,
         hub_desc: &UsbHub3Descriptor,
         port: UsbHubPortNumber,
-        max_exit_latency: usize,
     ) {
         let handle = device.enter_configuration().await.unwrap();
 
-        Self::set_port_feature(&device, UsbHub3PortFeatureSel::PORT_RESET, port).unwrap();
-        Timer::sleep_async(hub_desc.power_on_to_power_good()).await;
+        // Self::clear_port_feature(&device, UsbHub3PortFeatureSel::C_PORT_RESET, port).unwrap();
+        Self::set_port_feature(&device, UsbHub3PortFeatureSel::BH_PORT_RESET, port).unwrap();
+
+        let deadline = Timer::new(hub_desc.power_on_to_power_good() * 2);
+        loop {
+            let status = Self::get_port_status(&device, port).unwrap();
+            if deadline.is_expired()
+                || status.status.contains(
+                    UsbHub3PortStatusBit::PORT_CONNECTION | UsbHub3PortStatusBit::PORT_ENABLE,
+                )
+            {
+                break;
+            }
+            Timer::sleep_async(Duration::from_millis(10)).await;
+        }
 
         let status = Self::get_port_status(&device, port).unwrap();
         if status
@@ -472,12 +472,14 @@ impl Usb3HubDriver {
             Self::clear_port_feature(&device, UsbHub3PortFeatureSel::C_PORT_CONFIG_ERROR, port)
                 .unwrap();
         }
-        Timer::sleep_async(hub_desc.power_on_to_power_good()).await;
 
-        let _child = device
-            .host()
-            .attach_device(port, PSIV::SS, max_exit_latency)
-            .unwrap();
+        let status = Self::get_port_status(&device, port).unwrap();
+        if status
+            .status
+            .contains(UsbHub3PortStatusBit::PORT_CONNECTION | UsbHub3PortStatusBit::PORT_ENABLE)
+        {
+            let _child = device.host().attach_device(port, PSIV::SS).unwrap();
+        }
 
         drop(handle);
     }

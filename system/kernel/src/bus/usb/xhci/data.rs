@@ -224,6 +224,11 @@ pub trait TrbCommon {
             Some(TrbType::TRANSFER_EVENT) => Some(TrbEvent::TransferEvent(unsafe {
                 transmute(self.raw_data())
             })),
+            Some(TrbType::DEVICE_NOTIFICATION_EVENT) => {
+                Some(TrbEvent::DeviceNotification(unsafe {
+                    transmute(self.raw_data())
+                }))
+            }
             _ => None,
         }
     }
@@ -615,6 +620,7 @@ pub enum TrbEvent<'a> {
     CommandCompletion(&'a TrbCce),
     PortStatusChange(&'a TrbPsc),
     TransferEvent(&'a TrbTxe),
+    DeviceNotification(&'a TrbDne),
 }
 
 impl TrbEvent<'_> {
@@ -624,6 +630,7 @@ impl TrbEvent<'_> {
             TrbEvent::CommandCompletion(ref v) => v.completion_code(),
             TrbEvent::PortStatusChange(ref v) => v.completion_code(),
             TrbEvent::TransferEvent(ref v) => v.completion_code(),
+            &TrbEvent::DeviceNotification(ref v) => v.completion_code(),
         }
     }
 }
@@ -711,6 +718,36 @@ impl TrbCC for TrbTxe {}
 impl TrbSlotId for TrbTxe {}
 
 impl TrbPtr for TrbTxe {}
+
+/// TRB for DEVICE_NOTIFICATION_EVENT
+pub struct TrbDne(TrbRawData);
+
+impl TrbDne {
+    #[inline]
+    pub const fn empty() -> Self {
+        unsafe { transmute(Trb::empty()) }
+    }
+
+    #[inline]
+    pub fn copied(&self) -> Self {
+        let result = Self::empty();
+        result.raw_copy_from(self);
+        result
+    }
+}
+
+impl TrbCommon for TrbDne {
+    #[inline]
+    fn raw_data(&self) -> &TrbRawData {
+        &self.0
+    }
+}
+
+impl TrbCC for TrbDne {}
+
+impl TrbSlotId for TrbDne {}
+
+impl TrbPtr for TrbDne {}
 
 /// TRB for ADDRESS_DEVICE_COMMAND
 pub struct TrbAddressDeviceCommand(TrbRawData);

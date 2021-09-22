@@ -262,6 +262,16 @@ impl OperationalRegisters {
             | if cie { 0x200 } else { 0 };
         self.config.store(val, Ordering::SeqCst);
     }
+
+    #[inline]
+    pub fn device_notification_bitmap(&self) -> DeviceNotificationBitmap {
+        DeviceNotificationBitmap::from_bits_truncate(self.dnctrl.load(Ordering::SeqCst))
+    }
+
+    #[inline]
+    pub fn set_device_notification_bitmap(&self, bitmap: DeviceNotificationBitmap) {
+        self.dnctrl.store(bitmap.bits(), Ordering::SeqCst);
+    }
 }
 
 bitflags! {
@@ -290,6 +300,13 @@ bitflags! {
         const CNR   = 0b0000_1000_0000_0000;
 
         // TODO: and so on...
+    }
+}
+
+bitflags! {
+    /// Device Notification
+    pub struct DeviceNotificationBitmap: u32 {
+        const FUNCTION_WAKE = 0b0000_0000_0000_0010;
     }
 }
 
