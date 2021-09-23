@@ -1,7 +1,7 @@
 // User Environment
 
 use crate::log::EventManager;
-use crate::sync::fifo::{AsyncEventQueue, ConcurrentFifo};
+use crate::sync::fifo::ConcurrentFifo;
 use crate::{
     arch::cpu::*, fs::*, mem::*, system::*, task::scheduler::*, task::*, ui::font::*,
     ui::terminal::Terminal, ui::text::*, ui::theme::Theme, ui::window::*, *,

@@ -3,7 +3,10 @@
 use super::{super::*, data::*, regs::*};
 use crate::{
     arch::cpu::Cpu,
-    bus::{pci::*, usb::UsbRouteString},
+    bus::{
+        pci::*,
+        usb::{AsyncSharedLockTemp, UsbManager, UsbRouteString},
+    },
     mem::mmio::*,
     mem::{MemoryManager, NonNullPhysicalAddress, PhysicalAddress},
     sync::{fifo::AsyncEventQueue, semaphore::*, RwLock},
@@ -15,6 +18,7 @@ use alloc::{
     format,
     string::String,
     sync::{Arc, Weak},
+    vec::Vec,
 };
 use core::{
     cell::UnsafeCell,
@@ -81,7 +85,8 @@ pub struct Xhci {
     ics: [UnsafeCell<InputContext>; Self::MAX_DEVICE_SLOTS],
 
     sem_event_thread: Semaphore,
-    lock_config: Pin<Arc<AsyncSemaphore>>,
+
+    root_hub_lock: Pin<Arc<AsyncSharedLockTemp>>,
 }
 
 unsafe impl Send for Xhci {}
@@ -149,7 +154,7 @@ impl Xhci {
             xrbs: [XhciRequestBlock::EMPTY; Self::MAX_XRB],
             ics: [InputContext::EMPTY; Self::MAX_DEVICE_SLOTS],
             sem_event_thread: Semaphore::new(0),
-            lock_config: AsyncSemaphore::new(1),
+            root_hub_lock: AsyncSharedLockTemp::new(),
         });
 
         driver.clone().initialize(device);
@@ -162,7 +167,7 @@ impl Xhci {
             "xhci.event",
         );
 
-        UsbManager::register_xfer_task(Task::new(Self::_config_task(driver.clone())));
+        UsbManager::register_xfer_task(Task::new(driver.clone()._root_hub_task()));
 
         Some(driver as Arc<dyn PciDriver>)
     }
@@ -637,7 +642,7 @@ impl Xhci {
         &self,
         slot_id: SlotId,
         hub_desc: &UsbHub3Descriptor,
-        max_exit_latency: usize,
+        _max_exit_latency: usize,
     ) -> Result<(), UsbError> {
         let input_context = self.input_context(slot_id);
         input_context.control().set_add(1);
@@ -780,7 +785,7 @@ impl Xhci {
         input_context.init(input_context_pa, self.context_size);
 
         let slot = input_context.slot();
-        let speed_raw = port.portsc().speed_raw();
+        let speed_raw = port.status().speed_raw();
         slot.set_root_hub_port(port_id);
         slot.set_speed(speed_raw);
         slot.set_context_entries(1);
@@ -819,8 +824,8 @@ impl Xhci {
             Timer::sleep_async(Duration::from_millis(10)).await;
         } else {
             let port = self.port_by(port_id);
-            let status = port.portsc();
-            port.write_portsc(status & PortSc::PRESERVE_MASK | PortSc::PRC | PortSc::PR);
+            let status = port.status();
+            port.write(status & PortSc::PRESERVE_MASK | PortSc::PRC | PortSc::PR);
         }
 
         Some(UsbDeviceAddress(slot_id.0))
@@ -844,74 +849,6 @@ impl Xhci {
             Ok(_) => Ok(()),
             Err(_) => todo!(),
         }
-    }
-
-    pub async fn process_port_change(self: Arc<Self>, port_id: PortId) -> Option<UsbDeviceAddress> {
-        let port = self.port_by(port_id);
-        self.wait_cnr(0);
-        let status = port.portsc();
-
-        // log!(
-        //     "PORT STATUS CHANGE {} {:08x} {:?} {:?}",
-        //     port_id.0.get(),
-        //     status,
-        //     status.speed(),
-        //     status.link_state()
-        // );
-
-        if status.contains(PortSc::CSC) {
-            if status.contains(PortSc::CCS) {
-                // Attached USB device
-                let status = port.portsc();
-
-                port.write_portsc(status & PortSc::PRESERVE_MASK | PortSc::CSC | PortSc::PR);
-
-                let deadline = Timer::new(Duration::from_millis(200));
-                loop {
-                    if port.portsc().contains(PortSc::PED) || deadline.is_expired() {
-                        break;
-                    }
-                    Timer::sleep_async(Duration::from_millis(10)).await;
-                }
-
-                let status = port.portsc();
-                if status.contains(PortSc::PRC) {
-                    port.write_portsc(status & PortSc::PRESERVE_MASK | PortSc::PRC);
-                }
-                if !status.contains(PortSc::CCS | PortSc::PED) {
-                    port.write_portsc(
-                        status & PortSc::PRESERVE_MASK & !PortSc::PP | PortSc::ALL_CHANGE_BITS,
-                    );
-                    port.write_portsc(status & PortSc::PRESERVE_MASK | PortSc::PP | PortSc::PR);
-                    log!("XHCI: PORT RESET TIMED OUT {}", port_id.0.get());
-                    return None;
-                }
-
-                return self.attach_root_device(port_id).await;
-            } else {
-                // Detached USB device
-                port.write_portsc(status & PortSc::PRESERVE_MASK | PortSc::CSC);
-
-                let mut slice = self.port2slot.write().unwrap();
-                let slot = slice.get_mut(port_id.0.get() as usize).unwrap();
-                if let Some(slot_id) = slot.take() {
-                    UsbManager::detach_device(UsbDeviceAddress(slot_id.0));
-                }
-            }
-        }
-
-        let mut set_bits = PortSc::empty();
-        let status = port.portsc();
-        for bit in [PortSc::PRC, PortSc::PLC] {
-            if status.contains(bit) {
-                set_bits |= bit
-            }
-        }
-        if !set_bits.is_empty() {
-            port.write_portsc(status & PortSc::PRESERVE_MASK | set_bits);
-        }
-
-        None
     }
 
     pub fn process_event(&self) {
@@ -1012,7 +949,7 @@ impl Xhci {
                         if unsafe { event_trb.peek() }.trb_type() != Some(TrbType::NOP) {
                             let port_id = self.port_by_slot(event.slot_id().unwrap());
                             let portsc = port_id.map(|v| self.port_by(v)).unwrap();
-                            let status = portsc.portsc();
+                            let status = portsc.status();
                             log!(
                                 "UNKNOWN TRB {:?} {:?} {:?} {} {:012x} {:08x} {:?} {:?}",
                                 event.slot_id(),
@@ -1052,62 +989,162 @@ impl Xhci {
         }
     }
 
-    /// xHCI Configuration task
-    async fn _config_task(self: Arc<Self>) {
-        for port in self.ports {
-            self.wait_cnr(0);
-            let status = port.portsc();
-            self.wait_cnr(0);
-            port.write_portsc(status & PortSc::PRESERVE_MASK | PortSc::PP | PortSc::PRC);
-        }
+    /// xHCI Root hub task
+    async fn _root_hub_task(self: Arc<Self>) {
+        UsbManager::focus_root_hub();
 
-        self.lock_config.clone().wait().await;
-        for (index, _port) in self.ports.iter().enumerate() {
+        // for (index, port) in self.ports.iter().enumerate() {
+        //     let port_id = PortId(NonZeroU8::new(index as u8 + 1).unwrap());
+        //     self.wait_cnr(0);
+
+        //     let status = port.status();
+        //     log!(
+        //         "ROOT PORT {} {:08x} {:?} {:?}",
+        //         port_id.0.get(),
+        //         status.bits(),
+        //         status.speed(),
+        //         status.link_state()
+        //     );
+        // }
+        Timer::sleep_async(Duration::from_millis(100)).await;
+
+        for (index, port) in self.ports.iter().enumerate() {
             let port_id = PortId(NonZeroU8::new(index as u8 + 1).unwrap());
-            let port = self.port_by(port_id);
             self.wait_cnr(0);
-            let status = port.portsc();
-            if status.contains(PortSc::CCS) {
-                if status.is_usb2() {
-                    port.write_portsc(status & PortSc::PRESERVE_MASK | PortSc::PR);
-                }
-                let deadline = Timer::new(Duration::from_millis(100));
+            let status = port.status();
+
+            if status.is_connected() {
+                // if status.is_usb2() {
+                port.set(PortSc::PR);
+                // }
+
+                let deadline = Timer::new(Duration::from_millis(200));
                 loop {
-                    if port.portsc().contains(PortSc::PED) || deadline.is_expired() {
+                    if port.status().is_enabled() || deadline.is_expired() {
                         break;
                     }
                     Timer::sleep_async(Duration::from_millis(10)).await;
                 }
-                let status = port.portsc();
-                port.write_portsc(status & PortSc::PRESERVE_MASK | PortSc::ALL_CHANGE_BITS);
-                if status.contains(PortSc::CCS | PortSc::PED) {
+
+                self.wait_cnr(0);
+                let status = port.status();
+                port.set(PortSc::ALL_CHANGE_BITS);
+                if status.is_connected() && status.is_enabled() {
                     let _addr = self.clone().attach_root_device(port_id).await.unwrap();
                 } else {
-                    // log!(
-                    //     "TIMED OUT {} {:08x} {:?} {:?}",
-                    //     port_id.0.get(),
-                    //     status.bits(),
-                    //     status.speed(),
-                    //     status.link_state()
-                    // );
+                    log!(
+                        "ROOT PORT TIMED OUT {} {:08x} {:?} {:?}",
+                        port_id.0.get(),
+                        status.bits(),
+                        status.speed(),
+                        status.link_state()
+                    );
                 }
             }
         }
-        self.lock_config.clone().signal();
 
-        loop {
-            while let Some(port_id) = self.port_status_change_queue.wait_event().await {
-                self.lock_config.clone().wait().await;
-                let _slot_id = self.clone().process_port_change(port_id).await;
-                self.lock_config.clone().signal();
+        while {
+            let mut count = 0;
+            for (index, port) in self.ports.iter().enumerate() {
+                let port_id = PortId(NonZeroU8::new(index as u8 + 1).unwrap());
+                self.wait_cnr(0);
+                let status = port.status();
+                if status.is_connected_status_changed() && status.is_connected() && status.is_usb2()
+                {
+                    self.root_hub_lock.lock_shared();
+                    self.clone()._process_port_change(port_id).await;
+                    count += 1;
+                }
+                port.set(PortSc::ALL_CHANGE_BITS);
+            }
+            self.root_hub_lock.wait().await;
+            count > 0
+        } {}
+        UsbManager::unfocus_root_hub();
+
+        while let Some(port_id) = self.port_status_change_queue.wait_event().await {
+            let mut ports = Vec::new();
+            ports.push(port_id);
+            while let Some(port_id) = self.port_status_change_queue.get_event() {
+                ports.push(port_id);
+            }
+            UsbManager::focus_root_hub();
+            for port_id in ports {
+                self.root_hub_lock.lock_shared();
+                UsbManager::schedule_configuration(
+                    None,
+                    Box::pin(self.clone()._process_port_change(port_id)),
+                );
+            }
+            self.root_hub_lock.wait().await;
+            UsbManager::unfocus_root_hub();
+        }
+    }
+
+    pub async fn _process_port_change(self: Arc<Self>, port_id: PortId) {
+        let defer = self.root_hub_lock.unlock_shared();
+
+        let port = self.port_by(port_id);
+        self.wait_cnr(0);
+        let status = port.status();
+
+        // log!(
+        //     "PORT STATUS CHANGE {} {:08x} {:?} {:?}",
+        //     port_id.0.get(),
+        //     status,
+        //     status.speed(),
+        //     status.link_state()
+        // );
+
+        if status.is_connected_status_changed() {
+            if status.is_connected() {
+                // Attached USB device
+                port.set(PortSc::CSC | PortSc::PR);
+
+                let deadline = Timer::new(Duration::from_millis(200));
+                loop {
+                    if port.status().is_enabled() || deadline.is_expired() {
+                        break;
+                    }
+                    Timer::sleep_async(Duration::from_millis(10)).await;
+                }
+
+                port.set(PortSc::PRC);
+
+                let status = port.status();
+                if status.is_connected() && status.is_enabled() {
+                    self.attach_root_device(port_id).await;
+                } else {
+                    port.write(
+                        status & PortSc::PRESERVE_MASK & !PortSc::PP | PortSc::ALL_CHANGE_BITS,
+                    );
+                    Timer::sleep_async(Duration::from_millis(100)).await;
+                    port.set(PortSc::PP | PortSc::PR);
+                    log!("XHCI: PORT RESET TIMED OUT {}", port_id.0.get());
+                }
+
+                return;
+            } else {
+                // Detached USB device
+                port.set(PortSc::CSC);
+
+                let mut slice = self.port2slot.write().unwrap();
+                let slot = slice.get_mut(port_id.0.get() as usize).unwrap();
+                if let Some(slot_id) = slot.take() {
+                    UsbManager::detach_device(UsbDeviceAddress(slot_id.0));
+                }
             }
         }
+
+        port.set(PortSc::ALL_CHANGE_BITS);
+
+        drop(defer);
     }
 }
 
 impl Drop for Xhci {
     fn drop(&mut self) {
-        unreachable!()
+        todo!()
     }
 }
 
@@ -1463,23 +1500,6 @@ impl UsbHostInterface for HciContext {
         let slot_id = device.slot_id;
         host.set_max_packet_size(slot_id, max_packet_size)
             .map_err(|_| UsbError::General)
-    }
-
-    unsafe fn enter_configuration(&self) -> Pin<Box<dyn Future<Output = Result<(), UsbError>>>> {
-        let host = match self.host.upgrade() {
-            Some(v) => v.clone(),
-            None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
-        };
-        host.lock_config.wait_ok()
-    }
-
-    unsafe fn leave_configuration(&self) -> Result<(), UsbError> {
-        let host = match self.host.upgrade() {
-            Some(v) => v.clone(),
-            None => return Err(UsbError::HostUnavailable),
-        };
-        host.lock_config.signal();
-        Ok(())
     }
 
     fn configure_hub2(&self, hub_desc: &UsbHub2Descriptor, is_mtt: bool) -> Result<(), UsbError> {

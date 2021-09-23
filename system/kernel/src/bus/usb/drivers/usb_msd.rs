@@ -1,12 +1,8 @@
 //! USB Mass Storage Device (Bulk Only Transfer) (08_06_50)
 
 use super::super::*;
-use crate::{
-    task::{scheduler::Timer, Task},
-    *,
-};
-use alloc::{boxed::Box, collections::BTreeMap, sync::Arc, vec::Vec};
-use core::{num::NonZeroU8, time::Duration};
+use crate::{task::Task, *};
+use alloc::sync::Arc;
 // use num_traits::FromPrimitive;
 
 pub struct UsbMsdStarter;
@@ -19,11 +15,10 @@ impl UsbMsdStarter {
 }
 
 impl UsbInterfaceDriverStarter for UsbMsdStarter {
-    fn instantiate(&self, device: &UsbDevice, interface: &UsbInterface) -> bool {
+    fn instantiate(&self, device: &Arc<UsbDevice>, interface: &UsbInterface) -> bool {
         if interface.class() != UsbClass::MSD_BULK_ONLY {
             return false;
         }
-        let addr = device.addr();
         let if_no = interface.if_no();
         let endpoint = match interface.endpoints().first() {
             Some(v) => v,
@@ -34,7 +29,12 @@ impl UsbInterfaceDriverStarter for UsbMsdStarter {
 
         device.configure_endpoint(endpoint.descriptor()).unwrap();
 
-        UsbManager::register_xfer_task(Task::new(UsbMsdDriver::_usb_msd_task(addr, if_no, ep, ps)));
+        UsbManager::register_xfer_task(Task::new(UsbMsdDriver::_usb_msd_task(
+            device.clone(),
+            if_no,
+            ep,
+            ps,
+        )));
 
         true
     }
@@ -46,14 +46,12 @@ pub struct UsbMsdDriver {
 
 impl UsbMsdDriver {
     async fn _usb_msd_task(
-        addr: UsbDeviceAddress,
+        device: Arc<UsbDevice>,
         if_no: UsbInterfaceNumber,
-        ep: UsbEndpointAddress,
-        ps: u16,
+        _ep: UsbEndpointAddress,
+        _ps: u16,
     ) {
-        let device = UsbManager::device_by_addr(addr).unwrap();
-
-        let max_lun = Self::get_max_lun(&device, if_no).unwrap();
+        let _max_lun = Self::get_max_lun(&device, if_no).unwrap();
         // log!("MAX_LUN {}", max_lun);
     }
 

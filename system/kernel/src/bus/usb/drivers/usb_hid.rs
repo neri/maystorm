@@ -21,12 +21,11 @@ impl UsbHidStarter {
 }
 
 impl UsbInterfaceDriverStarter for UsbHidStarter {
-    fn instantiate(&self, device: &UsbDevice, interface: &UsbInterface) -> bool {
+    fn instantiate(&self, device: &Arc<UsbDevice>, interface: &UsbInterface) -> bool {
         let class = interface.class();
         if class.base() != UsbBaseClass::HID {
             return false;
         }
-        let addr = device.addr();
         let if_no = interface.if_no();
         let endpoint = match interface.endpoints().first() {
             Some(v) => v,
@@ -50,7 +49,7 @@ impl UsbInterfaceDriverStarter for UsbHidStarter {
         device.configure_endpoint(endpoint.descriptor()).unwrap();
 
         UsbManager::register_xfer_task(Task::new(UsbHidDriver::_usb_hid_task(
-            addr,
+            device.clone(),
             if_no,
             ep,
             class,
@@ -66,15 +65,14 @@ pub struct UsbHidDriver;
 
 impl UsbHidDriver {
     async fn _usb_hid_task(
-        addr: UsbDeviceAddress,
+        device: Arc<UsbDevice>,
         if_no: UsbInterfaceNumber,
         ep: UsbEndpointAddress,
         class: UsbClass,
         ps: u16,
         report_desc: Box<[u8]>,
     ) {
-        let device = UsbManager::device_by_addr(addr).unwrap();
-
+        let addr = device.addr();
         let report_desc = match Self::parse_report(&report_desc) {
             Ok(v) => v,
             Err(err) => {

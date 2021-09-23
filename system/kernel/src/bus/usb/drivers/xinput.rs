@@ -19,12 +19,11 @@ impl XInputStarter {
 }
 
 impl UsbInterfaceDriverStarter for XInputStarter {
-    fn instantiate(&self, device: &UsbDevice, interface: &UsbInterface) -> bool {
+    fn instantiate(&self, device: &Arc<UsbDevice>, interface: &UsbInterface) -> bool {
         let class = interface.class();
         if class != UsbClass::XINPUT {
             return false;
         }
-        let addr = device.addr();
         let if_no = interface.if_no();
         let endpoint = interface.endpoints().first().unwrap();
         let ep = endpoint.address();
@@ -32,7 +31,10 @@ impl UsbInterfaceDriverStarter for XInputStarter {
         device.configure_endpoint(endpoint.descriptor()).unwrap();
 
         UsbManager::register_xfer_task(Task::new(XInputDriver::_xinput_task(
-            addr, if_no, ep, class, ps,
+            device.clone(),
+            if_no,
+            ep,
+            ps,
         )));
 
         true
@@ -43,13 +45,12 @@ pub struct XInputDriver;
 
 impl XInputDriver {
     async fn _xinput_task(
-        addr: UsbDeviceAddress,
+        device: Arc<UsbDevice>,
         _if_no: UsbInterfaceNumber,
         ep: UsbEndpointAddress,
-        _class: UsbClass,
         ps: u16,
     ) {
-        let device = UsbManager::device_by_addr(addr).unwrap();
+        let addr = device.addr();
         let input = Arc::new(RwLock::new(GameInput::empty()));
         let _handle = GameInputManager::connect_new_input(input.clone());
         let mut buffer = [0u8; 512];
