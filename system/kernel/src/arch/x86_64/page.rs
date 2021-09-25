@@ -39,19 +39,13 @@ impl PageManager {
         p.add(Self::PAGE_RECURSIVE)
             .write_volatile(PageTableEntry::new(
                 base as u64,
-                PageAttributes::NO_EXECUTE
-                    | PageAttributes::GLOBAL
-                    | PageAttributes::WRITE
-                    | PageAttributes::PRESENT,
+                PageAttributes::NO_EXECUTE | PageAttributes::WRITE | PageAttributes::PRESENT,
             ));
 
         // FFFF_????_????_???? (TEMP) DIRECT MAPPING AREA
         {
             let mut pte = p.read_volatile();
-            pte += PageAttributes::NO_EXECUTE
-                | PageAttributes::GLOBAL
-                | PageAttributes::WRITE
-                | PageAttributes::PRESENT;
+            pte += PageAttributes::NO_EXECUTE | PageAttributes::WRITE | PageAttributes::PRESENT;
             p.add(Self::PAGE_DIRECT_MAP).write_volatile(pte);
         }
 

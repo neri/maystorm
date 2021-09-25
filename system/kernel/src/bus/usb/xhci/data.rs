@@ -53,8 +53,13 @@ impl DCI {
     }
 
     #[inline]
-    pub const fn is_dir_in(&self) -> bool {
-        (self.0.get() & 1) != 0
+    pub const fn can_read(&self) -> bool {
+        self.0.get() > 1 && (self.0.get() & 1) != 0
+    }
+
+    #[inline]
+    pub const fn can_write(&self) -> bool {
+        self.0.get() > 1 && (self.0.get() & 1) == 0
     }
 
     #[inline]
@@ -221,9 +226,9 @@ pub trait TrbCommon {
             Some(TrbType::PORT_STATUS_CHANGE_EVENT) => Some(TrbEvent::PortStatusChange(unsafe {
                 transmute(self.raw_data())
             })),
-            Some(TrbType::TRANSFER_EVENT) => Some(TrbEvent::TransferEvent(unsafe {
-                transmute(self.raw_data())
-            })),
+            Some(TrbType::TRANSFER_EVENT) => {
+                Some(TrbEvent::Transfer(unsafe { transmute(self.raw_data()) }))
+            }
             Some(TrbType::DEVICE_NOTIFICATION_EVENT) => {
                 Some(TrbEvent::DeviceNotification(unsafe {
                     transmute(self.raw_data())
@@ -285,7 +290,8 @@ pub trait TrbSlotId: TrbCommon {
 pub trait TrbDci: TrbCommon {
     #[inline]
     fn dci(&self) -> Option<DCI> {
-        NonZeroU8::new((self.raw_data()[3].load(Ordering::SeqCst) >> 16) as u8).map(|v| DCI(v))
+        NonZeroU8::new(0x1F & (self.raw_data()[3].load(Ordering::SeqCst) >> 16) as u8)
+            .map(|v| DCI(v))
     }
 
     #[inline]
@@ -619,7 +625,7 @@ impl TrbDir for TrbStatusStage {}
 pub enum TrbEvent<'a> {
     CommandCompletion(&'a TrbCce),
     PortStatusChange(&'a TrbPsc),
-    TransferEvent(&'a TrbTxe),
+    Transfer(&'a TrbTxe),
     DeviceNotification(&'a TrbDne),
 }
 
@@ -629,8 +635,8 @@ impl TrbEvent<'_> {
         match self {
             TrbEvent::CommandCompletion(ref v) => v.completion_code(),
             TrbEvent::PortStatusChange(ref v) => v.completion_code(),
-            TrbEvent::TransferEvent(ref v) => v.completion_code(),
-            &TrbEvent::DeviceNotification(ref v) => v.completion_code(),
+            TrbEvent::Transfer(ref v) => v.completion_code(),
+            TrbEvent::DeviceNotification(ref v) => v.completion_code(),
         }
     }
 }
@@ -718,6 +724,8 @@ impl TrbCC for TrbTxe {}
 impl TrbSlotId for TrbTxe {}
 
 impl TrbPtr for TrbTxe {}
+
+impl TrbDci for TrbTxe {}
 
 /// TRB for DEVICE_NOTIFICATION_EVENT
 pub struct TrbDne(TrbRawData);

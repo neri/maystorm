@@ -92,7 +92,7 @@ pub enum ProcessorCoreType {
     Efficient,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ProcessorSystemType {
     /// The system is equipped with a uniprocessor. (deprecated)
     UP,

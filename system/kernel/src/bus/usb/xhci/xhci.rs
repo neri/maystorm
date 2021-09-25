@@ -5,7 +5,7 @@ use crate::{
     arch::cpu::Cpu,
     bus::{
         pci::*,
-        usb::{AsyncSharedLockTemp, UsbManager, UsbRouteString},
+        usb::{AsyncSharedLockTemp, UsbError, UsbManager, UsbRouteString},
     },
     mem::mmio::*,
     mem::{MemoryManager, NonNullPhysicalAddress, PhysicalAddress},
@@ -25,7 +25,7 @@ use core::{
     ffi::c_void,
     fmt::Write,
     marker::PhantomData,
-    mem::size_of,
+    mem::{size_of, MaybeUninit},
     num::{NonZeroU64, NonZeroU8},
     pin::Pin,
     slice,
@@ -353,7 +353,7 @@ impl Xhci {
         }
     }
 
-    pub fn find_ep_ring(&self, slot_id: Option<SlotId>, dci: Option<DCI>) -> Option<usize> {
+    pub fn ep_ring_index(&self, slot_id: Option<SlotId>, dci: Option<DCI>) -> Option<usize> {
         let slot_id = slot_id.map(|v| v.0.get()).unwrap_or_default();
         let dci = dci.map(|v| v.0.get()).unwrap_or_default();
         for (index, ctx) in self.ring_context.read().unwrap().iter().enumerate() {
@@ -371,7 +371,7 @@ impl Xhci {
         slot_id: Option<SlotId>,
         dci: Option<DCI>,
     ) -> Option<NonNullPhysicalAddress> {
-        if let Some(index) = self.find_ep_ring(slot_id, dci) {
+        if let Some(index) = self.ep_ring_index(slot_id, dci) {
             let ctx = &mut self.ring_context.write().unwrap()[index];
             ctx.clear();
             return ctx.tr_value();
@@ -426,7 +426,7 @@ impl Xhci {
         need_to_notify: bool,
     ) -> ScheduledTrb {
         let trb = trb.as_common_trb();
-        let index = match self.find_ep_ring(slot_id, dci) {
+        let index = match self.ep_ring_index(slot_id, dci) {
             Some(index) => index,
             None => todo!(),
         };
@@ -488,13 +488,12 @@ impl Xhci {
         }
     }
 
-    /// Execute control transfer
-    pub fn execute_control(
-        &self,
+    pub async unsafe fn control_async(
+        self: Arc<Self>,
         slot_id: SlotId,
         setup: UsbControlSetupData,
         buffer: u64,
-    ) -> Result<usize, TrbTxe> {
+    ) -> Result<usize, UsbError> {
         let trt = if setup.wLength > 0 {
             if setup.bmRequestType.is_device_to_host() {
                 TrbTranfserType::ControlIn
@@ -518,12 +517,13 @@ impl Xhci {
 
         let xrb = self.allocate_xrb().unwrap();
         let status_trb = TrbStatusStage::new(!dir);
+        xrb.prepare_async();
         let _scheduled_trb = self.issue_trb(Some(xrb), &status_trb, slot_id, dci, true);
 
-        xrb.wait();
+        xrb.wait_async().await;
 
         let result = match xrb.response.as_event() {
-            Some(TrbEvent::TransferEvent(v)) => Some(v.copied()),
+            Some(TrbEvent::Transfer(v)) => Some(v.copied()),
             _ => None,
         };
         xrb.dispose();
@@ -534,13 +534,88 @@ impl Xhci {
                 }
                 Some(TrbCompletionCode::STALL) => {
                     let _ = self.reset_endpoint(slot_id.unwrap(), dci.unwrap());
-                    Err(result)
+                    Err(UsbError::General)
                 }
-                Some(_err) => Err(result),
-                None => Err(TrbTxe::empty()),
+                Some(_err) => Err(UsbError::General),
+                None => Err(UsbError::ControllerError),
             },
-            None => Err(TrbTxe::empty()),
+            None => Err(UsbError::ControllerError),
         }
+    }
+
+    pub async unsafe fn control_async2(
+        self: Arc<Self>,
+        slot_id: SlotId,
+        setup: UsbControlSetupData,
+        buffer: u64,
+    ) -> Result<(*const u8, usize), UsbError> {
+        self.control_async(slot_id, setup, buffer).await.map(|len| {
+            (
+                MemoryManager::direct_map(buffer as PhysicalAddress) as *const u8,
+                len,
+            )
+        })
+    }
+
+    pub async unsafe fn transfer_async(
+        self: Arc<Self>,
+        slot_id: SlotId,
+        dci: DCI,
+        buffer: u64,
+        len: usize,
+    ) -> Result<usize, UsbError> {
+        let trb = TrbNormal::new(buffer, len, true, true);
+        let xrb = self.allocate_xrb().unwrap();
+        xrb.prepare_async();
+        self.issue_trb(Some(xrb), &trb, Some(slot_id), Some(dci), true);
+
+        xrb.wait_async().await;
+
+        match xrb.state() {
+            XrbState::Available | XrbState::Acquired | XrbState::Scheduled => unreachable!(),
+            XrbState::Completed => {
+                let result = match xrb.response.as_event() {
+                    Some(TrbEvent::Transfer(v)) => v.copied(),
+                    _ => {
+                        xrb.dispose();
+                        return Err(UsbError::UnexpectedToken);
+                    }
+                };
+                xrb.dispose();
+                match result.completion_code() {
+                    Some(TrbCompletionCode::SUCCESS) | Some(TrbCompletionCode::SHORT_PACKET) => {
+                        let count = len - result.transfer_length();
+                        Ok(count)
+                    }
+                    _ => Err(UsbError::General),
+                }
+            }
+            XrbState::Aborted => {
+                xrb.dispose();
+                Err(UsbError::Aborted)
+            }
+        }
+    }
+
+    pub async unsafe fn read_async(
+        self: Arc<Self>,
+        slot_id: SlotId,
+        dci: DCI,
+        device_buffer: u64,
+        len: usize,
+        xfer_buffer: *mut u8,
+    ) -> Result<usize, UsbError> {
+        self.transfer_async(slot_id, dci, device_buffer, len)
+            .await
+            .map(|len| {
+                unsafe {
+                    let p =
+                        MemoryManager::direct_map(device_buffer as PhysicalAddress) as *const u8;
+                    let q = xfer_buffer;
+                    q.copy_from(p, len);
+                }
+                len
+            })
     }
 
     #[inline]
@@ -665,9 +740,9 @@ impl Xhci {
         }
     }
 
-    pub fn attach_child_device(
+    pub async fn attach_child_device(
         self: Arc<Self>,
-        hub: &HciContext,
+        hub: Arc<HciContext>,
         port_id: UsbHubPortNumber,
         speed: PSIV,
     ) -> Result<UsbDeviceAddress, UsbError> {
@@ -748,7 +823,9 @@ impl Xhci {
         if UsbManager::instantiate(
             UsbDeviceAddress(slot_id.0),
             ctx as Arc<dyn UsbHostInterface>,
-        ) {
+        )
+        .await
+        {
             Ok(UsbDeviceAddress(slot_id.0))
         } else {
             todo!()
@@ -820,7 +897,9 @@ impl Xhci {
         if UsbManager::instantiate(
             UsbDeviceAddress(slot_id.0),
             ctx as Arc<dyn UsbHostInterface>,
-        ) {
+        )
+        .await
+        {
             Timer::sleep_async(Duration::from_millis(10)).await;
         } else {
             let port = self.port_by(port_id);
@@ -860,7 +939,7 @@ impl Xhci {
                 }
             };
             match event {
-                TrbEvent::TransferEvent(event) => {
+                TrbEvent::Transfer(event) => {
                     let event_trb = ScheduledTrb(event.ptr());
                     // log!(
                     //     "TRANSFER EVENT {:?} {:?}",
@@ -1357,6 +1436,14 @@ impl XhciRequestBlock {
     }
 
     #[inline]
+    pub async fn wait_async(&self) {
+        match self.signal {
+            XrbSignalObject::Sync(_) => unreachable!(),
+            XrbSignalObject::Async(ref asem) => asem.clone().wait().await,
+        }
+    }
+
+    #[inline]
     pub fn prepare_async(&mut self) {
         self.signal = XrbSignalObject::Async(AsyncSemaphore::new(0));
     }
@@ -1528,17 +1615,16 @@ impl UsbHostInterface for HciContext {
         host.configure_hub3(slot_id, hub_desc, max_exit_latency)
     }
 
-    fn attach_device(
-        &self,
+    unsafe fn attach_child_device(
+        self: Arc<Self>,
         port_id: UsbHubPortNumber,
         speed: PSIV,
-    ) -> Result<UsbDeviceAddress, UsbError> {
+    ) -> Pin<Box<dyn Future<Output = Result<UsbDeviceAddress, UsbError>>>> {
         let host = match self.host.upgrade() {
             Some(v) => v.clone(),
-            None => return Err(UsbError::HostUnavailable),
+            None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
         };
-        // let device = self.device();
-        host.attach_child_device(self, port_id, speed)
+        Box::pin(host.attach_child_device(self.clone(), port_id, speed))
     }
 
     fn configure_endpoint(&self, desc: &UsbEndpointDescriptor) -> Result<(), UsbError> {
@@ -1576,71 +1662,44 @@ impl UsbHostInterface for HciContext {
         }
     }
 
-    unsafe fn control<'a>(&self, setup: UsbControlSetupData) -> Result<&'a [u8], UsbError> {
+    unsafe fn control(
+        self: Arc<Self>,
+        setup: UsbControlSetupData,
+    ) -> Pin<Box<dyn Future<Output = Result<(*const u8, usize), UsbError>>>> {
         let host = match self.host.upgrade() {
-            Some(v) => v.clone(),
-            None => return Err(UsbError::HostUnavailable),
+            Some(ref v) => v.clone(),
+            None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
         };
         let device = self.device();
 
-        match host.execute_control(device.slot_id, setup, device.buffer) {
-            Ok(result) => {
-                let result = slice::from_raw_parts(
-                    MemoryManager::direct_map(device.buffer as PhysicalAddress) as *const u8,
-                    result,
-                );
-                Ok(result)
-            }
-            Err(_err) => {
-                log!(
-                    "CONTROL_ERR {} {:02x} {:02x} {:04x} {:04x} {:04x} => {:?}",
-                    device.slot_id.0,
-                    setup.bmRequestType.0,
-                    setup.bRequest.0,
-                    setup.wValue,
-                    setup.wIndex,
-                    setup.wLength,
-                    _err.completion_code(),
-                );
-                Err(UsbError::General)
-            }
-        }
+        Box::pin(
+            host.clone()
+                .control_async2(device.slot_id, setup, device.buffer),
+        )
     }
 
     unsafe fn control_send(
-        &self,
+        self: Arc<Self>,
         setup: UsbControlSetupData,
         data: *const u8,
-    ) -> Result<usize, UsbError> {
+    ) -> Pin<Box<dyn Future<Output = Result<usize, UsbError>>>> {
         let host = match self.host.upgrade() {
-            Some(v) => v.clone(),
-            None => return Err(UsbError::HostUnavailable),
+            Some(ref v) => v.clone(),
+            None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
         };
         let len = setup.wLength as usize;
         if len == 0 {
-            return Err(UsbError::InvalidParameter);
+            return Box::pin(AsyncUsbError::new(UsbError::InvalidParameter));
         }
         let device = self.device();
 
         let p = MemoryManager::direct_map(device.buffer) as *mut u8;
         p.copy_from(data, len);
 
-        match host.execute_control(device.slot_id, setup, device.buffer) {
-            Ok(result) => Ok(result),
-            Err(_err) => {
-                log!(
-                    "CONTROL_SEND_ERR {} {:02x} {:02x} {:04x} {:04x} {:04x} => {:?}",
-                    device.slot_id.0,
-                    setup.bmRequestType.0,
-                    setup.bRequest.0,
-                    setup.wValue,
-                    setup.wIndex,
-                    setup.wLength,
-                    _err.completion_code(),
-                );
-                Err(UsbError::General)
-            }
-        }
+        Box::pin(
+            host.clone()
+                .control_async(device.slot_id, setup, device.buffer),
+        )
     }
 
     unsafe fn read(
@@ -1650,11 +1709,11 @@ impl UsbHostInterface for HciContext {
         len: usize,
     ) -> Pin<Box<dyn Future<Output = Result<usize, UsbError>>>> {
         let host = match self.host.upgrade() {
-            Some(v) => v.clone(),
+            Some(ref v) => v.clone(),
             None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
         };
         let dci = DCI::from(ep);
-        if !dci.is_dir_in() {
+        if !dci.can_read() {
             return Box::pin(AsyncUsbError::new(UsbError::InvalidParameter));
         }
         let device = self.device();
@@ -1663,17 +1722,8 @@ impl UsbHostInterface for HciContext {
         p.write_bytes(0, len);
 
         let slot_id = device.slot_id;
-        let trb = TrbNormal::new(device.buffer, len, true, true);
-        let xrb = host.allocate_xrb().unwrap();
-        xrb.prepare_async();
-        let scheduled_trb = host.issue_trb(Some(xrb), &trb, Some(slot_id), Some(dci), true);
 
-        Box::pin(AsyncUsbReader {
-            ctx: self.clone(),
-            scheduled_trb,
-            xfer_buffer: buffer as usize,
-            xfer_len: len,
-        })
+        Box::pin(host.read_async(slot_id, dci, device.buffer, len, buffer))
     }
 
     unsafe fn write(
@@ -1683,31 +1733,20 @@ impl UsbHostInterface for HciContext {
         len: usize,
     ) -> Pin<Box<dyn Future<Output = Result<usize, UsbError>>>> {
         let host = match self.host.upgrade() {
-            Some(v) => v.clone(),
+            Some(ref v) => v.clone(),
             None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
         };
         let dci = DCI::from(ep);
-        if dci.is_dir_in() {
+        if !dci.can_write() {
             return Box::pin(AsyncUsbError::new(UsbError::InvalidParameter));
         }
         let device = self.device();
         let slot_id = device.slot_id;
 
-        // unsafe {
         let p = MemoryManager::direct_map(device.buffer) as *mut u8;
         p.copy_from(buffer, len);
-        // }
 
-        let trb = TrbNormal::new(device.buffer, len, true, true);
-        let xrb = host.allocate_xrb().unwrap();
-        xrb.prepare_async();
-        let scheduled_trb = host.issue_trb(Some(xrb), &trb, Some(slot_id), Some(dci), true);
-
-        Box::pin(AsyncUsbWriter {
-            ctx: self.clone(),
-            scheduled_trb,
-            xfer_len: len,
-        })
+        Box::pin(host.transfer_async(slot_id, dci, device.buffer, len))
     }
 }
 
@@ -1734,119 +1773,5 @@ impl<T> Future for AsyncUsbError<T> {
         _cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Self::Output> {
         Poll::Ready(Err(self.error))
-    }
-}
-
-struct AsyncUsbReader {
-    ctx: Arc<HciContext>,
-    scheduled_trb: ScheduledTrb,
-    xfer_buffer: usize,
-    xfer_len: usize,
-}
-
-impl Future for AsyncUsbReader {
-    type Output = Result<usize, UsbError>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> Poll<Self::Output> {
-        let host = match self.ctx.clone().host.upgrade() {
-            Some(v) => v.clone(),
-            None => return Poll::Ready(Err(UsbError::HostUnavailable)),
-        };
-        let xrb = match host.find_xrb(self.scheduled_trb, None) {
-            Some(v) => v,
-            None => return Poll::Ready(Err(UsbError::InvalidParameter)),
-        };
-        let asem = match xrb.signal {
-            XrbSignalObject::Sync(_) => unreachable!(),
-            XrbSignalObject::Async(ref asem) => asem,
-        };
-        if asem.poll(cx) {
-            match xrb.state() {
-                XrbState::Available | XrbState::Acquired | XrbState::Scheduled => unreachable!(),
-                XrbState::Completed => {
-                    let result = match xrb.response.as_event() {
-                        Some(TrbEvent::TransferEvent(v)) => v.copied(),
-                        _ => {
-                            xrb.dispose();
-                            return Poll::Ready(Err(UsbError::UnexpectedToken));
-                        }
-                    };
-                    xrb.dispose();
-                    match result.completion_code() {
-                        Some(TrbCompletionCode::SUCCESS)
-                        | Some(TrbCompletionCode::SHORT_PACKET) => {
-                            let len = self.xfer_len - result.transfer_length();
-                            unsafe {
-                                let p = MemoryManager::direct_map(
-                                    self.ctx.device().buffer as PhysicalAddress,
-                                ) as *const u8;
-                                let q = self.xfer_buffer as *mut u8;
-                                q.copy_from(p, len);
-                            }
-                            Poll::Ready(Ok(len))
-                        }
-                        Some(err) => {
-                            log!("READ ERROR {} {:?}", self.ctx.device().slot_id.0.get(), err);
-                            Poll::Ready(Err(UsbError::General))
-                        }
-                        _ => Poll::Ready(Err(UsbError::General)),
-                    }
-                }
-                XrbState::Aborted => Poll::Ready(Err(UsbError::Aborted)),
-            }
-        } else {
-            Poll::Pending
-        }
-    }
-}
-
-struct AsyncUsbWriter {
-    ctx: Arc<HciContext>,
-    scheduled_trb: ScheduledTrb,
-    xfer_len: usize,
-}
-
-impl Future for AsyncUsbWriter {
-    type Output = Result<usize, UsbError>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> Poll<Self::Output> {
-        let host = match self.ctx.clone().host.upgrade() {
-            Some(v) => v.clone(),
-            None => return Poll::Ready(Err(UsbError::HostUnavailable)),
-        };
-        let xrb = match host.find_xrb(self.scheduled_trb, None) {
-            Some(v) => v,
-            None => return Poll::Ready(Err(UsbError::InvalidParameter)),
-        };
-        let asem = match xrb.signal {
-            XrbSignalObject::Sync(_) => unreachable!(),
-            XrbSignalObject::Async(ref asem) => asem,
-        };
-        if asem.poll(cx) {
-            match xrb.state() {
-                XrbState::Available | XrbState::Acquired | XrbState::Scheduled => unreachable!(),
-                XrbState::Completed => {
-                    let result = match xrb.response.as_event() {
-                        Some(TrbEvent::TransferEvent(v)) => v.copied(),
-                        _ => {
-                            xrb.dispose();
-                            return Poll::Ready(Err(UsbError::UnexpectedToken));
-                        }
-                    };
-                    xrb.dispose();
-                    match result.completion_code() {
-                        Some(TrbCompletionCode::SUCCESS)
-                        | Some(TrbCompletionCode::SHORT_PACKET) => {
-                            let len = self.xfer_len - result.transfer_length();
-                            Poll::Ready(Ok(len))
-                        }
-                        _ => Poll::Ready(Err(UsbError::General)),
-                    }
-                }
-                XrbState::Aborted => Poll::Ready(Err(UsbError::Aborted)),
-            }
-        } else {
-            Poll::Pending
-        }
     }
 }

@@ -51,11 +51,11 @@ impl UsbMsdDriver {
         _ep: UsbEndpointAddress,
         _ps: u16,
     ) {
-        let _max_lun = Self::get_max_lun(&device, if_no).unwrap();
+        let _max_lun = Self::get_max_lun(&device, if_no).await.unwrap();
         // log!("MAX_LUN {}", max_lun);
     }
 
-    fn get_max_lun(device: &UsbDevice, if_no: UsbInterfaceNumber) -> Result<u8, UsbError> {
+    async fn get_max_lun(device: &UsbDevice, if_no: UsbInterfaceNumber) -> Result<u8, UsbError> {
         let mut result = [0; 1];
         device
             .control_slice(
@@ -67,6 +67,7 @@ impl UsbMsdDriver {
                 .length(1),
                 &mut result,
             )
+            .await
             .map(|_| result[0])
     }
 }

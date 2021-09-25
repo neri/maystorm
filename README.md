@@ -56,7 +56,7 @@ linker = "/opt/homebrew/opt/llvm/bin/ld.lld"
 ## HOE: Haribote-OS Emulation Subsystem
 
 * We have confirmed that about half of the apps work at this point. Some APIs are not yet implemented.
-* This subsystem may not be supported in the future, or its architecture may change.
+* This subsystem may be unsupported in the future, or may be replaced by another implementation.
 
 ## History
 
