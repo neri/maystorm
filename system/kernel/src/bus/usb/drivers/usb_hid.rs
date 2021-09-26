@@ -21,7 +21,7 @@ impl UsbHidStarter {
 }
 
 impl UsbInterfaceDriverStarter for UsbHidStarter {
-    fn instantiate(&self, device: &Arc<UsbDevice>, interface: &UsbInterface) -> bool {
+    fn instantiate(&self, device: &Arc<UsbDeviceControl>, interface: &UsbInterface) -> bool {
         let class = interface.class();
         if class.base() != UsbBaseClass::HID {
             return false;
@@ -65,14 +65,14 @@ pub struct UsbHidDriver;
 
 impl UsbHidDriver {
     async fn _usb_hid_task(
-        device: Arc<UsbDevice>,
+        device: Arc<UsbDeviceControl>,
         if_no: UsbInterfaceNumber,
         ep: UsbEndpointAddress,
         class: UsbClass,
         ps: u16,
         report_desc: Box<[u8]>,
     ) {
-        let addr = device.addr();
+        let addr = device.device().addr();
         let report_desc = match Self::parse_report(&report_desc) {
             Ok(v) => v,
             Err(err) => {
@@ -299,7 +299,7 @@ impl UsbHidDriver {
 
     #[inline]
     pub async fn set_boot_protocol(
-        device: &UsbDevice,
+        device: &UsbDeviceControl,
         if_no: UsbInterfaceNumber,
         is_boot: bool,
     ) -> Result<(), UsbError> {
@@ -317,7 +317,7 @@ impl UsbHidDriver {
 
     #[inline]
     pub async fn get_report(
-        device: &UsbDevice,
+        device: &UsbDeviceControl,
         if_no: UsbInterfaceNumber,
         report_type: HidReportType,
         report_id: u8,
@@ -325,22 +325,23 @@ impl UsbHidDriver {
         vec: &mut Vec<u8>,
     ) -> Result<(), UsbError> {
         device
-            .control_vec(
+            .control_var(
                 UsbControlSetupData::request(
                     UsbControlRequestBitmap(0xA1),
                     UsbControlRequest(0x01),
                 )
                 .value((report_type as u16) * 256 + (report_id as u16))
-                .index_if(if_no)
-                .length(len as u16),
+                .index_if(if_no),
                 vec,
+                len,
+                len,
             )
             .await
     }
 
     #[inline]
     pub async fn set_report(
-        device: &UsbDevice,
+        device: &UsbDeviceControl,
         if_no: UsbInterfaceNumber,
         report_type: HidReportType,
         report_id: u8,

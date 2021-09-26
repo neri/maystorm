@@ -7,7 +7,7 @@ use num_traits::FromPrimitive;
 /// Valid USB bus addresses are 1 to 127.
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct UsbDeviceAddress(pub NonZeroU8);
+pub struct UsbAddress(pub NonZeroU8);
 
 /// 16-bit word type used in the USB descriptor.
 #[repr(transparent)]
@@ -390,8 +390,8 @@ pub struct UsbConfigurationDescriptor {
 
 impl UsbConfigurationDescriptor {
     #[inline]
-    pub const fn total_length(&self) -> u16 {
-        self.wTotalLength.as_u16()
+    pub const fn total_length(&self) -> usize {
+        self.wTotalLength.as_u16() as usize
     }
 
     #[inline]
@@ -617,8 +617,8 @@ pub struct UsbBinaryObjectStoreDescriptor {
 
 impl UsbBinaryObjectStoreDescriptor {
     #[inline]
-    pub const fn total_length(&self) -> u16 {
-        self.wTotalLength.as_u16()
+    pub const fn total_length(&self) -> usize {
+        self.wTotalLength.as_u16() as usize
     }
 
     #[inline]

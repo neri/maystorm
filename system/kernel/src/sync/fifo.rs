@@ -4,7 +4,7 @@ use crate::{
     arch::cpu::Cpu,
     sync::{semaphore::Semaphore, spinlock::SpinLoopWait},
 };
-use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, sync::Arc};
 use core::{
     mem::{self, MaybeUninit},
     pin::Pin,
@@ -203,7 +203,8 @@ impl<T> Drop for ConcurrentFifo<T> {
             drop(t);
         }
         unsafe {
-            Vec::from_raw_parts(self.data, 0, self.one_lap);
+            let ptr = core::slice::from_raw_parts_mut(self.data, self.one_lap) as *mut [Slot<T>];
+            Box::from_raw(ptr);
         }
     }
 }

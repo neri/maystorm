@@ -944,14 +944,15 @@ impl WindowManager<'_> {
         let shared = Self::shared();
         sb.clear();
 
-        writeln!(sb, "  # Lv Frame",).unwrap();
+        writeln!(sb, "  # PID Lv Frame",).unwrap();
         for window in shared.window_pool.read().unwrap().values() {
             let window = unsafe { &*window.clone().as_ref().get() };
             let frame = window.frame;
             writeln!(
                 sb,
-                "{:3} {:2x} {:4} {:4} {:4} {:4} {}",
+                "{:3} {:3} {:2x} {:4} {:4} {:4} {:4} {}",
                 window.handle.0,
+                window.pid.0,
                 window.level.0,
                 frame.x(),
                 frame.y(),
@@ -1016,6 +1017,7 @@ impl Default for ViewActionState {
 struct RawWindow<'a> {
     /// Refer to the self owned handle
     handle: WindowHandle,
+    pid: ProcessId,
 
     // Properties
     attributes: AtomicBitflags<WindowAttributes>,
@@ -1892,17 +1894,15 @@ impl WindowBuilder {
         let is_dark_mode = self.style.contains(WindowStyle::DARK_BORDER);
 
         let accent_color = Theme::shared().window_default_accent();
-        let active_title_color = self.active_title_color.unwrap_or(if is_thin {
-            Theme::shared().window_title_active_background()
-        } else if is_dark_mode {
+        let active_title_color = self.active_title_color.unwrap_or(if is_dark_mode {
             Theme::shared().window_title_active_background_dark()
         } else {
-            bg_color
+            Theme::shared().window_title_active_background()
         });
-        let inactive_title_color = self.inactive_title_color.unwrap_or(if is_thin {
-            Theme::shared().window_title_inactive_background()
-        } else {
+        let inactive_title_color = self.inactive_title_color.unwrap_or(if is_dark_mode {
             bg_color
+        } else {
+            Theme::shared().window_title_inactive_background()
         });
         if active_title_color.brightness().unwrap_or(255) < 192 {
             self.style.insert(WindowStyle::DARK_ACTIVE);
@@ -1936,6 +1936,7 @@ impl WindowBuilder {
         };
 
         let handle = WindowManager::next_window_handle();
+
         let mut window = Box::new(RawWindow {
             handle,
             frame,
@@ -1955,6 +1956,7 @@ impl WindowBuilder {
             waker: AtomicWaker::new(),
             sem: Semaphore::new(0),
             queue,
+            pid: Scheduler::current_pid(),
         });
 
         match self.bitmap_strategy {

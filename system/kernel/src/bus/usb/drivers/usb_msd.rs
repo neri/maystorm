@@ -15,7 +15,7 @@ impl UsbMsdStarter {
 }
 
 impl UsbInterfaceDriverStarter for UsbMsdStarter {
-    fn instantiate(&self, device: &Arc<UsbDevice>, interface: &UsbInterface) -> bool {
+    fn instantiate(&self, device: &Arc<UsbDeviceControl>, interface: &UsbInterface) -> bool {
         if interface.class() != UsbClass::MSD_BULK_ONLY {
             return false;
         }
@@ -46,7 +46,7 @@ pub struct UsbMsdDriver {
 
 impl UsbMsdDriver {
     async fn _usb_msd_task(
-        device: Arc<UsbDevice>,
+        device: Arc<UsbDeviceControl>,
         if_no: UsbInterfaceNumber,
         _ep: UsbEndpointAddress,
         _ps: u16,
@@ -55,7 +55,10 @@ impl UsbMsdDriver {
         // log!("MAX_LUN {}", max_lun);
     }
 
-    async fn get_max_lun(device: &UsbDevice, if_no: UsbInterfaceNumber) -> Result<u8, UsbError> {
+    async fn get_max_lun(
+        device: &UsbDeviceControl,
+        if_no: UsbInterfaceNumber,
+    ) -> Result<u8, UsbError> {
         let mut result = [0; 1];
         device
             .control_slice(

@@ -436,7 +436,7 @@ impl Shell {
 
     fn cmd_lsusb(argv: &[&str]) -> isize {
         if let Some(addr) = argv.get(1).and_then(|v| v.parse::<NonZeroU8>().ok()) {
-            let addr = UsbDeviceAddress(addr);
+            let addr = UsbAddress(addr);
             let device = match UsbManager::device_by_addr(addr) {
                 Some(v) => v,
                 None => {
@@ -448,7 +448,7 @@ impl Shell {
             let class_string = device
                 .class()
                 .class_string(false)
-                .unwrap_or("Unknoen Device")
+                .unwrap_or("Unknown Device")
                 .to_string();
             println!(
                 "{:02x} VID {} PID {} class {} {}",
@@ -460,28 +460,26 @@ impl Shell {
             );
 
             for config in device.configurations() {
-                let emptry = "".to_string();
                 println!(
                     " CONFIG #{} {}",
                     config.configuration_value().0,
-                    config.name().unwrap_or(&emptry),
+                    config.name().unwrap_or(""),
                 );
                 for interface in config.interfaces() {
                     let if_string = interface
                         .class()
                         .class_string(true)
-                        .unwrap_or("Unknoen Interface")
-                        .to_string();
+                        .unwrap_or("Unknown Interface");
                     println!(
-                        "  INTERFACE #{}.{} class {:06x} {}",
+                        " INTERFACE #{}.{} class {:06x} {}",
                         interface.if_no().0,
                         interface.alternate_setting().0,
                         interface.class().0,
-                        interface.name().unwrap_or(&if_string),
+                        interface.name().unwrap_or(if_string),
                     );
                     for endpoint in interface.endpoints() {
                         println!(
-                            "   ENDPOINT {:02x} {:?} size {} interval {}",
+                            "  ENDPOINT {:02x} {:?} size {} interval {}",
                             endpoint.address().0,
                             endpoint.ep_type(),
                             endpoint.descriptor().max_packet_size(),
@@ -496,26 +494,21 @@ impl Shell {
         0
     }
 
-    fn print_usb_device(nest: usize, parent: Option<UsbDeviceAddress>) {
-        for device in bus::usb::UsbManager::devices() {
-            if device.parent_device_address() == parent {
-                for _ in 0..nest {
-                    print!("  ");
-                }
-                let class_string = device
-                    .class()
-                    .class_string(false)
-                    .unwrap_or("Unknoen Device")
-                    .to_string();
-                println!(
-                    "{:02x} VID {} PID {} class {} {}{}",
-                    device.addr().0.get(),
-                    device.vid(),
-                    device.pid(),
-                    device.class(),
-                    if device.is_configured() { "" } else { "? " },
-                    device.product_string().unwrap_or(&class_string),
-                );
+    fn print_usb_device(nest: usize, parent: Option<UsbAddress>) {
+        for device in UsbManager::devices().filter(|v| v.parent() == parent) {
+            for _ in 0..nest {
+                print!("  ");
+            }
+            println!(
+                "{:02x} VID {} PID {} class {} {}{}",
+                device.addr().0.get(),
+                device.vid(),
+                device.pid(),
+                device.class(),
+                if device.is_configured() { "" } else { "? " },
+                device.preferred_device_name().unwrap_or("Unknown Device"),
+            );
+            if device.children().len() > 0 {
                 Self::print_usb_device(nest + 1, Some(device.addr()));
             }
         }

@@ -518,7 +518,7 @@ impl Xhci {
         let xrb = self.allocate_xrb().unwrap();
         let status_trb = TrbStatusStage::new(!dir);
         xrb.prepare_async();
-        let _scheduled_trb = self.issue_trb(Some(xrb), &status_trb, slot_id, dci, true);
+        self.issue_trb(Some(xrb), &status_trb, slot_id, dci, true);
 
         xrb.wait_async().await;
 
@@ -745,7 +745,7 @@ impl Xhci {
         hub: Arc<HciContext>,
         port_id: UsbHubPortNumber,
         speed: PSIV,
-    ) -> Result<UsbDeviceAddress, UsbError> {
+    ) -> Result<UsbAddress, UsbError> {
         let device = hub.device();
 
         let new_route = match device.route_string.appending(port_id) {
@@ -820,19 +820,14 @@ impl Xhci {
             buffer,
         };
         let ctx = Arc::new(HciContext::new(Arc::downgrade(&self), device));
-        if UsbManager::instantiate(
-            UsbDeviceAddress(slot_id.0),
-            ctx as Arc<dyn UsbHostInterface>,
-        )
-        .await
-        {
-            Ok(UsbDeviceAddress(slot_id.0))
+        if UsbManager::instantiate(UsbAddress(slot_id.0), ctx as Arc<dyn UsbHostInterface>).await {
+            Ok(UsbAddress(slot_id.0))
         } else {
             todo!()
         }
     }
 
-    pub async fn attach_root_device(self: Arc<Self>, port_id: PortId) -> Option<UsbDeviceAddress> {
+    pub async fn attach_root_device(self: Arc<Self>, port_id: PortId) -> Option<UsbAddress> {
         let port = self.port_by(port_id);
         self.wait_cnr(0);
 
@@ -894,12 +889,7 @@ impl Xhci {
         };
         let ctx = Arc::new(HciContext::new(Arc::downgrade(&self), device));
 
-        if UsbManager::instantiate(
-            UsbDeviceAddress(slot_id.0),
-            ctx as Arc<dyn UsbHostInterface>,
-        )
-        .await
-        {
+        if UsbManager::instantiate(UsbAddress(slot_id.0), ctx as Arc<dyn UsbHostInterface>).await {
             Timer::sleep_async(Duration::from_millis(10)).await;
         } else {
             let port = self.port_by(port_id);
@@ -907,7 +897,7 @@ impl Xhci {
             port.write(status & PortSc::PRESERVE_MASK | PortSc::PRC | PortSc::PR);
         }
 
-        Some(UsbDeviceAddress(slot_id.0))
+        Some(UsbAddress(slot_id.0))
     }
 
     pub fn set_max_packet_size(&self, slot_id: SlotId, max_packet_size: usize) -> Result<(), ()> {
@@ -1072,19 +1062,6 @@ impl Xhci {
     async fn _root_hub_task(self: Arc<Self>) {
         UsbManager::focus_root_hub();
 
-        // for (index, port) in self.ports.iter().enumerate() {
-        //     let port_id = PortId(NonZeroU8::new(index as u8 + 1).unwrap());
-        //     self.wait_cnr(0);
-
-        //     let status = port.status();
-        //     log!(
-        //         "ROOT PORT {} {:08x} {:?} {:?}",
-        //         port_id.0.get(),
-        //         status.bits(),
-        //         status.speed(),
-        //         status.link_state()
-        //     );
-        // }
         Timer::sleep_async(Duration::from_millis(100)).await;
 
         for (index, port) in self.ports.iter().enumerate() {
@@ -1210,7 +1187,7 @@ impl Xhci {
                 let mut slice = self.port2slot.write().unwrap();
                 let slot = slice.get_mut(port_id.0.get() as usize).unwrap();
                 if let Some(slot_id) = slot.take() {
-                    UsbManager::detach_device(UsbDeviceAddress(slot_id.0));
+                    UsbManager::detach_device(UsbAddress(slot_id.0));
                 }
             }
         }
@@ -1566,8 +1543,8 @@ impl HciContext {
 }
 
 impl UsbHostInterface for HciContext {
-    fn parent_device_address(&self) -> Option<UsbDeviceAddress> {
-        self.device().parent_slot_id.map(|v| UsbDeviceAddress(v.0))
+    fn parent_device_address(&self) -> Option<UsbAddress> {
+        self.device().parent_slot_id.map(|v| UsbAddress(v.0))
     }
 
     fn route_string(&self) -> UsbRouteString {
@@ -1615,11 +1592,11 @@ impl UsbHostInterface for HciContext {
         host.configure_hub3(slot_id, hub_desc, max_exit_latency)
     }
 
-    unsafe fn attach_child_device(
+    fn attach_child_device(
         self: Arc<Self>,
         port_id: UsbHubPortNumber,
         speed: PSIV,
-    ) -> Pin<Box<dyn Future<Output = Result<UsbDeviceAddress, UsbError>>>> {
+    ) -> Pin<Box<dyn Future<Output = Result<UsbAddress, UsbError>>>> {
         let host = match self.host.upgrade() {
             Some(v) => v.clone(),
             None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
