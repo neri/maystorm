@@ -164,7 +164,7 @@ impl Xhci {
             move || {
                 p._event_thread();
             },
-            "xhci.event",
+            Self::DRIVER_NAME,
         );
 
         UsbManager::register_xfer_task(Task::new(driver.clone()._root_hub_task()));

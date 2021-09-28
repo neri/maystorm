@@ -110,7 +110,8 @@ impl UsbManager {
             config_queue: AsyncEventQueue::new(255),
         });
 
-        SpawnOption::with_priority(Priority::High).spawn(Self::_usb_xfer_task_thread, "usb.xfer");
+        SpawnOption::with_priority(Priority::High)
+            .spawn(Self::_usb_xfer_task_thread, "USB xfer task");
 
         let mut specific_drivers = Self::shared().specific_driver_starters.write().unwrap();
         let mut class_drivers = Self::shared().class_driver_starters.write().unwrap();
@@ -177,15 +178,15 @@ impl UsbManager {
                 }
 
                 if is_configured {
-                    device.set_is_configured(true);
+                    device.device().is_configured.store(true, Ordering::SeqCst);
                     if let Some(device_name) = device.device().preferred_device_name() {
-                        notify!("USB Device \"{}\" has been configured.", device_name);
+                        notify!("\"{}\"\nhas been configured.", device_name);
                     } else {
                         notify!("A USB Device has been configured.");
                     }
                 } else {
                     if let Some(device_name) = device.device().preferred_device_name() {
-                        notify!("USB Device \"{}\" was found.", device_name);
+                        notify!("\"{}\" was found.", device_name);
                     } else {
                         notify!("A USB Device was found.");
                     }
@@ -690,6 +691,7 @@ impl UsbDeviceControl {
             uuid,
             parent,
             children: Vec::new(),
+            speed: host.speed(),
             lang_id,
             descriptor: device_desc,
             is_configured: AtomicBool::new(false),
@@ -729,18 +731,13 @@ impl UsbDeviceControl {
     }
 
     #[inline]
-    pub fn set_is_configured(self: &Arc<Self>, val: bool) {
-        self.device().is_configured.store(val, Ordering::SeqCst);
-    }
-
-    #[inline]
     pub fn configure_endpoint(&self, desc: &UsbEndpointDescriptor) -> Result<(), UsbError> {
         self.host().configure_endpoint(desc)
     }
 
     #[inline]
     pub async fn attach_child_device(
-        self: &Arc<Self>,
+        &self,
         port_id: UsbHubPortNumber,
         speed: PSIV,
     ) -> Result<UsbAddress, UsbError> {
@@ -754,7 +751,7 @@ impl UsbDeviceControl {
     }
 
     #[inline]
-    pub async fn detach_child_device(self: &Arc<Self>, child: UsbAddress) {
+    pub async fn detach_child_device(&self, child: UsbAddress) {
         let index = match self.device().children.iter().position(|v| *v == child) {
             Some(v) => v,
             None => todo!(),
@@ -1162,6 +1159,7 @@ pub struct UsbDevice {
     route_string: UsbRouteString,
     parent: Option<UsbAddress>,
     children: Vec<UsbAddress>,
+    speed: PSIV,
 
     uuid: [u8; 16],
 
@@ -1206,6 +1204,16 @@ impl UsbDevice {
     #[inline]
     pub const fn uuid(&self) -> &[u8; 16] {
         &self.uuid
+    }
+
+    #[inline]
+    pub const fn protocol_speed(&self) -> usize {
+        self.speed.protocol_speed()
+    }
+
+    #[inline]
+    pub const fn usb_version(&self) -> UsbVersion {
+        self.descriptor.usb_version()
     }
 
     /// Gets the vendor ID for this device.

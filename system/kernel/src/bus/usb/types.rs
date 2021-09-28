@@ -98,6 +98,7 @@ impl UsbClass {
     pub const HID_GENERIC: Self = Self(0x03_00_00);
     pub const HID_BOOT_KEYBOARD: Self = Self(0x03_01_01);
     pub const HID_BOOT_MOUSE: Self = Self(0x03_01_02);
+    pub const STILL_IMAGING: Self = Self(0x06_01_01);
     pub const MSD_BULK_ONLY: Self = Self(0x08_06_50);
     pub const FLOPPY: Self = Self(0x08_04_00);
     pub const HUB_FS: Self = Self(0x09_00_00);
@@ -159,6 +160,7 @@ impl UsbClass {
             (UsbClass::HID_BOOT_MOUSE, "HID Boot Mouse" ),
             (UsbClass::MSD_BULK_ONLY, "Mass Storage Device" ),
             (UsbClass::FLOPPY, "Floppy Drive"),
+            (UsbClass::STILL_IMAGING, "Still Imaging Device"),
             (UsbClass::HUB_FS, "Full Speed Hub"),
             (UsbClass::HUB_HS_STT, "High Speed Hub"),
             (UsbClass::HUB_HS_MTT, "High Speed Hub with multi TTs"),
@@ -1187,6 +1189,17 @@ impl PSIV {
             PSIV::FS | PSIV::LS => 8,
             PSIV::HS => 64,
             _ => 512,
+        }
+    }
+
+    #[inline]
+    pub const fn protocol_speed(&self) -> usize {
+        match self {
+            PSIV::FS => 12_000_000,
+            PSIV::LS => 1_500_000,
+            PSIV::HS => 480_000_000,
+            PSIV::SS => 5_000_000_000,
+            _ => 0,
         }
     }
 }

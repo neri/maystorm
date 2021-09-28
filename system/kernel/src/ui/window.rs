@@ -1856,7 +1856,6 @@ impl WindowBuilder {
         if self.style.contains(WindowStyle::THIN_FRAME) {
             self.style.insert(WindowStyle::BORDER);
         }
-        let is_thin = self.style.contains(WindowStyle::THIN_FRAME);
 
         let screen_bounds = WindowManager::user_screen_bounds();
         let content_insets = self.style.as_content_insets();

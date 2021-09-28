@@ -1205,8 +1205,8 @@ impl WasmRuntimeError {
     }
 
     #[inline]
-    pub fn function_name(&self) -> Option<&String> {
-        self.function_name.as_ref()
+    pub fn function_name(&self) -> Option<&str> {
+        self.function_name.as_ref().map(|v| v.as_str())
     }
 
     #[inline]

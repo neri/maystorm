@@ -64,7 +64,6 @@ impl<'a> App<'a> {
             .size(Size::new(BITMAP_WIDTH, BITMAP_HEIGHT))
             .opaque()
             .bitmap_argb32()
-            .thin_frame()
             .build("noiz2bg");
         let bitmap =
             Bitmap32::from_bytes(unsafe { &mut DATA }, Size::new(BITMAP_WIDTH, BITMAP_HEIGHT));

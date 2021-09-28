@@ -456,12 +456,21 @@ impl Shell {
                 device.vid(),
                 device.pid(),
                 device.class(),
-                device.product_string().unwrap_or(&class_string),
+                class_string,
+            );
+            let mut sb = Sb255::new();
+            write!(sb, " usb {} speed ", device.descriptor().usb_version(),).unwrap();
+            Self::format_si(&mut sb, device.protocol_speed()).unwrap();
+            println!(
+                "{}\n manufacturer: {}\n product: {}",
+                sb.as_str(),
+                device.manufacturer_string().unwrap_or("Unknown"),
+                device.product_string().unwrap_or("Unknown"),
             );
 
             for config in device.configurations() {
                 println!(
-                    " CONFIG #{} {}",
+                    " config #{} {}",
                     config.configuration_value().0,
                     config.name().unwrap_or(""),
                 );
@@ -471,7 +480,7 @@ impl Shell {
                         .class_string(true)
                         .unwrap_or("Unknown Interface");
                     println!(
-                        " INTERFACE #{}.{} class {:06x} {}",
+                        " interface #{}.{} class {:06x} {}",
                         interface.if_no().0,
                         interface.alternate_setting().0,
                         interface.class().0,
@@ -479,7 +488,7 @@ impl Shell {
                     );
                     for endpoint in interface.endpoints() {
                         println!(
-                            "  ENDPOINT {:02x} {:?} size {} interval {}",
+                            "  endpoint {:02x} {:?} size {} interval {}",
                             endpoint.address().0,
                             endpoint.ep_type(),
                             endpoint.descriptor().max_packet_size(),
@@ -628,5 +637,79 @@ impl Shell {
             }
         }
         "(Unknown Device)"
+    }
+
+    #[allow(dead_code)]
+    fn format_si(sb: &mut dyn Write, val: usize) -> core::fmt::Result {
+        let kb = (val / 1000) % 1000;
+        let mb = (val / 1000_000) % 1000;
+        let gb = val / 1000_000_000;
+
+        if gb >= 10 {
+            // > 10G
+            write!(sb, "{:4}G", gb)
+        } else if gb >= 1 {
+            // 1G~10G
+            let mb0 = (mb * 100) >> 10;
+            write!(sb, "{}.{:02}G", gb, mb0)
+        } else if mb >= 100 {
+            // 100M~1G
+            write!(sb, "{:4}M", mb)
+        } else if mb >= 10 {
+            // 10M~100M
+            let kb00 = (kb * 10) >> 10;
+            write!(sb, "{:2}.{}M", mb, kb00)
+        } else if mb >= 1 {
+            // 1M~10M
+            let kb0 = (kb * 100) >> 10;
+            write!(sb, "{}.{:02}M", mb, kb0)
+        } else if kb >= 100 {
+            // 100K~1M
+            write!(sb, "{:4}K", kb)
+        } else if kb >= 10 {
+            // 10K~100K
+            let b00 = ((val & 0x3FF) * 10) >> 10;
+            write!(sb, "{:2}.{}K", kb, b00)
+        } else {
+            // 0~10K
+            write!(sb, "{:5}", val)
+        }
+    }
+
+    #[allow(dead_code)]
+    fn format_bytes(sb: &mut dyn Write, val: usize) -> core::fmt::Result {
+        let kb = (val >> 10) & 0x3FF;
+        let mb = (val >> 20) & 0x3FF;
+        let gb = val >> 30;
+
+        if gb >= 10 {
+            // > 10G
+            write!(sb, "{:4}G", gb)
+        } else if gb >= 1 {
+            // 1G~10G
+            let mb0 = (mb * 100) >> 10;
+            write!(sb, "{}.{:02}G", gb, mb0)
+        } else if mb >= 100 {
+            // 100M~1G
+            write!(sb, "{:4}M", mb)
+        } else if mb >= 10 {
+            // 10M~100M
+            let kb00 = (kb * 10) >> 10;
+            write!(sb, "{:2}.{}M", mb, kb00)
+        } else if mb >= 1 {
+            // 1M~10M
+            let kb0 = (kb * 100) >> 10;
+            write!(sb, "{}.{:02}M", mb, kb0)
+        } else if kb >= 100 {
+            // 100K~1M
+            write!(sb, "{:4}K", kb)
+        } else if kb >= 10 {
+            // 10K~100K
+            let b00 = ((val & 0x3FF) * 10) >> 10;
+            write!(sb, "{:2}.{}K", kb, b00)
+        } else {
+            // 0~10K
+            write!(sb, "{:5}", val)
+        }
     }
 }
