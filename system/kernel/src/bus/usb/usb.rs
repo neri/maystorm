@@ -1,6 +1,6 @@
 //! Universal Serial Bus
 
-use super::types::*;
+use super::*;
 use crate::{
     sync::{fifo::AsyncEventQueue, RwLock},
     task::{scheduler::*, Task},
@@ -39,13 +39,9 @@ pub trait UsbHostInterface {
 
     fn configure_endpoint(&self, desc: &UsbEndpointDescriptor) -> Result<(), UsbError>;
 
-    fn configure_hub2(&self, hub_desc: &UsbHub2Descriptor, is_mtt: bool) -> Result<(), UsbError>;
+    fn configure_hub2(&self, hub_desc: &Usb2HubDescriptor, is_mtt: bool) -> Result<(), UsbError>;
 
-    fn configure_hub3(
-        &self,
-        hub_desc: &UsbHub3Descriptor,
-        max_exit_latency: usize,
-    ) -> Result<(), UsbError>;
+    fn configure_hub3(&self, hub_desc: &Usb3HubDescriptor) -> Result<(), UsbError>;
 
     fn attach_child_device(
         self: Arc<Self>,
@@ -228,15 +224,12 @@ impl UsbManager {
         let _ = shared.request_queue.post(task);
     }
 
-    pub fn schedule_configuration(
-        hub: Option<UsbAddress>,
-        task: Pin<Box<dyn Future<Output = ()>>>,
-    ) {
+    pub fn schedule_config_task(hub: Option<UsbAddress>, task: Pin<Box<dyn Future<Output = ()>>>) {
         let shared = Self::shared();
         let _ = shared.config_queue.post(ConfigTask::Task(hub, task));
     }
 
-    pub fn focus_hub(hub: UsbAddress) {
+    fn focus_hub(hub: UsbAddress) {
         let shared = Self::shared();
         let _ = shared.config_queue.post(ConfigTask::Focus(Some(hub)));
     }
@@ -246,7 +239,7 @@ impl UsbManager {
         let _ = shared.config_queue.post(ConfigTask::Focus(None));
     }
 
-    pub fn unfocus_hub(hub: UsbAddress) {
+    fn unfocus_hub(hub: UsbAddress) {
         let shared = Self::shared();
         let _ = shared.config_queue.post(ConfigTask::Unfocus(Some(hub)));
     }
@@ -710,9 +703,7 @@ impl UsbDeviceControl {
         })
     }
 
-    /// Gets an instance of the USB host controller interface that implements the [UsbHostInterface] trait.
-    #[inline]
-    pub fn host(&self) -> &dyn UsbHostInterface {
+    fn host(&self) -> &dyn UsbHostInterface {
         self.host.as_ref()
     }
 
@@ -733,6 +724,20 @@ impl UsbDeviceControl {
     #[inline]
     pub fn configure_endpoint(&self, desc: &UsbEndpointDescriptor) -> Result<(), UsbError> {
         self.host().configure_endpoint(desc)
+    }
+
+    #[inline]
+    pub fn configure_hub2(
+        &self,
+        hub_desc: &Usb2HubDescriptor,
+        is_mtt: bool,
+    ) -> Result<(), UsbError> {
+        self.host().configure_hub2(hub_desc, is_mtt)
+    }
+
+    #[inline]
+    pub fn configure_hub3(&self, hub_desc: &Usb3HubDescriptor) -> Result<(), UsbError> {
+        self.host().configure_hub3(hub_desc)
     }
 
     #[inline]
@@ -1150,6 +1155,28 @@ impl UsbDeviceControl {
         .value((report_type as u16) << 8 | report_id as u16)
         .index_if(if_no);
         Self::_control_var(host, setup, vec, len, len).await
+    }
+
+    /// Focuses on packets from the specified hub and delays tasks on other devices.
+    #[must_use]
+    pub fn focus_hub(&self) -> UsbHubFocusScope {
+        UsbManager::focus_hub(self.device().addr());
+        UsbHubFocusScope { control: self }
+    }
+
+    pub fn schedule_config_task(&self, task: Pin<Box<dyn Future<Output = ()>>>) {
+        UsbManager::schedule_config_task(Some(self.device().addr()), task);
+    }
+}
+
+pub struct UsbHubFocusScope<'a> {
+    control: &'a UsbDeviceControl,
+}
+
+impl Drop for UsbHubFocusScope<'_> {
+    #[inline]
+    fn drop(&mut self) {
+        UsbManager::unfocus_hub(self.control.device().addr());
     }
 }
 

@@ -4,7 +4,7 @@ use crate::{
     arch::cpu::*,
     arch::page::{PageManager, PhysicalAddress},
     io::emcon::*,
-    io::tty::Tty,
+    io::tty::*,
     task::scheduler::*,
     ui::font::FontManager,
     *,
@@ -172,8 +172,8 @@ impl System {
             Size::new(info.screen_width as isize, info.screen_height as isize),
             info.vram_stride as usize,
         );
-        // main_screen.fill_rect(main_screen.bounds(), Color::BLUE.into());
         shared.main_screen = Some(main_screen);
+        Self::em_console().reset().unwrap();
 
         shared.acpi = Some(Box::new(
             ::acpi::AcpiTables::from_rsdp(MyAcpiHandler::new(), info.acpi_rsdptr as usize).unwrap(),

@@ -18,6 +18,7 @@ pub struct UserEnv;
 
 impl UserEnv {
     pub fn start(f: fn()) {
+        Timer::sleep(Duration::from_millis(1000));
         // loop {
         //     Timer::sleep(Duration::from_millis(1000));
         // }
@@ -47,7 +48,13 @@ impl UserEnv {
 async fn shell_launcher(f: fn()) {
     {
         // Main Terminal
-        let terminal = Terminal::new(80, 24);
+        let main_screen = System::main_screen();
+        let font = if main_screen.width() > 1024 && main_screen.height() > 600 {
+            FontManager::system_font()
+        } else {
+            FontDescriptor::new(FontFamily::Terminal, 0).unwrap()
+        };
+        let terminal = Terminal::new(80, 24, font);
         System::set_stdout(Box::new(terminal));
     }
     SpawnOption::new().start_process(unsafe { core::mem::transmute(f) }, 0, "shell");

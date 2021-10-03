@@ -68,12 +68,7 @@ pub struct Terminal {
 }
 
 impl Terminal {
-    pub fn new(cols: usize, rows: usize) -> Self {
-        let font = if true {
-            FontManager::system_font()
-        } else {
-            FontDescriptor::new(FontFamily::Terminal, 0).unwrap()
-        };
+    pub fn new(cols: usize, rows: usize, font: FontDescriptor) -> Self {
         let insets = DEFAULT_INSETS;
         let attribute = DEFAULT_ATTRIBUTE;
         let (fg_color, bg_color) = Self::split_attr(attribute);

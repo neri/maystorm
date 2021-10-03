@@ -1,6 +1,6 @@
 //! xHCI MMIO Registers
 
-use super::data::*;
+use super::*;
 use crate::{
     bus::usb::*,
     mem::{MemoryManager, PhysicalAddress},

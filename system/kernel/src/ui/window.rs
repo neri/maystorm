@@ -1887,9 +1887,10 @@ impl WindowBuilder {
 
         let bg_color = self.bg_color;
 
-        if bg_color.brightness().unwrap_or(255) < 128 {
-            self.style.insert(WindowStyle::DARK_BORDER);
-        }
+        self.style.set(
+            WindowStyle::DARK_BORDER,
+            bg_color.brightness().unwrap_or(255) < 128,
+        );
         let is_dark_mode = self.style.contains(WindowStyle::DARK_BORDER);
 
         let accent_color = Theme::shared().window_default_accent();
@@ -1903,12 +1904,14 @@ impl WindowBuilder {
         } else {
             Theme::shared().window_title_inactive_background()
         });
-        if active_title_color.brightness().unwrap_or(255) < 192 {
-            self.style.insert(WindowStyle::DARK_ACTIVE);
-        }
-        if inactive_title_color.brightness().unwrap_or(255) < 128 {
-            self.style.insert(WindowStyle::DARK_TITLE);
-        }
+        self.style.set(
+            WindowStyle::DARK_ACTIVE,
+            active_title_color.brightness().unwrap_or(255) < 192,
+        );
+        self.style.set(
+            WindowStyle::DARK_TITLE,
+            inactive_title_color.brightness().unwrap_or(255) < 128,
+        );
 
         let queue = match self.queue_size {
             0 => None,

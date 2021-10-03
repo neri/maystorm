@@ -19,8 +19,8 @@ pub struct EmConsole {
 }
 
 impl EmConsole {
-    const DEFAULT_FG_COLOR: Color = Color::LIGHT_GRAY;
-    const DEFAULT_BG_COLOR: Color = Color::from_rgb(0x000000);
+    const DEFAULT_FG_COLOR: Color = Color::from_rgb(0x999999);
+    const DEFAULT_BG_COLOR: Color = Color::WHITE; // from_rgb(0x000000);
     const PADDING: isize = 8;
 
     #[inline]
@@ -106,6 +106,9 @@ impl fmt::Write for EmConsole {
 
 impl TtyWrite for EmConsole {
     fn reset(&mut self) -> Result<(), super::tty::TtyError> {
+        let mut bitmap = System::main_screen();
+        let bitmap = &mut bitmap;
+        bitmap.fill_rect(bitmap.bounds(), self.bg_color.into());
         Ok(())
     }
 

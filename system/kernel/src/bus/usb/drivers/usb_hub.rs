@@ -74,7 +74,7 @@ impl UsbClassDriverStarter for UsbHubStarter {
 
 pub struct Usb2HubDriver {
     device: Arc<UsbDeviceControl>,
-    hub_desc: UsbHub2Descriptor,
+    hub_desc: Usb2HubDescriptor,
     lock: Pin<Arc<AsyncSharedLockTemp>>,
 }
 
@@ -84,7 +84,7 @@ impl Usb2HubDriver {
         let addr = device.device().addr();
         let is_mtt = device.device().class() == UsbClass::HUB_HS_MTT;
 
-        let hub_desc: UsbHub2Descriptor =
+        let hub_desc: Usb2HubDescriptor =
             match UsbHubCommon::get_hub_descriptor(&device, UsbDescriptorType::Hub, 0).await {
                 Ok(v) => v,
                 Err(_err) => {
@@ -93,7 +93,7 @@ impl Usb2HubDriver {
                     return;
                 }
             };
-        match device.host().configure_hub2(&hub_desc, is_mtt) {
+        match device.configure_hub2(&hub_desc, is_mtt) {
             Ok(_) => (),
             Err(_err) => {
                 // TODO:
@@ -107,21 +107,18 @@ impl Usb2HubDriver {
             lock: AsyncSharedLockTemp::new(),
         });
 
-        UsbManager::focus_hub(device.device().addr());
+        let focus = device.focus_hub();
         hub.lock.lock_shared();
-        UsbManager::schedule_configuration(
-            Some(device.device().addr()),
-            Box::pin(hub.clone().init_hub()),
-        );
+        device.schedule_config_task(Box::pin(hub.clone().init_hub()));
         hub.lock.wait().await;
-        UsbManager::unfocus_hub(device.device().addr());
+        drop(focus);
 
         let n_ports = hub_desc.num_ports();
         let mut port_event = [0u8; 8];
         loop {
             match device.read_slice(ep, &mut port_event, 1, ps as usize).await {
                 Ok(_) => {
-                    UsbManager::focus_hub(device.device().addr());
+                    let focus = device.focus_hub();
                     let port_change_bitmap = (port_event[0] as u16) | ((port_event[1] as u16) << 8);
                     for i in 1..=n_ports {
                         if (port_change_bitmap & (1 << i)) != 0 {
@@ -179,7 +176,7 @@ impl Usb2HubDriver {
                             }
                         }
                     }
-                    UsbManager::unfocus_hub(device.device().addr());
+                    drop(focus);
                 }
                 Err(UsbError::Aborted) => break,
                 Err(_err) => {
@@ -196,20 +193,18 @@ impl Usb2HubDriver {
 
         let n_ports = self.hub_desc.num_ports();
         for i in 1..=n_ports {
-            Self::set_port_feature(
-                &self.device,
-                UsbHub2PortFeatureSel::PORT_POWER,
-                UsbHubPortNumber(unsafe { NonZeroU8::new_unchecked(i as u8) }),
-            )
-            .await
-            .unwrap();
+            let port_id = UsbHubPortNumber(unsafe { NonZeroU8::new_unchecked(i as u8) });
+            Self::set_port_feature(&self.device, UsbHub2PortFeatureSel::PORT_POWER, port_id)
+                .await
+                .unwrap();
             Timer::sleep_async(Duration::from_millis(10)).await;
         }
         for i in 1..=n_ports {
+            let port_id = UsbHubPortNumber(unsafe { NonZeroU8::new_unchecked(i as u8) });
             Self::clear_port_feature(
                 &self.device,
                 UsbHub2PortFeatureSel::C_PORT_CONNECTION,
-                UsbHubPortNumber(unsafe { NonZeroU8::new_unchecked(i as u8) }),
+                port_id,
             )
             .await
             .unwrap();
@@ -235,10 +230,8 @@ impl Usb2HubDriver {
 
     pub async fn attach_device(self: &Arc<Self>, port: UsbHubPortNumber) {
         self.lock.lock_shared();
-        UsbManager::schedule_configuration(
-            Some(self.device.device().addr()),
-            Box::pin(self.clone()._attach_device(port)),
-        );
+        self.device
+            .schedule_config_task(Box::pin(self.clone()._attach_device(port)));
         self.lock.wait().await;
     }
 
@@ -325,14 +318,14 @@ impl Usb2HubDriver {
 
 pub struct Usb3HubDriver {
     device: Arc<UsbDeviceControl>,
-    hub_desc: UsbHub3Descriptor,
+    hub_desc: Usb3HubDescriptor,
     lock: Pin<Arc<AsyncSharedLockTemp>>,
 }
 
 impl Usb3HubDriver {
     async fn _usb_hub_task(device: Arc<UsbDeviceControl>, ep: UsbEndpointAddress, ps: u16) {
         let addr = device.device().addr();
-        let hub_desc: UsbHub3Descriptor =
+        let hub_desc: Usb3HubDescriptor =
             match UsbHubCommon::get_hub_descriptor(&device, UsbDescriptorType::Hub3, 0).await {
                 Ok(v) => v,
                 Err(_err) => {
@@ -349,16 +342,12 @@ impl Usb3HubDriver {
             lock: AsyncSharedLockTemp::new(),
         });
 
-        // let max_exit_latency = ss_dev_cap.u1_dev_exit_lat() + ss_dev_cap.u2_dev_exit_lat();
-
-        UsbManager::focus_hub(device.device().addr());
+        let focus = device.focus_hub();
         hub.lock.lock_shared();
-        UsbManager::schedule_configuration(
-            Some(device.device().addr()),
-            Box::pin(hub.clone().init_hub()),
-        );
+        hub.device
+            .schedule_config_task(Box::pin(hub.clone().init_hub()));
         hub.lock.wait().await;
-        UsbManager::unfocus_hub(device.device().addr());
+        drop(focus);
 
         let n_ports = hub_desc.num_ports();
         let mut port_event = [0u8; 8];
@@ -366,7 +355,7 @@ impl Usb3HubDriver {
             match device.read_slice(ep, &mut port_event, 1, ps as usize).await {
                 Ok(_) => {
                     let port_change_bitmap = (port_event[0] as u16) | ((port_event[1] as u16) << 8);
-                    UsbManager::focus_hub(device.device().addr());
+                    let focus = device.focus_hub();
                     for i in 1..=n_ports {
                         if (port_change_bitmap & (1 << i)) != 0 {
                             let port =
@@ -437,7 +426,7 @@ impl Usb3HubDriver {
                             }
                         }
                     }
-                    UsbManager::unfocus_hub(device.device().addr());
+                    drop(focus);
                 }
                 Err(UsbError::Aborted) => break,
                 Err(_err) => {
@@ -452,7 +441,7 @@ impl Usb3HubDriver {
     pub async fn init_hub(self: Arc<Self>) {
         let defer = self.lock.unlock_shared();
 
-        match self.device.host().configure_hub3(&self.hub_desc, 0) {
+        match self.device.configure_hub3(&self.hub_desc) {
             Ok(_) => (),
             Err(_err) => {
                 // TODO:
@@ -484,10 +473,8 @@ impl Usb3HubDriver {
 
     pub async fn attach_device(self: &Arc<Self>, port: UsbHubPortNumber) {
         self.lock.lock_shared();
-        UsbManager::schedule_configuration(
-            Some(self.device.device().addr()),
-            Box::pin(self.clone()._attach_device(port)),
-        );
+        self.device
+            .schedule_config_task(Box::pin(self.clone()._attach_device(port)));
         self.lock.wait().await;
     }
 

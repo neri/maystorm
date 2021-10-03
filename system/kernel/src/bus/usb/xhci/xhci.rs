@@ -1,12 +1,9 @@
 //! xHCI: Extensible Host Controller Interface
 
-use super::{super::*, data::*, regs::*};
+use super::*;
 use crate::{
     arch::cpu::Cpu,
-    bus::{
-        pci::*,
-        usb::{AsyncSharedLockTemp, UsbError, UsbManager, UsbRouteString},
-    },
+    bus::{pci::*, usb::*},
     mem::mmio::*,
     mem::{MemoryManager, NonNullPhysicalAddress, PhysicalAddress},
     sync::{fifo::AsyncEventQueue, semaphore::*, RwLock},
@@ -688,7 +685,7 @@ impl Xhci {
     pub fn configure_hub2(
         &self,
         slot_id: SlotId,
-        hub_desc: &UsbHub2Descriptor,
+        hub_desc: &Usb2HubDescriptor,
         is_mtt: bool,
     ) -> Result<(), UsbError> {
         let input_context = self.input_context(slot_id);
@@ -716,8 +713,7 @@ impl Xhci {
     pub fn configure_hub3(
         &self,
         slot_id: SlotId,
-        hub_desc: &UsbHub3Descriptor,
-        _max_exit_latency: usize,
+        hub_desc: &Usb3HubDescriptor,
     ) -> Result<(), UsbError> {
         let input_context = self.input_context(slot_id);
         input_context.control().set_add(1);
@@ -1127,7 +1123,7 @@ impl Xhci {
             UsbManager::focus_root_hub();
             for port_id in ports {
                 self.root_hub_lock.lock_shared();
-                UsbManager::schedule_configuration(
+                UsbManager::schedule_config_task(
                     None,
                     Box::pin(self.clone()._process_port_change(port_id)),
                 );
@@ -1566,7 +1562,7 @@ impl UsbHostInterface for HciContext {
             .map_err(|_| UsbError::General)
     }
 
-    fn configure_hub2(&self, hub_desc: &UsbHub2Descriptor, is_mtt: bool) -> Result<(), UsbError> {
+    fn configure_hub2(&self, hub_desc: &Usb2HubDescriptor, is_mtt: bool) -> Result<(), UsbError> {
         let host = match self.host.upgrade() {
             Some(v) => v.clone(),
             None => return Err(UsbError::HostUnavailable),
@@ -1577,11 +1573,7 @@ impl UsbHostInterface for HciContext {
         host.configure_hub2(slot_id, hub_desc, is_mtt)
     }
 
-    fn configure_hub3(
-        &self,
-        hub_desc: &UsbHub3Descriptor,
-        max_exit_latency: usize,
-    ) -> Result<(), UsbError> {
+    fn configure_hub3(&self, hub_desc: &Usb3HubDescriptor) -> Result<(), UsbError> {
         let host = match self.host.upgrade() {
             Some(v) => v.clone(),
             None => return Err(UsbError::HostUnavailable),
@@ -1589,7 +1581,7 @@ impl UsbHostInterface for HciContext {
         let device = self.device();
         let slot_id = device.slot_id;
 
-        host.configure_hub3(slot_id, hub_desc, max_exit_latency)
+        host.configure_hub3(slot_id, hub_desc)
     }
 
     fn attach_child_device(

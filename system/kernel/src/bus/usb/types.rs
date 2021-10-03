@@ -156,8 +156,8 @@ impl UsbClass {
         #[rustfmt::skip]
         let full_class_entries = [
             (UsbClass::MIDI_STREAMING, "USB MIDI Streaming" ),
-            (UsbClass::HID_BOOT_KEYBOARD, "HID Boot Keyboard" ),
-            (UsbClass::HID_BOOT_MOUSE, "HID Boot Mouse" ),
+            (UsbClass::HID_BOOT_KEYBOARD, "HID Keyboard" ),
+            (UsbClass::HID_BOOT_MOUSE, "HID Mouse" ),
             (UsbClass::MSD_BULK_ONLY, "Mass Storage Device" ),
             (UsbClass::FLOPPY, "Floppy Drive"),
             (UsbClass::STILL_IMAGING, "Still Imaging Device"),
@@ -832,25 +832,25 @@ pub struct UsbHubPortNumber(pub NonZeroU8);
 #[repr(C, packed)]
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
-pub struct UsbHub2Descriptor {
+pub struct Usb2HubDescriptor {
     pub bLength: u8,
     pub bDescriptorType: UsbDescriptorType,
     pub bNbrPorts: u8,
     pub wHubCharacteristics: UsbWord,
     pub bPwrOn2PwrGood: u8,
     pub bHubContrCurrent: u8,
-    pub DeviceRemovable: UsbWord,
+    pub DeviceRemovable: u8,
 }
 
-impl UsbHub2Descriptor {
+impl Usb2HubDescriptor {
     #[inline]
     pub const fn num_ports(&self) -> usize {
         self.bNbrPorts as usize
     }
 
     #[inline]
-    pub const fn characteristics(&self) -> UsbHub2Characterisrics {
-        UsbHub2Characterisrics(self.wHubCharacteristics.as_u16())
+    pub const fn characteristics(&self) -> Usb2HubCharacterisrics {
+        Usb2HubCharacterisrics(self.wHubCharacteristics.as_u16())
     }
 
     /// Time (in 2 ms intervals) from the time the power-on sequence begins on a port until power is good on that port. The USB System Software uses this value to determine how long to wait before accessing a powered-on port.
@@ -860,12 +860,12 @@ impl UsbHub2Descriptor {
     }
 
     #[inline]
-    pub const fn device_removable(&self) -> u16 {
-        self.DeviceRemovable.as_u16()
+    pub const fn device_removable(&self) -> u8 {
+        self.DeviceRemovable
     }
 }
 
-impl UsbDescriptor for UsbHub2Descriptor {
+impl UsbDescriptor for Usb2HubDescriptor {
     #[inline]
     fn len(&self) -> usize {
         self.bLength as usize
@@ -879,9 +879,9 @@ impl UsbDescriptor for UsbHub2Descriptor {
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct UsbHub2Characterisrics(pub u16);
+pub struct Usb2HubCharacterisrics(pub u16);
 
-impl UsbHub2Characterisrics {
+impl Usb2HubCharacterisrics {
     #[inline]
     pub const fn is_compound_device(&self) -> bool {
         (self.0 & 0x0004) != 0
@@ -902,7 +902,7 @@ impl UsbHub2Characterisrics {
 #[repr(C, packed)]
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
-pub struct UsbHub3Descriptor {
+pub struct Usb3HubDescriptor {
     pub bLength: u8,
     pub bDescriptorType: UsbDescriptorType,
     pub bNbrPorts: u8,
@@ -914,15 +914,15 @@ pub struct UsbHub3Descriptor {
     pub DeviceRemovable: UsbWord,
 }
 
-impl UsbHub3Descriptor {
+impl Usb3HubDescriptor {
     #[inline]
     pub const fn num_ports(&self) -> usize {
         self.bNbrPorts as usize
     }
 
     #[inline]
-    pub const fn characteristics(&self) -> UsbHub3Characterisrics {
-        UsbHub3Characterisrics(self.wHubCharacteristics.as_u16())
+    pub const fn characteristics(&self) -> Usb3HubCharacterisrics {
+        Usb3HubCharacterisrics(self.wHubCharacteristics.as_u16())
     }
 
     /// Time (in 2 ms intervals) from the time the power-on sequence begins on a port until power is good on that port. The USB System Software uses this value to determine how long to wait before accessing a powered-on port.
@@ -937,7 +937,7 @@ impl UsbHub3Descriptor {
     }
 }
 
-impl UsbDescriptor for UsbHub3Descriptor {
+impl UsbDescriptor for Usb3HubDescriptor {
     #[inline]
     fn len(&self) -> usize {
         self.bLength as usize
@@ -951,9 +951,9 @@ impl UsbDescriptor for UsbHub3Descriptor {
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct UsbHub3Characterisrics(pub u16);
+pub struct Usb3HubCharacterisrics(pub u16);
 
-impl UsbHub3Characterisrics {
+impl Usb3HubCharacterisrics {
     #[inline]
     pub const fn is_compound_device(&self) -> bool {
         (self.0 & 0x0004) != 0
