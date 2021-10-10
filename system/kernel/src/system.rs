@@ -21,13 +21,6 @@ pub struct Version<'a> {
 }
 
 impl Version<'_> {
-    // "Curiosity" killed the cat
-    // Cats have nine lives, but curiosity can use up all of them.
-    const SYSTEM_NAME: &'static str = "MEG-OS codename Curiosity";
-    const SYSTEM_SHORT_NAME: &'static str = "megos";
-    const RELEASE: &'static str = "";
-    const VERSION: Version<'static> = Version::new(0, 21, 9, Self::RELEASE);
-
     #[inline]
     pub const fn new<'a>(maj: u8, min: u8, patch: u16, rel: &'a str) -> Version<'a> {
         let versions = ((maj as u32) << 24) | ((min as u32) << 16) | (patch as u32);
@@ -141,6 +134,11 @@ pub struct System {
 static mut SYSTEM: System = System::new();
 
 impl System {
+    const SYSTEM_NAME: &'static str = "MEG-OS codename Azalea";
+    const SYSTEM_SHORT_NAME: &'static str = "megos";
+    const RELEASE: &'static str = "";
+    const VERSION: Version<'static> = Version::new(0, 10, 0, Self::RELEASE);
+
     #[inline]
     const fn new() -> Self {
         System {
@@ -173,7 +171,7 @@ impl System {
             info.vram_stride as usize,
         );
         shared.main_screen = Some(main_screen);
-        Self::em_console().reset().unwrap();
+        // Self::em_console().reset().unwrap();
 
         shared.acpi = Some(Box::new(
             ::acpi::AcpiTables::from_rsdp(MyAcpiHandler::new(), info.acpi_rsdptr as usize).unwrap(),
@@ -197,21 +195,21 @@ impl System {
         let shared = Self::shared();
         unsafe {
             // banner
-            if true {
-                let device = System::current_device();
+            // if true {
+            //     let device = System::current_device();
 
-                writeln!(
-                    System::em_console(),
-                    "{} v{} Processor {} / {} {:?}, Memory {} MB",
-                    System::name(),
-                    System::version(),
-                    device.num_of_performance_cpus(),
-                    device.num_of_active_cpus(),
-                    device.processor_system_type(),
-                    device.total_memory_size() >> 20,
-                )
-                .unwrap();
-            }
+            //     writeln!(
+            //         System::em_console(),
+            //         "{} v{} Processor {} / {} {:?}, Memory {} MB",
+            //         System::name(),
+            //         System::version(),
+            //         device.num_of_performance_cpus(),
+            //         device.num_of_active_cpus(),
+            //         device.processor_system_type(),
+            //         device.total_memory_size() >> 20,
+            //     )
+            //     .unwrap();
+            // }
 
             mem::MemoryManager::late_init();
 
@@ -248,19 +246,19 @@ impl System {
     /// Returns the name of current system.
     #[inline]
     pub const fn name() -> &'static str {
-        &Version::SYSTEM_NAME
+        &Self::SYSTEM_NAME
     }
 
     /// Returns abbreviated name of current system.
     #[inline]
     pub const fn short_name() -> &'static str {
-        &Version::SYSTEM_SHORT_NAME
+        &Self::SYSTEM_SHORT_NAME
     }
 
     /// Returns the version of current system.
     #[inline]
     pub const fn version<'a>() -> &'a Version<'a> {
-        &Version::VERSION
+        &Self::VERSION
     }
 
     #[inline]

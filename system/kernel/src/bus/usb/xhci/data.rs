@@ -214,6 +214,16 @@ pub trait TrbCommon {
         }
     }
 
+    #[inline]
+    fn clone(&self) -> Trb
+    where
+        Self: Sized,
+    {
+        let result = Trb::empty();
+        result.raw_copy_from(self);
+        result
+    }
+
     fn as_common_trb(&self) -> &Trb {
         unsafe { transmute(self.raw_data()) }
     }

@@ -107,7 +107,7 @@ impl Usb2HubDriver {
             lock: AsyncSharedLockTemp::new(),
         });
 
-        let focus = device.focus_hub();
+        let focus = device.focus_hub().await;
         hub.lock.lock_shared();
         device.schedule_config_task(Box::pin(hub.clone().init_hub()));
         hub.lock.wait().await;
@@ -118,7 +118,7 @@ impl Usb2HubDriver {
         loop {
             match device.read_slice(ep, &mut port_event, 1, ps as usize).await {
                 Ok(_) => {
-                    let focus = device.focus_hub();
+                    let focus = device.focus_hub().await;
                     let port_change_bitmap = (port_event[0] as u16) | ((port_event[1] as u16) << 8);
                     for i in 1..=n_ports {
                         if (port_change_bitmap & (1 << i)) != 0 {
@@ -342,7 +342,7 @@ impl Usb3HubDriver {
             lock: AsyncSharedLockTemp::new(),
         });
 
-        let focus = device.focus_hub();
+        let focus = device.focus_hub().await;
         hub.lock.lock_shared();
         hub.device
             .schedule_config_task(Box::pin(hub.clone().init_hub()));
@@ -355,7 +355,7 @@ impl Usb3HubDriver {
             match device.read_slice(ep, &mut port_event, 1, ps as usize).await {
                 Ok(_) => {
                     let port_change_bitmap = (port_event[0] as u16) | ((port_event[1] as u16) << 8);
-                    let focus = device.focus_hub();
+                    let focus = device.focus_hub().await;
                     for i in 1..=n_ports {
                         if (port_change_bitmap & (1 << i)) != 0 {
                             let port =

@@ -22,6 +22,7 @@ use core::{
     ffi::c_void,
     fmt::Write,
     marker::PhantomData,
+    mem::transmute,
     mem::{size_of, MaybeUninit},
     num::{NonZeroU64, NonZeroU8},
     pin::Pin,
@@ -73,7 +74,7 @@ pub struct Xhci {
     context_size: usize,
     ers: PhysicalAddress,
 
-    ring_context: RwLock<[EpRingContext; Self::MAX_TR]>,
+    ring_context: RwLock<[MaybeUninit<EpRingContext>; Self::MAX_TR]>,
     event_cycle: CycleBit,
     port_status_change_queue: AsyncEventQueue<PortId>,
     port2slot: RwLock<[Option<SlotId>; 256]>,
@@ -142,7 +143,7 @@ impl Xhci {
             max_device_slots,
             dcbaa_len,
             context_size,
-            ring_context: RwLock::new([EpRingContext::EMPTY; Self::MAX_TR]),
+            ring_context: RwLock::new(MaybeUninit::uninit_array()),
             event_cycle: CycleBit::from(true),
             ers,
             port_status_change_queue: AsyncEventQueue::new(Self::MAX_PORT_CHANGE),
@@ -153,6 +154,10 @@ impl Xhci {
             sem_event_thread: Semaphore::new(0),
             root_hub_lock: AsyncSharedLockTemp::new(),
         });
+
+        for ctx in driver.ring_context.write().unwrap().iter_mut() {
+            *ctx = MaybeUninit::zeroed();
+        }
 
         driver.clone().initialize(device);
 
@@ -354,9 +359,11 @@ impl Xhci {
         let slot_id = slot_id.map(|v| v.0.get()).unwrap_or_default();
         let dci = dci.map(|v| v.0.get()).unwrap_or_default();
         for (index, ctx) in self.ring_context.read().unwrap().iter().enumerate() {
-            let ctx_slot_id = ctx.slot_id().map(|v| v.0.get()).unwrap_or_default();
-            let ctx_dci = ctx.dci().map(|v| v.0.get()).unwrap_or_default();
-            if ctx.tr_base() != 0 && ctx_slot_id == slot_id && ctx_dci == dci {
+            let ctx = unsafe { &*ctx.as_ptr() };
+            if ctx.tr_base().is_some()
+                && ctx.slot_id().map(|v| v.0.get()).unwrap_or_default() == slot_id
+                && ctx.dci().map(|v| v.0.get()).unwrap_or_default() == dci
+            {
                 return Some(index);
             }
         }
@@ -370,16 +377,31 @@ impl Xhci {
     ) -> Option<NonNullPhysicalAddress> {
         if let Some(index) = self.ep_ring_index(slot_id, dci) {
             let ctx = &mut self.ring_context.write().unwrap()[index];
+            let ctx = unsafe { &mut *ctx.as_mut_ptr() };
             ctx.clear();
             return ctx.tr_value();
         }
         for ctx in self.ring_context.write().unwrap().iter_mut() {
-            if ctx.tr_base() == 0 {
+            let ctx = unsafe { &mut *ctx.as_mut_ptr() };
+            if ctx.tr_base().is_none() {
                 ctx.alloc(slot_id, dci);
                 return ctx.tr_value();
             }
         }
         None
+    }
+
+    pub fn schedule_ep_ring(
+        &self,
+        slot_id: Option<SlotId>,
+        dci: Option<DCI>,
+    ) -> Option<Pin<Arc<AsyncSemaphore>>> {
+        if let Some(index) = self.ep_ring_index(slot_id, dci) {
+            let ctx = &mut self.ring_context.write().unwrap()[index];
+            let ctx = unsafe { &mut *ctx.as_mut_ptr() };
+            return ctx.asem().map(|v| v.clone());
+        }
+        return None;
     }
 
     pub fn allocate_xrb<'a>(&'a self) -> Option<&'a mut XhciRequestBlock> {
@@ -395,12 +417,12 @@ impl Xhci {
     pub fn find_xrb<'a>(
         &'a self,
         scheduled_trb: ScheduledTrb,
-        state: Option<XrbState>,
+        state: Option<RequestState>,
     ) -> Option<&'a mut XhciRequestBlock> {
         for xrb in &self.xrbs {
             let xrb = unsafe { &mut *xrb.get() };
             let xrb_state = xrb.state();
-            if xrb_state != XrbState::Available && xrb.scheduled_trb == scheduled_trb {
+            if xrb_state != RequestState::Available && xrb.scheduled_trb == scheduled_trb {
                 match state {
                     Some(state) => {
                         if xrb_state == state {
@@ -428,8 +450,9 @@ impl Xhci {
             None => todo!(),
         };
         let ctx = &mut self.ring_context.write().unwrap()[index];
+        let ctx = unsafe { &mut *ctx.as_mut_ptr() };
 
-        let tr_base = ctx.tr_base();
+        let tr_base = ctx.tr_base().unwrap().get();
         let tr = MemoryManager::direct_map(tr_base) as *mut Trb;
         let mut index = ctx.index;
 
@@ -512,31 +535,45 @@ impl Xhci {
             self.issue_trb(None, &data_trb, slot_id, dci, false);
         }
 
-        let xrb = self.allocate_xrb().unwrap();
+        let ctx = match self.ep_ring_index(slot_id, dci) {
+            Some(index) => {
+                let ctx = &mut self.ring_context.write().unwrap()[index];
+                unsafe { &mut *ctx.as_mut_ptr() }
+            }
+            None => todo!(),
+        };
+        ctx.set_scheduled();
+
         let status_trb = TrbStatusStage::new(!dir);
-        xrb.prepare_async();
-        self.issue_trb(Some(xrb), &status_trb, slot_id, dci, true);
+        self.issue_trb(None, &status_trb, slot_id, dci, true);
 
-        xrb.wait_async().await;
+        ctx.asem().unwrap().clone().wait().await;
 
-        let result = match xrb.response.as_event() {
+        let result = match ctx.response.as_event() {
             Some(TrbEvent::Transfer(v)) => Some(v.copied()),
             _ => None,
         };
-        xrb.dispose();
-        match result {
-            Some(result) => match result.completion_code() {
-                Some(TrbCompletionCode::SUCCESS) => {
-                    Ok(setup.wLength as usize - result.transfer_length())
-                }
-                Some(TrbCompletionCode::STALL) => {
-                    let _ = self.reset_endpoint(slot_id.unwrap(), dci.unwrap());
-                    Err(UsbError::General)
-                }
-                Some(_err) => Err(UsbError::General),
+        let state = ctx.state();
+        ctx.dispose();
+        match state {
+            RequestState::Available | RequestState::Acquired | RequestState::Scheduled => {
+                unreachable!()
+            }
+            RequestState::Completed => match result {
+                Some(result) => match result.completion_code() {
+                    Some(TrbCompletionCode::SUCCESS) => {
+                        Ok(setup.wLength as usize - result.transfer_length())
+                    }
+                    Some(TrbCompletionCode::STALL) => {
+                        let _ = self.reset_endpoint(slot_id.unwrap(), dci.unwrap());
+                        Err(UsbError::General)
+                    }
+                    Some(_err) => Err(UsbError::General),
+                    None => Err(UsbError::ControllerError),
+                },
                 None => Err(UsbError::ControllerError),
             },
-            None => Err(UsbError::ControllerError),
+            RequestState::Aborted => Err(UsbError::Aborted),
         }
     }
 
@@ -561,36 +598,45 @@ impl Xhci {
         buffer: u64,
         len: usize,
     ) -> Result<usize, UsbError> {
+        let slot_id = Some(slot_id);
+        let dci = Some(dci);
+
         let trb = TrbNormal::new(buffer, len, true, true);
-        let xrb = self.allocate_xrb().unwrap();
-        xrb.prepare_async();
-        self.issue_trb(Some(xrb), &trb, Some(slot_id), Some(dci), true);
 
-        xrb.wait_async().await;
+        let ctx = match self.ep_ring_index(slot_id, dci) {
+            Some(index) => {
+                let ctx = &mut self.ring_context.write().unwrap()[index];
+                unsafe { &mut *ctx.as_mut_ptr() }
+            }
+            None => todo!(),
+        };
+        ctx.set_scheduled();
 
-        match xrb.state() {
-            XrbState::Available | XrbState::Acquired | XrbState::Scheduled => unreachable!(),
-            XrbState::Completed => {
-                let result = match xrb.response.as_event() {
-                    Some(TrbEvent::Transfer(v)) => v.copied(),
-                    _ => {
-                        xrb.dispose();
-                        return Err(UsbError::UnexpectedToken);
-                    }
-                };
-                xrb.dispose();
-                match result.completion_code() {
+        self.issue_trb(None, &trb, slot_id, dci, true);
+
+        ctx.asem().unwrap().clone().wait().await;
+
+        let result = match ctx.response.as_event() {
+            Some(TrbEvent::Transfer(v)) => Some(v.copied()),
+            _ => None,
+        };
+        let state = ctx.state();
+        ctx.dispose();
+        match state {
+            RequestState::Available | RequestState::Acquired | RequestState::Scheduled => {
+                unreachable!()
+            }
+            RequestState::Completed => match result {
+                Some(result) => match result.completion_code() {
                     Some(TrbCompletionCode::SUCCESS) | Some(TrbCompletionCode::SHORT_PACKET) => {
-                        let count = len - result.transfer_length();
-                        Ok(count)
+                        Ok(len - result.transfer_length())
                     }
-                    _ => Err(UsbError::General),
-                }
-            }
-            XrbState::Aborted => {
-                xrb.dispose();
-                Err(UsbError::Aborted)
-            }
+                    Some(_err) => Err(UsbError::General),
+                    None => Err(UsbError::ControllerError),
+                },
+                None => Err(UsbError::UnexpectedToken),
+            },
+            RequestState::Aborted => Err(UsbError::Aborted),
         }
     }
 
@@ -932,107 +978,64 @@ impl Xhci {
                     // unsafe { event_trb.peek().trb_type() },
                     // event.completion_code(),
                     // );
-                    if let Some(xrb) = self.find_xrb(event_trb, Some(XrbState::Scheduled)) {
-                        xrb.set_response(event.as_common_trb());
-                    } else if event.completion_code() == Some(TrbCompletionCode::STALL) {
-                        // If a STALL error occurs in the control transfer DATA stage
-                        let next_trb = unsafe {
-                            let next_trb = event_trb.next();
-                            if next_trb.peek().trb_type() != Some(TrbType::LINK) {
-                                next_trb
-                            } else {
-                                todo!()
-                            }
-                        };
-                        if let Some(xrb) = self.find_xrb(next_trb, Some(XrbState::Scheduled)) {
-                            if unsafe {
-                                event_trb.peek().trb_type() == Some(TrbType::DATA)
-                                    && next_trb.peek().trb_type() == Some(TrbType::STATUS)
-                            } {
-                                unsafe {
+
+                    if event.completion_code() != Some(TrbCompletionCode::SUCCESS) {
+                        unsafe {
+                            let next_trb = {
+                                let next_trb = event_trb.next();
+                                if next_trb.peek().trb_type() != Some(TrbType::LINK) {
+                                    next_trb
+                                } else {
+                                    let link_trb: &TrbLink = transmute(next_trb.peek());
+                                    ScheduledTrb(link_trb.ptr() & !0x0F)
+                                }
+                            };
+
+                            if event_trb.peek().trb_type() == Some(TrbType::DATA)
+                                && next_trb.peek().trb_type() == Some(TrbType::STATUS)
+                            {
+                                // ex. STALL ERROR in DATA STAGE
+                                event_trb.peek().set_trb_type(TrbType::NOP);
+                                next_trb.peek().set_trb_type(TrbType::NOP);
+                            } else if event_trb.peek().trb_type() == Some(TrbType::SETUP) {
+                                let last_trb = {
+                                    let last_trb = next_trb.next();
+                                    if last_trb.peek().trb_type() != Some(TrbType::LINK) {
+                                        last_trb
+                                    } else {
+                                        let link_trb: &TrbLink = transmute(next_trb.peek());
+                                        ScheduledTrb(link_trb.ptr() & !0x0F)
+                                    }
+                                };
+                                // ex. USB TRANSACTION ERROR in SETUP STAGE
+                                if next_trb.peek().trb_type() == Some(TrbType::STATUS) {
+                                    // SETUP - STATUS
                                     event_trb.peek().set_trb_type(TrbType::NOP);
                                     next_trb.peek().set_trb_type(TrbType::NOP);
-                                }
-                                xrb.set_response(event.as_common_trb());
-                            } else {
-                                todo!()
-                            }
-                        } else {
-                            todo!()
-                        }
-                    } else if event.completion_code()
-                        == Some(TrbCompletionCode::USB_TRANSACTION_ERROR)
-                        && unsafe { event_trb.peek() }.trb_type() == Some(TrbType::SETUP)
-                    {
-                        // USB Transaction Error in SETUP of Control transfer
-                        let next_trb = unsafe {
-                            let next_trb = event_trb.next();
-                            if next_trb.peek().trb_type() != Some(TrbType::LINK) {
-                                next_trb
-                            } else {
-                                todo!()
-                            }
-                        };
-                        let last_trb = unsafe {
-                            let last_trb = next_trb.next();
-                            if last_trb.peek().trb_type() != Some(TrbType::LINK) {
-                                last_trb
-                            } else {
-                                todo!()
-                            }
-                        };
-                        if unsafe { next_trb.peek() }.trb_type() == Some(TrbType::STATUS) {
-                            // SETUP - STATUS
-                            if let Some(xrb) = self.find_xrb(next_trb, Some(XrbState::Scheduled)) {
-                                unsafe {
-                                    event_trb.peek().set_trb_type(TrbType::NOP);
-                                    next_trb.peek().set_trb_type(TrbType::NOP);
-                                }
-                                xrb.set_response(event.as_common_trb());
-                            } else {
-                                todo!()
-                            }
-                        } else if unsafe { next_trb.peek() }.trb_type() == Some(TrbType::DATA)
-                            && unsafe { last_trb.peek() }.trb_type() == Some(TrbType::STATUS)
-                        {
-                            // SETUP - DATA - STATUS
-                            if let Some(xrb) = self.find_xrb(last_trb, Some(XrbState::Scheduled)) {
-                                unsafe {
+                                } else if next_trb.peek().trb_type() == Some(TrbType::DATA)
+                                    && last_trb.peek().trb_type() == Some(TrbType::STATUS)
+                                {
+                                    // SETUP - DATA - STATUS
                                     event_trb.peek().set_trb_type(TrbType::NOP);
                                     next_trb.peek().set_trb_type(TrbType::NOP);
                                     last_trb.peek().set_trb_type(TrbType::NOP);
+                                } else {
+                                    todo!()
                                 }
-                                xrb.set_response(event.as_common_trb());
-                            } else {
-                                todo!()
                             }
-                        } else {
-                            todo!()
-                        }
-                    } else {
-                        // Replaced NOP is no operation
-                        if unsafe { event_trb.peek() }.trb_type() != Some(TrbType::NOP) {
-                            let port_id = self.port_by_slot(event.slot_id().unwrap());
-                            let portsc = port_id.map(|v| self.port_by(v)).unwrap();
-                            let status = portsc.status();
-                            log!(
-                                "UNKNOWN TRB {:?} {:?} {:?} {} {:012x} {:08x} {:?} {:?}",
-                                event.slot_id(),
-                                unsafe { event_trb.peek().trb_type() },
-                                event.completion_code(),
-                                event.is_event_data(),
-                                event.ptr(),
-                                status.bits(),
-                                status.speed(),
-                                status.link_state(),
-                            );
-                            todo!()
                         }
                     }
+
+                    let slot_id = event.slot_id();
+                    let dci = event.dci();
+                    let index = self.ep_ring_index(slot_id, dci).unwrap();
+                    let ctx = &mut self.ring_context.write().unwrap()[index];
+                    let ctx = unsafe { &mut *ctx.as_mut_ptr() };
+                    ctx.set_response(event.as_common_trb());
                 }
                 TrbEvent::CommandCompletion(event) => {
                     let event_trb = ScheduledTrb(event.ptr());
-                    if let Some(xrb) = self.find_xrb(event_trb, Some(XrbState::Scheduled)) {
+                    if let Some(xrb) = self.find_xrb(event_trb, Some(RequestState::Scheduled)) {
                         xrb.set_response(event.as_common_trb());
                     } else {
                         todo!()
@@ -1058,7 +1061,7 @@ impl Xhci {
     async fn _root_hub_task(self: Arc<Self>) {
         UsbManager::focus_root_hub();
 
-        Timer::sleep_async(Duration::from_millis(100)).await;
+        // Timer::sleep_async(Duration::from_millis(100)).await;
 
         for (index, port) in self.ports.iter().enumerate() {
             let port_id = PortId(NonZeroU8::new(index as u8 + 1).unwrap());
@@ -1140,14 +1143,6 @@ impl Xhci {
         self.wait_cnr(0);
         let status = port.status();
 
-        // log!(
-        //     "PORT STATUS CHANGE {} {:08x} {:?} {:?}",
-        //     port_id.0.get(),
-        //     status,
-        //     status.speed(),
-        //     status.link_state()
-        // );
-
         if status.is_connected_status_changed() {
             if status.is_connected() {
                 // Attached USB device
@@ -1192,6 +1187,16 @@ impl Xhci {
 
         drop(defer);
     }
+
+    pub async fn focus_slot(self: Arc<Self>, hub: Option<SlotId>) -> Result<(), UsbError> {
+        let _ = hub;
+        todo!();
+    }
+
+    pub async fn unfocus_slot(self: Arc<Self>, hub: Option<SlotId>) -> Result<(), UsbError> {
+        let _ = hub;
+        todo!();
+    }
 }
 
 impl Drop for Xhci {
@@ -1231,30 +1236,53 @@ impl PciDriver for Xhci {
 }
 
 struct EpRingContext {
-    tr_base: PhysicalAddress,
+    tr_base: Option<NonNullPhysicalAddress>,
+    state: AtomicUsize,
     slot_id: Option<SlotId>,
     dci: Option<DCI>,
     index: usize,
     pcs: CycleBit,
+    response: Trb,
+    signal: Option<Pin<Arc<AsyncSemaphore>>>,
 }
 
 impl EpRingContext {
-    pub const EMPTY: Self = Self::new();
+    #[inline]
+    pub fn state(&self) -> RequestState {
+        FromPrimitive::from_usize(self.state.load(Ordering::SeqCst)).unwrap_or_default()
+    }
 
     #[inline]
-    const fn new() -> Self {
-        Self {
-            tr_base: 0,
-            slot_id: None,
-            dci: None,
-            index: 0,
-            pcs: CycleBit::new(),
+    pub fn set_state(&self, val: RequestState) {
+        self.state.store(val as usize, Ordering::SeqCst);
+    }
+
+    #[inline]
+    pub fn compare_exchange_state(
+        &self,
+        current: RequestState,
+        new: RequestState,
+    ) -> Result<(), RequestState> {
+        match self.state.compare_exchange_weak(
+            current as usize,
+            new as usize,
+            Ordering::SeqCst,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => Ok(()),
+            Err(v) => Err(FromPrimitive::from_usize(v).unwrap_or_default()),
         }
     }
 
     #[inline]
-    pub const fn tr_base(&self) -> PhysicalAddress {
+    pub const fn tr_base(&self) -> Option<NonNullPhysicalAddress> {
         self.tr_base
+    }
+
+    #[inline]
+    pub fn tr_value(&self) -> Option<NonNullPhysicalAddress> {
+        self.tr_base
+            .and_then(|v| NonNullPhysicalAddress::new(v.get() | self.pcs.tr_value()))
     }
 
     #[inline]
@@ -1273,36 +1301,62 @@ impl EpRingContext {
     }
 
     #[inline]
-    pub fn tr_value(&self) -> Option<NonNullPhysicalAddress> {
-        NonNullPhysicalAddress::new(self.tr_base | self.pcs.tr_value())
-    }
-
-    #[inline]
     pub const fn size() -> usize {
         (Xhci::MAX_TR_INDEX + 1) * size_of::<Trb>()
     }
 
     #[inline]
+    pub fn asem(&self) -> Option<&Pin<Arc<AsyncSemaphore>>> {
+        self.signal.as_ref()
+    }
+
+    #[inline]
     pub fn clear(&mut self) {
-        if self.tr_base != 0 {
+        if let Some(tr_base) = self.tr_base {
             unsafe {
-                let p = MemoryManager::direct_map(self.tr_base) as *const c_void as *mut c_void;
+                let p = MemoryManager::direct_map(tr_base.get()) as *const c_void as *mut c_void;
                 p.write_bytes(0, Self::size());
             }
         }
         self.pcs.reset();
         self.index = 0;
+        self.response = Trb::empty();
     }
 
     #[inline]
     pub fn alloc(&mut self, slot_id: Option<SlotId>, dci: Option<DCI>) {
-        self.tr_base = unsafe { MemoryManager::alloc_pages(Self::size()) }
-            .unwrap()
-            .get() as PhysicalAddress;
+        self.tr_base = NonNullPhysicalAddress::new(
+            unsafe { MemoryManager::alloc_pages(Self::size()) }
+                .unwrap()
+                .get() as PhysicalAddress,
+        );
         self.slot_id = slot_id;
         self.dci = dci;
         self.pcs.reset();
         self.index = 0;
+        self.response = Trb::empty();
+        self.signal = Some(AsyncSemaphore::new(0));
+    }
+
+    #[inline]
+    pub fn set_response<T: TrbCommon>(&self, response: &T) {
+        self.response.raw_copy_from(response);
+        match self.compare_exchange_state(RequestState::Scheduled, RequestState::Completed) {
+            Ok(_) => self.signal.as_ref().unwrap().signal(),
+            Err(_err) => {
+                todo!()
+            }
+        }
+    }
+
+    #[inline]
+    pub fn set_scheduled(&self) {
+        self.set_state(RequestState::Scheduled);
+    }
+
+    #[inline]
+    pub fn dispose(&self) {
+        self.set_state(RequestState::Available);
     }
 }
 
@@ -1353,17 +1407,21 @@ impl XhciRequestBlock {
     }
 
     #[inline]
-    pub fn state(&self) -> XrbState {
+    pub fn state(&self) -> RequestState {
         FromPrimitive::from_usize(self.state.load(Ordering::SeqCst)).unwrap_or_default()
     }
 
     #[inline]
-    pub fn set_state(&self, val: XrbState) {
+    pub fn set_state(&self, val: RequestState) {
         self.state.store(val as usize, Ordering::SeqCst);
     }
 
     #[inline]
-    pub fn compare_exchange_state(&self, current: XrbState, new: XrbState) -> Result<(), XrbState> {
+    pub fn compare_exchange_state(
+        &self,
+        current: RequestState,
+        new: RequestState,
+    ) -> Result<(), RequestState> {
         match self.state.compare_exchange_weak(
             current as usize,
             new as usize,
@@ -1381,7 +1439,7 @@ impl XhciRequestBlock {
         self.request.raw_copy_from(request);
         self.response = Trb::empty();
         fence(Ordering::SeqCst);
-        self.set_state(XrbState::Scheduled);
+        self.set_state(RequestState::Scheduled);
     }
 
     #[inline]
@@ -1389,7 +1447,7 @@ impl XhciRequestBlock {
         if self.reuse_delay.until() {
             return false;
         }
-        self.compare_exchange_state(XrbState::Available, XrbState::Acquired)
+        self.compare_exchange_state(RequestState::Available, RequestState::Acquired)
             .is_ok()
     }
 
@@ -1397,7 +1455,7 @@ impl XhciRequestBlock {
     pub fn dispose(&mut self) {
         self.reuse_delay = Timer::new(Duration::from_millis(10));
         self.signal = XrbSignalObject::Sync(Semaphore::new(0));
-        self.set_state(XrbState::Available);
+        self.set_state(RequestState::Available);
     }
 
     #[inline]
@@ -1424,7 +1482,7 @@ impl XhciRequestBlock {
     #[inline]
     pub fn set_response(&mut self, response: &Trb) {
         self.response.raw_copy_from(response);
-        match self.compare_exchange_state(XrbState::Scheduled, XrbState::Completed) {
+        match self.compare_exchange_state(RequestState::Scheduled, RequestState::Completed) {
             Ok(_) => match self.signal {
                 XrbSignalObject::Sync(ref sem) => sem.signal(),
                 XrbSignalObject::Async(ref asem) => asem.signal(),
@@ -1436,9 +1494,8 @@ impl XhciRequestBlock {
     }
 }
 
-/// XHCI Request Block State
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
-pub enum XrbState {
+pub enum RequestState {
     Available = 0,
     Acquired,
     Scheduled,
@@ -1446,7 +1503,7 @@ pub enum XrbState {
     Aborted,
 }
 
-impl Default for XrbState {
+impl Default for RequestState {
     #[inline]
     fn default() -> Self {
         Self::Available
@@ -1582,6 +1639,22 @@ impl UsbHostInterface for HciContext {
         let slot_id = device.slot_id;
 
         host.configure_hub3(slot_id, hub_desc)
+    }
+
+    fn focus_hub(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<(), UsbError>>>> {
+        let host = match self.host.upgrade() {
+            Some(v) => v.clone(),
+            None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
+        };
+        Box::pin(host.focus_slot(Some(self.device().slot_id)))
+    }
+
+    fn unfocus_hub(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<(), UsbError>>>> {
+        let host = match self.host.upgrade() {
+            Some(v) => v.clone(),
+            None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
+        };
+        Box::pin(host.unfocus_slot(Some(self.device().slot_id)))
     }
 
     fn attach_child_device(

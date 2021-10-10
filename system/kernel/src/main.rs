@@ -451,26 +451,23 @@ impl Shell {
                 .unwrap_or("Unknown Device")
                 .to_string();
             println!(
-                "{:02x} VID {} PID {} class {} {}",
+                "{:02x} VID {} PID {} class {} USB {} {}",
                 device.addr().0.get(),
                 device.vid(),
                 device.pid(),
                 device.class(),
+                device.descriptor().usb_version(),
                 class_string,
             );
-            let mut sb = Sb255::new();
-            write!(sb, " usb {} speed ", device.descriptor().usb_version(),).unwrap();
-            Self::format_si(&mut sb, device.protocol_speed()).unwrap();
             println!(
-                "{}\n manufacturer: {}\n product: {}",
-                sb.as_str(),
+                "manufacturer: {}\nproduct: {}",
                 device.manufacturer_string().unwrap_or("Unknown"),
                 device.product_string().unwrap_or("Unknown"),
             );
 
             for config in device.configurations() {
                 println!(
-                    " config #{} {}",
+                    "config #{} {}",
                     config.configuration_value().0,
                     config.name().unwrap_or(""),
                 );

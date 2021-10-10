@@ -9,13 +9,14 @@ use crate::{
     system::System,
     task::scheduler::*,
 };
-use _core::{ffi::c_void, mem::MaybeUninit};
 use alloc::{boxed::Box, sync::Arc};
 use bitflags::*;
 use bootprot::*;
 use core::{
     alloc::Layout,
+    ffi::c_void,
     fmt::Write,
+    mem::MaybeUninit,
     mem::{size_of, transmute},
     num::*,
     slice,
@@ -285,7 +286,7 @@ impl MemoryManager {
         for chunk in shared.slab.as_ref().unwrap().statistics().chunks(4) {
             write!(sb, "Slab").unwrap();
             for item in chunk {
-                write!(sb, " {:4}: {:3} / {:3}", item.0, item.1, item.2,).unwrap();
+                write!(sb, " {:4}: {:4}/{:4}", item.0, item.1, item.2,).unwrap();
             }
             writeln!(sb, "").unwrap();
         }

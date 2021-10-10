@@ -43,6 +43,10 @@ pub trait UsbHostInterface {
 
     fn configure_hub3(&self, hub_desc: &Usb3HubDescriptor) -> Result<(), UsbError>;
 
+    fn focus_hub(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<(), UsbError>>>>;
+
+    fn unfocus_hub(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<(), UsbError>>>>;
+
     fn attach_child_device(
         self: Arc<Self>,
         port_id: UsbHubPortNumber,
@@ -1159,9 +1163,11 @@ impl UsbDeviceControl {
 
     /// Focuses on packets from the specified hub and delays tasks on other devices.
     #[must_use]
-    pub fn focus_hub(&self) -> UsbHubFocusScope {
-        UsbManager::focus_hub(self.device().addr());
-        UsbHubFocusScope { control: self }
+    pub async fn focus_hub(self: &Arc<Self>) -> UsbHubFocusScope {
+        UsbManager::focus_hub(self.clone().device().addr());
+        UsbHubFocusScope {
+            control: self.clone(),
+        }
     }
 
     pub fn schedule_config_task(&self, task: Pin<Box<dyn Future<Output = ()>>>) {
@@ -1169,11 +1175,11 @@ impl UsbDeviceControl {
     }
 }
 
-pub struct UsbHubFocusScope<'a> {
-    control: &'a UsbDeviceControl,
+pub struct UsbHubFocusScope {
+    control: Arc<UsbDeviceControl>,
 }
 
-impl Drop for UsbHubFocusScope<'_> {
+impl Drop for UsbHubFocusScope {
     #[inline]
     fn drop(&mut self) {
         UsbManager::unfocus_hub(self.control.device().addr());

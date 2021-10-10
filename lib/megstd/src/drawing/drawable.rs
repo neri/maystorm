@@ -1,7 +1,7 @@
-use core::mem::size_of;
+// Drawable
 
-use super::color::*;
-use super::coords::*;
+use super::*;
+use core::mem::size_of;
 
 pub trait Drawable
 where

@@ -15,11 +15,11 @@
 #![feature(global_asm)]
 #![feature(lang_items)]
 #![feature(maybe_uninit_extra)]
+#![feature(maybe_uninit_uninit_array)]
 #![feature(negative_impls)]
 #![feature(new_uninit)]
 #![feature(option_result_contains)]
 #![feature(panic_info_message)]
-#![feature(try_reserve)]
 
 #[macro_use]
 pub mod arch;

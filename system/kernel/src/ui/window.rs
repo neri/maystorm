@@ -178,7 +178,7 @@ impl WindowManager<'static> {
                 .bg_color(Color::BLACK)
                 .without_message_queue()
                 .bitmap_strategy(BitmapStrategy::NonBitmap)
-                .build_inner("Root");
+                .build_inner("Desktop");
 
             let handle = window.handle;
             window_pool.insert(handle, Arc::new(UnsafeCell::new(window)));
@@ -1501,8 +1501,7 @@ impl RawWindow<'_> {
 
     #[inline]
     fn title_foreground(&self) -> Color {
-        let is_active = self.is_active();
-        if is_active {
+        if self.is_active() {
             if self.style.contains(WindowStyle::DARK_ACTIVE) {
                 Theme::shared().window_title_active_foreground_dark()
             } else {
@@ -1544,7 +1543,11 @@ impl RawWindow<'_> {
                         Theme::shared().window_title_close_foreground()
                     }
                 } else {
-                    self.title_foreground()
+                    if self.style.contains(WindowStyle::DARK_TITLE) {
+                        Theme::shared().window_title_inactive_foreground_dark()
+                    } else {
+                        Theme::shared().window_title_inactive_foreground()
+                    }
                 }
             }
         }
@@ -2393,16 +2396,19 @@ impl WindowHandle {
     }
 
     /// Supports asynchronous reading of window messages.
-    pub fn poll_message(&self, cx: &mut Context<'_>) -> Option<WindowMessage> {
+    pub fn poll_message(&self, cx: &mut Context<'_>) -> Poll<Option<WindowMessage>> {
         let window = match self.get() {
             Some(v) => v.as_ref(),
-            None => return None,
+            None => return Poll::Ready(None),
         };
         window.waker.register(cx.waker());
-        self.read_message().map(|message| {
+        match self.read_message().map(|message| {
             self.as_ref().waker.take();
             message
-        })
+        }) {
+            Some(v) => Poll::Ready(Some(v)),
+            None => Poll::Pending,
+        }
     }
 
     /// Get the window message asynchronously.
@@ -2461,10 +2467,7 @@ impl Future for WindowMessageConsumer {
     type Output = Option<WindowMessage>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.handle.poll_message(cx) {
-            Some(v) => Poll::Ready(Some(v)),
-            None => Poll::Pending,
-        }
+        self.handle.poll_message(cx)
     }
 }
 

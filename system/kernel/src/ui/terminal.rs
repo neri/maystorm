@@ -310,12 +310,18 @@ impl Future for ConsoleReader {
     type Output = TtyReadResult;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        while let Some(message) = self.window.poll_message(cx) {
-            match message {
-                WindowMessage::Char(c) => return Poll::Ready(Ok(c)),
-                _ => self.window.handle_default_message(message),
+        loop {
+            match self.window.poll_message(cx) {
+                Poll::Ready(v) => {
+                    if let Some(message) = v {
+                        match message {
+                            WindowMessage::Char(c) => return Poll::Ready(Ok(c)),
+                            _ => self.window.handle_default_message(message),
+                        }
+                    }
+                }
+                Poll::Pending => return Poll::Pending,
             }
         }
-        Poll::Pending
     }
 }
