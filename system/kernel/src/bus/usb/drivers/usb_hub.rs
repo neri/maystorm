@@ -7,7 +7,7 @@ use crate::{
 };
 use alloc::sync::Arc;
 use bitflags::*;
-use core::{mem::transmute, num::NonZeroU8, pin::Pin, time::Duration};
+use core::{mem::transmute, num::NonZeroU8, time::Duration};
 use num_traits::FromPrimitive;
 
 pub struct UsbHubStarter;
@@ -75,7 +75,6 @@ impl UsbClassDriverStarter for UsbHubStarter {
 pub struct Usb2HubDriver {
     device: Arc<UsbDeviceControl>,
     hub_desc: Usb2HubDescriptor,
-    lock: Pin<Arc<AsyncSharedLockTemp>>,
 }
 
 impl Usb2HubDriver {
@@ -104,13 +103,10 @@ impl Usb2HubDriver {
         let hub = Arc::new(Usb2HubDriver {
             device: device.clone(),
             hub_desc,
-            lock: AsyncSharedLockTemp::new(),
         });
 
         let focus = device.focus_hub().await;
-        hub.lock.lock_shared();
-        device.schedule_config_task(Box::pin(hub.clone().init_hub()));
-        hub.lock.wait().await;
+        hub.clone().init_hub().await;
         drop(focus);
 
         let n_ports = hub_desc.num_ports();
@@ -143,7 +139,7 @@ impl Usb2HubDriver {
                                     .contains(UsbHub2PortStatusBit::PORT_CONNECTION)
                                 {
                                     // Attached
-                                    hub.attach_device(port).await;
+                                    hub.clone().attach_device(port).await;
                                 } else {
                                     log!("ADDR {} HUB2 PORT {} DETACHED", addr.0, i);
                                     // TODO: Detached
@@ -189,8 +185,6 @@ impl Usb2HubDriver {
     }
 
     pub async fn init_hub(self: Arc<Self>) {
-        let defer = self.lock.unlock_shared();
-
         let n_ports = self.hub_desc.num_ports();
         for i in 1..=n_ports {
             let port_id = UsbHubPortNumber(unsafe { NonZeroU8::new_unchecked(i as u8) });
@@ -219,25 +213,13 @@ impl Usb2HubDriver {
                 .status
                 .contains(UsbHub2PortStatusBit::PORT_CONNECTION)
             {
-                self.lock.lock_shared();
-                self.clone()._attach_device(port).await;
+                self.clone().attach_device(port).await;
             }
             Timer::sleep_async(Duration::from_millis(10)).await;
         }
-
-        drop(defer);
     }
 
-    pub async fn attach_device(self: &Arc<Self>, port: UsbHubPortNumber) {
-        self.lock.lock_shared();
-        self.device
-            .schedule_config_task(Box::pin(self.clone()._attach_device(port)));
-        self.lock.wait().await;
-    }
-
-    async fn _attach_device(self: Arc<Self>, port: UsbHubPortNumber) {
-        let defer = self.lock.unlock_shared();
-
+    async fn attach_device(self: Arc<Self>, port: UsbHubPortNumber) {
         Self::set_port_feature(&self.device, UsbHub2PortFeatureSel::PORT_RESET, port)
             .await
             .unwrap();
@@ -288,8 +270,6 @@ impl Usb2HubDriver {
             let speed = status.status.speed();
             let _child = self.device.attach_child_device(port, speed).await.unwrap();
         }
-
-        drop(defer);
     }
 
     pub async fn get_port_status(
@@ -319,7 +299,6 @@ impl Usb2HubDriver {
 pub struct Usb3HubDriver {
     device: Arc<UsbDeviceControl>,
     hub_desc: Usb3HubDescriptor,
-    lock: Pin<Arc<AsyncSharedLockTemp>>,
 }
 
 impl Usb3HubDriver {
@@ -339,14 +318,10 @@ impl Usb3HubDriver {
         let hub = Arc::new(Usb3HubDriver {
             device: device.clone(),
             hub_desc,
-            lock: AsyncSharedLockTemp::new(),
         });
 
         let focus = device.focus_hub().await;
-        hub.lock.lock_shared();
-        hub.device
-            .schedule_config_task(Box::pin(hub.clone().init_hub()));
-        hub.lock.wait().await;
+        hub.clone().init_hub().await;
         drop(focus);
 
         let n_ports = hub_desc.num_ports();
@@ -379,7 +354,7 @@ impl Usb3HubDriver {
                                     .contains(UsbHub3PortStatusBit::PORT_CONNECTION)
                                 {
                                     // Attached
-                                    hub.attach_device(port).await;
+                                    hub.clone().attach_device(port).await;
                                 } else {
                                     log!("ADDR {} HUB3 PORT {} DETACHED", addr.0, i);
                                     // TODO: Detached
@@ -439,8 +414,6 @@ impl Usb3HubDriver {
     }
 
     pub async fn init_hub(self: Arc<Self>) {
-        let defer = self.lock.unlock_shared();
-
         match self.device.configure_hub3(&self.hub_desc) {
             Ok(_) => (),
             Err(_err) => {
@@ -463,24 +436,12 @@ impl Usb3HubDriver {
                 .status
                 .contains(UsbHub3PortStatusBit::PORT_CONNECTION | UsbHub3PortStatusBit::PORT_ENABLE)
             {
-                self.lock.lock_shared();
-                self.clone()._attach_device(port).await;
+                self.clone().attach_device(port).await;
             }
         }
-
-        drop(defer);
     }
 
-    pub async fn attach_device(self: &Arc<Self>, port: UsbHubPortNumber) {
-        self.lock.lock_shared();
-        self.device
-            .schedule_config_task(Box::pin(self.clone()._attach_device(port)));
-        self.lock.wait().await;
-    }
-
-    pub async fn _attach_device(self: Arc<Self>, port: UsbHubPortNumber) {
-        let defer = self.lock.unlock_shared();
-
+    pub async fn attach_device(self: Arc<Self>, port: UsbHubPortNumber) {
         Self::set_port_feature(&self.device, UsbHub3PortFeatureSel::BH_PORT_RESET, port)
             .await
             .unwrap();
@@ -556,8 +517,6 @@ impl Usb3HubDriver {
                 .await
                 .unwrap();
         }
-
-        drop(defer);
     }
 
     pub async fn set_depth(device: &UsbDeviceControl) -> Result<(), UsbError> {

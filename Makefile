@@ -43,6 +43,16 @@ run:
 		-device intel-hda -device hda-duplex \
 		-monitor stdio
 
+run_leg:
+	qemu-system-x86_64 -machine q35 \
+		-cpu Haswell -smp 4,cores=2,threads=2 \
+		-bios $(OVMF) \
+		-rtc base=localtime,clock=host \
+		-device nec-usb-xhci,id=xhci \
+		-drive format=raw,file=fat:rw:$(MNT) \
+		-device intel-hda -device hda-duplex \
+		-monitor stdio
+
 run_up:
 	qemu-system-x86_64 -machine q35 \
 		-cpu IvyBridge \

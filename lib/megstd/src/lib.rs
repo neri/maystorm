@@ -11,6 +11,7 @@ pub mod error;
 pub mod fs;
 pub mod game;
 pub mod io;
+pub mod mem;
 pub mod path;
 pub mod rand;
 pub mod string;

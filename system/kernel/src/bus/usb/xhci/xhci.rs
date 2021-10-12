@@ -12,6 +12,7 @@ use crate::{
 };
 use alloc::{
     boxed::Box,
+    collections::VecDeque,
     format,
     string::String,
     sync::{Arc, Weak},
@@ -32,6 +33,7 @@ use core::{
     time::Duration,
 };
 use futures_util::Future;
+use megstd::mem::dispose::*;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
@@ -81,10 +83,9 @@ pub struct Xhci {
     slot2port: RwLock<[Option<PortId>; 256]>,
     xrbs: [UnsafeCell<XhciRequestBlock>; Self::MAX_XRB],
     ics: [UnsafeCell<InputContext>; Self::MAX_DEVICE_SLOTS],
+    doorbell_queue: AsyncEventQueue<QueuedDoorbell>,
 
     sem_event_thread: Semaphore,
-
-    root_hub_lock: Pin<Arc<AsyncSharedLockTemp>>,
 }
 
 unsafe impl Send for Xhci {}
@@ -98,7 +99,7 @@ impl Xhci {
     const MAX_DEVICE_SLOTS: usize = 64;
     const MAX_TR: usize = 256;
     const MAX_TR_INDEX: usize = 64;
-    const MAX_XRB: usize = 1024;
+    const MAX_XRB: usize = 256;
 
     const MAX_PORT_CHANGE: usize = 64;
 
@@ -151,8 +152,8 @@ impl Xhci {
             slot2port: RwLock::new([None; 256]),
             xrbs: [XhciRequestBlock::EMPTY; Self::MAX_XRB],
             ics: [InputContext::EMPTY; Self::MAX_DEVICE_SLOTS],
+            doorbell_queue: AsyncEventQueue::new(Self::MAX_DEVICE_SLOTS),
             sem_event_thread: Semaphore::new(0),
-            root_hub_lock: AsyncSharedLockTemp::new(),
         });
 
         for ctx in driver.ring_context.write().unwrap().iter_mut() {
@@ -169,6 +170,7 @@ impl Xhci {
             Self::DRIVER_NAME,
         );
 
+        UsbManager::register_xfer_task(Task::new(driver.clone()._schedule_task()));
         UsbManager::register_xfer_task(Task::new(driver.clone()._root_hub_task()));
 
         Some(driver as Arc<dyn PciDriver>)
@@ -443,7 +445,7 @@ impl Xhci {
         slot_id: Option<SlotId>,
         dci: Option<DCI>,
         need_to_notify: bool,
-    ) -> ScheduledTrb {
+    ) {
         let trb = trb.as_common_trb();
         let index = match self.ep_ring_index(slot_id, dci) {
             Some(index) => index,
@@ -463,14 +465,14 @@ impl Xhci {
 
         unsafe {
             let p = tr.add(index);
-            (&*p).copy_from(trb, ctx.pcs());
+            (&*p).copy(trb, ctx.pcs());
         }
         index += 1;
         if index == Xhci::MAX_TR_INDEX - 1 {
             let trb_link = TrbLink::new(tr_base, true);
             unsafe {
                 let p = tr.add(index);
-                (&*p).copy_from(&trb_link, ctx.pcs());
+                (&*p).copy(&trb_link, ctx.pcs());
             }
 
             index = 0;
@@ -482,20 +484,21 @@ impl Xhci {
             self.wait_cnr(0);
             self.ring_a_doorbell(slot_id, dci);
         }
-
-        scheduled_trb
     }
 
     /// Issue trb command
-    pub fn execute_command<T: TrbCommon>(&self, trb: &T) -> Result<TrbCce, TrbCce> {
-        let xrb = self.allocate_xrb().unwrap();
-        self.issue_trb(Some(xrb), trb, None, None, true);
+    pub fn execute_command<T: TrbCommon>(
+        &self,
+        trb: &T,
+    ) -> Result<TrbCommandCompletionEvent, TrbCommandCompletionEvent> {
+        let mut xrb = DisposableRef::new(self.allocate_xrb().unwrap());
+        self.issue_trb(Some(xrb.as_mut()), trb, None, None, true);
         xrb.wait();
         let result = match xrb.response.as_event() {
             Some(TrbEvent::CommandCompletion(v)) => Some(v.copied()),
             _ => None,
         };
-        xrb.dispose();
+        drop(xrb);
         match result {
             Some(result) => {
                 if result.completion_code() == Some(TrbCompletionCode::SUCCESS) {
@@ -504,16 +507,18 @@ impl Xhci {
                     Err(result)
                 }
             }
-            None => Err(TrbCce::empty()),
+            None => Err(TrbCommandCompletionEvent::empty()),
         }
     }
 
     pub async unsafe fn control_async(
         self: Arc<Self>,
-        slot_id: SlotId,
+        device: &HciDeviceContext,
         setup: UsbControlSetupData,
-        buffer: u64,
     ) -> Result<usize, UsbError> {
+        let slot_id = Some(device.slot_id);
+        let dci = Some(DCI::CONTROL);
+        let buffer = device.buffer;
         let trt = if setup.wLength > 0 {
             if setup.bmRequestType.is_device_to_host() {
                 TrbTranfserType::ControlIn
@@ -524,8 +529,6 @@ impl Xhci {
             TrbTranfserType::NoData
         };
         let dir = trt == TrbTranfserType::ControlIn;
-        let dci = Some(DCI::CONTROL);
-        let slot_id = Some(slot_id);
 
         let setup_trb = TrbSetupStage::new(trt, setup);
         self.issue_trb(None, &setup_trb, slot_id, dci, false);
@@ -538,14 +541,17 @@ impl Xhci {
         let ctx = match self.ep_ring_index(slot_id, dci) {
             Some(index) => {
                 let ctx = &mut self.ring_context.write().unwrap()[index];
-                unsafe { &mut *ctx.as_mut_ptr() }
+                DisposableRef::new(unsafe { &mut *ctx.as_mut_ptr() })
             }
             None => todo!(),
         };
         ctx.set_scheduled();
 
         let status_trb = TrbStatusStage::new(!dir);
-        self.issue_trb(None, &status_trb, slot_id, dci, true);
+        self.issue_trb(None, &status_trb, slot_id, dci, false);
+
+        self.async_doorbell(device.parent_slot_id, slot_id, dci)
+            .await;
 
         ctx.asem().unwrap().clone().wait().await;
 
@@ -553,9 +559,7 @@ impl Xhci {
             Some(TrbEvent::Transfer(v)) => Some(v.copied()),
             _ => None,
         };
-        let state = ctx.state();
-        ctx.dispose();
-        match state {
+        match ctx.state() {
             RequestState::Available | RequestState::Acquired | RequestState::Scheduled => {
                 unreachable!()
             }
@@ -579,13 +583,12 @@ impl Xhci {
 
     pub async unsafe fn control_async2(
         self: Arc<Self>,
-        slot_id: SlotId,
+        device: &HciDeviceContext,
         setup: UsbControlSetupData,
-        buffer: u64,
     ) -> Result<(*const u8, usize), UsbError> {
-        self.control_async(slot_id, setup, buffer).await.map(|len| {
+        self.control_async(device, setup).await.map(|len| {
             (
-                MemoryManager::direct_map(buffer as PhysicalAddress) as *const u8,
+                MemoryManager::direct_map(device.buffer as PhysicalAddress) as *const u8,
                 len,
             )
         })
@@ -593,26 +596,29 @@ impl Xhci {
 
     pub async unsafe fn transfer_async(
         self: Arc<Self>,
-        slot_id: SlotId,
+        device: &HciDeviceContext,
         dci: DCI,
-        buffer: u64,
         len: usize,
     ) -> Result<usize, UsbError> {
-        let slot_id = Some(slot_id);
+        let slot_id = Some(device.slot_id);
         let dci = Some(dci);
+        let buffer = device.buffer;
 
         let trb = TrbNormal::new(buffer, len, true, true);
 
         let ctx = match self.ep_ring_index(slot_id, dci) {
             Some(index) => {
                 let ctx = &mut self.ring_context.write().unwrap()[index];
-                unsafe { &mut *ctx.as_mut_ptr() }
+                DisposableRef::new(unsafe { &mut *ctx.as_mut_ptr() })
             }
             None => todo!(),
         };
         ctx.set_scheduled();
 
-        self.issue_trb(None, &trb, slot_id, dci, true);
+        self.issue_trb(None, &trb, slot_id, dci, false);
+
+        self.async_doorbell(device.parent_slot_id, slot_id, dci)
+            .await;
 
         ctx.asem().unwrap().clone().wait().await;
 
@@ -620,9 +626,7 @@ impl Xhci {
             Some(TrbEvent::Transfer(v)) => Some(v.copied()),
             _ => None,
         };
-        let state = ctx.state();
-        ctx.dispose();
-        match state {
+        match ctx.state() {
             RequestState::Available | RequestState::Acquired | RequestState::Scheduled => {
                 unreachable!()
             }
@@ -642,27 +646,27 @@ impl Xhci {
 
     pub async unsafe fn read_async(
         self: Arc<Self>,
-        slot_id: SlotId,
+        device: &HciDeviceContext,
         dci: DCI,
-        device_buffer: u64,
         len: usize,
         xfer_buffer: *mut u8,
     ) -> Result<usize, UsbError> {
-        self.transfer_async(slot_id, dci, device_buffer, len)
-            .await
-            .map(|len| {
-                unsafe {
-                    let p =
-                        MemoryManager::direct_map(device_buffer as PhysicalAddress) as *const u8;
-                    let q = xfer_buffer;
-                    q.copy_from(p, len);
-                }
-                len
-            })
+        self.transfer_async(device, dci, len).await.map(|len| {
+            unsafe {
+                let p = MemoryManager::direct_map(device.buffer as PhysicalAddress) as *const u8;
+                let q = xfer_buffer;
+                q.copy_from(p, len);
+            }
+            len
+        })
     }
 
     #[inline]
-    pub fn reset_endpoint(&self, slot_id: SlotId, dci: DCI) -> Result<TrbCce, TrbCce> {
+    pub fn reset_endpoint(
+        &self,
+        slot_id: SlotId,
+        dci: DCI,
+    ) -> Result<TrbCommandCompletionEvent, TrbCommandCompletionEvent> {
         let trb = TrbResetEndpointCommand::new(slot_id, dci);
         self.execute_command(&trb)
     }
@@ -869,7 +873,7 @@ impl Xhci {
         }
     }
 
-    pub async fn attach_root_device(self: Arc<Self>, port_id: PortId) -> Option<UsbAddress> {
+    pub async fn attach_root_device(self: &Arc<Self>, port_id: PortId) -> Option<UsbAddress> {
         let port = self.port_by(port_id);
         self.wait_cnr(0);
 
@@ -981,6 +985,7 @@ impl Xhci {
 
                     if event.completion_code() != Some(TrbCompletionCode::SUCCESS) {
                         unsafe {
+                            let nop_trb = TrbNop::new();
                             let next_trb = {
                                 let next_trb = event_trb.next();
                                 if next_trb.peek().trb_type() != Some(TrbType::LINK) {
@@ -995,8 +1000,8 @@ impl Xhci {
                                 && next_trb.peek().trb_type() == Some(TrbType::STATUS)
                             {
                                 // ex. STALL ERROR in DATA STAGE
-                                event_trb.peek().set_trb_type(TrbType::NOP);
-                                next_trb.peek().set_trb_type(TrbType::NOP);
+                                event_trb.peek().copy_without_cycle(&nop_trb);
+                                next_trb.peek().copy_without_cycle(&nop_trb);
                             } else if event_trb.peek().trb_type() == Some(TrbType::SETUP) {
                                 let last_trb = {
                                     let last_trb = next_trb.next();
@@ -1010,17 +1015,17 @@ impl Xhci {
                                 // ex. USB TRANSACTION ERROR in SETUP STAGE
                                 if next_trb.peek().trb_type() == Some(TrbType::STATUS) {
                                     // SETUP - STATUS
-                                    event_trb.peek().set_trb_type(TrbType::NOP);
-                                    next_trb.peek().set_trb_type(TrbType::NOP);
+                                    event_trb.peek().copy_without_cycle(&nop_trb);
+                                    next_trb.peek().copy_without_cycle(&nop_trb);
                                 } else if next_trb.peek().trb_type() == Some(TrbType::DATA)
                                     && last_trb.peek().trb_type() == Some(TrbType::STATUS)
                                 {
                                     // SETUP - DATA - STATUS
-                                    event_trb.peek().set_trb_type(TrbType::NOP);
-                                    next_trb.peek().set_trb_type(TrbType::NOP);
-                                    last_trb.peek().set_trb_type(TrbType::NOP);
+                                    event_trb.peek().copy_without_cycle(&nop_trb);
+                                    next_trb.peek().copy_without_cycle(&nop_trb);
+                                    last_trb.peek().copy_without_cycle(&nop_trb);
                                 } else {
-                                    todo!()
+                                    unreachable!()
                                 }
                             }
                         }
@@ -1031,7 +1036,7 @@ impl Xhci {
                     let index = self.ep_ring_index(slot_id, dci).unwrap();
                     let ctx = &mut self.ring_context.write().unwrap()[index];
                     let ctx = unsafe { &mut *ctx.as_mut_ptr() };
-                    ctx.set_response(event.as_common_trb());
+                    ctx.set_response(event.as_common_trb()).unwrap();
                 }
                 TrbEvent::CommandCompletion(event) => {
                     let event_trb = ScheduledTrb(event.ptr());
@@ -1057,11 +1062,61 @@ impl Xhci {
         }
     }
 
+    async fn _schedule_task(self: Arc<Self>) {
+        let mut locked_hub = None;
+        let mut retired = VecDeque::new();
+        while let Some(task) = self.doorbell_queue.wait_event().await {
+            let mut tasks = VecDeque::new();
+            tasks.push_back(task);
+            while {
+                while let Some(task) = self.doorbell_queue.get_event() {
+                    tasks.push_back(task);
+                }
+                while let Some(task) = tasks.pop_front() {
+                    match task {
+                        QueuedDoorbell::Doorbell(hub, slot_id, dci) => {
+                            if locked_hub == None
+                                || locked_hub == Some(hub)
+                                || locked_hub == Some(slot_id)
+                            {
+                                // log!("CONFIG DEVICE {}", hub.map(|v| v.0.get()).unwrap_or(0));
+                                self.wait_cnr(0);
+                                self.ring_a_doorbell(slot_id, dci);
+                            } else {
+                                retired.push_back(task);
+                            }
+                        }
+                        QueuedDoorbell::FocusHub(hub) => {
+                            if locked_hub.is_none() {
+                                // log!("FOCUS DEVICE {}", hub.map(|v| v.0.get()).unwrap_or(0));
+                                locked_hub = Some(hub);
+                            } else {
+                                retired.push_back(task);
+                            }
+                        }
+                        QueuedDoorbell::UnfocusHub(hub) => {
+                            if locked_hub == Some(hub) {
+                                // log!("UNFOCUS DEVICE {}", hub.map(|v| v.0.get()).unwrap_or(0));
+                                locked_hub = None;
+                                while let Some(task) = retired.pop_front() {
+                                    tasks.push_back(task);
+                                }
+                            } else {
+                                retired.push_back(task);
+                            }
+                        }
+                    }
+                }
+
+                Timer::sleep_async(Duration::from_millis(1)).await;
+                tasks.len() > 0
+            } {}
+        }
+    }
+
     /// xHCI Root hub task
     async fn _root_hub_task(self: Arc<Self>) {
-        UsbManager::focus_root_hub();
-
-        // Timer::sleep_async(Duration::from_millis(100)).await;
+        self.clone().focus_slot(None).await.unwrap();
 
         for (index, port) in self.ports.iter().enumerate() {
             let port_id = PortId(NonZeroU8::new(index as u8 + 1).unwrap());
@@ -1106,16 +1161,15 @@ impl Xhci {
                 let status = port.status();
                 if status.is_connected_status_changed() && status.is_connected() && status.is_usb2()
                 {
-                    self.root_hub_lock.lock_shared();
-                    self.clone()._process_port_change(port_id).await;
+                    self._process_port_change(port_id).await;
                     count += 1;
                 }
                 port.set(PortSc::ALL_CHANGE_BITS);
             }
-            self.root_hub_lock.wait().await;
             count > 0
         } {}
-        UsbManager::unfocus_root_hub();
+
+        self.unfocus_slot(None);
 
         while let Some(port_id) = self.port_status_change_queue.wait_event().await {
             let mut ports = Vec::new();
@@ -1123,22 +1177,15 @@ impl Xhci {
             while let Some(port_id) = self.port_status_change_queue.get_event() {
                 ports.push(port_id);
             }
-            UsbManager::focus_root_hub();
+            self.clone().focus_slot(None).await.unwrap();
             for port_id in ports {
-                self.root_hub_lock.lock_shared();
-                UsbManager::schedule_config_task(
-                    None,
-                    Box::pin(self.clone()._process_port_change(port_id)),
-                );
+                self._process_port_change(port_id).await;
             }
-            self.root_hub_lock.wait().await;
-            UsbManager::unfocus_root_hub();
+            self.unfocus_slot(None);
         }
     }
 
-    pub async fn _process_port_change(self: Arc<Self>, port_id: PortId) {
-        let defer = self.root_hub_lock.unlock_shared();
-
+    pub async fn _process_port_change(self: &Arc<Self>, port_id: PortId) {
         let port = self.port_by(port_id);
         self.wait_cnr(0);
         let status = port.status();
@@ -1184,18 +1231,29 @@ impl Xhci {
         }
 
         port.set(PortSc::ALL_CHANGE_BITS);
+    }
 
-        drop(defer);
+    pub async fn async_doorbell(
+        &self,
+        parent_slot_id: Option<SlotId>,
+        slot_id: Option<SlotId>,
+        dci: Option<DCI>,
+    ) {
+        let doorbell = QueuedDoorbell::Doorbell(parent_slot_id, slot_id, dci);
+        self.doorbell_queue.post(doorbell).ok().unwrap();
     }
 
     pub async fn focus_slot(self: Arc<Self>, hub: Option<SlotId>) -> Result<(), UsbError> {
-        let _ = hub;
-        todo!();
+        let task = QueuedDoorbell::FocusHub(hub);
+        self.clone().doorbell_queue.post(task).ok().unwrap();
+        Ok(())
     }
 
-    pub async fn unfocus_slot(self: Arc<Self>, hub: Option<SlotId>) -> Result<(), UsbError> {
-        let _ = hub;
-        todo!();
+    pub fn unfocus_slot(self: &Arc<Self>, hub: Option<SlotId>) {
+        self.doorbell_queue
+            .post(QueuedDoorbell::UnfocusHub(hub))
+            .ok()
+            .unwrap();
     }
 }
 
@@ -1233,6 +1291,13 @@ impl PciDriver for Xhci {
             self.context_size,
         )
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum QueuedDoorbell {
+    Doorbell(Option<SlotId>, Option<SlotId>, Option<DCI>),
+    FocusHub(Option<SlotId>),
+    UnfocusHub(Option<SlotId>),
 }
 
 struct EpRingContext {
@@ -1339,13 +1404,14 @@ impl EpRingContext {
     }
 
     #[inline]
-    pub fn set_response<T: TrbCommon>(&self, response: &T) {
-        self.response.raw_copy_from(response);
+    pub fn set_response<T: TrbCommon>(&mut self, response: &T) -> Option<()> {
+        self.response.raw_copy(response);
         match self.compare_exchange_state(RequestState::Scheduled, RequestState::Completed) {
-            Ok(_) => self.signal.as_ref().unwrap().signal(),
-            Err(_err) => {
-                todo!()
+            Ok(_) => {
+                self.signal.as_ref().unwrap().signal();
+                Some(())
             }
+            Err(_) => None,
         }
     }
 
@@ -1353,9 +1419,11 @@ impl EpRingContext {
     pub fn set_scheduled(&self) {
         self.set_state(RequestState::Scheduled);
     }
+}
 
+impl DisposeRef for EpRingContext {
     #[inline]
-    pub fn dispose(&self) {
+    fn dispose_ref(&mut self) {
         self.set_state(RequestState::Available);
     }
 }
@@ -1380,15 +1448,10 @@ impl ScheduledTrb {
 pub struct XhciRequestBlock {
     state: AtomicUsize,
     scheduled_trb: ScheduledTrb,
-    signal: XrbSignalObject,
+    signal: Semaphore,
     reuse_delay: Timer,
     request: Trb,
     response: Trb,
-}
-
-pub enum XrbSignalObject {
-    Sync(Semaphore),
-    Async(Pin<Arc<AsyncSemaphore>>),
 }
 
 impl XhciRequestBlock {
@@ -1399,7 +1462,7 @@ impl XhciRequestBlock {
         Self {
             state: AtomicUsize::new(0),
             scheduled_trb: ScheduledTrb(0),
-            signal: XrbSignalObject::Sync(Semaphore::new(0)),
+            signal: Semaphore::new(0),
             reuse_delay: Timer::JUST,
             request: Trb::empty(),
             response: Trb::empty(),
@@ -1436,7 +1499,7 @@ impl XhciRequestBlock {
     #[inline]
     pub fn schedule(&mut self, request: &Trb, scheduled_trb: ScheduledTrb) {
         self.scheduled_trb = scheduled_trb;
-        self.request.raw_copy_from(request);
+        self.request.raw_copy(request);
         self.response = Trb::empty();
         fence(Ordering::SeqCst);
         self.set_state(RequestState::Scheduled);
@@ -1452,45 +1515,27 @@ impl XhciRequestBlock {
     }
 
     #[inline]
-    pub fn dispose(&mut self) {
-        self.reuse_delay = Timer::new(Duration::from_millis(10));
-        self.signal = XrbSignalObject::Sync(Semaphore::new(0));
-        self.set_state(RequestState::Available);
-    }
-
-    #[inline]
     pub fn wait(&self) {
-        match self.signal {
-            XrbSignalObject::Sync(ref sem) => sem.wait(),
-            XrbSignalObject::Async(_) => unreachable!(),
-        }
-    }
-
-    #[inline]
-    pub async fn wait_async(&self) {
-        match self.signal {
-            XrbSignalObject::Sync(_) => unreachable!(),
-            XrbSignalObject::Async(ref asem) => asem.clone().wait().await,
-        }
-    }
-
-    #[inline]
-    pub fn prepare_async(&mut self) {
-        self.signal = XrbSignalObject::Async(AsyncSemaphore::new(0));
+        self.signal.wait()
     }
 
     #[inline]
     pub fn set_response(&mut self, response: &Trb) {
-        self.response.raw_copy_from(response);
+        self.response.raw_copy(response);
         match self.compare_exchange_state(RequestState::Scheduled, RequestState::Completed) {
-            Ok(_) => match self.signal {
-                XrbSignalObject::Sync(ref sem) => sem.signal(),
-                XrbSignalObject::Async(ref asem) => asem.signal(),
-            },
+            Ok(_) => self.signal.signal(),
             Err(_err) => {
                 // TODO:
             }
         }
+    }
+}
+
+impl DisposeRef for XhciRequestBlock {
+    #[inline]
+    fn dispose_ref(&mut self) {
+        self.reuse_delay = Timer::new(Duration::from_millis(10));
+        self.set_state(RequestState::Available);
     }
 }
 
@@ -1649,12 +1694,13 @@ impl UsbHostInterface for HciContext {
         Box::pin(host.focus_slot(Some(self.device().slot_id)))
     }
 
-    fn unfocus_hub(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<(), UsbError>>>> {
+    fn unfocus_hub(self: Arc<Self>) -> Result<(), UsbError> {
         let host = match self.host.upgrade() {
             Some(v) => v.clone(),
-            None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
+            None => return Err(UsbError::HostUnavailable),
         };
-        Box::pin(host.unfocus_slot(Some(self.device().slot_id)))
+        host.unfocus_slot(Some(self.device().slot_id));
+        Ok(())
     }
 
     fn attach_child_device(
@@ -1714,10 +1760,7 @@ impl UsbHostInterface for HciContext {
         };
         let device = self.device();
 
-        Box::pin(
-            host.clone()
-                .control_async2(device.slot_id, setup, device.buffer),
-        )
+        Box::pin(host.clone().control_async2(device, setup))
     }
 
     unsafe fn control_send(
@@ -1738,10 +1781,7 @@ impl UsbHostInterface for HciContext {
         let p = MemoryManager::direct_map(device.buffer) as *mut u8;
         p.copy_from(data, len);
 
-        Box::pin(
-            host.clone()
-                .control_async(device.slot_id, setup, device.buffer),
-        )
+        Box::pin(host.clone().control_async(device, setup))
     }
 
     unsafe fn read(
@@ -1763,9 +1803,7 @@ impl UsbHostInterface for HciContext {
         let p = MemoryManager::direct_map(device.buffer) as *mut u8;
         p.write_bytes(0, len);
 
-        let slot_id = device.slot_id;
-
-        Box::pin(host.read_async(slot_id, dci, device.buffer, len, buffer))
+        Box::pin(host.read_async(device, dci, len, buffer))
     }
 
     unsafe fn write(
@@ -1783,12 +1821,11 @@ impl UsbHostInterface for HciContext {
             return Box::pin(AsyncUsbError::new(UsbError::InvalidParameter));
         }
         let device = self.device();
-        let slot_id = device.slot_id;
 
         let p = MemoryManager::direct_map(device.buffer) as *mut u8;
         p.copy_from(buffer, len);
 
-        Box::pin(host.transfer_async(slot_id, dci, device.buffer, len))
+        Box::pin(host.transfer_async(device, dci, len))
     }
 }
 

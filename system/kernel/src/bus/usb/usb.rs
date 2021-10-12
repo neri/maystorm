@@ -6,13 +6,7 @@ use crate::{
     task::{scheduler::*, Task},
     *,
 };
-use alloc::{
-    boxed::Box,
-    collections::{BTreeMap, VecDeque},
-    string::String,
-    sync::Arc,
-    vec::Vec,
-};
+use alloc::{boxed::Box, collections::BTreeMap, string::String, sync::Arc, vec::Vec};
 use core::{
     cell::UnsafeCell,
     mem::{size_of, MaybeUninit},
@@ -21,10 +15,9 @@ use core::{
     pin::Pin,
     slice,
     sync::atomic::*,
-    task::{Context, Poll},
     time::Duration,
 };
-use futures_util::{task::AtomicWaker, Future};
+use futures_util::Future;
 use num_traits::FromPrimitive;
 
 /// USB Driver to Host interface
@@ -45,7 +38,7 @@ pub trait UsbHostInterface {
 
     fn focus_hub(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<(), UsbError>>>>;
 
-    fn unfocus_hub(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<(), UsbError>>>>;
+    fn unfocus_hub(self: Arc<Self>) -> Result<(), UsbError>;
 
     fn attach_child_device(
         self: Arc<Self>,
@@ -96,7 +89,6 @@ pub struct UsbManager {
     class_driver_starters: RwLock<Vec<Arc<dyn UsbClassDriverStarter>>>,
     interface_driver_starters: RwLock<Vec<Arc<dyn UsbInterfaceDriverStarter>>>,
     request_queue: AsyncEventQueue<Task>,
-    config_queue: AsyncEventQueue<ConfigTask>,
 }
 
 impl UsbManager {
@@ -107,7 +99,6 @@ impl UsbManager {
             class_driver_starters: RwLock::new(Vec::new()),
             interface_driver_starters: RwLock::new(Vec::new()),
             request_queue: AsyncEventQueue::new(255),
-            config_queue: AsyncEventQueue::new(255),
         });
 
         SpawnOption::with_priority(Priority::High)
@@ -135,19 +126,19 @@ impl UsbManager {
                 let shared = Self::shared();
                 let device = Arc::new(device);
 
-                // let uuid = device.uuid();
-                // log!(
-                //     "USB connected: {}:{} {} {} {} {:?}",
-                //     device
-                //         .parent_device_address()
-                //         .map(|v| v.0.get())
-                //         .unwrap_or(0),
-                //     addr.0,
-                //     device.vid(),
-                //     device.pid(),
-                //     device.class(),
-                //     device.product_string(),
-                // );
+                // {
+                //     let device = device.device();
+                //     // let uuid = device.uuid();
+                //     log!(
+                //         "USB connected: {}:{} {} {} {} {:?}",
+                //         device.parent().map(|v| v.0.get()).unwrap_or(0),
+                //         addr.0,
+                //         device.vid(),
+                //         device.pid(),
+                //         device.class(),
+                //         device.product_string(),
+                //     );
+                // }
 
                 shared.devices.write().unwrap().push(device.clone());
 
@@ -228,34 +219,8 @@ impl UsbManager {
         let _ = shared.request_queue.post(task);
     }
 
-    pub fn schedule_config_task(hub: Option<UsbAddress>, task: Pin<Box<dyn Future<Output = ()>>>) {
-        let shared = Self::shared();
-        let _ = shared.config_queue.post(ConfigTask::Task(hub, task));
-    }
-
-    fn focus_hub(hub: UsbAddress) {
-        let shared = Self::shared();
-        let _ = shared.config_queue.post(ConfigTask::Focus(Some(hub)));
-    }
-
-    pub fn focus_root_hub() {
-        let shared = Self::shared();
-        let _ = shared.config_queue.post(ConfigTask::Focus(None));
-    }
-
-    fn unfocus_hub(hub: UsbAddress) {
-        let shared = Self::shared();
-        let _ = shared.config_queue.post(ConfigTask::Unfocus(Some(hub)));
-    }
-
-    pub fn unfocus_root_hub() {
-        let shared = Self::shared();
-        let _ = shared.config_queue.post(ConfigTask::Unfocus(None));
-    }
-
     fn _usb_xfer_task_thread() {
         Scheduler::spawn_async(Task::new(Self::_usb_xfer_observer()));
-        Scheduler::spawn_async(Task::new(Self::_usb_config_scheduler()));
         Scheduler::perform_tasks();
     }
 
@@ -265,60 +230,6 @@ impl UsbManager {
             Scheduler::spawn_async(new_task);
         }
     }
-
-    async fn _usb_config_scheduler() {
-        let shared = Self::shared();
-        let mut locked_hub = None;
-        let mut retired = VecDeque::new();
-        while let Some(task) = shared.config_queue.wait_event().await {
-            let mut tasks = VecDeque::new();
-            tasks.push_back(task);
-            while {
-                while let Some(task) = shared.config_queue.get_event() {
-                    tasks.push_back(task);
-                }
-                while let Some(task) = tasks.pop_front() {
-                    match task {
-                        ConfigTask::Task(hub, task) => {
-                            if locked_hub == None || locked_hub == Some(hub) {
-                                // log!("CONFIG DEVICE {}", hub.map(|v| v.0.get()).unwrap_or(0));
-                                task.await;
-                            } else {
-                                retired.push_back(ConfigTask::Task(hub, task));
-                            }
-                        }
-                        ConfigTask::Focus(hub) => {
-                            if locked_hub.is_none() {
-                                // log!("FOCUS DEVICE {}", hub.map(|v| v.0.get()).unwrap_or(0));
-                                locked_hub = Some(hub);
-                            } else {
-                                retired.push_back(task);
-                            }
-                        }
-                        ConfigTask::Unfocus(hub) => {
-                            if locked_hub == Some(hub) {
-                                // log!("UNFOCUS DEVICE {}", hub.map(|v| v.0.get()).unwrap_or(0));
-                                locked_hub = None;
-                                while let Some(task) = retired.pop_front() {
-                                    tasks.push_back(task);
-                                }
-                            } else {
-                                retired.push_back(task);
-                            }
-                        }
-                    }
-                }
-                Timer::sleep_async(Duration::from_millis(1)).await;
-                tasks.len() > 0
-            } {}
-        }
-    }
-}
-
-enum ConfigTask {
-    Task(Option<UsbAddress>, Pin<Box<dyn Future<Output = ()>>>),
-    Focus(Option<UsbAddress>),
-    Unfocus(Option<UsbAddress>),
 }
 
 pub struct UsbDeviceIter {
@@ -1107,7 +1018,7 @@ impl UsbDeviceControl {
         .await
     }
 
-    /// Set exit latency values
+    /// Set exit latency values (USB3)
     pub async fn set_sel(&self, values: &Usb3ExitLatencyValues) -> Result<(), UsbError> {
         Self::_set_sel(&self.host_clone(), values).await
     }
@@ -1164,25 +1075,18 @@ impl UsbDeviceControl {
     /// Focuses on packets from the specified hub and delays tasks on other devices.
     #[must_use]
     pub async fn focus_hub(self: &Arc<Self>) -> UsbHubFocusScope {
-        UsbManager::focus_hub(self.clone().device().addr());
-        UsbHubFocusScope {
-            control: self.clone(),
-        }
-    }
-
-    pub fn schedule_config_task(&self, task: Pin<Box<dyn Future<Output = ()>>>) {
-        UsbManager::schedule_config_task(Some(self.device().addr()), task);
+        self.host_clone().focus_hub().await.unwrap();
+        UsbHubFocusScope(self.clone())
     }
 }
 
-pub struct UsbHubFocusScope {
-    control: Arc<UsbDeviceControl>,
-}
+#[repr(transparent)]
+pub struct UsbHubFocusScope(Arc<UsbDeviceControl>);
 
 impl Drop for UsbHubFocusScope {
     #[inline]
     fn drop(&mut self) {
-        UsbManager::unfocus_hub(self.control.device().addr());
+        self.0.host_clone().unfocus_hub().unwrap();
     }
 }
 
@@ -1497,107 +1401,5 @@ impl UsbEndpoint {
     #[inline]
     pub const fn ep_type(&self) -> UsbEndpointType {
         self.ep_type
-    }
-}
-
-pub(super) struct AsyncSharedLockTemp {
-    data: AtomicUsize,
-    waker: AtomicWaker,
-}
-
-impl AsyncSharedLockTemp {
-    #[inline]
-    pub fn new() -> Pin<Arc<Self>> {
-        Arc::pin(Self {
-            data: AtomicUsize::new(0),
-            waker: AtomicWaker::new(),
-        })
-    }
-
-    #[inline]
-    pub fn lock_shared(&self) {
-        self.data
-            .fetch_update(Ordering::Acquire, Ordering::Relaxed, |v| {
-                if (v & 1) == 0 {
-                    Some(v + 2)
-                } else {
-                    None
-                }
-            })
-            .unwrap();
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn unlock_shared(self: &Pin<Arc<Self>>) -> AsyncSharedLockDeferGuard {
-        AsyncSharedLockDeferGuard { lock: self.clone() }
-    }
-
-    #[inline]
-    fn _unlock_shared(&self) {
-        let _ = self.data.fetch_sub(2, Ordering::Release);
-        if self.data.load(Ordering::Relaxed) == 0 {
-            self.waker.wake();
-        }
-    }
-
-    #[inline]
-    pub fn try_lock(&self) -> bool {
-        self.data
-            .fetch_update(Ordering::Acquire, Ordering::Relaxed, |v| {
-                if v == 0 {
-                    Some(1)
-                } else {
-                    None
-                }
-            })
-            .is_ok()
-    }
-
-    #[inline]
-    fn unlock(&self) {
-        self.data.store(0, Ordering::Release);
-    }
-
-    #[inline]
-    pub fn wait(self: &Pin<Arc<Self>>) -> Pin<Box<dyn Future<Output = ()>>> {
-        Box::pin(AsyncSharedLockObserver { sem: self.clone() })
-    }
-
-    pub fn poll(&self, cx: &mut Context<'_>) -> bool {
-        self.waker.register(cx.waker());
-        let result = self.try_lock();
-        if result {
-            self.waker.take();
-        }
-        result
-    }
-}
-
-struct AsyncSharedLockObserver {
-    sem: Pin<Arc<AsyncSharedLockTemp>>,
-}
-
-impl Future for AsyncSharedLockObserver {
-    type Output = ();
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if self.sem.poll(cx) {
-            self.sem.unlock();
-            Poll::Ready(())
-        } else {
-            Poll::Pending
-        }
-    }
-}
-
-pub struct AsyncSharedLockDeferGuard {
-    lock: Pin<Arc<AsyncSharedLockTemp>>,
-}
-
-impl Drop for AsyncSharedLockDeferGuard {
-    #[inline]
-    fn drop(&mut self) {
-        self.lock._unlock_shared()
     }
 }
