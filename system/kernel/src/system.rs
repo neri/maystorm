@@ -163,8 +163,6 @@ impl System {
         shared.initrd_size = info.initrd_size as usize;
         shared.current_device.total_memory_size = info.total_memory_size as usize;
 
-        mem::MemoryManager::init_first(info);
-
         let main_screen = Bitmap32::from_static(
             PageManager::direct_map(info.vram_base) as *mut TrueColor,
             Size::new(info.screen_width as isize, info.screen_height as isize),
@@ -172,6 +170,8 @@ impl System {
         );
         shared.main_screen = Some(main_screen);
         // Self::em_console().reset().unwrap();
+
+        mem::MemoryManager::init_first(info);
 
         shared.acpi = Some(Box::new(
             ::acpi::AcpiTables::from_rsdp(MyAcpiHandler::new(), info.acpi_rsdptr as usize).unwrap(),

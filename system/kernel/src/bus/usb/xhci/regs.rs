@@ -458,7 +458,6 @@ impl PortSc {
 
 /// xHC Runtime Registers
 #[repr(C)]
-#[allow(dead_code)]
 pub struct RuntimeRegisters {
     mfindex: AtomicU32,
     _rsrv1: [u32; 7],
@@ -538,7 +537,6 @@ impl InterrupterRegisterSet {
 
 /// xHC Doorbell Register
 #[repr(transparent)]
-#[allow(dead_code)]
 pub struct DoorbellRegister(AtomicU32);
 
 impl DoorbellRegister {

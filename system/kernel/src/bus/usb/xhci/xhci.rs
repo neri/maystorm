@@ -553,6 +553,16 @@ impl Xhci {
         self.async_doorbell(device.parent_slot_id, slot_id, dci)
             .await;
 
+        // log!(
+        //     "CONTROL {} {:02x} {:02x} {:04x} {:04x} {:04x}",
+        //     device.slot_id.0,
+        //     setup.bmRequestType.0,
+        //     setup.bRequest.0,
+        //     setup.wValue,
+        //     setup.wIndex,
+        //     setup.wLength,
+        // );
+
         ctx.asem().unwrap().clone().wait().await;
 
         let result = match ctx.response.as_event() {
@@ -1075,7 +1085,7 @@ impl Xhci {
                 while let Some(task) = tasks.pop_front() {
                     match task {
                         QueuedDoorbell::Doorbell(hub, slot_id, dci) => {
-                            if locked_hub == None
+                            if locked_hub.is_none()
                                 || locked_hub == Some(hub)
                                 || locked_hub == Some(slot_id)
                             {
@@ -1083,6 +1093,12 @@ impl Xhci {
                                 self.wait_cnr(0);
                                 self.ring_a_doorbell(slot_id, dci);
                             } else {
+                                // log!(
+                                //     "RETIRE HUB {} SLOT {} DCI {}",
+                                //     hub.map(|v| v.0.get()).unwrap_or(0),
+                                //     slot_id.map(|v| v.0.get()).unwrap_or(0),
+                                //     dci.map(|v| v.0.get()).unwrap_or(0),
+                                // );
                                 retired.push_back(task);
                             }
                         }
@@ -1116,12 +1132,22 @@ impl Xhci {
 
     /// xHCI Root hub task
     async fn _root_hub_task(self: Arc<Self>) {
-        self.clone().focus_slot(None).await.unwrap();
+        self.focus_hub(None);
+
+        Timer::sleep_async(Duration::from_millis(100)).await;
 
         for (index, port) in self.ports.iter().enumerate() {
             let port_id = PortId(NonZeroU8::new(index as u8 + 1).unwrap());
             self.wait_cnr(0);
             let status = port.status();
+
+            // log!(
+            //     "PORT STATUS {} {:08x} {:?} {:?}",
+            //     index,
+            //     status.bits(),
+            //     status.speed(),
+            //     status.link_state(),
+            // );
 
             if status.is_connected() {
                 // if status.is_usb2() {
@@ -1152,6 +1178,7 @@ impl Xhci {
                 }
             }
         }
+        // log!("ALL PORT RESET DONE");
 
         while {
             let mut count = 0;
@@ -1161,6 +1188,7 @@ impl Xhci {
                 let status = port.status();
                 if status.is_connected_status_changed() && status.is_connected() && status.is_usb2()
                 {
+                    log!("PORT CHANGE {}", index);
                     self._process_port_change(port_id).await;
                     count += 1;
                 }
@@ -1169,7 +1197,7 @@ impl Xhci {
             count > 0
         } {}
 
-        self.unfocus_slot(None);
+        self.unfocus_hub(None);
 
         while let Some(port_id) = self.port_status_change_queue.wait_event().await {
             let mut ports = Vec::new();
@@ -1177,11 +1205,11 @@ impl Xhci {
             while let Some(port_id) = self.port_status_change_queue.get_event() {
                 ports.push(port_id);
             }
-            self.clone().focus_slot(None).await.unwrap();
+            self.focus_hub(None);
             for port_id in ports {
                 self._process_port_change(port_id).await;
             }
-            self.unfocus_slot(None);
+            self.unfocus_hub(None);
         }
     }
 
@@ -1243,13 +1271,15 @@ impl Xhci {
         self.doorbell_queue.post(doorbell).ok().unwrap();
     }
 
-    pub async fn focus_slot(self: Arc<Self>, hub: Option<SlotId>) -> Result<(), UsbError> {
-        let task = QueuedDoorbell::FocusHub(hub);
-        self.clone().doorbell_queue.post(task).ok().unwrap();
-        Ok(())
+    pub fn focus_hub(self: &Arc<Self>, hub: Option<SlotId>) {
+        self.clone()
+            .doorbell_queue
+            .post(QueuedDoorbell::FocusHub(hub))
+            .ok()
+            .unwrap();
     }
 
-    pub fn unfocus_slot(self: &Arc<Self>, hub: Option<SlotId>) {
+    pub fn unfocus_hub(self: &Arc<Self>, hub: Option<SlotId>) {
         self.doorbell_queue
             .post(QueuedDoorbell::UnfocusHub(hub))
             .ok()
@@ -1298,7 +1328,20 @@ enum QueuedDoorbell {
     Doorbell(Option<SlotId>, Option<SlotId>, Option<DCI>),
     FocusHub(Option<SlotId>),
     UnfocusHub(Option<SlotId>),
+    // FocusSlot(Option<SlotId>, Option<SlotId>),
+    // UnfocusSlot(Option<SlotId>, Option<SlotId>),
 }
+
+// impl QueuedDoorbell {
+//     #[inline]
+//     pub fn hub(&self) -> Option<SlotId> {
+//         match self {
+//             QueuedDoorbell::Doorbell(hub, _, _) => *hub,
+//             QueuedDoorbell::FocusHub(hub) => *hub,
+//             QueuedDoorbell::UnfocusHub(hub) => *hub,
+//         }
+//     }
+// }
 
 struct EpRingContext {
     tr_base: Option<NonNullPhysicalAddress>,
@@ -1686,20 +1729,21 @@ impl UsbHostInterface for HciContext {
         host.configure_hub3(slot_id, hub_desc)
     }
 
-    fn focus_hub(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<(), UsbError>>>> {
-        let host = match self.host.upgrade() {
-            Some(v) => v.clone(),
-            None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
-        };
-        Box::pin(host.focus_slot(Some(self.device().slot_id)))
-    }
-
-    fn unfocus_hub(self: Arc<Self>) -> Result<(), UsbError> {
+    fn focus_hub(&self) -> Result<(), UsbError> {
         let host = match self.host.upgrade() {
             Some(v) => v.clone(),
             None => return Err(UsbError::HostUnavailable),
         };
-        host.unfocus_slot(Some(self.device().slot_id));
+        host.focus_hub(Some(self.device().slot_id));
+        Ok(())
+    }
+
+    fn unfocus_hub(&self) -> Result<(), UsbError> {
+        let host = match self.host.upgrade() {
+            Some(v) => v.clone(),
+            None => return Err(UsbError::HostUnavailable),
+        };
+        host.unfocus_hub(Some(self.device().slot_id));
         Ok(())
     }
 

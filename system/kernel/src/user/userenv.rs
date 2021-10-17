@@ -23,13 +23,10 @@ impl UserEnv {
     }
 }
 
+#[allow(dead_code)]
 async fn logo_task(f: fn()) {
     let width = 320;
     let height = 200;
-
-    // loop {
-    //     Timer::sleep(Duration::from_millis(1000));
-    // }
 
     WindowManager::set_desktop_color(Theme::shared().desktop_color());
     if true {
@@ -44,7 +41,10 @@ async fn logo_task(f: fn()) {
     }
 
     let window = WindowBuilder::new()
+        .style_add(WindowStyle::SUSPENDED)
         .style_sub(WindowStyle::CLOSE_BUTTON)
+        .style_sub(WindowStyle::TITLE | WindowStyle::BORDER)
+        .bg_color(Color::Transparent)
         .size(Size::new(width, height))
         .build("");
 
@@ -55,6 +55,7 @@ async fn logo_task(f: fn()) {
             .text("Starting up...")
             .draw_text(bitmap, bitmap.bounds(), 0);
     });
+    window.show();
     WindowManager::set_pointer_visible(true);
 
     window.create_timer(0, Duration::from_millis(2000));

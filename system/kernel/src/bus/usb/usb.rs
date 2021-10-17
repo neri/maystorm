@@ -36,9 +36,9 @@ pub trait UsbHostInterface {
 
     fn configure_hub3(&self, hub_desc: &Usb3HubDescriptor) -> Result<(), UsbError>;
 
-    fn focus_hub(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<(), UsbError>>>>;
+    fn focus_hub(&self) -> Result<(), UsbError>;
 
-    fn unfocus_hub(self: Arc<Self>) -> Result<(), UsbError>;
+    fn unfocus_hub(&self) -> Result<(), UsbError>;
 
     fn attach_child_device(
         self: Arc<Self>,
@@ -126,19 +126,19 @@ impl UsbManager {
                 let shared = Self::shared();
                 let device = Arc::new(device);
 
-                // {
-                //     let device = device.device();
-                //     // let uuid = device.uuid();
-                //     log!(
-                //         "USB connected: {}:{} {} {} {} {:?}",
-                //         device.parent().map(|v| v.0.get()).unwrap_or(0),
-                //         addr.0,
-                //         device.vid(),
-                //         device.pid(),
-                //         device.class(),
-                //         device.product_string(),
-                //     );
-                // }
+                if false {
+                    let device = device.device();
+                    // let uuid = device.uuid();
+                    log!(
+                        "USB connected: {}:{} {} {} {} {:?}",
+                        device.parent().map(|v| v.0.get()).unwrap_or(0),
+                        addr.0,
+                        device.vid(),
+                        device.pid(),
+                        device.class(),
+                        device.product_string(),
+                    );
+                }
 
                 shared.devices.write().unwrap().push(device.clone());
 
@@ -1074,19 +1074,19 @@ impl UsbDeviceControl {
 
     /// Focuses on packets from the specified hub and delays tasks on other devices.
     #[must_use]
-    pub async fn focus_hub(self: &Arc<Self>) -> UsbHubFocusScope {
-        self.host_clone().focus_hub().await.unwrap();
-        UsbHubFocusScope(self.clone())
+    pub fn focus_hub(&self) -> UsbHubFocusScope {
+        self.host().focus_hub().unwrap();
+        UsbHubFocusScope(self)
     }
 }
 
 #[repr(transparent)]
-pub struct UsbHubFocusScope(Arc<UsbDeviceControl>);
+pub struct UsbHubFocusScope<'a>(&'a UsbDeviceControl);
 
-impl Drop for UsbHubFocusScope {
+impl Drop for UsbHubFocusScope<'_> {
     #[inline]
     fn drop(&mut self) {
-        self.0.host_clone().unfocus_hub().unwrap();
+        let _ = self.0.host().unfocus_hub();
     }
 }
 

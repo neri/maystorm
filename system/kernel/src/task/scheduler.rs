@@ -995,7 +995,6 @@ impl Timer {
                 }
                 Err(e) => {
                     event = e;
-                    todo!();
                 }
             }
         }

@@ -198,20 +198,7 @@ impl MemoryManager {
         let shared = Self::shared_mut();
         if let Some(slab) = &shared.slab {
             match slab.alloc(layout) {
-                Ok(result) => {
-                    // if true && layout.size() == 48 {
-                    //     let p = result.get() as *const u8;
-                    //     write!(System::em_console(), "ALLOC {:016x}", p as usize).unwrap();
-                    //     // for i in 0..layout.size() {
-                    //     //     write!(System::em_console(), " {:02x}", unsafe {
-                    //     //         p.add(i).read_volatile()
-                    //     //     })
-                    //     //     .unwrap();
-                    //     // }
-                    //     writeln!(System::em_console(), "").unwrap();
-                    // }
-                    return Some(result);
-                }
+                Ok(result) => return Some(result),
                 Err(AllocationError::Unsupported) => (),
                 Err(_err) => return None,
             }
