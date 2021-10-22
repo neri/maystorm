@@ -1,6 +1,6 @@
 [package]
 authors = ["Nerry <108566+neri@users.noreply.github.com>"]
-edition = "2018"
+edition = "2021"
 name = "bootprot"
 version = "0.1.0"
 
