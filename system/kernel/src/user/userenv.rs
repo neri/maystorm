@@ -39,6 +39,7 @@ async fn logo_task(f: fn()) {
             }
         }
     }
+    WindowManager::set_pointer_visible(true);
 
     let window = WindowBuilder::new()
         .style_add(WindowStyle::SUSPENDED)
@@ -51,12 +52,12 @@ async fn logo_task(f: fn()) {
     window.draw(|bitmap| {
         AttributedString::new()
             .font(FontDescriptor::new(FontFamily::SansSerif, 24).unwrap())
+            .color(Color::WHITE)
             .middle_center()
             .text("Starting up...")
             .draw_text(bitmap, bitmap.bounds(), 0);
     });
     window.show();
-    WindowManager::set_pointer_visible(true);
 
     window.create_timer(0, Duration::from_millis(2000));
 

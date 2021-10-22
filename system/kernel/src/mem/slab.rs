@@ -2,9 +2,11 @@
 
 use super::*;
 use crate::arch::cpu::Cpu;
+use crate::*;
 use ::alloc::vec::Vec;
+use core::alloc::Layout;
+use core::mem::MaybeUninit;
 use core::sync::atomic::*;
-use core::{alloc::Layout, mem::transmute};
 use core::{mem::size_of, num::*};
 
 type UsizeSmall = u16;
@@ -67,7 +69,8 @@ impl SlabAllocator {
                 item.block_size(),
                 count
                     - item.chunks[..item.count as usize].iter().fold(0, |v, i| {
-                        v + i.bitmap.load(Ordering::Relaxed).count_ones() as usize
+                        let chunk = unsafe { &*i.as_ptr() };
+                        v + chunk.bitmap.load(Ordering::Relaxed).count_ones() as usize
                     }),
                 count,
             ));
@@ -79,7 +82,7 @@ impl SlabAllocator {
 struct SlabCache {
     block_size: UsizeSmall,
     count: UsizeSmall,
-    chunks: [SlabChunkHeader; Self::N_CHUNKS],
+    chunks: [MaybeUninit<SlabChunkHeader>; Self::N_CHUNKS],
 }
 
 impl SlabCache {
@@ -87,8 +90,10 @@ impl SlabCache {
     const ITEMS_PER_CHUNK: usize = 8 * size_of::<usize>();
 
     fn new(block_size: usize) -> Self {
-        let mut chunks: [SlabChunkHeader; Self::N_CHUNKS] =
-            unsafe { transmute([0u8; size_of::<SlabChunkHeader>() * Self::N_CHUNKS]) };
+        let mut chunks = MaybeUninit::uninit_array();
+        for chunk in chunks.iter_mut() {
+            *chunk = MaybeUninit::zeroed();
+        }
 
         let mut count = 0;
         let items_per_chunk = Self::ITEMS_PER_CHUNK;
@@ -100,10 +105,7 @@ impl SlabCache {
         };
 
         unsafe {
-            let pages = usize::min(
-                (items_per_chunk / atomic_page_size) * atomic_page_size,
-                usize::max(atomic_page_size, 0x8000 / preferred_page_size),
-            );
+            let pages = atomic_page_size;
             let alloc_size = preferred_page_size * pages;
             let blob = MemoryManager::zalloc(Layout::from_size_align_unchecked(
                 alloc_size,
@@ -111,12 +113,19 @@ impl SlabCache {
             ))
             .unwrap();
 
-            // println!("CHUNK: {} {} {} ", block_size, preferred_page_size, pages);
+            log!(
+                "CHUNK: block {} {} alloc {} [{} {}] ",
+                block_size,
+                alloc_size / block_size,
+                alloc_size,
+                preferred_page_size,
+                pages,
+            );
 
             for i in 0..pages {
                 let ptr = blob.get() + preferred_page_size * i;
                 let chunk = SlabChunkHeader::new(ptr, usize::MAX);
-                chunks[count as usize] = chunk;
+                chunks[count as usize].write(chunk);
                 count += 1;
             }
         }
@@ -145,7 +154,8 @@ impl SlabCache {
 
     fn alloc(&self) -> Result<NonZeroUsize, AllocationError> {
         for chunk in self.chunks[..self.count()].iter() {
-            if !chunk.is_full() {
+            let chunk = unsafe { &*chunk.as_ptr() };
+            if chunk.is_useful() {
                 match chunk.alloc() {
                     Some(index) => {
                         return NonZeroUsize::new(chunk.ptr() + index * self.block_size as usize)
@@ -162,6 +172,10 @@ impl SlabCache {
         let ptr = ptr.get();
 
         for chunk in self.chunks[..self.count()].iter() {
+            let chunk = unsafe { &*chunk.as_ptr() };
+            if chunk.is_none() {
+                continue;
+            }
             let base = chunk.ptr();
             if ptr >= base && ptr < base + self.items_per_chunk() * self.block_size() {
                 let index = (ptr - base) / self.block_size();
@@ -174,7 +188,8 @@ impl SlabCache {
 
     fn free_memory_size(&self) -> usize {
         self.chunks[..self.count()].iter().fold(0, |v, i| {
-            v + self.block_size() * i.bitmap.load(Ordering::Relaxed).count_ones() as usize
+            let chunk = unsafe { &*i.as_ptr() };
+            v + self.block_size() * chunk.bitmap.load(Ordering::Relaxed).count_ones() as usize
         })
     }
 }
@@ -194,8 +209,23 @@ impl SlabChunkHeader {
     }
 
     #[inline]
+    fn is_some(&self) -> bool {
+        self.ptr.load(Ordering::Relaxed) != 0
+    }
+
+    #[inline]
+    fn is_none(&self) -> bool {
+        self.ptr.load(Ordering::Relaxed) == 0
+    }
+
+    #[inline]
     fn is_full(&self) -> bool {
         self.bitmap.load(Ordering::Relaxed) == 0
+    }
+
+    #[inline]
+    fn is_useful(&self) -> bool {
+        self.is_some() && !self.is_full()
     }
 
     #[inline]

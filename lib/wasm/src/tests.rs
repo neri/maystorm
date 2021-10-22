@@ -692,9 +692,9 @@ fn name() {
     let module = WasmLoader::instantiate(&slice, |_, _, _| unreachable!()).unwrap();
     let names = module.names().unwrap();
 
-    assert_eq!(names.module().unwrap().as_str(), "Hello");
+    assert_eq!(names.module().unwrap(), "Hello");
 
     assert_eq!(names.functions()[0], (1, "wasm".to_owned()));
 
-    assert_eq!(names.func_by_index(0x1234).unwrap().as_str(), "test");
+    assert_eq!(names.func_by_index(0x1234).unwrap(), "test");
 }
