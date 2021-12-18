@@ -1,6 +1,5 @@
 #![no_std]
 #![feature(core_intrinsics)]
-#![feature(asm)]
 
 // use crate::debug::console::DebugConsole;
 use core::fmt::Write;

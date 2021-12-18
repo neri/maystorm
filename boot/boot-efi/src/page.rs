@@ -88,7 +88,7 @@ impl PageManager {
     /// First initialize before exit_boot_services
     pub unsafe fn init_first(bs: &BootServices) -> Result<(), Status> {
         let max_address = 0xFFFF_0000;
-        let page_size = 0x0010_0000;
+        let page_size = 0x0020_0000;
         let count = page_size / PageConfig::UEFI_PAGE_SIZE;
         let page_base = match bs.allocate_pages(
             AllocateType::MaxAddress(max_address),

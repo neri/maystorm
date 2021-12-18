@@ -7,7 +7,7 @@ use num_traits::FromPrimitive;
 /// Valid USB bus addresses are 1 to 127.
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct UsbDeviceAddress(pub NonZeroU8);
+pub struct UsbAddress(pub NonZeroU8);
 
 /// 16-bit word type used in the USB descriptor.
 #[repr(transparent)]
@@ -98,6 +98,7 @@ impl UsbClass {
     pub const HID_GENERIC: Self = Self(0x03_00_00);
     pub const HID_BOOT_KEYBOARD: Self = Self(0x03_01_01);
     pub const HID_BOOT_MOUSE: Self = Self(0x03_01_02);
+    pub const STILL_IMAGING: Self = Self(0x06_01_01);
     pub const MSD_BULK_ONLY: Self = Self(0x08_06_50);
     pub const FLOPPY: Self = Self(0x08_04_00);
     pub const HUB_FS: Self = Self(0x09_00_00);
@@ -134,56 +135,51 @@ impl UsbClass {
     pub fn class_string(&self, is_interface: bool) -> Option<&'static str> {
         #[rustfmt::skip]
         let base_class_entries = [
-            ( UsbBaseClass::COMPOSITE, 0x01, "USB Composite Device" ),
-            ( UsbBaseClass::AUDIO, 0x02, "Audio Device" ),
-            ( UsbBaseClass::COMM, 0x03, "Communication Device" ),
-            ( UsbBaseClass::HID, 0x02, "Human Interface Device" ),
-            ( UsbBaseClass::PRINTER, 0x02, "Printer" ),
-            ( UsbBaseClass::STORAGE, 0x02, "Storage Device" ),
-            ( UsbBaseClass::HUB, 0x01, "USB Hub" ),
-            ( UsbBaseClass::CDC_DATA, 0x02, "CDC Data"),
-            ( UsbBaseClass::VIDEO, 0x02, "Video Device" ),
-            ( UsbBaseClass::AUDIO_VIDEO, 0x02, "Audio/Video Device" ),
-            ( UsbBaseClass::BILLBOARD, 0x01, "Billboard Device" ),
-            ( UsbBaseClass::TYPE_C_BRIDGE, 0x02, "Type-C Bridge" ),
-            ( UsbBaseClass::DIAGNOSTIC, 0x03, "Diagnostic Device" ),
-            ( UsbBaseClass::WIRELESS, 0x02, "Wireless Device" ),
-            ( UsbBaseClass::APPLICATION_SPECIFIC, 0x02, "Application Specific" ),
-            ( UsbBaseClass::VENDOR_SPECIFIC, 0x03, "Vendor Specific" ),
+            ( 0x01, UsbBaseClass::COMPOSITE, "Composite Device" ),
+            ( 0x02, UsbBaseClass::AUDIO, "Audio Device" ),
+            ( 0x03, UsbBaseClass::COMM, "Communication Device" ),
+            ( 0x02, UsbBaseClass::HID, "Human Interface Device" ),
+            ( 0x02, UsbBaseClass::PRINTER, "Printer" ),
+            ( 0x02, UsbBaseClass::STORAGE, "Storage Device" ),
+            ( 0x01, UsbBaseClass::HUB, "Hub" ),
+            ( 0x02, UsbBaseClass::CDC_DATA, "CDC Data"),
+            ( 0x02, UsbBaseClass::VIDEO, "Video Device" ),
+            ( 0x02, UsbBaseClass::AUDIO_VIDEO, "Audio/Video Device" ),
+            ( 0x01, UsbBaseClass::BILLBOARD, "Billboard Device" ),
+            ( 0x02, UsbBaseClass::TYPE_C_BRIDGE, "Type-C Bridge" ),
+            ( 0x03, UsbBaseClass::DIAGNOSTIC, "Diagnostic Device" ),
+            ( 0x02, UsbBaseClass::WIRELESS, "Wireless Device" ),
+            ( 0x02, UsbBaseClass::APPLICATION_SPECIFIC, "Application Specific" ),
+            ( 0x03, UsbBaseClass::VENDOR_SPECIFIC, "Vendor Specific" ),
         ];
 
         #[rustfmt::skip]
         let full_class_entries = [
-            (UsbClass::MIDI_STREAMING, "USB MIDI Streaming" ),
-            (UsbClass::HID_BOOT_KEYBOARD, "HID Boot Keyboard" ),
-            (UsbClass::HID_BOOT_MOUSE, "HID Boot Mouse" ),
+            (UsbClass::MIDI_STREAMING, "MIDI Streaming" ),
+            (UsbClass::HID_BOOT_KEYBOARD, "HID Keyboard" ),
+            (UsbClass::HID_BOOT_MOUSE, "HID Mouse" ),
             (UsbClass::MSD_BULK_ONLY, "Mass Storage Device" ),
             (UsbClass::FLOPPY, "Floppy Drive"),
-            (UsbClass::HUB_FS, "Full Speed Hub"),
-            (UsbClass::HUB_HS_STT, "High Speed Hub"),
-            (UsbClass::HUB_HS_MTT, "High Speed Hub with multi TTs"),
-            (UsbClass::HUB_SS, "Super Speed Hub"),
+            (UsbClass::STILL_IMAGING, "Still Imaging Device"),
+            (UsbClass::HUB_FS, "FullSpeed Hub"),
+            (UsbClass::HUB_HS_STT, "HighSpeed Hub"),
+            (UsbClass::HUB_HS_MTT, "HighSpeed Hub with MTT"),
+            (UsbClass::HUB_SS, "SuperSpeed Hub"),
             (UsbClass::BLUETOOTH, "Bluetooth Interface"),
             (UsbClass::XINPUT, "XInput Device"),
         ];
 
         let bitmap = 1u8 << (is_interface as usize);
-        match full_class_entries.binary_search_by_key(self, |v| v.0) {
-            Ok(index) => full_class_entries.get(index).map(|v| v.1),
-            Err(_) => None,
-        }
-        .or_else(
-            || match base_class_entries.binary_search_by_key(&self.base(), |v| v.0) {
-                Ok(index) => base_class_entries.get(index).and_then(|v| {
-                    if (v.1 & bitmap) != 0 {
-                        Some(v.2)
-                    } else {
-                        None
-                    }
-                }),
-                Err(_) => None,
-            },
-        )
+        full_class_entries
+            .iter()
+            .find(|v| v.0 == *self)
+            .map(|v| v.1)
+            .or_else(|| {
+                base_class_entries
+                    .iter()
+                    .find(|v| (v.0 & bitmap) != 0 && v.1 == self.base())
+                    .map(|v| v.2)
+            })
     }
 }
 
@@ -390,8 +386,8 @@ pub struct UsbConfigurationDescriptor {
 
 impl UsbConfigurationDescriptor {
     #[inline]
-    pub const fn total_length(&self) -> u16 {
-        self.wTotalLength.as_u16()
+    pub const fn total_length(&self) -> usize {
+        self.wTotalLength.as_u16() as usize
     }
 
     #[inline]
@@ -426,6 +422,38 @@ impl UsbDescriptor for UsbConfigurationDescriptor {
         self.bDescriptorType
     }
 }
+
+#[repr(C, packed)]
+#[allow(non_snake_case)]
+#[derive(Debug, Clone, Copy)]
+pub struct UsbStringDescriptor {
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub wLangId: UsbWord,
+}
+
+impl UsbStringDescriptor {
+    #[inline]
+    pub const fn lang_id(&self) -> UsbLangId {
+        UsbLangId(self.wLangId.as_u16())
+    }
+}
+
+impl UsbDescriptor for UsbStringDescriptor {
+    #[inline]
+    fn len(&self) -> usize {
+        self.bLength as usize
+    }
+
+    #[inline]
+    fn descriptor_type(&self) -> UsbDescriptorType {
+        self.bDescriptorType
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UsbLangId(pub u16);
 
 /// USB Interface Descriptor
 #[repr(C, packed)]
@@ -585,8 +613,8 @@ pub struct UsbBinaryObjectStoreDescriptor {
 
 impl UsbBinaryObjectStoreDescriptor {
     #[inline]
-    pub const fn total_length(&self) -> u16 {
-        self.wTotalLength.as_u16()
+    pub const fn total_length(&self) -> usize {
+        self.wTotalLength.as_u16() as usize
     }
 
     #[inline]
@@ -798,25 +826,25 @@ pub struct UsbHubPortNumber(pub NonZeroU8);
 #[repr(C, packed)]
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
-pub struct UsbHub2Descriptor {
+pub struct Usb2HubDescriptor {
     pub bLength: u8,
     pub bDescriptorType: UsbDescriptorType,
     pub bNbrPorts: u8,
     pub wHubCharacteristics: UsbWord,
     pub bPwrOn2PwrGood: u8,
     pub bHubContrCurrent: u8,
-    pub DeviceRemovable: UsbWord,
+    pub DeviceRemovable: u8,
 }
 
-impl UsbHub2Descriptor {
+impl Usb2HubDescriptor {
     #[inline]
     pub const fn num_ports(&self) -> usize {
         self.bNbrPorts as usize
     }
 
     #[inline]
-    pub const fn characteristics(&self) -> UsbHub2Characterisrics {
-        UsbHub2Characterisrics(self.wHubCharacteristics.as_u16())
+    pub const fn characteristics(&self) -> Usb2HubCharacterisrics {
+        Usb2HubCharacterisrics(self.wHubCharacteristics.as_u16())
     }
 
     /// Time (in 2 ms intervals) from the time the power-on sequence begins on a port until power is good on that port. The USB System Software uses this value to determine how long to wait before accessing a powered-on port.
@@ -826,12 +854,12 @@ impl UsbHub2Descriptor {
     }
 
     #[inline]
-    pub const fn device_removable(&self) -> u16 {
-        self.DeviceRemovable.as_u16()
+    pub const fn device_removable(&self) -> u8 {
+        self.DeviceRemovable
     }
 }
 
-impl UsbDescriptor for UsbHub2Descriptor {
+impl UsbDescriptor for Usb2HubDescriptor {
     #[inline]
     fn len(&self) -> usize {
         self.bLength as usize
@@ -845,9 +873,9 @@ impl UsbDescriptor for UsbHub2Descriptor {
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct UsbHub2Characterisrics(pub u16);
+pub struct Usb2HubCharacterisrics(pub u16);
 
-impl UsbHub2Characterisrics {
+impl Usb2HubCharacterisrics {
     #[inline]
     pub const fn is_compound_device(&self) -> bool {
         (self.0 & 0x0004) != 0
@@ -868,7 +896,7 @@ impl UsbHub2Characterisrics {
 #[repr(C, packed)]
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
-pub struct UsbHub3Descriptor {
+pub struct Usb3HubDescriptor {
     pub bLength: u8,
     pub bDescriptorType: UsbDescriptorType,
     pub bNbrPorts: u8,
@@ -880,15 +908,15 @@ pub struct UsbHub3Descriptor {
     pub DeviceRemovable: UsbWord,
 }
 
-impl UsbHub3Descriptor {
+impl Usb3HubDescriptor {
     #[inline]
     pub const fn num_ports(&self) -> usize {
         self.bNbrPorts as usize
     }
 
     #[inline]
-    pub const fn characteristics(&self) -> UsbHub3Characterisrics {
-        UsbHub3Characterisrics(self.wHubCharacteristics.as_u16())
+    pub const fn characteristics(&self) -> Usb3HubCharacterisrics {
+        Usb3HubCharacterisrics(self.wHubCharacteristics.as_u16())
     }
 
     /// Time (in 2 ms intervals) from the time the power-on sequence begins on a port until power is good on that port. The USB System Software uses this value to determine how long to wait before accessing a powered-on port.
@@ -903,7 +931,7 @@ impl UsbHub3Descriptor {
     }
 }
 
-impl UsbDescriptor for UsbHub3Descriptor {
+impl UsbDescriptor for Usb3HubDescriptor {
     #[inline]
     fn len(&self) -> usize {
         self.bLength as usize
@@ -917,9 +945,9 @@ impl UsbDescriptor for UsbHub3Descriptor {
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct UsbHub3Characterisrics(pub u16);
+pub struct Usb3HubCharacterisrics(pub u16);
 
-impl UsbHub3Characterisrics {
+impl Usb3HubCharacterisrics {
     #[inline]
     pub const fn is_compound_device(&self) -> bool {
         (self.0 & 0x0004) != 0
@@ -969,9 +997,7 @@ impl UsbRouteString {
     #[inline]
     pub const fn appending(&self, component: UsbHubPortNumber) -> Result<Self, Self> {
         let lpc = component.0.get() as u32;
-        if lpc > 15 {
-            return Err(*self);
-        }
+        let lpc = if lpc < 15 { lpc } else { 15 };
         let raw = self.0;
         let depth = self.depth();
         if depth < Self::MAX_DEPTH {
@@ -1116,6 +1142,7 @@ impl UsbControlRequest {
     pub const HID_GET_REPORT: Self = Self(1);
     pub const HID_SET_REPORT: Self = Self(9);
     pub const HID_SET_PROTOCOL: Self = Self(11);
+    pub const SET_HUB_DEPTH: Self = Self(12);
 }
 
 #[repr(u16)]
@@ -1156,6 +1183,17 @@ impl PSIV {
             PSIV::FS | PSIV::LS => 8,
             PSIV::HS => 64,
             _ => 512,
+        }
+    }
+
+    #[inline]
+    pub const fn protocol_speed(&self) -> usize {
+        match self {
+            PSIV::FS => 12_000_000,
+            PSIV::LS => 1_500_000,
+            PSIV::HS => 480_000_000,
+            PSIV::SS => 5_000_000_000,
+            _ => 0,
         }
     }
 }
@@ -1241,6 +1279,7 @@ pub enum UsbEndpointType {
 pub enum UsbError {
     General,
     HostUnavailable,
+    ControllerError,
     InvalidParameter,
     InvalidDescriptor,
     UnexpectedToken,

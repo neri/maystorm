@@ -1,5 +1,6 @@
 // MEG-OS System Calls
 
+use core::arch::asm;
 use core::ffi::c_void;
 use megosabi::svc::Function;
 

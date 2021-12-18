@@ -2,6 +2,7 @@
 
 use crate::page::*;
 use bootprot::*;
+use core::arch::asm;
 
 pub struct Invocation {}
 

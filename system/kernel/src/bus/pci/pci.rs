@@ -156,11 +156,7 @@ impl Pci {
     }
 
     pub fn device_by_addr(addr: PciConfigAddress) -> Option<&'static PciDevice> {
-        Self::shared()
-            .devices
-            .binary_search_by_key(&addr, |v| v.address())
-            .ok()
-            .and_then(|index| Self::shared().devices.get(index))
+        Self::shared().devices.iter().find(|v| v.address() == addr)
     }
 
     pub fn drivers<'a>() -> Vec<Arc<dyn PciDriver>> {

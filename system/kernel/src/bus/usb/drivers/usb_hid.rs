@@ -21,12 +21,11 @@ impl UsbHidStarter {
 }
 
 impl UsbInterfaceDriverStarter for UsbHidStarter {
-    fn instantiate(&self, device: &UsbDevice, interface: &UsbInterface) -> bool {
+    fn instantiate(&self, device: &Arc<UsbDeviceControl>, interface: &UsbInterface) -> bool {
         let class = interface.class();
         if class.base() != UsbBaseClass::HID {
             return false;
         }
-        let addr = device.addr();
         let if_no = interface.if_no();
         let endpoint = match interface.endpoints().first() {
             Some(v) => v,
@@ -50,7 +49,7 @@ impl UsbInterfaceDriverStarter for UsbHidStarter {
         device.configure_endpoint(endpoint.descriptor()).unwrap();
 
         UsbManager::register_xfer_task(Task::new(UsbHidDriver::_usb_hid_task(
-            addr,
+            device.clone(),
             if_no,
             ep,
             class,
@@ -66,15 +65,14 @@ pub struct UsbHidDriver;
 
 impl UsbHidDriver {
     async fn _usb_hid_task(
-        addr: UsbDeviceAddress,
+        device: Arc<UsbDeviceControl>,
         if_no: UsbInterfaceNumber,
         ep: UsbEndpointAddress,
         class: UsbClass,
         ps: u16,
         report_desc: Box<[u8]>,
     ) {
-        let device = UsbManager::device_by_addr(addr).unwrap();
-
+        let addr = device.device().addr();
         let report_desc = match Self::parse_report(&report_desc) {
             Ok(v) => v,
             Err(err) => {
@@ -86,7 +84,7 @@ impl UsbHidDriver {
 
         // disable boot protocol
         if class.sub() == UsbSubClass(0x01) {
-            match Self::set_boot_protocol(&device, if_no, false) {
+            match Self::set_boot_protocol(&device, if_no, false).await {
                 Ok(_) => (),
                 Err(_) => (),
             }
@@ -122,11 +120,13 @@ impl UsbHidDriver {
                     let len = (bit_position + 7) / 8;
                     if len > 0 {
                         let _ =
-                            Self::set_report(&device, if_no, HidReportType::Output, 0, len, &data);
+                            Self::set_report(&device, if_no, HidReportType::Output, 0, len, &data)
+                                .await;
                         Timer::sleep_async(Duration::from_millis(100)).await;
                         data.fill(0);
                         let _ =
-                            Self::set_report(&device, if_no, HidReportType::Output, 0, len, &data);
+                            Self::set_report(&device, if_no, HidReportType::Output, 0, len, &data)
+                                .await;
                         Timer::sleep_async(Duration::from_millis(50)).await;
                     }
                 }
@@ -298,55 +298,68 @@ impl UsbHidDriver {
     }
 
     #[inline]
-    pub fn set_boot_protocol(
-        device: &UsbDevice,
+    pub async fn set_boot_protocol(
+        device: &UsbDeviceControl,
         if_no: UsbInterfaceNumber,
         is_boot: bool,
     ) -> Result<(), UsbError> {
-        device.control_nodata(
-            UsbControlSetupData::request(
-                UsbControlRequestBitmap(0x21),
-                UsbControlRequest::HID_SET_PROTOCOL,
+        device
+            .control_nodata(
+                UsbControlSetupData::request(
+                    UsbControlRequestBitmap(0x21),
+                    UsbControlRequest::HID_SET_PROTOCOL,
+                )
+                .value((!is_boot) as u16)
+                .index_if(if_no),
             )
-            .value((!is_boot) as u16)
-            .index_if(if_no),
-        )
+            .await
     }
 
     #[inline]
-    pub fn get_report(
-        device: &UsbDevice,
+    pub async fn get_report(
+        device: &UsbDeviceControl,
         if_no: UsbInterfaceNumber,
         report_type: HidReportType,
         report_id: u8,
         len: usize,
         vec: &mut Vec<u8>,
     ) -> Result<(), UsbError> {
-        device.control_vec(
-            UsbControlSetupData::request(UsbControlRequestBitmap(0xA1), UsbControlRequest(0x01))
+        device
+            .control_var(
+                UsbControlSetupData::request(
+                    UsbControlRequestBitmap(0xA1),
+                    UsbControlRequest(0x01),
+                )
                 .value((report_type as u16) * 256 + (report_id as u16))
-                .index_if(if_no)
-                .length(len as u16),
-            vec,
-        )
+                .index_if(if_no),
+                vec,
+                len,
+                len,
+            )
+            .await
     }
 
     #[inline]
-    pub fn set_report(
-        device: &UsbDevice,
+    pub async fn set_report(
+        device: &UsbDeviceControl,
         if_no: UsbInterfaceNumber,
         report_type: HidReportType,
         report_id: u8,
         max_len: usize,
         data: &[u8],
     ) -> Result<(), UsbError> {
-        device.control_send(
-            UsbControlSetupData::request(UsbControlRequestBitmap(0x21), UsbControlRequest(0x09))
+        device
+            .control_send(
+                UsbControlSetupData::request(
+                    UsbControlRequestBitmap(0x21),
+                    UsbControlRequest(0x09),
+                )
                 .value((report_type as u16) * 256 + (report_id as u16))
                 .index_if(if_no),
-            max_len,
-            data,
-        )
+                max_len,
+                data,
+            )
+            .await
     }
 
     pub fn write_bits(blob: &mut [u8], position: usize, size: usize, value: usize) -> Option<()> {

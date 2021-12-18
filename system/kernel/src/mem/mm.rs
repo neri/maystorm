@@ -9,13 +9,14 @@ use crate::{
     system::System,
     task::scheduler::*,
 };
-use _core::{ffi::c_void, mem::MaybeUninit};
 use alloc::{boxed::Box, sync::Arc};
 use bitflags::*;
 use bootprot::*;
 use core::{
     alloc::Layout,
+    ffi::c_void,
     fmt::Write,
+    mem::MaybeUninit,
     mem::{size_of, transmute},
     num::*,
     slice,
@@ -197,20 +198,7 @@ impl MemoryManager {
         let shared = Self::shared_mut();
         if let Some(slab) = &shared.slab {
             match slab.alloc(layout) {
-                Ok(result) => {
-                    // if true && layout.size() == 48 {
-                    //     let p = result.get() as *const u8;
-                    //     write!(System::em_console(), "ALLOC {:016x}", p as usize).unwrap();
-                    //     // for i in 0..layout.size() {
-                    //     //     write!(System::em_console(), " {:02x}", unsafe {
-                    //     //         p.add(i).read_volatile()
-                    //     //     })
-                    //     //     .unwrap();
-                    //     // }
-                    //     writeln!(System::em_console(), "").unwrap();
-                    // }
-                    return Some(result);
-                }
+                Ok(result) => return Some(result),
                 Err(AllocationError::Unsupported) => (),
                 Err(_err) => return None,
             }
@@ -285,7 +273,7 @@ impl MemoryManager {
         for chunk in shared.slab.as_ref().unwrap().statistics().chunks(4) {
             write!(sb, "Slab").unwrap();
             for item in chunk {
-                write!(sb, " {:4}: {:3} / {:3}", item.0, item.1, item.2,).unwrap();
+                write!(sb, " {:4}: {:4}/{:4}", item.0, item.1, item.2,).unwrap();
             }
             writeln!(sb, "").unwrap();
         }

@@ -4,7 +4,7 @@ use crate::{
     arch::cpu::*,
     arch::page::{PageManager, PhysicalAddress},
     io::emcon::*,
-    io::tty::Tty,
+    io::tty::*,
     task::scheduler::*,
     ui::font::FontManager,
     *,
@@ -21,13 +21,6 @@ pub struct Version<'a> {
 }
 
 impl Version<'_> {
-    // "Curiosity" killed the cat
-    // Cats have nine lives, but curiosity can use up all of them.
-    const SYSTEM_NAME: &'static str = "MEG-OS codename Curiosity";
-    const SYSTEM_SHORT_NAME: &'static str = "megos";
-    const RELEASE: &'static str = "";
-    const VERSION: Version<'static> = Version::new(0, 21, 9, Self::RELEASE);
-
     #[inline]
     pub const fn new<'a>(maj: u8, min: u8, patch: u16, rel: &'a str) -> Version<'a> {
         let versions = ((maj as u32) << 24) | ((min as u32) << 16) | (patch as u32);
@@ -92,7 +85,7 @@ pub enum ProcessorCoreType {
     Efficient,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ProcessorSystemType {
     /// The system is equipped with a uniprocessor. (deprecated)
     UP,
@@ -141,6 +134,11 @@ pub struct System {
 static mut SYSTEM: System = System::new();
 
 impl System {
+    const SYSTEM_NAME: &'static str = "MEG-OS codename Azalea";
+    const SYSTEM_SHORT_NAME: &'static str = "megos";
+    const RELEASE: &'static str = "";
+    const VERSION: Version<'static> = Version::new(0, 10, 0, Self::RELEASE);
+
     #[inline]
     const fn new() -> Self {
         System {
@@ -165,15 +163,15 @@ impl System {
         shared.initrd_size = info.initrd_size as usize;
         shared.current_device.total_memory_size = info.total_memory_size as usize;
 
-        mem::MemoryManager::init_first(info);
-
         let main_screen = Bitmap32::from_static(
             PageManager::direct_map(info.vram_base) as *mut TrueColor,
             Size::new(info.screen_width as isize, info.screen_height as isize),
             info.vram_stride as usize,
         );
-        // main_screen.fill_rect(main_screen.bounds(), Color::BLUE.into());
         shared.main_screen = Some(main_screen);
+        // Self::em_console().reset().unwrap();
+
+        mem::MemoryManager::init_first(info);
 
         shared.acpi = Some(Box::new(
             ::acpi::AcpiTables::from_rsdp(MyAcpiHandler::new(), info.acpi_rsdptr as usize).unwrap(),
@@ -197,7 +195,7 @@ impl System {
         let shared = Self::shared();
         unsafe {
             // banner
-            if true {
+            if false {
                 let device = System::current_device();
 
                 writeln!(
@@ -248,19 +246,19 @@ impl System {
     /// Returns the name of current system.
     #[inline]
     pub const fn name() -> &'static str {
-        &Version::SYSTEM_NAME
+        &Self::SYSTEM_NAME
     }
 
     /// Returns abbreviated name of current system.
     #[inline]
     pub const fn short_name() -> &'static str {
-        &Version::SYSTEM_SHORT_NAME
+        &Self::SYSTEM_SHORT_NAME
     }
 
     /// Returns the version of current system.
     #[inline]
     pub const fn version<'a>() -> &'a Version<'a> {
-        &Version::VERSION
+        &Self::VERSION
     }
 
     #[inline]

@@ -391,10 +391,12 @@ impl TextProcessing {
         // let preferred_width = lines.iter().fold(0, |v, i| isize::max(v, i.width));
         cursor.y = match valign {
             VerticalAlignment::Top => coords.top,
-            VerticalAlignment::Center => isize::max(
-                coords.top,
-                coords.top + (rect.height() - perferred_height) / 2,
-            ),
+            VerticalAlignment::Center => {
+                isize::max(
+                    coords.top,
+                    coords.top + (rect.height() - perferred_height) / 2,
+                ) + (font.line_height() - font.height()) / 2
+            }
             VerticalAlignment::Bottom => isize::max(coords.top, coords.bottom - perferred_height),
         };
         for line in lines {

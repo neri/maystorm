@@ -178,7 +178,7 @@ impl WindowManager<'static> {
                 .bg_color(Color::BLACK)
                 .without_message_queue()
                 .bitmap_strategy(BitmapStrategy::NonBitmap)
-                .build_inner("Root");
+                .build_inner("Desktop");
 
             let handle = window.handle;
             window_pool.insert(handle, Arc::new(UnsafeCell::new(window)));
@@ -944,14 +944,15 @@ impl WindowManager<'_> {
         let shared = Self::shared();
         sb.clear();
 
-        writeln!(sb, "  # Lv Frame",).unwrap();
+        writeln!(sb, "  # PID Lv Frame",).unwrap();
         for window in shared.window_pool.read().unwrap().values() {
             let window = unsafe { &*window.clone().as_ref().get() };
             let frame = window.frame;
             writeln!(
                 sb,
-                "{:3} {:2x} {:4} {:4} {:4} {:4} {}",
+                "{:3} {:3} {:2x} {:4} {:4} {:4} {:4} {}",
                 window.handle.0,
+                window.pid.0,
                 window.level.0,
                 frame.x(),
                 frame.y(),
@@ -1016,6 +1017,7 @@ impl Default for ViewActionState {
 struct RawWindow<'a> {
     /// Refer to the self owned handle
     handle: WindowHandle,
+    pid: ProcessId,
 
     // Properties
     attributes: AtomicBitflags<WindowAttributes>,
@@ -1429,7 +1431,7 @@ impl RawWindow<'_> {
 
                     if let Some(text) = self.title() {
                         let font = shared.resources.title_font;
-                        let rect = rect.insets_by(EdgeInsets::new(2, left, 0, right));
+                        let rect = rect.insets_by(EdgeInsets::new(0, left, 0, right));
 
                         if is_active {
                             let rect2 = rect + Point::new(1, 1);
@@ -1499,8 +1501,7 @@ impl RawWindow<'_> {
 
     #[inline]
     fn title_foreground(&self) -> Color {
-        let is_active = self.is_active();
-        if is_active {
+        if self.is_active() {
             if self.style.contains(WindowStyle::DARK_ACTIVE) {
                 Theme::shared().window_title_active_foreground_dark()
             } else {
@@ -1542,7 +1543,11 @@ impl RawWindow<'_> {
                         Theme::shared().window_title_close_foreground()
                     }
                 } else {
-                    self.title_foreground()
+                    if self.style.contains(WindowStyle::DARK_TITLE) {
+                        Theme::shared().window_title_inactive_foreground_dark()
+                    } else {
+                        Theme::shared().window_title_inactive_foreground()
+                    }
                 }
             }
         }
@@ -1854,7 +1859,6 @@ impl WindowBuilder {
         if self.style.contains(WindowStyle::THIN_FRAME) {
             self.style.insert(WindowStyle::BORDER);
         }
-        let is_thin = self.style.contains(WindowStyle::THIN_FRAME);
 
         let screen_bounds = WindowManager::user_screen_bounds();
         let content_insets = self.style.as_content_insets();
@@ -1886,30 +1890,31 @@ impl WindowBuilder {
 
         let bg_color = self.bg_color;
 
-        if bg_color.brightness().unwrap_or(255) < 128 {
-            self.style.insert(WindowStyle::DARK_BORDER);
-        }
+        self.style.set(
+            WindowStyle::DARK_BORDER,
+            bg_color.brightness().unwrap_or(255) < 128,
+        );
         let is_dark_mode = self.style.contains(WindowStyle::DARK_BORDER);
 
         let accent_color = Theme::shared().window_default_accent();
-        let active_title_color = self.active_title_color.unwrap_or(if is_thin {
-            Theme::shared().window_title_active_background()
-        } else if is_dark_mode {
+        let active_title_color = self.active_title_color.unwrap_or(if is_dark_mode {
             Theme::shared().window_title_active_background_dark()
         } else {
-            bg_color
+            Theme::shared().window_title_active_background()
         });
-        let inactive_title_color = self.inactive_title_color.unwrap_or(if is_thin {
-            Theme::shared().window_title_inactive_background()
+        let inactive_title_color = self.inactive_title_color.unwrap_or(if is_dark_mode {
+            bg_color
         } else {
-            bg_color
+            Theme::shared().window_title_inactive_background()
         });
-        if active_title_color.brightness().unwrap_or(255) < 192 {
-            self.style.insert(WindowStyle::DARK_ACTIVE);
-        }
-        if inactive_title_color.brightness().unwrap_or(255) < 128 {
-            self.style.insert(WindowStyle::DARK_TITLE);
-        }
+        self.style.set(
+            WindowStyle::DARK_ACTIVE,
+            active_title_color.brightness().unwrap_or(255) < 192,
+        );
+        self.style.set(
+            WindowStyle::DARK_TITLE,
+            inactive_title_color.brightness().unwrap_or(255) < 128,
+        );
 
         let queue = match self.queue_size {
             0 => None,
@@ -1936,6 +1941,7 @@ impl WindowBuilder {
         };
 
         let handle = WindowManager::next_window_handle();
+
         let mut window = Box::new(RawWindow {
             handle,
             frame,
@@ -1955,6 +1961,7 @@ impl WindowBuilder {
             waker: AtomicWaker::new(),
             sem: Semaphore::new(0),
             queue,
+            pid: Scheduler::current_pid(),
         });
 
         match self.bitmap_strategy {
@@ -2199,7 +2206,7 @@ impl WindowHandle {
     #[inline]
     pub fn content_rect(&self) -> Rect {
         let window = self.as_ref();
-        Rect::from(window.frame.size()).insets_by(window.content_insets)
+        window.frame.bounds().insets_by(window.content_insets)
     }
 
     #[inline]
@@ -2389,16 +2396,19 @@ impl WindowHandle {
     }
 
     /// Supports asynchronous reading of window messages.
-    pub fn poll_message(&self, cx: &mut Context<'_>) -> Option<WindowMessage> {
+    pub fn poll_message(&self, cx: &mut Context<'_>) -> Poll<Option<WindowMessage>> {
         let window = match self.get() {
             Some(v) => v.as_ref(),
-            None => return None,
+            None => return Poll::Ready(None),
         };
         window.waker.register(cx.waker());
-        self.read_message().map(|message| {
+        match self.read_message().map(|message| {
             self.as_ref().waker.take();
             message
-        })
+        }) {
+            Some(v) => Poll::Ready(Some(v)),
+            None => Poll::Pending,
+        }
     }
 
     /// Get the window message asynchronously.
@@ -2457,10 +2467,7 @@ impl Future for WindowMessageConsumer {
     type Output = Option<WindowMessage>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.handle.poll_message(cx) {
-            Some(v) => Poll::Ready(Some(v)),
-            None => Poll::Pending,
-        }
+        self.handle.poll_message(cx)
     }
 }
 

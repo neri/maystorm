@@ -1,6 +1,6 @@
 //! xHCI MMIO Registers
 
-use super::data::*;
+use super::*;
 use crate::{
     bus::usb::*,
     mem::{MemoryManager, PhysicalAddress},
@@ -262,6 +262,16 @@ impl OperationalRegisters {
             | if cie { 0x200 } else { 0 };
         self.config.store(val, Ordering::SeqCst);
     }
+
+    #[inline]
+    pub fn device_notification_bitmap(&self) -> DeviceNotificationBitmap {
+        DeviceNotificationBitmap::from_bits_truncate(self.dnctrl.load(Ordering::SeqCst))
+    }
+
+    #[inline]
+    pub fn set_device_notification_bitmap(&self, bitmap: DeviceNotificationBitmap) {
+        self.dnctrl.store(bitmap.bits(), Ordering::SeqCst);
+    }
 }
 
 bitflags! {
@@ -293,6 +303,13 @@ bitflags! {
     }
 }
 
+bitflags! {
+    /// Device Notification
+    pub struct DeviceNotificationBitmap: u32 {
+        const FUNCTION_WAKE = 0b0000_0000_0000_0010;
+    }
+}
+
 /// xHC USB Port Register Set
 #[repr(C)]
 #[allow(dead_code)]
@@ -305,12 +322,17 @@ pub struct PortRegisters {
 
 impl PortRegisters {
     #[inline]
-    pub fn portsc(&self) -> PortSc {
+    pub fn status(&self) -> PortSc {
         PortSc::from_bits_truncate(self.portsc.load(Ordering::SeqCst))
     }
 
     #[inline]
-    pub fn write_portsc(&self, val: PortSc) {
+    pub fn set(&self, val: PortSc) {
+        self.write((self.status() & PortSc::PRESERVE_MASK) | val);
+    }
+
+    #[inline]
+    pub fn write(&self, val: PortSc) {
         self.portsc.store(val.bits(), Ordering::SeqCst);
     }
 }
@@ -371,6 +393,31 @@ bitflags! {
 
 impl PortSc {
     #[inline]
+    pub const fn is_connected_status_changed(&self) -> bool {
+        self.contains(Self::CSC)
+    }
+
+    #[inline]
+    pub const fn is_connected(&self) -> bool {
+        self.contains(Self::CCS)
+    }
+
+    #[inline]
+    pub const fn is_enabled(&self) -> bool {
+        self.contains(Self::PED)
+    }
+
+    #[inline]
+    pub const fn is_powered(&self) -> bool {
+        self.contains(Self::PP)
+    }
+
+    #[inline]
+    pub const fn is_changed(&self) -> bool {
+        (self.bits() & Self::ALL_CHANGE_BITS.bits()) != 0
+    }
+
+    #[inline]
     pub const fn link_state_raw(&self) -> usize {
         ((self.bits() & Self::PLS.bits()) as usize) >> 5
     }
@@ -411,7 +458,6 @@ impl PortSc {
 
 /// xHC Runtime Registers
 #[repr(C)]
-#[allow(dead_code)]
 pub struct RuntimeRegisters {
     mfindex: AtomicU32,
     _rsrv1: [u32; 7],
@@ -491,7 +537,6 @@ impl InterrupterRegisterSet {
 
 /// xHC Doorbell Register
 #[repr(transparent)]
-#[allow(dead_code)]
 pub struct DoorbellRegister(AtomicU32);
 
 impl DoorbellRegister {

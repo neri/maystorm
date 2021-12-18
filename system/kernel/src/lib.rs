@@ -3,7 +3,6 @@
 #![no_std]
 #![feature(abi_x86_interrupt)]
 #![feature(alloc_error_handler)]
-#![feature(asm)]
 #![feature(async_closure)]
 #![feature(box_into_inner)]
 #![feature(cfg_target_has_atomic)]
@@ -12,14 +11,13 @@
 #![feature(const_mut_refs)]
 #![feature(control_flow_enum)]
 #![feature(core_intrinsics)]
-#![feature(global_asm)]
 #![feature(lang_items)]
 #![feature(maybe_uninit_extra)]
+#![feature(maybe_uninit_uninit_array)]
 #![feature(negative_impls)]
 #![feature(new_uninit)]
 #![feature(option_result_contains)]
 #![feature(panic_info_message)]
-#![feature(try_reserve)]
 
 #[macro_use]
 pub mod arch;
@@ -45,8 +43,6 @@ use core::fmt::Write;
 use core::panic::PanicInfo;
 
 extern crate alloc;
-
-#[macro_use()]
 extern crate bitflags;
 
 #[macro_export]

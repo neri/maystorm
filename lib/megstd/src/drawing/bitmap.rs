@@ -1,8 +1,6 @@
 // MEG-OS Drawing library
 
-use super::color::*;
-use super::coords::*;
-use super::drawable::*;
+use super::*;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::cell::UnsafeCell;

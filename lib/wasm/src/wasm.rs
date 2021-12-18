@@ -2036,8 +2036,8 @@ impl WasmName {
     }
 
     #[inline]
-    pub fn module(&self) -> Option<&String> {
-        self.module.as_ref()
+    pub fn module(&self) -> Option<&str> {
+        self.module.as_ref().map(|v| v.as_str())
     }
 
     #[inline]
@@ -2045,10 +2045,10 @@ impl WasmName {
         self.functions.as_slice()
     }
 
-    pub fn func_by_index(&self, idx: usize) -> Option<&String> {
+    pub fn func_by_index(&self, idx: usize) -> Option<&str> {
         let functions = self.functions();
         match functions.binary_search_by_key(&idx, |(k, _v)| *k) {
-            Ok(v) => functions.get(v).map(|(_k, v)| v),
+            Ok(v) => functions.get(v).map(|(_k, v)| v.as_str()),
             Err(_) => None,
         }
     }
@@ -2058,10 +2058,10 @@ impl WasmName {
         self.globals.as_slice()
     }
 
-    pub fn global_by_index(&self, idx: usize) -> Option<&String> {
+    pub fn global_by_index(&self, idx: usize) -> Option<&str> {
         let globals = self.globals();
         match globals.binary_search_by_key(&idx, |(k, _v)| *k) {
-            Ok(v) => globals.get(v).map(|(_k, v)| v),
+            Ok(v) => globals.get(v).map(|(_k, v)| v.as_str()),
             Err(_) => None,
         }
     }

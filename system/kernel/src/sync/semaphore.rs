@@ -118,7 +118,7 @@ impl Default for BinarySemaphore {
 }
 
 pub struct AsyncSemaphore {
-    value: AtomicUsize,
+    pub value: AtomicUsize,
     waker: AtomicWaker,
 }
 
@@ -144,7 +144,7 @@ impl AsyncSemaphore {
 
     #[inline]
     pub fn wait_ok<T: 'static>(
-        self: Pin<Arc<Self>>,
+        self: &Pin<Arc<Self>>,
     ) -> Pin<Box<dyn Future<Output = Result<(), T>>>> {
         Box::pin(AsyncSemaphoreResultObserver {
             sem: self.clone(),

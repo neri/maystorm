@@ -2,7 +2,6 @@
 
 #![no_std]
 #![feature(const_mut_refs)]
-#![feature(const_raw_ptr_deref)]
 
 mod osstr;
 pub use osstr::*;
@@ -11,6 +10,7 @@ pub mod error;
 pub mod fs;
 pub mod game;
 pub mod io;
+pub mod mem;
 pub mod path;
 pub mod rand;
 pub mod string;

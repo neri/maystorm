@@ -15,7 +15,7 @@ INITRD_IMG	= $(EFI_VENDOR)/initrd.img
 TARGET_KERNEL	= system/target/$(KRNL_ARCH)/release/kernel
 TARGET_BOOT_EFI	= boot/target/$(EFI_ARCH)/release/boot-efi.efi
 TARGET_ISO	= var/megos.iso
-TARGETS		= kernel boot
+TARGETS		= boot kernel
 OVMF		= var/ovmfx64.fd
 INITRD_FILES	= LICENSE $(MISC)initrd/* apps/target/wasm32-unknown-unknown/release/*.wasm
 
@@ -34,10 +34,34 @@ $(EFI_VENDOR):
 	mkdir -p $(EFI_VENDOR)
 
 run:
-	qemu-system-x86_64 -machine q35 -cpu max -smp 4,cores=2,threads=2 -bios $(OVMF) -drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -rtc base=localtime,clock=host -monitor stdio -device nec-usb-xhci,id=xhci -device usb-tablet -device usb-kbd -device usb-storage,drive=stick
+	qemu-system-x86_64 -machine q35 \
+		-cpu Haswell -smp 4,cores=2,threads=2 \
+		-bios $(OVMF) \
+		-rtc base=localtime,clock=host \
+		-device nec-usb-xhci,id=xhci -device usb-tablet -device usb-kbd \
+		-drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
+		-device intel-hda -device hda-duplex \
+		-monitor stdio
 
-runs:
-	qemu-system-x86_64 -machine q35 -cpu max -bios $(OVMF) -drive format=raw,file=fat:rw:$(MNT) -rtc base=localtime,clock=host -monitor stdio -device nec-usb-xhci,id=xhci
+run_leg:
+	qemu-system-x86_64 -machine q35 \
+		-cpu Haswell -smp 4,cores=2,threads=2 \
+		-bios $(OVMF) \
+		-rtc base=localtime,clock=host \
+		-device nec-usb-xhci,id=xhci \
+		-drive format=raw,file=fat:rw:$(MNT) \
+		-device intel-hda -device hda-duplex \
+		-monitor stdio
+
+run_up:
+	qemu-system-x86_64 -machine q35 \
+		-cpu IvyBridge \
+		-bios $(OVMF) \
+		-rtc base=localtime,clock=host \
+		-device nec-usb-xhci,id=xhci -device usb-tablet -device usb-kbd \
+		-drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
+		-device intel-hda -device hda-duplex \
+		-monitor stdio
 
 boot:
 	(cd boot; cargo build -Zbuild-std --release --target $(EFI_ARCH).json)

@@ -154,7 +154,7 @@ impl Apic {
         seq!(N in 1..64 {
             InterruptDescriptorTable::register(
                 Irq(N).into(),
-                handle_irq_#N as usize,
+                handle_irq_ #N as usize,
                 super::cpu::PrivilegeLevel::Kernel,
             );
         });
@@ -419,7 +419,7 @@ impl Apic {
 pub type IrqHandler = fn(usize) -> ();
 
 seq!(N in 1..64 {
-    unsafe extern "x86-interrupt" fn handle_irq_#N () {
+    unsafe extern "x86-interrupt" fn handle_irq_ #N () {
         Apic::handle_irq(Irq(N));
     }
 });

@@ -53,8 +53,13 @@ impl DCI {
     }
 
     #[inline]
-    pub const fn is_dir_in(&self) -> bool {
-        (self.0.get() & 1) != 0
+    pub const fn can_read(&self) -> bool {
+        self.0.get() > 1 && (self.0.get() & 1) != 0
+    }
+
+    #[inline]
+    pub const fn can_write(&self) -> bool {
+        self.0.get() > 1 && (self.0.get() & 1) == 0
     }
 
     #[inline]
@@ -183,7 +188,7 @@ pub trait TrbCommon {
         FromPrimitive::from_u32(val)
     }
 
-    fn copy_from<T>(&self, src: &T, cycle: &CycleBit)
+    fn copy<T>(&self, src: &T, cycle: &CycleBit)
     where
         T: TrbCommon,
     {
@@ -198,7 +203,23 @@ pub trait TrbCommon {
         );
     }
 
-    fn raw_copy_from<T>(&self, src: &T)
+    fn copy_without_cycle<T>(&self, src: &T)
+    where
+        T: TrbCommon,
+    {
+        let dest = self.raw_data();
+        let src = src.raw_data();
+        for index in 0..3 {
+            dest[index].store(src[index].load(Ordering::SeqCst), Ordering::SeqCst);
+        }
+        dest[3].store(
+            (src[3].load(Ordering::SeqCst) & 0xFFFF_FFFE)
+                | (dest[3].load(Ordering::SeqCst) & 0x0000_0001),
+            Ordering::SeqCst,
+        );
+    }
+
+    fn raw_copy<T>(&self, src: &T)
     where
         T: TrbCommon,
     {
@@ -207,6 +228,16 @@ pub trait TrbCommon {
         for index in 0..4 {
             dest[index].store(src[index].load(Ordering::SeqCst), Ordering::SeqCst);
         }
+    }
+
+    #[inline]
+    fn clone(&self) -> Trb
+    where
+        Self: Sized,
+    {
+        let result = Trb::empty();
+        result.raw_copy(self);
+        result
     }
 
     fn as_common_trb(&self) -> &Trb {
@@ -221,9 +252,14 @@ pub trait TrbCommon {
             Some(TrbType::PORT_STATUS_CHANGE_EVENT) => Some(TrbEvent::PortStatusChange(unsafe {
                 transmute(self.raw_data())
             })),
-            Some(TrbType::TRANSFER_EVENT) => Some(TrbEvent::TransferEvent(unsafe {
-                transmute(self.raw_data())
-            })),
+            Some(TrbType::TRANSFER_EVENT) => {
+                Some(TrbEvent::Transfer(unsafe { transmute(self.raw_data()) }))
+            }
+            Some(TrbType::DEVICE_NOTIFICATION_EVENT) => {
+                Some(TrbEvent::DeviceNotification(unsafe {
+                    transmute(self.raw_data())
+                }))
+            }
             _ => None,
         }
     }
@@ -280,7 +316,8 @@ pub trait TrbSlotId: TrbCommon {
 pub trait TrbDci: TrbCommon {
     #[inline]
     fn dci(&self) -> Option<DCI> {
-        NonZeroU8::new((self.raw_data()[3].load(Ordering::SeqCst) >> 16) as u8).map(|v| DCI(v))
+        NonZeroU8::new(0x1F & (self.raw_data()[3].load(Ordering::SeqCst) >> 16) as u8)
+            .map(|v| DCI(v))
     }
 
     #[inline]
@@ -499,6 +536,23 @@ impl TrbCommon for TrbLink {
 
 impl TrbPtr for TrbLink {}
 
+/// TRB for NOP
+pub struct TrbNop(TrbRawData);
+
+impl TrbNop {
+    #[inline]
+    pub fn new() -> Self {
+        unsafe { transmute(Trb::new(TrbType::NOP)) }
+    }
+}
+
+impl TrbCommon for TrbNop {
+    #[inline]
+    fn raw_data(&self) -> &TrbRawData {
+        &self.0
+    }
+}
+
 /// TRB for NORMAL
 pub struct TrbNormal(TrbRawData);
 
@@ -612,9 +666,10 @@ impl TrbIoC for TrbStatusStage {}
 impl TrbDir for TrbStatusStage {}
 
 pub enum TrbEvent<'a> {
-    CommandCompletion(&'a TrbCce),
-    PortStatusChange(&'a TrbPsc),
-    TransferEvent(&'a TrbTxe),
+    CommandCompletion(&'a TrbCommandCompletionEvent),
+    PortStatusChange(&'a TrbPortStatusChangeEvent),
+    Transfer(&'a TrbTransferEvent),
+    DeviceNotification(&'a TrbDeviceNotificationEvent),
 }
 
 impl TrbEvent<'_> {
@@ -623,15 +678,16 @@ impl TrbEvent<'_> {
         match self {
             TrbEvent::CommandCompletion(ref v) => v.completion_code(),
             TrbEvent::PortStatusChange(ref v) => v.completion_code(),
-            TrbEvent::TransferEvent(ref v) => v.completion_code(),
+            TrbEvent::Transfer(ref v) => v.completion_code(),
+            TrbEvent::DeviceNotification(ref v) => v.completion_code(),
         }
     }
 }
 
 /// TRB for COMMAND_COMPLETION_EVENT
-pub struct TrbCce(TrbRawData);
+pub struct TrbCommandCompletionEvent(TrbRawData);
 
-impl TrbCce {
+impl TrbCommandCompletionEvent {
     #[inline]
     pub const fn empty() -> Self {
         unsafe { transmute(Trb::empty()) }
@@ -640,42 +696,42 @@ impl TrbCce {
     #[inline]
     pub fn copied(&self) -> Self {
         let result = Self::empty();
-        result.raw_copy_from(self);
+        result.raw_copy(self);
         result
     }
 }
 
-impl TrbCommon for TrbCce {
+impl TrbCommon for TrbCommandCompletionEvent {
     #[inline]
     fn raw_data(&self) -> &TrbRawData {
         &self.0
     }
 }
 
-impl TrbCC for TrbCce {}
+impl TrbCC for TrbCommandCompletionEvent {}
 
-impl TrbSlotId for TrbCce {}
+impl TrbSlotId for TrbCommandCompletionEvent {}
 
-impl TrbPtr for TrbCce {}
+impl TrbPtr for TrbCommandCompletionEvent {}
 
 /// TRB for PORT_STATUS_CHANGE_EVENT
-pub struct TrbPsc(TrbRawData);
+pub struct TrbPortStatusChangeEvent(TrbRawData);
 
-impl TrbCommon for TrbPsc {
+impl TrbCommon for TrbPortStatusChangeEvent {
     #[inline]
     fn raw_data(&self) -> &TrbRawData {
         &self.0
     }
 }
 
-impl TrbCC for TrbPsc {}
+impl TrbCC for TrbPortStatusChangeEvent {}
 
-impl TrbPortId for TrbPsc {}
+impl TrbPortId for TrbPortStatusChangeEvent {}
 
 /// TRB for TRANSFER_EVENT
-pub struct TrbTxe(TrbRawData);
+pub struct TrbTransferEvent(TrbRawData);
 
-impl TrbTxe {
+impl TrbTransferEvent {
     #[inline]
     pub const fn empty() -> Self {
         unsafe { transmute(Trb::empty()) }
@@ -684,7 +740,7 @@ impl TrbTxe {
     #[inline]
     pub fn copied(&self) -> Self {
         let result = Self::empty();
-        result.raw_copy_from(self);
+        result.raw_copy(self);
         result
     }
 
@@ -699,18 +755,50 @@ impl TrbTxe {
     }
 }
 
-impl TrbCommon for TrbTxe {
+impl TrbCommon for TrbTransferEvent {
     #[inline]
     fn raw_data(&self) -> &TrbRawData {
         &self.0
     }
 }
 
-impl TrbCC for TrbTxe {}
+impl TrbCC for TrbTransferEvent {}
 
-impl TrbSlotId for TrbTxe {}
+impl TrbSlotId for TrbTransferEvent {}
 
-impl TrbPtr for TrbTxe {}
+impl TrbPtr for TrbTransferEvent {}
+
+impl TrbDci for TrbTransferEvent {}
+
+/// TRB for DEVICE_NOTIFICATION_EVENT
+pub struct TrbDeviceNotificationEvent(TrbRawData);
+
+impl TrbDeviceNotificationEvent {
+    #[inline]
+    pub const fn empty() -> Self {
+        unsafe { transmute(Trb::empty()) }
+    }
+
+    #[inline]
+    pub fn copied(&self) -> Self {
+        let result = Self::empty();
+        result.raw_copy(self);
+        result
+    }
+}
+
+impl TrbCommon for TrbDeviceNotificationEvent {
+    #[inline]
+    fn raw_data(&self) -> &TrbRawData {
+        &self.0
+    }
+}
+
+impl TrbCC for TrbDeviceNotificationEvent {}
+
+impl TrbSlotId for TrbDeviceNotificationEvent {}
+
+impl TrbPtr for TrbDeviceNotificationEvent {}
 
 /// TRB for ADDRESS_DEVICE_COMMAND
 pub struct TrbAddressDeviceCommand(TrbRawData);

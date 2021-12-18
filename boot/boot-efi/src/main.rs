@@ -1,11 +1,10 @@
 // MEG-OS Boot loader for UEFI
 
-#![feature(abi_efiapi)]
 #![no_std]
 #![no_main]
-#![feature(asm)]
+#![feature(abi_efiapi)]
 
-use boot_efi::{config::*, invocation::*, loader::*, page::*};
+use boot_efi::{invocation::*, loader::*, page::*};
 use bootprot::*;
 use core::{ffi::c_void, fmt::Write, mem::*};
 use uefi::prelude::*;
@@ -13,47 +12,15 @@ use uefi::prelude::*;
 extern crate lib_efi;
 use lib_efi::*;
 
+static KERNEL_PATH: &str = "/EFI/MEGOS/kernel.bin";
+static INITRD_PATH: &str = "/EFI/MEGOS/initrd.img";
+
 #[entry]
-fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
+fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
     let mut info = BootInfo::default();
     let bs = st.boot_services();
     info.platform = Platform::UEFI;
     info.color_mode = ColorMode::Argb32;
-
-    // Load CONFIG
-    let config = match get_file(handle, &bs, BootSettings::DEFAULT_CONFIG_PATH) {
-        Ok(blob) => match BootSettings::load(unsafe { core::str::from_utf8_unchecked(blob) }) {
-            Ok(result) => result,
-            Err(err) => {
-                writeln!(st.stdout(), "Error in config: {}", err).unwrap();
-                return Status::LOAD_ERROR;
-            }
-        },
-        Err(status) => match status {
-            Status::NOT_FOUND => BootSettings::default(),
-            _ => {
-                writeln!(
-                    st.stdout(),
-                    "Error: Load failed {}",
-                    BootSettings::DEFAULT_CONFIG_PATH
-                )
-                .unwrap();
-                return status;
-            }
-        },
-    };
-
-    // Load values from CONFIG
-    info.cmdline = config.cmdline().as_ptr() as usize as u64;
-    if config.force_single() {
-        info.flags |= BootFlags::FORCE_SINGLE;
-    }
-    if config.is_headless() {
-        info.flags.insert(BootFlags::HEADLESS);
-    }
-    if config.is_debug_mode() {
-        info.flags.insert(BootFlags::DEBUG_MODE);
-    }
 
     // Find ACPI Table
     info.acpi_rsdptr = match st.find_config_table(::uefi::table::cfg::ACPI2_GUID) {
@@ -98,10 +65,10 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
     }
 
     // Load KERNEL
-    let mut kernel = ElfLoader::new(match get_file(handle, &bs, config.kernel_path()) {
+    let mut kernel = ElfLoader::new(match get_file(handle, &bs, KERNEL_PATH) {
         Ok(blob) => (blob),
         Err(status) => {
-            writeln!(st.stdout(), "Error: Load failed {}", config.kernel_path()).unwrap();
+            writeln!(st.stdout(), "Error: Load failed {}", KERNEL_PATH).unwrap();
             return status;
         }
     });
@@ -113,13 +80,13 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
     info.kernel_base = bounds.0.as_u64();
 
     // Load initrd
-    match get_file(handle, &bs, config.initrd_path()) {
+    match get_file(handle, &bs, INITRD_PATH) {
         Ok(blob) => {
             info.initrd_base = &blob[0] as *const u8 as u32;
             info.initrd_size = blob.len() as u32;
         }
         Err(status) => {
-            writeln!(st.stdout(), "Error: Load failed {}", config.initrd_path()).unwrap();
+            writeln!(st.stdout(), "Error: Load failed {}", INITRD_PATH).unwrap();
             return status;
         }
     };
@@ -163,15 +130,6 @@ fn efi_main(handle: Handle, st: SystemTable<Boot>) -> Status {
     // println!("Now starting MEG-OS...");
     unsafe {
         Invocation::invoke_kernel(&info, entry, new_sp);
-    }
-}
-
-#[allow(dead_code)]
-#[cfg(any(target_arch = "x86_64"))]
-fn write_b0c2(addr: u16, data: u16) {
-    unsafe {
-        asm!("out dx, ax", in("dx") 0x1ce, in("ax") addr);
-        asm!("out dx, ax", in("dx") 0x1cf, in("ax") data);
     }
 }
 

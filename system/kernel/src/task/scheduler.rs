@@ -581,11 +581,7 @@ impl Scheduler {
 
     pub fn get_thread_statistics(sb: &mut StringBuffer) {
         let shared = Self::shared();
-        writeln!(
-            sb,
-            " ID PID P ST %CPU code             stack            NAME"
-        )
-        .unwrap();
+        writeln!(sb, " ID PID P ST %CPU stack            NAME").unwrap();
         for thread in shared.thread_pool.data.values() {
             let thread = thread.clone();
             let thread = unsafe { &mut (*thread.get()) };
@@ -617,7 +613,7 @@ impl Scheduler {
                 write!(sb, " {:2}.{:1}", load1, load0,).unwrap();
             }
 
-            write!(sb, " {:016x} {:016x}", cts.0, cts.1,).unwrap();
+            write!(sb, " {:016x}", cts.0).unwrap();
 
             if let Some(name) = thread.name() {
                 writeln!(sb, " {}", name).unwrap();
@@ -995,7 +991,6 @@ impl Timer {
                 }
                 Err(e) => {
                     event = e;
-                    todo!();
                 }
             }
         }
