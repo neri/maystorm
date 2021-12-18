@@ -2,7 +2,6 @@
 
 #![no_std]
 #![feature(const_mut_refs)]
-#![feature(const_raw_ptr_deref)]
 
 mod osstr;
 pub use osstr::*;

@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::arch::cpu::Cpu;
-use crate::*;
+// use crate::*;
 use ::alloc::vec::Vec;
 use core::alloc::Layout;
 use core::mem::MaybeUninit;
@@ -113,14 +113,14 @@ impl SlabCache {
             ))
             .unwrap();
 
-            log!(
-                "CHUNK: block {} {} alloc {} [{} {}] ",
-                block_size,
-                alloc_size / block_size,
-                alloc_size,
-                preferred_page_size,
-                pages,
-            );
+            // log!(
+            //     "CHUNK: block {} {} alloc {} [{} {}] ",
+            //     block_size,
+            //     alloc_size / block_size,
+            //     alloc_size,
+            //     preferred_page_size,
+            //     pages,
+            // );
 
             for i in 0..pages {
                 let ptr = blob.get() + preferred_page_size * i;

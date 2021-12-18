@@ -15,7 +15,7 @@ INITRD_IMG	= $(EFI_VENDOR)/initrd.img
 TARGET_KERNEL	= system/target/$(KRNL_ARCH)/release/kernel
 TARGET_BOOT_EFI	= boot/target/$(EFI_ARCH)/release/boot-efi.efi
 TARGET_ISO	= var/megos.iso
-TARGETS		= kernel boot
+TARGETS		= boot kernel
 OVMF		= var/ovmfx64.fd
 INITRD_FILES	= LICENSE $(MISC)initrd/* apps/target/wasm32-unknown-unknown/release/*.wasm
 

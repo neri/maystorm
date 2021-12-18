@@ -195,21 +195,21 @@ impl System {
         let shared = Self::shared();
         unsafe {
             // banner
-            // if true {
-            //     let device = System::current_device();
+            if false {
+                let device = System::current_device();
 
-            //     writeln!(
-            //         System::em_console(),
-            //         "{} v{} Processor {} / {} {:?}, Memory {} MB",
-            //         System::name(),
-            //         System::version(),
-            //         device.num_of_performance_cpus(),
-            //         device.num_of_active_cpus(),
-            //         device.processor_system_type(),
-            //         device.total_memory_size() >> 20,
-            //     )
-            //     .unwrap();
-            // }
+                writeln!(
+                    System::em_console(),
+                    "{} v{} Processor {} / {} {:?}, Memory {} MB",
+                    System::name(),
+                    System::version(),
+                    device.num_of_performance_cpus(),
+                    device.num_of_active_cpus(),
+                    device.processor_system_type(),
+                    device.total_memory_size() >> 20,
+                )
+                .unwrap();
+            }
 
             mem::MemoryManager::late_init();
 

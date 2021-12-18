@@ -11,6 +11,4 @@ bitflags = {version = "1"}
 bootprot = {path = "../../lib/bootprot"}
 byteorder = {version = "1", default-features = false}
 lib-efi = {path = "../lib-efi"}
-serde = {version = "1", default-features = false, features = ["derive"]}
-serde-json-core = {version = "0.2.0"}
-uefi = {version = "0.11.0"}
+uefi = {version = "0.13.0"}

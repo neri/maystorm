@@ -6,6 +6,7 @@ use bitflags::*;
 use bootprot::*;
 use core::{
     alloc::Layout,
+    arch::asm,
     mem::transmute,
     num::{NonZeroU64, NonZeroUsize},
     ops::{AddAssign, BitOrAssign, SubAssign},

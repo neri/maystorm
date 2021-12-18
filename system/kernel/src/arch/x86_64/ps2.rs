@@ -1,12 +1,9 @@
 // PS/2 Device Driver
 
-use crate::arch::apic::*;
-use crate::io::hid_mgr::*;
-use crate::sync::spinlock::SpinLoopWait;
-use crate::task::scheduler::*;
-use crate::*;
+use super::apic::*;
+use crate::{io::hid_mgr::*, sync::spinlock::SpinLoopWait, task::scheduler::*, *};
 use bitflags::*;
-use core::time::Duration;
+use core::{arch::asm, time::Duration};
 use megstd::io::hid::*;
 
 static mut PS2: Ps2 = Ps2::new();

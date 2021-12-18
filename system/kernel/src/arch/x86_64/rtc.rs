@@ -1,8 +1,8 @@
 // Real Time Clock
 
 use super::cpu::*;
-use crate::sync::spinlock::*;
-use crate::task::scheduler::*;
+use crate::{sync::spinlock::*, task::scheduler::*};
+use core::arch::asm;
 use megstd::time::SystemTime;
 
 static mut RTC: Rtc = Rtc::new();

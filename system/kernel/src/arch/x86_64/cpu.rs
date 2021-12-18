@@ -1,7 +1,7 @@
 // Central Processing Unit
 
+use super::apic::*;
 use crate::{
-    arch::apic::*,
     io::tty::Tty,
     rt::*,
     sync::spinlock::Spinlock,
@@ -12,7 +12,9 @@ use crate::{
 use alloc::boxed::Box;
 use bitflags::*;
 use bus::pci::*;
-use core::{arch::x86_64::__cpuid_count, convert::TryFrom, ffi::c_void, sync::atomic::*};
+use core::{
+    arch::asm, arch::x86_64::__cpuid_count, convert::TryFrom, ffi::c_void, sync::atomic::*,
+};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
@@ -556,7 +558,7 @@ impl CpuContextData {
             let rp = &mut result as *mut _;
             asm_sch_get_context_status(context, rp);
         }
-        (result[0], result[1])
+        (result[0], 0)
     }
 }
 

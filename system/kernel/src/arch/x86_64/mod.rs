@@ -12,6 +12,7 @@ pub mod ps2;
 pub mod rtc;
 
 use crate::system::*;
+use core::arch::asm;
 // use acpi::fadt::Fadt;
 // use acpi::sdt::Signature;
 use megstd::time::SystemTime;

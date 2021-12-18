@@ -1,7 +1,7 @@
 // MEG-OS Library
 #![no_std]
 #![feature(alloc_error_handler)]
-#![feature(asm)]
+#![feature(asm_experimental_arch)]
 
 pub mod bitmap;
 pub mod game;

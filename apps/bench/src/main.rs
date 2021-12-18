@@ -1,8 +1,9 @@
 // MEG-OS benchmark
 #![no_main]
 #![no_std]
-#![feature(asm)]
+#![feature(asm_experimental_arch)]
 
+use core::arch::asm;
 use core::fmt::Write;
 use megoslib::*;
 
