@@ -5,22 +5,21 @@
 #![no_std]
 #![no_main]
 
-use alloc::string::*;
-use alloc::vec::*;
+use alloc::{string::*, vec::*};
 use bootprot::*;
-use core::fmt::Write;
-use core::num::NonZeroU8;
-use kernel::bus::pci::Pci;
-use kernel::bus::usb::*;
-use kernel::fs::*;
-use kernel::mem::*;
-use kernel::rt::*;
-use kernel::system::*;
-use kernel::task::scheduler::*;
-use kernel::task::Task;
-use kernel::ui::window::WindowManager;
-use kernel::*;
-use kernel::{arch::cpu::*, bus::pci::PciClass};
+use core::{fmt::Write, num::NonZeroU8};
+use kernel::{
+    arch::cpu::*,
+    bus::pci::*,
+    bus::usb::*,
+    fs::*,
+    mem::*,
+    rt::*,
+    system::*,
+    task::{scheduler::*, Task},
+    ui::window::WindowManager,
+    *,
+};
 use megstd::string::*;
 
 extern crate alloc;

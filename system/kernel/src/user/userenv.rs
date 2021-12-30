@@ -1,23 +1,20 @@
 // User Environment
 
-use crate::log::EventManager;
-use crate::sync::fifo::ConcurrentFifo;
 use crate::{
-    arch::cpu::*, fs::*, mem::*, system::*, task::scheduler::*, task::*, ui::font::*,
-    ui::terminal::Terminal, ui::text::*, ui::theme::Theme, ui::window::*, *,
+    arch::cpu::*, fs::*, log::EventManager, mem::*, sync::fifo::ConcurrentFifo, system::*,
+    task::scheduler::*, task::*, ui::font::*, ui::terminal::Terminal, ui::text::*,
+    ui::theme::Theme, ui::window::*, *,
 };
-use ::alloc::string::String;
-use ::alloc::sync::Arc;
-use ::alloc::vec::*;
+use ::alloc::{string::String, sync::Arc, vec::*};
 use core::{fmt::Write, time::Duration};
-use megstd::drawing::img::*;
-use megstd::drawing::*;
-use megstd::string::*;
+use megstd::{drawing::img::*, drawing::*, string::*};
 
 pub struct UserEnv;
 
 impl UserEnv {
     pub fn start(f: fn()) {
+        // f();
+        // SpawnOption::new().start_process(unsafe { core::mem::transmute(f) }, 0, "shell");
         Scheduler::spawn_async(Task::new(logo_task(f)));
         Scheduler::perform_tasks();
     }
@@ -381,9 +378,9 @@ async fn activity_monitor_main() {
                             let device = System::current_device();
 
                             write!(sb, "Memory ").unwrap();
-                            format_bytes(&mut sb, device.total_memory_size()).unwrap();
-                            write!(sb, "B, ").unwrap();
                             format_bytes(&mut sb, MemoryManager::free_memory_size()).unwrap();
+                            write!(sb, "B /").unwrap();
+                            format_bytes(&mut sb, device.total_memory_size()).unwrap();
                             write!(sb, "B Free, ").unwrap();
                             format_bytes(
                                 &mut sb,
