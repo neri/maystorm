@@ -326,13 +326,32 @@ impl Shell {
         match subcmd {
             "device" => {
                 let device = System::current_device();
-                println!(
-                    "  Processor {} Cores / {} Threads {}, Memory {} MB",
-                    device.num_of_performance_cpus(),
-                    device.num_of_active_cpus(),
-                    device.processor_system_type().to_string(),
-                    device.total_memory_size() >> 20,
-                );
+                let n_cores = device.num_of_performance_cpus();
+                let n_threads = device.num_of_active_cpus();
+                if n_threads > 1 {
+                    if n_cores != n_threads {
+                        print!(
+                            "  {} Cores / {} Threads {}",
+                            n_cores,
+                            n_threads,
+                            device.processor_system_type().to_string(),
+                        );
+                    } else {
+                        print!(
+                            "  {} Processors {}",
+                            n_cores,
+                            device.processor_system_type().to_string(),
+                        );
+                    }
+                } else {
+                    print!("  Uniprocessor system");
+                }
+
+                let mb = device.total_memory_size() >> 20;
+                let gb = mb / 1000;
+                let mb = (mb % 1000) / 10;
+                println!(", Memory {}.{:02} GB", gb, mb);
+
                 let manufacturer_name = device.manufacturer_name();
                 let model_name = device.model_name();
                 if manufacturer_name.is_some() || model_name.is_some() {

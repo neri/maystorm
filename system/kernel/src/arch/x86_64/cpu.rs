@@ -37,7 +37,7 @@ pub struct Cpu {
 }
 
 #[allow(dead_code)]
-pub(crate) struct SharedCpu {
+pub(super) struct SharedCpu {
     smt_topology: u32,
     max_cpuid_level_0: u32,
     max_cpuid_level_8: u32,
@@ -105,43 +105,13 @@ impl Cpu {
     }
 
     #[inline]
-    pub unsafe fn set_tsc_base(&mut self, value: u64) {
+    pub fn set_tsc_base(&mut self, value: u64) {
         self.tsc_base = value;
     }
 
     #[inline]
-    pub(crate) fn shared() -> &'static mut SharedCpu {
+    pub(super) fn shared() -> &'static mut SharedCpu {
         unsafe { &mut SHARED_CPU }
-    }
-
-    /// Returns whether or not the specified CPUID feature is supported.
-    #[inline]
-    pub fn has_feature(feature: Feature) -> bool {
-        unsafe {
-            match feature {
-                Feature::F01D(bit) => {
-                    (__cpuid_count(0x0000_0001, 0).edx & (1 << bit as usize)) != 0
-                }
-                Feature::F01C(bit) => {
-                    (__cpuid_count(0x0000_0001, 0).ecx & (1 << bit as usize)) != 0
-                }
-                Feature::F07B(bit) => {
-                    (__cpuid_count(0x0000_0007, 0).ebx & (1 << bit as usize)) != 0
-                }
-                Feature::F07C(bit) => {
-                    (__cpuid_count(0x0000_0007, 0).ecx & (1 << bit as usize)) != 0
-                }
-                Feature::F07D(bit) => {
-                    (__cpuid_count(0x0000_0007, 0).edx & (1 << bit as usize)) != 0
-                }
-                Feature::F81D(bit) => {
-                    (__cpuid_count(0x8000_0001, 0).edx & (1 << bit as usize)) != 0
-                }
-                Feature::F81C(bit) => {
-                    (__cpuid_count(0x8000_0001, 0).ecx & (1 << bit as usize)) != 0
-                }
-            }
-        }
     }
 
     #[inline]
@@ -252,10 +222,11 @@ impl Cpu {
     }
 
     #[inline]
-    pub unsafe fn stop() -> ! {
-        loop {
+    pub fn stop() -> ! {
+        unsafe {
             Self::disable_interrupt();
             Self::halt();
+            asm!("", options(nomem, nostack, noreturn));
         }
     }
 
@@ -266,12 +237,14 @@ impl Cpu {
         }
     }
 
-    pub unsafe fn reset() -> ! {
-        Cpu::disable_interrupt();
-        let _ = Scheduler::freeze(true);
+    pub fn reset() -> ! {
+        unsafe {
+            Cpu::disable_interrupt();
+            let _ = Scheduler::freeze(true);
 
-        Self::out8(0x0CF9, 0x06);
-        asm!("out 0x92, al", in("al") 0x01 as u8);
+            Self::out8(0x0CF9, 0x06);
+            asm!("out 0x92, al", in("al") 0x01 as u8, options(nomem, nostack));
+        }
 
         Cpu::stop();
     }
@@ -320,7 +293,7 @@ impl Cpu {
 
     #[inline]
     pub fn secure_rand() -> Result<u64, ()> {
-        if Self::has_feature(Feature::F01C(F01C::RDRND)) {
+        if unsafe { Feature::F01C(F01C::RDRND).has_feature() } {
             unsafe { Self::secure_rand_unsafe().ok_or(()) }
         } else {
             Err(())
@@ -639,6 +612,20 @@ pub enum Feature {
     F07D(F070D),
     F81D(F81D),
     F81C(F81C),
+}
+
+impl Feature {
+    pub unsafe fn has_feature(&self) -> bool {
+        match *self {
+            Self::F01D(bit) => (__cpuid_count(0x0000_0001, 0).edx & (1 << bit as usize)) != 0,
+            Self::F01C(bit) => (__cpuid_count(0x0000_0001, 0).ecx & (1 << bit as usize)) != 0,
+            Self::F07B(bit) => (__cpuid_count(0x0000_0007, 0).ebx & (1 << bit as usize)) != 0,
+            Self::F07C(bit) => (__cpuid_count(0x0000_0007, 0).ecx & (1 << bit as usize)) != 0,
+            Self::F07D(bit) => (__cpuid_count(0x0000_0007, 0).edx & (1 << bit as usize)) != 0,
+            Self::F81D(bit) => (__cpuid_count(0x8000_0001, 0).edx & (1 << bit as usize)) != 0,
+            Self::F81C(bit) => (__cpuid_count(0x8000_0001, 0).ecx & (1 << bit as usize)) != 0,
+        }
+    }
 }
 
 /// CPUID Feature Function 0000_0001, EDX

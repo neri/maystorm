@@ -397,17 +397,17 @@ async fn activity_monitor_main() {
                             let usage = Scheduler::usage_per_cpu();
                             let usage0 = usage % 10;
                             let usage1 = usage / 10;
-                            writeln!(
-                                sb,
-                                "CPU: {}.{:02} GHz {:3}.{}% {} Cores {} Threads",
-                                hz1,
-                                hz0,
-                                usage1,
-                                usage0,
-                                device.num_of_performance_cpus(),
-                                device.num_of_active_cpus(),
-                            )
-                            .unwrap();
+                            write!(sb, "CPU: {}.{:02} GHz {:3}.{}%", hz1, hz0, usage1, usage0,)
+                                .unwrap();
+
+                            let n_cores = device.num_of_performance_cpus();
+                            let n_threads = device.num_of_active_cpus();
+                            if n_cores != n_threads {
+                                writeln!(sb, " {} Cores {} Threads", n_cores, n_threads,).unwrap();
+                            } else {
+                                writeln!(sb, " {} Processors", n_cores,).unwrap();
+                            }
+
                             Scheduler::print_statistics(&mut sb);
 
                             let mut rect = bitmap
