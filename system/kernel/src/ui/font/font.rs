@@ -527,20 +527,10 @@ impl<'a> HersheyFont<'a> {
                 // );
             }
 
-            match bitmap {
-                Bitmap::Indexed(_) => {
-                    // TODO:
-                }
-                Bitmap::Argb32(ref mut bitmap) => {
-                    let color = color.into_true_color();
-                    let origin = origin + Point::new(offset_act_x, 0);
-                    let rect = Rect::new(offset_x, offset_y, act_w, act_h);
-                    buffer.blt_to(*bitmap, origin, rect, |a, b| {
-                        let mut c = color.components();
-                        c.a = a;
-                        b.blend_draw(c.into())
-                    });
-                }
+            {
+                let origin = origin + Point::new(offset_act_x, 0);
+                let rect = Rect::new(offset_x, offset_y, act_w, act_h);
+                buffer.draw_to(bitmap, origin, rect, color);
             }
         }
     }

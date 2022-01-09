@@ -1,5 +1,3 @@
-// Drawable
-
 use super::*;
 use core::mem::size_of;
 
@@ -63,7 +61,10 @@ pub trait RasterImage: Drawable {
     }
 }
 
-impl<T: RasterImage> GetPixel for T {
+impl<T> GetPixel for T
+where
+    Self: RasterImage,
+{
     unsafe fn get_pixel_unchecked(&self, point: Point) -> Self::ColorType {
         *self
             .slice()
@@ -87,7 +88,10 @@ pub trait MutableRasterImage: RasterImage {
     }
 }
 
-impl<T: MutableRasterImage> SetPixel for T {
+impl<T> SetPixel for T
+where
+    Self: MutableRasterImage,
+{
     unsafe fn set_pixel_unchecked(&mut self, point: Point, pixel: Self::ColorType) {
         let stride = self.stride();
         *self

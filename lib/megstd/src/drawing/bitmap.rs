@@ -2025,8 +2025,17 @@ impl OperationalBitmap {
     }
 
     #[inline]
-    pub fn with_slice(size: Size, slice: &[u8]) -> Self {
+    pub fn from_slice(slice: &[u8], size: Size) -> Self {
         let vec = Vec::from(slice);
+        Self {
+            width: size.width() as usize,
+            height: size.height() as usize,
+            vec: UnsafeCell::new(vec),
+        }
+    }
+
+    #[inline]
+    pub fn from_vec(vec: Vec<u8>, size: Size) -> Self {
         Self {
             width: size.width() as usize,
             height: size.height() as usize,
@@ -2225,7 +2234,7 @@ impl OperationalBitmap {
 
     pub fn blt_to<T, F>(&self, dest: &mut T, origin: Point, rect: Rect, mut f: F)
     where
-        T: GetPixel + SetPixel,
+        T: Drawable + GetPixel + SetPixel,
         F: FnMut(u8, <T as Drawable>::ColorType) -> <T as Drawable>::ColorType,
     {
         let (dx, dy, sx, sy, width, height) =
@@ -2269,6 +2278,22 @@ impl OperationalBitmap {
                         f(src.get_pixel_unchecked(sp), self.get_pixel_unchecked(dp)),
                     );
                 }
+            }
+        }
+    }
+
+    pub fn draw_to(&self, dest: &mut Bitmap, origin: Point, rect: Rect, color: Color) {
+        match dest {
+            Bitmap::Indexed(_) => {
+                // TODO:
+            }
+            Bitmap::Argb32(ref mut bitmap) => {
+                let color = color.into_true_color();
+                self.blt_to(*bitmap, origin, rect, |a, b| {
+                    let mut c = color.components();
+                    c.a = a;
+                    b.blend_draw(c.into())
+                });
             }
         }
     }

@@ -1,11 +1,22 @@
 // User Environment
 
 use crate::{
-    arch::cpu::*, fs::*, log::EventManager, mem::*, sync::fifo::ConcurrentFifo, system::*,
-    task::scheduler::*, task::*, ui::font::*, ui::terminal::Terminal, ui::text::*,
-    ui::theme::Theme, ui::window::*, *,
+    arch::cpu::*,
+    fs::*,
+    log::{EventManager, SimpleMessagePayload},
+    mem::*,
+    sync::fifo::ConcurrentFifo,
+    system::*,
+    task::scheduler::*,
+    task::*,
+    ui::font::*,
+    ui::text::*,
+    ui::theme::Theme,
+    ui::window::*,
+    ui::{res::icon::IconManager, terminal::Terminal},
+    *,
 };
-use ::alloc::{string::String, sync::Arc, vec::*};
+use ::alloc::{sync::Arc, vec::*};
 use core::{fmt::Write, time::Duration};
 use megstd::{drawing::img::*, drawing::*, string::*};
 
@@ -488,22 +499,47 @@ async fn _notification_task() {
                 }
             }
             WindowMessage::User(_) => {
-                if let Some(message) = message_buffer.dequeue() {
+                if let Some(payload) = message_buffer.dequeue() {
                     window
-                        .draw_in_rect(Rect::from(window.content_size()), |bitmap| {
-                            bitmap.clear();
-                            let rect = bitmap.bounds().insets_by(EdgeInsets::padding_each(padding));
-                            bitmap.fill_round_rect(rect, radius, bg_color);
-                            bitmap.draw_round_rect(rect, radius, border_color);
+                        .draw_in_rect(
+                            Rect::from(window.content_size() - EdgeInsets::padding_each(padding)),
+                            |bitmap| {
+                                bitmap.clear();
+                                let mut insets = EdgeInsets::default();
 
-                            let rect2 = rect.insets_by(EdgeInsets::padding_each(padding));
-                            let ats = AttributedString::new()
-                                .font(FontDescriptor::new(FontFamily::SansSerif, 14).unwrap())
-                                .color(fg_color)
-                                .center()
-                                .text(message.as_str());
-                            ats.draw_text(bitmap, rect2, 0);
-                        })
+                                let rect = bitmap.bounds().insets_by(insets);
+                                bitmap.fill_round_rect(rect, radius, bg_color);
+                                bitmap.draw_round_rect(rect, radius, border_color);
+
+                                if let Some(ref mut icon) = IconManager::bitmap(payload.icon()) {
+                                    let long_side =
+                                        usize::max(icon.width(), icon.height()) as isize;
+                                    let origin = Point::new(
+                                        rect.min_x()
+                                            + padding
+                                            + (icon.width() as isize - long_side) / 2,
+                                        rect.min_y()
+                                            + isize::max(0, (rect.height() - long_side) / 2),
+                                    );
+                                    bitmap.blt_transparent(
+                                        icon.into_bitmap().as_const(),
+                                        origin,
+                                        rect,
+                                        IndexedColor::DEFAULT_KEY,
+                                    );
+
+                                    insets.left += padding + long_side;
+                                }
+
+                                let rect2 = rect.insets_by(insets);
+                                let ats = AttributedString::new()
+                                    .font(FontDescriptor::new(FontFamily::SansSerif, 14).unwrap())
+                                    .color(fg_color)
+                                    .center()
+                                    .text(payload.message());
+                                ats.draw_text(bitmap, rect2, 0);
+                            },
+                        )
                         .unwrap();
                     window.show();
                     last_timer = Timer::new(dismiss_time);
@@ -515,10 +551,13 @@ async fn _notification_task() {
     }
 }
 
-async fn _notification_observer(window: WindowHandle, buffer: Arc<ConcurrentFifo<String>>) {
+async fn _notification_observer(
+    window: WindowHandle,
+    buffer: Arc<ConcurrentFifo<SimpleMessagePayload>>,
+) {
     // Timer::sleep_async(Duration::from_millis(1000)).await;
-    while let Some(message) = EventManager::monitor_notification().await {
-        buffer.enqueue(message).unwrap();
+    while let Some(payload) = EventManager::monitor_notification().await {
+        buffer.enqueue(payload).unwrap();
         window.post(WindowMessage::User(0)).unwrap();
         Timer::sleep_async(Duration::from_millis(3000)).await;
     }

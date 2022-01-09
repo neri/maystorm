@@ -28,6 +28,7 @@ pub mod fw;
 pub mod io;
 pub mod log;
 pub mod mem;
+pub mod r;
 pub mod rt;
 pub mod sync;
 pub mod system;

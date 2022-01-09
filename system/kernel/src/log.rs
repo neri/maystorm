@@ -1,6 +1,6 @@
 //! Log Event Manager
 
-use crate::{sync::fifo::AsyncEventQueue, system::System};
+use crate::{r, sync::fifo::AsyncEventQueue, system::System};
 use alloc::{
     boxed::Box,
     string::{String, ToString},
@@ -10,10 +10,10 @@ use futures_util::Future;
 
 #[macro_export]
 macro_rules! notify {
-    ($($arg:tt)*) => {
+    ($icon:expr, $($arg:tt)*) => {
         let mut sb = megstd::string::Sb255::new();
         write!(sb, $($arg)*).unwrap();
-        log::EventManager::notify_simple_message(sb.as_str());
+        log::EventManager::notify_simple_message($icon, sb.as_str());
     };
 }
 
@@ -37,7 +37,7 @@ impl Write for Log {
 static mut EVENT_MANAGER: MaybeUninit<EventManager> = MaybeUninit::uninit();
 
 pub struct EventManager {
-    message_queue: AsyncEventQueue<String>,
+    message_queue: AsyncEventQueue<SimpleMessagePayload>,
 }
 
 impl EventManager {
@@ -62,13 +62,40 @@ impl EventManager {
         let _ = write!(System::em_console(), "{}", s);
     }
 
-    pub fn notify_simple_message(payload: &str) {
+    pub fn notify_simple_message(icon: r::Icons, message: &str) {
         let shared = Self::shared();
-        shared.message_queue.post(payload.to_string()).unwrap();
+        let payload = SimpleMessagePayload::new(icon, message);
+        shared.message_queue.post(payload).unwrap();
     }
 
-    pub fn monitor_notification() -> Pin<Box<dyn Future<Output = Option<String>>>> {
+    pub fn monitor_notification() -> Pin<Box<dyn Future<Output = Option<SimpleMessagePayload>>>> {
         let shared = Self::shared();
         Box::pin(shared.message_queue.wait_event())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SimpleMessagePayload {
+    icon: r::Icons,
+    message: String,
+}
+
+impl SimpleMessagePayload {
+    #[inline]
+    pub fn new(icon: r::Icons, message: &str) -> Self {
+        Self {
+            icon,
+            message: message.to_string(),
+        }
+    }
+
+    #[inline]
+    pub const fn icon(&self) -> r::Icons {
+        self.icon
+    }
+
+    #[inline]
+    pub fn message<'a>(&'a self) -> &'a str {
+        self.message.as_str()
     }
 }
