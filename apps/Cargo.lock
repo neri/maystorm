@@ -100,6 +100,7 @@ dependencies = [
  "byteorder",
  "num-derive",
  "num-traits",
+ "rapid-qoi",
 ]
 
 [[package]]
@@ -146,6 +147,12 @@ checksum = "6ce23b6b870e8f94f81fb0a363d65d86675884b34a09043c81e5562f11c1f8e1"
 dependencies = [
  "proc-macro2",
 ]
+
+[[package]]
+name = "rapid-qoi"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f50ab603da57a82a6e91397c801f18c5ebbf1772ccdc9976b8f5eafd581caa73"
 
 [[package]]
 name = "syn"

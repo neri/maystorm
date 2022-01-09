@@ -402,8 +402,18 @@ impl WindowManager<'_> {
                                 } else {
                                     0
                                 };
+                                let bottom = shared.screen_size.height()
+                                    - WINDOW_TITLE_HEIGHT / 2
+                                    - if captured.as_ref().level < WindowLevel::FLOATING {
+                                        shared.screen_insets.bottom
+                                    } else {
+                                        0
+                                    };
                                 let x = position.x - shared.captured_origin.x;
-                                let y = cmp::max(position.y - shared.captured_origin.y, top);
+                                let y = cmp::min(
+                                    cmp::max(position.y - shared.captured_origin.y, top),
+                                    bottom,
+                                );
                                 captured.move_to(Point::new(x, y));
                             } else {
                                 let _ = Self::make_mouse_events(

@@ -81,7 +81,7 @@ pub struct Xhci {
     port_status_change_queue: AsyncEventQueue<PortId>,
     port2slot: RwLock<[Option<SlotId>; 256]>,
     slot2port: RwLock<[Option<PortId>; 256]>,
-    xrbs: [UnsafeCell<XhciRequestBlock>; Self::MAX_XRB],
+    crbs: [UnsafeCell<CommandRequestBlock>; Self::MAX_CRB],
     ics: [UnsafeCell<InputContext>; Self::MAX_DEVICE_SLOTS],
     doorbell_queue: AsyncEventQueue<QueuedDoorbell>,
 
@@ -99,7 +99,7 @@ impl Xhci {
     const MAX_DEVICE_SLOTS: usize = 64;
     const MAX_TR: usize = 256;
     const MAX_TR_INDEX: usize = 64;
-    const MAX_XRB: usize = 256;
+    const MAX_CRB: usize = 256;
 
     const MAX_PORT_CHANGE: usize = 64;
 
@@ -150,7 +150,7 @@ impl Xhci {
             port_status_change_queue: AsyncEventQueue::new(Self::MAX_PORT_CHANGE),
             port2slot: RwLock::new([None; 256]),
             slot2port: RwLock::new([None; 256]),
-            xrbs: [XhciRequestBlock::EMPTY; Self::MAX_XRB],
+            crbs: [CommandRequestBlock::EMPTY; Self::MAX_CRB],
             ics: [InputContext::EMPTY; Self::MAX_DEVICE_SLOTS],
             doorbell_queue: AsyncEventQueue::new(Self::MAX_DEVICE_SLOTS),
             sem_event_thread: Semaphore::new(0),
@@ -406,32 +406,32 @@ impl Xhci {
         return None;
     }
 
-    pub fn allocate_xrb<'a>(&'a self) -> Option<&'a mut XhciRequestBlock> {
-        for xrb in &self.xrbs {
-            let xrb = unsafe { &mut *xrb.get() };
-            if xrb.try_to_acquire() {
-                return Some(xrb);
+    pub fn allocate_crb<'a>(&'a self) -> Option<&'a mut CommandRequestBlock> {
+        for crb in &self.crbs {
+            let crb = unsafe { &mut *crb.get() };
+            if crb.try_to_acquire() {
+                return Some(crb);
             }
         }
         None
     }
 
-    pub fn find_xrb<'a>(
+    pub fn find_crb<'a>(
         &'a self,
         scheduled_trb: ScheduledTrb,
         state: Option<RequestState>,
-    ) -> Option<&'a mut XhciRequestBlock> {
-        for xrb in &self.xrbs {
-            let xrb = unsafe { &mut *xrb.get() };
-            let xrb_state = xrb.state();
-            if xrb_state != RequestState::Available && xrb.scheduled_trb == scheduled_trb {
+    ) -> Option<&'a mut CommandRequestBlock> {
+        for crb in &self.crbs {
+            let crb = unsafe { &mut *crb.get() };
+            let crb_state = crb.state();
+            if crb_state != RequestState::Available && crb.scheduled_trb == scheduled_trb {
                 match state {
                     Some(state) => {
-                        if xrb_state == state {
-                            return Some(xrb);
+                        if crb_state == state {
+                            return Some(crb);
                         }
                     }
-                    None => return Some(xrb),
+                    None => return Some(crb),
                 }
             }
         }
@@ -440,7 +440,7 @@ impl Xhci {
 
     pub fn issue_trb<T: TrbCommon>(
         &self,
-        xrb: Option<&mut XhciRequestBlock>,
+        crb: Option<&mut CommandRequestBlock>,
         trb: &T,
         slot_id: Option<SlotId>,
         dci: Option<DCI>,
@@ -459,8 +459,8 @@ impl Xhci {
         let mut index = ctx.index;
 
         let scheduled_trb = ScheduledTrb(tr_base + (size_of::<Trb>() * index) as u64);
-        if let Some(xrb) = xrb {
-            xrb.schedule(trb, scheduled_trb);
+        if let Some(crb) = crb {
+            crb.schedule(trb, scheduled_trb);
         }
 
         unsafe {
@@ -491,14 +491,14 @@ impl Xhci {
         &self,
         trb: &T,
     ) -> Result<TrbCommandCompletionEvent, TrbCommandCompletionEvent> {
-        let mut xrb = DisposableRef::new(self.allocate_xrb().unwrap());
-        self.issue_trb(Some(xrb.as_mut()), trb, None, None, true);
-        xrb.wait();
-        let result = match xrb.response.as_event() {
+        let mut crb = DisposableRef::new(self.allocate_crb().unwrap());
+        self.issue_trb(Some(crb.as_mut()), trb, None, None, true);
+        crb.wait();
+        let result = match crb.response.as_event() {
             Some(TrbEvent::CommandCompletion(v)) => Some(v.copied()),
             _ => None,
         };
-        drop(xrb);
+        drop(crb);
         match result {
             Some(result) => {
                 if result.completion_code() == Some(TrbCompletionCode::SUCCESS) {
@@ -876,11 +876,10 @@ impl Xhci {
             buffer,
         };
         let ctx = Arc::new(HciContext::new(Arc::downgrade(&self), device));
-        if UsbManager::instantiate(UsbAddress(slot_id.0), ctx as Arc<dyn UsbHostInterface>).await {
-            Ok(UsbAddress(slot_id.0))
-        } else {
-            todo!()
-        }
+        let addr = UsbAddress(slot_id.0);
+        UsbManager::instantiate(addr, ctx as Arc<dyn UsbHostInterface>)
+            .await
+            .map(|_| addr)
     }
 
     pub async fn attach_root_device(self: &Arc<Self>, port_id: PortId) -> Option<UsbAddress> {
@@ -944,16 +943,20 @@ impl Xhci {
             buffer,
         };
         let ctx = Arc::new(HciContext::new(Arc::downgrade(&self), device));
+        let addr = UsbAddress(slot_id.0);
 
-        if UsbManager::instantiate(UsbAddress(slot_id.0), ctx as Arc<dyn UsbHostInterface>).await {
-            Timer::sleep_async(Duration::from_millis(10)).await;
-        } else {
-            let port = self.port_by(port_id);
-            let status = port.status();
-            port.write(status & PortSc::PRESERVE_MASK | PortSc::PRC | PortSc::PR);
+        match UsbManager::instantiate(addr, ctx as Arc<dyn UsbHostInterface>).await {
+            Ok(_) => {
+                Timer::sleep_async(Duration::from_millis(10)).await;
+            }
+            Err(_err) => {
+                let port = self.port_by(port_id);
+                let status = port.status();
+                port.write(status & PortSc::PRESERVE_MASK | PortSc::PRC | PortSc::PR);
+            }
         }
 
-        Some(UsbAddress(slot_id.0))
+        Some(addr)
     }
 
     pub fn set_max_packet_size(&self, slot_id: SlotId, max_packet_size: usize) -> Result<(), ()> {
@@ -1050,8 +1053,8 @@ impl Xhci {
                 }
                 TrbEvent::CommandCompletion(event) => {
                     let event_trb = ScheduledTrb(event.ptr());
-                    if let Some(xrb) = self.find_xrb(event_trb, Some(RequestState::Scheduled)) {
-                        xrb.set_response(event.as_common_trb());
+                    if let Some(crb) = self.find_crb(event_trb, Some(RequestState::Scheduled)) {
+                        crb.set_response(event.as_common_trb());
                     } else {
                         todo!()
                     }
@@ -1488,7 +1491,7 @@ impl ScheduledTrb {
     }
 }
 
-pub struct XhciRequestBlock {
+pub struct CommandRequestBlock {
     state: AtomicUsize,
     scheduled_trb: ScheduledTrb,
     signal: Semaphore,
@@ -1497,7 +1500,7 @@ pub struct XhciRequestBlock {
     response: Trb,
 }
 
-impl XhciRequestBlock {
+impl CommandRequestBlock {
     pub const EMPTY: UnsafeCell<Self> = UnsafeCell::new(Self::new());
 
     #[inline]
@@ -1574,7 +1577,7 @@ impl XhciRequestBlock {
     }
 }
 
-impl DisposeRef for XhciRequestBlock {
+impl DisposeRef for CommandRequestBlock {
     #[inline]
     fn dispose_ref(&mut self) {
         self.reuse_delay = Timer::new(Duration::from_millis(10));

@@ -1,5 +1,3 @@
-// Memory Mapped I/O Registers
-
 use super::*;
 use crate::{arch::page::PhysicalAddress, bus::pci::PciBar};
 use core::{
@@ -10,7 +8,7 @@ use core::{
     sync::atomic::*,
 };
 
-// #[derive(Clone, Copy)]
+#[repr(transparent)]
 pub struct Mmio<T> {
     base: usize,
     _phantom: PhantomData<T>,

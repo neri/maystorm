@@ -27,11 +27,11 @@ async fn logo_task(f: fn()) {
 
     WindowManager::set_desktop_color(Theme::shared().desktop_color());
     if true {
-        if let Ok(mut file) = FileManager::open("wall.bmp") {
+        if let Ok(mut file) = FileManager::open("wall.qoi") {
             let stat = file.stat().unwrap();
             let mut vec = Vec::with_capacity(stat.len() as usize);
             file.read_to_end(&mut vec).unwrap();
-            if let Some(mut dib) = ImageLoader::from_msdib(vec.as_slice()) {
+            if let Some(mut dib) = ImageLoader::from_qoi(vec.as_slice()) {
                 WindowManager::set_desktop_bitmap(&dib.into_bitmap());
             }
         }
@@ -91,9 +91,8 @@ async fn shell_launcher(f: fn()) {
 
 #[allow(dead_code)]
 async fn status_bar_main() {
-    const STATUS_BAR_HEIGHT: isize = 40;
-    const STATUS_BAR_RADIUS: isize = 16;
-    const STATUS_BAR_PADDING: EdgeInsets = EdgeInsets::new(8, 16, 0, 16);
+    const STATUS_BAR_HEIGHT: isize = 28;
+    const STATUS_BAR_PADDING: EdgeInsets = EdgeInsets::new(0, 0, 0, 0);
     const INNER_PADDING: EdgeInsets = EdgeInsets::new(1, 16, 1, 16);
 
     let bg_color = Theme::shared()
@@ -102,22 +101,23 @@ async fn status_bar_main() {
     let fg_color = Theme::shared()
         // .window_title_active_foreground_dark();
         .status_bar_foreground();
-    let border_color = Theme::shared().window_default_border_dark();
+    // let border_color = Theme::shared().window_default_border_dark();
 
     let screen_bounds = WindowManager::main_screen_bounds();
     let window = WindowBuilder::new()
         // .style(WindowStyle::FLOATING | WindowStyle::NO_SHADOW)
         .style(WindowStyle::FLOATING | WindowStyle::SUSPENDED)
         .frame(Rect::new(0, 0, screen_bounds.width(), STATUS_BAR_HEIGHT))
-        .bg_color(Color::Transparent)
+        .bg_color(bg_color)
         .build("Status Bar");
+    WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT, 0, 0, 0));
 
     window
         .draw_in_rect(
             Rect::from(window.content_size()).insets_by(STATUS_BAR_PADDING),
             |bitmap| {
-                bitmap.fill_round_rect(bitmap.bounds(), STATUS_BAR_RADIUS, bg_color);
-                bitmap.draw_round_rect(bitmap.bounds(), STATUS_BAR_RADIUS, border_color);
+                // bitmap.fill_round_rect(bitmap.bounds(), STATUS_BAR_RADIUS, bg_color);
+                // bitmap.draw_round_rect(bitmap.bounds(), STATUS_BAR_RADIUS, border_color);
 
                 let font = FontManager::title_font();
                 let ats = AttributedString::new()
@@ -130,7 +130,6 @@ async fn status_bar_main() {
             },
         )
         .unwrap();
-    WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT, 0, 0, 0));
     window.show();
 
     let font = FontManager::system_font();

@@ -331,7 +331,7 @@ impl Shell {
                 if n_threads > 1 {
                     if n_cores != n_threads {
                         print!(
-                            "  {} Cores / {} Threads {}",
+                            "  {} Cores {} Threads {}",
                             n_cores,
                             n_threads,
                             device.processor_system_type().to_string(),

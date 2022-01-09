@@ -120,7 +120,10 @@ impl UsbManager {
     }
 
     /// Initialize the USB device and tie it to the appropriate class driver.
-    pub async fn instantiate(addr: UsbAddress, ctx: Arc<dyn UsbHostInterface>) -> bool {
+    pub async fn instantiate(
+        addr: UsbAddress,
+        ctx: Arc<dyn UsbHostInterface>,
+    ) -> Result<(), UsbError> {
         match UsbDeviceControl::new(addr, ctx).await {
             Ok(device) => {
                 let shared = Self::shared();
@@ -183,11 +186,11 @@ impl UsbManager {
                     }
                 }
 
-                true
+                Ok(())
             }
             Err(err) => {
                 log!("USB Device Initialize Error {:?}", err);
-                false
+                Err(err)
             }
         }
     }

@@ -395,10 +395,12 @@ impl GameInputManager {
             Usage::NUMPAD_4 => Some(GameInputButtonType::DpadLeft),
             Usage::NUMPAD_6 => Some(GameInputButtonType::DpadRight),
             Usage::NUMPAD_8 => Some(GameInputButtonType::DpadUp),
+
             Usage::KEY_UP_ARROW => Some(GameInputButtonType::DpadUp),
             Usage::KEY_DOWN_ARROW => Some(GameInputButtonType::DpadDown),
             Usage::KEY_RIGHT_ARROW => Some(GameInputButtonType::DpadRight),
             Usage::KEY_LEFT_ARROW => Some(GameInputButtonType::DpadLeft),
+
             Usage::KEY_W => Some(GameInputButtonType::DpadUp),
             Usage::KEY_A => Some(GameInputButtonType::DpadLeft),
             Usage::KEY_S => Some(GameInputButtonType::DpadDown),
@@ -410,9 +412,12 @@ impl GameInputManager {
 
             Usage::KEY_Z => Some(GameInputButtonType::A),
             Usage::KEY_X => Some(GameInputButtonType::B),
+            Usage::KEY_C => Some(GameInputButtonType::Start),
+
             Usage::KEY_LEFT_CONTROL => Some(GameInputButtonType::B),
-            Usage::KEY_LEFT_SHIFT => Some(GameInputButtonType::A),
             Usage::KEY_RIGHT_CONTROL => Some(GameInputButtonType::B),
+
+            Usage::KEY_LEFT_SHIFT => Some(GameInputButtonType::A),
             Usage::KEY_RIGHT_SHIFT => Some(GameInputButtonType::A),
 
             _ => None,

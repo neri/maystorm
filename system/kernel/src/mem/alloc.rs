@@ -1,7 +1,8 @@
-// My Poop Allocator
 use super::*;
-use core::alloc::{GlobalAlloc, Layout};
-use core::num::NonZeroUsize;
+use core::{
+    alloc::{GlobalAlloc, Layout},
+    num::NonZeroUsize,
+};
 
 #[global_allocator]
 static mut ALLOCATOR: CustomAlloc = CustomAlloc::new();

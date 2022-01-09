@@ -1,5 +1,3 @@
-// Image loader
-
 use super::*;
 use alloc::vec::Vec;
 use byteorder::*;
@@ -90,5 +88,45 @@ impl ImageLoader {
             _ => unreachable!(),
         }
         Some(BoxedBitmap32::from_vec(vec, Size::new(width as isize, height as isize)).into())
+    }
+
+    pub fn from_qoi(bytes: &[u8]) -> Option<BoxedBitmap> {
+        match rapid_qoi::Qoi::decode_alloc(bytes) {
+            Ok((qoi, pixels)) => {
+                let count = qoi.width as usize * qoi.height as usize;
+                let mut vec = Vec::with_capacity(count);
+                match qoi.colors {
+                    rapid_qoi::Colors::Srgb | rapid_qoi::Colors::Rgb => {
+                        let channels = qoi.colors.channels();
+                        for i in 0..count * channels {
+                            let c = unsafe {
+                                let r = *pixels.get_unchecked(i * channels);
+                                let g = *pixels.get_unchecked(i * channels + 1);
+                                let b = *pixels.get_unchecked(i * channels + 2);
+                                ColorComponents::from_rgb(r, g, b).into_true_color()
+                            };
+                            vec.push(c);
+                        }
+                    }
+                    rapid_qoi::Colors::SrgbLinA | rapid_qoi::Colors::Rgba => {
+                        let channels = qoi.colors.channels();
+                        for i in 0..count * channels {
+                            let c = unsafe {
+                                let r = *pixels.get_unchecked(i * channels);
+                                let g = *pixels.get_unchecked(i * channels + 1);
+                                let b = *pixels.get_unchecked(i * channels + 2);
+                                let a = *pixels.get_unchecked(i * channels + 3);
+                                ColorComponents::from_rgba(r, g, b, a).into_true_color()
+                            };
+                            vec.push(c);
+                        }
+                    }
+                };
+
+                let size = Size::new(qoi.width as isize, qoi.height as isize);
+                Some(BoxedBitmap32::from_vec(vec, size).into())
+            }
+            Err(_) => None,
+        }
     }
 }

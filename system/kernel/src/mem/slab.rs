@@ -1,13 +1,7 @@
-// Slab Allocator
-
 use super::*;
 use crate::arch::cpu::Cpu;
-// use crate::*;
 use ::alloc::vec::Vec;
-use core::alloc::Layout;
-use core::mem::MaybeUninit;
-use core::sync::atomic::*;
-use core::{mem::size_of, num::*};
+use core::{alloc::Layout, mem::size_of, mem::MaybeUninit, num::*, sync::atomic::*};
 
 type UsizeSmall = u16;
 

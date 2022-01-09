@@ -1,6 +1,3 @@
-// Memory Manager
-
-// use crate::arch::page::*;
 use super::slab::*;
 use crate::{
     arch::cpu::Cpu,
