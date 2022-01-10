@@ -29,6 +29,7 @@ pub mod io;
 pub mod log;
 pub mod mem;
 pub mod r;
+pub mod res;
 pub mod rt;
 pub mod sync;
 pub mod system;

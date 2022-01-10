@@ -1,19 +1,18 @@
-// User Environment
-
 use crate::{
     arch::cpu::*,
     fs::*,
     log::{EventManager, SimpleMessagePayload},
     mem::*,
+    res::icon::IconManager,
     sync::fifo::ConcurrentFifo,
     system::*,
     task::scheduler::*,
     task::*,
     ui::font::*,
+    ui::terminal::Terminal,
     ui::text::*,
     ui::theme::Theme,
     ui::window::*,
-    ui::{res::icon::IconManager, terminal::Terminal},
     *,
 };
 use ::alloc::{sync::Arc, vec::*};

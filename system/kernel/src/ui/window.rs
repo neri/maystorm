@@ -1,8 +1,9 @@
 //! A Window System
 
-use super::{font::*, res::icon::IconManager, text::*, theme::Theme};
+use super::{font::*, text::*, theme::Theme};
 use crate::{
     io::hid_mgr::*,
+    res::icon::IconManager,
     sync::atomicflags::*,
     sync::RwLock,
     sync::{fifo::*, semaphore::*},

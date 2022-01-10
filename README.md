@@ -1,12 +1,12 @@
 # MEG-OS codename Maystorm
 
-My hobby operating system written in Rust, which Supports multitasking, multi-window, WebAssembly and simple applications.
+A 2020s hobby operating system written in Rust that supports multitasking, multi-window, WebAssembly, and simple applications.
 
 * [Documentation](https://meg-os.github.io/maystorm/kernel/)
 
 ## Feature
 
-* A hobby OS written in Rust
+* A hobby operating system written in Rust
 * Not a POSIX clone system
 * Support for WebAssembly
 
