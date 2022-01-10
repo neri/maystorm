@@ -1,34 +1,37 @@
 use super::*;
-use crate::arch::cpu::Cpu;
-use ::alloc::vec::Vec;
-use core::{alloc::Layout, mem::size_of, mem::MaybeUninit, num::*, sync::atomic::*};
+use ::alloc::{boxed::Box, vec::Vec};
+use core::{alloc::Layout, intrinsics::transmute, num::*, ptr::NonNull, sync::atomic::*};
 
 type UsizeSmall = u16;
 
+static SLABS: [SlabCache2; 8] = [
+    SlabCache2::new(16),
+    SlabCache2::new(32),
+    SlabCache2::new(64),
+    SlabCache2::new(128),
+    SlabCache2::new(256),
+    SlabCache2::new(512),
+    SlabCache2::new(1024),
+    SlabCache2::new(2048),
+];
+
 pub(super) struct SlabAllocator {
-    vec: Vec<SlabCache>,
+    _phantom: (),
 }
 
 impl SlabAllocator {
     pub unsafe fn new() -> Self {
-        let sizes = [16, 32, 64, 128, 256, 512, 1024, 2048];
-
-        let mut vec: Vec<SlabCache> = Vec::with_capacity(sizes.len());
-        for block_size in &sizes {
-            vec.push(SlabCache::new(*block_size));
-        }
-
-        Self { vec }
+        Self { _phantom: () }
     }
 
     pub fn alloc(&self, layout: Layout) -> Result<NonZeroUsize, AllocationError> {
-        if layout.size() > UsizeSmall::MAX as usize || layout.align() > UsizeSmall::MAX as usize {
+        let size = usize::max(layout.size(), layout.align());
+        if size > UsizeSmall::MAX as usize {
             return Err(AllocationError::Unsupported);
         }
-        let size = layout.size() as UsizeSmall;
-        let align = layout.align() as UsizeSmall;
-        for slab in &self.vec {
-            if size <= slab.block_size && align <= slab.block_size {
+        let size = size as UsizeSmall;
+        for slab in &SLABS {
+            if size <= slab.block_size {
                 return slab.alloc();
             }
         }
@@ -36,13 +39,13 @@ impl SlabAllocator {
     }
 
     pub fn free(&self, base: NonZeroUsize, layout: Layout) -> Result<(), DeallocationError> {
-        if layout.size() > UsizeSmall::MAX as usize || layout.align() > UsizeSmall::MAX as usize {
+        let size = usize::max(layout.size(), layout.align());
+        if size > UsizeSmall::MAX as usize {
             return Err(DeallocationError::Unsupported);
         }
-        let size = layout.size() as UsizeSmall;
-        let align = layout.align() as UsizeSmall;
-        for slab in &self.vec {
-            if size <= slab.block_size && align <= slab.block_size {
+        let size = size as UsizeSmall;
+        for slab in &SLABS {
+            if size <= slab.block_size {
                 return slab.free(base);
             }
         }
@@ -51,83 +54,96 @@ impl SlabAllocator {
 
     #[allow(dead_code)]
     pub(super) fn free_memory_size(&self) -> usize {
-        self.vec.iter().fold(0, |v, i| v + i.free_memory_size())
+        SLABS.iter().fold(0, |v, i| v + i.free_memory_size())
     }
 
     #[allow(dead_code)]
     pub(super) fn statistics(&self) -> Vec<(usize, usize, usize)> {
-        let mut vec = Vec::with_capacity(self.vec.len());
-        for item in &self.vec {
-            let count = item.items_per_chunk() * item.count();
-            vec.push((
-                item.block_size(),
-                count
-                    - item.chunks[..item.count as usize].iter().fold(0, |v, i| {
-                        let chunk = unsafe { &*i.as_ptr() };
-                        v + chunk.bitmap.load(Ordering::Relaxed).count_ones() as usize
-                    }),
-                count,
-            ));
+        let mut vec = Vec::with_capacity(SLABS.len());
+        for slab in &SLABS {
+            let count = slab.total_count();
+            vec.push((slab.block_size(), count - slab.free_count(), count));
         }
         vec
     }
 }
 
-struct SlabCache {
-    block_size: UsizeSmall,
-    count: UsizeSmall,
-    chunks: [MaybeUninit<SlabChunkHeader>; Self::N_CHUNKS],
+#[repr(C)]
+pub struct Node16 {
+    element: [u8; 16],
+    next: AtomicUsize,
 }
 
-impl SlabCache {
-    const N_CHUNKS: usize = 63;
-    const ITEMS_PER_CHUNK: usize = 8 * size_of::<usize>();
-
-    fn new(block_size: usize) -> Self {
-        let mut chunks = MaybeUninit::uninit_array();
-        for chunk in chunks.iter_mut() {
-            *chunk = MaybeUninit::zeroed();
+impl Node16 {
+    #[inline]
+    pub const fn new() -> Self {
+        Self {
+            element: [0; 16],
+            next: AtomicUsize::new(0),
         }
+    }
 
-        let mut count = 0;
-        let items_per_chunk = Self::ITEMS_PER_CHUNK;
-        let preferred_page_size = items_per_chunk * block_size;
-        let atomic_page_size = if MemoryManager::PAGE_SIZE_MIN < preferred_page_size {
-            1
-        } else {
-            MemoryManager::PAGE_SIZE_MIN / preferred_page_size
-        };
+    #[inline]
+    pub fn next_raw(&self) -> usize {
+        self.next.load(Ordering::Relaxed)
+    }
 
-        unsafe {
-            let pages = atomic_page_size;
-            let alloc_size = preferred_page_size * pages;
-            let blob = MemoryManager::zalloc(Layout::from_size_align_unchecked(
-                alloc_size,
-                MemoryManager::PAGE_SIZE_MIN,
-            ))
-            .unwrap();
+    #[inline]
+    pub fn next(&self) -> Option<NonNull<Self>> {
+        unsafe { transmute(self.next_raw()) }
+    }
 
-            // log!(
-            //     "CHUNK: block {} {} alloc {} [{} {}] ",
-            //     block_size,
-            //     alloc_size / block_size,
-            //     alloc_size,
-            //     preferred_page_size,
-            //     pages,
-            // );
+    #[inline]
+    pub fn element_ptr(&self) -> NonZeroUsize {
+        unsafe { NonZeroUsize::new_unchecked(self as *const _ as usize) }
+    }
+}
 
-            for i in 0..pages {
-                let ptr = blob.get() + preferred_page_size * i;
-                let chunk = SlabChunkHeader::new(ptr, usize::MAX);
-                chunks[count as usize].write(chunk);
-                count += 1;
-            }
+pub struct AtomicNode {
+    next: AtomicUsize,
+    element_ptr: AtomicUsize,
+}
+
+impl AtomicNode {
+    #[inline]
+    pub const fn new(element: NonZeroUsize) -> Self {
+        Self {
+            next: AtomicUsize::new(0),
+            element_ptr: AtomicUsize::new(element.get()),
         }
+    }
 
+    #[inline]
+    pub fn next_raw(&self) -> usize {
+        self.next.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn next(&self) -> Option<NonNull<Self>> {
+        unsafe { transmute(self.next_raw()) }
+    }
+
+    #[inline]
+    pub fn element_ptr(&self) -> NonZeroUsize {
+        unsafe { transmute(self.element_ptr.load(Ordering::Relaxed)) }
+    }
+}
+
+struct SlabCache2 {
+    block_size: UsizeSmall,
+    total_count: AtomicUsize,
+    free_count: AtomicUsize,
+    free_ptr: AtomicUsize,
+}
+
+impl SlabCache2 {
+    #[inline]
+    const fn new(block_size: usize) -> Self {
         Self {
             block_size: block_size as UsizeSmall,
-            count,
-            chunks,
+            total_count: AtomicUsize::new(0),
+            free_count: AtomicUsize::new(0),
+            free_ptr: AtomicUsize::new(0),
         }
     }
 
@@ -137,109 +153,135 @@ impl SlabCache {
     }
 
     #[inline]
-    const fn count(&self) -> usize {
-        self.count as usize
+    fn total_count(&self) -> usize {
+        self.total_count.load(Ordering::Relaxed)
     }
 
     #[inline]
-    const fn items_per_chunk(&self) -> usize {
-        Self::ITEMS_PER_CHUNK
+    fn free_count(&self) -> usize {
+        self.free_count.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    fn free_memory_size(&self) -> usize {
+        self.free_count() * self.block_size()
+    }
+
+    unsafe fn expand(&self) -> Result<(), AllocationError> {
+        let block_size = self.block_size();
+        let entry_size = if block_size == 16 { 32 } else { block_size };
+        let entry_count = MemoryManager::PAGE_SIZE_MIN / entry_size;
+        let alloc_size = entry_count * entry_size;
+
+        let blob = MemoryManager::zalloc2(Layout::from_size_align_unchecked(
+            alloc_size,
+            MemoryManager::PAGE_SIZE_MIN,
+        ))
+        .ok_or(AllocationError::OutOfMemory)?;
+
+        for i in 0..entry_count {
+            self.free(NonZeroUsize::new_unchecked(blob.get() + i * entry_size))
+                .map_err(|_| AllocationError::Unexpected)?;
+        }
+        self.total_count.fetch_add(entry_count, Ordering::AcqRel);
+
+        Ok(())
     }
 
     fn alloc(&self) -> Result<NonZeroUsize, AllocationError> {
-        for chunk in self.chunks[..self.count()].iter() {
-            let chunk = unsafe { &*chunk.as_ptr() };
-            if chunk.is_useful() {
-                match chunk.alloc() {
-                    Some(index) => {
-                        return NonZeroUsize::new(chunk.ptr() + index * self.block_size as usize)
-                            .ok_or(AllocationError::Unexpected)
+        let block_size = self.block_size();
+        match block_size {
+            16 => unsafe {
+                loop {
+                    let current = self.free_ptr.load(Ordering::Relaxed);
+                    if let Some(node) = transmute::<usize, Option<NonNull<Node16>>>(current) {
+                        let next = node.as_ref().next_raw();
+                        match self.free_ptr.compare_exchange_weak(
+                            current,
+                            next,
+                            Ordering::SeqCst,
+                            Ordering::Relaxed,
+                        ) {
+                            Ok(_) => {
+                                self.free_count.fetch_sub(1, Ordering::Relaxed);
+                                return Ok(node.as_ref().element_ptr());
+                            }
+                            Err(_) => (),
+                        }
+                    } else {
+                        self.expand()?;
                     }
-                    None => (),
                 }
-            }
+            },
+            _ => unsafe {
+                loop {
+                    let current = self.free_ptr.load(Ordering::Relaxed);
+                    if let Some(mut node) = transmute::<usize, Option<NonNull<AtomicNode>>>(current)
+                    {
+                        let next = node.as_ref().next_raw();
+                        match self.free_ptr.compare_exchange_weak(
+                            current,
+                            next,
+                            Ordering::SeqCst,
+                            Ordering::Relaxed,
+                        ) {
+                            Ok(_) => {
+                                self.free_count.fetch_sub(1, Ordering::Relaxed);
+                                let node = Box::from_raw(node.as_mut());
+                                return Ok(node.element_ptr());
+                            }
+                            Err(_) => (),
+                        }
+                    } else {
+                        self.expand()?;
+                    }
+                }
+            },
         }
-        Err(AllocationError::OutOfMemory)
     }
 
     fn free(&self, ptr: NonZeroUsize) -> Result<(), DeallocationError> {
-        let ptr = ptr.get();
-
-        for chunk in self.chunks[..self.count()].iter() {
-            let chunk = unsafe { &*chunk.as_ptr() };
-            if chunk.is_none() {
-                continue;
-            }
-            let base = chunk.ptr();
-            if ptr >= base && ptr < base + self.items_per_chunk() * self.block_size() {
-                let index = (ptr - base) / self.block_size();
-                chunk.free(index);
-                return Ok(());
-            }
+        let block_size = self.block_size();
+        match block_size {
+            16 => unsafe {
+                let new = transmute::<NonZeroUsize, NonNull<Node16>>(ptr);
+                let mut current = self.free_ptr.load(Ordering::Relaxed);
+                loop {
+                    new.as_ref().next.store(current, Ordering::Release);
+                    current = match self.free_ptr.compare_exchange_weak(
+                        current,
+                        new.as_ptr() as usize,
+                        Ordering::SeqCst,
+                        Ordering::Relaxed,
+                    ) {
+                        Ok(_) => {
+                            self.free_count.fetch_add(1, Ordering::Relaxed);
+                            return Ok(());
+                        }
+                        Err(v) => v,
+                    };
+                }
+            },
+            _ => unsafe {
+                let new = Box::new(AtomicNode::new(ptr));
+                let new_ptr = Box::into_raw(new);
+                let mut current = self.free_ptr.load(Ordering::Relaxed);
+                loop {
+                    (&*new_ptr).next.store(current, Ordering::Release);
+                    current = match self.free_ptr.compare_exchange_weak(
+                        current,
+                        new_ptr as usize,
+                        Ordering::SeqCst,
+                        Ordering::Relaxed,
+                    ) {
+                        Ok(_) => {
+                            self.free_count.fetch_add(1, Ordering::Relaxed);
+                            return Ok(());
+                        }
+                        Err(v) => v,
+                    }
+                }
+            },
         }
-        Err(DeallocationError::InvalidArgument)
-    }
-
-    fn free_memory_size(&self) -> usize {
-        self.chunks[..self.count()].iter().fold(0, |v, i| {
-            let chunk = unsafe { &*i.as_ptr() };
-            v + self.block_size() * chunk.bitmap.load(Ordering::Relaxed).count_ones() as usize
-        })
-    }
-}
-
-struct SlabChunkHeader {
-    ptr: AtomicUsize,
-    bitmap: AtomicUsize,
-}
-
-impl SlabChunkHeader {
-    #[inline]
-    fn new(ptr: usize, bitmap: usize) -> Self {
-        Self {
-            ptr: AtomicUsize::new(ptr),
-            bitmap: AtomicUsize::new(bitmap),
-        }
-    }
-
-    #[inline]
-    fn is_some(&self) -> bool {
-        self.ptr.load(Ordering::Relaxed) != 0
-    }
-
-    #[inline]
-    fn is_none(&self) -> bool {
-        self.ptr.load(Ordering::Relaxed) == 0
-    }
-
-    #[inline]
-    fn is_full(&self) -> bool {
-        self.bitmap.load(Ordering::Relaxed) == 0
-    }
-
-    #[inline]
-    fn is_useful(&self) -> bool {
-        self.is_some() && !self.is_full()
-    }
-
-    #[inline]
-    fn ptr(&self) -> usize {
-        self.ptr.load(Ordering::Relaxed)
-    }
-
-    #[inline]
-    fn alloc(&self) -> Option<usize> {
-        let limit = 8 * size_of::<usize>();
-        for i in 0..limit {
-            if Cpu::interlocked_test_and_clear(&self.bitmap, i) {
-                return Some(i);
-            }
-        }
-        None
-    }
-
-    #[inline]
-    fn free(&self, position: usize) {
-        Cpu::interlocked_test_and_set(&self.bitmap, position);
     }
 }

@@ -151,14 +151,14 @@ impl MemoryManager {
     pub fn free_memory_size() -> usize {
         let shared = Self::shared_mut();
         let mut total = shared.dummy_size.load(Ordering::Relaxed);
+        total += shared.pairs[..shared.n_free.load(Ordering::Relaxed)]
+            .iter()
+            .fold(0, |v, i| v + i.size());
         total += shared
             .slab
             .as_ref()
             .map(|v| v.free_memory_size())
             .unwrap_or(0);
-        total += shared.pairs[..shared.n_free.load(Ordering::Relaxed)]
-            .iter()
-            .fold(0, |v, i| v + i.size());
         total
     }
 
@@ -200,6 +200,10 @@ impl MemoryManager {
                 Err(_err) => return None,
             }
         }
+        Self::zalloc2(layout)
+    }
+
+    pub unsafe fn zalloc2(layout: Layout) -> Option<NonZeroUsize> {
         Self::pg_alloc(layout)
             .and_then(|v| NonZeroUsize::new(PageManager::direct_map(v.get() as PhysicalAddress)))
     }
