@@ -111,7 +111,7 @@ impl FontManager {
     #[inline]
     #[track_caller]
     pub fn title_font() -> FontDescriptor {
-        FontDescriptor::new(FontFamily::SansSerif, 16).unwrap_or(Self::system_font())
+        FontDescriptor::new(FontFamily::SansSerif, 18).unwrap_or(Self::system_font())
     }
 
     #[inline]

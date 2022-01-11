@@ -87,12 +87,13 @@ async fn logo_task(f: fn()) {
 async fn shell_launcher(f: fn()) {
     {
         // Main Terminal
-        let main_screen = System::main_screen();
-        let font = if main_screen.width() > 1024 && main_screen.height() > 600 {
+        let bounds = WindowManager::main_screen_bounds();
+        let font = if bounds.width() > 1024 && bounds.height() > 600 {
             FontManager::system_font()
         } else {
             FontDescriptor::new(FontFamily::Terminal, 0).unwrap()
         };
+        // let font = FontManager::system_font();
         let terminal = Terminal::new(80, 24, font);
         System::set_stdout(Box::new(terminal));
     }

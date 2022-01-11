@@ -990,13 +990,15 @@ impl Xhci {
             match event {
                 TrbEvent::Transfer(event) => {
                     let event_trb = ScheduledTrb(event.ptr());
-                    // log!(
-                    //     "TRANSFER EVENT {:?} {:?}",
-                    // unsafe { event_trb.peek().trb_type() },
-                    // event.completion_code(),
-                    // );
 
                     if event.completion_code() != Some(TrbCompletionCode::SUCCESS) {
+                        log!(
+                            "TRANSFER ERROR {} {:?} {:?}",
+                            event.slot_id().map(|v| v.0.get()).unwrap_or(0),
+                            unsafe { event_trb.peek().trb_type() },
+                            event.completion_code(),
+                        );
+
                         unsafe {
                             let nop_trb = TrbNop::new();
                             let next_trb = {
@@ -1038,7 +1040,7 @@ impl Xhci {
                                     next_trb.peek().copy_without_cycle(&nop_trb);
                                     last_trb.peek().copy_without_cycle(&nop_trb);
                                 } else {
-                                    unreachable!()
+                                    todo!()
                                 }
                             }
                         }
@@ -1049,7 +1051,17 @@ impl Xhci {
                     let index = self.ep_ring_index(slot_id, dci).unwrap();
                     let ctx = &mut self.ring_context.write().unwrap()[index];
                     let ctx = unsafe { &mut *ctx.as_mut_ptr() };
-                    ctx.set_response(event.as_common_trb()).unwrap();
+                    match ctx.set_response(event.as_common_trb()) {
+                        Some(_) => (),
+                        None => {
+                            panic!(
+                                "USB Transaction Error {:?} CC {:?} CTX {:?}",
+                                unsafe { event_trb.peek().trb_type() },
+                                event.completion_code(),
+                                ctx.state(),
+                            );
+                        }
+                    }
                 }
                 TrbEvent::CommandCompletion(event) => {
                     let event_trb = ScheduledTrb(event.ptr());
@@ -1457,7 +1469,10 @@ impl EpRingContext {
                 self.signal.as_ref().unwrap().signal();
                 Some(())
             }
-            Err(_) => None,
+            Err(state) => match state {
+                // RequestState::Completed => Some(()),
+                _ => None,
+            },
         }
     }
 

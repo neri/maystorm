@@ -270,7 +270,7 @@ impl Usb2HubDriver {
             let speed = status.status.speed();
             match self.device.attach_child_device(port, speed).await {
                 Ok(_child) => (),
-                Err(_err) => (),
+                Err(_err) => todo!(),
             }
         }
     }
@@ -516,7 +516,7 @@ impl Usb3HubDriver {
         {
             match self.device.attach_child_device(port, PSIV::SS).await {
                 Ok(_child) => (),
-                Err(_err) => (),
+                Err(_err) => todo!(),
             }
         }
     }

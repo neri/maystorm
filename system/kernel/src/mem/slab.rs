@@ -4,15 +4,15 @@ use core::{alloc::Layout, intrinsics::transmute, num::*, ptr::NonNull, sync::ato
 
 type UsizeSmall = u16;
 
-static SLABS: [SlabCache2; 8] = [
-    SlabCache2::new(16),
-    SlabCache2::new(32),
-    SlabCache2::new(64),
-    SlabCache2::new(128),
-    SlabCache2::new(256),
-    SlabCache2::new(512),
-    SlabCache2::new(1024),
-    SlabCache2::new(2048),
+static SLABS: [SlabCache; 8] = [
+    SlabCache::new(16),
+    SlabCache::new(32),
+    SlabCache::new(64),
+    SlabCache::new(128),
+    SlabCache::new(256),
+    SlabCache::new(512),
+    SlabCache::new(1024),
+    SlabCache::new(2048),
 ];
 
 pub(super) struct SlabAllocator {
@@ -129,14 +129,14 @@ impl AtomicNode {
     }
 }
 
-struct SlabCache2 {
+struct SlabCache {
     block_size: UsizeSmall,
     total_count: AtomicUsize,
     free_count: AtomicUsize,
     free_ptr: AtomicUsize,
 }
 
-impl SlabCache2 {
+impl SlabCache {
     #[inline]
     const fn new(block_size: usize) -> Self {
         Self {
