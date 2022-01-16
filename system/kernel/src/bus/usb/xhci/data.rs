@@ -972,7 +972,7 @@ impl SlotContext {
     }
 
     #[inline]
-    pub fn set_speed(&mut self, speed: usize) {
+    pub fn set_speed(&mut self, speed: PSIV) {
         self.data[0] = self.data[0] & 0xFF0F_FFFF | ((speed as u32) << 20)
     }
 

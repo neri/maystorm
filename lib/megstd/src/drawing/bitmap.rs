@@ -2488,43 +2488,6 @@ mod memory_colors {
         }
     }
 
-    // pub fn memset_colors32_unroll(slice: &mut [TrueColor], cursor: usize, count: usize, color: TrueColor) {
-    //     unsafe {
-    //         let slice = slice.get_unchecked_mut(cursor);
-    //         let color32 = color.argb();
-    //         let mut ptr: *mut u32 = core::mem::transmute(slice);
-
-    //         let mut remain = count;
-
-    //         let prologue = usize::min(ptr as usize & 0x0F / 4, remain);
-    //         remain -= prologue;
-    //         for _ in 0..prologue {
-    //             ptr.write_volatile(color32);
-    //             ptr = ptr.add(1);
-    //         }
-
-    //         if remain > 4 {
-    //             let color64 = (color32 as u64) | (color32 as u64) << 32;
-    //             let color128 = (color64 as u128) | ((color64 as u128) << 64);
-    //             let count = remain / 4;
-    //             let mut ptr2 = ptr as *mut u128;
-
-    //             for _ in 0..count {
-    //                 ptr2.write_volatile(color128);
-    //                 ptr2 = ptr2.add(1);
-    //             }
-
-    //             ptr = ptr2 as *mut u32;
-    //             remain -= count * 4;
-    //         }
-
-    //         for _ in 0..remain {
-    //             ptr.write_volatile(color32);
-    //             ptr = ptr.add(1);
-    //         }
-    //     }
-    // }
-
     /// Faster copy
     #[inline]
     pub fn memcpy_colors32(
@@ -2540,61 +2503,6 @@ mod memory_colors {
             *dest = *src;
         }
     }
-
-    // pub fn memcpy_colors32_unroll(
-    //     dest: &mut [TrueColor],
-    //     dest_cursor: usize,
-    //     src: &[TrueColor],
-    //     src_cursor: usize,
-    //     count: usize,
-    // ) {
-    //     // let dest = &mut dest[dest_cursor..dest_cursor + count];
-    //     // let src = &src[src_cursor..src_cursor + count];
-    //     unsafe {
-    //         let dest = dest.get_unchecked_mut(dest_cursor);
-    //         let src = src.get_unchecked(src_cursor);
-    //         let mut ptr_d: *mut u32 = transmute(dest);
-    //         let mut ptr_s: *const u32 = transmute(src);
-    //         let mut remain = count;
-    //         if ((ptr_d as usize) & 0xF) == ((ptr_s as usize) & 0xF) {
-    //             let prologue = usize::min(ptr_d as usize & 0x0F, remain);
-    //             remain -= prologue;
-    //             for _ in 0..prologue {
-    //                 ptr_d.write_volatile(ptr_s.read_volatile());
-    //                 ptr_d = ptr_d.add(1);
-    //                 ptr_s = ptr_s.add(1);
-    //             }
-
-    //             if remain > 4 {
-    //                 let count = remain / 4;
-    //                 let mut ptr2d = ptr_d as *mut u128;
-    //                 let mut ptr2s = ptr_s as *mut u128;
-
-    //                 for _ in 0..count {
-    //                     ptr2d.write_volatile(ptr2s.read_volatile());
-    //                     ptr2d = ptr2d.add(1);
-    //                     ptr2s = ptr2s.add(1);
-    //                 }
-
-    //                 ptr_d = ptr2d as *mut u32;
-    //                 ptr_s = ptr2s as *mut u32;
-    //                 remain -= count * 4;
-    //             }
-
-    //             for _ in 0..remain {
-    //                 ptr_d.write_volatile(ptr_s.read_volatile());
-    //                 ptr_d = ptr_d.add(1);
-    //                 ptr_s = ptr_s.add(1);
-    //             }
-    //         } else {
-    //             for _ in 0..count {
-    //                 ptr_d.write_volatile(ptr_s.read_volatile());
-    //                 ptr_d = ptr_d.add(1);
-    //                 ptr_s = ptr_s.add(1);
-    //             }
-    //         }
-    //     }
-    // }
 
     // Alpha blending
     #[inline]

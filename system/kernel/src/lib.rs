@@ -12,7 +12,6 @@
 #![feature(control_flow_enum)]
 #![feature(core_intrinsics)]
 #![feature(lang_items)]
-#![feature(maybe_uninit_extra)]
 #![feature(maybe_uninit_uninit_array)]
 #![feature(negative_impls)]
 #![feature(new_uninit)]

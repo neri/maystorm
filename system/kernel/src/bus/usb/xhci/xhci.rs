@@ -835,7 +835,7 @@ impl Xhci {
         slot.set_root_hub_port(device.root_port_id);
         slot.set_context_entries(1);
         slot.set_route_string(new_route);
-        slot.set_speed(speed as usize);
+        slot.set_speed(speed);
 
         if hub.device().psiv > speed {
             slot.set_parent_hub_slot_id(device.slot_id);
@@ -859,6 +859,13 @@ impl Xhci {
             Ok(_) => (),
             Err(err) => {
                 log!("ADDRESS_DEVICE ERROR {:?}", err.completion_code());
+                log!(
+                    " {}.{} {:?} {:?}",
+                    hub.device().slot_id.0.get(),
+                    port_id.0.get(),
+                    hub.speed(),
+                    speed
+                );
                 return Err(UsbError::UsbTransactionError);
             }
         }
@@ -912,11 +919,10 @@ impl Xhci {
         input_context.init(input_context_pa, self.context_size);
 
         let slot = input_context.slot();
-        let speed_raw = port.status().speed_raw();
+        let psiv = port.status().speed().unwrap_or(PSIV::SS);
         slot.set_root_hub_port(port_id);
-        slot.set_speed(speed_raw);
+        slot.set_speed(psiv);
         slot.set_context_entries(1);
-        let psiv = FromPrimitive::from_usize(speed_raw).unwrap_or(PSIV::SS);
 
         self.configure_endpoint(slot_id, DCI::CONTROL, EpType::Control, 0, 0, false);
 
@@ -991,7 +997,16 @@ impl Xhci {
                 TrbEvent::Transfer(event) => {
                     let event_trb = ScheduledTrb(event.ptr());
 
-                    if event.completion_code() != Some(TrbCompletionCode::SUCCESS) {
+                    if match unsafe { event_trb.peek().trb_type() } {
+                        Some(TrbType::NORMAL) | Some(TrbType::STATUS) => false,
+                        _ => true,
+                    }
+                    // if match event.completion_code() {
+                    //     Some(TrbCompletionCode::SUCCESS)
+                    //     | Some(TrbCompletionCode::SHORT_PACKET) => false,
+                    //     _ => true,
+                    // }
+                    {
                         log!(
                             "TRANSFER ERROR {} {:?} {:?}",
                             event.slot_id().map(|v| v.0.get()).unwrap_or(0),
@@ -1042,6 +1057,8 @@ impl Xhci {
                                 } else {
                                     todo!()
                                 }
+                            } else {
+                                todo!()
                             }
                         }
                     }
@@ -1054,9 +1071,10 @@ impl Xhci {
                     match ctx.set_response(event.as_common_trb()) {
                         Some(_) => (),
                         None => {
-                            panic!(
-                                "USB Transaction Error {:?} CC {:?} CTX {:?}",
-                                unsafe { event_trb.peek().trb_type() },
+                            let event_trb = unsafe { event_trb.peek() };
+                            log!(
+                                "USB Transaction Error {:?} CC {:?} STATUS {:?}",
+                                event_trb.trb_type(),
                                 event.completion_code(),
                                 ctx.state(),
                             );

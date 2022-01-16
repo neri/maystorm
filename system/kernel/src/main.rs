@@ -347,9 +347,9 @@ impl Shell {
                     print!("  Uniprocessor system");
                 }
 
-                let mb = device.total_memory_size() >> 20;
-                let gb = mb / 1000;
-                let mb = (mb % 1000) / 10;
+                let bytes = device.total_memory_size();
+                let gb = bytes >> 30;
+                let mb = (100 * (bytes & 0x3FFF_FFFF)) / 0x4000_0000;
                 println!(", Memory {}.{:02} GB", gb, mb);
 
                 let manufacturer_name = device.manufacturer_name();
