@@ -541,7 +541,7 @@ impl Xhci {
         let ctx = match self.ep_ring_index(slot_id, dci) {
             Some(index) => {
                 let ctx = &mut self.ring_context.write().unwrap()[index];
-                DisposableRef::new(unsafe { &mut *ctx.as_mut_ptr() })
+                unsafe { &mut *ctx.as_mut_ptr() }
             }
             None => todo!(),
         };
@@ -619,7 +619,7 @@ impl Xhci {
         let ctx = match self.ep_ring_index(slot_id, dci) {
             Some(index) => {
                 let ctx = &mut self.ring_context.write().unwrap()[index];
-                DisposableRef::new(unsafe { &mut *ctx.as_mut_ptr() })
+                unsafe { &mut *ctx.as_mut_ptr() }
             }
             None => todo!(),
         };
@@ -1101,7 +1101,6 @@ impl Xhci {
                     );
                 }
             }
-            drop(event)
         }
     }
 
@@ -1497,13 +1496,6 @@ impl EpRingContext {
     #[inline]
     pub fn set_scheduled(&self) {
         self.set_state(RequestState::Scheduled);
-    }
-}
-
-impl DisposeRef for EpRingContext {
-    #[inline]
-    fn dispose_ref(&mut self) {
-        self.set_state(RequestState::Available);
     }
 }
 

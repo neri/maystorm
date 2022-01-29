@@ -873,7 +873,7 @@ impl WindowManager<'_> {
                     (v.bounds().width() - bitmap.bounds().width()) / 2,
                     (v.bounds().height() - bitmap.bounds().height()) / 2,
                 );
-                v.blt(bitmap, origin, bitmap.bounds())
+                v.blt_transparent(bitmap, origin, bitmap.bounds(), IndexedColor::DEFAULT_KEY);
             });
             root.set_needs_display();
         });

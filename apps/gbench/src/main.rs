@@ -1,4 +1,3 @@
-//! Game Bench
 #![no_main]
 #![no_std]
 

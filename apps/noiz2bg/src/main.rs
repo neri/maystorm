@@ -1,4 +1,3 @@
-// Noiz2bg
 /*
 License
 -------

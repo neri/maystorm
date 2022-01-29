@@ -1,4 +1,3 @@
-// MEG-OS benchmark
 #![no_main]
 #![no_std]
 #![feature(asm_experimental_arch)]

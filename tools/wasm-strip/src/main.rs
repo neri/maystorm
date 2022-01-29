@@ -24,7 +24,8 @@ fn main() {
     let mut args = env::args();
     let _ = args.next().unwrap();
 
-    let mut to_overwrite = false;
+    let mut strip_all = false;
+    let mut will_overwrite = false;
     let mut preserved_names = Vec::new();
     let mut path_input = None;
 
@@ -33,7 +34,10 @@ fn main() {
         if arg.chars().next().unwrap_or_default() == '-' {
             match arg {
                 "-overwrite" => {
-                    to_overwrite = true;
+                    will_overwrite = true;
+                }
+                "-strip-all" => {
+                    strip_all = true;
                 }
                 "-preserve" => match args.next() {
                     Some(v) => preserved_names.push(v),
@@ -48,6 +52,12 @@ fn main() {
         } else {
             path_input = Some(arg.to_owned());
             break;
+        }
+    }
+
+    if !strip_all {
+        for name in ["name", "producers"] {
+            preserved_names.push(name.to_string());
         }
     }
 
@@ -103,8 +113,8 @@ fn main() {
 
         let out_size = ob.len();
 
-        if !to_overwrite && is_same_file && org_size <= out_size {
-            println!("There is no more data on file that can be stripped.");
+        if !will_overwrite && is_same_file && org_size <= out_size {
+            println!("There is no more data in the file that can be stripped.");
         } else {
             let mut os = File::create(path_output).expect("cannot create file");
             os.write_all(&ob).expect("write error");

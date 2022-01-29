@@ -1,4 +1,3 @@
-// Game of Life sample
 #![no_main]
 #![no_std]
 
