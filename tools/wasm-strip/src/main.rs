@@ -55,12 +55,6 @@ fn main() {
         }
     }
 
-    if !strip_all {
-        for name in ["name", "producers"] {
-            preserved_names.push(name.to_string());
-        }
-    }
-
     let path_input = match path_input {
         Some(v) => v,
         None => usage(),
@@ -91,7 +85,10 @@ fn main() {
         for (index, section) in sections.iter().enumerate() {
             let preserved = match section.section_type() {
                 WasmSectionType::Custom => match section.custom_section_name() {
-                    Some(name) => preserved_names.binary_search(&name).is_ok(),
+                    Some(name) => {
+                        preserved_names.binary_search(&name).is_ok()
+                            || !strip_all && !name.starts_with(".")
+                    }
                     None => false,
                 },
                 _ => true,
