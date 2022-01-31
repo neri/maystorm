@@ -2,9 +2,11 @@
 
 use crate::{arch::cpu::*, sync::RwLock, system::System};
 use alloc::{boxed::Box, collections::BTreeMap, string::String, sync::Arc, vec::Vec};
+use bitflags::*;
 use core::{
+    cell::UnsafeCell,
     fmt,
-    mem::MaybeUninit,
+    num::NonZeroU8,
     ops::{Add, ControlFlow},
 };
 
@@ -102,7 +104,7 @@ pub trait PciDriver {
     fn current_status(&self) -> String;
 }
 
-static mut PCI: MaybeUninit<Pci> = MaybeUninit::uninit();
+static mut PCI: UnsafeCell<Pci> = UnsafeCell::new(Pci::new());
 
 #[allow(dead_code)]
 pub struct Pci {
@@ -112,7 +114,7 @@ pub struct Pci {
 }
 
 impl Pci {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             devices: Vec::new(),
             registrars: Vec::new(),
@@ -121,22 +123,23 @@ impl Pci {
     }
 
     #[inline]
-    fn shared() -> &'static mut Pci {
-        unsafe { &mut *PCI.as_mut_ptr() }
+    unsafe fn shared_mut() -> &'static mut Pci {
+        PCI.get_mut()
+    }
+
+    #[inline]
+    fn shared() -> &'static Pci {
+        unsafe { &*PCI.get() }
     }
 
     pub unsafe fn init() {
-        PCI.write(Pci::new());
-
-        let shared = Self::shared();
+        let shared = Self::shared_mut();
         install_drivers(&mut shared.registrars);
 
         let cpu = System::current_processor();
         let bus = 0;
         for dev in 0..32 {
-            if let Some(device) = PciDevice::from_address(cpu, bus, dev, 0) {
-                shared.devices.push(device);
-            }
+            PciDevice::instantiate(cpu, bus, dev, 0);
         }
 
         for device in &shared.devices {
@@ -192,18 +195,19 @@ pub struct PciDevice {
     subsys_vendor_id: PciVendorId,
     subsys_device_id: PciDeviceId,
     class_code: PciClass,
+    has_multi_func: bool,
+    secondary_bus_number: Option<NonZeroU8>,
     bars: Box<[PciBar]>,
-    functions: Box<[PciDevice]>,
     capabilities: Box<[(PciCapabilityId, u8)]>,
 }
 
 impl PciDevice {
-    unsafe fn from_address(cpu: &Cpu, bus: u8, dev: u8, fun: u8) -> Option<Self> {
+    unsafe fn instantiate(cpu: &Cpu, bus: u8, dev: u8, fun: u8) -> bool {
         let base = PciConfigAddress::bus(bus).dev(dev).fun(fun);
         let dev_ven = cpu.read_pci(base);
         let vendor_id = PciVendorId(dev_ven as u16);
         if vendor_id == PciVendorId::INVALID {
-            return None;
+            return false;
         }
         let device_id = PciDeviceId((dev_ven >> 16) as u16);
         let sta_cmd = cpu.read_pci(base.register(1));
@@ -214,6 +218,15 @@ impl PciDevice {
         let header_type = ((cpu.read_pci(base.register(3)) >> 16) & 0xFF) as u8;
         let has_multi_func = (header_type & 0x80) != 0;
         let header_type = header_type & 0x7F;
+
+        let secondary_bus_number = if header_type == 0x01 {
+            // PCI to PCI bridge
+            let val = cpu.read_pci(base.register(6));
+            let bus = (val >> 8) as u8;
+            NonZeroU8::new(bus)
+        } else {
+            None
+        };
 
         let bar_limit = match header_type {
             0x00 => 6,
@@ -252,15 +265,6 @@ impl PciDevice {
             }
         }
 
-        let mut functions = Vec::new();
-        if fun == 0 && has_multi_func {
-            for fun in 1..8 {
-                if let Some(function) = PciDevice::from_address(cpu, bus, dev, fun) {
-                    functions.push(function);
-                }
-            }
-        }
-
         let device = Self {
             addr: base,
             vendor_id,
@@ -268,11 +272,27 @@ impl PciDevice {
             subsys_vendor_id,
             subsys_device_id,
             class_code,
+            has_multi_func,
+            secondary_bus_number,
             bars: bars.into_boxed_slice(),
-            functions: functions.into_boxed_slice(),
             capabilities: capabilities.into_boxed_slice(),
         };
-        Some(device)
+        Pci::shared_mut().devices.push(device);
+
+        if fun == 0 && has_multi_func {
+            for fun in 1..8 {
+                PciDevice::instantiate(cpu, bus, dev, fun);
+            }
+        }
+
+        secondary_bus_number.map(|bus| {
+            let bus = bus.get();
+            for dev in 0..32 {
+                Self::instantiate(cpu, bus, dev, 0);
+            }
+        });
+
+        true
     }
 
     #[inline]
@@ -306,13 +326,18 @@ impl PciDevice {
     }
 
     #[inline]
-    pub fn bars(&self) -> &[PciBar] {
-        self.bars.as_ref()
+    pub const fn has_multi_func(&self) -> bool {
+        self.has_multi_func
     }
 
     #[inline]
-    pub fn functions(&self) -> &[PciDevice] {
-        self.functions.as_ref()
+    pub const fn secondary_bus_number(&self) -> Option<NonZeroU8> {
+        self.secondary_bus_number
+    }
+
+    #[inline]
+    pub fn bars(&self) -> &[PciBar] {
+        self.bars.as_ref()
     }
 
     /// Returns an array of capability ID and register offset pairs.
@@ -339,7 +364,6 @@ impl PciDevice {
         };
         let base = self.addr.register(msi_reg);
 
-        // TODO: exclusive control
         let cpu = System::current_processor();
         cpu.write_pci(base + 1, msi_addr as u32);
         cpu.write_pci(base + 2, (msi_addr >> 32) as u32);
@@ -347,6 +371,38 @@ impl PciDevice {
         cpu.write_pci(base, (cpu.read_pci(base) & 0xFF8FFFFF) | 0x00010000);
 
         Ok(())
+    }
+
+    pub unsafe fn read_pci_command(&self) -> PciCommand {
+        let cpu = System::current_processor();
+        PciCommand::from_bits_unchecked(cpu.read_pci(self.addr.register(1)))
+    }
+
+    pub unsafe fn write_pci_command(&self, val: PciCommand) {
+        let cpu = System::current_processor();
+        cpu.write_pci(self.addr.register(1), val.bits());
+    }
+
+    pub unsafe fn set_pci_command(&self, val: PciCommand) {
+        let cpu = System::current_processor();
+        let base = self.addr.register(1);
+        cpu.write_pci(base, cpu.read_pci(base) | val.bits());
+    }
+
+    pub unsafe fn clear_pci_command(&self, val: PciCommand) {
+        let cpu = System::current_processor();
+        let base = self.addr.register(1);
+        cpu.write_pci(base, cpu.read_pci(base) & !val.bits());
+    }
+}
+
+bitflags! {
+    pub struct PciCommand: u32 {
+        const IO_SPACE      = 0b0000_0000_0000_0001;
+        const MEM_SPACE     = 0b0000_0000_0000_0010;
+        const BUS_MASTER    = 0b0000_0000_0000_0100;
+
+        const INT_DISABLE   = 0b0000_0100_0000_0000;
     }
 }
 
@@ -562,11 +618,16 @@ impl PciClass {
         self.0 & self.class_type().mask()
     }
 
+    #[inline]
+    pub const fn data(&self) -> u32 {
+        self.raw_data() >> 8
+    }
+
     /// Returns whether or not this instance matches the specified class code, subclass, or programming interface.
     #[inline]
     pub const fn matches(&self, other: Self) -> bool {
         match other.class_type() {
-            PciClassType::Unknown => false,
+            PciClassType::Unspecified => false,
             _ => {
                 if self.class_type().mask() < other.class_type().mask() {
                     false
@@ -581,7 +642,7 @@ impl PciClass {
 
 #[derive(Debug, Clone, Copy)]
 enum PciClassType {
-    Unknown = 0,
+    Unspecified = 0,
     ClassCode = 1,
     Subclass = 2,
     Interface = 3,
@@ -591,7 +652,7 @@ impl PciClassType {
     #[inline]
     pub const fn mask(&self) -> u32 {
         match *self {
-            PciClassType::Unknown => 0,
+            PciClassType::Unspecified => 0,
             PciClassType::ClassCode => 0xFF_00_00_00,
             PciClassType::Subclass => 0xFF_FF_00_00,
             PciClassType::Interface => 0xFF_FF_FF_00,
@@ -604,7 +665,7 @@ impl PciClassType {
             1 => Self::ClassCode,
             2 => Self::Subclass,
             3 => Self::Interface,
-            _ => Self::Unknown,
+            _ => Self::Unspecified,
         }
     }
 }

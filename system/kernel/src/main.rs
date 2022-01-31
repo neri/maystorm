@@ -537,33 +537,21 @@ impl Shell {
         }
     }
 
-    fn cmd_lspci(argv: &[&str]) -> isize {
-        let opt_all = argv.len() > 1;
+    fn cmd_lspci(_argv: &[&str]) -> isize {
+        // let _opt_all = argv.len() > 1;
         for device in bus::pci::Pci::devices() {
             let addr = device.address();
             let class_string = Self::find_pci_class_string(device.class_code());
             println!(
-                "{:02x}:{:02x}.{} {:04x}:{:04x} {}",
+                "{:02x}:{:02x}.{} {:04x}:{:04x} {:06x} {}",
                 addr.get_bus(),
                 addr.get_dev(),
                 addr.get_fun(),
                 device.vendor_id().0,
                 device.device_id().0,
+                device.class_code().data(),
                 class_string,
             );
-            if opt_all {
-                for function in device.functions() {
-                    let addr = function.address();
-                    let class_string = Self::find_pci_class_string(function.class_code());
-                    println!(
-                        "     .{} {:04x}:{:04x} {}",
-                        addr.get_fun(),
-                        function.vendor_id().0,
-                        function.device_id().0,
-                        class_string,
-                    );
-                }
-            }
         }
         0
     }
@@ -592,7 +580,7 @@ impl Shell {
             (PciClass::code(0x04).sub(0x00), "Multimedia Video Controller"),
             (PciClass::code(0x04).sub(0x01), "Multimedia Audio Controller"),
             (PciClass::code(0x04).sub(0x02), "Computer Telephony Device"),
-            (PciClass::code(0x04).sub(0x03), "Audio Device"),
+            (PciClass::code(0x04).sub(0x03), "HD Audio Controller"),
             (PciClass::code(0x04), "Multimedia Controller"),
             (PciClass::code(0x05).sub(0x00), "RAM Controller"),
             (PciClass::code(0x05).sub(0x01), "Flash Controller"),

@@ -130,6 +130,16 @@ impl MmioSlice {
 
     #[inline]
     #[track_caller]
+    pub unsafe fn read_u16(&self, offset: usize) -> u16 {
+        let mut result = 0;
+        self.check_limit(offset, &result);
+        let ptr: &AtomicU16 = transmute(self.base + offset);
+        result = ptr.load(Ordering::SeqCst);
+        result
+    }
+
+    #[inline]
+    #[track_caller]
     pub unsafe fn read_u32(&self, offset: usize) -> u32 {
         let mut result = 0;
         self.check_limit(offset, &result);
