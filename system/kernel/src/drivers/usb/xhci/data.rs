@@ -1,6 +1,6 @@
 //! xHC Data Structures
 
-use crate::bus::usb::*;
+use crate::drivers::usb::*;
 use core::{mem::transmute, num::NonZeroU8, sync::atomic::*};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
@@ -902,8 +902,7 @@ impl TrbDci for TrbResetEndpointCommand {}
 pub struct EventRingSegmentTableEntry {
     base: u64,
     size: u16,
-    _rsrv1: u16,
-    _rsrv2: u32,
+    _rsrv: [u8; 6],
 }
 
 impl EventRingSegmentTableEntry {
@@ -912,8 +911,7 @@ impl EventRingSegmentTableEntry {
         Self {
             base,
             size,
-            _rsrv1: 0,
-            _rsrv2: 0,
+            _rsrv: [0; 6],
         }
     }
 

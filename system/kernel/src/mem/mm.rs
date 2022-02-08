@@ -127,8 +127,8 @@ impl MemoryManager {
     }
 
     #[inline]
-    pub fn direct_map(pa: PhysicalAddress) -> usize {
-        PageManager::direct_map(pa)
+    pub fn direct_map<T: Sized>(pa: PhysicalAddress) -> *mut T {
+        unsafe { transmute(PageManager::direct_map(pa)) }
     }
 
     #[inline]
@@ -179,15 +179,21 @@ impl MemoryManager {
         None
     }
 
-    #[inline]
     pub unsafe fn alloc_pages(size: usize) -> Option<NonZeroUsize> {
         let result = Self::pg_alloc(Layout::from_size_align_unchecked(size, Self::PAGE_SIZE_MIN));
         if let Some(p) = result {
-            let p =
-                PageManager::direct_map(p.get() as PhysicalAddress) as *const c_void as *mut c_void;
+            let p = Self::direct_map::<c_void>(p.get() as PhysicalAddress);
             p.write_bytes(0, size);
         }
         result
+    }
+
+    #[inline]
+    pub unsafe fn alloc_dma<T>(len: usize) -> Option<(PhysicalAddress, *mut T)> {
+        Self::alloc_pages(size_of::<T>() * len).map(|v| {
+            let pa = v.get() as PhysicalAddress;
+            (pa, Self::direct_map(pa))
+        })
     }
 
     /// Allocate kernel memory

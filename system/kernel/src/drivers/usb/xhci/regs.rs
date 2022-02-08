@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::{
-    bus::usb::*,
+    drivers::usb::*,
     mem::{MemoryManager, PhysicalAddress},
 };
 use bitflags::*;
@@ -496,14 +496,11 @@ pub struct InterrupterRegisterSet {
 impl InterrupterRegisterSet {
     pub const SIZE_EVENT_RING: usize = MemoryManager::PAGE_SIZE_MIN / size_of::<Trb>();
 
-    pub unsafe fn init(&self, initial_dp: PhysicalAddress) {
-        let base = MemoryManager::alloc_pages(MemoryManager::PAGE_SIZE_MIN)
-            .unwrap()
-            .get() as u64;
-        let erst =
-            MemoryManager::direct_map(base) as *const c_void as *mut EventRingSegmentTableEntry;
-        *erst = EventRingSegmentTableEntry::new(initial_dp, Self::SIZE_EVENT_RING as u16);
-        self.erstsz.store(1, Ordering::SeqCst);
+    pub unsafe fn init(&self, initial_dp: PhysicalAddress, len: usize) {
+        let count = 1;
+        let (base, erst) = MemoryManager::alloc_dma(count).unwrap();
+        *erst = EventRingSegmentTableEntry::new(initial_dp, len as u16);
+        self.erstsz.store(count as u32, Ordering::SeqCst);
         self.erdp.store(initial_dp, Ordering::SeqCst);
         self.erstba.store(base, Ordering::SeqCst);
     }
@@ -516,8 +513,7 @@ impl InterrupterRegisterSet {
     pub fn dequeue_event<'a>(&'a self, event_cycle: &'a CycleBit) -> Option<&'a Trb> {
         let erdp = self.erdp.load(Ordering::SeqCst);
         let cycle = event_cycle.value();
-        let erdp_va = MemoryManager::direct_map(erdp & !15) as *const Trb;
-        let event = unsafe { &*erdp_va };
+        let event = unsafe { &*MemoryManager::direct_map::<Trb>(erdp & !15) };
         if event.cycle_bit() == cycle {
             let er_base = erdp & !0xFFF;
             let mut index = 1 + (erdp - er_base) / size_of::<Trb>() as u64;

@@ -18,8 +18,8 @@
 
 #[macro_use]
 pub mod arch;
-pub mod bus;
 pub mod dev;
+pub mod drivers;
 pub mod fs;
 pub mod fw;
 pub mod io;
@@ -78,7 +78,8 @@ fn panic(info: &PanicInfo) -> ! {
         let _ = task::scheduler::Scheduler::freeze(true);
         PANIC_GLOBAL_LOCK.synchronized(|| {
             let stdout = System::em_console();
-            stdout.set_attribute(0x0F);
+            stdout.set_attribute(0x4F);
+            let _ = writeln!(stdout, " = Guru Meditation = ");
             if let Some(thread) = task::scheduler::Scheduler::current_thread() {
                 if let Some(name) = thread.name() {
                     let _ = write!(stdout, "thread '{}' ", name);

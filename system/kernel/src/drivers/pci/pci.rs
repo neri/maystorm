@@ -1,7 +1,11 @@
-//! Peripheral Component Interconnect Bus
-
 use crate::{arch::cpu::*, sync::RwLock, system::System};
-use alloc::{boxed::Box, collections::BTreeMap, string::String, sync::Arc, vec::Vec};
+use alloc::{
+    boxed::Box,
+    collections::{btree_map::Values, BTreeMap},
+    string::String,
+    sync::Arc,
+    vec::Vec,
+};
 use bitflags::*;
 use core::{
     cell::UnsafeCell,
@@ -108,7 +112,7 @@ static mut PCI: UnsafeCell<Pci> = UnsafeCell::new(Pci::new());
 
 #[allow(dead_code)]
 pub struct Pci {
-    devices: Vec<PciDevice>,
+    devices: BTreeMap<PciConfigAddress, PciDevice>,
     registrars: Vec<Box<dyn PciDriverRegistrar>>,
     drivers: RwLock<BTreeMap<PciConfigAddress, Arc<dyn PciDriver>>>,
 }
@@ -116,7 +120,7 @@ pub struct Pci {
 impl Pci {
     const fn new() -> Self {
         Self {
-            devices: Vec::new(),
+            devices: BTreeMap::new(),
             registrars: Vec::new(),
             drivers: RwLock::new(BTreeMap::new()),
         }
@@ -142,7 +146,7 @@ impl Pci {
             PciDevice::instantiate(cpu, bus, dev, 0);
         }
 
-        for device in &shared.devices {
+        for device in Self::devices() {
             for registrar in &shared.registrars {
                 match registrar.instantiate(&device) {
                     Some(v) => {
@@ -154,15 +158,15 @@ impl Pci {
         }
     }
 
-    pub fn devices() -> &'static [PciDevice] {
-        Self::shared().devices.as_slice()
+    pub fn devices<'a>() -> Values<'a, PciConfigAddress, PciDevice> {
+        Self::shared().devices.values()
     }
 
-    pub fn device_by_addr(addr: PciConfigAddress) -> Option<&'static PciDevice> {
-        Self::shared().devices.iter().find(|v| v.address() == addr)
+    pub fn device_by_addr<'a>(addr: PciConfigAddress) -> Option<&'a PciDevice> {
+        Self::shared().devices.get(&addr)
     }
 
-    pub fn drivers<'a>() -> Vec<Arc<dyn PciDriver>> {
+    pub fn drivers() -> Vec<Arc<dyn PciDriver>> {
         Self::shared()
             .drivers
             .read()
@@ -277,7 +281,7 @@ impl PciDevice {
             bars: bars.into_boxed_slice(),
             capabilities: capabilities.into_boxed_slice(),
         };
-        Pci::shared_mut().devices.push(device);
+        Pci::shared_mut().devices.insert(base, device);
 
         if fun == 0 && has_multi_func {
             for fun in 1..8 {
@@ -288,7 +292,7 @@ impl PciDevice {
         secondary_bus_number.map(|bus| {
             let bus = bus.get();
             for dev in 0..32 {
-                Self::instantiate(cpu, bus, dev, 0);
+                PciDevice::instantiate(cpu, bus, dev, 0);
             }
         });
 

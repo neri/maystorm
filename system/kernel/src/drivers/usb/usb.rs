@@ -1,5 +1,3 @@
-//! Universal Serial Bus
-
 use super::*;
 use crate::{
     r,

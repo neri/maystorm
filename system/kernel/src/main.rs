@@ -10,8 +10,8 @@ use bootprot::*;
 use core::{fmt::Write, num::NonZeroU8};
 use kernel::{
     arch::cpu::*,
-    bus::pci::*,
-    bus::usb::*,
+    drivers::pci,
+    drivers::usb,
     fs::*,
     mem::*,
     rt::*,
@@ -384,7 +384,7 @@ impl Shell {
                 Err(_) => println!("# No SecureRandom"),
             },
             "drivers" => {
-                for driver in Pci::drivers() {
+                for driver in pci::Pci::drivers() {
                     println!(
                         "PCI {:?} {} {}",
                         driver.address(),
@@ -453,8 +453,8 @@ impl Shell {
 
     fn cmd_lsusb(argv: &[&str]) -> isize {
         if let Some(addr) = argv.get(1).and_then(|v| v.parse::<NonZeroU8>().ok()) {
-            let addr = UsbAddress(addr);
-            let device = match UsbManager::device_by_addr(addr) {
+            let addr = usb::UsbAddress(addr);
+            let device = match usb::UsbManager::device_by_addr(addr) {
                 Some(v) => v,
                 None => {
                     println!("Error: Device not found");
@@ -517,8 +517,8 @@ impl Shell {
         0
     }
 
-    fn print_usb_device(nest: usize, parent: Option<UsbAddress>) {
-        for device in UsbManager::devices().filter(|v| v.parent() == parent) {
+    fn print_usb_device(nest: usize, parent: Option<usb::UsbAddress>) {
+        for device in usb::UsbManager::devices().filter(|v| v.parent() == parent) {
             for _ in 0..nest {
                 print!("  ");
             }
@@ -539,7 +539,7 @@ impl Shell {
 
     fn cmd_lspci(_argv: &[&str]) -> isize {
         // let _opt_all = argv.len() > 1;
-        for device in bus::pci::Pci::devices() {
+        for device in drivers::pci::Pci::devices() {
             let addr = device.address();
             let class_string = Self::find_pci_class_string(device.class_code());
             println!(
@@ -556,7 +556,8 @@ impl Shell {
         0
     }
 
-    fn find_pci_class_string(cc: PciClass) -> &'static str {
+    fn find_pci_class_string(cc: pci::PciClass) -> &'static str {
+        use pci::PciClass;
         #[rustfmt::skip]
         let entries = [
             (PciClass::code(0x00).sub(0x00), "Non-VGA-Compatible devices"),

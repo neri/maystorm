@@ -135,7 +135,7 @@ impl WindowManager<'static> {
                 .style(WindowStyle::OPAQUE | WindowStyle::NO_SHADOW)
                 .level(WindowLevel::ROOT)
                 .frame(Rect::from(screen_size))
-                .bg_color(Color::BLACK)
+                .bg_color(Color::from_rgb(0x000000))
                 .without_message_queue()
                 .bitmap_strategy(BitmapStrategy::NonBitmap)
                 .build_inner("Desktop");

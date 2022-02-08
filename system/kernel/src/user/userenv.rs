@@ -35,19 +35,6 @@ async fn logo_task(f: fn()) {
     let width = 320;
     let height = 200;
 
-    WindowManager::set_desktop_color(Theme::shared().desktop_color());
-    if true {
-        if let Ok(mut file) = FileManager::open("wall.qoi") {
-            let stat = file.stat().unwrap();
-            let mut vec = Vec::with_capacity(stat.len() as usize);
-            file.read_to_end(&mut vec).unwrap();
-            if let Some(mut dib) = ImageLoader::from_qoi(vec.as_slice()) {
-                WindowManager::set_desktop_bitmap(&dib.into_bitmap());
-            }
-        }
-    }
-    WindowManager::set_pointer_visible(true);
-
     let window = WindowBuilder::new()
         .style_add(WindowStyle::SUSPENDED)
         .style_sub(WindowStyle::CLOSE_BUTTON)
@@ -74,6 +61,19 @@ async fn logo_task(f: fn()) {
             _ => window.handle_default_message(message),
         }
     }
+
+    WindowManager::set_desktop_color(Theme::shared().desktop_color());
+    if true {
+        if let Ok(mut file) = FileManager::open("wall.qoi") {
+            let stat = file.stat().unwrap();
+            let mut vec = Vec::with_capacity(stat.len() as usize);
+            file.read_to_end(&mut vec).unwrap();
+            if let Some(mut dib) = ImageLoader::from_qoi(vec.as_slice()) {
+                WindowManager::set_desktop_bitmap(&dib.into_bitmap());
+            }
+        }
+    }
+    WindowManager::set_pointer_visible(true);
 
     Scheduler::spawn_async(Task::new(status_bar_main()));
     Scheduler::spawn_async(Task::new(_notification_task()));
@@ -102,16 +102,16 @@ async fn shell_launcher(f: fn()) {
 
 #[allow(dead_code)]
 async fn status_bar_main() {
-    const STATUS_BAR_HEIGHT: isize = 28;
+    const STATUS_BAR_HEIGHT: isize = 32;
     const STATUS_BAR_PADDING: EdgeInsets = EdgeInsets::new(0, 0, 0, 0);
-    const INNER_PADDING: EdgeInsets = EdgeInsets::new(1, 16, 1, 16);
+    const INNER_PADDING: EdgeInsets = EdgeInsets::new(1, 24, 1, 24);
 
-    let bg_color = Theme::shared()
-        // .window_title_active_background_dark();
-        .status_bar_background();
-    let fg_color = Theme::shared()
-        // .window_title_active_foreground_dark();
-        .status_bar_foreground();
+    let bg_color = 
+    // Theme::shared().window_title_active_background_dark();
+    Theme::shared().status_bar_background();
+    let fg_color = 
+    // Theme::shared().window_title_active_foreground_dark();
+    Theme::shared().status_bar_foreground();
     // let border_color = Theme::shared().window_default_border_dark();
 
     let screen_bounds = WindowManager::main_screen_bounds();
@@ -461,6 +461,7 @@ async fn activity_monitor_main() {
 
 /// Simple Notification Task
 async fn _notification_task() {
+    let margin_top = 8;
     let padding = 8;
     let radius = 8;
     let bg_color = Color::from_argb(0xE0FFF9C4);
@@ -475,7 +476,7 @@ async fn _notification_task() {
         .level(WindowLevel::POPUP)
         .frame(Rect::new(
             screen_bounds.max_x() - window_width,
-            screen_bounds.min_y(),
+            screen_bounds.min_y() + margin_top,
             window_width,
             window_height,
         ))

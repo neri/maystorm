@@ -2,6 +2,7 @@
 
 use super::apic::*;
 use crate::{
+    drivers::pci::*,
     io::tty::Tty,
     rt::*,
     sync::spinlock::Spinlock,
@@ -11,7 +12,6 @@ use crate::{
 };
 use alloc::boxed::Box;
 use bitflags::*;
-use bus::pci::*;
 use core::{
     arch::asm, arch::x86_64::__cpuid_count, convert::TryFrom, ffi::c_void, sync::atomic::*,
 };

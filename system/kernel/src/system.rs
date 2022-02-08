@@ -217,8 +217,8 @@ impl System {
             log::EventManager::init();
 
             io::hid_mgr::HidManager::init();
-            bus::usb::UsbManager::init();
-            bus::pci::Pci::init();
+            drivers::usb::UsbManager::init();
+            drivers::pci::Pci::init();
 
             fs::FileManager::init(
                 PageManager::direct_map(shared.initrd_base as PhysicalAddress),
