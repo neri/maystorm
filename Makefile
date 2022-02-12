@@ -38,7 +38,7 @@ run:
 		-cpu Haswell -smp 4,cores=2,threads=2 \
 		-bios $(OVMF) \
 		-rtc base=localtime,clock=host \
-		-device nec-usb-xhci,id=xhci -device usb-tablet -device usb-kbd \
+		-device nec-usb-xhci,id=xhci -device usb-tablet \
 		-drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
 		-device intel-hda -device hda-duplex \
 		-monitor stdio
@@ -58,7 +58,7 @@ run_up:
 		-cpu IvyBridge \
 		-bios $(OVMF) \
 		-rtc base=localtime,clock=host \
-		-device nec-usb-xhci,id=xhci -device usb-tablet -device usb-kbd \
+		-device nec-usb-xhci,id=xhci -device usb-tablet \
 		-drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
 		-device intel-hda -device hda-duplex \
 		-monitor stdio
