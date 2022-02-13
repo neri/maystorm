@@ -27,10 +27,6 @@ impl TerminalAgent {
         Self { n_instances: 0 }
     }
 
-    // pub unsafe fn init() {
-    //     SpawnOption::new().spawn(Self::console_thread, 0, "TerminalAgent");
-    // }
-
     fn shared<'a>() -> &'a mut Self {
         unsafe { &mut TA }
     }

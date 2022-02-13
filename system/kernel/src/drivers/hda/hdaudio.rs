@@ -188,37 +188,18 @@ impl HdAudioController {
 
             let path = driver.path_to_dac(addr);
             for widget in path {
-                let vol = cmd
+                let gain = cmd
                     .get_parameter(widget, ParameterId::OutputAmpCapabilities)
                     .unwrap()
-                    .as_u32() as u8
-                    & 0x7F;
+                    .as_u32() as u8;
                 cmd.run(Command::new(
                     widget,
                     Verb::SetAmplifierGainMute(AmplifierGainMuteSetPayload::new(
-                        true, false, true, true, 0, false, vol,
+                        true, false, true, true, 0, false, gain,
                     )),
                 ))
                 .unwrap();
 
-                let count = cmd
-                    .get_parameter(widget, ParameterId::ConnectionListLength)
-                    .unwrap()
-                    .as_u32() as u8;
-                for index in 0..count {
-                    let vol = cmd
-                        .get_parameter(widget, ParameterId::InputAmpCapabilities)
-                        .unwrap()
-                        .as_u32() as u8
-                        & 0x7F;
-                    cmd.run(Command::new(
-                        widget,
-                        Verb::SetAmplifierGainMute(AmplifierGainMuteSetPayload::new(
-                            false, true, true, true, index, false, vol,
-                        )),
-                    ))
-                    .unwrap();
-                }
                 // TODO: magic number
                 cmd.run(Command::new(widget, Verb::SetPowerState(0x00)))
                     .unwrap();

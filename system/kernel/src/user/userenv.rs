@@ -88,7 +88,7 @@ async fn shell_launcher(f: fn()) {
     {
         // Main Terminal
         let bounds = WindowManager::main_screen_bounds();
-        let font = if bounds.width() > 1024 && bounds.height() > 600 {
+        let font = if bounds.width() >= 800 && bounds.height() >= 600 {
             FontManager::system_font()
         } else {
             FontDescriptor::new(FontFamily::Terminal, 0).unwrap()
