@@ -115,6 +115,14 @@ impl HdAudioController {
             "HDAudio initialization failed"
         );
 
+        let deadline = Timer::new(Duration::from_millis(100));
+        loop {
+            if deadline.is_expired() || global.get_state_change_status() != 0 {
+                break;
+            }
+            Timer::sleep(Duration::from_millis(1));
+        }
+
         let gcap = global.capabilities();
         let iss = gcap.iss;
         let oss = gcap.oss;
@@ -170,12 +178,53 @@ impl HdAudioController {
             driver.odss[0].lock().unwrap().prepare_buffer(stream_id);
 
             let mut cmd = driver.cmd.lock().unwrap();
+
             // TODO: magic number
             cmd.run(Command::new(
                 addr,
                 Verb::SetPinWidgetControl(PinWidgetControl(0xC0)),
             ))
             .unwrap();
+
+            let path = driver.path_to_dac(addr);
+            for widget in path {
+                let vol = cmd
+                    .get_parameter(widget, ParameterId::OutputAmpCapabilities)
+                    .unwrap()
+                    .as_u32() as u8
+                    & 0x7F;
+                cmd.run(Command::new(
+                    widget,
+                    Verb::SetAmplifierGainMute(AmplifierGainMuteSetPayload::new(
+                        true, false, true, true, 0, false, vol,
+                    )),
+                ))
+                .unwrap();
+
+                let count = cmd
+                    .get_parameter(widget, ParameterId::ConnectionListLength)
+                    .unwrap()
+                    .as_u32() as u8;
+                for index in 0..count {
+                    let vol = cmd
+                        .get_parameter(widget, ParameterId::InputAmpCapabilities)
+                        .unwrap()
+                        .as_u32() as u8
+                        & 0x7F;
+                    cmd.run(Command::new(
+                        widget,
+                        Verb::SetAmplifierGainMute(AmplifierGainMuteSetPayload::new(
+                            false, true, true, true, index, false, vol,
+                        )),
+                    ))
+                    .unwrap();
+                }
+                // TODO: magic number
+                cmd.run(Command::new(widget, Verb::SetPowerState(0x00)))
+                    .unwrap();
+            }
+
+            driver.global.ssync.store(1, Ordering::SeqCst);
         }
 
         let driver = Arc::new(driver);
@@ -245,7 +294,10 @@ impl HdAudioController {
             for &pin in &self.output_pins {
                 let widget = self.widgets.get(&pin).unwrap();
                 let config = widget.configuration_default();
-                if config.sequence() == 0 && config.default_device() == DefaultDevice::Speaker {
+                if config.sequence() == 0
+                    && config.default_device() == DefaultDevice::Speaker
+                    && config.port_connectivity() != PortConnectivity::NoPhysicalConnection
+                {
                     return Some(pin);
                 }
             }
@@ -295,44 +347,27 @@ impl HdAudioController {
                 let stream_id = sd.stream_id().unwrap();
                 let path = self.path_to_dac(pin);
                 let dac = *path.first().unwrap();
-                for addr in path {
-                    // TODO: magic number
-                    let vol = cmd
-                        .run(Command::new(addr, Verb::GetAmplifierGainMute(0)))
-                        .unwrap()
-                        .as_u32();
-                    cmd.run(Command::new(
-                        addr,
-                        Verb::SetAmplifierGainMute(0xB000 | vol as u16),
-                    ))
-                    .unwrap();
-                    cmd.run(Command::new(addr, Verb::SetPowerState(0x00)))
-                        .unwrap();
-                }
-                // panic!("PATH {:?}", path);
 
                 let buffer = sd.current_buffer().unwrap();
-                let stream_format = StreamFormat::default();
+                let stream_format = PcmFormat::default();
 
-                let wave_len = 44_100_000 / mhz;
-                let count = buffer.len() / 4 / wave_len;
+                let wave_len = stream_format.sample_rate().hertz() * 1000 / mhz;
+                let waves = buffer.len() / 4 / wave_len;
                 let p = unsafe { buffer.get_unchecked_mut(0) as *const _ as *mut u32 };
                 buffer.fill(0);
-                for i in 0..count {
+                for i in 0..waves {
                     let base = i * wave_len;
                     for j in 0..wave_len / 2 {
                         unsafe {
-                            p.add(base + j).write_volatile(0x03FF_03FF);
+                            p.add(base + j).write_volatile(0x00FF_00FF);
                         }
                     }
                 }
 
-                cmd.set_stream_format(dac, stream_format).unwrap();
+                cmd.set_pcm_format(dac, stream_format).unwrap();
                 cmd.set_stream_id(dac, stream_id).unwrap();
 
-                sd.set_stream_format(stream_format);
-
-                self.global.ssync.store(1, Ordering::SeqCst);
+                sd.set_pcm_format(stream_format);
 
                 fence(Ordering::SeqCst);
                 sd.run();
@@ -363,11 +398,12 @@ impl PciDriver for HdAudioController {
             let widget = self.widgets.get(&addr).unwrap();
             let config = widget.configuration_default();
             format!(
-                "CONNECTED iss {} oss {} pin {} {:?} {:?}",
+                "RUNNING iss {} oss {} pin {} {:?} {:?} {:?}",
                 self.gcap.iss,
                 self.gcap.oss,
                 widget.addr().pretty(),
                 config.default_device(),
+                config.port_connectivity(),
                 config.color(),
             )
         } else {
@@ -398,6 +434,7 @@ impl BeepDriver for HdaBeepDriver {
 pub enum ControllerError {
     CommandBusy,
     CommandNotResponding,
+    StreamNotReady,
 }
 
 #[derive(Debug, Clone)]
@@ -540,7 +577,7 @@ impl CommandBuffer {
     }
 
     #[inline]
-    pub fn set_stream_format(&mut self, addr: WidgetAddress, format: StreamFormat) -> Result<()> {
+    pub fn set_pcm_format(&mut self, addr: WidgetAddress, format: PcmFormat) -> Result<()> {
         self.run(Command::new(addr, Verb::SetConverterFormat(format)))
             .map(|_| ())
     }
@@ -658,7 +695,7 @@ impl Rirb {
     }
 }
 
-const SIZE_OF_BUFFER: usize = 512 * 1024;
+const SIZE_OF_BUFFER: usize = 44_100;
 const SIZE_OF_BDL: usize = 2;
 pub type DmaBufferChunk = [u8; SIZE_OF_BUFFER];
 
@@ -684,8 +721,8 @@ impl StreamDescriptor {
     }
 
     #[inline]
-    pub fn set_stream_format(&mut self, fmt: StreamFormat) {
-        self.regs.set_stream_format(fmt);
+    pub fn set_pcm_format(&mut self, fmt: PcmFormat) {
+        self.regs.set_pcm_format(fmt);
     }
 
     #[inline]
@@ -700,6 +737,8 @@ impl StreamDescriptor {
         let mut ctl = self.regs.get_control();
         ctl.remove(StreamDescriptorControl::RUN);
         self.regs.set_control(ctl);
+
+        self.regs.set_status(self.regs.get_status());
     }
 
     #[inline]
@@ -1341,13 +1380,13 @@ impl StreamDescriptorRegisterSet {
     }
 
     #[inline]
-    pub fn set_stream_format(&self, fmt: StreamFormat) {
-        self.fmt.store(fmt.raw(), Ordering::SeqCst);
+    pub fn set_pcm_format(&self, fmt: PcmFormat) {
+        self.fmt.store(fmt.bits(), Ordering::SeqCst);
     }
 
     #[inline]
-    pub fn get_format(&self) -> StreamFormat {
-        StreamFormat::from_raw(self.fmt.load(Ordering::SeqCst))
+    pub fn get_format(&self) -> PcmFormat {
+        PcmFormat::from_bits(self.fmt.load(Ordering::SeqCst))
     }
 
     #[inline]
@@ -1505,9 +1544,9 @@ pub enum Verb {
     SetConfigurationDefault4(u8),
 
     GetConverterFormat,
-    SetConverterFormat(StreamFormat),
-    GetAmplifierGainMute(u16),
-    SetAmplifierGainMute(u16),
+    SetConverterFormat(PcmFormat),
+    GetAmplifierGainMute(AmplifierGainMuteGetPayload),
+    SetAmplifierGainMute(AmplifierGainMuteSetPayload),
 }
 
 impl Verb {
@@ -1530,9 +1569,9 @@ impl Verb {
                 SetConfigurationDefault3(v) => v as u32,
                 SetConfigurationDefault4(v) => v as u32,
 
-                SetConverterFormat(v) => v.raw() as u32,
-                GetAmplifierGainMute(v) => v as u32,
-                SetAmplifierGainMute(v) => v as u32,
+                SetConverterFormat(v) => v.bits() as u32,
+                GetAmplifierGainMute(v) => v.bits() as u32,
+                SetAmplifierGainMute(v) => v.bits() as u32,
 
                 _ => 0,
             }
@@ -1738,7 +1777,7 @@ impl ConfigurationDefault {
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DefaultDevice {
     LineOut = 0x0,
     Speaker = 0x1,
@@ -1759,7 +1798,7 @@ pub enum DefaultDevice {
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PortConnectivity {
     ConnectedToJack = 0x0,
     NoPhysicalConnection = 0x1,
@@ -1768,7 +1807,7 @@ pub enum PortConnectivity {
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GrossLocation {
     ExternalOnPrimary = 0x0,
     Internal = 0x1,
@@ -1777,7 +1816,7 @@ pub enum GrossLocation {
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GeometricLocation {
     NA = 0x0,
     Rear = 0x1,
@@ -1798,7 +1837,7 @@ pub enum GeometricLocation {
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Color {
     Unknown = 0x0,
     Black = 0x1,
@@ -1820,22 +1859,22 @@ pub enum Color {
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
-pub struct StreamFormat(pub u16);
+pub struct PcmFormat(pub u16);
 
-impl StreamFormat {
+impl PcmFormat {
     #[inline]
-    pub const fn from_raw(val: u16) -> Self {
+    pub const fn from_bits(val: u16) -> Self {
         Self(val)
     }
 
     #[inline]
-    pub const fn raw(&self) -> u16 {
+    pub const fn bits(&self) -> u16 {
         self.0
     }
 
     #[inline]
-    pub const fn new(channels: usize, bits: Bits, sample: SampleRate) -> Self {
-        Self(((channels - 1) & 0xF) as u16 | ((bits as u16) << 4) | ((sample as u16) << 8))
+    pub const fn new(sample_rate: SampleRate, bps: Bits, channels: usize) -> Self {
+        Self(((channels - 1) & 0xF) as u16 | ((bps as u16) << 4) | ((sample_rate as u16) << 8))
     }
 
     #[inline]
@@ -1844,20 +1883,20 @@ impl StreamFormat {
     }
 
     #[inline]
-    pub const fn bits(&self) -> Bits {
+    pub const fn bps(&self) -> Bits {
         unsafe { transmute((self.0 >> 4) as u8 & 0x07) }
     }
 
     #[inline]
-    pub const fn sample(&self) -> SampleRate {
+    pub const fn sample_rate(&self) -> SampleRate {
         unsafe { transmute((self.0 >> 8) as u8 & 0x7F) }
     }
 }
 
-impl Default for StreamFormat {
+impl Default for PcmFormat {
     /// Default sample rate, same quality as CD-DA.
     fn default() -> Self {
-        Self::new(2, Bits::B16, SampleRate::_44K1)
+        Self::new(SampleRate::_44K1, Bits::B16, 2)
     }
 }
 
@@ -1872,17 +1911,47 @@ pub enum Bits {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
 pub enum SampleRate {
+    /// 8.0KHz 1/6 * 48
     _8K = 0b0_000_101,
+    /// 11.025KHz 1/4 * 44.1
     _11K025 = 0b1_000_011,
+    /// 16.0KHz 1/3 * 48
     _16K = 0b0_000_010,
+    /// 22.05KHz 1/2 * 44.1
     _22K05 = 0b1_000_001,
+    /// 32.0KHz 2/3 * 48
     _32K = 0b0_001_010,
+    /// 44.1KHz 44.1
     _44K1 = 0b1_000_000,
+    /// 48KHz 48 (Must be supported by all codecs)
     _48K = 0b0_000_000,
+    /// 88.2KHz 2/1 * 44.1
     _88K2 = 0b1_001_000,
+    /// 96KHz 2/1 * 48
     _96K = 0b0_001_000,
+    /// 176.4KHz 4/1 * 44.1
     _176K4 = 0b1_011_000,
+    /// 192KHz 4/1 * 48
     _192K = 0b0_011_000,
+}
+
+impl SampleRate {
+    #[inline]
+    pub const fn hertz(&self) -> usize {
+        match *self {
+            SampleRate::_8K => 8_000,
+            SampleRate::_11K025 => 11_025,
+            SampleRate::_16K => 16_000,
+            SampleRate::_22K05 => 22_050,
+            SampleRate::_32K => 32_000,
+            SampleRate::_44K1 => 44_100,
+            SampleRate::_48K => 48_000,
+            SampleRate::_88K2 => 88_200,
+            SampleRate::_96K => 96_000,
+            SampleRate::_176K4 => 176_400,
+            SampleRate::_192K => 192_000,
+        }
+    }
 }
 
 bitflags! {
@@ -1923,5 +1992,53 @@ bitflags! {
         /// 32bit
         const B32       = 0x0010_0000;
 
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy)]
+pub struct AmplifierGainMuteGetPayload(u16);
+
+impl AmplifierGainMuteGetPayload {
+    #[inline]
+    pub const fn new(output: bool, left: bool, index: u8) -> Self {
+        Self(((output as u16) << 15) | ((left as u16) << 13) | (index as u16 & 0x0F))
+    }
+
+    #[inline]
+    pub const fn bits(&self) -> u16 {
+        self.0
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy)]
+pub struct AmplifierGainMuteSetPayload(u16);
+
+impl AmplifierGainMuteSetPayload {
+    #[inline]
+    pub const fn new(
+        output: bool,
+        input: bool,
+        left: bool,
+        right: bool,
+        index: u8,
+        mute: bool,
+        gain: u8,
+    ) -> Self {
+        Self(
+            ((output as u16) << 15)
+                | ((input as u16) << 14)
+                | ((left as u16) << 13)
+                | ((right as u16) << 12)
+                | ((index as u16 & 0x0F) << 8)
+                | ((mute as u16) << 7)
+                | (gain as u16 & 0x7F),
+        )
+    }
+
+    #[inline]
+    pub const fn bits(&self) -> u16 {
+        self.0
     }
 }
