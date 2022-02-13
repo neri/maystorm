@@ -268,7 +268,10 @@ impl Usb2HubDriver {
             .contains(UsbHub2PortStatusBit::PORT_CONNECTION)
         {
             let speed = status.status.speed();
-            let _child = self.device.attach_child_device(port, speed).await.unwrap();
+            match self.device.attach_child_device(port, speed).await {
+                Ok(_child) => (),
+                Err(_err) => todo!(),
+            }
         }
     }
 
@@ -511,11 +514,10 @@ impl Usb3HubDriver {
             .status
             .contains(UsbHub3PortStatusBit::PORT_CONNECTION | UsbHub3PortStatusBit::PORT_ENABLE)
         {
-            let _child = self
-                .device
-                .attach_child_device(port, PSIV::SS)
-                .await
-                .unwrap();
+            match self.device.attach_child_device(port, PSIV::SS).await {
+                Ok(_child) => (),
+                Err(_err) => todo!(),
+            }
         }
     }
 

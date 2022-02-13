@@ -1,4 +1,3 @@
-//! Hello world for Game API
 #![no_main]
 #![no_std]
 

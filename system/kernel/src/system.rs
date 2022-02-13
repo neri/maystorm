@@ -193,31 +193,32 @@ impl System {
     /// The second half of the system initialization
     fn late_init(args: usize) {
         let shared = Self::shared();
+
+        // banner
+        if false {
+            let device = System::current_device();
+
+            writeln!(
+                System::em_console(),
+                "{} v{} Processor {} / {} {:?}, Memory {} MB",
+                System::name(),
+                System::version(),
+                device.num_of_performance_cpus(),
+                device.num_of_active_cpus(),
+                device.processor_system_type(),
+                device.total_memory_size() >> 20,
+            )
+            .unwrap();
+        }
+
         unsafe {
-            // banner
-            if false {
-                let device = System::current_device();
-
-                writeln!(
-                    System::em_console(),
-                    "{} v{} Processor {} / {} {:?}, Memory {} MB",
-                    System::name(),
-                    System::version(),
-                    device.num_of_performance_cpus(),
-                    device.num_of_active_cpus(),
-                    device.processor_system_type(),
-                    device.total_memory_size() >> 20,
-                )
-                .unwrap();
-            }
-
             mem::MemoryManager::late_init();
 
             log::EventManager::init();
 
             io::hid_mgr::HidManager::init();
-            bus::usb::UsbManager::init();
-            bus::pci::Pci::init();
+            drivers::usb::UsbManager::init();
+            drivers::pci::Pci::init();
 
             fs::FileManager::init(
                 PageManager::direct_map(shared.initrd_base as PhysicalAddress),
@@ -287,12 +288,14 @@ impl System {
     #[inline]
     pub unsafe fn activate_cpu(new_cpu: Box<Cpu>) {
         let shared = Self::shared();
+        let processor_type = new_cpu.processor_type();
+        shared.cpus.push(new_cpu);
         let device = &shared.current_device;
-        if new_cpu.processor_type() == ProcessorCoreType::Main {
+        device.num_of_active_cpus.fetch_add(1, Ordering::SeqCst);
+        if processor_type == ProcessorCoreType::Main {
             device.num_of_main_cpus.fetch_add(1, Ordering::SeqCst);
         }
-        device.num_of_active_cpus.fetch_add(1, Ordering::SeqCst);
-        shared.cpus.push(new_cpu);
+        fence(Ordering::SeqCst);
     }
 
     /// Sorts the list of CPUs by processor ID.
@@ -310,6 +313,7 @@ impl System {
         for (index, cpu) in Self::shared().cpus.iter_mut().enumerate() {
             cpu.cpu_index = ProcessorIndex(index);
         }
+        fence(Ordering::SeqCst);
     }
 
     /// Returns an instance of the current processor.
@@ -351,7 +355,7 @@ impl System {
 
     #[inline]
     #[track_caller]
-    pub fn acpi() -> &'static acpi::AcpiTables<MyAcpiHandler> {
+    pub(crate) fn acpi() -> &'static acpi::AcpiTables<MyAcpiHandler> {
         Self::shared().acpi.as_ref().unwrap()
     }
 
@@ -372,12 +376,12 @@ impl System {
         Self::acpi().platform_info().unwrap()
     }
 
+    #[track_caller]
     pub fn reset() -> ! {
-        unsafe {
-            Cpu::reset();
-        }
+        Cpu::reset();
     }
 
+    #[track_caller]
     pub fn shutdown() -> ! {
         todo!();
     }
@@ -459,7 +463,7 @@ impl DeviceInfo {
     }
 
     /// Returns the number of performance CPU cores.
-    /// Returns less than `num_of_active_cpus` for SMT-enabled processors or heterogeneous computing.
+    /// Returns less than `num_of_active_cpus` for SMT-enabled processors.
     #[inline]
     pub fn num_of_performance_cpus(&self) -> usize {
         self.num_of_main_cpus.load(Ordering::SeqCst)
@@ -470,7 +474,7 @@ impl DeviceInfo {
 
 #[doc(hidden)]
 #[derive(Clone)]
-pub struct MyAcpiHandler {}
+pub(crate) struct MyAcpiHandler {}
 
 impl MyAcpiHandler {
     const fn new() -> Self {

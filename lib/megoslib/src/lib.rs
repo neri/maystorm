@@ -1,4 +1,3 @@
-// MEG-OS Library
 #![no_std]
 #![feature(alloc_error_handler)]
 #![feature(asm_experimental_arch)]

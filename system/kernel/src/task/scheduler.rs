@@ -147,10 +147,12 @@ impl Scheduler {
 
     /// All threads will stop.
     pub unsafe fn freeze(force: bool) -> Result<(), ()> {
-        let sch = Self::shared();
-        sch.is_frozen.store(true, Ordering::SeqCst);
-        if force {
-            let _ = Cpu::broadcast_schedule();
+        if Self::is_enabled() {
+            let sch = Self::shared();
+            sch.is_frozen.store(true, Ordering::SeqCst);
+            if force {
+                let _ = Cpu::broadcast_schedule();
+            }
         }
         Ok(())
     }

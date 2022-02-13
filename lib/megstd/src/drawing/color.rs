@@ -1,5 +1,3 @@
-// Colors
-
 use core::mem::transmute;
 
 /// Common color trait
@@ -256,6 +254,21 @@ pub struct ColorComponents {
 }
 
 impl ColorComponents {
+    #[inline]
+    pub const fn from_rgb(r: u8, g: u8, b: u8) -> Self {
+        Self {
+            r,
+            g,
+            b,
+            a: u8::MAX,
+        }
+    }
+
+    #[inline]
+    pub const fn from_rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
+        Self { r, g, b, a }
+    }
+
     #[inline]
     pub const fn from_true_color(val: TrueColor) -> Self {
         unsafe { transmute(val) }

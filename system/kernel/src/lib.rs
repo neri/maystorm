@@ -1,18 +1,14 @@
-// MEG-OS codename Maystorm
-
 #![no_std]
 #![feature(abi_x86_interrupt)]
 #![feature(alloc_error_handler)]
 #![feature(async_closure)]
 #![feature(box_into_inner)]
-#![feature(cfg_target_has_atomic)]
 #![feature(const_btree_new)]
 #![feature(const_fn_trait_bound)]
 #![feature(const_mut_refs)]
 #![feature(control_flow_enum)]
 #![feature(core_intrinsics)]
 #![feature(lang_items)]
-#![feature(maybe_uninit_extra)]
 #![feature(maybe_uninit_uninit_array)]
 #![feature(negative_impls)]
 #![feature(new_uninit)]
@@ -21,13 +17,15 @@
 
 #[macro_use]
 pub mod arch;
-pub mod bus;
 pub mod dev;
+pub mod drivers;
 pub mod fs;
 pub mod fw;
 pub mod io;
 pub mod log;
 pub mod mem;
+pub mod r;
+pub mod res;
 pub mod rt;
 pub mod sync;
 pub mod system;
@@ -79,7 +77,8 @@ fn panic(info: &PanicInfo) -> ! {
         let _ = task::scheduler::Scheduler::freeze(true);
         PANIC_GLOBAL_LOCK.synchronized(|| {
             let stdout = System::em_console();
-            stdout.set_attribute(0x0F);
+            stdout.set_attribute(0x4F);
+            let _ = writeln!(stdout, " = Guru Meditation = ");
             if let Some(thread) = task::scheduler::Scheduler::current_thread() {
                 if let Some(name) = thread.name() {
                     let _ = write!(stdout, "thread '{}' ", name);

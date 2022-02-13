@@ -5,22 +5,21 @@
 #![no_std]
 #![no_main]
 
-use alloc::string::*;
-use alloc::vec::*;
+use alloc::{string::*, vec::*};
 use bootprot::*;
-use core::fmt::Write;
-use core::num::NonZeroU8;
-use kernel::bus::pci::Pci;
-use kernel::bus::usb::*;
-use kernel::fs::*;
-use kernel::mem::*;
-use kernel::rt::*;
-use kernel::system::*;
-use kernel::task::scheduler::*;
-use kernel::task::Task;
-use kernel::ui::window::WindowManager;
-use kernel::*;
-use kernel::{arch::cpu::*, bus::pci::PciClass};
+use core::{fmt::Write, num::NonZeroU8};
+use kernel::{
+    arch::cpu::*,
+    drivers::pci,
+    drivers::usb,
+    fs::*,
+    mem::*,
+    rt::*,
+    system::*,
+    task::{scheduler::*, Task},
+    ui::window::WindowManager,
+    *,
+};
 use megstd::string::*;
 
 extern crate alloc;
@@ -327,13 +326,32 @@ impl Shell {
         match subcmd {
             "device" => {
                 let device = System::current_device();
-                println!(
-                    "  Processor {} Cores / {} Threads {}, Memory {} MB",
-                    device.num_of_performance_cpus(),
-                    device.num_of_active_cpus(),
-                    device.processor_system_type().to_string(),
-                    device.total_memory_size() >> 20,
-                );
+                let n_cores = device.num_of_performance_cpus();
+                let n_threads = device.num_of_active_cpus();
+                if n_threads > 1 {
+                    if n_cores != n_threads {
+                        print!(
+                            "  {} Cores {} Threads {}",
+                            n_cores,
+                            n_threads,
+                            device.processor_system_type().to_string(),
+                        );
+                    } else {
+                        print!(
+                            "  {} Processors {}",
+                            n_cores,
+                            device.processor_system_type().to_string(),
+                        );
+                    }
+                } else {
+                    print!("  Uniprocessor system");
+                }
+
+                let bytes = device.total_memory_size();
+                let gb = bytes >> 30;
+                let mb = (100 * (bytes & 0x3FFF_FFFF)) / 0x4000_0000;
+                println!(", Memory {}.{:02} GB", gb, mb);
+
                 let manufacturer_name = device.manufacturer_name();
                 let model_name = device.model_name();
                 if manufacturer_name.is_some() || model_name.is_some() {
@@ -366,7 +384,7 @@ impl Shell {
                 Err(_) => println!("# No SecureRandom"),
             },
             "drivers" => {
-                for driver in Pci::drivers() {
+                for driver in pci::Pci::drivers() {
                     println!(
                         "PCI {:?} {} {}",
                         driver.address(),
@@ -435,8 +453,8 @@ impl Shell {
 
     fn cmd_lsusb(argv: &[&str]) -> isize {
         if let Some(addr) = argv.get(1).and_then(|v| v.parse::<NonZeroU8>().ok()) {
-            let addr = UsbAddress(addr);
-            let device = match UsbManager::device_by_addr(addr) {
+            let addr = usb::UsbAddress(addr);
+            let device = match usb::UsbManager::device_by_addr(addr) {
                 Some(v) => v,
                 None => {
                     println!("Error: Device not found");
@@ -499,8 +517,8 @@ impl Shell {
         0
     }
 
-    fn print_usb_device(nest: usize, parent: Option<UsbAddress>) {
-        for device in UsbManager::devices().filter(|v| v.parent() == parent) {
+    fn print_usb_device(nest: usize, parent: Option<usb::UsbAddress>) {
+        for device in usb::UsbManager::devices().filter(|v| v.parent() == parent) {
             for _ in 0..nest {
                 print!("  ");
             }
@@ -519,38 +537,27 @@ impl Shell {
         }
     }
 
-    fn cmd_lspci(argv: &[&str]) -> isize {
-        let opt_all = argv.len() > 1;
-        for device in bus::pci::Pci::devices() {
+    fn cmd_lspci(_argv: &[&str]) -> isize {
+        // let _opt_all = argv.len() > 1;
+        for device in drivers::pci::Pci::devices() {
             let addr = device.address();
             let class_string = Self::find_pci_class_string(device.class_code());
             println!(
-                "{:02x}:{:02x}.{} {:04x}:{:04x} {}",
+                "{:02x}:{:02x}.{} {:04x}:{:04x} {:06x} {}",
                 addr.get_bus(),
                 addr.get_dev(),
                 addr.get_fun(),
                 device.vendor_id().0,
                 device.device_id().0,
+                device.class_code().data(),
                 class_string,
             );
-            if opt_all {
-                for function in device.functions() {
-                    let addr = function.address();
-                    let class_string = Self::find_pci_class_string(function.class_code());
-                    println!(
-                        "     .{} {:04x}:{:04x} {}",
-                        addr.get_fun(),
-                        function.vendor_id().0,
-                        function.device_id().0,
-                        class_string,
-                    );
-                }
-            }
         }
         0
     }
 
-    fn find_pci_class_string(cc: PciClass) -> &'static str {
+    fn find_pci_class_string(cc: pci::PciClass) -> &'static str {
+        use pci::PciClass;
         #[rustfmt::skip]
         let entries = [
             (PciClass::code(0x00).sub(0x00), "Non-VGA-Compatible devices"),
@@ -574,7 +581,7 @@ impl Shell {
             (PciClass::code(0x04).sub(0x00), "Multimedia Video Controller"),
             (PciClass::code(0x04).sub(0x01), "Multimedia Audio Controller"),
             (PciClass::code(0x04).sub(0x02), "Computer Telephony Device"),
-            (PciClass::code(0x04).sub(0x03), "Audio Device"),
+            (PciClass::code(0x04).sub(0x03), "HD Audio Controller"),
             (PciClass::code(0x04), "Multimedia Controller"),
             (PciClass::code(0x05).sub(0x00), "RAM Controller"),
             (PciClass::code(0x05).sub(0x01), "Flash Controller"),

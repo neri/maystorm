@@ -351,6 +351,16 @@ impl Usage {
     pub const INTERNATIONAL_8: Self = Self(0x8E);
     pub const INTERNATIONAL_9: Self = Self(0x8F);
 
+    pub const LANG_1: Self = Self(0x90);
+    pub const LANG_2: Self = Self(0x91);
+    pub const LANG_3: Self = Self(0x92);
+    pub const LANG_4: Self = Self(0x93);
+    pub const LANG_5: Self = Self(0x94);
+    pub const LANG_6: Self = Self(0x95);
+    pub const LANG_7: Self = Self(0x96);
+    pub const LANG_8: Self = Self(0x97);
+    pub const LANG_9: Self = Self(0x98);
+
     pub const KEY_LEFT_CONTROL: Self = Self(0xE0);
     pub const KEY_LEFT_SHIFT: Self = Self(0xE1);
     pub const KEY_LEFT_ALT: Self = Self(0xE2);

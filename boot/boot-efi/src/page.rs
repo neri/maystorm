@@ -1,13 +1,9 @@
 // Minimal Page Manager
 
-// use crate::*;
 use crate::*;
 use bitflags::*;
 use bootprot::*;
-use core::intrinsics::*;
-use core::ops::*;
-use core::ptr;
-use core::slice;
+use core::{intrinsics::*, ops::*, ptr, slice};
 use uefi::table::boot::*;
 
 pub struct PageConfig {}

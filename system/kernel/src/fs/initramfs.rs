@@ -33,7 +33,7 @@ impl InitRamfs {
 
         for index in 0..n_dirent {
             let dir_offset = dir_base + index * Self::SIZE_OF_RAW_DIR;
-            let name_len = data[dir_offset] as usize;
+            let name_len = 15 & data[dir_offset] as usize;
             let name =
                 String::from_utf8(data[dir_offset + 1..dir_offset + name_len + 1].to_owned())
                     .unwrap_or("#NAME?".to_owned());

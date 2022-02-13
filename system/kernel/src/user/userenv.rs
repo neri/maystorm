@@ -1,23 +1,30 @@
-// User Environment
-
-use crate::log::EventManager;
-use crate::sync::fifo::ConcurrentFifo;
 use crate::{
-    arch::cpu::*, fs::*, mem::*, system::*, task::scheduler::*, task::*, ui::font::*,
-    ui::terminal::Terminal, ui::text::*, ui::theme::Theme, ui::window::*, *,
+    arch::cpu::*,
+    fs::*,
+    log::{EventManager, SimpleMessagePayload},
+    mem::*,
+    res::icon::IconManager,
+    sync::fifo::ConcurrentFifo,
+    system::*,
+    task::scheduler::*,
+    task::*,
+    ui::font::*,
+    ui::terminal::Terminal,
+    ui::text::*,
+    ui::theme::Theme,
+    ui::window::*,
+    *,
 };
-use ::alloc::string::String;
-use ::alloc::sync::Arc;
-use ::alloc::vec::*;
+use ::alloc::{sync::Arc, vec::*};
 use core::{fmt::Write, time::Duration};
-use megstd::drawing::img::*;
-use megstd::drawing::*;
-use megstd::string::*;
+use megstd::{drawing::img::*, drawing::*, string::*};
 
 pub struct UserEnv;
 
 impl UserEnv {
     pub fn start(f: fn()) {
+        // f();
+        // SpawnOption::new().start_process(unsafe { core::mem::transmute(f) }, 0, "shell");
         Scheduler::spawn_async(Task::new(logo_task(f)));
         Scheduler::perform_tasks();
     }
@@ -27,19 +34,6 @@ impl UserEnv {
 async fn logo_task(f: fn()) {
     let width = 320;
     let height = 200;
-
-    WindowManager::set_desktop_color(Theme::shared().desktop_color());
-    if true {
-        if let Ok(mut file) = FileManager::open("wall.bmp") {
-            let stat = file.stat().unwrap();
-            let mut vec = Vec::with_capacity(stat.len() as usize);
-            file.read_to_end(&mut vec).unwrap();
-            if let Some(mut dib) = ImageLoader::from_msdib(vec.as_slice()) {
-                WindowManager::set_desktop_bitmap(&dib.into_bitmap());
-            }
-        }
-    }
-    WindowManager::set_pointer_visible(true);
 
     let window = WindowBuilder::new()
         .style_add(WindowStyle::SUSPENDED)
@@ -68,6 +62,19 @@ async fn logo_task(f: fn()) {
         }
     }
 
+    WindowManager::set_desktop_color(Theme::shared().desktop_color());
+    if true {
+        if let Ok(mut file) = FileManager::open("wall.qoi") {
+            let stat = file.stat().unwrap();
+            let mut vec = Vec::with_capacity(stat.len() as usize);
+            file.read_to_end(&mut vec).unwrap();
+            if let Some(mut dib) = ImageLoader::from_qoi(vec.as_slice()) {
+                WindowManager::set_desktop_bitmap(&dib.into_bitmap());
+            }
+        }
+    }
+    WindowManager::set_pointer_visible(true);
+
     Scheduler::spawn_async(Task::new(status_bar_main()));
     Scheduler::spawn_async(Task::new(_notification_task()));
     Scheduler::spawn_async(Task::new(activity_monitor_main()));
@@ -80,12 +87,13 @@ async fn logo_task(f: fn()) {
 async fn shell_launcher(f: fn()) {
     {
         // Main Terminal
-        let main_screen = System::main_screen();
-        let font = if main_screen.width() > 1024 && main_screen.height() > 600 {
+        let bounds = WindowManager::main_screen_bounds();
+        let font = if bounds.width() > 1024 && bounds.height() > 600 {
             FontManager::system_font()
         } else {
             FontDescriptor::new(FontFamily::Terminal, 0).unwrap()
         };
+        // let font = FontManager::system_font();
         let terminal = Terminal::new(80, 24, font);
         System::set_stdout(Box::new(terminal));
     }
@@ -94,33 +102,33 @@ async fn shell_launcher(f: fn()) {
 
 #[allow(dead_code)]
 async fn status_bar_main() {
-    const STATUS_BAR_HEIGHT: isize = 40;
-    const STATUS_BAR_RADIUS: isize = 16;
-    const STATUS_BAR_PADDING: EdgeInsets = EdgeInsets::new(8, 16, 0, 16);
-    const INNER_PADDING: EdgeInsets = EdgeInsets::new(1, 16, 1, 16);
+    const STATUS_BAR_HEIGHT: isize = 32;
+    const STATUS_BAR_PADDING: EdgeInsets = EdgeInsets::new(0, 0, 0, 0);
+    const INNER_PADDING: EdgeInsets = EdgeInsets::new(1, 24, 1, 24);
 
-    let bg_color = Theme::shared()
-        // .window_title_active_background_dark();
-        .status_bar_background();
-    let fg_color = Theme::shared()
-        // .window_title_active_foreground_dark();
-        .status_bar_foreground();
-    let border_color = Theme::shared().window_default_border_dark();
+    let bg_color = 
+    // Theme::shared().window_title_active_background_dark();
+    Theme::shared().status_bar_background();
+    let fg_color = 
+    // Theme::shared().window_title_active_foreground_dark();
+    Theme::shared().status_bar_foreground();
+    // let border_color = Theme::shared().window_default_border_dark();
 
     let screen_bounds = WindowManager::main_screen_bounds();
     let window = WindowBuilder::new()
         // .style(WindowStyle::FLOATING | WindowStyle::NO_SHADOW)
         .style(WindowStyle::FLOATING | WindowStyle::SUSPENDED)
         .frame(Rect::new(0, 0, screen_bounds.width(), STATUS_BAR_HEIGHT))
-        .bg_color(Color::Transparent)
+        .bg_color(bg_color)
         .build("Status Bar");
+    WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT, 0, 0, 0));
 
     window
         .draw_in_rect(
             Rect::from(window.content_size()).insets_by(STATUS_BAR_PADDING),
             |bitmap| {
-                bitmap.fill_round_rect(bitmap.bounds(), STATUS_BAR_RADIUS, bg_color);
-                bitmap.draw_round_rect(bitmap.bounds(), STATUS_BAR_RADIUS, border_color);
+                // bitmap.fill_round_rect(bitmap.bounds(), STATUS_BAR_RADIUS, bg_color);
+                // bitmap.draw_round_rect(bitmap.bounds(), STATUS_BAR_RADIUS, border_color);
 
                 let font = FontManager::title_font();
                 let ats = AttributedString::new()
@@ -133,7 +141,6 @@ async fn status_bar_main() {
             },
         )
         .unwrap();
-    WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT, 0, 0, 0));
     window.show();
 
     let font = FontManager::system_font();
@@ -381,9 +388,9 @@ async fn activity_monitor_main() {
                             let device = System::current_device();
 
                             write!(sb, "Memory ").unwrap();
-                            format_bytes(&mut sb, device.total_memory_size()).unwrap();
-                            write!(sb, "B, ").unwrap();
                             format_bytes(&mut sb, MemoryManager::free_memory_size()).unwrap();
+                            write!(sb, "B /").unwrap();
+                            format_bytes(&mut sb, device.total_memory_size()).unwrap();
                             write!(sb, "B Free, ").unwrap();
                             format_bytes(
                                 &mut sb,
@@ -400,17 +407,17 @@ async fn activity_monitor_main() {
                             let usage = Scheduler::usage_per_cpu();
                             let usage0 = usage % 10;
                             let usage1 = usage / 10;
-                            writeln!(
-                                sb,
-                                "CPU: {}.{:02} GHz {:3}.{}% {} Cores {} Threads",
-                                hz1,
-                                hz0,
-                                usage1,
-                                usage0,
-                                device.num_of_performance_cpus(),
-                                device.num_of_active_cpus(),
-                            )
-                            .unwrap();
+                            write!(sb, "CPU: {}.{:02} GHz {:3}.{}%", hz1, hz0, usage1, usage0,)
+                                .unwrap();
+
+                            let n_cores = device.num_of_performance_cpus();
+                            let n_threads = device.num_of_active_cpus();
+                            if n_cores != n_threads {
+                                writeln!(sb, " {} Cores {} Threads", n_cores, n_threads,).unwrap();
+                            } else {
+                                writeln!(sb, " {} Processors", n_cores,).unwrap();
+                            }
+
                             Scheduler::print_statistics(&mut sb);
 
                             let mut rect = bitmap
@@ -454,6 +461,7 @@ async fn activity_monitor_main() {
 
 /// Simple Notification Task
 async fn _notification_task() {
+    let margin_top = 8;
     let padding = 8;
     let radius = 8;
     let bg_color = Color::from_argb(0xE0FFF9C4);
@@ -468,7 +476,7 @@ async fn _notification_task() {
         .level(WindowLevel::POPUP)
         .frame(Rect::new(
             screen_bounds.max_x() - window_width,
-            screen_bounds.min_y(),
+            screen_bounds.min_y() + margin_top,
             window_width,
             window_height,
         ))
@@ -492,22 +500,47 @@ async fn _notification_task() {
                 }
             }
             WindowMessage::User(_) => {
-                if let Some(message) = message_buffer.dequeue() {
+                if let Some(payload) = message_buffer.dequeue() {
                     window
-                        .draw_in_rect(Rect::from(window.content_size()), |bitmap| {
-                            bitmap.clear();
-                            let rect = bitmap.bounds().insets_by(EdgeInsets::padding_each(padding));
-                            bitmap.fill_round_rect(rect, radius, bg_color);
-                            bitmap.draw_round_rect(rect, radius, border_color);
+                        .draw_in_rect(
+                            Rect::from(window.content_size() - EdgeInsets::padding_each(padding)),
+                            |bitmap| {
+                                bitmap.clear();
+                                let mut insets = EdgeInsets::default();
 
-                            let rect2 = rect.insets_by(EdgeInsets::padding_each(padding));
-                            let ats = AttributedString::new()
-                                .font(FontDescriptor::new(FontFamily::SansSerif, 14).unwrap())
-                                .color(fg_color)
-                                .center()
-                                .text(message.as_str());
-                            ats.draw_text(bitmap, rect2, 0);
-                        })
+                                let rect = bitmap.bounds().insets_by(insets);
+                                bitmap.fill_round_rect(rect, radius, bg_color);
+                                bitmap.draw_round_rect(rect, radius, border_color);
+
+                                if let Some(ref mut icon) = IconManager::bitmap(payload.icon()) {
+                                    let long_side =
+                                        usize::max(icon.width(), icon.height()) as isize;
+                                    let origin = Point::new(
+                                        rect.min_x()
+                                            + padding
+                                            + (icon.width() as isize - long_side) / 2,
+                                        rect.min_y()
+                                            + isize::max(0, (rect.height() - long_side) / 2),
+                                    );
+                                    bitmap.blt_transparent(
+                                        icon.into_bitmap().as_const(),
+                                        origin,
+                                        rect,
+                                        IndexedColor::DEFAULT_KEY,
+                                    );
+
+                                    insets.left += padding + long_side;
+                                }
+
+                                let rect2 = rect.insets_by(insets);
+                                let ats = AttributedString::new()
+                                    .font(FontDescriptor::new(FontFamily::SansSerif, 14).unwrap())
+                                    .color(fg_color)
+                                    .center()
+                                    .text(payload.message());
+                                ats.draw_text(bitmap, rect2, 0);
+                            },
+                        )
                         .unwrap();
                     window.show();
                     last_timer = Timer::new(dismiss_time);
@@ -519,10 +552,13 @@ async fn _notification_task() {
     }
 }
 
-async fn _notification_observer(window: WindowHandle, buffer: Arc<ConcurrentFifo<String>>) {
+async fn _notification_observer(
+    window: WindowHandle,
+    buffer: Arc<ConcurrentFifo<SimpleMessagePayload>>,
+) {
     // Timer::sleep_async(Duration::from_millis(1000)).await;
-    while let Some(message) = EventManager::monitor_notification().await {
-        buffer.enqueue(message).unwrap();
+    while let Some(payload) = EventManager::monitor_notification().await {
+        buffer.enqueue(payload).unwrap();
         window.post(WindowMessage::User(0)).unwrap();
         Timer::sleep_async(Duration::from_millis(3000)).await;
     }

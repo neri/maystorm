@@ -1,15 +1,16 @@
 // Haribote-OS Emulator
 
 use super::*;
-use crate::fs::*;
-use crate::mem::MemoryManager;
-use crate::ui::theme::Theme;
-use crate::ui::window::*;
-use crate::*;
+use crate::{
+    fs::*,
+    io::audio::AudioManager,
+    mem::MemoryManager,
+    // ui::theme::Theme,
+    ui::window::*,
+    *,
+};
 use alloc::boxed::Box;
-use core::time::Duration;
-use core::{alloc::Layout, ptr::*};
-use core::{slice, str};
+use core::{alloc::Layout, ptr::*, slice, str, time::Duration};
 use megstd::drawing::*;
 
 #[allow(dead_code)]
@@ -244,7 +245,7 @@ impl Hoe {
                 // TODO: free timer
             }
             20 => {
-                // TODO: Sound
+                AudioManager::make_beep(regs.eax as usize);
             }
             21 => {
                 // file open
@@ -602,8 +603,8 @@ impl HoeWindow {
                 (height - (Self::WINDOW_ADJUST_TOP + Self::WINDOW_ADJUST_BOTTOM)) as isize,
             ))
             .bg_color(Hoe::get_color(Self::WINDOW_BGCOLOR))
-            .active_title_color(Color::LIGHT_BLUE)
-            .inactive_title_color(Theme::shared().window_title_inactive_background())
+            // .active_title_color(Color::LIGHT_BLUE)
+            // .inactive_title_color(Theme::shared().window_title_inactive_background())
             .opaque()
             .build(title);
         let window = HoeWindow {

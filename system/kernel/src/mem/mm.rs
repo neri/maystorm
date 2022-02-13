@@ -1,6 +1,3 @@
-// Memory Manager
-
-// use crate::arch::page::*;
 use super::slab::*;
 use crate::{
     arch::cpu::Cpu,
@@ -130,8 +127,8 @@ impl MemoryManager {
     }
 
     #[inline]
-    pub fn direct_map(pa: PhysicalAddress) -> usize {
-        PageManager::direct_map(pa)
+    pub fn direct_map<T: Sized>(pa: PhysicalAddress) -> *mut T {
+        unsafe { transmute(PageManager::direct_map(pa)) }
     }
 
     #[inline]
@@ -154,14 +151,14 @@ impl MemoryManager {
     pub fn free_memory_size() -> usize {
         let shared = Self::shared_mut();
         let mut total = shared.dummy_size.load(Ordering::Relaxed);
+        total += shared.pairs[..shared.n_free.load(Ordering::Relaxed)]
+            .iter()
+            .fold(0, |v, i| v + i.size());
         total += shared
             .slab
             .as_ref()
             .map(|v| v.free_memory_size())
             .unwrap_or(0);
-        total += shared.pairs[..shared.n_free.load(Ordering::Relaxed)]
-            .iter()
-            .fold(0, |v, i| v + i.size());
         total
     }
 
@@ -182,15 +179,21 @@ impl MemoryManager {
         None
     }
 
-    #[inline]
     pub unsafe fn alloc_pages(size: usize) -> Option<NonZeroUsize> {
         let result = Self::pg_alloc(Layout::from_size_align_unchecked(size, Self::PAGE_SIZE_MIN));
         if let Some(p) = result {
-            let p =
-                PageManager::direct_map(p.get() as PhysicalAddress) as *const c_void as *mut c_void;
+            let p = Self::direct_map::<c_void>(p.get() as PhysicalAddress);
             p.write_bytes(0, size);
         }
         result
+    }
+
+    #[inline]
+    pub unsafe fn alloc_dma<T>(len: usize) -> Option<(PhysicalAddress, *mut T)> {
+        Self::alloc_pages(size_of::<T>() * len).map(|v| {
+            let pa = v.get() as PhysicalAddress;
+            (pa, Self::direct_map(pa))
+        })
     }
 
     /// Allocate kernel memory
@@ -203,6 +206,10 @@ impl MemoryManager {
                 Err(_err) => return None,
             }
         }
+        Self::zalloc2(layout)
+    }
+
+    pub unsafe fn zalloc2(layout: Layout) -> Option<NonZeroUsize> {
         Self::pg_alloc(layout)
             .and_then(|v| NonZeroUsize::new(PageManager::direct_map(v.get() as PhysicalAddress)))
     }

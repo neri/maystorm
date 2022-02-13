@@ -1,7 +1,6 @@
-//! Universal Serial Bus
-
 use super::*;
 use crate::{
+    r,
     sync::{fifo::AsyncEventQueue, RwLock},
     task::{scheduler::*, Task},
     *,
@@ -120,7 +119,10 @@ impl UsbManager {
     }
 
     /// Initialize the USB device and tie it to the appropriate class driver.
-    pub async fn instantiate(addr: UsbAddress, ctx: Arc<dyn UsbHostInterface>) -> bool {
+    pub async fn instantiate(
+        addr: UsbAddress,
+        ctx: Arc<dyn UsbHostInterface>,
+    ) -> Result<(), UsbError> {
         match UsbDeviceControl::new(addr, ctx).await {
             Ok(device) => {
                 let shared = Self::shared();
@@ -171,23 +173,23 @@ impl UsbManager {
                 if is_configured {
                     device.device().is_configured.store(true, Ordering::SeqCst);
                     if let Some(device_name) = device.device().preferred_device_name() {
-                        notify!("\"{}\"\nhas been configured.", device_name);
+                        notify!(r::Icons::Usb, "\"{}\"\nhas been configured.", device_name);
                     } else {
-                        notify!("A USB Device has been configured.");
+                        notify!(r::Icons::Usb, "A USB Device has been configured.");
                     }
                 } else {
                     if let Some(device_name) = device.device().preferred_device_name() {
-                        notify!("\"{}\" was found.", device_name);
+                        notify!(r::Icons::Usb, "\"{}\" was found.", device_name);
                     } else {
-                        notify!("A USB Device was found.");
+                        notify!(r::Icons::Usb, "A USB Device was found.");
                     }
                 }
 
-                true
+                Ok(())
             }
             Err(err) => {
                 log!("USB Device Initialize Error {:?}", err);
-                false
+                Err(err)
             }
         }
     }

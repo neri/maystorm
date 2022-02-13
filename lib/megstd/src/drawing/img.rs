@@ -1,5 +1,3 @@
-// Image loader
-
 use super::*;
 use alloc::vec::Vec;
 use byteorder::*;
@@ -90,5 +88,61 @@ impl ImageLoader {
             _ => unreachable!(),
         }
         Some(BoxedBitmap32::from_vec(vec, Size::new(width as isize, height as isize)).into())
+    }
+
+    pub fn from_qoi(bytes: &[u8]) -> Option<BoxedBitmap> {
+        match rapid_qoi::Qoi::decode_alloc(bytes) {
+            Ok((qoi, pixels)) => {
+                let count = qoi.width as usize * qoi.height as usize;
+                let mut vec = Vec::with_capacity(count);
+                if qoi.colors.has_alpha() {
+                    let channels = qoi.colors.channels();
+                    for i in 0..count * channels {
+                        let c = unsafe {
+                            let r = *pixels.get_unchecked(i * channels);
+                            let g = *pixels.get_unchecked(i * channels + 1);
+                            let b = *pixels.get_unchecked(i * channels + 2);
+                            let a = *pixels.get_unchecked(i * channels + 3);
+                            ColorComponents::from_rgba(r, g, b, a).into_true_color()
+                        };
+                        vec.push(c);
+                    }
+                } else {
+                    let channels = qoi.colors.channels();
+                    for i in 0..count * channels {
+                        let c = unsafe {
+                            let r = *pixels.get_unchecked(i * channels);
+                            let g = *pixels.get_unchecked(i * channels + 1);
+                            let b = *pixels.get_unchecked(i * channels + 2);
+                            ColorComponents::from_rgb(r, g, b).into_true_color()
+                        };
+                        vec.push(c);
+                    }
+                }
+                let size = Size::new(qoi.width as isize, qoi.height as isize);
+                Some(BoxedBitmap32::from_vec(vec, size).into())
+            }
+            Err(_) => None,
+        }
+    }
+
+    pub fn from_qoi_mask(bytes: &[u8]) -> Option<OperationalBitmap> {
+        match rapid_qoi::Qoi::decode_alloc(bytes) {
+            Ok((qoi, pixels)) => {
+                let count = qoi.width as usize * qoi.height as usize;
+                let mut vec = Vec::with_capacity(count);
+                if !qoi.colors.has_alpha() {
+                    return None;
+                }
+                let channels = qoi.colors.channels();
+                for i in 0..count * channels {
+                    let a = unsafe { *pixels.get_unchecked(i * channels + 3) };
+                    vec.push(a);
+                }
+                let size = Size::new(qoi.width as isize, qoi.height as isize);
+                Some(OperationalBitmap::from_vec(vec, size))
+            }
+            Err(_) => None,
+        }
     }
 }

@@ -1,4 +1,3 @@
-// Window Hello World for megos + wasm
 #![no_main]
 #![no_std]
 

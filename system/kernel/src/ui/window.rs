@@ -3,6 +3,7 @@
 use super::{font::*, text::*, theme::Theme};
 use crate::{
     io::hid_mgr::*,
+    res::icon::IconManager,
     sync::atomicflags::*,
     sync::RwLock,
     sync::{fifo::*, semaphore::*},
@@ -33,7 +34,7 @@ const WINDOW_BORDER_WIDTH: isize = 1;
 const WINDOW_THICK_BORDER_WIDTH_V: isize = WINDOW_CORNER_RADIUS / 2;
 const WINDOW_THICK_BORDER_WIDTH_H: isize = WINDOW_CORNER_RADIUS / 2;
 const WINDOW_CORNER_RADIUS: isize = 8;
-const WINDOW_TITLE_HEIGHT: isize = 24;
+const WINDOW_TITLE_HEIGHT: isize = 28;
 const WINDOW_TITLE_LENGTH: usize = 32;
 const WINDOW_SHADOW_PADDING: isize = 16;
 const SHADOW_RADIUS: isize = 8;
@@ -65,41 +66,6 @@ const MOUSE_POINTER_SOURCE: [u8; MOUSE_POINTER_WIDTH * MOUSE_POINTER_HEIGHT] = [
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x00, 0x0F, 0xFF, 0xFF, 0xFF,
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x0F, 0x0F, 0xFF, 0xFF, 0xFF,
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-];
-
-// Close button
-const CLOSE_BUTTON_SIZE: usize = 10;
-#[rustfmt::skip]
-const CLOSE_BUTTON_SOURCE: [u8; CLOSE_BUTTON_SIZE * CLOSE_BUTTON_SIZE] = [
-    0x00, 0x99, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x99, 0x00,
-    0x99, 0xFF, 0x99, 0x00, 0x00, 0x00, 0x00, 0x99, 0xFF, 0x99,
-    0x00, 0x99, 0xFF, 0x99, 0x00, 0x00, 0x99, 0xFF, 0x99, 0x00,
-    0x00, 0x00, 0x99, 0xFF, 0x99, 0x99, 0xFF, 0x99, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x99, 0xFF, 0xFF, 0x99, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x99, 0xFF, 0xFF, 0x99, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x99, 0xFF, 0x99, 0x99, 0xFF, 0x99, 0x00, 0x00,
-    0x00, 0x99, 0xFF, 0x99, 0x00, 0x00, 0x99, 0xFF, 0x99, 0x00,
-    0x99, 0xFF, 0x99, 0x00, 0x00, 0x00, 0x00, 0x99, 0xFF, 0x99,
-    0x00, 0x99, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x99, 0x00,
-];
-
-// Back button
-const BACK_BUTTON_WIDTH: usize = 8;
-const BACK_BUTTON_HEIGHT: usize = 12;
-#[rustfmt::skip]
-const BACK_BUTTON_SOURCE: [u8; BACK_BUTTON_WIDTH * BACK_BUTTON_HEIGHT] = [
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x99, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x99, 0xFF, 0x99, 0x00,
-    0x00, 0x00, 0x00, 0x99, 0xFF, 0x99, 0x00, 0x00,
-    0x00, 0x00, 0x99, 0xFF, 0x99, 0x00, 0x00, 0x00,
-    0x00, 0x99, 0xFF, 0x99, 0x00, 0x00, 0x00, 0x00,
-    0x99, 0xFF, 0x99, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x99, 0xFF, 0x99, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x99, 0xFF, 0x99, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x99, 0xFF, 0x99, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x99, 0xFF, 0x99, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x99, 0xFF, 0x99, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x99, 0x00, 0x00,
 ];
 
 static mut WM: Option<Box<WindowManager<'static>>> = None;
@@ -161,21 +127,15 @@ impl WindowManager<'static> {
         let mut window_orders = Vec::with_capacity(MAX_WINDOWS);
 
         let window_button_width = WINDOW_TITLE_HEIGHT;
-        let close_button = OperationalBitmap::with_slice(
-            Size::new(CLOSE_BUTTON_SIZE as isize, CLOSE_BUTTON_SIZE as isize),
-            &CLOSE_BUTTON_SOURCE,
-        );
-        let back_button = OperationalBitmap::with_slice(
-            Size::new(BACK_BUTTON_WIDTH as isize, BACK_BUTTON_HEIGHT as isize),
-            &BACK_BUTTON_SOURCE,
-        );
+        let close_button = IconManager::mask(r::Icons::Close).unwrap();
+        let back_button = IconManager::mask(r::Icons::ChevronLeft).unwrap();
 
         let root = {
             let window = WindowBuilder::new()
                 .style(WindowStyle::OPAQUE | WindowStyle::NO_SHADOW)
                 .level(WindowLevel::ROOT)
                 .frame(Rect::from(screen_size))
-                .bg_color(Color::BLACK)
+                .bg_color(Color::from_rgb(0x000000))
                 .without_message_queue()
                 .bitmap_strategy(BitmapStrategy::NonBitmap)
                 .build_inner("Desktop");
@@ -402,8 +362,18 @@ impl WindowManager<'_> {
                                 } else {
                                     0
                                 };
+                                let bottom = shared.screen_size.height()
+                                    - WINDOW_TITLE_HEIGHT / 2
+                                    - if captured.as_ref().level < WindowLevel::FLOATING {
+                                        shared.screen_insets.bottom
+                                    } else {
+                                        0
+                                    };
                                 let x = position.x - shared.captured_origin.x;
-                                let y = cmp::max(position.y - shared.captured_origin.y, top);
+                                let y = cmp::min(
+                                    cmp::max(position.y - shared.captured_origin.y, top),
+                                    bottom,
+                                );
                                 captured.move_to(Point::new(x, y));
                             } else {
                                 let _ = Self::make_mouse_events(
@@ -903,7 +873,7 @@ impl WindowManager<'_> {
                     (v.bounds().width() - bitmap.bounds().width()) / 2,
                     (v.bounds().height() - bitmap.bounds().height()) / 2,
                 );
-                v.blt(bitmap, origin, bitmap.bounds())
+                v.blt_transparent(bitmap, origin, bitmap.bounds(), IndexedColor::DEFAULT_KEY);
             });
             root.set_needs_display();
         });
@@ -1560,11 +1530,7 @@ impl RawWindow<'_> {
             button_frame.x() + (button_frame.width() - button.width() as isize) / 2,
             button_frame.y() + (button_frame.height() - button.height() as isize) / 2,
         );
-        bitmap.map_argb32(|bitmap| {
-            button.blt_to(bitmap, origin, button.bounds(), |a, b| {
-                b.blend_draw(foreground.with_opacity(a))
-            })
-        });
+        button.draw_to(&mut bitmap, origin, button.bounds(), foreground.into());
     }
 
     fn draw_back_button(&mut self) {
@@ -1610,11 +1576,7 @@ impl RawWindow<'_> {
             button_frame.x() + (button_frame.width() - button.width() as isize) / 2,
             button_frame.y() + (button_frame.height() - button.height() as isize) / 2,
         );
-        bitmap.map_argb32(|bitmap| {
-            button.blt_to(bitmap, origin, button.bounds(), |a, b| {
-                b.blend_draw(foreground.with_opacity(a))
-            })
-        });
+        button.draw_to(&mut bitmap, origin, button.bounds(), foreground.into());
     }
 
     #[inline]

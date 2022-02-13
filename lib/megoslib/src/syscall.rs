@@ -20,9 +20,7 @@ extern "C" {
 pub fn os_exit() -> ! {
     unsafe {
         svc0(Function::Exit);
-        loop {
-            asm!("unreachable");
-        }
+        asm!("", options(noreturn, nostack));
     }
 }
 
