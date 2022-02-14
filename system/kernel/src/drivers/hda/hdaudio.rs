@@ -145,11 +145,13 @@ impl HdAudioController {
             (PciVendorId(0x8086), PciDeviceId(0x2668)) => false,
             _ => true,
         };
+
         // log!(
         //     "HDA init {:04x}_{:04x}",
         //     device.vendor_id().0,
         //     device.device_id().0
         // );
+
         let cmd = Mutex::new(CommandBuffer::new(&mmio, immediate));
 
         let mut driver = Self {
@@ -185,6 +187,8 @@ impl HdAudioController {
                 Verb::SetPinWidgetControl(PinWidgetControl(0xC0)),
             ))
             .unwrap();
+            cmd.run(Command::new(addr, Verb::SetEapdBtlEnable(0x02)))
+                .unwrap();
 
             let path = driver.path_to_dac(addr);
             for widget in path {
@@ -258,6 +262,19 @@ impl HdAudioController {
                         } else if widget.configuration_default().is_input() {
                             self.input_pins.push(addr)
                         }
+
+                        // let config = widget.configuration_default();
+                        // log!(
+                        //     " PIN {} {:08x} {}.{} {:?} {:?} {:?} {:?}",
+                        //     widget.addr().nid().0,
+                        //     config.bits(),
+                        //     config.default_association(),
+                        //     config.sequence(),
+                        //     config.default_device(),
+                        //     config.geometric_location(),
+                        //     config.port_connectivity(),
+                        //     config.color(),
+                        // );
                     }
                     _ => (),
                 }
@@ -319,23 +336,24 @@ impl HdAudioController {
     pub fn make_beep(&self, mhz: usize) {
         if let Some(pin) = self.current_output() {
             let mut sd = self.odss[0].lock().unwrap();
+            let stream_id = sd.stream_id().unwrap();
+
+            sd.stop();
+
+            let buffer = sd.current_buffer().unwrap();
+            buffer.fill(0);
 
             if mhz > 0 {
-                sd.stop();
-
                 let mut cmd = self.cmd.lock().unwrap();
 
-                let stream_id = sd.stream_id().unwrap();
                 let path = self.path_to_dac(pin);
                 let dac = *path.first().unwrap();
 
-                let buffer = sd.current_buffer().unwrap();
                 let stream_format = PcmFormat::default();
 
                 let wave_len = stream_format.sample_rate().hertz() * 1000 / mhz;
                 let waves = buffer.len() / 4 / wave_len;
                 let p = unsafe { buffer.get_unchecked_mut(0) as *const _ as *mut u32 };
-                buffer.fill(0);
                 for i in 0..waves {
                     let base = i * wave_len;
                     for j in 0..wave_len / 2 {
@@ -352,8 +370,6 @@ impl HdAudioController {
 
                 fence(Ordering::SeqCst);
                 sd.run();
-            } else {
-                sd.stop();
             }
         }
     }
@@ -1518,6 +1534,9 @@ pub enum Verb {
     GetPinWidgetControl,
     SetPinWidgetControl(PinWidgetControl),
 
+    GetEapdBtlEnable,
+    SetEapdBtlEnable(u8),
+
     GetConfigurationDefault,
     SetConfigurationDefault1(u8),
     SetConfigurationDefault2(u8),
@@ -1544,6 +1563,8 @@ impl Verb {
                 SetPowerState(v) => v as u32,
                 SetConverterControl(v) => v as u32,
                 SetPinWidgetControl(v) => v.bits() as u32,
+
+                SetEapdBtlEnable(v) => v as u32,
 
                 SetConfigurationDefault1(v) => v as u32,
                 SetConfigurationDefault2(v) => v as u32,
@@ -1575,6 +1596,9 @@ impl Verb {
             SetConverterControl(_) => 0x7_06_00,
             GetPinWidgetControl => 0xF_07_00,
             SetPinWidgetControl(_) => 0x7_07_00,
+
+            GetEapdBtlEnable => 0xF_0C_00,
+            SetEapdBtlEnable(_) => 0x7_0C_00,
 
             GetConfigurationDefault => 0xF_1C_00,
             SetConfigurationDefault1(_) => 0x7_1C_00,
