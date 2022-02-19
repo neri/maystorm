@@ -3,13 +3,13 @@
 use super::*;
 use crate::{
     fs::*,
-    io::audio::AudioManager,
+    io::audio::{AudioContext, AudioHandle, FreqType, OscType},
     mem::MemoryManager,
     // ui::theme::Theme,
     ui::window::*,
     *,
 };
-use alloc::boxed::Box;
+use alloc::{boxed::Box, sync::Arc};
 use core::{alloc::Layout, ptr::*, slice, str, time::Duration};
 use megstd::drawing::*;
 
@@ -25,6 +25,8 @@ pub struct Hoe {
     windows: Vec<HoeWindow>,
     timers: Vec<HoeTimer>,
     files: Vec<HoeFile>,
+    audio_ctx: Option<Arc<AudioContext>>,
+    audio_handle: Option<AudioHandle>,
     malloc_start: u32,
     malloc_free: u32,
 }
@@ -89,6 +91,8 @@ impl Hoe {
             windows: Vec::new(),
             timers: Vec::new(),
             files: Vec::new(),
+            audio_ctx: None,
+            audio_handle: None,
             malloc_start: 0,
             malloc_free: 0,
         })
@@ -245,7 +249,23 @@ impl Hoe {
                 // TODO: free timer
             }
             20 => {
-                AudioManager::make_beep(regs.eax as usize);
+                // beep
+                let ctx = match self.audio_ctx {
+                    Some(ref v) => v,
+                    None => {
+                        self.audio_ctx = Some(AudioContext::new());
+                        self.audio_ctx.as_ref().unwrap()
+                    }
+                };
+                if let Some(handle) = self.audio_handle.take() {
+                    handle.stop();
+                }
+                let freq = regs.eax as FreqType / 1000.0;
+                if freq > 20.0 {
+                    let mut osc = ctx.create_oscillator(freq, OscType::Square);
+                    osc.connect(ctx.destination());
+                    self.audio_handle = osc.start().ok();
+                }
             }
             21 => {
                 // file open

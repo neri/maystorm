@@ -88,7 +88,7 @@ async fn shell_launcher(f: fn()) {
     {
         // Main Terminal
         let bounds = WindowManager::main_screen_bounds();
-        let font = if bounds.width() > 1024 && bounds.height() > 600 {
+        let font = if bounds.width() > 800 && bounds.height() > 600 {
             FontManager::system_font()
         } else {
             FontDescriptor::new(FontFamily::Terminal, 0).unwrap()
@@ -250,16 +250,14 @@ fn format_bytes(sb: &mut dyn Write, val: usize) -> core::fmt::Result {
 
 #[allow(dead_code)]
 async fn activity_monitor_main() {
-    let bg_alpha = 0xE0;
-    let bg_color32 = TrueColor::from(IndexedColor::BLACK);
-    let bg_color = Color::Argb32(bg_color32.with_opacity(bg_alpha));
-    let fg_color2 = Color::DARK_GRAY;
-    let fg_color = Color::YELLOW;
-    let graph_border_color = Color::LIGHT_GRAY;
-    let graph_sub_color = Color::LIGHT_GREEN;
+    let bg_color = Color::WHITE;
+    let fg_color = Color::DARK_GRAY;
+    let graph_border_color = Color::GREEN;
+    let graph_sub_color = Color::LIGHT_GRAY;
+    let graph_line_color = Color::LIGHT_MAGENTA;
     let graph_main_color1 = Color::LIGHT_RED;
-    let graph_main_color2 = Color::YELLOW;
-    let graph_main_color3 = Color::LIGHT_GREEN;
+    let graph_main_color2 = Color::LIGHT_GREEN;
+    let graph_main_color3 = Color::LIGHT_GRAY;
     let margin = EdgeInsets::new(0, 0, 0, 0);
 
     let width = 260;
@@ -357,15 +355,14 @@ async fn activity_monitor_main() {
                                     );
                                     let c1 =
                                         Point::new(rect.x() + i as isize, rect.y() + 1 + value2);
-                                    bitmap.draw_line(c0, c1, graph_main_color2);
+                                    bitmap.draw_line(c0, c1, graph_line_color);
                                 }
                                 bitmap.draw_rect(rect, graph_border_color);
                             }
 
                             for cpu_index in 0..num_of_cpus {
-                                let padding = 4;
-                                let rect = Rect::new(cursor, padding, 8, 32);
-                                cursor += rect.width() + padding;
+                                let rect = Rect::new(cursor, 4, 6, 32);
+                                cursor += rect.width() + 2;
 
                                 let value = usage_temp[cpu_index];
                                 let graph_color = if value < 250 {
@@ -420,17 +417,9 @@ async fn activity_monitor_main() {
 
                             Scheduler::print_statistics(&mut sb);
 
-                            let mut rect = bitmap
+                            let  rect = bitmap
                                 .bounds()
                                 .insets_by(EdgeInsets::new(38, spacing, 4, spacing));
-                            rect.origin += Point::new(1, 1);
-                            AttributedString::new()
-                                .font(font)
-                                .color(fg_color2)
-                                .valign(VerticalAlignment::Top)
-                                .text(sb.as_str())
-                                .draw_text(bitmap, rect, 0);
-                            rect.origin += Point::new(-1, -1);
                             AttributedString::new()
                                 .font(font)
                                 .color(fg_color)

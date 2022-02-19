@@ -223,10 +223,11 @@ impl Cpu {
 
     #[inline]
     pub fn stop() -> ! {
-        unsafe {
-            Self::disable_interrupt();
-            Self::halt();
-            asm!("", options(nomem, nostack, noreturn));
+        loop {
+            unsafe {
+                Self::disable_interrupt();
+                Self::halt();
+            }
         }
     }
 
@@ -418,50 +419,57 @@ impl Cpu {
     }
 
     #[inline]
-    #[track_caller]
-    pub unsafe fn without_interrupts<F, R>(f: F) -> R
-    where
-        F: FnOnce() -> R,
-    {
+    pub unsafe fn interrupt_guard() -> InterruptGuard {
         let mut rax: usize;
         asm!("
             pushfq
             cli
             pop {0}
             ", lateout(reg) rax);
-        let has_to_restore = Rflags::from_bits_truncate(rax).contains(Rflags::IF);
-
-        let result = f();
-
-        if has_to_restore {
-            Cpu::enable_interrupt();
-        }
-
-        result
+        InterruptGuard(rax)
     }
 
-    pub fn is_interrupt_disabled() -> bool {
-        !Self::is_interrupt_enabled()
-    }
+    // #[inline]
+    // pub fn is_interrupt_disabled() -> bool {
+    //     !Self::is_interrupt_enabled()
+    // }
 
-    pub fn is_interrupt_enabled() -> bool {
-        unsafe {
-            let mut rax: usize;
-            asm!("
-            pushfq
-            cli
-            pop {0}
-            ", lateout(reg) rax);
-            Rflags::from_bits_truncate(rax).contains(Rflags::IF)
+    // pub fn is_interrupt_enabled() -> bool {
+    //     unsafe {
+    //         let mut rax: usize;
+    //         asm!("
+    //         pushfq
+    //         cli
+    //         pop {0}
+    //         ", lateout(reg) rax);
+    //         Rflags::from_bits_truncate(rax).contains(Rflags::IF)
+    //     }
+    // }
+}
+
+pub struct InterruptGuard(usize);
+
+// impl !Send for InterruptGuard {}
+// impl !Sync for InterruptGuard {}
+
+impl Drop for InterruptGuard {
+    fn drop(&mut self) {
+        if Rflags::from_bits_truncate(self.0).contains(Rflags::IF) {
+            unsafe {
+                Cpu::enable_interrupt();
+            }
         }
     }
 }
 
 #[macro_export]
 macro_rules! without_interrupts {
-    ( $f:expr ) => {
-        Cpu::without_interrupts(|| $f)
-    };
+    ( $f:expr ) => {{
+        let rflags = Cpu::interrupt_guard();
+        let r = { $f };
+        drop(rflags);
+        r
+    }};
 }
 
 impl PciImpl for Cpu {
@@ -1424,6 +1432,7 @@ impl Msr {
 #[repr(C)]
 pub(super) struct X64StackContext {
     // xmm: [u128; 16],
+    _mxcsr: u64,
     cr2: u64,
     _gs: u64,
     _fs: u64,
@@ -1492,6 +1501,11 @@ impl X64StackContext {
     #[inline]
     pub const fn vector(&self) -> InterruptVector {
         InterruptVector(self._vector as u8)
+    }
+
+    #[inline]
+    pub const fn mxcsr(&self) -> u32 {
+        self._mxcsr as u32
     }
 }
 
@@ -1579,6 +1593,18 @@ pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext)
                     )
                         .unwrap();
                     }
+                    ExceptionType::SimdException => {
+                        writeln!(
+                            stdout,
+                            "\n#### SIMD EXCEPTION {:04x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
+                            ctx.mxcsr(),
+                            ctx.cs().0,
+                            ctx.rip & va_mask,
+                            ctx.ss().0,
+                            ctx.rsp & va_mask,
+                        )
+                            .unwrap();
+                        }
                     _ => {
                         if ex.has_error_code() {
                             writeln!(

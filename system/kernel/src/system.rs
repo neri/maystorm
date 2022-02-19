@@ -216,14 +216,16 @@ impl System {
 
             log::EventManager::init();
 
+            io::audio::AudioManager::init();
             io::hid_mgr::HidManager::init();
             drivers::usb::UsbManager::init();
-            drivers::pci::Pci::init();
 
             fs::FileManager::init(
                 PageManager::direct_map(shared.initrd_base as PhysicalAddress),
                 shared.initrd_size,
             );
+
+            drivers::pci::Pci::init();
 
             if let Some(main_screen) = shared.main_screen.as_mut() {
                 FontManager::init();

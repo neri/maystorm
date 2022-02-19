@@ -68,7 +68,7 @@ linker = "/opt/homebrew/opt/llvm/bin/ld.lld"
 
 MIT License
 
-&copy; 2020 MEG-OS Project.
+&copy; 2020,2021,2022 MEG-OS Project.
 
 ### Wall paper
 
