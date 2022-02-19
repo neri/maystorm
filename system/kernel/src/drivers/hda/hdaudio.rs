@@ -1,11 +1,12 @@
 use crate::{
     drivers::pci::*,
-    io::audio::{AudioManager, BeepDriver},
+    io::audio::{AudioDriver, AudioManager},
     mem::{mmio::MmioSlice, MemoryManager},
-    sync::{spinlock::SpinLoopWait, Mutex},
-    task::scheduler::Timer,
+    sync::{semaphore::Semaphore, spinlock::SpinLoopWait, Mutex},
+    task::scheduler::{Priority, SpawnOption, Timer},
     *,
 };
+use _core::intrinsics::copy_nonoverlapping;
 use alloc::{boxed::Box, collections::BTreeMap, format, string::String, sync::Arc, vec::Vec};
 use bitflags::*;
 use core::{
@@ -58,6 +59,10 @@ pub struct HdAudioController {
     widgets: BTreeMap<WidgetAddress, Node>,
 
     current_output: Mutex<Option<WidgetAddress>>,
+
+    sem_event_thread: Semaphore,
+
+    count: AtomicUsize,
 }
 
 unsafe impl Send for HdAudioController {}
@@ -170,16 +175,26 @@ impl HdAudioController {
             widgets: BTreeMap::new(),
 
             current_output: Mutex::new(None),
+
+            sem_event_thread: Semaphore::new(0),
+
+            count: AtomicUsize::new(0),
         };
 
         driver.enumerate().unwrap();
 
         if let Some(addr) = driver.find_best_output_pin() {
+            let stream_format = PcmFormat::default();
+
             driver.set_current_output(addr);
             let stream_id = StreamId(NonZeroU8::new_unchecked(1));
-            driver.odss[0].lock().unwrap().prepare_buffer(stream_id);
+            let mut sd = driver.odss[0].lock().unwrap();
+            sd.prepare_buffer(stream_id, stream_format);
 
             let mut cmd = driver.cmd.lock().unwrap();
+
+            let path = driver.path_to_dac(addr);
+            let dac = *path.first().unwrap();
 
             // TODO: magic number
             cmd.run(Command::new(
@@ -190,7 +205,6 @@ impl HdAudioController {
             cmd.run(Command::new(addr, Verb::SetEapdBtlEnable(0x02)))
                 .unwrap();
 
-            let path = driver.path_to_dac(addr);
             for widget in path {
                 let gain = cmd
                     .get_parameter(widget, ParameterId::OutputAmpCapabilities)
@@ -209,14 +223,72 @@ impl HdAudioController {
                     .unwrap();
             }
 
+            cmd.set_pcm_format(dac, stream_format).unwrap();
+            cmd.set_stream_id(dac, stream_id).unwrap();
+
             driver.global.ssync.store(1, Ordering::SeqCst);
+
+            sd.run();
         }
 
         let driver = Arc::new(driver);
 
-        AudioManager::set_beep_driver(HdaBeepDriver::new(&driver));
+        let p = driver.clone();
+        SpawnOption::with_priority(Priority::Realtime).spawn(
+            move || {
+                p._event_thread();
+            },
+            Self::DRIVER_NAME,
+        );
+        let p = Arc::as_ptr(&driver);
+        Arc::increment_strong_count(p);
+        device.register_msi(Self::_msi_handler, p as usize).unwrap();
+
+        driver.global.set_interrupt_control((1 << 31) | (1 << iss));
+
+        AudioManager::set_audio_driver(HdaSoundDriver::new(&driver));
 
         Some(driver as Arc<dyn PciDriver>)
+    }
+
+    fn _msi_handler(p: usize) {
+        let this = unsafe { &*(p as *const Self) };
+        this.count.fetch_add(1, Ordering::SeqCst);
+        this.sem_event_thread.signal();
+    }
+
+    /// xHCI Main event loop
+    fn _event_thread(self: Arc<Self>) {
+        loop {
+            self.sem_event_thread.wait();
+            self.process_events();
+        }
+    }
+
+    pub fn process_events(&self) {
+        let sts = self.global.interrupt_status();
+        if (sts & (1 << 31)) != 0 {
+            if (sts & (1 << 30)) != 0 {
+                // TODO: Controller Interrupt Status
+            }
+            let mut sis = sts & 0x3FFF_FFFF;
+
+            for i in 0..self.gcap.iss {
+                if (sis & 1) != 0 {
+                    let mut input = self.idss[i].lock().unwrap();
+                    input.handle_interrupt();
+                }
+                sis >>= 1;
+            }
+
+            for i in 0..self.gcap.oss {
+                if (sis & 1) != 0 {
+                    let mut output = self.odss[i].lock().unwrap();
+                    output.handle_interrupt();
+                }
+                sis >>= 1;
+            }
+        }
     }
 
     #[inline]
@@ -238,15 +310,6 @@ impl HdAudioController {
         for i in 0..count {
             let fg = WidgetAddress::new(cad, start + i);
 
-            // let fg_type = cmd.get_parameter(fg, ParameterId::FunctionGroupType)?;
-            // let cap = cmd.get_parameter(fg, ParameterId::AudioFunctionGroupCapabilities)?;
-            // log!(
-            //     "FG {} {:08x} CAP {:08x} ",
-            //     fg.nid().0,
-            //     fg_type.as_u32(),
-            //     cap.as_u32()
-            // );
-
             let (start, count) = cmd.get_subordinate_node_count(fg)?;
 
             for i in 0..count {
@@ -262,19 +325,6 @@ impl HdAudioController {
                         } else if widget.configuration_default().is_input() {
                             self.input_pins.push(addr)
                         }
-
-                        // let config = widget.configuration_default();
-                        // log!(
-                        //     " PIN {} {:08x} {}.{} {:?} {:?} {:?} {:?}",
-                        //     widget.addr().nid().0,
-                        //     config.bits(),
-                        //     config.default_association(),
-                        //     config.sequence(),
-                        //     config.default_device(),
-                        //     config.geometric_location(),
-                        //     config.port_connectivity(),
-                        //     config.color(),
-                        // );
                     }
                     _ => (),
                 }
@@ -332,47 +382,6 @@ impl HdAudioController {
                 .unwrap_or(false)
         }
     }
-
-    pub fn make_beep(&self, mhz: usize) {
-        if let Some(pin) = self.current_output() {
-            let mut sd = self.odss[0].lock().unwrap();
-            let stream_id = sd.stream_id().unwrap();
-
-            sd.stop();
-
-            let buffer = sd.current_buffer().unwrap();
-            buffer.fill(0);
-
-            if mhz > 0 {
-                let mut cmd = self.cmd.lock().unwrap();
-
-                let path = self.path_to_dac(pin);
-                let dac = *path.first().unwrap();
-
-                let stream_format = PcmFormat::default();
-
-                let wave_len = stream_format.sample_rate().hertz() * 1000 / mhz;
-                let waves = buffer.len() / 4 / wave_len;
-                let p = unsafe { buffer.get_unchecked_mut(0) as *const _ as *mut u32 };
-                for i in 0..waves {
-                    let base = i * wave_len;
-                    for j in 0..wave_len / 2 {
-                        unsafe {
-                            p.add(base + j).write_volatile(0x00FF_00FF);
-                        }
-                    }
-                }
-
-                cmd.set_pcm_format(dac, stream_format).unwrap();
-                cmd.set_stream_id(dac, stream_id).unwrap();
-
-                sd.set_pcm_format(stream_format);
-
-                fence(Ordering::SeqCst);
-                sd.run();
-            }
-        }
-    }
 }
 
 impl Drop for HdAudioController {
@@ -394,8 +403,10 @@ impl PciDriver for HdAudioController {
         if let Some(addr) = self.current_output() {
             let widget = self.widgets.get(&addr).unwrap();
             let config = widget.configuration_default();
+            let count = self.count.load(Ordering::Relaxed);
             format!(
-                "RUNNING iss {} oss {} pin {} {:?} {:?} {:?}",
+                "RUNNING {} iss {} oss {} pin {} {:?} {:?} {:?}",
+                count,
                 self.gcap.iss,
                 self.gcap.oss,
                 widget.addr().pretty(),
@@ -409,20 +420,25 @@ impl PciDriver for HdAudioController {
     }
 }
 
-pub struct HdaBeepDriver {
+pub struct HdaSoundDriver {
     hda: Arc<HdAudioController>,
 }
 
-impl HdaBeepDriver {
+impl HdaSoundDriver {
     #[inline]
-    pub fn new(hda: &Arc<HdAudioController>) -> Box<dyn BeepDriver> {
-        Box::new(Self { hda: hda.clone() }) as Box<dyn BeepDriver>
+    pub fn new(hda: &Arc<HdAudioController>) -> Arc<dyn AudioDriver> {
+        Arc::new(Self { hda: hda.clone() }) as Arc<dyn AudioDriver>
     }
 }
 
-impl BeepDriver for HdaBeepDriver {
-    fn make_beep(&self, mhz: usize) {
-        self.hda.make_beep(mhz);
+impl AudioDriver for HdaSoundDriver {
+    fn size_of_buffer(&self) -> usize {
+        SIZE_OF_BUFFER
+    }
+
+    fn write_block(&self, data: &[u8]) -> Option<()> {
+        let sd = self.hda.odss[0].lock().unwrap();
+        sd.write_data(data)
     }
 }
 
@@ -692,14 +708,15 @@ impl Rirb {
     }
 }
 
-const SIZE_OF_BUFFER: usize = 44_100;
-const SIZE_OF_BDL: usize = 2;
+const SIZE_OF_BUFFER: usize = 0x1000;
+const NUM_OF_BUFFER: usize = 8;
 pub type DmaBufferChunk = [u8; SIZE_OF_BUFFER];
 
 pub struct StreamDescriptor {
     regs: &'static StreamDescriptorRegisterSet,
     id: Option<StreamId>,
-    current_buffer: Option<*mut DmaBufferChunk>,
+    current_buffer: Option<*mut u8>,
+    current_pos: AtomicUsize,
 }
 
 impl StreamDescriptor {
@@ -709,6 +726,7 @@ impl StreamDescriptor {
             regs,
             id: None,
             current_buffer: None,
+            current_pos: AtomicUsize::new(0),
         }
     }
 
@@ -725,7 +743,7 @@ impl StreamDescriptor {
     #[inline]
     pub fn run(&mut self) {
         let mut ctl = self.regs.get_control();
-        ctl.insert(StreamDescriptorControl::RUN);
+        ctl.insert(StreamDescriptorControl::RUN | StreamDescriptorControl::IOCE);
         self.regs.set_control(ctl);
     }
 
@@ -738,29 +756,53 @@ impl StreamDescriptor {
         self.regs.set_status(self.regs.get_status());
     }
 
-    #[inline]
-    pub fn current_buffer<'a>(&mut self) -> Option<&mut DmaBufferChunk> {
-        self.current_buffer.map(|v| unsafe { &mut *v })
+    pub fn handle_interrupt(&mut self) {
+        self.regs.clear_interrupts();
     }
 
-    pub fn prepare_buffer(&mut self, id: StreamId) {
+    pub fn prepare_buffer(&mut self, id: StreamId, fmt: PcmFormat) {
         self.id = Some(id);
-        if self.current_buffer.is_none() {
-            let (pa_bdl, bdl) =
-                unsafe { MemoryManager::alloc_dma::<[BufferDescriptor; SIZE_OF_BDL]>(1).unwrap() };
-            let bdl = unsafe { &mut *bdl };
+        let (pa_bdl, bdl) =
+            unsafe { MemoryManager::alloc_dma::<[BufferDescriptor; NUM_OF_BUFFER]>(1).unwrap() };
+        let bdl = unsafe { &mut *bdl };
 
-            let (pa_buff, buffer) =
-                unsafe { MemoryManager::alloc_dma::<DmaBufferChunk>(1).unwrap() };
-            bdl[0] = BufferDescriptor::new(pa_buff, SIZE_OF_BUFFER, false);
-            bdl[1] = BufferDescriptor::empty();
+        let (pa_buff, buffer) =
+            unsafe { MemoryManager::alloc_dma::<u8>(NUM_OF_BUFFER * SIZE_OF_BUFFER).unwrap() };
+        for i in 0..bdl.len() {
+            bdl[i] =
+                BufferDescriptor::new(pa_buff + (i * SIZE_OF_BUFFER) as u64, SIZE_OF_BUFFER, true);
+        }
 
-            self.regs.set_stream_id(id);
-            self.regs.set_base(pa_bdl);
-            self.regs.set_buffer_length(SIZE_OF_BUFFER);
-            self.regs.set_last_valid_index(SIZE_OF_BDL - 1);
+        self.regs.set_stream_id(id);
+        self.regs.set_pcm_format(fmt);
+        self.regs.set_base(pa_bdl);
+        self.regs.set_buffer_length(SIZE_OF_BUFFER * NUM_OF_BUFFER);
+        self.regs.set_last_valid_index(NUM_OF_BUFFER - 1);
 
-            self.current_buffer = Some(buffer);
+        self.current_buffer = Some(buffer);
+    }
+
+    pub fn write_data(&self, data: &[u8]) -> Option<()> {
+        let buffer = match self.current_buffer {
+            Some(v) => v,
+            None => return Some(()),
+        };
+        let src = data.as_ptr();
+
+        let lp = self.regs.link_position() / SIZE_OF_BUFFER;
+        let pos = self.current_pos.load(Ordering::SeqCst);
+
+        if lp != pos {
+            self.current_pos
+                .store((pos + 1) % NUM_OF_BUFFER, Ordering::SeqCst);
+
+            unsafe {
+                copy_nonoverlapping(src, buffer.add(pos * SIZE_OF_BUFFER), SIZE_OF_BUFFER);
+            }
+            fence(Ordering::SeqCst);
+            Some(())
+        } else {
+            None
         }
     }
 }
@@ -956,8 +998,18 @@ impl GlobalRegisterSet {
     }
 
     #[inline]
-    pub fn get_interupt_control(&self) -> InterruptControl {
-        InterruptControl::from_bits_truncate(self.intcnt.load(Ordering::SeqCst))
+    pub fn interrupt_control(&self) -> u32 {
+        self.intcnt.load(Ordering::SeqCst)
+    }
+
+    #[inline]
+    pub fn set_interrupt_control(&self, val: u32) {
+        self.intcnt.store(val, Ordering::SeqCst)
+    }
+
+    #[inline]
+    pub fn interrupt_status(&self) -> u32 {
+        self.intsts.load(Ordering::SeqCst)
     }
 }
 
@@ -1347,6 +1399,11 @@ impl StreamDescriptorRegisterSet {
     }
 
     #[inline]
+    pub fn clear_interrupts(&self) {
+        self.set_status(StreamDescriptorStatus::CLEAR_INTERRUPTS)
+    }
+
+    #[inline]
     pub fn link_position(&self) -> usize {
         self.lpib.load(Ordering::SeqCst) as usize
     }
@@ -1443,6 +1500,8 @@ bitflags! {
         const DESE      = 0x10;
         /// FIFO Ready
         const FIFORDY   = 0x20;
+
+        const CLEAR_INTERRUPTS = Self::BCIS.bits | Self::FIFOE.bits | Self::DESE.bits;
     }
 }
 

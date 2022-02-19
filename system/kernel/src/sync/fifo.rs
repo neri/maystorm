@@ -129,11 +129,11 @@ impl<T: Sized> ConcurrentFifo<T> {
     }
 
     pub fn enqueue(&self, value: T) -> Result<(), T> {
-        unsafe { Cpu::without_interrupts(|| self._enqueue(value)) }
+        unsafe { without_interrupts!(self._enqueue(value)) }
     }
 
     pub fn dequeue(&self) -> Option<T> {
-        unsafe { Cpu::without_interrupts(|| self._dequeue()) }
+        unsafe { without_interrupts!(self._dequeue()) }
     }
 
     #[inline]

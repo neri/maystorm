@@ -49,7 +49,7 @@ _base:
 asm_handle_exception:
     cmp dil, 0x40
     jz .hoe
-    cmp dil, 15
+    cmp dil, 0x13
     ja .no_exception
     movzx ecx, dil
     lea rdx, [rel _exception_table]
@@ -97,6 +97,11 @@ _asm_int_0D: ; #GP General Protection Fault
 
 _asm_int_0E: ; #PF Page Fault
     push BYTE 0x0E
+    jmp short _exception
+
+_asm_int_13: ; #XM SIMD Floating-Point Exception
+    push BYTE 0
+    push BYTE 0x13
     ; jmp short _exception
 
 _exception:
@@ -123,6 +128,9 @@ _exception:
     push gs
     mov rax, cr2
     push rax
+    xor eax, eax
+    push rax
+    stmxcsr [rsp]
     mov rbp, rsp
     and rsp, byte 0xF0
     ; sub rsp, 0x100
@@ -165,7 +173,7 @@ _exception:
     ; movaps xmm13, [rax + 0x50]
     ; movaps xmm14, [rax + 0x60]
     ; movaps xmm15, [rax + 0x70]
-    lea rsp, [rbp + 8 * 5]
+    lea rsp, [rbp + 8 * 6]
     pop r15
     pop r14
     pop r13
@@ -315,6 +323,8 @@ asm_sch_make_new_thread:
 
 _new_thread:
     fninit
+    xor eax, eax
+    ldmxcsr [rel _mxcsr]
     pxor xmm0, xmm0
     pxor xmm1, xmm1
     pxor xmm2, xmm2
@@ -418,6 +428,9 @@ _minimal_GDT:
     dw 0xFFFF, 0x0000, 0x9200, 0x00CF   ; 10 DPL0 DATA FLAT MANDATORY
 _end_GDT:
 
+_mxcsr:
+    dd 0x00001000
+
 _exception_table:
     dd _asm_int_00 - _base
     dd 0 ; int_01
@@ -435,7 +448,10 @@ _exception_table:
     dd _asm_int_0D - _base
     dd _asm_int_0E - _base
     dd 0 ; int_0F
-
+    dd 0 ; int_10
+    dd 0 ; int_11
+    dd 0 ; int_12
+    dd _asm_int_13 - _base
 
 
 

@@ -88,7 +88,7 @@ async fn shell_launcher(f: fn()) {
     {
         // Main Terminal
         let bounds = WindowManager::main_screen_bounds();
-        let font = if bounds.width() >= 800 && bounds.height() >= 600 {
+        let font = if bounds.width() > 800 && bounds.height() > 600 {
             FontManager::system_font()
         } else {
             FontDescriptor::new(FontFamily::Terminal, 0).unwrap()
@@ -417,17 +417,9 @@ async fn activity_monitor_main() {
 
                             Scheduler::print_statistics(&mut sb);
 
-                            let mut rect = bitmap
+                            let  rect = bitmap
                                 .bounds()
                                 .insets_by(EdgeInsets::new(38, spacing, 4, spacing));
-                            // rect.origin += Point::new(1, 1);
-                            // AttributedString::new()
-                            //     .font(font)
-                            //     .color(fg_color2)
-                            //     .valign(VerticalAlignment::Top)
-                            //     .text(sb.as_str())
-                            //     .draw_text(bitmap, rect, 0);
-                            // rect.origin += Point::new(-1, -1);
                             AttributedString::new()
                                 .font(font)
                                 .color(fg_color)
