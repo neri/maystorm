@@ -6,10 +6,10 @@ use crate::{
     task::scheduler::{Priority, SpawnOption, Timer},
     *,
 };
-use _core::intrinsics::copy_nonoverlapping;
 use alloc::{boxed::Box, collections::BTreeMap, format, string::String, sync::Arc, vec::Vec};
 use bitflags::*;
 use core::{
+    intrinsics::copy_nonoverlapping,
     mem::transmute,
     num::{NonZeroU8, NonZeroUsize},
     ops::Add,
@@ -59,6 +59,7 @@ pub struct HdAudioController {
     widgets: BTreeMap<WidgetAddress, Node>,
 
     current_output: Mutex<Option<WidgetAddress>>,
+    current_dac: Mutex<Option<WidgetAddress>>,
 
     sem_event_thread: Semaphore,
 
@@ -151,12 +152,6 @@ impl HdAudioController {
             _ => true,
         };
 
-        // log!(
-        //     "HDA init {:04x}_{:04x}",
-        //     device.vendor_id().0,
-        //     device.device_id().0
-        // );
-
         let cmd = Mutex::new(CommandBuffer::new(&mmio, immediate));
 
         let mut driver = Self {
@@ -175,6 +170,7 @@ impl HdAudioController {
             widgets: BTreeMap::new(),
 
             current_output: Mutex::new(None),
+            current_dac: Mutex::new(None),
 
             sem_event_thread: Semaphore::new(0),
 
@@ -184,17 +180,17 @@ impl HdAudioController {
         driver.enumerate().unwrap();
 
         if let Some(addr) = driver.find_best_output_pin() {
-            let stream_format = PcmFormat::default();
-
+            let path = driver.path_to_dac(addr);
+            let dac = *path.first().unwrap();
             driver.set_current_output(addr);
+            driver.set_current_dac(dac);
+
+            let stream_format = PcmFormat::default();
             let stream_id = StreamId(NonZeroU8::new_unchecked(1));
             let mut sd = driver.odss[0].lock().unwrap();
             sd.prepare_buffer(stream_id, stream_format);
 
             let mut cmd = driver.cmd.lock().unwrap();
-
-            let path = driver.path_to_dac(addr);
-            let dac = *path.first().unwrap();
 
             // TODO: magic number
             cmd.run(Command::new(
@@ -206,20 +202,24 @@ impl HdAudioController {
                 .unwrap();
 
             for widget in path {
-                let gain = cmd
-                    .get_parameter(widget, ParameterId::OutputAmpCapabilities)
-                    .unwrap()
-                    .as_u32() as u8;
+                let widget = driver.widgets.get(&widget).unwrap();
+
                 cmd.run(Command::new(
-                    widget,
+                    widget.addr(),
                     Verb::SetAmplifierGainMute(AmplifierGainMuteSetPayload::new(
-                        true, false, true, true, 0, false, gain,
+                        true,
+                        false,
+                        true,
+                        true,
+                        0,
+                        false,
+                        widget.output_amplifier_capabilities().offset(),
                     )),
                 ))
                 .unwrap();
 
                 // TODO: magic number
-                cmd.run(Command::new(widget, Verb::SetPowerState(0x00)))
+                cmd.run(Command::new(widget.addr(), Verb::SetPowerState(0x00)))
                     .unwrap();
             }
 
@@ -229,6 +229,28 @@ impl HdAudioController {
             driver.global.ssync.store(1, Ordering::SeqCst);
 
             sd.run();
+        }
+
+        if false {
+            log!("OUTPUT: {:?}", driver.find_best_output_pin());
+            for node in driver.widgets.values() {
+                let cap = node.capabilities();
+                let config = node.configuration_default();
+                let out_cap = node.output_amplifier_capabilities();
+                let in_cap = node.input_amplifier_capabilities();
+
+                log!(
+                    "{} {:08x} {:08x} {:08x} {:08x} {:?} {} {:?}",
+                    node.addr().nid().0,
+                    cap.bits(),
+                    config.bits(),
+                    in_cap.bits(),
+                    out_cap.bits(),
+                    cap.widget_type(),
+                    cap.number_of_channels(),
+                    config.default_device(),
+                );
+            }
         }
 
         let driver = Arc::new(driver);
@@ -299,6 +321,11 @@ impl HdAudioController {
     #[inline]
     pub fn set_current_output(&self, addr: WidgetAddress) {
         *self.current_output.lock().unwrap() = Some(addr);
+    }
+
+    #[inline]
+    pub fn set_current_dac(&self, addr: WidgetAddress) {
+        *self.current_dac.lock().unwrap() = Some(addr);
     }
 
     pub fn enumerate(&mut self) -> Result<()> {
@@ -455,6 +482,8 @@ pub struct Node {
     addr: WidgetAddress,
     cap: AudioWidgetCapabilities,
     config: ConfigurationDefault,
+    out_amp_cap: AmplifierCapabilities,
+    in_amp_cap: AmplifierCapabilities,
     connections: Box<[WidgetAddress]>,
 }
 
@@ -462,6 +491,8 @@ impl Node {
     pub fn new(cmd: &mut CommandBuffer, addr: WidgetAddress) -> Result<Self> {
         let cap = cmd.get_audio_widget_capabilities(addr)?;
         let config_default = cmd.get_configuration_default(addr)?;
+        let out_amp_cap = cmd.get_output_amplifier_capabilities(addr)?;
+        let in_amp_cap = cmd.get_input_amplifier_capabilities(addr)?;
 
         let val = cmd
             .get_parameter(addr, ParameterId::ConnectionListLength)?
@@ -495,6 +526,8 @@ impl Node {
             addr,
             cap,
             config: config_default,
+            out_amp_cap,
+            in_amp_cap,
             connections: list.into_boxed_slice(),
         })
     }
@@ -512,6 +545,16 @@ impl Node {
     #[inline]
     pub const fn configuration_default(&self) -> ConfigurationDefault {
         self.config
+    }
+
+    #[inline]
+    pub const fn output_amplifier_capabilities(&self) -> AmplifierCapabilities {
+        self.out_amp_cap
+    }
+
+    #[inline]
+    pub const fn input_amplifier_capabilities(&self) -> AmplifierCapabilities {
+        self.in_amp_cap
     }
 
     #[inline]
@@ -569,6 +612,24 @@ impl CommandBuffer {
     ) -> Result<AudioWidgetCapabilities> {
         self.get_parameter(addr, ParameterId::AudioWidgetCapabilities)
             .map(|v| unsafe { transmute(v.as_u32()) })
+    }
+
+    #[inline]
+    pub fn get_output_amplifier_capabilities(
+        &mut self,
+        addr: WidgetAddress,
+    ) -> Result<AmplifierCapabilities> {
+        self.get_parameter(addr, ParameterId::OutputAmpCapabilities)
+            .map(|v| AmplifierCapabilities(v.as_u32()))
+    }
+
+    #[inline]
+    pub fn get_input_amplifier_capabilities(
+        &mut self,
+        addr: WidgetAddress,
+    ) -> Result<AmplifierCapabilities> {
+        self.get_parameter(addr, ParameterId::InputAmpCapabilities)
+            .map(|v| AmplifierCapabilities(v.as_u32()))
     }
 
     #[inline]
@@ -709,7 +770,7 @@ impl Rirb {
 }
 
 const SIZE_OF_BUFFER: usize = 0x1000;
-const NUM_OF_BUFFER: usize = 8;
+const NUM_OF_BUFFER: usize = 4;
 pub type DmaBufferChunk = [u8; SIZE_OF_BUFFER];
 
 pub struct StreamDescriptor {
@@ -2088,7 +2149,7 @@ impl AmplifierGainMuteSetPayload {
         right: bool,
         index: u8,
         mute: bool,
-        gain: u8,
+        gain: usize,
     ) -> Self {
         Self(
             ((output as u16) << 15)
@@ -2104,5 +2165,36 @@ impl AmplifierGainMuteSetPayload {
     #[inline]
     pub const fn bits(&self) -> u16 {
         self.0
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy)]
+pub struct AmplifierCapabilities(u32);
+
+impl AmplifierCapabilities {
+    #[inline]
+    pub const fn bits(&self) -> u32 {
+        self.0
+    }
+
+    #[inline]
+    pub const fn offset(&self) -> usize {
+        self.0 as usize & 0x7F
+    }
+
+    #[inline]
+    pub const fn num_steps(&self) -> usize {
+        (self.0 << 8) as usize & 0x7F
+    }
+
+    #[inline]
+    pub const fn step_size(&self) -> usize {
+        (self.0 << 16) as usize & 0x7F
+    }
+
+    #[inline]
+    pub const fn mute_supported(&self) -> bool {
+        (self.0 & 0x8000_0000) != 0
     }
 }

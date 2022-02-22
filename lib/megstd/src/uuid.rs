@@ -58,31 +58,6 @@ impl Uuid {
     pub fn version(&self) -> Option<UuidVersion> {
         FromPrimitive::from_u16(self.c >> 12)
     }
-
-    // pub fn generate() -> Option<Uuid> {
-    //     let v1 = match SecureRandom::next() {
-    //         Ok(v) => v,
-    //         _ => return None,
-    //     };
-    //     let v2 = match SecureRandom::next() {
-    //         Ok(v) => v,
-    //         _ => return None,
-    //     };
-    //     let a = (v1 & 0xFFFFFFFF) as u32;
-    //     let b = ((v1 >> 32) & 0xFFFF) as u16;
-    //     let c = ((v1 >> 48) & 0x0FFF) as u16 | 0x4000;
-    //     let d = [
-    //         ((v2 & 0x3F) | 0x80) as u8,
-    //         ((v2 >> 8) & 0xFF) as u8,
-    //         ((v2 >> 16) & 0xFF) as u8,
-    //         ((v2 >> 24) & 0xFF) as u8,
-    //         ((v2 >> 32) & 0xFF) as u8,
-    //         ((v2 >> 40) & 0xFF) as u8,
-    //         ((v2 >> 48) & 0xFF) as u8,
-    //         ((v2 >> 56) & 0xFF) as u8,
-    //     ];
-    //     Some(Uuid { a, b, c, d })
-    // }
 }
 
 impl Display for Uuid {

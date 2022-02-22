@@ -8,7 +8,7 @@ A 2020s hobby operating system written in Rust that supports multitasking, multi
 
 * A hobby operating system written in Rust
 * Not a POSIX clone system
-* Support for WebAssembly
+* Supports applications in WebAssembly format
 
 ## Requirements
 
@@ -18,8 +18,10 @@ A 2020s hobby operating system written in Rust that supports multitasking, multi
 * ACPI v2.X+
 * SMBIOS v2.X+ (optional)
 * x64 processor with up to 64 cores
-* ??? MB of system memory
-* 800 x 600 pixel resolution
+* ??? GB of system memory
+* 800 x 600 pixels or higher resolution
+* XHCI
+* HD Audio
 
 ## Build Environment
 

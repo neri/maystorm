@@ -264,7 +264,15 @@ impl Hoe {
                 if freq > 20.0 {
                     let mut osc = ctx.create_oscillator(freq, OscType::Square);
                     osc.connect(ctx.destination());
-                    self.audio_handle = osc.start().ok();
+                    // self.audio_handle = osc.start().ok();
+                    let mut note = io::audio::NoteOnFilter::new(
+                        Arc::downgrade(ctx),
+                        0.0,
+                        44_100.0 / 4.0,
+                        0.75,
+                    );
+                    note.connect(osc);
+                    self.audio_handle = note.start().ok();
                 }
             }
             21 => {

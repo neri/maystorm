@@ -33,6 +33,7 @@ static mut AUDIO_MANAGER: MaybeUninit<UnsafeCell<AudioManager>> = MaybeUninit::u
 pub struct AudioManager {
     audio_driver: Mutex<Option<Arc<dyn AudioDriver>>>,
     emitters: Mutex<BTreeMap<AudioHandle, AudioEmitter>>,
+    contexts: Mutex<BTreeMap<AudioHandle, Weak<AudioContext>>>,
 }
 
 impl AudioManager {
@@ -54,6 +55,7 @@ impl AudioManager {
         Self {
             audio_driver: Mutex::new(None),
             emitters: Mutex::new(BTreeMap::new()),
+            contexts: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -70,6 +72,18 @@ impl AudioManager {
                 NEXT_HANDLE.fetch_add(1, Ordering::SeqCst),
             ))
         }
+    }
+
+    #[inline]
+    pub fn register_context(handle: AudioHandle, ctx: Weak<AudioContext>) {
+        let mut contexts = Self::shared().contexts.lock().unwrap();
+        contexts.insert(handle, ctx);
+    }
+
+    #[inline]
+    pub fn unregiste_context(handle: AudioHandle) {
+        let mut contexts = Self::shared().contexts.lock().unwrap();
+        contexts.remove(&handle);
     }
 
     #[inline]
@@ -102,6 +116,7 @@ impl AudioManager {
         let _ = shared.emitters.lock().unwrap().remove(&handle);
     }
 
+    /// Audio Scheduler
     fn _audio_thread(_: usize) {
         let shared = Self::shared();
 
@@ -123,6 +138,10 @@ impl AudioManager {
         let wave_len = buffer_len / 4;
         let wave_buffer =
             unsafe { slice::from_raw_parts_mut(transmute(buffer.get_unchecked_mut(0)), wave_len) };
+
+        let timer_len = (wave_len as f64 / Self::DEFAULT_SAMPLE_RATE * 1000.0) as u64 - 1;
+
+        // panic!("LEN {} {}", wave_len, timer_len);
 
         loop {
             let mut emitters = shared.emitters.lock().unwrap();
@@ -149,16 +168,17 @@ impl AudioManager {
                     if driver.write_block(buffer_mute.as_slice()).is_some() {
                         break;
                     }
-                    Timer::sleep(Duration::from_millis(10));
+                    Timer::sleep(Duration::from_millis(1));
                 }
             } else {
                 loop {
                     if driver.write_block(buffer.as_slice()).is_some() {
                         break;
                     }
-                    Timer::sleep(Duration::from_millis(10));
+                    Timer::sleep(Duration::from_millis(1));
                 }
             }
+            Timer::sleep(Duration::from_millis(timer_len));
         }
     }
 }
@@ -200,15 +220,20 @@ impl AudioEmitter {
 }
 
 pub struct AudioContext {
+    handle: AudioHandle,
     handles: Mutex<Vec<AudioHandle>>,
 }
 
 impl AudioContext {
     #[inline]
     pub fn new() -> Arc<Self> {
-        Arc::new(Self {
+        let handle = AudioManager::next_handle();
+        let ctx = Arc::new(Self {
+            handle,
             handles: Mutex::new(Vec::new()),
-        })
+        });
+        AudioManager::register_context(handle, Arc::downgrade(&ctx));
+        ctx
     }
 
     #[inline]
@@ -220,8 +245,9 @@ impl AudioContext {
         let ctx = Arc::downgrade(self);
         let length = AudioManager::DEFAULT_SAMPLE_RATE / freq;
         match osc_type {
-            OscType::Square => SquareWaveOscillator::new(ctx, length),
-            OscType::Sine => todo!(),
+            OscType::Sine => SineWaveOscillator::new(ctx, length),
+            OscType::Square => PulseWaveOscillator::new(ctx, length, 0.5),
+            OscType::Pulse(duty_cycles) => PulseWaveOscillator::new(ctx, length, duty_cycles),
             OscType::Sawtooth => SawtoothWaveOscillator::new(ctx, length),
             OscType::Triangle => TriangleWaveOscillator::new(ctx, length),
         }
@@ -247,6 +273,8 @@ impl AudioContext {
 
 impl Drop for AudioContext {
     fn drop(&mut self) {
+        AudioManager::unregiste_context(self.handle);
+
         let vec = self.handles.lock().unwrap();
         for handle in vec.iter() {
             handle.stop();
@@ -257,8 +285,9 @@ impl Drop for AudioContext {
 /// Oscillator Type
 #[derive(Debug, Clone, Copy)]
 pub enum OscType {
-    Square,
     Sine,
+    Square,
+    Pulse(f64),
     Sawtooth,
     Triangle,
 }
@@ -374,74 +403,108 @@ impl AudioNode {
     }
 }
 
-pub struct SquareWaveOscillator {
-    length: f64,
-    sign: f64,
+pub struct PulseWaveOscillator {
+    full_length: f64,
+    pos_length: f64,
     time: f64,
 }
 
-impl SquareWaveOscillator {
+impl PulseWaveOscillator {
+    pub fn new(ctx: Weak<AudioContext>, length: f64, duty_cycles: f64) -> Box<AudioNode> {
+        let mut this = Self {
+            full_length: length,
+            pos_length: length * duty_cycles,
+            time: 0.0,
+        };
+        AudioNode::new(ctx, move |data: SampleType| {
+            let result = if this.time < this.pos_length {
+                data
+            } else {
+                -data
+            };
+            this.time = this.time + 1.0;
+            if this.time >= this.full_length {
+                this.time -= this.full_length;
+            }
+            result
+        })
+    }
+}
+
+pub struct SineWaveOscillator {
+    length: f64,
+    delta: f64,
+    time: f64,
+}
+
+impl SineWaveOscillator {
     pub fn new(ctx: Weak<AudioContext>, length: f64) -> Box<AudioNode> {
         let mut this = Self {
-            length: length / 2.0,
-            sign: 1.0,
+            length,
+            delta: core::f64::consts::PI / length,
             time: 0.0,
         };
         AudioNode::new(ctx, move |data| {
+            let result = data * unsafe { core::intrinsics::sinf64(this.delta * this.time) };
             this.time = this.time + 1.0;
-            if this.time > this.length {
+            if this.time >= this.length {
                 this.time -= this.length;
-                this.sign = -this.sign;
             }
-            data * this.sign
+            result
         })
     }
 }
 
 /// TODO:
-pub struct SawtoothWaveOscillator {
-    length: f64,
-    time: f64,
-}
+pub struct SawtoothWaveOscillator {}
 
 impl SawtoothWaveOscillator {
-    pub fn new(ctx: Weak<AudioContext>, length: f64) -> Box<AudioNode> {
-        let mut this = Self { length, time: 0.0 };
-        AudioNode::new(ctx, move |data| {
-            this.time = this.time + 1.0;
-            if this.time > this.length {
-                this.time -= this.length;
-            }
-            data * this.time / this.length
-        })
+    pub fn new(ctx: Weak<AudioContext>, _length: f64) -> Box<AudioNode> {
+        AudioNode::new(ctx, move |data: SampleType| data)
     }
 }
 
 /// TODO:
-pub struct TriangleWaveOscillator {
-    length: f64,
-    sign: f64,
+pub struct TriangleWaveOscillator {}
+
+impl TriangleWaveOscillator {
+    pub fn new(ctx: Weak<AudioContext>, _length: f64) -> Box<AudioNode> {
+        AudioNode::new(ctx, move |data: SampleType| data)
+    }
+}
+
+/// Experimental Envelope Generator
+pub struct NoteOnFilter {
+    atack: f64,
+    decay: f64,
+    sustain: f64,
+    atack_delta: f64,
+    decay_delta: f64,
+    current_level: f64,
     time: f64,
 }
 
-impl TriangleWaveOscillator {
-    pub fn new(ctx: Weak<AudioContext>, length: f64) -> Box<AudioNode> {
+impl NoteOnFilter {
+    pub fn new(ctx: Weak<AudioContext>, atack: f64, decay: f64, sustain: f64) -> Box<AudioNode> {
         let mut this = Self {
-            length: length / 2.0,
-            sign: 1.0,
+            atack,
+            decay: atack + decay,
+            sustain,
+            atack_delta: 1.0 / atack,
+            decay_delta: (1.0 - sustain) / decay,
+            current_level: if atack < 1.0 { 1.0 } else { 0.0 },
             time: 0.0,
         };
         AudioNode::new(ctx, move |data| {
-            this.time = this.time + 1.0;
-            if this.time > this.length {
-                this.time -= this.length;
-                this.sign = -this.sign;
-            }
-            if this.sign > 0.0 {
-                data * this.time / this.length
+            if this.time < this.atack {
+                this.current_level += this.atack_delta;
+            } else if this.time < this.decay {
+                this.current_level -= this.decay_delta;
             } else {
-                data * this.time / this.length * -1.0
+                return data * this.sustain;
             }
+            this.time = this.time + 1.0;
+            data * this.current_level
         })
     }
 }
