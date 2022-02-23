@@ -32,8 +32,8 @@ static mut AUDIO_MANAGER: MaybeUninit<UnsafeCell<AudioManager>> = MaybeUninit::u
 
 pub struct AudioManager {
     audio_driver: Mutex<Option<Arc<dyn AudioDriver>>>,
-    emitters: Mutex<BTreeMap<AudioHandle, AudioEmitter>>,
-    contexts: Mutex<BTreeMap<AudioHandle, Weak<AudioContext>>>,
+    emitters: Mutex<BTreeMap<AudioContextHandle, AudioEmitter>>,
+    contexts: Mutex<BTreeMap<AudioContextHandle, Weak<AudioContext>>>,
 }
 
 impl AudioManager {
@@ -65,23 +65,23 @@ impl AudioManager {
     }
 
     #[inline]
-    fn next_handle() -> AudioHandle {
+    fn next_handle() -> AudioContextHandle {
         static NEXT_HANDLE: AtomicUsize = AtomicUsize::new(1);
         unsafe {
-            AudioHandle(NonZeroUsize::new_unchecked(
+            AudioContextHandle(NonZeroUsize::new_unchecked(
                 NEXT_HANDLE.fetch_add(1, Ordering::SeqCst),
             ))
         }
     }
 
     #[inline]
-    pub fn register_context(handle: AudioHandle, ctx: Weak<AudioContext>) {
+    pub fn register_context(handle: AudioContextHandle, ctx: Weak<AudioContext>) {
         let mut contexts = Self::shared().contexts.lock().unwrap();
         contexts.insert(handle, ctx);
     }
 
     #[inline]
-    pub fn unregiste_context(handle: AudioHandle) {
+    pub fn unregister_context(handle: AudioContextHandle) {
         let mut contexts = Self::shared().contexts.lock().unwrap();
         contexts.remove(&handle);
     }
@@ -92,7 +92,7 @@ impl AudioManager {
     }
 
     pub fn master_gain() -> SampleType {
-        0.01
+        0.1
     }
 
     #[inline]
@@ -101,17 +101,14 @@ impl AudioManager {
     }
 
     #[inline]
-    pub fn schedule_emitter(emitter: AudioEmitter) -> AudioHandle {
+    pub fn schedule_emitter(emitter: AudioEmitter) {
         let shared = Self::shared();
         let handle = emitter.handle;
-
         shared.emitters.lock().unwrap().insert(handle, emitter);
-
-        handle
     }
 
     #[inline]
-    pub fn remove_emitter(handle: AudioHandle) {
+    pub fn remove_emitter(handle: AudioContextHandle) {
         let shared = Self::shared();
         let _ = shared.emitters.lock().unwrap().remove(&handle);
     }
@@ -127,6 +124,7 @@ impl AudioManager {
                 None => (),
             }
         };
+        driver.set_master_volume(16);
 
         let buffer_len = driver.size_of_buffer();
         let mut buffer = Vec::with_capacity(buffer_len);
@@ -150,11 +148,7 @@ impl AudioManager {
                 for data in wave_buffer.iter_mut() {
                     let mut sum = 0.0;
                     for emitter in emitters.values_mut() {
-                        let mut data = master_gain;
-                        for filter in emitter.filters.iter_mut() {
-                            data = (filter)(data);
-                        }
-                        sum += data;
+                        sum += emitter.render(master_gain);
                     }
                     *data = (Self::reinterpret_i16(sum) as u32) * 0x0001_0001;
                 }
@@ -184,6 +178,17 @@ impl AudioManager {
 }
 
 pub trait AudioDriver {
+    /// Sets the master volume.
+    ///
+    /// # Arguments
+    ///
+    /// * `gain` - Specifies the gain in dB. 0 indicates maximum volume and 1 indicates -1 dB.
+    ///
+    /// # Results
+    ///
+    /// Returns `true` when the volume is at the lowest level supported by the hardware.
+    fn set_master_volume(&self, gain: usize) -> bool;
+
     fn size_of_buffer(&self) -> usize;
 
     fn write_block(&self, data: &[u8]) -> Option<()>;
@@ -191,16 +196,10 @@ pub trait AudioDriver {
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct AudioHandle(NonZeroUsize);
-
-impl AudioHandle {
-    pub fn stop(&self) {
-        AudioManager::remove_emitter(*self);
-    }
-}
+pub struct AudioContextHandle(NonZeroUsize);
 
 pub struct AudioEmitter {
-    handle: AudioHandle,
+    handle: AudioContextHandle,
     filters: Vec<Box<dyn AudioNodeFilter>>,
 }
 
@@ -214,14 +213,23 @@ impl AudioEmitter {
     }
 
     #[inline]
-    pub const fn handle(&self) -> AudioHandle {
+    pub fn render(&mut self, master_data: SampleType) -> SampleType {
+        let mut acc = master_data;
+        for filter in self.filters.iter_mut() {
+            acc = (filter)(acc);
+        }
+        acc
+    }
+
+    #[inline]
+    pub const fn handle(&self) -> AudioContextHandle {
         self.handle
     }
 }
 
 pub struct AudioContext {
-    handle: AudioHandle,
-    handles: Mutex<Vec<AudioHandle>>,
+    handle: AudioContextHandle,
+    handles: Mutex<Vec<AudioContextHandle>>,
 }
 
 impl AudioContext {
@@ -264,20 +272,21 @@ impl AudioContext {
         AudioNode::closed(Arc::downgrade(self))
     }
 
-    pub fn schedule(self: &Arc<Self>, emitter: AudioEmitter) -> AudioHandle {
+    pub fn schedule(self: &Arc<Self>, emitter: AudioEmitter) -> NoteControl {
         let handle = emitter.handle();
         self.handles.lock().unwrap().push(handle);
-        AudioManager::schedule_emitter(emitter)
+        AudioManager::schedule_emitter(emitter);
+        NoteControl { handle }
     }
 }
 
 impl Drop for AudioContext {
     fn drop(&mut self) {
-        AudioManager::unregiste_context(self.handle);
+        AudioManager::unregister_context(self.handle);
 
         let vec = self.handles.lock().unwrap();
         for handle in vec.iter() {
-            handle.stop();
+            AudioManager::remove_emitter(*handle);
         }
     }
 }
@@ -376,7 +385,7 @@ impl AudioNode {
         }
     }
 
-    pub fn start(mut self) -> Result<AudioHandle, Self> {
+    pub fn start(mut self) -> Result<NoteControl, Self> {
         // The final destination must exist and be closed
         if let Some(leaf) = self.final_destination() {
             if !leaf.is_closed() {
@@ -400,6 +409,17 @@ impl AudioNode {
             vec.into_iter().rev().map(|v| v.into_filter()).collect();
 
         Ok(ctx.schedule(AudioEmitter::new(filters)))
+    }
+}
+
+pub struct NoteControl {
+    handle: AudioContextHandle,
+}
+
+impl NoteControl {
+    #[inline]
+    pub fn stop(&self) {
+        AudioManager::remove_emitter(self.handle);
     }
 }
 
@@ -441,7 +461,7 @@ impl SineWaveOscillator {
     pub fn new(ctx: Weak<AudioContext>, length: f64) -> Box<AudioNode> {
         let mut this = Self {
             length,
-            delta: core::f64::consts::PI / length,
+            delta: core::f64::consts::PI * 2.0 / length,
             time: 0.0,
         };
         AudioNode::new(ctx, move |data| {
@@ -456,11 +476,27 @@ impl SineWaveOscillator {
 }
 
 /// TODO:
-pub struct SawtoothWaveOscillator {}
+pub struct SawtoothWaveOscillator {
+    length: f64,
+    delta: f64,
+    time: f64,
+}
 
 impl SawtoothWaveOscillator {
-    pub fn new(ctx: Weak<AudioContext>, _length: f64) -> Box<AudioNode> {
-        AudioNode::new(ctx, move |data: SampleType| data)
+    pub fn new(ctx: Weak<AudioContext>, length: f64) -> Box<AudioNode> {
+        let mut this = Self {
+            length,
+            delta: 2.0 / length,
+            time: 0.0,
+        };
+        AudioNode::new(ctx, move |data: SampleType| {
+            let result = data * (this.time * this.delta - 1.0);
+            this.time = this.time + 1.0;
+            if this.time >= this.length {
+                this.time -= this.length;
+            }
+            result
+        })
     }
 }
 
@@ -474,17 +510,17 @@ impl TriangleWaveOscillator {
 }
 
 /// Experimental Envelope Generator
-pub struct NoteOnFilter {
+pub struct NoteOnParams {
     atack: f64,
     decay: f64,
     sustain: f64,
     atack_delta: f64,
     decay_delta: f64,
-    current_level: f64,
+    current_gain: f64,
     time: f64,
 }
 
-impl NoteOnFilter {
+impl NoteOnParams {
     pub fn new(ctx: Weak<AudioContext>, atack: f64, decay: f64, sustain: f64) -> Box<AudioNode> {
         let mut this = Self {
             atack,
@@ -492,19 +528,19 @@ impl NoteOnFilter {
             sustain,
             atack_delta: 1.0 / atack,
             decay_delta: (1.0 - sustain) / decay,
-            current_level: if atack < 1.0 { 1.0 } else { 0.0 },
+            current_gain: if atack < 1.0 { 1.0 } else { 0.0 },
             time: 0.0,
         };
         AudioNode::new(ctx, move |data| {
             if this.time < this.atack {
-                this.current_level += this.atack_delta;
+                this.current_gain += this.atack_delta;
             } else if this.time < this.decay {
-                this.current_level -= this.decay_delta;
+                this.current_gain -= this.decay_delta;
             } else {
                 return data * this.sustain;
             }
             this.time = this.time + 1.0;
-            data * this.current_level
+            data * this.current_gain
         })
     }
 }

@@ -635,6 +635,7 @@ impl From<PackedColor> for Color {
     }
 }
 
+#[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct RGB555(pub u16);
 

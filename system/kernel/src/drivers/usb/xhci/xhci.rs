@@ -547,7 +547,7 @@ impl Xhci {
         let ctx = match self.ep_ring_index(slot_id, dci) {
             Some(index) => {
                 let ctx = &mut self.ring_context.write().unwrap()[index];
-                unsafe { &mut *ctx.as_mut_ptr() }
+                &mut *ctx.as_mut_ptr()
             }
             None => todo!(),
         };
@@ -625,7 +625,7 @@ impl Xhci {
         let ctx = match self.ep_ring_index(slot_id, dci) {
             Some(index) => {
                 let ctx = &mut self.ring_context.write().unwrap()[index];
-                unsafe { &mut *ctx.as_mut_ptr() }
+                &mut *ctx.as_mut_ptr()
             }
             None => todo!(),
         };
@@ -668,11 +668,9 @@ impl Xhci {
         xfer_buffer: *mut u8,
     ) -> Result<usize, UsbError> {
         self.transfer_async(device, dci, len).await.map(|len| {
-            unsafe {
-                let p = MemoryManager::direct_map(device.buffer as PhysicalAddress);
-                let q = xfer_buffer;
-                q.copy_from(p, len);
-            }
+            let p = MemoryManager::direct_map(device.buffer as PhysicalAddress);
+            let q = xfer_buffer;
+            q.copy_from(p, len);
             len
         })
     }

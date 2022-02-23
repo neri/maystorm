@@ -62,8 +62,6 @@ pub struct HdAudioController {
     current_dac: Mutex<Option<WidgetAddress>>,
 
     sem_event_thread: Semaphore,
-
-    count: AtomicUsize,
 }
 
 unsafe impl Send for HdAudioController {}
@@ -173,8 +171,6 @@ impl HdAudioController {
             current_dac: Mutex::new(None),
 
             sem_event_thread: Semaphore::new(0),
-
-            count: AtomicUsize::new(0),
         };
 
         driver.enumerate().unwrap();
@@ -204,9 +200,9 @@ impl HdAudioController {
             for widget in path {
                 let widget = driver.widgets.get(&widget).unwrap();
 
-                cmd.run(Command::new(
+                cmd.set_amplifier_gain_mute(
                     widget.addr(),
-                    Verb::SetAmplifierGainMute(AmplifierGainMuteSetPayload::new(
+                    AmplifierGainMuteSetPayload::new(
                         true,
                         false,
                         true,
@@ -214,8 +210,8 @@ impl HdAudioController {
                         0,
                         false,
                         widget.output_amplifier_capabilities().offset(),
-                    )),
-                ))
+                    ),
+                )
                 .unwrap();
 
                 // TODO: magic number
@@ -262,6 +258,7 @@ impl HdAudioController {
             },
             Self::DRIVER_NAME,
         );
+
         let p = Arc::as_ptr(&driver);
         Arc::increment_strong_count(p);
         device.register_msi(Self::_msi_handler, p as usize).unwrap();
@@ -275,7 +272,6 @@ impl HdAudioController {
 
     fn _msi_handler(p: usize) {
         let this = unsafe { &*(p as *const Self) };
-        this.count.fetch_add(1, Ordering::SeqCst);
         this.sem_event_thread.signal();
     }
 
@@ -430,10 +426,8 @@ impl PciDriver for HdAudioController {
         if let Some(addr) = self.current_output() {
             let widget = self.widgets.get(&addr).unwrap();
             let config = widget.configuration_default();
-            let count = self.count.load(Ordering::Relaxed);
             format!(
-                "RUNNING {} iss {} oss {} pin {} {:?} {:?} {:?}",
-                count,
+                "RUNNING iss {} oss {} pin {} {:?} {:?} {:?}",
                 self.gcap.iss,
                 self.gcap.oss,
                 widget.addr().pretty(),
@@ -466,6 +460,44 @@ impl AudioDriver for HdaSoundDriver {
     fn write_block(&self, data: &[u8]) -> Option<()> {
         let sd = self.hda.odss[0].lock().unwrap();
         sd.write_data(data)
+    }
+
+    fn set_master_volume(&self, gain: usize) -> bool {
+        let addr = self.hda.current_dac.lock().unwrap().unwrap();
+        let widget = self.hda.widgets.get(&addr).unwrap();
+        let cap = widget.output_amplifier_capabilities();
+        let delta = (gain * 4).checked_div(cap.step_size()).unwrap_or_default();
+        if delta > cap.offset() {
+            self.hda
+                .cmd
+                .lock()
+                .unwrap()
+                .set_amplifier_gain_mute(
+                    widget.addr(),
+                    AmplifierGainMuteSetPayload::new(true, false, true, true, 0, true, 0),
+                )
+                .unwrap();
+            true
+        } else {
+            self.hda
+                .cmd
+                .lock()
+                .unwrap()
+                .set_amplifier_gain_mute(
+                    widget.addr(),
+                    AmplifierGainMuteSetPayload::new(
+                        true,
+                        false,
+                        true,
+                        true,
+                        0,
+                        false,
+                        cap.offset() - delta,
+                    ),
+                )
+                .unwrap();
+            false
+        }
     }
 }
 
@@ -663,6 +695,16 @@ impl CommandBuffer {
             Verb::SetConverterControl(id.as_u8() << 4),
         ))
         .map(|_| ())
+    }
+
+    #[inline]
+    pub fn set_amplifier_gain_mute(
+        &mut self,
+        addr: WidgetAddress,
+        payload: AmplifierGainMuteSetPayload,
+    ) -> Result<()> {
+        self.run(Command::new(addr, Verb::SetAmplifierGainMute(payload)))
+            .map(|_| ())
     }
 }
 
@@ -2185,12 +2227,12 @@ impl AmplifierCapabilities {
 
     #[inline]
     pub const fn num_steps(&self) -> usize {
-        (self.0 << 8) as usize & 0x7F
+        1 + ((self.0 << 8) as usize & 0x7F)
     }
 
     #[inline]
     pub const fn step_size(&self) -> usize {
-        (self.0 << 16) as usize & 0x7F
+        1 + ((self.0 << 16) as usize & 0x7F)
     }
 
     #[inline]

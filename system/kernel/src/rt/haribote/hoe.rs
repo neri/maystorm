@@ -3,7 +3,7 @@
 use super::*;
 use crate::{
     fs::*,
-    io::audio::{AudioContext, AudioHandle, FreqType, OscType},
+    io::audio::{AudioContext, FreqType, NoteControl, OscType},
     mem::MemoryManager,
     // ui::theme::Theme,
     ui::window::*,
@@ -26,7 +26,7 @@ pub struct Hoe {
     timers: Vec<HoeTimer>,
     files: Vec<HoeFile>,
     audio_ctx: Option<Arc<AudioContext>>,
-    audio_handle: Option<AudioHandle>,
+    note: Option<NoteControl>,
     malloc_start: u32,
     malloc_free: u32,
 }
@@ -92,7 +92,7 @@ impl Hoe {
             timers: Vec::new(),
             files: Vec::new(),
             audio_ctx: None,
-            audio_handle: None,
+            note: None,
             malloc_start: 0,
             malloc_free: 0,
         })
@@ -257,22 +257,22 @@ impl Hoe {
                         self.audio_ctx.as_ref().unwrap()
                     }
                 };
-                if let Some(handle) = self.audio_handle.take() {
-                    handle.stop();
+                if let Some(note) = self.note.take() {
+                    note.stop();
                 }
                 let freq = regs.eax as FreqType / 1000.0;
                 if freq > 20.0 {
                     let mut osc = ctx.create_oscillator(freq, OscType::Square);
                     osc.connect(ctx.destination());
                     // self.audio_handle = osc.start().ok();
-                    let mut note = io::audio::NoteOnFilter::new(
+                    let mut note = io::audio::NoteOnParams::new(
                         Arc::downgrade(ctx),
                         0.0,
                         44_100.0 / 4.0,
                         0.75,
                     );
                     note.connect(osc);
-                    self.audio_handle = note.start().ok();
+                    self.note = note.start().ok();
                 }
             }
             21 => {
