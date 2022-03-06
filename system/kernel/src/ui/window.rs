@@ -83,12 +83,12 @@ pub struct WindowManager<'a> {
 
     main_screen: Bitmap32<'a>,
     screen_size: Size,
-    off_screen: BoxedBitmap32<'a>,
+    off_screen: OwnedBitmap32,
     screen_insets: EdgeInsets,
 
     resources: Resources<'a>,
 
-    window_pool: RwLock<BTreeMap<WindowHandle, Arc<UnsafeCell<Box<RawWindow<'a>>>>>>,
+    window_pool: RwLock<BTreeMap<WindowHandle, Arc<UnsafeCell<Box<RawWindow>>>>>,
     window_orders: RwLock<Vec<WindowHandle>>,
 
     root: WindowHandle,
@@ -122,7 +122,7 @@ impl WindowManager<'static> {
 
         let pointer_x = 0;
         let pointer_y = 0;
-        let off_screen = BoxedBitmap32::new(screen_size, TrueColor::TRANSPARENT);
+        let off_screen = OwnedBitmap32::new(screen_size, TrueColor::TRANSPARENT);
         let mut window_pool = BTreeMap::new();
         let mut window_orders = Vec::with_capacity(MAX_WINDOWS);
 
@@ -227,7 +227,7 @@ impl WindowManager<'static> {
     }
 
     #[track_caller]
-    fn add(window: Box<RawWindow<'static>>) {
+    fn add(window: Box<RawWindow>) {
         let handle = window.handle;
         WindowManager::shared_mut()
             .window_pool
@@ -246,7 +246,7 @@ impl WindowManager<'static> {
     }
 
     #[inline]
-    fn get<'a>(&self, key: &WindowHandle) -> Option<&'a Box<RawWindow<'static>>> {
+    fn get<'a>(&self, key: &WindowHandle) -> Option<&'a Box<RawWindow>> {
         match WindowManager::shared().window_pool.read() {
             Ok(v) => v
                 .get(key)
@@ -680,7 +680,7 @@ impl WindowManager<'_> {
         let window_orders = shared.window_orders.read().unwrap();
         for handle in window_orders.iter().rev().skip(1) {
             let window = handle.as_ref();
-            if point.is_within(window.frame) {
+            if window.frame.contains(point) {
                 return *handle;
             }
         }
@@ -862,12 +862,30 @@ impl WindowManager<'_> {
         let _ = shared.root.update_opt(|root| {
             if root.bitmap.is_none() {
                 let bitmap = ConstBitmap::from(&shared.main_screen);
-                root.bitmap = Some(UnsafeCell::new(BoxedBitmap::same_format(
+                root.bitmap = Some(UnsafeCell::new(OwnedBitmap::same_format(
                     &bitmap,
                     root.frame.size(),
                     root.bg_color,
                 )));
             }
+
+            let (mut r, mut g, mut b, mut a) = (0, 0, 0, 0);
+            for pixel in bitmap.all_pixels() {
+                let c = pixel.into_true_color().components();
+                r += c.r as usize;
+                g += c.g as usize;
+                b += c.b as usize;
+                a += c.a as usize;
+            }
+            let total_pixels = bitmap.width() * bitmap.height();
+            let tint_color = Color::Argb32(TrueColor::from(ColorComponents::from_rgba(
+                r.checked_div(total_pixels).unwrap_or_default() as u8,
+                g.checked_div(total_pixels).unwrap_or_default() as u8,
+                b.checked_div(total_pixels).unwrap_or_default() as u8,
+                a.checked_div(total_pixels).unwrap_or_default() as u8,
+            )));
+
+            root.set_bg_color(tint_color);
             root.bitmap().map(|mut v| {
                 let origin = Point::new(
                     (v.bounds().width() - bitmap.bounds().width()) / 2,
@@ -984,7 +1002,7 @@ impl Default for ViewActionState {
 
 /// Raw implementation of the window
 #[allow(dead_code)]
-struct RawWindow<'a> {
+struct RawWindow {
     /// Refer to the self owned handle
     handle: WindowHandle,
     pid: ProcessId,
@@ -1003,7 +1021,7 @@ struct RawWindow<'a> {
     accent_color: Color,
     active_title_color: Color,
     inactive_title_color: Color,
-    bitmap: Option<UnsafeCell<BoxedBitmap<'a>>>,
+    bitmap: Option<UnsafeCell<OwnedBitmap>>,
     shadow_bitmap: Option<UnsafeCell<OperationalBitmap>>,
 
     /// Window Title
@@ -1097,7 +1115,7 @@ impl Into<usize> for WindowAttributes {
     }
 }
 
-impl RawWindow<'_> {
+impl RawWindow {
     #[inline]
     fn actual_bounds(&self) -> Rect {
         self.frame.bounds()
@@ -1182,7 +1200,7 @@ impl RawWindow<'_> {
     fn test_frame(&self, position: Point, frame: Rect) -> bool {
         let mut frame = frame;
         frame.origin += self.frame.origin;
-        position.is_within(frame)
+        frame.contains(position)
     }
 
     fn draw_to_screen(&self, rect: Rect) {
@@ -1190,7 +1208,7 @@ impl RawWindow<'_> {
         frame.origin += self.frame.origin;
         let shared = WindowManager::shared_mut();
         let main_screen = &mut shared.main_screen;
-        let off_screen = shared.off_screen.inner_mut();
+        let off_screen = shared.off_screen.as_mut();
         if self.draw_into(off_screen, frame) {
             if shared
                 .attributes
@@ -1216,7 +1234,7 @@ impl RawWindow<'_> {
                 && self
                     .frame
                     .insets_by(self.content_insets)
-                    .is_within_rect(frame);
+                    .contains_rect(frame);
 
         let first_index = if is_opaque {
             window_orders
@@ -1231,7 +1249,7 @@ impl RawWindow<'_> {
             let window = handle.as_ref();
             let frame = window.shadow_frame();
             if let Ok(coords2) = Coordinates::from_rect(frame) {
-                if frame.is_within_rect(frame) {
+                if frame.contains_rect(frame) {
                     let adjust_point = window.frame.origin() - coords2.left_top();
                     let blt_origin = Point::new(
                         cmp::max(coords1.left, coords2.left),
@@ -1695,11 +1713,9 @@ impl RawWindow<'_> {
             },
         );
     }
-}
 
-impl<'a> RawWindow<'a> {
     #[inline]
-    fn bitmap(&self) -> Option<Bitmap<'a>> {
+    fn bitmap<'a>(&self) -> Option<Bitmap<'a>> {
         self.bitmap
             .as_ref()
             .map(|v| unsafe { &mut *v.get() })
@@ -1707,7 +1723,7 @@ impl<'a> RawWindow<'a> {
     }
 
     #[inline]
-    fn title<'b>(&self) -> Option<&'b str> {
+    fn title<'a>(&self) -> Option<&'a str> {
         let len = self.title[0] as usize;
         match len {
             0 => None,
@@ -1807,7 +1823,7 @@ impl WindowBuilder {
         handle
     }
 
-    fn build_inner<'a>(mut self, title: &str) -> Box<RawWindow<'a>> {
+    fn build_inner<'a>(mut self, title: &str) -> Box<RawWindow> {
         let window_options = self.window_options;
         if (window_options & megosabi::window::THIN_FRAME) != 0 {
             self.style.insert(WindowStyle::THIN_FRAME);
@@ -1930,7 +1946,7 @@ impl WindowBuilder {
             BitmapStrategy::NonBitmap => (),
             BitmapStrategy::Native | BitmapStrategy::Compact | BitmapStrategy::Expressive => {
                 window.bitmap = Some(UnsafeCell::new(
-                    BoxedBitmap32::new(frame.size(), self.bg_color.into()).into(),
+                    OwnedBitmap32::new(frame.size(), self.bg_color.into()).into(),
                 ));
             }
         }
@@ -2080,13 +2096,13 @@ impl WindowHandle {
 
     #[inline]
     #[track_caller]
-    fn get<'a>(&self) -> Option<&'a Box<RawWindow<'static>>> {
+    fn get<'a>(&self) -> Option<&'a Box<RawWindow>> {
         WindowManager::shared().get(self)
     }
 
     #[inline]
     #[track_caller]
-    fn as_ref<'a>(&self) -> &'a RawWindow<'static> {
+    fn as_ref<'a>(&self) -> &'a RawWindow {
         self.get().unwrap()
     }
 
@@ -2357,6 +2373,11 @@ impl WindowHandle {
         }
     }
 
+    /// Get the window message asynchronously.
+    pub fn await_message(&self) -> Pin<Box<dyn Future<Output = Option<WindowMessage>>>> {
+        Box::pin(WindowMessageConsumer { handle: *self })
+    }
+
     /// Supports asynchronous reading of window messages.
     pub fn poll_message(&self, cx: &mut Context<'_>) -> Poll<Option<WindowMessage>> {
         let window = match self.get() {
@@ -2371,11 +2392,6 @@ impl WindowHandle {
             Some(v) => Poll::Ready(Some(v)),
             None => Poll::Pending,
         }
-    }
-
-    /// Get the window message asynchronously.
-    pub fn get_message(&self) -> Pin<Box<dyn Future<Output = Option<WindowMessage>>>> {
-        Box::pin(WindowMessageConsumer { handle: *self })
     }
 
     /// Process window messages that are not handled.

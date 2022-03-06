@@ -30,42 +30,30 @@ impl UserEnv {
     }
 }
 
-
-
-
-
-
-
 #[allow(dead_code)]
 async fn logo_task(f: fn()) {
     let width = 320;
     let height = 200;
 
-
-
-
-    
     let window = WindowBuilder::new()
-        .style_add(WindowStyle::SUSPENDED)
-        .style_sub(WindowStyle::CLOSE_BUTTON)
-        .style_sub(WindowStyle::TITLE | WindowStyle::BORDER)
+        .style(WindowStyle::SUSPENDED)
         .bg_color(Color::Transparent)
         .size(Size::new(width, height))
         .build("");
 
     window.draw(|bitmap| {
         AttributedString::new()
-            .font(FontDescriptor::new(FontFamily::SansSerif, 24).unwrap())
-            .color(Color::WHITE)
+            .font(FontDescriptor::new(FontFamily::Cursive, 64).unwrap())
+            .color(Color::LIGHT_GRAY)
             .middle_center()
-            .text("Starting up...")
+            .text("Hello")
             .draw_text(bitmap, bitmap.bounds(), 0);
     });
     window.show();
 
     window.create_timer(0, Duration::from_millis(2000));
 
-    while let Some(message) = window.get_message().await {
+    while let Some(message) = window.await_message().await {
         match message {
             WindowMessage::Timer(_) => window.close(),
             _ => window.handle_default_message(message),
@@ -73,16 +61,14 @@ async fn logo_task(f: fn()) {
     }
 
     WindowManager::set_desktop_color(Theme::shared().desktop_color());
-    if true {
-        if let Ok(mut file) = FileManager::open("wall.qoi") {
-            let stat = file.stat().unwrap();
-            let mut vec = Vec::with_capacity(stat.len() as usize);
-            file.read_to_end(&mut vec).unwrap();
-            if let Some(mut dib) = ImageLoader::from_qoi(vec.as_slice()) {
-                WindowManager::set_desktop_bitmap(&dib.into_bitmap());
-            }
+    if let Ok(mut file) = FileManager::open("wall.qoi") {
+        let mut vec = Vec::new();
+        file.read_to_end(&mut vec).unwrap();
+        if let Some(mut dib) = ImageLoader::from_qoi(vec.as_slice()) {
+            WindowManager::set_desktop_bitmap(&dib.into_bitmap());
         }
     }
+
     WindowManager::set_pointer_visible(true);
 
     Scheduler::spawn_async(Task::new(status_bar_main()));
@@ -103,7 +89,6 @@ async fn shell_launcher(f: fn()) {
         } else {
             FontDescriptor::new(FontFamily::Terminal, 0).unwrap()
         };
-        // let font = FontManager::system_font();
         let terminal = Terminal::new(80, 24, font);
         System::set_stdout(Box::new(terminal));
     }
@@ -116,17 +101,11 @@ async fn status_bar_main() {
     const STATUS_BAR_PADDING: EdgeInsets = EdgeInsets::new(0, 0, 0, 0);
     const INNER_PADDING: EdgeInsets = EdgeInsets::new(1, 24, 1, 24);
 
-    let bg_color = 
-    // Theme::shared().window_title_active_background_dark();
-    Theme::shared().status_bar_background();
-    let fg_color = 
-    // Theme::shared().window_title_active_foreground_dark();
-    Theme::shared().status_bar_foreground();
-    // let border_color = Theme::shared().window_default_border_dark();
+    let bg_color = Theme::shared().status_bar_background();
+    let fg_color = Theme::shared().status_bar_foreground();
 
     let screen_bounds = WindowManager::main_screen_bounds();
     let window = WindowBuilder::new()
-        // .style(WindowStyle::FLOATING | WindowStyle::NO_SHADOW)
         .style(WindowStyle::FLOATING | WindowStyle::SUSPENDED)
         .frame(Rect::new(0, 0, screen_bounds.width(), STATUS_BAR_HEIGHT))
         .bg_color(bg_color)
@@ -137,9 +116,6 @@ async fn status_bar_main() {
         .draw_in_rect(
             Rect::from(window.content_size()).insets_by(STATUS_BAR_PADDING),
             |bitmap| {
-                // bitmap.fill_round_rect(bitmap.bounds(), STATUS_BAR_RADIUS, bg_color);
-                // bitmap.draw_round_rect(bitmap.bounds(), STATUS_BAR_RADIUS, border_color);
-
                 let font = FontManager::title_font();
                 let ats = AttributedString::new()
                     .font(font)
@@ -158,7 +134,7 @@ async fn status_bar_main() {
 
     let interval = Duration::from_millis(500);
     window.create_timer(0, interval);
-    while let Some(message) = window.get_message().await {
+    while let Some(message) = window.await_message().await {
         match message {
             WindowMessage::Timer(_) => {
                 window.create_timer(0, interval);
@@ -206,15 +182,6 @@ async fn status_bar_main() {
 
                 window.set_needs_display();
             }
-            // WindowMessage::MouseDown(_) => {
-            //     if let Some(activity) = unsafe { ACTIVITY_WINDOW } {
-            //         let _ = activity.post(WindowMessage::User(if activity.is_visible() {
-            //             0
-            //         } else {
-            //             1
-            //         }));
-            //     }
-            // }
             _ => window.handle_default_message(message),
         }
     }
@@ -300,7 +267,7 @@ async fn activity_monitor_main() {
 
     let interval = Duration::from_secs(1);
     window.create_timer(0, interval);
-    while let Some(message) = window.get_message().await {
+    while let Some(message) = window.await_message().await {
         match message {
             WindowMessage::Timer(_) => {
                 let time1 = Timer::measure();
@@ -427,7 +394,7 @@ async fn activity_monitor_main() {
 
                             Scheduler::print_statistics(&mut sb);
 
-                            let  rect = bitmap
+                            let rect = bitmap
                                 .bounds()
                                 .insets_by(EdgeInsets::new(38, spacing, 4, spacing));
                             AttributedString::new()
@@ -491,7 +458,7 @@ async fn _notification_task() {
     let dismiss_time = Duration::from_millis(5000);
     let mut last_timer = Timer::new(dismiss_time);
 
-    while let Some(message) = window.get_message().await {
+    while let Some(message) = window.await_message().await {
         match message {
             WindowMessage::Timer(_) => {
                 if last_timer.is_expired() {
@@ -701,7 +668,7 @@ async fn test_window_main() {
 
     // WindowManager::set_barrier_opacity(0x80);
 
-    while let Some(message) = window.get_message().await {
+    while let Some(message) = window.await_message().await {
         match message {
             WindowMessage::Close => {
                 WindowManager::set_barrier_opacity(0);

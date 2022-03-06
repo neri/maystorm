@@ -32,8 +32,60 @@ pub trait GetPixel: Drawable {
     unsafe fn get_pixel_unchecked(&self, point: Point) -> Self::ColorType;
 
     fn get_pixel(&self, point: Point) -> Option<Self::ColorType> {
-        if point.is_within(Rect::from(self.size())) {
+        if Rect::from(self.size()).contains(point) {
             Some(unsafe { self.get_pixel_unchecked(point) })
+        } else {
+            None
+        }
+    }
+
+    /// Returns an iterator that enumerates all pixels in the bitmap in no particular order.
+    #[inline]
+    fn all_pixels(&self) -> GetPixelIter<Self>
+    where
+        Self: Sized,
+    {
+        GetPixelIter::new(self)
+    }
+}
+
+pub struct GetPixelIter<'a, T>
+where
+    T: GetPixel,
+{
+    inner: &'a T,
+    x: usize,
+    y: usize,
+}
+
+impl<'a, T> GetPixelIter<'a, T>
+where
+    T: GetPixel,
+{
+    #[inline]
+    pub fn new(inner: &'a T) -> Self {
+        Self { inner, x: 0, y: 0 }
+    }
+}
+
+impl<T> Iterator for GetPixelIter<'_, T>
+where
+    T: GetPixel,
+{
+    type Item = T::ColorType;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.y < self.inner.height() {
+            if self.x >= self.inner.width() {
+                self.x = 0;
+                self.y += 1;
+            }
+            let result = unsafe {
+                self.inner
+                    .get_pixel_unchecked(Point::new(self.x as isize, self.y as isize))
+            };
+            self.x += 1;
+            Some(result)
         } else {
             None
         }
@@ -45,7 +97,7 @@ pub trait SetPixel: Drawable {
     unsafe fn set_pixel_unchecked(&mut self, point: Point, pixel: Self::ColorType);
 
     fn set_pixel(&mut self, point: Point, pixel: Self::ColorType) {
-        if point.is_within(Rect::from(self.size())) {
+        if Rect::from(self.size()).contains(point) {
             unsafe {
                 self.set_pixel_unchecked(point, pixel);
             }

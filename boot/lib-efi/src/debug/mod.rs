@@ -63,6 +63,7 @@ impl Console {
 
     pub fn put_char(&mut self, c: char) {
         match c {
+            '\r' => self.update_cursor(|_, y| (0, y)),
             '\n' => self.update_cursor(|_, y| (0, y + 1)),
             _ => {
                 let (x, y) = self.cursor;

@@ -5,7 +5,7 @@ use byteorder::*;
 pub struct ImageLoader;
 
 impl ImageLoader {
-    pub fn from_msdib(dib: &[u8]) -> Option<BoxedBitmap> {
+    pub fn from_msdib(dib: &[u8]) -> Option<OwnedBitmap> {
         if LE::read_u16(dib) != 0x4D42 {
             return None;
         }
@@ -87,10 +87,10 @@ impl ImageLoader {
             }
             _ => unreachable!(),
         }
-        Some(BoxedBitmap32::from_vec(vec, Size::new(width as isize, height as isize)).into())
+        Some(OwnedBitmap32::from_vec(vec, Size::new(width as isize, height as isize)).into())
     }
 
-    pub fn from_qoi(bytes: &[u8]) -> Option<BoxedBitmap> {
+    pub fn from_qoi(bytes: &[u8]) -> Option<OwnedBitmap> {
         match rapid_qoi::Qoi::decode_alloc(bytes) {
             Ok((qoi, pixels)) => {
                 let count = qoi.width as usize * qoi.height as usize;
@@ -120,7 +120,7 @@ impl ImageLoader {
                     }
                 }
                 let size = Size::new(qoi.width as isize, qoi.height as isize);
-                Some(BoxedBitmap32::from_vec(vec, size).into())
+                Some(OwnedBitmap32::from_vec(vec, size).into())
             }
             Err(_) => None,
         }

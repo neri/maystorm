@@ -19,7 +19,8 @@ pub struct WasmLoader {
     module: WasmModule,
 }
 
-pub type WasmDynFunc = fn(&WasmModule, &[WasmValue]) -> Result<WasmValue, WasmRuntimeErrorKind>;
+pub type WasmDynFunc =
+    fn(&WasmModule, &[WasmUnsafeValue]) -> Result<WasmValue, WasmRuntimeErrorKind>;
 
 struct WasmEndian;
 

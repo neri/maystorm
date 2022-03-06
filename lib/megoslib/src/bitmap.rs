@@ -21,7 +21,7 @@ pub trait BitmapTrait {
     where
         Self::PixelType: Copy,
     {
-        if point.is_within(Rect::from(self.size())) {
+        if Rect::from(self.size()).contains(point) {
             Some(unsafe { self.get_pixel_unchecked(point) })
         } else {
             None
@@ -43,7 +43,7 @@ pub trait MutableBitmapTrait: BitmapTrait {
     fn slice_mut(&mut self) -> &mut [Self::PixelType];
 
     fn set_pixel(&mut self, point: Point, pixel: Self::PixelType) {
-        if point.is_within(Rect::from(self.size())) {
+        if Rect::from(self.size()).contains(point) {
             unsafe {
                 self.set_pixel_unchecked(point, pixel);
             }

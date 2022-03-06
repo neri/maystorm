@@ -1,9 +1,7 @@
-// Coordinate Types
-
 use core::{convert::TryFrom, ops::*};
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, Default, PartialEq)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
 pub struct Point {
     pub x: isize,
     pub y: isize,
@@ -66,18 +64,6 @@ impl Point {
                 e += d.x;
                 c0.y += s.y;
             }
-        }
-    }
-
-    #[inline]
-    pub const fn is_within(self, rect: Rect) -> bool {
-        if let Ok(coords) = Coordinates::from_rect(rect) {
-            coords.left <= self.x
-                && coords.right > self.x
-                && coords.top <= self.y
-                && coords.bottom > self.y
-        } else {
-            false
         }
     }
 }
@@ -161,7 +147,7 @@ impl SubAssign for Point {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, Default, PartialEq)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
 pub struct Size {
     pub width: isize,
     pub height: isize,
@@ -302,7 +288,7 @@ impl Div<usize> for Size {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, Default, PartialEq)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
 pub struct Rect {
     pub origin: Point,
     pub size: Size,
@@ -435,7 +421,19 @@ impl Rect {
         }
     }
 
-    pub const fn is_within_rect(self, rhs: Self) -> bool {
+    #[inline]
+    pub const fn contains(self, point: Point) -> bool {
+        if let Ok(coords) = Coordinates::from_rect(self) {
+            coords.left <= point.x
+                && coords.right > point.x
+                && coords.top <= point.y
+                && coords.bottom > point.y
+        } else {
+            false
+        }
+    }
+
+    pub const fn contains_rect(self, rhs: Self) -> bool {
         let cl = match Coordinates::from_rect(self) {
             Ok(coords) => coords,
             Err(_) => return false,
@@ -562,7 +560,7 @@ impl Mul<usize> for Rect {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, Default, PartialEq)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
 pub struct Coordinates {
     pub left: isize,
     pub top: isize,
@@ -773,7 +771,7 @@ impl From<Size> for Coordinates {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, Default, PartialEq)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
 pub struct EdgeInsets {
     pub top: isize,
     pub left: isize,

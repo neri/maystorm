@@ -46,14 +46,21 @@ impl BinaryLoader for ArleBinaryLoader {
 
     fn load(&mut self, blob: &[u8]) -> Result<(), ()> {
         self.loader
-            .load(blob, |mod_name, name, _type_ref| match mod_name {
-                ArleRuntime::MOD_NAME => match name {
-                    "svc0" | "svc1" | "svc2" | "svc3" | "svc4" | "svc5" | "svc6" => {
-                        Ok(ArleRuntime::syscall)
-                    }
-                    _ => Err(WasmDecodeErrorKind::NoMethod),
-                },
-                _ => Err(WasmDecodeErrorKind::NoModule),
+            .load(blob, |mod_name, name, type_ref| {
+                let param_types = type_ref.param_types();
+                match mod_name {
+                    ArleRuntime::MOD_NAME => match (name, param_types) {
+                        ("svc0", [WasmValType::I32]) => Ok(ArleRuntime::syscall),
+                        ("svc1", [WasmValType::I32, WasmValType::I32]) => Ok(ArleRuntime::syscall),
+                        ("svc2", [WasmValType::I32,WasmValType::I32,WasmValType::I32]) => Ok(ArleRuntime::syscall),
+                        ("svc3", [WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32]) => Ok(ArleRuntime::syscall),
+                        ("svc4", [WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32]) => Ok(ArleRuntime::syscall),
+                        ("svc5", [WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32]) => Ok(ArleRuntime::syscall),
+                        ("svc6", [WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32]) => Ok(ArleRuntime::syscall),
+                        _ => Err(WasmDecodeErrorKind::NoMethod),
+                    },
+                    _ => Err(WasmDecodeErrorKind::NoModule),
+                }
             })
             .map_err(|v| {
                 println!("Load error: {:?}", v);
@@ -86,7 +93,7 @@ pub struct ArleRuntime {
     windows: Mutex<BTreeMap<usize, UnsafeCell<OsWindow>>>,
     rng32: XorShift32,
     key_buffer: Mutex<Vec<KeyEvent>>,
-    game_presenter: Option<UnsafeCell<Box<OsGamePresenter<'static>>>>,
+    game_presenter: Option<UnsafeCell<Box<OsGamePresenter>>>,
     malloc: Mutex<SimpleAllocator>,
     has_to_exit: AtomicBool,
 }
@@ -136,7 +143,10 @@ impl ArleRuntime {
         RuntimeEnvironment::exit(0);
     }
 
-    fn syscall(_: &WasmModule, params: &[WasmValue]) -> Result<WasmValue, WasmRuntimeErrorKind> {
+    fn syscall(
+        _: &WasmModule,
+        params: &[WasmUnsafeValue],
+    ) -> Result<WasmValue, WasmRuntimeErrorKind> {
         Scheduler::current_personality(|personality| match personality.context() {
             PersonalityContext::Arlequin(rt) => rt.dispatch_syscall(&params),
             _ => unreachable!(),
@@ -146,7 +156,7 @@ impl ArleRuntime {
 
     fn dispatch_syscall(
         &mut self,
-        params: &[WasmValue],
+        params: &[WasmUnsafeValue],
     ) -> Result<WasmValue, WasmRuntimeErrorKind> {
         use megosabi::svc::Function;
         let mut params = ParamsDecoder::new(params);
@@ -593,13 +603,13 @@ impl Personality for ArleRuntime {
 }
 
 struct ParamsDecoder<'a> {
-    params: &'a [WasmValue],
+    params: &'a [WasmUnsafeValue],
     index: usize,
 }
 
 impl<'a> ParamsDecoder<'a> {
     #[inline]
-    pub const fn new(params: &'a [WasmValue]) -> Self {
+    pub const fn new(params: &'a [WasmUnsafeValue]) -> Self {
         Self { params, index: 0 }
     }
 }
@@ -611,7 +621,7 @@ impl ParamsDecoder<'_> {
         self.params
             .get(index)
             .ok_or(WasmRuntimeErrorKind::InvalidParameter)
-            .and_then(|v| v.get_u32())
+            .map(|v| unsafe { v.get_u32() })
             .map(|v| {
                 self.index += 1;
                 v
@@ -624,7 +634,7 @@ impl ParamsDecoder<'_> {
         self.params
             .get(index)
             .ok_or(WasmRuntimeErrorKind::InvalidParameter)
-            .and_then(|v| v.get_i32())
+            .map(|v| unsafe { v.get_i32() })
             .map(|v| {
                 self.index += 1;
                 v
@@ -1075,18 +1085,18 @@ impl SimpleFreePair {
     }
 }
 
-struct OsGamePresenter<'a> {
+struct OsGamePresenter {
     window: WindowHandle,
     screen: usize,
     scale: ScaleMode,
     size: Size,
-    buffer: BoxedBitmap32<'a>,
+    buffer: OwnedBitmap32,
     draw_region: Coordinates,
     timer_div: u64,
     expected_time: u64,
 }
 
-impl OsGamePresenter<'_> {
+impl OsGamePresenter {
     #[inline]
     fn new(
         memory: &WasmMemory,
@@ -1099,7 +1109,7 @@ impl OsGamePresenter<'_> {
         let timer_div = (1000_000 / fps) as u64;
         let scale_factor = scale.scale_factor();
         let size = window.content_rect().size() / scale_factor;
-        let buffer = BoxedBitmap32::new(size, TrueColor::TRANSPARENT);
+        let buffer = OwnedBitmap32::new(size, TrueColor::TRANSPARENT);
 
         let result = Self {
             window,

@@ -122,10 +122,10 @@ impl Cpu {
     #[inline]
     pub fn interlocked_compare_and_swap(
         p: &AtomicUsize,
-        expected: usize,
-        desired: usize,
+        current: usize,
+        new: usize,
     ) -> (bool, usize) {
-        match p.compare_exchange(expected, desired, Ordering::SeqCst, Ordering::Relaxed) {
+        match p.compare_exchange(current, new, Ordering::SeqCst, Ordering::Relaxed) {
             Ok(v) => (true, v),
             Err(v) => (false, v),
         }
@@ -1672,9 +1672,7 @@ rbp {:016x} r10 {:016x} r15 {:016x} gs {:04x}",
     if is_user {
         RuntimeEnvironment::exit(1);
     } else {
-        loop {
-            asm!("hlt");
-        }
+        Cpu::stop();
     }
 }
 

@@ -1,5 +1,3 @@
-// MEG-OS Drawing library
-
 use super::*;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -849,29 +847,31 @@ impl<'a> AsMut<Bitmap8<'a>> for Bitmap8<'a> {
     }
 }
 
-pub struct BoxedBitmap8<'a> {
-    inner: UnsafeCell<Bitmap8<'a>>,
+pub struct OwnedBitmap8 {
+    width: usize,
+    height: usize,
+    stride: usize,
     slice: UnsafeCell<Box<[IndexedColor]>>,
 }
 
-impl Drawable for BoxedBitmap8<'_> {
+impl Drawable for OwnedBitmap8 {
     type ColorType = IndexedColor;
 
     #[inline]
     fn width(&self) -> usize {
-        self.inner().width
+        self.width
     }
 
     #[inline]
     fn height(&self) -> usize {
-        self.inner().height
+        self.height
     }
 }
 
-impl RasterImage for BoxedBitmap8<'_> {
+impl RasterImage for OwnedBitmap8 {
     #[inline]
     fn stride(&self) -> usize {
-        self.inner().stride
+        self.stride
     }
 
     #[inline]
@@ -880,36 +880,30 @@ impl RasterImage for BoxedBitmap8<'_> {
     }
 }
 
-impl MutableRasterImage for BoxedBitmap8<'_> {
+impl MutableRasterImage for OwnedBitmap8 {
     #[inline]
     fn slice_mut(&mut self) -> &mut [Self::ColorType] {
         self.slice.get_mut()
     }
 }
 
-impl<'a> BoxedBitmap8<'a> {
+impl OwnedBitmap8 {
     #[inline]
-    pub fn new(size: Size, bg_color: IndexedColor) -> BoxedBitmap8<'a> {
+    pub fn new(size: Size, bg_color: IndexedColor) -> Self {
         let len = size.width() as usize * size.height() as usize;
         let mut vec = Vec::with_capacity(len);
-        vec.resize_with(len, || bg_color);
-        let slice = UnsafeCell::new(vec.into_boxed_slice());
-        let inner = UnsafeCell::new(Bitmap8::from_slice(
-            unsafe { &mut *slice.get() },
-            size,
-            size.width as usize,
-        ));
-        Self { inner, slice }
+        vec.resize(len, bg_color);
+        Self::from_vec(vec, size)
     }
 
     #[inline]
-    pub const fn inner(&self) -> &Bitmap8<'a> {
-        unsafe { &*self.inner.get() }
-    }
-
-    #[inline]
-    pub fn inner_mut(&mut self) -> &mut Bitmap8<'a> {
-        self.inner.get_mut()
+    pub fn from_vec(vec: Vec<IndexedColor>, size: Size) -> Self {
+        Self {
+            width: size.width as usize,
+            height: size.height as usize,
+            stride: size.width as usize,
+            slice: UnsafeCell::new(vec.into_boxed_slice()),
+        }
     }
 
     #[inline]
@@ -917,22 +911,22 @@ impl<'a> BoxedBitmap8<'a> {
     where
         F: FnOnce(&mut Bitmap8) -> R,
     {
-        let inner = &mut self.inner_mut();
+        let inner = self.as_mut();
         f(inner)
     }
 }
 
-impl<'a> AsRef<ConstBitmap8<'a>> for BoxedBitmap8<'a> {
+impl<'a> AsRef<ConstBitmap8<'a>> for OwnedBitmap8 {
     #[inline]
     fn as_ref(&self) -> &ConstBitmap8<'a> {
-        self.inner().as_const()
+        unsafe { transmute(self) }
     }
 }
 
-impl<'a> AsMut<Bitmap8<'a>> for BoxedBitmap8<'a> {
+impl<'a> AsMut<Bitmap8<'a>> for OwnedBitmap8 {
     #[inline]
     fn as_mut(&mut self) -> &mut Bitmap8<'a> {
-        self.inner_mut()
+        unsafe { transmute(self) }
     }
 }
 
@@ -1443,29 +1437,31 @@ impl<'a> AsMut<Bitmap32<'a>> for Bitmap32<'a> {
     }
 }
 
-pub struct BoxedBitmap32<'a> {
-    inner: UnsafeCell<Bitmap32<'a>>,
+pub struct OwnedBitmap32 {
+    width: usize,
+    height: usize,
+    stride: usize,
     slice: UnsafeCell<Box<[TrueColor]>>,
 }
 
-impl Drawable for BoxedBitmap32<'_> {
+impl Drawable for OwnedBitmap32 {
     type ColorType = TrueColor;
 
     #[inline]
     fn width(&self) -> usize {
-        self.inner().width
+        self.width
     }
 
     #[inline]
     fn height(&self) -> usize {
-        self.inner().height
+        self.height
     }
 }
 
-impl RasterImage for BoxedBitmap32<'_> {
+impl RasterImage for OwnedBitmap32 {
     #[inline]
     fn stride(&self) -> usize {
-        self.inner().stride
+        self.stride
     }
 
     #[inline]
@@ -1474,46 +1470,30 @@ impl RasterImage for BoxedBitmap32<'_> {
     }
 }
 
-impl MutableRasterImage for BoxedBitmap32<'_> {
+impl MutableRasterImage for OwnedBitmap32 {
     #[inline]
     fn slice_mut(&mut self) -> &mut [Self::ColorType] {
         self.slice.get_mut()
     }
 }
 
-impl<'a> BoxedBitmap32<'a> {
+impl OwnedBitmap32 {
     #[inline]
-    pub fn new(size: Size, bg_color: TrueColor) -> BoxedBitmap32<'a> {
+    pub fn new(size: Size, bg_color: TrueColor) -> Self {
         let len = size.width() as usize * size.height() as usize;
         let mut vec = Vec::with_capacity(len);
         vec.resize(len, bg_color);
-        let slice = UnsafeCell::new(vec.into_boxed_slice());
-        let inner = UnsafeCell::new(Bitmap32::from_slice(
-            unsafe { &mut *slice.get() },
-            size,
-            size.width as usize,
-        ));
-        Self { inner, slice }
-    }
-
-    pub fn from_vec(vec: Vec<TrueColor>, size: Size) -> BoxedBitmap32<'a> {
-        let slice = UnsafeCell::new(vec.into_boxed_slice());
-        let inner = UnsafeCell::new(Bitmap32::from_slice(
-            unsafe { &mut *slice.get() },
-            size,
-            size.width as usize,
-        ));
-        Self { inner, slice }
+        Self::from_vec(vec, size)
     }
 
     #[inline]
-    pub const fn inner(&self) -> &Bitmap32<'a> {
-        unsafe { &*self.inner.get() }
-    }
-
-    #[inline]
-    pub fn inner_mut(&mut self) -> &mut Bitmap32<'a> {
-        self.inner.get_mut()
+    pub fn from_vec(vec: Vec<TrueColor>, size: Size) -> Self {
+        Self {
+            width: size.width as usize,
+            height: size.height as usize,
+            stride: size.width as usize,
+            slice: UnsafeCell::new(vec.into_boxed_slice()),
+        }
     }
 
     #[inline]
@@ -1521,22 +1501,22 @@ impl<'a> BoxedBitmap32<'a> {
     where
         F: FnOnce(&mut Bitmap32) -> R,
     {
-        let inner = &mut self.inner_mut();
+        let inner = self.as_mut();
         f(inner)
     }
 }
 
-impl<'a> AsRef<ConstBitmap32<'a>> for BoxedBitmap32<'a> {
+impl<'a> AsRef<ConstBitmap32<'a>> for OwnedBitmap32 {
     #[inline]
     fn as_ref(&self) -> &ConstBitmap32<'a> {
-        self.inner().as_ref()
+        unsafe { transmute(self) }
     }
 }
 
-impl<'a> AsMut<Bitmap32<'a>> for BoxedBitmap32<'a> {
+impl<'a> AsMut<Bitmap32<'a>> for OwnedBitmap32 {
     #[inline]
     fn as_mut(&mut self) -> &mut Bitmap32<'a> {
-        self.inner_mut()
+        unsafe { transmute(self) }
     }
 }
 
@@ -1569,6 +1549,16 @@ impl Drawable for ConstBitmap<'_> {
         match self {
             Self::Indexed(ref v) => v.bpp(),
             Self::Argb32(ref v) => v.bpp(),
+        }
+    }
+}
+
+impl GetPixel for ConstBitmap<'_> {
+    #[inline]
+    unsafe fn get_pixel_unchecked(&self, point: Point) -> Self::ColorType {
+        match self {
+            Self::Indexed(ref v) => v.get_pixel_unchecked(point).into(),
+            Self::Argb32(ref v) => v.get_pixel_unchecked(point).into(),
         }
     }
 }
@@ -1655,8 +1645,8 @@ impl Bitmap<'_> {
         F: FnOnce(Bitmap) -> R,
     {
         match self {
-            Bitmap::Indexed(ref mut v) => v.view(rect, f),
-            Bitmap::Argb32(ref mut v) => v.view(rect, f),
+            Self::Indexed(ref mut v) => v.view(rect, f),
+            Self::Argb32(ref mut v) => v.view(rect, f),
         }
     }
 
@@ -1666,8 +1656,8 @@ impl Bitmap<'_> {
         F: FnOnce(&mut Bitmap8) -> R,
     {
         match self {
-            Bitmap::Indexed(ref mut v) => Some(f(v)),
-            Bitmap::Argb32(_) => None,
+            Self::Indexed(ref mut v) => Some(f(v)),
+            Self::Argb32(_) => None,
         }
     }
 
@@ -1677,8 +1667,8 @@ impl Bitmap<'_> {
         F: FnOnce(&mut Bitmap32) -> R,
     {
         match self {
-            Bitmap::Indexed(_) => None,
-            Bitmap::Argb32(ref mut v) => Some(f(v)),
+            Self::Indexed(_) => None,
+            Self::Argb32(ref mut v) => Some(f(v)),
         }
     }
 }
@@ -1687,8 +1677,8 @@ impl GetPixel for Bitmap<'_> {
     #[inline]
     unsafe fn get_pixel_unchecked(&self, point: Point) -> Self::ColorType {
         match self {
-            Bitmap::Indexed(ref v) => v.get_pixel_unchecked(point).into(),
-            Bitmap::Argb32(ref v) => v.get_pixel_unchecked(point).into(),
+            Self::Indexed(ref v) => v.get_pixel_unchecked(point).into(),
+            Self::Argb32(ref v) => v.get_pixel_unchecked(point).into(),
         }
     }
 }
@@ -1697,8 +1687,8 @@ impl SetPixel for Bitmap<'_> {
     #[inline]
     unsafe fn set_pixel_unchecked(&mut self, point: Point, pixel: Self::ColorType) {
         match self {
-            Bitmap::Indexed(ref mut v) => v.set_pixel_unchecked(point, pixel.into()),
-            Bitmap::Argb32(ref mut v) => v.set_pixel_unchecked(point, pixel.into()),
+            Self::Indexed(ref mut v) => v.set_pixel_unchecked(point, pixel.into()),
+            Self::Argb32(ref mut v) => v.set_pixel_unchecked(point, pixel.into()),
         }
     }
 }
@@ -1707,8 +1697,8 @@ impl RasterFontWriter for Bitmap<'_> {
     #[inline]
     fn draw_font(&mut self, src: &[u8], size: Size, origin: Point, color: Self::ColorType) {
         match self {
-            Bitmap::Indexed(ref mut v) => v.draw_font(src, size, origin, color.into()),
-            Bitmap::Argb32(ref mut v) => v.draw_font(src, size, origin, color.into()),
+            Self::Indexed(ref mut v) => v.draw_font(src, size, origin, color.into()),
+            Self::Argb32(ref mut v) => v.draw_font(src, size, origin, color.into()),
         }
     }
 }
@@ -1717,24 +1707,24 @@ impl BasicDrawing for Bitmap<'_> {
     #[inline]
     fn fill_rect(&mut self, rect: Rect, color: Self::ColorType) {
         match self {
-            Bitmap::Indexed(ref mut v) => v.fill_rect(rect, color.into()),
-            Bitmap::Argb32(ref mut v) => v.fill_rect(rect, color.into()),
+            Self::Indexed(ref mut v) => v.fill_rect(rect, color.into()),
+            Self::Argb32(ref mut v) => v.fill_rect(rect, color.into()),
         }
     }
 
     #[inline]
     fn draw_hline(&mut self, origin: Point, width: isize, color: Self::ColorType) {
         match self {
-            Bitmap::Indexed(ref mut v) => v.draw_hline(origin, width, color.into()),
-            Bitmap::Argb32(ref mut v) => v.draw_hline(origin, width, color.into()),
+            Self::Indexed(ref mut v) => v.draw_hline(origin, width, color.into()),
+            Self::Argb32(ref mut v) => v.draw_hline(origin, width, color.into()),
         }
     }
 
     #[inline]
     fn draw_vline(&mut self, origin: Point, height: isize, color: Self::ColorType) {
         match self {
-            Bitmap::Indexed(ref mut v) => v.draw_vline(origin, height, color.into()),
-            Bitmap::Argb32(ref mut v) => v.draw_vline(origin, height, color.into()),
+            Self::Indexed(ref mut v) => v.draw_vline(origin, height, color.into()),
+            Self::Argb32(ref mut v) => v.draw_vline(origin, height, color.into()),
         }
     }
 }
@@ -1743,16 +1733,16 @@ impl Bitmap<'_> {
     #[inline]
     pub const fn color_mode(&self) -> usize {
         match self {
-            Bitmap::Indexed(_) => 8,
-            Bitmap::Argb32(_) => 32,
+            Self::Indexed(_) => 8,
+            Self::Argb32(_) => 32,
         }
     }
 
     #[inline]
     pub fn blt_itself<'a>(&'a mut self, origin: Point, rect: Rect) {
         match self {
-            Bitmap::Indexed(v) => v.blt(v.clone().as_ref(), origin, rect),
-            Bitmap::Argb32(v) => v.blt(v.clone().as_ref(), origin, rect),
+            Self::Indexed(v) => v.blt(v.clone().as_ref(), origin, rect),
+            Self::Argb32(v) => v.blt(v.clone().as_ref(), origin, rect),
         }
     }
 }
@@ -1812,8 +1802,8 @@ impl<'a, 'b> Blt<ConstBitmap<'b>> for Bitmap<'a> {
 impl<'a, 'b> Blt<ConstBitmap8<'b>> for Bitmap<'a> {
     fn blt(&mut self, src: &ConstBitmap8<'b>, origin: Point, rect: Rect) {
         match self {
-            Bitmap::Indexed(ref mut bitmap) => bitmap.blt(src, origin, rect),
-            Bitmap::Argb32(ref mut bitmap) => {
+            Self::Indexed(ref mut bitmap) => bitmap.blt(src, origin, rect),
+            Self::Argb32(ref mut bitmap) => {
                 bitmap.blt8(src, origin, rect, &IndexedColor::COLOR_PALETTE)
             }
         }
@@ -1823,8 +1813,8 @@ impl<'a, 'b> Blt<ConstBitmap8<'b>> for Bitmap<'a> {
 impl<'a, 'b> Blt<ConstBitmap32<'b>> for Bitmap<'a> {
     fn blt(&mut self, src: &ConstBitmap32<'b>, origin: Point, rect: Rect) {
         match self {
-            Bitmap::Indexed(ref mut bitmap) => bitmap.blt32(src, origin, rect),
-            Bitmap::Argb32(ref mut bitmap) => bitmap.blt(src, origin, rect),
+            Self::Indexed(ref mut bitmap) => bitmap.blt32(src, origin, rect),
+            Self::Argb32(ref mut bitmap) => bitmap.blt(src, origin, rect),
         }
     }
 }
@@ -1857,58 +1847,12 @@ impl<'a> AsMut<Bitmap<'a>> for Bitmap<'a> {
     }
 }
 
-// pub enum OwnedBitmap<'a> {
-//     Indexed(Bitmap8<'a>),
-//     Argb32(Bitmap32<'a>),
-// }
-
-// impl Drawable for OwnedBitmap<'_> {
-//     type ColorType = Color;
-
-//     #[inline]
-//     fn width(&self) -> usize {
-//         match self {
-//             Self::Indexed(ref v) => v.width(),
-//             Self::Argb32(ref v) => v.width(),
-//         }
-//     }
-
-//     #[inline]
-//     fn height(&self) -> usize {
-//         match self {
-//             Self::Indexed(ref v) => v.height(),
-//             Self::Argb32(ref v) => v.height(),
-//         }
-//     }
-// }
-
-// impl<'a> OwnedBitmap<'a> {
-//     pub fn as_bitmap(&'a mut self) -> Bitmap<'a> {
-//         match self {
-//             OwnedBitmap::Indexed(ref mut v) => Bitmap::Indexed(v),
-//             OwnedBitmap::Argb32(ref mut v) => Bitmap::Argb32(v),
-//         }
-//     }
-// }
-
-// impl<'a> From<Bitmap8<'a>> for OwnedBitmap<'a> {
-//     fn from(val: Bitmap8<'a>) -> Self {
-//         Self::Indexed(val)
-//     }
-// }
-
-// impl<'a> From<Bitmap32<'a>> for OwnedBitmap<'a> {
-//     fn from(val: Bitmap32<'a>) -> Self {
-//         Self::Argb32(val)
-//     }
-// }
-
-pub enum BoxedBitmap<'a> {
-    Indexed(BoxedBitmap8<'a>),
-    Argb32(BoxedBitmap32<'a>),
+pub enum OwnedBitmap {
+    Indexed(OwnedBitmap8),
+    Argb32(OwnedBitmap32),
 }
 
-impl Drawable for BoxedBitmap<'_> {
+impl Drawable for OwnedBitmap {
     type ColorType = Color;
 
     #[inline]
@@ -1936,37 +1880,38 @@ impl Drawable for BoxedBitmap<'_> {
     }
 }
 
-impl<'a> BoxedBitmap<'a> {
+impl OwnedBitmap {
+    #[inline]
     pub fn same_format<'b, T: AsRef<ConstBitmap<'b>>>(
         template: &T,
         size: Size,
         bg_color: Color,
-    ) -> BoxedBitmap<'a> {
+    ) -> OwnedBitmap {
         match template.as_ref() {
-            ConstBitmap::Indexed(_) => Self::Indexed(BoxedBitmap8::new(size, bg_color.into())),
-            ConstBitmap::Argb32(_) => Self::Argb32(BoxedBitmap32::new(size, bg_color.into())),
+            ConstBitmap::Indexed(_) => Self::Indexed(OwnedBitmap8::new(size, bg_color.into())),
+            ConstBitmap::Argb32(_) => Self::Argb32(OwnedBitmap32::new(size, bg_color.into())),
         }
     }
 
     #[inline]
-    pub fn into_bitmap(&'a mut self) -> Bitmap<'a> {
+    pub fn into_bitmap<'a>(&'a mut self) -> Bitmap<'a> {
         match self {
-            BoxedBitmap::Indexed(ref mut v) => Bitmap::Indexed(v.inner_mut()),
-            BoxedBitmap::Argb32(ref mut v) => Bitmap::Argb32(v.inner_mut()),
+            OwnedBitmap::Indexed(ref mut v) => Bitmap::Indexed(v.as_mut()),
+            OwnedBitmap::Argb32(ref mut v) => Bitmap::Argb32(v.as_mut()),
         }
     }
 }
 
-impl<'a> From<BoxedBitmap8<'a>> for BoxedBitmap<'a> {
+impl From<OwnedBitmap8> for OwnedBitmap {
     #[inline]
-    fn from(val: BoxedBitmap8<'a>) -> Self {
+    fn from(val: OwnedBitmap8) -> Self {
         Self::Indexed(val)
     }
 }
 
-impl<'a> From<BoxedBitmap32<'a>> for BoxedBitmap<'a> {
+impl From<OwnedBitmap32> for OwnedBitmap {
     #[inline]
-    fn from(val: BoxedBitmap32<'a>) -> Self {
+    fn from(val: OwnedBitmap32) -> Self {
         Self::Argb32(val)
     }
 }

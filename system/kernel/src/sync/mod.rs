@@ -1,6 +1,7 @@
 //! Classes to synchronize
 
 pub mod atomicflags;
+pub mod atomicfloat;
 pub mod fifo;
 pub mod semaphore;
 pub mod signal;

@@ -6,7 +6,7 @@ use megstd::drawing::{img::ImageLoader, *};
 pub struct IconManager {}
 
 impl IconManager {
-    pub fn bitmap<'a>(icon: r::Icons) -> Option<BoxedBitmap<'a>> {
+    pub fn bitmap(icon: r::Icons) -> Option<OwnedBitmap> {
         match icon {
             r::Icons::Apps => ImageLoader::from_qoi(include_bytes!(
                 "../../../../ext/material-design-icons/ic_apps_black_24dp.qoi"

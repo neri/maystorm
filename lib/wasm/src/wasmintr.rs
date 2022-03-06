@@ -1025,13 +1025,13 @@ impl WasmInterpreter<'_> {
         let result_types = target.result_types();
 
         let param_len = target.param_types().len();
+        let stack_under = stack_pointer - param_len;
         // if stack_pointer < param_len {
         //     return Err(self.error(WasmRuntimeError::InternalInconsistency, code));
         // }
 
         if let Some(code_block) = target.code_block() {
             heap.snapshot(|heap| {
-                let stack_under = stack_pointer - param_len;
                 let local_len = param_len + code_block.local_types().len();
 
                 let locals = if value_stack.len() >= stack_under + local_len {
@@ -1067,37 +1067,26 @@ impl WasmInterpreter<'_> {
                         Ok(())
                     })
             })
-        } else if let Some(dlink) = target.dlink() {
-            heap.snapshot(|heap| {
-                let mut locals = heap.alloc_stack(param_len);
-                let stack_under = stack_pointer - param_len;
-                let params =
-                    unsafe { value_stack.get_unchecked(stack_under..stack_under + param_len) };
-                for (index, val_type) in target.param_types().iter().enumerate() {
-                    let _ =
-                        locals.push(unsafe { params.get_unchecked(index).get_by_type(*val_type) });
-                }
+        } else if let Some(f) = target.dlink() {
+            let (_, locals) = value_stack.split_at_mut(stack_under);
 
-                let result = match dlink(module, locals.as_slice()) {
-                    Ok(v) => v,
-                    Err(e) => return Err(self.error(e, code)),
-                };
+            let result = match f(module, locals) {
+                Ok(v) => v,
+                Err(e) => return Err(self.error(e, code)),
+            };
 
-                if let Some(t) = result_types.first() {
-                    if result.is_valid_type(*t) {
-                        let var = match value_stack.get_mut(stack_under) {
-                            Some(v) => v,
-                            None => {
-                                return Err(self.error(WasmRuntimeErrorKind::TypeMismatch, code))
-                            }
-                        };
-                        *var = WasmUnsafeValue::from(result);
-                    } else {
-                        return Err(self.error(WasmRuntimeErrorKind::TypeMismatch, code));
-                    }
+            if let Some(t) = result_types.first() {
+                if result.is_valid_type(*t) {
+                    let var = match value_stack.get_mut(stack_under) {
+                        Some(v) => v,
+                        None => return Err(self.error(WasmRuntimeErrorKind::TypeMismatch, code)),
+                    };
+                    *var = WasmUnsafeValue::from(result);
+                } else {
+                    return Err(self.error(WasmRuntimeErrorKind::TypeMismatch, code));
                 }
-                Ok(())
-            })
+            }
+            Ok(())
         } else {
             Err(self.error(WasmRuntimeErrorKind::NoMethod, code))
         }

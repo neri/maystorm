@@ -400,7 +400,7 @@ impl<'a> HersheyFont<'a> {
                                 c2,
                                 quality,
                                 |bitmap, point, value| {
-                                    if point.is_within(border_bounds) {
+                                    if border_bounds.contains(point) {
                                         unsafe {
                                             bitmap.process_pixel_unchecked(point, |v| {
                                                 v.saturating_add(value)
@@ -447,7 +447,7 @@ impl<'a> HersheyFont<'a> {
                                 c2,
                                 quality,
                                 |bitmap, point, value| {
-                                    if point.is_within(border_bounds) {
+                                    if border_bounds.contains(point) {
                                         unsafe {
                                             bitmap.process_pixel_unchecked(point, |v| {
                                                 v.saturating_add(value)
