@@ -23,7 +23,7 @@ impl App {
         let presenter = GameWindow::with_options(
             "GAME BENCH",
             Size::new(Self::WINDOW_WIDTH, Self::WINDOW_HEIGHT),
-            ScaleMode::DotByDot,
+            ScaleMode::NearestNeighbor2X,
             500,
         );
         Self { presenter }

@@ -1,11 +1,16 @@
 //! Classes to synchronize
 
-pub mod atomicflags;
-pub mod atomicfloat;
 pub mod fifo;
 pub mod semaphore;
 pub mod signal;
 pub mod spinlock;
+
+pub mod atomic {
+    mod atomicflags;
+    mod atomicfloat;
+    pub use atomicflags::*;
+    pub use atomicfloat::*;
+}
 
 mod mutex;
 pub use mutex::*;

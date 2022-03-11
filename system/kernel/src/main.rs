@@ -364,9 +364,36 @@ impl Shell {
             }
             "cpu" => {
                 let device = System::current_device();
+
+                let n_cores = device.num_of_performance_cpus();
+                let n_threads = device.num_of_active_cpus();
+                if n_threads > 1 {
+                    if n_cores != n_threads {
+                        println!(
+                            "{}: {} Cores {} Threads",
+                            device.processor_system_type().to_string(),
+                            n_cores,
+                            n_threads,
+                        );
+                    } else {
+                        println!(
+                            "{}: {} Processors",
+                            device.processor_system_type().to_string(),
+                            n_cores,
+                        );
+                    }
+                } else {
+                    println!("Uniprocessor system");
+                }
+
                 for index in 0..device.num_of_active_cpus() {
                     let cpu = System::cpu(ProcessorIndex(index));
-                    println!("CPU Core #{} {:?}", index, cpu.processor_type());
+                    println!(
+                        "CPU #{} {:08x} {:?}",
+                        index,
+                        cpu.physical_id(),
+                        cpu.processor_type()
+                    );
                 }
             }
             "memory" => {

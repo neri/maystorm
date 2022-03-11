@@ -351,7 +351,7 @@ impl System {
     }
 
     #[inline]
-    pub unsafe fn set_processor_systsm_type(value: ProcessorSystemType) {
+    pub fn set_processor_systsm_type(value: ProcessorSystemType) {
         Self::shared().current_device.processor_system_type = value;
     }
 

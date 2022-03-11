@@ -27,6 +27,11 @@ impl Semaphore {
     }
 
     #[inline]
+    pub fn estimated_value(&self) -> usize {
+        self.value.load(Ordering::Relaxed)
+    }
+
+    #[inline]
     pub fn try_lock(&self) -> bool {
         Cpu::interlocked_fetch_update(&self.value, |v| if v >= 1 { Some(v - 1) } else { None })
             .is_ok()
@@ -118,7 +123,7 @@ impl Default for BinarySemaphore {
 }
 
 pub struct AsyncSemaphore {
-    pub value: AtomicUsize,
+    value: AtomicUsize,
     waker: AtomicWaker,
 }
 
@@ -129,6 +134,11 @@ impl AsyncSemaphore {
             value: AtomicUsize::new(value),
             waker: AtomicWaker::new(),
         })
+    }
+
+    #[inline]
+    pub fn estimated_value(&self) -> usize {
+        self.value.load(Ordering::Relaxed)
     }
 
     #[inline]
@@ -166,17 +176,6 @@ impl AsyncSemaphore {
         let _ = Cpu::interlocked_increment(&self.value);
         let _ = self.waker.wake();
     }
-
-    // #[inline]
-    // pub async fn synchronized<F, R>(self: Pin<Arc<Self>>, f: F) -> R
-    // where
-    //     F: FnOnce() -> impl Future<Output = ()>,
-    // {
-    //     self.clone().wait().await;
-    //     let result = f().await;
-    //     self.signal();
-    //     result
-    // }
 }
 
 struct AsyncSemaphoreObserver {

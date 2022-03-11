@@ -5,7 +5,7 @@ use crate::{
     arch::cpu::*,
     rt::Personality,
     sync::{
-        atomicflags::*, fifo::*, semaphore::*, spinlock::*, LockResult, Mutex, RwLock,
+        atomic::AtomicBitflags, fifo::*, semaphore::*, spinlock::*, LockResult, Mutex, RwLock,
         RwLockReadGuard,
     },
     system::*,
@@ -820,33 +820,22 @@ where
 {
     fn spawn(start: F, name: &str, options: SpawnOption) -> JoinHandle<T> {
         let mutex = Arc::new(Mutex::new(None));
-        let boxed = Arc::new(Box::new(Self {
+        let boxed = Box::new(Self {
             start,
             mutex: Arc::clone(&mutex),
-        }));
-        let thread = unsafe {
-            let ptr = Arc::into_raw(boxed);
-            Arc::increment_strong_count(ptr);
-            Scheduler::spawn(Self::start_thread, ptr as usize, name, options)
-        }
-        .unwrap();
+        });
+        let ptr = Box::into_raw(boxed);
+        let thread = Scheduler::spawn(Self::_start_thread, ptr as usize, name, options).unwrap();
 
         JoinHandle { thread, mutex }
     }
 
-    fn start_thread(p: usize) {
-        unsafe {
-            let ptr = p as *const Box<Self>;
-            let p = Arc::from_raw(ptr);
-            Arc::decrement_strong_count(ptr);
-            let p = match Arc::try_unwrap(p) {
-                Ok(p) => p,
-                Err(_) => unreachable!(),
-            };
-            let p = Box::into_inner(p);
-            let r = (p.start)();
-            *p.mutex.lock().unwrap() = Some(r);
-        };
+    fn _start_thread(p: usize) {
+        {
+            let this = unsafe { Box::into_inner(Box::from_raw(p as *mut Self)) };
+            let r = (this.start)();
+            *this.mutex.lock().unwrap() = Some(r);
+        }
         Scheduler::exit();
     }
 }

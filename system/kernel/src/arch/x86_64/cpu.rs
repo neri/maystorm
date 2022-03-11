@@ -1,5 +1,3 @@
-// Central Processing Unit
-
 use super::apic::*;
 use crate::{
     drivers::pci::*,
@@ -13,7 +11,8 @@ use crate::{
 use alloc::boxed::Box;
 use bitflags::*;
 use core::{
-    arch::asm, arch::x86_64::__cpuid_count, convert::TryFrom, ffi::c_void, sync::atomic::*,
+    arch::asm, arch::x86_64::__cpuid_count, cell::UnsafeCell, convert::TryFrom, ffi::c_void,
+    sync::atomic::*,
 };
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
@@ -26,11 +25,11 @@ extern "C" {
     fn _asm_int_40() -> !;
 }
 
-static mut SHARED_CPU: SharedCpu = SharedCpu::new();
+static mut SHARED_CPU: UnsafeCell<SharedCpu> = UnsafeCell::new(SharedCpu::new());
 
 pub struct Cpu {
     pub cpu_index: ProcessorIndex,
-    cpu_id: ProcessorId,
+    apic_id: ApicId,
     core_type: ProcessorCoreType,
     tsc_base: u64,
     gdt: Box<GlobalDescriptorTable>,
@@ -38,19 +37,18 @@ pub struct Cpu {
 
 #[allow(dead_code)]
 pub(super) struct SharedCpu {
-    smt_topology: u32,
     max_cpuid_level_0: u32,
     max_cpuid_level_8: u32,
+    smt_topology: u32,
     has_smt: bool,
 }
 
 impl SharedCpu {
-    #[inline]
     const fn new() -> Self {
         Self {
-            smt_topology: 0,
             max_cpuid_level_0: 0,
             max_cpuid_level_8: 0,
+            smt_topology: 0,
             has_smt: false,
         }
     }
@@ -85,7 +83,7 @@ impl Cpu {
         InterruptDescriptorTable::init();
     }
 
-    pub(super) unsafe fn new(apic_id: ProcessorId) -> Box<Self> {
+    pub(super) unsafe fn new(apic_id: ApicId) -> Box<Self> {
         let gdt = GlobalDescriptorTable::new();
 
         let core_type = if (apic_id.as_u32() & Self::shared().smt_topology) == 0 {
@@ -97,7 +95,7 @@ impl Cpu {
 
         Box::new(Cpu {
             cpu_index: ProcessorIndex(0),
-            cpu_id: apic_id,
+            apic_id,
             core_type,
             gdt,
             tsc_base: 0,
@@ -110,8 +108,8 @@ impl Cpu {
     }
 
     #[inline]
-    pub(super) fn shared() -> &'static mut SharedCpu {
-        unsafe { &mut SHARED_CPU }
+    pub(super) fn shared<'a>() -> &'a mut SharedCpu {
+        unsafe { SHARED_CPU.get_mut() }
     }
 
     #[inline]
@@ -148,11 +146,11 @@ impl Cpu {
     pub fn interlocked_test_and_set(p: &AtomicUsize, position: usize) -> bool {
         unsafe {
             let p = p as *const _ as *mut usize;
-            let r: u8;
+            let r: usize;
             asm!("
                 lock bts [{0}], {1}
-                setc {2}
-                ", in(reg) p, in(reg) position, lateout(reg_byte) r);
+                sbb {2}, {2}
+                ", in(reg) p, in(reg) position, lateout(reg) r);
             r != 0
         }
     }
@@ -161,18 +159,23 @@ impl Cpu {
     pub fn interlocked_test_and_clear(p: &AtomicUsize, position: usize) -> bool {
         unsafe {
             let p = p as *const _ as *mut usize;
-            let r: u8;
+            let r: usize;
             asm!("
                 lock btr [{0}], {1}
-                setc {2}
-                ", in(reg) p, in(reg) position, lateout(reg_byte) r);
+                sbb {2}, {2}
+                ", in(reg) p, in(reg) position, lateout(reg) r);
             r != 0
         }
     }
 
     #[inline]
-    pub(super) const fn cpu_id(&self) -> ProcessorId {
-        self.cpu_id
+    pub(super) const fn apic_id(&self) -> ApicId {
+        self.apic_id
+    }
+
+    #[inline]
+    pub const fn physical_id(&self) -> usize {
+        self.apic_id().as_u32() as usize
     }
 
     #[inline]
@@ -428,29 +431,14 @@ impl Cpu {
             ", lateout(reg) rax);
         InterruptGuard(rax)
     }
-
-    // #[inline]
-    // pub fn is_interrupt_disabled() -> bool {
-    //     !Self::is_interrupt_enabled()
-    // }
-
-    // pub fn is_interrupt_enabled() -> bool {
-    //     unsafe {
-    //         let mut rax: usize;
-    //         asm!("
-    //         pushfq
-    //         cli
-    //         pop {0}
-    //         ", lateout(reg) rax);
-    //         Rflags::from_bits_truncate(rax).contains(Rflags::IF)
-    //     }
-    // }
 }
 
+#[must_use]
 pub struct InterruptGuard(usize);
 
-// impl !Send for InterruptGuard {}
-// impl !Sync for InterruptGuard {}
+impl !Send for InterruptGuard {}
+
+impl !Sync for InterruptGuard {}
 
 impl Drop for InterruptGuard {
     fn drop(&mut self) {
@@ -1157,7 +1145,7 @@ impl TryFrom<DescriptorEntry> for DefaultSize {
 
 #[repr(transparent)]
 #[derive(Copy, Clone, PartialEq)]
-pub struct DescriptorEntry(pub u64);
+pub struct DescriptorEntry(u64);
 
 impl DescriptorEntry {
     pub const PRESENT: u64 = 0x8000_0000_0000;

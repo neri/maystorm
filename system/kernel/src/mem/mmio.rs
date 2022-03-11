@@ -5,6 +5,7 @@ use core::{
     mem::{size_of, transmute},
     num::NonZeroUsize,
     ops::{Deref, DerefMut},
+    slice,
     sync::atomic::*,
 };
 
@@ -122,11 +123,16 @@ impl MmioSlice {
     #[track_caller]
     #[cfg(target_has_atomic_load_store = "8")]
     pub fn read_u8(&self, offset: usize) -> u8 {
-        let mut result = 0;
-        self.check_limit(offset, &result);
-        let ptr: &AtomicU8 = unsafe { transmute(self.base + offset) };
-        result = ptr.load(Ordering::SeqCst);
-        result
+        let slice = unsafe { slice::from_raw_parts(self.base as *const AtomicU8, self.size) };
+        slice[offset].load(Ordering::SeqCst)
+    }
+
+    #[inline]
+    #[track_caller]
+    #[cfg(target_has_atomic_load_store = "8")]
+    pub fn write_u8(&self, offset: usize, value: u8) {
+        let slice = unsafe { slice::from_raw_parts(self.base as *const AtomicU8, self.size) };
+        slice[offset].store(value, Ordering::SeqCst);
     }
 
     #[inline]
@@ -153,6 +159,15 @@ impl MmioSlice {
 
     #[inline]
     #[track_caller]
+    #[cfg(target_has_atomic_load_store = "32")]
+    pub fn write_u32(&self, offset: usize, value: u32) {
+        self.check_limit(offset, &value);
+        let ptr: &AtomicU32 = unsafe { transmute(self.base + offset) };
+        ptr.store(value, Ordering::SeqCst);
+    }
+
+    #[inline]
+    #[track_caller]
     #[cfg(target_has_atomic_load_store = "64")]
     pub fn read_u64(&self, offset: usize) -> u64 {
         let mut result = 0;
@@ -160,24 +175,6 @@ impl MmioSlice {
         let ptr: &AtomicU64 = unsafe { transmute(self.base + offset) };
         result = ptr.load(Ordering::SeqCst);
         result
-    }
-
-    #[inline]
-    #[track_caller]
-    #[cfg(target_has_atomic_load_store = "8")]
-    pub fn write_u8(&self, offset: usize, value: u8) {
-        self.check_limit(offset, &value);
-        let ptr: &AtomicU8 = unsafe { transmute(self.base + offset) };
-        ptr.store(value, Ordering::SeqCst);
-    }
-
-    #[inline]
-    #[track_caller]
-    #[cfg(target_has_atomic_load_store = "32")]
-    pub fn write_u32(&self, offset: usize, value: u32) {
-        self.check_limit(offset, &value);
-        let ptr: &AtomicU32 = unsafe { transmute(self.base + offset) };
-        ptr.store(value, Ordering::SeqCst);
     }
 
     #[inline]

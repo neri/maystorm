@@ -615,7 +615,7 @@ impl BltConverter<IndexedColor> for Bitmap8<'_> {}
 
 impl<'a> Bitmap8<'a> {
     #[inline]
-    pub const fn as_const(&self) -> &ConstBitmap8<'a> {
+    pub const fn as_const(&self) -> &'a ConstBitmap8<'a> {
         unsafe { transmute(self) }
     }
 
@@ -1260,7 +1260,7 @@ impl BltConverter<IndexedColor> for Bitmap32<'_> {}
 
 impl<'a> Bitmap32<'a> {
     #[inline]
-    pub const fn as_const(&self) -> &ConstBitmap32<'a> {
+    pub const fn as_const(&self) -> &'a ConstBitmap32<'a> {
         unsafe { transmute(self) }
     }
 
@@ -1632,7 +1632,7 @@ impl Drawable for Bitmap<'_> {
 
 impl<'a> Bitmap<'a> {
     #[inline]
-    pub fn as_const(&self) -> &ConstBitmap<'a> {
+    pub fn as_const(&self) -> &'a ConstBitmap<'a> {
         unsafe { transmute(self) }
     }
 }

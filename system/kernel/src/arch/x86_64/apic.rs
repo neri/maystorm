@@ -10,9 +10,10 @@ use crate::{
     },
     system::*,
     task::scheduler::*,
+    *,
 };
 use ::alloc::{boxed::Box, vec::*};
-use acpi::platform::ProcessorState;
+use acpi::platform::{Processor, ProcessorState};
 use bootprot::BootFlags;
 use core::{
     alloc::Layout, cell::UnsafeCell, ffi::c_void, mem::transmute, sync::atomic::*, time::Duration,
@@ -48,6 +49,7 @@ extern "C" {
 }
 
 static AP_STALLED: AtomicBool = AtomicBool::new(true);
+static AP_BOOTED: AtomicBool = AtomicBool::new(false);
 static GLOBALLOCK: Spinlock = Spinlock::new();
 
 #[no_mangle]
@@ -58,6 +60,8 @@ pub unsafe extern "C" fn apic_start_ap() {
         apic_id
     });
 
+    AP_BOOTED.store(true, Ordering::SeqCst);
+
     // Waiting for TSC synchonization
     while AP_STALLED.load(Ordering::Relaxed) {
         Cpu::spin_loop_hint();
@@ -66,7 +70,7 @@ pub unsafe extern "C" fn apic_start_ap() {
 
     for index in 0..System::current_device().num_of_active_cpus() {
         let cpu = System::cpu(ProcessorIndex(index));
-        if cpu.cpu_id() == apic_id {
+        if cpu.apic_id() == apic_id {
             System::cpu_mut(ProcessorIndex(index)).set_tsc_base(tsc);
             Msr::TscAux.write(index as u64);
             break;
@@ -75,7 +79,7 @@ pub unsafe extern "C" fn apic_start_ap() {
 }
 
 pub(super) struct Apic {
-    master_apic_id: ProcessorId,
+    master_apic_id: ApicId,
     ioapics: Vec<Box<IoApic>>,
     gsi_table: [GsiProps; 256],
     idt: [usize; Irq::MAX.0 as usize],
@@ -92,7 +96,7 @@ impl Apic {
 
     const fn new() -> Self {
         Apic {
-            master_apic_id: ProcessorId(0),
+            master_apic_id: ApicId(0),
             ioapics: Vec::new(),
             gsi_table: [GsiProps::default(); 256],
             idt: [0; Irq::MAX.0 as usize],
@@ -207,14 +211,12 @@ impl Apic {
         if !System::boot_flags().contains(BootFlags::FORCE_SINGLE) {
             let sipi_vec = InterruptVector(MemoryManager::static_alloc_real().unwrap().get());
             let pi = System::acpi_platform().processor_info.unwrap();
-            let max_cpu = core::cmp::min(
-                1 + pi
-                    .application_processors
-                    .iter()
-                    .filter(|v| v.state != ProcessorState::Disabled)
-                    .count(),
-                MAX_CPU,
-            );
+            let cpus: Vec<Processor> = pi
+                .application_processors
+                .into_iter()
+                .filter(|v| v.state != ProcessorState::Disabled)
+                .collect();
+            let max_cpu = core::cmp::min(1 + cpus.len(), MAX_CPU);
             let stack_chunk_size = STACK_CHUNK_SIZE;
             let stack_base = MemoryManager::zalloc(Layout::from_size_align_unchecked(
                 max_cpu * stack_chunk_size,
@@ -225,28 +227,44 @@ impl Apic {
             asm_apic_setup_sipi(sipi_vec, max_cpu, stack_chunk_size, stack_base);
 
             // start SMP
-            LocalApic::broadcast_init();
-            Timer::new(Duration::from_millis(10)).repeat_until(|| Cpu::halt());
-            LocalApic::broadcast_startup(sipi_vec);
-            let deadline = Timer::new(Duration::from_millis(200));
-            while deadline.until() {
-                Timer::new(Duration::from_millis(5)).repeat_until(|| Cpu::halt());
-                if System::current_device().num_of_active_cpus() == max_cpu {
-                    break;
+            for (_index, cpu) in cpus.iter().enumerate() {
+                // log!(
+                //     "CPU #{} {:02x} {:02x} {:?}",
+                //     index,
+                //     cpu.processor_uid,
+                //     cpu.local_apic_id,
+                //     cpu.state
+                // );
+
+                let apic_id = ApicId(cpu.local_apic_id as u8);
+                LocalApic::send_init_ipi(apic_id);
+                Timer::new(Duration::from_millis(10)).repeat_until(|| Cpu::halt());
+
+                AP_BOOTED.store(false, Ordering::SeqCst);
+                LocalApic::send_startup_ipi(apic_id, sipi_vec);
+                let deadline = Timer::new(Duration::from_millis(100));
+                let mut wait = SpinLoopWait::new();
+                while deadline.until() {
+                    if AP_BOOTED.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    wait.wait();
                 }
-            }
-            if System::current_device().num_of_active_cpus() != max_cpu {
-                panic!("SMP: Some of application processors are not responding");
+                if !AP_BOOTED.load(Ordering::SeqCst) {
+                    panic!("SMP: Some of application processors are not responding");
+                }
+
+                // log!("CPU #{} OK", index,);
             }
 
-            // Since each processor that receives an IPI starts initializing asynchronously,
-            // the physical processor ID and the logical ID assigned by the OS will not match.
-            // Therefore, sorting is required here.
-            System::sort_cpus_by(|a| a.cpu_id().0 as usize);
+            // // Since each processor that receives an IPI starts initializing asynchronously,
+            // // the physical processor ID and the logical ID assigned by the OS will not match.
+            // // Therefore, sorting is required here.
+            // System::sort_cpus_by(|a| a.cpu_id().0 as usize);
 
             for index in 0..System::current_device().num_of_active_cpus() {
                 let cpu = System::cpu(ProcessorIndex(index));
-                CURRENT_PROCESSOR_INDEXES[cpu.cpu_id().0 as usize] = cpu.cpu_index.0 as u8;
+                CURRENT_PROCESSOR_INDEXES[cpu.apic_id().0 as usize] = cpu.cpu_index.0 as u8;
             }
 
             let processor_system_type = if System::current_device().num_of_active_cpus() == 1 {
@@ -327,7 +345,7 @@ impl Apic {
     const fn make_redirect_table_entry_pair(
         vec: InterruptVector,
         trigger: PackedTriggerMode,
-        apic_id: ProcessorId,
+        apic_id: ApicId,
     ) -> (u32, u32) {
         (vec.0 as u32 | trigger.as_redir(), apic_id.as_u32() << 24)
     }
@@ -443,27 +461,29 @@ unsafe extern "x86-interrupt" fn ipi_tlb_flush_handler() {
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, Default)]
-pub(super) struct ProcessorId(pub u8);
+pub(super) struct ApicId(pub u8);
 
-impl ProcessorId {
+impl ApicId {
+    pub const BROADCAST: Self = Self(u8::MAX);
+
     pub const fn as_u32(self) -> u32 {
         self.0 as u32
     }
 }
 
-impl From<u8> for ProcessorId {
+impl From<u8> for ApicId {
     fn from(val: u8) -> Self {
         Self(val)
     }
 }
 
-impl From<u32> for ProcessorId {
+impl From<u32> for ApicId {
     fn from(val: u32) -> Self {
         Self(val as u8)
     }
 }
 
-impl From<usize> for ProcessorId {
+impl From<usize> for ApicId {
     fn from(val: usize) -> Self {
         Self(val as u8)
     }
@@ -571,7 +591,8 @@ enum ApicPolarity {
 }
 
 impl ApicPolarity {
-    const fn as_packed(self) -> u8 {
+    #[inline]
+    pub const fn as_packed(self) -> u8 {
         (self as u8) << 1
     }
 }
@@ -593,8 +614,14 @@ enum ApicTriggerMode {
 }
 
 impl ApicTriggerMode {
-    const fn as_packed(self) -> u8 {
+    #[inline]
+    pub const fn as_packed(self) -> u8 {
         (self as u8) << 3
+    }
+
+    #[inline]
+    pub const fn as_redir(&self) -> u32 {
+        (*self as u32) << 15
     }
 }
 
@@ -608,8 +635,44 @@ impl From<&acpi::platform::interrupt::TriggerMode> for ApicTriggerMode {
     }
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum ApicDeliveryMode {
+    Fixed = 0,
+    Lowest,
+    SMI,
+    _Reserved3,
+    NMI,
+    Init,
+    StartUp,
+    _Reserved7,
+}
+
+impl ApicDeliveryMode {
+    #[inline]
+    const fn as_redir(&self) -> u32 {
+        (*self as u32) << 8
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum ApicDestinationShorthand {
+    NoShortHand = 0,
+    _Self,
+    AllIncludingSelf,
+    AllExcludingSelf,
+}
+
+impl ApicDestinationShorthand {
+    #[inline]
+    const fn as_redir(&self) -> u32 {
+        (*self as u32) << 18
+    }
+}
+
 static mut LOCAL_APIC_PA: PhysicalAddress = 0;
-static mut LOCAL_APIC: Option<MmioSlice> = None;
+static mut LOCAL_APIC: Option<UnsafeCell<MmioSlice>> = None;
 
 #[allow(dead_code)]
 #[non_exhaustive]
@@ -638,13 +701,13 @@ impl LocalApic {
     #[inline]
     unsafe fn init(base: PhysicalAddress) {
         LOCAL_APIC_PA = base;
-        LOCAL_APIC = MmioSlice::from_phys(base, 0x1000);
+        LOCAL_APIC = MmioSlice::from_phys(base, 0x1000).map(|v| UnsafeCell::new(v));
 
         Msr::ApicBase
             .write(LOCAL_APIC_PA | Self::IA32_APIC_BASE_MSR_ENABLE | Self::IA32_APIC_BASE_MSR_BSP);
     }
 
-    unsafe fn init_ap() -> ProcessorId {
+    unsafe fn init_ap() -> ApicId {
         let shared = Apic::shared();
         Msr::ApicBase.write(LOCAL_APIC_PA | Self::IA32_APIC_BASE_MSR_ENABLE);
 
@@ -666,61 +729,108 @@ impl LocalApic {
 
     #[inline]
     #[track_caller]
-    unsafe fn read(&self) -> u32 {
-        LOCAL_APIC.as_ref().unwrap().read_u32(*self as usize)
+    fn mmio() -> &'static MmioSlice {
+        unsafe { &*LOCAL_APIC.as_ref().unwrap().get() }
     }
 
     #[inline]
     #[track_caller]
-    unsafe fn write(&self, val: u32) {
-        LOCAL_APIC.as_ref().unwrap().write_u32(*self as usize, val);
+    fn read(self) -> u32 {
+        Self::mmio().read_u32(self as usize)
     }
 
     #[inline]
-    unsafe fn eoi() {
+    #[track_caller]
+    fn write(self, val: u32) {
+        Self::mmio().write_u32(self as usize, val);
+    }
+
+    #[inline]
+    #[track_caller]
+    fn eoi() {
         Self::Eoi.write(0);
     }
 
     #[inline]
-    unsafe fn set_timer_div(div: LocalApicTimerDivide) {
+    #[track_caller]
+    fn set_timer_div(div: LocalApicTimerDivide) {
         Self::TimerDivideConfiguration.write(div as u32);
     }
 
     #[inline]
-    unsafe fn set_timer(mode: LocalApicTimerMode, vec: InterruptVector, count: u32) {
+    #[track_caller]
+    fn set_timer(mode: LocalApicTimerMode, vec: InterruptVector, count: u32) {
         Self::TimerInitialCount.write(count);
         Self::LvtTimer.write((vec.0 as u32) | mode as u32);
     }
 
     #[inline]
-    unsafe fn clear_timer() {
+    #[track_caller]
+    fn clear_timer() {
         Self::LvtTimer.write(Apic::REDIR_MASK);
     }
 
-    /// Broadcasts INIT IPI to all another APs
     #[inline]
-    unsafe fn broadcast_init() {
-        Self::InterruptCommandHigh.write(0);
-        Self::InterruptCommand.write(0x000C4500);
+    fn send_ipi(
+        apic_id: ApicId,
+        shorthand: ApicDestinationShorthand,
+        trigger_mode: ApicTriggerMode,
+        asserted: bool,
+        delivery: ApicDeliveryMode,
+        init_vec: InterruptVector,
+    ) {
+        Self::InterruptCommandHigh.write((apic_id.0 as u32) << 24);
+        Self::InterruptCommand.write(
+            shorthand.as_redir()
+                | trigger_mode.as_redir()
+                | ((asserted as u32) << 14)
+                | delivery.as_redir()
+                | init_vec.0 as u32,
+        );
     }
 
-    /// Broadcasts Startup IPI to all another APs
+    /// Send Init IPI
     #[inline]
-    unsafe fn broadcast_startup(init_vec: InterruptVector) {
-        Self::InterruptCommandHigh.write(0);
-        Self::InterruptCommand.write(0x000C4600 | init_vec.0 as u32);
+    fn send_init_ipi(apic_id: ApicId) {
+        Self::send_ipi(
+            apic_id,
+            ApicDestinationShorthand::NoShortHand,
+            ApicTriggerMode::Edge,
+            true,
+            ApicDeliveryMode::Init,
+            InterruptVector(0),
+        );
+    }
+
+    /// Send Startup IPI
+    #[inline]
+    fn send_startup_ipi(apic_id: ApicId, init_vec: InterruptVector) {
+        Self::send_ipi(
+            apic_id,
+            ApicDestinationShorthand::NoShortHand,
+            ApicTriggerMode::Edge,
+            true,
+            ApicDeliveryMode::StartUp,
+            init_vec,
+        );
     }
 
     /// Broadcasts an inter-processor interrupt to all excluding self.
     #[inline]
-    unsafe fn broadcast_ipi(vec: InterruptVector) {
-        Self::InterruptCommandHigh.write(0);
-        Self::InterruptCommand.write(0x000C4000 | vec.0 as u32);
+    fn broadcast_ipi(vec: InterruptVector) {
+        Self::send_ipi(
+            ApicId::BROADCAST,
+            ApicDestinationShorthand::AllExcludingSelf,
+            ApicTriggerMode::Edge,
+            true,
+            ApicDeliveryMode::Fixed,
+            vec,
+        );
     }
 
     #[inline]
-    unsafe fn current_processor_id() -> ProcessorId {
-        ProcessorId((LocalApic::Id.read() >> 24) as u8)
+    fn current_processor_id() -> ApicId {
+        ApicId((LocalApic::Id.read() >> 24) as u8)
     }
 }
 

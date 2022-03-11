@@ -1,4 +1,4 @@
-.PHONY: love all clean install iso run runs test apps doc kernel boot
+.PHONY: love default all clean install iso run runs test apps doc kernel boot
 .SUFFIXED: .wasm
 
 EFI_ARCH	= x86_64-unknown-uefi
@@ -16,10 +16,13 @@ TARGET_KERNEL	= system/target/$(KRNL_ARCH)/release/kernel
 TARGET_BOOT_EFI	= boot/target/$(EFI_ARCH)/release/boot-efi.efi
 TARGET_ISO	= var/megos.iso
 TARGETS		= boot kernel
+ALL_TARGETS	= $(TARGETS) apps
 OVMF		= var/ovmfx64.fd
 INITRD_FILES	= LICENSE $(MISC)initrd/* apps/target/wasm32-unknown-unknown/release/*.wasm
 
-all: $(TARGETS)
+default: $(TARGETS)
+
+all: $(ALL_TARGETS)
 
 clean:
 	-rm -rf system/target apps/target boot/target tools/target
@@ -70,7 +73,7 @@ boot:
 kernel:
 	(cd system; cargo build -Zbuild-std --release --target $(KRNL_ARCH).json)
 
-install: $(EFI_VENDOR) $(EFI_BOOT) kernel boot tools/mkinitrd/src/*.rs $(INITRD_FILES) apps
+install: $(EFI_VENDOR) $(EFI_BOOT) $(ALL_TARGETS) tools/mkinitrd/src/*.rs
 	cp $(TARGET_BOOT_EFI) $(BOOT_EFI1)
 	cp $(TARGET_BOOT_EFI) $(BOOT_EFI2)
 	cp $(TARGET_KERNEL) $(KERNEL_BIN)

@@ -4,7 +4,7 @@ use super::{font::*, text::*, theme::Theme};
 use crate::{
     io::hid_mgr::*,
     res::icon::IconManager,
-    sync::atomicflags::*,
+    sync::atomic::AtomicBitflags,
     sync::RwLock,
     sync::{fifo::*, semaphore::*},
     task::scheduler::*,

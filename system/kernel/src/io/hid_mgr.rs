@@ -1,6 +1,6 @@
 //! Human Interface Device Manager
 
-use crate::sync::atomicflags::AtomicBitflags;
+use crate::sync::atomic::AtomicBitflags;
 use crate::sync::RwLock;
 use crate::ui::window::*;
 use crate::*;
