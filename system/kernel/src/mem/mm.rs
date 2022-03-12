@@ -2,7 +2,11 @@ use super::slab::*;
 use crate::{
     arch::cpu::Cpu,
     arch::page::*,
-    sync::{fifo::EventQueue, semaphore::Semaphore},
+    sync::{
+        fifo::EventQueue,
+        semaphore::Semaphore,
+        spinlock::{SpinMutex, SpinMutexGuard},
+    },
     system::System,
     task::scheduler::*,
 };
@@ -30,7 +34,7 @@ pub struct MemoryManager {
     page_size_min: usize,
     dummy_size: AtomicUsize,
     n_free: AtomicUsize,
-    pairs: [MemFreePair; Self::MAX_FREE_PAIRS],
+    pairs: SpinMutex<[MemFreePair; Self::MAX_FREE_PAIRS]>,
     slab: Option<Box<SlabAllocator>>,
     real_bitmap: [u32; 8],
     fifo: MaybeUninit<EventQueue<Arc<AsyncMmapRequest>>>,
@@ -46,7 +50,7 @@ impl MemoryManager {
             page_size_min: 0x1000,
             dummy_size: AtomicUsize::new(0),
             n_free: AtomicUsize::new(0),
-            pairs: [MemFreePair::empty(); Self::MAX_FREE_PAIRS],
+            pairs: SpinMutex::new([MemFreePair::empty(); Self::MAX_FREE_PAIRS]),
             slab: None,
             real_bitmap: [0; 8],
             fifo: MaybeUninit::uninit(),
@@ -60,14 +64,16 @@ impl MemoryManager {
             slice::from_raw_parts(info.mmap_base as usize as *const _, info.mmap_len as usize);
         let mut free_count = 0;
         let mut n_free = 0;
+        let mut pairs = shared.pairs();
         for mem_desc in mm {
             if mem_desc.mem_type == BootMemoryType::Available {
                 let size = mem_desc.page_count as usize * Self::PAGE_SIZE_MIN;
-                shared.pairs[n_free] = MemFreePair::new(mem_desc.base as usize, size);
+                pairs[n_free] = MemFreePair::new(mem_desc.base as usize, size);
                 free_count += size;
             }
             n_free += 1;
         }
+        drop(pairs);
         shared.n_free.store(n_free, Ordering::SeqCst);
         shared.reserved_memory_size = info.total_memory_size as usize - free_count;
 
@@ -105,8 +111,13 @@ impl MemoryManager {
     }
 
     #[inline]
-    pub fn shared() -> &'static Self {
+    fn shared() -> &'static Self {
         unsafe { &MM }
+    }
+
+    #[inline]
+    fn pairs(&self) -> SpinMutexGuard<[MemFreePair; Self::MAX_FREE_PAIRS]> {
+        self.pairs.lock()
     }
 
     #[inline]
@@ -118,7 +129,10 @@ impl MemoryManager {
                 result: AtomicUsize::new(0),
                 sem: Semaphore::new(0),
             });
-            let _ = fifo.post(event.clone());
+            match fifo.post(event.clone()) {
+                Ok(_) => (),
+                Err(_) => todo!(),
+            }
             event.sem.wait();
             NonZeroUsize::new(event.result.load(Ordering::SeqCst))
         } else {
@@ -151,7 +165,7 @@ impl MemoryManager {
     pub fn free_memory_size() -> usize {
         let shared = Self::shared_mut();
         let mut total = shared.dummy_size.load(Ordering::Relaxed);
-        total += shared.pairs[..shared.n_free.load(Ordering::Relaxed)]
+        total += shared.pairs()[..shared.n_free.load(Ordering::Relaxed)]
             .iter()
             .fold(0, |v, i| v + i.size());
         total += shared
@@ -169,10 +183,11 @@ impl MemoryManager {
         let align_m1 = Self::PAGE_SIZE_MIN - 1;
         let size = (layout.size() + align_m1) & !(align_m1);
         let n_free = shared.n_free.load(Ordering::SeqCst);
+        let pairs = shared.pairs();
         for i in 0..n_free {
-            let free_pair = &shared.pairs[i];
+            let free_pair = &pairs[i];
             match free_pair.alloc(size) {
-                Ok(v) => return Some(NonZeroUsize::new_unchecked(v)),
+                Ok(v) => return NonZeroUsize::new(v),
                 Err(_) => (),
             }
         }
@@ -262,7 +277,7 @@ impl MemoryManager {
         sb.clear();
 
         let dummy = shared.dummy_size.load(Ordering::Relaxed);
-        let free = shared.pairs[..shared.n_free.load(Ordering::Relaxed)]
+        let free = shared.pairs()[..shared.n_free.load(Ordering::Relaxed)]
             .iter()
             .fold(0, |v, i| v + i.size());
         let total = free + dummy;
@@ -293,65 +308,69 @@ struct AsyncMmapRequest {
     sem: Semaphore,
 }
 
+#[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
-struct MemFreePair {
-    inner: u64,
-}
+struct MemFreePair(u64);
 
+#[allow(dead_code)]
 impl MemFreePair {
     const PAGE_SIZE: usize = 0x1000;
 
     #[inline]
     pub const fn empty() -> Self {
-        Self { inner: 0 }
+        Self(0)
     }
 
     #[inline]
     pub const fn new(base: usize, size: usize) -> Self {
         let base = (base / Self::PAGE_SIZE) as u64;
         let size = (size / Self::PAGE_SIZE) as u64;
-        Self {
-            inner: base | (size << 32),
-        }
+        Self(base | (size << 32))
+    }
+
+    #[inline]
+    fn inner(&self) -> &AtomicU64 {
+        unsafe { transmute(&self.0) }
+    }
+
+    #[inline]
+    pub fn raw(&self) -> u64 {
+        self.inner().load(Ordering::SeqCst)
+    }
+
+    #[inline]
+    fn split(data: u64) -> (usize, usize) {
+        ((data & 0xFFFF_FFFF) as usize, (data >> 32) as usize)
+    }
+
+    #[inline]
+    pub fn base(&self) -> usize {
+        Self::split(self.raw()).0 * Self::PAGE_SIZE
+    }
+
+    #[inline]
+    pub fn size(&self) -> usize {
+        Self::split(self.raw()).1 * Self::PAGE_SIZE
     }
 
     #[inline]
     pub fn alloc(&self, size: usize) -> Result<usize, ()> {
         let size = (size + Self::PAGE_SIZE - 1) / Self::PAGE_SIZE;
 
-        let p: &AtomicU64 = unsafe { transmute(&self.inner) };
-        let mut data = p.load(Ordering::SeqCst);
-        loop {
-            let (base, limit) = ((data & 0xFFFF_FFFF) as usize, (data >> 32) as usize);
+        let p = self.inner();
+
+        p.fetch_update(Ordering::SeqCst, Ordering::Relaxed, |data| {
+            let (base, limit) = Self::split(data);
             if limit < size {
-                return Err(());
+                return None;
             }
             let new_size = limit - size;
-            let new_data = (base as u64) | ((new_size as u64) << 32);
-
-            data = match p.compare_exchange(data, new_data, Ordering::SeqCst, Ordering::Relaxed) {
-                Ok(_) => return Ok((base + new_size) * Self::PAGE_SIZE),
-                Err(v) => v,
-            };
-        }
-    }
-
-    #[inline]
-    fn split(&self) -> (usize, usize) {
-        let p: &AtomicU64 = unsafe { transmute(&self.inner) };
-        let data = p.load(Ordering::SeqCst);
-        ((data & 0xFFFF_FFFF) as usize, (data >> 32) as usize)
-    }
-
-    #[inline]
-    #[allow(dead_code)]
-    pub fn base(&self) -> usize {
-        self.split().0 * Self::PAGE_SIZE
-    }
-
-    #[inline]
-    pub fn size(&self) -> usize {
-        self.split().1 * Self::PAGE_SIZE
+            let new_data = ((base + size) as u64) | ((new_size as u64) << 32);
+            Some(new_data)
+        })
+        .map(|data| Self::split(data).0 * Self::PAGE_SIZE)
+        .map_err(|_| ())
+        // Ok(_) => return Ok((base + new_size) * Self::PAGE_SIZE),
     }
 }
 
@@ -392,11 +411,4 @@ pub enum MemoryMapRequest {
     Kernel(usize, usize, MProtect),
     /// for User Mode Heap (base, length, attr)
     User(usize, usize, MProtect),
-}
-
-impl MemoryMapRequest {
-    #[allow(dead_code)]
-    fn to_slice(&self) -> &[u8] {
-        unsafe { slice::from_raw_parts(&self as *const _ as *const u8, size_of::<Self>()) }
-    }
 }

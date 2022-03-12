@@ -22,12 +22,14 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 pub struct OsPrint {}
 
 impl OsPrint {
+    #[inline]
     pub const fn new() -> Self {
         Self {}
     }
 }
 
 impl Write for OsPrint {
+    #[inline]
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         os_print(s);
         Ok(())

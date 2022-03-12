@@ -398,7 +398,7 @@ impl Scheduler {
             let actual1000 = actual as usize * 1000;
 
             let mut usage = 0;
-            for thread in shared.thread_pool.data.values() {
+            for thread in shared.thread_pool.data.lock().values() {
                 let thread = thread.clone();
                 let thread = unsafe { &mut (*thread.get()) };
 
@@ -524,7 +524,7 @@ impl Scheduler {
     pub fn get_idle_statistics(vec: &mut Vec<u32>) {
         let sch = Self::shared();
         vec.clear();
-        for thread in sch.thread_pool.data.values() {
+        for thread in sch.thread_pool.data.lock().values() {
             let thread = thread.clone();
             let thread = unsafe { &(*thread.get()) };
             if thread.priority != Priority::Idle {
@@ -584,7 +584,7 @@ impl Scheduler {
     pub fn get_thread_statistics(sb: &mut StringBuffer) {
         let shared = Self::shared();
         writeln!(sb, " ID PID P ST %CPU stack            NAME").unwrap();
-        for thread in shared.thread_pool.data.values() {
+        for thread in shared.thread_pool.data.lock().values() {
             let thread = thread.clone();
             let thread = unsafe { &mut (*thread.get()) };
 
@@ -1217,25 +1217,10 @@ impl ProcessPool {
 
 #[derive(Default)]
 struct ThreadPool {
-    data: BTreeMap<ThreadHandle, Arc<UnsafeCell<Box<ThreadContextData>>>>,
-    lock: Spinlock,
+    data: SpinMutex<BTreeMap<ThreadHandle, Arc<UnsafeCell<Box<ThreadContextData>>>>>,
 }
 
 impl ThreadPool {
-    #[inline]
-    #[track_caller]
-    fn synchronized<F, R>(f: F) -> R
-    where
-        F: FnOnce() -> R,
-    {
-        unsafe {
-            without_interrupts!({
-                let shared = Self::shared();
-                shared.lock.synchronized(f)
-            })
-        }
-    }
-
     #[inline]
     #[track_caller]
     fn shared<'a>() -> &'a mut Self {
@@ -1243,33 +1228,33 @@ impl ThreadPool {
     }
 
     fn add(thread: Box<ThreadContextData>) {
-        Self::synchronized(|| {
-            let shared = Self::shared();
-            let handle = thread.handle;
-            shared
-                .data
-                .insert(handle, Arc::new(UnsafeCell::new(thread)));
-        });
+        let handle = thread.handle;
+        Self::shared()
+            .data
+            .lock()
+            .insert(handle, Arc::new(UnsafeCell::new(thread)));
     }
 
     #[inline]
     fn remove(handle: ThreadHandle) {
-        Self::synchronized(|| {
-            let shared = Self::shared();
-            shared.data.remove(&handle);
-        });
+        Self::shared().data.lock().remove(&handle);
     }
 
     #[inline]
     unsafe fn unsafe_weak<'a>(&self, key: ThreadHandle) -> Option<&'a mut Box<ThreadContextData>> {
-        Self::synchronized(|| self.data.get(&key).map(|v| &mut *(&*Arc::as_ptr(v)).get()))
+        self.data
+            .lock()
+            .get(&key)
+            .map(|v| &mut *(&*Arc::as_ptr(v)).get())
     }
 
     #[inline]
     #[must_use]
     fn get<'a>(&self, key: ThreadHandle) -> Option<&'a Box<ThreadContextData>> {
-        Self::synchronized(|| self.data.get(&key).map(|v| v.clone().get()))
-            .map(|thread| unsafe { &(*thread) })
+        self.data
+            .lock()
+            .get(&key)
+            .map(|thread| unsafe { &(*thread.clone().get()) })
     }
 
     #[inline]
@@ -1277,12 +1262,10 @@ impl ThreadPool {
     where
         F: FnOnce(&mut ThreadContextData) -> R,
     {
-        Self::synchronized(move || self.data.get_mut(&key).map(|v| v.clone())).map(
-            |thread| unsafe {
-                let thread = thread.get();
-                f(&mut *thread)
-            },
-        )
+        self.data.lock().get_mut(&key).map(|thread| unsafe {
+            let thread = thread.clone().get();
+            f(&mut *thread)
+        })
     }
 }
 

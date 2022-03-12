@@ -323,7 +323,6 @@ asm_sch_make_new_thread:
 
 _new_thread:
     fninit
-    xor eax, eax
     ldmxcsr [rel _mxcsr]
     pxor xmm0, xmm0
     pxor xmm1, xmm1

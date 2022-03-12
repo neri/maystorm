@@ -18,6 +18,7 @@ pub enum Function {
     Usleep,
     /// Get the system information
     GetSystemInfo,
+
     /// Create a new window
     NewWindow,
     /// Close a window
@@ -26,6 +27,7 @@ pub enum Function {
     BeginDraw,
     /// Discard the drawing context and reflect it to the screen
     EndDraw,
+
     /// Draw a string in a window
     DrawString,
     /// Fill a rectangle in a window

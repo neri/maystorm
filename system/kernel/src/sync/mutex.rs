@@ -25,11 +25,6 @@ impl<T> Mutex<T> {
             data: UnsafeCell::new(data),
         }
     }
-
-    #[inline]
-    pub fn unlock(guard: MutexGuard<'_, T>) {
-        drop(guard);
-    }
 }
 
 impl<T: ?Sized> Mutex<T> {
@@ -67,14 +62,14 @@ impl<T: ?Sized> Mutex<T> {
 impl<T> From<T> for Mutex<T> {
     #[inline]
     fn from(t: T) -> Self {
-        Mutex::new(t)
+        Self::new(t)
     }
 }
 
 impl<T: ?Sized + Default> Default for Mutex<T> {
     #[inline]
-    fn default() -> Mutex<T> {
-        Mutex::new(Default::default())
+    fn default() -> Self {
+        Self::new(Default::default())
     }
 }
 
