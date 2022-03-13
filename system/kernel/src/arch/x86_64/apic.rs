@@ -1,4 +1,4 @@
-// Advanced Programmable Interrupt Controller
+//! Advanced Programmable Interrupt Controller
 
 use super::{cpu::*, hpet::*, page::PageManager, page::PhysicalAddress};
 use crate::{
@@ -6,13 +6,13 @@ use crate::{
     mem::*,
     sync::{
         semaphore::BinarySemaphore,
-        spinlock::{SpinLoopWait, Spinlock},
+        spinlock::{SpinLoopWait, SpinMutex},
     },
     system::*,
     task::scheduler::*,
     *,
 };
-use ::alloc::{boxed::Box, vec::*};
+use ::alloc::vec::*;
 use acpi::platform::{Processor, ProcessorState};
 use bootprot::BootFlags;
 use core::{
@@ -26,7 +26,6 @@ const MAX_CPU: usize = 64;
 const STACK_CHUNK_SIZE: usize = 0x4000;
 
 /// Maximum number of supported IOAPIC's IRQ
-#[allow(dead_code)]
 const MAX_IOAPIC_IRQS: usize = 48;
 
 /// Maximum number of supported MSI IRQ
@@ -36,6 +35,7 @@ const MAX_MSI: isize = 16;
 const MAX_IRQ: usize = MAX_IOAPIC_IRQS + MAX_MSI as usize;
 
 static mut APIC: UnsafeCell<Apic> = UnsafeCell::new(Apic::new());
+
 const INVALID_PROCESSOR_INDEX: u8 = 0xFF;
 static mut CURRENT_PROCESSOR_INDEXES: [u8; 256] = [INVALID_PROCESSOR_INDEX; 256];
 
@@ -50,15 +50,11 @@ extern "C" {
 
 static AP_STALLED: AtomicBool = AtomicBool::new(true);
 static AP_BOOTED: AtomicBool = AtomicBool::new(false);
-static GLOBALLOCK: Spinlock = Spinlock::new();
 
 #[no_mangle]
 pub unsafe extern "C" fn apic_start_ap() {
-    let apic_id = GLOBALLOCK.synchronized(|| {
-        let apic_id = LocalApic::init_ap();
-        System::activate_cpu(Cpu::new(apic_id));
-        apic_id
-    });
+    let apic_id = LocalApic::init_ap();
+    System::activate_cpu(Cpu::new(apic_id));
 
     AP_BOOTED.store(true, Ordering::SeqCst);
 
@@ -78,9 +74,10 @@ pub unsafe extern "C" fn apic_start_ap() {
     }
 }
 
+/// Advanced Programmable Interrupt Controller
 pub(super) struct Apic {
     master_apic_id: ApicId,
-    ioapics: Vec<Box<IoApic>>,
+    ioapics: Vec<SpinMutex<IoApic>>,
     gsi_table: [GsiProps; 256],
     idt: [usize; Irq::MAX.0 as usize],
     idt_params: [usize; Irq::MAX.0 as usize],
@@ -152,7 +149,9 @@ impl Apic {
 
         // Init IO Apics
         for acpi_ioapic in &acpi_apic.io_apics {
-            shared.ioapics.push(Box::new(IoApic::new(acpi_ioapic)));
+            shared
+                .ioapics
+                .push(SpinMutex::new(IoApic::new(acpi_ioapic)));
         }
 
         seq!(N in 1..64 {
@@ -214,9 +213,9 @@ impl Apic {
             let cpus: Vec<Processor> = pi
                 .application_processors
                 .into_iter()
-                .filter(|v| v.state != ProcessorState::Disabled)
+                .filter(|v| v.state == ProcessorState::WaitingForSipi)
                 .collect();
-            let max_cpu = core::cmp::min(1 + cpus.len(), MAX_CPU);
+            let max_cpu = usize::min(1 + cpus.len(), MAX_CPU);
             let stack_chunk_size = STACK_CHUNK_SIZE;
             let stack_base = MemoryManager::zalloc(Layout::from_size_align_unchecked(
                 max_cpu * stack_chunk_size,
@@ -251,7 +250,7 @@ impl Apic {
                     wait.wait();
                 }
                 if !AP_BOOTED.load(Ordering::SeqCst) {
-                    panic!("SMP: Some of application processors are not responding");
+                    panic!("SMP: Some application processors are not responding");
                 }
 
                 // log!("CPU #{} OK", index,);
@@ -300,7 +299,8 @@ impl Apic {
             return Err(());
         }
 
-        for ioapic in shared.ioapics.iter_mut() {
+        for ioapic in shared.ioapics.iter() {
+            let mut ioapic = ioapic.lock();
             let local_irq = global_irq.0 - ioapic.global_int.0;
             if ioapic.global_int <= global_irq && local_irq < ioapic.entries {
                 if shared.idt[global_irq.0 as usize] != 0 {
@@ -321,12 +321,13 @@ impl Apic {
         Err(())
     }
 
-    pub unsafe fn set_irq_enabled(irq: Irq, enabled: bool) -> Result<(), ()> {
-        let shared = Self::shared_mut();
+    pub fn set_irq_enabled(irq: Irq, enabled: bool) -> Result<(), ()> {
+        let shared = Self::shared();
         let props = shared.gsi_table[irq.0 as usize];
         let global_irq = props.global_irq;
 
-        for ioapic in shared.ioapics.iter_mut() {
+        for ioapic in shared.ioapics.iter() {
+            let mut ioapic = ioapic.lock();
             let local_irq = global_irq.0 - ioapic.global_int.0;
             if ioapic.global_int <= global_irq && local_irq < ioapic.entries {
                 let mut value = ioapic.read(IoApicIndex::redir_table_low(local_irq * 2));
@@ -370,6 +371,10 @@ impl Apic {
                 let vec = msi.as_vec();
                 let addr = Self::MSI_BASE;
                 let data = Self::MSI_DATA | vec.0 as u16;
+                // panic!(
+                //     "register_msi {:02x} {:02x} {:08x} {:08x}",
+                //     msi.0, vec.0, addr, data
+                // );
                 (addr, data)
             })
             .map_err(|_| ())
@@ -378,7 +383,7 @@ impl Apic {
     #[inline]
     #[must_use]
     pub unsafe fn broadcast_invalidate_tlb() -> bool {
-        let shared = Self::shared_mut();
+        let shared = Self::shared();
 
         shared.ipi_mutex.synchronized(|| {
             Irql::IPI.raise(|| {
@@ -460,30 +465,34 @@ unsafe extern "x86-interrupt" fn ipi_tlb_flush_handler() {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub(super) struct ApicId(pub u8);
 
 impl ApicId {
     pub const BROADCAST: Self = Self(u8::MAX);
 
+    #[inline]
     pub const fn as_u32(self) -> u32 {
         self.0 as u32
     }
 }
 
 impl From<u8> for ApicId {
+    #[inline]
     fn from(val: u8) -> Self {
         Self(val)
     }
 }
 
 impl From<u32> for ApicId {
+    #[inline]
     fn from(val: u32) -> Self {
         Self(val as u8)
     }
 }
 
 impl From<usize> for ApicId {
+    #[inline]
     fn from(val: usize) -> Self {
         Self(val as u8)
     }
@@ -491,7 +500,7 @@ impl From<usize> for ApicId {
 
 /// Interrupt Request
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Irq(pub u8);
 
 impl Irq {
@@ -509,24 +518,29 @@ impl Irq {
     pub const LPC_IDE1: Irq = Irq(14);
     pub const LPC_IDE2: Irq = Irq(15);
 
+    #[inline]
     pub const fn as_vec(self) -> InterruptVector {
         InterruptVector(Self::BASE.0 + self.0)
     }
 
+    #[inline]
     pub unsafe fn register(self, f: IrqHandler, val: usize) -> Result<(), ()> {
         Apic::register(self, f, val)
     }
 
-    pub unsafe fn enable(self) -> Result<(), ()> {
+    #[inline]
+    pub fn enable(self) -> Result<(), ()> {
         Apic::set_irq_enabled(self, true)
     }
 
-    pub unsafe fn disable(self) -> Result<(), ()> {
+    #[inline]
+    pub fn disable(self) -> Result<(), ()> {
         Apic::set_irq_enabled(self, false)
     }
 }
 
 impl From<Irq> for InterruptVector {
+    #[inline]
     fn from(irq: Irq) -> InterruptVector {
         irq.as_vec()
     }
@@ -534,13 +548,13 @@ impl From<Irq> for InterruptVector {
 
 /// Message Signaled Interrupts
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Msi(pub isize);
 
 impl Msi {
     #[inline]
     const fn as_irq(self) -> Irq {
-        Irq((MAX_MSI as isize + self.0) as u8)
+        Irq((MAX_IOAPIC_IRQS as isize + self.0) as u8)
     }
 
     #[inline]
@@ -550,6 +564,7 @@ impl Msi {
 }
 
 impl From<Msi> for InterruptVector {
+    #[inline]
     fn from(msi: Msi) -> Self {
         msi.as_vec()
     }
@@ -562,6 +577,7 @@ struct GsiProps {
 }
 
 impl GsiProps {
+    #[inline]
     const fn default() -> Self {
         GsiProps {
             global_irq: Irq(0),
@@ -575,16 +591,18 @@ impl GsiProps {
 struct PackedTriggerMode(pub u8);
 
 impl PackedTriggerMode {
+    #[inline]
     const fn new(trigger: ApicTriggerMode, polarity: ApicPolarity) -> Self {
         Self(trigger.as_packed() | polarity.as_packed())
     }
 
+    #[inline]
     const fn as_redir(self) -> u32 {
         (self.0 as u32) << 12
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum ApicPolarity {
     ActiveHigh = 0,
     ActiveLow = 1,
@@ -598,6 +616,7 @@ impl ApicPolarity {
 }
 
 impl From<&acpi::platform::interrupt::Polarity> for ApicPolarity {
+    #[inline]
     fn from(src: &acpi::platform::interrupt::Polarity) -> Self {
         match *src {
             acpi::platform::interrupt::Polarity::SameAsBus => ApicPolarity::ActiveHigh,
@@ -607,7 +626,7 @@ impl From<&acpi::platform::interrupt::Polarity> for ApicPolarity {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum ApicTriggerMode {
     Edge = 0,
     Level = 1,
@@ -626,6 +645,7 @@ impl ApicTriggerMode {
 }
 
 impl From<&acpi::platform::interrupt::TriggerMode> for ApicTriggerMode {
+    #[inline]
     fn from(src: &acpi::platform::interrupt::TriggerMode) -> Self {
         match *src {
             acpi::platform::interrupt::TriggerMode::SameAsBus => ApicTriggerMode::Edge,
@@ -676,7 +696,7 @@ static mut LOCAL_APIC: Option<UnsafeCell<MmioSlice>> = None;
 
 #[allow(dead_code)]
 #[non_exhaustive]
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum LocalApic {
     Id = 0x20,
     Version = 0x30,
@@ -835,7 +855,7 @@ impl LocalApic {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum LocalApicTimerMode {
     OneShot = 0 << 17,
     Periodic = 1 << 17,
@@ -858,10 +878,12 @@ impl IoApicIndex {
     const VER: IoApicIndex = IoApicIndex(0x01);
     const REDIR_BASE: IoApicIndex = IoApicIndex(0x10);
 
+    #[inline]
     const fn redir_table_low(index: u8) -> Self {
         Self(Self::REDIR_BASE.0 + index * 2)
     }
 
+    #[inline]
     const fn redir_table_high(index: u8) -> Self {
         Self(Self::REDIR_BASE.0 + index * 2 + 1)
     }
@@ -873,7 +895,6 @@ struct IoApic {
     global_int: Irq,
     entries: u8,
     id: u8,
-    lock: Spinlock,
 }
 
 impl IoApic {
@@ -883,28 +904,21 @@ impl IoApic {
             global_int: Irq(acpi_ioapic.global_system_interrupt_base as u8),
             entries: 0,
             id: acpi_ioapic.id,
-            lock: Spinlock::new(),
         };
         let ver = ioapic.read(IoApicIndex::VER);
         ioapic.entries = 1 + (ver >> 16) as u8;
         ioapic
     }
 
-    unsafe fn read(&mut self, index: IoApicIndex) -> u32 {
-        without_interrupts!({
-            self.lock.synchronized(|| {
-                self.mmio.write_u8(0x00, index.0);
-                self.mmio.read_u32(0x10)
-            })
-        })
+    #[inline]
+    fn read(&mut self, index: IoApicIndex) -> u32 {
+        self.mmio.write_u8(0x00, index.0);
+        self.mmio.read_u32(0x10)
     }
 
-    unsafe fn write(&mut self, index: IoApicIndex, data: u32) {
-        without_interrupts!({
-            self.lock.synchronized(|| {
-                self.mmio.write_u8(0x00, index.0);
-                self.mmio.write_u32(0x10, data);
-            });
-        });
+    #[inline]
+    fn write(&mut self, index: IoApicIndex, data: u32) {
+        self.mmio.write_u8(0x00, index.0);
+        self.mmio.write_u32(0x10, data);
     }
 }

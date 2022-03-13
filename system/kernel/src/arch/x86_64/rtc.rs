@@ -1,34 +1,39 @@
 // Real Time Clock
 
-use super::cpu::*;
-use crate::{sync::spinlock::*, task::scheduler::*};
+use crate::{
+    sync::spinlock::{SpinMutex, SpinMutexGuard},
+    task::scheduler::*,
+};
 use core::arch::asm;
 use megstd::time::SystemTime;
 
-static mut RTC: Rtc = Rtc::new();
+static RTC: SpinMutex<Rtc> = SpinMutex::new(Rtc::new());
 
 pub(super) struct Rtc {
     base: u64,
     offset: u64,
-    lock: Spinlock,
 }
 
 impl Rtc {
+    #[inline]
     const fn new() -> Self {
-        Self {
-            base: 0,
-            offset: 0,
-            lock: Spinlock::new(),
-        }
+        Self { base: 0, offset: 0 }
     }
 
     pub unsafe fn init() {
-        RTC.base = Self::fetch_time();
-        RTC.offset = Timer::monotonic().as_nanos() as u64;
+        let mut shared = Self::shared();
+
+        shared.base = Self::fetch_time();
+        shared.offset = Timer::monotonic().as_nanos() as u64;
+    }
+
+    #[inline]
+    fn shared<'a>() -> SpinMutexGuard<'a, Self> {
+        RTC.lock()
     }
 
     pub fn system_time() -> SystemTime {
-        let shared = unsafe { &RTC };
+        let shared = Self::shared();
 
         let nanos_per_sec = 1_000_000_000;
         let diff = Timer::monotonic().as_nanos() as u64 - shared.offset;
@@ -39,15 +44,13 @@ impl Rtc {
     }
 
     unsafe fn fetch_time() -> u64 {
-        RTC.lock.synchronized(|| {
-            without_interrupts!(loop {
-                let time1 = Self::read_time();
-                let time2 = Self::read_time();
-                if time1 == time2 {
-                    break time1;
-                }
-            })
-        })
+        loop {
+            let time1 = Self::read_time();
+            let time2 = Self::read_time();
+            if time1 == time2 {
+                break time1;
+            }
+        }
     }
 
     unsafe fn read_time() -> u64 {

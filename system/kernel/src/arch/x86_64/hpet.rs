@@ -1,10 +1,9 @@
-// High Precision Event Timer
-
 use super::{apic::*, page::PhysicalAddress};
 use crate::{mem::mmio::*, task::scheduler::*, *};
 use alloc::boxed::Box;
 use core::time::Duration;
 
+/// High Precision Event Timer
 pub(super) struct Hpet {
     mmio: MmioSlice,
     main_cnt_period: u64,

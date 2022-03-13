@@ -39,7 +39,6 @@ $(EFI_VENDOR):
 run:
 	qemu-system-x86_64 -machine q35 \
 		-cpu Haswell -smp 4,cores=2,threads=2 \
-		-m 256m \
 		-bios $(OVMF) \
 		-rtc base=localtime,clock=host \
 		-device nec-usb-xhci,id=xhci -device usb-tablet \

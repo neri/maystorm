@@ -12,10 +12,8 @@ use alloc::boxed::Box;
 use bitflags::*;
 use core::{
     arch::asm, arch::x86_64::__cpuid_count, cell::UnsafeCell, convert::TryFrom, ffi::c_void,
-    sync::atomic::*,
+    mem::transmute, sync::atomic::*,
 };
-use num_derive::FromPrimitive;
-use num_traits::FromPrimitive;
 
 extern "C" {
     fn asm_handle_exception(_: InterruptVector) -> usize;
@@ -71,12 +69,12 @@ impl Cpu {
         if shared.max_cpuid_level_0 >= 0x1F {
             let cpuid1f = __cpuid_count(0x1F, 0);
             if (cpuid1f.ecx & 0xFF00) == 0x0100 {
-                Self::shared().smt_topology = (1 << cpuid1f.eax) - 1;
+                shared.smt_topology = (1 << cpuid1f.eax) - 1;
             }
         } else if shared.max_cpuid_level_0 >= 0x0B {
             let cpuid0b = __cpuid_count(0x0B, 0);
             if (cpuid0b.ecx & 0xFF00) == 0x0100 {
-                Self::shared().smt_topology = (1 << cpuid0b.eax) - 1;
+                shared.smt_topology = (1 << cpuid0b.eax) - 1;
             }
         }
 
@@ -108,8 +106,8 @@ impl Cpu {
     }
 
     #[inline]
-    pub(super) fn shared<'a>() -> &'a mut SharedCpu {
-        unsafe { SHARED_CPU.get_mut() }
+    pub(super) unsafe fn shared<'a>() -> &'a mut SharedCpu {
+        SHARED_CPU.get_mut()
     }
 
     #[inline]
@@ -869,12 +867,12 @@ impl Rflags {
 
 /// Type of x86 segment limit
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Limit(pub u16);
 
 /// Type of x86 segment selector
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Selector(pub u16);
 
 impl Selector {
@@ -907,7 +905,7 @@ impl Selector {
 }
 
 /// DPL, CPL, RPL and IOPL
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PrivilegeLevel {
     /// Ring 0, Kernel mode
     Kernel = 0,
@@ -944,7 +942,7 @@ impl From<usize> for PrivilegeLevel {
 }
 
 #[non_exhaustive]
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DescriptorType {
     Null = 0,
     Tss = 9,
@@ -962,7 +960,7 @@ impl DescriptorType {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct InterruptVector(pub u8);
 
 impl InterruptVector {
@@ -972,7 +970,7 @@ impl InterruptVector {
 
 #[repr(u8)]
 #[non_exhaustive]
-#[derive(Debug, Copy, Clone, PartialEq, FromPrimitive)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ExceptionType {
     /// #DE
     DivideError = 0,
@@ -1024,6 +1022,11 @@ impl ExceptionType {
     #[inline]
     pub const fn as_vec(self) -> InterruptVector {
         InterruptVector(self as u8)
+    }
+
+    #[inline]
+    pub const unsafe fn from_vec(vec: InterruptVector) -> Self {
+        transmute(vec.0)
     }
 
     #[inline]
@@ -1144,7 +1147,7 @@ impl TryFrom<DescriptorEntry> for DefaultSize {
 }
 
 #[repr(transparent)]
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct DescriptorEntry(u64);
 
 impl DescriptorEntry {
@@ -1365,12 +1368,12 @@ impl InterruptDescriptorTable {
 
 #[repr(u32)]
 #[non_exhaustive]
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Msr {
-    Tsc = 0x10,
-    ApicBase = 0x01b,
-    MiscEnable = 0x1a0,
-    TscDeadline = 0x6e0,
+    Tsc = 0x0000_0010,
+    ApicBase = 0x0000_001b,
+    MiscEnable = 0x0000_01a0,
+    TscDeadline = 0x0000_06e0,
     Efer = 0xc000_0080,
     Star = 0xc000_0081,
     LStar = 0xc000_0082,
@@ -1380,7 +1383,6 @@ pub enum Msr {
     GsBase = 0xc000_0101,
     KernelGsBase = 0xc000_0102,
     TscAux = 0xc000_0103,
-    Deadbeef = 0xdeadbeef,
 }
 
 #[repr(C)]
@@ -1401,14 +1403,26 @@ impl Msr {
     #[inline]
     pub unsafe fn write(self, value: u64) {
         let value = MsrResult { qword: value };
-        asm!("wrmsr", in("eax") value.tuple.eax, in("edx") value.tuple.edx, in("ecx") self as u32, options(nomem, nostack),);
+        asm!(
+            "wrmsr",
+            in("eax") value.tuple.eax,
+            in("edx") value.tuple.edx,
+            in("ecx") self as u32,
+            options(nomem, nostack),
+        );
     }
 
     #[inline]
     pub unsafe fn read(self) -> u64 {
-        let mut eax: u32;
-        let mut edx: u32;
-        asm!("rdmsr", lateout("eax") eax, lateout("edx") edx, in("ecx") self as u32, options(nomem, nostack));
+        let eax: u32;
+        let edx: u32;
+        asm!(
+            "rdmsr",
+            lateout("eax") eax,
+            lateout("edx") edx,
+            in("ecx") self as u32,
+            options(nomem, nostack),
+        );
         MsrResult {
             tuple: AccumulatorPair { eax, edx },
         }
@@ -1512,7 +1526,7 @@ pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext)
         let ctx = ctx.as_ref().unwrap();
         let cpu = System::current_processor();
         let cs_desc = cpu.gdt.item(ctx.cs()).unwrap();
-        let ex: ExceptionType = FromPrimitive::from_u8(ctx.vector().0).unwrap();
+        let ex = ExceptionType::from_vec(ctx.vector());
 
         match cs_desc.default_operand_size().unwrap() {
             DefaultSize::Use16 | DefaultSize::Use32 => {

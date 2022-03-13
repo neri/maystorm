@@ -15,6 +15,7 @@ use bitflags::*;
 use bootprot::*;
 use core::{
     alloc::Layout,
+    cell::UnsafeCell,
     ffi::c_void,
     fmt::Write,
     mem::MaybeUninit,
@@ -27,7 +28,7 @@ use megstd::string::*;
 
 pub use crate::arch::page::{NonNullPhysicalAddress, PhysicalAddress};
 
-static mut MM: MemoryManager = MemoryManager::new();
+static mut MM: UnsafeCell<MemoryManager> = UnsafeCell::new(MemoryManager::new());
 
 pub struct MemoryManager {
     reserved_memory_size: usize,
@@ -90,11 +91,11 @@ impl MemoryManager {
 
     pub unsafe fn late_init() {
         PageManager::init_late();
-        SpawnOption::with_priority(Priority::Realtime).start(Self::page_thread, 0, "Page Manager");
+        SpawnOption::with_priority(Priority::Realtime).start(Self::_page_thread, 0, "Page Manager");
     }
 
     #[allow(dead_code)]
-    fn page_thread(_args: usize) {
+    fn _page_thread(_args: usize) {
         let shared = Self::shared();
         let fifo = unsafe { &*shared.fifo.as_ptr() };
         while let Some(event) = fifo.wait_event() {
@@ -106,13 +107,13 @@ impl MemoryManager {
     }
 
     #[inline]
-    fn shared_mut() -> &'static mut Self {
-        unsafe { &mut MM }
+    unsafe fn shared_mut() -> &'static mut Self {
+        MM.get_mut()
     }
 
     #[inline]
     fn shared() -> &'static Self {
-        unsafe { &MM }
+        unsafe { &*MM.get() }
     }
 
     #[inline]
@@ -157,13 +158,13 @@ impl MemoryManager {
 
     #[inline]
     pub fn reserved_memory_size() -> usize {
-        let shared = Self::shared_mut();
+        let shared = Self::shared();
         shared.reserved_memory_size
     }
 
     #[inline]
     pub fn free_memory_size() -> usize {
-        let shared = Self::shared_mut();
+        let shared = Self::shared();
         let mut total = shared.dummy_size.load(Ordering::Relaxed);
         total += shared.pairs()[..shared.n_free.load(Ordering::Relaxed)]
             .iter()
@@ -177,9 +178,12 @@ impl MemoryManager {
     }
 
     /// Allocate pages
+    #[must_use]
     pub unsafe fn pg_alloc(layout: Layout) -> Option<NonZeroUsize> {
-        let shared = Self::shared_mut();
-
+        if layout.align() > Self::PAGE_SIZE_MIN {
+            return None;
+        }
+        let shared = Self::shared();
         let align_m1 = Self::PAGE_SIZE_MIN - 1;
         let size = (layout.size() + align_m1) & !(align_m1);
         let n_free = shared.n_free.load(Ordering::SeqCst);
@@ -194,6 +198,16 @@ impl MemoryManager {
         None
     }
 
+    pub unsafe fn pg_dealloc(base: NonZeroUsize, layout: Layout) {
+        let shared = Self::shared();
+        let _ = base;
+        // let align_m1 = Self::PAGE_SIZE_MIN - 1;
+        // let size = (layout.size() + align_m1) & !(align_m1);
+        // let mut pairs = shared.pairs();
+        shared.dummy_size.fetch_add(layout.size(), Ordering::SeqCst);
+    }
+
+    #[must_use]
     pub unsafe fn alloc_pages(size: usize) -> Option<NonZeroUsize> {
         let result = Self::pg_alloc(Layout::from_size_align_unchecked(size, Self::PAGE_SIZE_MIN));
         if let Some(p) = result {
@@ -204,6 +218,7 @@ impl MemoryManager {
     }
 
     #[inline]
+    #[must_use]
     pub unsafe fn alloc_dma<T>(len: usize) -> Option<(PhysicalAddress, *mut T)> {
         Self::alloc_pages(size_of::<T>() * len).map(|v| {
             let pa = v.get() as PhysicalAddress;
@@ -212,8 +227,9 @@ impl MemoryManager {
     }
 
     /// Allocate kernel memory
+    #[must_use]
     pub unsafe fn zalloc(layout: Layout) -> Option<NonZeroUsize> {
-        let shared = Self::shared_mut();
+        let shared = Self::shared();
         if let Some(slab) = &shared.slab {
             match slab.alloc(layout) {
                 Ok(result) => return Some(result),
@@ -224,6 +240,7 @@ impl MemoryManager {
         Self::zalloc2(layout)
     }
 
+    #[must_use]
     pub unsafe fn zalloc2(layout: Layout) -> Option<NonZeroUsize> {
         Self::pg_alloc(layout)
             .and_then(|v| NonZeroUsize::new(PageManager::direct_map(v.get() as PhysicalAddress)))
@@ -235,22 +252,16 @@ impl MemoryManager {
         layout: Layout,
     ) -> Result<(), DeallocationError> {
         if let Some(base) = base {
-            let ptr = base.get() as *mut u8;
-            ptr.write_bytes(0xCC, layout.size());
+            (base.get() as *mut u8).write_bytes(0xCC, layout.size());
 
-            let shared = Self::shared_mut();
+            let shared = Self::shared();
             if let Some(slab) = &shared.slab {
-                match slab.free(base, layout) {
-                    Ok(_) => Ok(()),
-                    Err(_) => {
-                        shared.dummy_size.fetch_add(layout.size(), Ordering::SeqCst);
-                        Ok(())
-                    }
+                if slab.free(base, layout).is_ok() {
+                    return Ok(());
                 }
-            } else {
-                shared.dummy_size.fetch_add(layout.size(), Ordering::SeqCst);
-                Ok(())
             }
+            Self::pg_dealloc(base, layout);
+            Ok(())
         } else {
             Ok(())
         }
@@ -259,7 +270,7 @@ impl MemoryManager {
     /// Allocate a page on real memory
     pub unsafe fn static_alloc_real() -> Option<NonZeroU8> {
         let max_real = 0xA0;
-        let shared = Self::shared_mut();
+        let shared = Self::shared();
         for i in 1..max_real {
             let result = Cpu::interlocked_test_and_clear(
                 &*(&shared.real_bitmap[0] as *const _ as *const AtomicUsize),
@@ -273,7 +284,7 @@ impl MemoryManager {
     }
 
     pub fn statistics(sb: &mut StringBuffer) {
-        let shared = Self::shared_mut();
+        let shared = Self::shared();
         sb.clear();
 
         let dummy = shared.dummy_size.load(Ordering::Relaxed);

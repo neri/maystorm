@@ -1,5 +1,3 @@
-//! A Computer System
-
 use crate::{
     arch::cpu::*,
     arch::page::{PageManager, PhysicalAddress},
@@ -11,7 +9,7 @@ use crate::{
 };
 use alloc::{boxed::Box, string::*, vec::Vec};
 use bootprot::BootInfo;
-use core::{fmt, ptr::*, sync::atomic::*};
+use core::{cell::UnsafeCell, fmt, ptr::*, sync::atomic::*};
 use megstd::{drawing::*, time::SystemTime};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -106,6 +104,7 @@ impl ToString for ProcessorSystemType {
     }
 }
 
+/// A Kernel of MEG-OS codename Maystorm
 #[allow(dead_code)]
 pub struct System {
     /// Current device information
@@ -131,7 +130,7 @@ pub struct System {
     initrd_size: usize,
 }
 
-static mut SYSTEM: System = System::new();
+static mut SYSTEM: UnsafeCell<System> = UnsafeCell::new(System::new());
 
 impl System {
     const SYSTEM_NAME: &'static str = "MEG-OS codename Azalea";
@@ -157,7 +156,7 @@ impl System {
 
     /// Initialize the system
     pub unsafe fn init(info: &BootInfo, f: fn() -> ()) -> ! {
-        let shared = &mut SYSTEM;
+        let shared = SYSTEM.get_mut();
         shared.boot_flags = info.flags;
         shared.initrd_base = info.initrd_base as usize;
         shared.initrd_size = info.initrd_size as usize;
@@ -192,7 +191,7 @@ impl System {
 
     /// The second half of the system initialization
     fn late_init(args: usize) {
-        let shared = Self::shared();
+        let shared = unsafe { Self::shared_mut() };
 
         // banner
         if false {
@@ -240,10 +239,14 @@ impl System {
         }
     }
 
-    /// Returns an internal shared instance
     #[inline]
-    fn shared() -> &'static mut System {
-        unsafe { &mut SYSTEM }
+    unsafe fn shared_mut() -> &'static mut System {
+        SYSTEM.get_mut()
+    }
+
+    #[inline]
+    fn shared() -> &'static System {
+        unsafe { &*SYSTEM.get() }
     }
 
     /// Returns the name of current system.
@@ -289,31 +292,13 @@ impl System {
     /// Do not call this function except when initializing the SMP.
     #[inline]
     pub unsafe fn activate_cpu(new_cpu: Box<Cpu>) {
-        let shared = Self::shared();
+        let shared = Self::shared_mut();
         let processor_type = new_cpu.processor_type();
         shared.cpus.push(new_cpu);
         let device = &shared.current_device;
-        device.num_of_active_cpus.fetch_add(1, Ordering::SeqCst);
+        device.num_of_active_cpus.fetch_add(1, Ordering::AcqRel);
         if processor_type == ProcessorCoreType::Main {
-            device.num_of_main_cpus.fetch_add(1, Ordering::SeqCst);
-        }
-        fence(Ordering::SeqCst);
-    }
-
-    /// Sorts the list of CPUs by processor ID.
-    ///
-    /// # Safety
-    ///
-    /// THREAD UNSAFE.
-    /// Do not call this function except when initializing the SMP.
-    #[inline]
-    pub unsafe fn sort_cpus_by<F>(key: F)
-    where
-        F: FnMut(&Box<Cpu>) -> usize,
-    {
-        Self::shared().cpus.sort_by_key(key);
-        for (index, cpu) in Self::shared().cpus.iter_mut().enumerate() {
-            cpu.cpu_index = ProcessorIndex(index);
+            device.num_of_main_cpus.fetch_add(1, Ordering::AcqRel);
         }
         fence(Ordering::SeqCst);
     }
@@ -347,12 +332,12 @@ impl System {
     #[inline]
     #[track_caller]
     pub unsafe fn cpu_mut<'a>(index: ProcessorIndex) -> &'a mut Cpu {
-        Self::shared().cpus.get_mut(index.0).unwrap()
+        Self::shared_mut().cpus.get_mut(index.0).unwrap()
     }
 
     #[inline]
-    pub fn set_processor_systsm_type(value: ProcessorSystemType) {
-        Self::shared().current_device.processor_system_type = value;
+    pub unsafe fn set_processor_systsm_type(value: ProcessorSystemType) {
+        Self::shared_mut().current_device.processor_system_type = value;
     }
 
     #[inline]
@@ -390,22 +375,20 @@ impl System {
 
     /// Get main screen
     pub fn main_screen() -> Bitmap<'static> {
-        let shared = Self::shared();
-        shared.main_screen.as_mut().unwrap().into()
+        unsafe { Self::shared_mut().main_screen.as_mut().unwrap().into() }
     }
 
     pub fn em_console<'a>() -> &'a mut EmConsole {
-        let shared = Self::shared();
-        &mut shared.em_console
+        unsafe { &mut Self::shared_mut().em_console }
     }
 
     pub fn set_stdout(stdout: Box<dyn Tty>) {
-        let shared = Self::shared();
+        let shared = unsafe { Self::shared_mut() };
         shared.stdout = Some(stdout);
     }
 
     pub fn stdout<'a>() -> &'a mut dyn Tty {
-        let shared = Self::shared();
+        let shared = unsafe { Self::shared_mut() };
         match shared.stdout.as_mut() {
             Some(v) => v.as_mut(),
             None => io::null::Null::null(),

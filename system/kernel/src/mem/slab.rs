@@ -24,7 +24,7 @@ impl SlabAllocator {
         Self { _phantom: () }
     }
 
-    pub fn alloc(&self, layout: Layout) -> Result<NonZeroUsize, AllocationError> {
+    pub unsafe fn alloc(&self, layout: Layout) -> Result<NonZeroUsize, AllocationError> {
         let size = usize::max(layout.size(), layout.align());
         if size > UsizeSmall::MAX as usize {
             return Err(AllocationError::Unsupported);
@@ -38,7 +38,7 @@ impl SlabAllocator {
         return Err(AllocationError::Unsupported);
     }
 
-    pub fn free(&self, base: NonZeroUsize, layout: Layout) -> Result<(), DeallocationError> {
+    pub unsafe fn free(&self, base: NonZeroUsize, layout: Layout) -> Result<(), DeallocationError> {
         let size = usize::max(layout.size(), layout.align());
         if size > UsizeSmall::MAX as usize {
             return Err(DeallocationError::Unsupported);

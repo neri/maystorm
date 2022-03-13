@@ -7,27 +7,27 @@ use core::{
     sync::atomic::*,
 };
 
-const LOCKED_VALUE: bool = true;
-const UNLOCKED_VALUE: bool = false;
-
 #[derive(Default)]
 pub struct Spinlock {
     value: AtomicBool,
 }
 
 impl Spinlock {
+    const LOCKED_VALUE: bool = true;
+    const UNLOCKED_VALUE: bool = false;
+
     #[inline]
     pub const fn new() -> Self {
         Self {
-            value: AtomicBool::new(UNLOCKED_VALUE),
+            value: AtomicBool::new(Self::UNLOCKED_VALUE),
         }
     }
 
     #[inline]
     pub fn try_lock(&self) -> Result<(), ()> {
         match self.value.compare_exchange(
-            UNLOCKED_VALUE,
-            LOCKED_VALUE,
+            Self::UNLOCKED_VALUE,
+            Self::LOCKED_VALUE,
             Ordering::Acquire,
             Ordering::Relaxed,
         ) {
@@ -40,8 +40,8 @@ impl Spinlock {
         while self
             .value
             .compare_exchange(
-                UNLOCKED_VALUE,
-                LOCKED_VALUE,
+                Self::UNLOCKED_VALUE,
+                Self::LOCKED_VALUE,
                 Ordering::Acquire,
                 Ordering::Relaxed,
             )
@@ -56,7 +56,7 @@ impl Spinlock {
 
     #[inline]
     pub unsafe fn force_unlock(&self) {
-        self.value.store(UNLOCKED_VALUE, Ordering::Release);
+        self.value.store(Self::UNLOCKED_VALUE, Ordering::Release);
     }
 
     #[inline]
@@ -98,6 +98,7 @@ impl SpinLoopWait {
     }
 }
 
+/// Mutual exclusion primitives like std::sync::Mutex implemented in Spinlock
 pub struct SpinMutex<T: ?Sized> {
     lock: Spinlock,
     data: UnsafeCell<T>,
@@ -162,12 +163,14 @@ impl<T: ?Sized + Default> Default for SpinMutex<T> {
 #[must_use = "if unused the Mutex will immediately unlock"]
 pub struct SpinMutexGuard<'a, T: ?Sized + 'a> {
     mutex: &'a SpinMutex<T>,
+    #[allow(dead_code)]
     interrupt_guard: InterruptGuard,
 }
 
 impl<T: ?Sized> !Send for SpinMutexGuard<'_, T> {}
 
-unsafe impl<T: ?Sized + Sync> Sync for SpinMutexGuard<'_, T> {}
+impl<T: ?Sized> !Sync for SpinMutexGuard<'_, T> {}
+// unsafe impl<T: ?Sized + Sync> Sync for SpinMutexGuard<'_, T> {}
 
 impl<'a, T: ?Sized> SpinMutexGuard<'a, T> {
     #[inline]
