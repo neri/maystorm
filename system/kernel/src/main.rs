@@ -428,8 +428,9 @@ impl Shell {
         0
     }
 
-    fn cmd_dir(_args: &[&str]) -> isize {
-        let dir = match FileManager::read_dir("/") {
+    fn cmd_dir(args: &[&str]) -> isize {
+        let path = args.get(1).unwrap_or(&"/");
+        let dir = match FileManager::read_dir(path) {
             Ok(v) => v,
             Err(_) => return 1,
         };

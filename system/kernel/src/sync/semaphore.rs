@@ -32,6 +32,7 @@ impl Semaphore {
     }
 
     #[inline]
+    #[must_use]
     pub fn try_lock(&self) -> bool {
         Cpu::interlocked_fetch_update(&self.value, |v| if v >= 1 { Some(v - 1) } else { None })
             .is_ok()
@@ -86,6 +87,7 @@ impl BinarySemaphore {
     }
 
     #[inline]
+    #[must_use]
     pub fn try_lock(&self) -> bool {
         self.value
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
@@ -142,6 +144,7 @@ impl AsyncSemaphore {
     }
 
     #[inline]
+    #[must_use]
     pub fn try_lock(&self) -> bool {
         Cpu::interlocked_fetch_update(&self.value, |v| if v >= 1 { Some(v - 1) } else { None })
             .is_ok()
@@ -162,6 +165,7 @@ impl AsyncSemaphore {
         })
     }
 
+    #[must_use]
     pub fn poll(&self, cx: &mut Context<'_>) -> bool {
         self.waker.register(cx.waker());
         let result = self.try_lock();

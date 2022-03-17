@@ -24,16 +24,16 @@ impl Spinlock {
     }
 
     #[inline]
-    pub fn try_lock(&self) -> Result<(), ()> {
-        match self.value.compare_exchange(
-            Self::UNLOCKED_VALUE,
-            Self::LOCKED_VALUE,
-            Ordering::Acquire,
-            Ordering::Relaxed,
-        ) {
-            Ok(_) => Ok(()),
-            Err(_) => Err(()),
-        }
+    #[must_use]
+    pub fn try_lock(&self) -> bool {
+        self.value
+            .compare_exchange(
+                Self::UNLOCKED_VALUE,
+                Self::LOCKED_VALUE,
+                Ordering::Acquire,
+                Ordering::Relaxed,
+            )
+            .is_ok()
     }
 
     pub fn lock(&self) {
@@ -129,8 +129,7 @@ impl<T: ?Sized> SpinMutex<T> {
         let interrupt_guard = unsafe { Cpu::interrupt_guard() };
         self.lock
             .try_lock()
-            .map(|_| SpinMutexGuard::new(self, interrupt_guard))
-            .ok()
+            .then(|| SpinMutexGuard::new(self, interrupt_guard))
     }
 
     #[inline]

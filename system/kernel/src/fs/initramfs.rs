@@ -1,4 +1,5 @@
 use super::*;
+use crate::*;
 use alloc::{
     borrow::ToOwned, boxed::Box, collections::BTreeMap, string::String, sync::Arc, vec::Vec,
 };
@@ -41,7 +42,7 @@ impl InitRamfs {
             next_inode: AtomicUsize::new(root.get() as usize),
         };
 
-        let dir_off = LE::read_u32(&fs.blob[4..8]) as usize;
+        let dir_off = LE::read_u32(&fs.blob[4..8]) as usize - Self::OFFSET_DATA;
         let dir_size = LE::read_u32(&fs.blob[8..12]) as usize * Self::SIZE_OF_RAW_DIR;
         let mut root_dir = ThisFsInodeEntry {
             file_type: FileType::Dir,
@@ -63,7 +64,7 @@ impl InitRamfs {
     }
 
     fn parse_dir(&mut self, dir: &mut ThisFsInodeEntry) {
-        let dir_off = dir.offset;
+        let dir_off = dir.offset + Self::OFFSET_DATA;
         let n_dirent = dir.size / Self::SIZE_OF_RAW_DIR;
 
         for index in 0..n_dirent {
@@ -126,10 +127,27 @@ impl FsDriver for InitRamfs {
         ))
     }
 
-    fn open(&self, dir: INodeType, lpc: &str) -> Option<INodeType> {
+    fn find_file(&self, dir: INodeType, lpc: &str) -> io::Result<INodeType> {
         self.get_file(dir)
             .and_then(|v| v.children.iter().find(|v| v.name() == lpc))
             .map(|v| v.inode())
+            .ok_or(io::ErrorKind::NotFound.into())
+    }
+
+    fn open(&self, inode: INodeType) -> io::Result<INodeType> {
+        if self
+            .get_file(inode)
+            .map(|v| v.file_type.is_file())
+            .unwrap_or(false)
+        {
+            Ok(inode)
+        } else {
+            Err(io::ErrorKind::IsADirectory.into())
+        }
+    }
+
+    fn close(&self, _inode: INodeType) -> io::Result<()> {
+        Ok(())
     }
 
     fn stat(&self, inode: INodeType) -> Option<FsRawMetaData> {
