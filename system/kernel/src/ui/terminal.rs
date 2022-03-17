@@ -11,9 +11,9 @@ use core::{
 use megstd::drawing::*;
 
 const DEFAULT_INSETS: EdgeInsets = EdgeInsets::new(0, 0, 0, 0);
-// const DEFAULT_ATTRIBUTE: u8 = 0x07;
+const DEFAULT_ATTRIBUTE: u8 = 0x07;
 const BG_ALPHA: u8 = 0xE0;
-const DEFAULT_ATTRIBUTE: u8 = 0xF8;
+// const DEFAULT_ATTRIBUTE: u8 = 0xF8;
 // const BG_ALPHA: u8 = 0xFF;
 
 static mut TA: TerminalAgent = TerminalAgent::new();
@@ -86,6 +86,7 @@ impl Terminal {
                 window_size.height,
             ))
             .bg_color(bg_color)
+            // .active_title_color(Color::DARK_GRAY)
             .build("Terminal");
 
         Self {

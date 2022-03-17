@@ -133,10 +133,10 @@ pub struct System {
 static mut SYSTEM: UnsafeCell<System> = UnsafeCell::new(System::new());
 
 impl System {
-    const SYSTEM_NAME: &'static str = "MEG-OS codename Azalea";
+    const SYSTEM_NAME: &'static str = "MEG-OS";
     const SYSTEM_SHORT_NAME: &'static str = "megos";
-    const RELEASE: &'static str = "";
-    const VERSION: Version<'static> = Version::new(0, 10, 0, Self::RELEASE);
+    const RELEASE: &'static str = "alpha";
+    const VERSION: Version<'static> = Version::new(0, 11, 0, Self::RELEASE);
 
     #[inline]
     const fn new() -> Self {

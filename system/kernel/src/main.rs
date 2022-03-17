@@ -5,7 +5,7 @@
 #![no_std]
 #![no_main]
 
-use alloc::{string::*, vec::*};
+use alloc::{format, string::*, vec::*};
 use bootprot::*;
 use core::{fmt::Write, num::NonZeroU8};
 use kernel::{
@@ -434,7 +434,16 @@ impl Shell {
             Err(_) => return 1,
         };
         for dir_ent in dir {
-            print!(" {:<14} ", dir_ent.name());
+            let metadata = dir_ent.metadata().unwrap();
+            let suffix = if metadata.file_type().is_dir() {
+                "/"
+            } else if metadata.file_type().is_symlink() {
+                "@"
+            } else {
+                ""
+            };
+            let name = format!("{}{}", dir_ent.name(), suffix);
+            print!(" {:<15}", name);
         }
         println!("");
         0

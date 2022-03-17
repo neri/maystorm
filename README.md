@@ -1,6 +1,6 @@
-# MEG-OS codename Maystorm
+# MEG-OS
 
-A 2020s hobby operating system written in Rust that supports multitasking, multi-window, WebAssembly, and simple applications.
+A 2020s hobby operating system written in Rust that supports WebAssembly.
 
 * [Documentation](https://meg-os.github.io/maystorm/kernel/)
 
@@ -20,8 +20,8 @@ A 2020s hobby operating system written in Rust that supports multitasking, multi
 * x64 processor with up to 64 cores
 * ??? GB of system memory
 * 800 x 600 pixels or higher resolution
-* XHCI
-* HD Audio
+* XHCI (optional)
+* HD Audio (optional)
 
 ## Build Environment
 
@@ -34,8 +34,7 @@ A 2020s hobby operating system written in Rust that supports multitasking, multi
 
 1. Install llvm
 2. Install rust (nightly)
-3. `make apps`
-4. `make install`
+3. `make install`
 
 If you get an error that the linker cannot be found, configure your linker in `~/.cargo/config.toml` or something similar.
 

@@ -1,8 +1,7 @@
-//! Signalling Object
-
 use crate::task::scheduler::*;
 use core::{sync::atomic::*, time::Duration};
 
+/// Signalling Object
 #[repr(transparent)]
 pub struct SignallingObject {
     data: AtomicUsize,
@@ -12,12 +11,12 @@ impl SignallingObject {
     #[inline]
     pub const fn new(t: Option<ThreadHandle>) -> Self {
         Self {
-            data: AtomicUsize::new(Self::from_t(t)),
+            data: AtomicUsize::new(Self::_from_t(t)),
         }
     }
 
     #[inline]
-    const fn from_t(val: Option<ThreadHandle>) -> usize {
+    const fn _from_t(val: Option<ThreadHandle>) -> usize {
         match val {
             Some(v) => v.as_usize(),
             None => 0,
@@ -25,18 +24,18 @@ impl SignallingObject {
     }
 
     #[inline]
-    const fn into_t(val: usize) -> Option<ThreadHandle> {
+    const fn _into_t(val: usize) -> Option<ThreadHandle> {
         ThreadHandle::new(val)
     }
 
     #[inline]
     pub fn load(&self) -> Option<ThreadHandle> {
-        Self::into_t(self.data.load(Ordering::Relaxed))
+        Self::_into_t(self.data.load(Ordering::Relaxed))
     }
 
     #[inline]
     pub fn swap(&self, val: Option<ThreadHandle>) -> Option<ThreadHandle> {
-        Self::into_t(self.data.swap(Self::from_t(val), Ordering::SeqCst))
+        Self::_into_t(self.data.swap(Self::_from_t(val), Ordering::SeqCst))
     }
 
     #[inline]
@@ -46,13 +45,13 @@ impl SignallingObject {
         new: Option<ThreadHandle>,
     ) -> Result<Option<ThreadHandle>, Option<ThreadHandle>> {
         match self.data.compare_exchange(
-            Self::from_t(current),
-            Self::from_t(new),
+            Self::_from_t(current),
+            Self::_from_t(new),
             Ordering::SeqCst,
             Ordering::Relaxed,
         ) {
-            Ok(v) => Ok(Self::into_t(v)),
-            Err(v) => Err(Self::into_t(v)),
+            Ok(v) => Ok(Self::_into_t(v)),
+            Err(v) => Err(Self::_into_t(v)),
         }
     }
 

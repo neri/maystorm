@@ -129,38 +129,72 @@ impl Metadata {
     // pub fn created(&self) -> Result<SystemTime>
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub struct FileType {
-    _phantom: (),
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum FileType {
+    Dir,
+    File,
+    Symlink,
+    BlockDev,
+    CharDev,
+    Fifo,
+    Socket,
 }
 
 impl FileType {
-    pub fn is_dir(&self) -> bool {
-        todo!()
+    #[inline]
+    pub const fn is_dir(&self) -> bool {
+        match self {
+            Self::Dir => true,
+            _ => false,
+        }
     }
 
-    pub fn is_file(&self) -> bool {
-        todo!()
+    #[inline]
+    pub const fn is_file(&self) -> bool {
+        match self {
+            Self::File => true,
+            _ => false,
+        }
     }
 
-    pub fn is_symlink(&self) -> bool {
-        todo!()
+    #[inline]
+    pub const fn is_symlink(&self) -> bool {
+        match self {
+            Self::Symlink => true,
+            _ => false,
+        }
     }
 
-    pub fn is_block_device(&self) -> bool {
-        todo!()
+    #[inline]
+    pub const fn is_block_device(&self) -> bool {
+        match self {
+            Self::BlockDev => true,
+            _ => false,
+        }
     }
 
-    pub fn is_char_device(&self) -> bool {
-        todo!()
+    #[inline]
+    pub const fn is_char_device(&self) -> bool {
+        match self {
+            Self::CharDev => true,
+            _ => false,
+        }
     }
 
-    pub fn is_fifo(&self) -> bool {
-        todo!()
+    #[inline]
+    pub const fn is_fifo(&self) -> bool {
+        match self {
+            Self::Fifo => true,
+            _ => false,
+        }
     }
 
-    pub fn is_socket(&self) -> bool {
-        todo!()
+    #[inline]
+    pub const fn is_socket(&self) -> bool {
+        match self {
+            Self::Socket => true,
+            _ => false,
+        }
     }
 }
 
