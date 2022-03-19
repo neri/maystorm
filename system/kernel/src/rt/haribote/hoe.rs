@@ -1,17 +1,16 @@
-// Haribote-OS Emulator
+//! Haribote-OS Emulator Subsystem
 
 use super::*;
 use crate::{
     fs::*,
     io::audio::{AudioContext, FreqType, NoteControl, OscType},
     mem::MemoryManager,
-    // ui::theme::Theme,
     ui::window::*,
     *,
 };
 use alloc::{boxed::Box, sync::Arc};
 use core::{alloc::Layout, ptr::*, slice, str, time::Duration};
-use megstd::drawing::*;
+use megstd::{drawing::*, io::Read};
 
 #[allow(dead_code)]
 mod fonts {

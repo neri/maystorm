@@ -1,10 +1,6 @@
-//! MEG-OS Arlequin System Call Function Numbers
-
-use num_derive::FromPrimitive;
-// use num_traits::FromPrimitive;
-
+/// MEG-OS Arlequin System Call Function Numbers
 #[repr(u32)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Function {
     /// Terminate the process normally
     Exit = 0,
@@ -72,4 +68,15 @@ pub enum Function {
     Alloc,
     /// Frees an allocated memory block
     Dealloc,
+
+    ///
+    Open,
+
+    Close,
+
+    Read,
+
+    Write,
+
+    LSeek,
 }

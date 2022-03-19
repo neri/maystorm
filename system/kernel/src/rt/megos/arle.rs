@@ -2,17 +2,23 @@
 
 use super::*;
 use crate::{
+    fs::{FileManager, FsRawFileControlBlock},
     sync::Mutex,
     ui::theme::Theme,
     *,
     {io::hid_mgr::*, ui::text::*, ui::window::*},
 };
-use alloc::collections::BTreeMap;
+use alloc::{collections::BTreeMap, sync::Arc};
 use byteorder::*;
 use core::{
     alloc::Layout, intrinsics::transmute, num::NonZeroU32, sync::atomic::*, time::Duration,
 };
-use megstd::{drawing::*, game::v1, rand::*};
+use megstd::{
+    drawing::*,
+    game::v1,
+    io::{Read, Write},
+    rand::*,
+};
 use num_traits::FromPrimitive;
 use wasm::{wasmintr::*, *};
 
@@ -91,6 +97,7 @@ pub struct ArleRuntime {
     module: WasmModule,
     next_handle: AtomicUsize,
     windows: Mutex<BTreeMap<usize, UnsafeCell<OsWindow>>>,
+    files: Mutex<Vec<Option<Arc<Mutex<FsRawFileControlBlock>>>>>,
     rng32: XorShift32,
     key_buffer: Mutex<Vec<KeyEvent>>,
     game_presenter: Option<UnsafeCell<Box<OsGamePresenter>>>,
@@ -99,6 +106,7 @@ pub struct ArleRuntime {
 }
 
 impl ArleRuntime {
+    const MAX_FILES: usize = 20;
     const MOD_NAME: &'static str = "megos-canary";
     const ENTRY_FUNC_NAME: &'static str = "_start";
 
@@ -110,6 +118,7 @@ impl ArleRuntime {
             module,
             next_handle: AtomicUsize::new(1),
             windows: Mutex::new(BTreeMap::new()),
+            files: Mutex::new(Vec::new()),
             rng32: XorShift32::default(),
             key_buffer: Mutex::new(Vec::with_capacity(Self::SIZE_KEYBUFFER)),
             game_presenter: None,
@@ -164,9 +173,10 @@ impl ArleRuntime {
             .module
             .memory(0)
             .ok_or(WasmRuntimeErrorKind::OutOfMemory)?;
-        let func_no = params.get_u32().and_then(|v| {
-            FromPrimitive::from_u32(v).ok_or(WasmRuntimeErrorKind::InvalidParameter)
-        })?;
+        let func_no = params
+            .get_u32()
+            .map(|v| unsafe { transmute::<u32, Function>(v) })?;
+
         if self.has_to_exit.load(Ordering::Relaxed) {
             return Err(WasmRuntimeErrorKind::Exit);
         }
@@ -204,6 +214,34 @@ impl ArleRuntime {
 
             Function::PrintString => {
                 params.get_string(memory).map(|s| print!("{}", s));
+            }
+
+            Function::Open => {
+                let path = params
+                    .get_string(memory)
+                    .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
+                let _options = params.get_u32()?;
+                return Self::encode_io_result(
+                    FileManager::open(path).and_then(|file| self.alloc_file(file)),
+                );
+            }
+            Function::Close => {
+                let handle = params.get_usize()?;
+                self.close_file(handle);
+            }
+            Function::Read => {
+                let file = params.get_file(self)?;
+                let buf = params.get_buffer(memory)?;
+                return Self::encode_io_result(file.lock().unwrap().read(buf));
+            }
+            Function::Write => {
+                let file = params.get_file(self)?;
+                let buf = params.get_buffer(memory)?;
+                return Self::encode_io_result(file.lock().unwrap().write(buf));
+            }
+            Function::LSeek => {
+                let _file = params.get_file(self)?;
+                todo!()
             }
 
             Function::NewWindow => {
@@ -483,9 +521,47 @@ impl ArleRuntime {
 
                 self.malloc.lock().unwrap().dealloc(base, layout);
             }
+
+            #[allow(unreachable_patterns)]
+            _ => return Err(WasmRuntimeErrorKind::InvalidParameter),
         }
 
         Ok(WasmValue::I32(0))
+    }
+
+    fn encode_io_result(
+        val: Result<usize, megstd::io::Error>,
+    ) -> Result<WasmValue, WasmRuntimeErrorKind> {
+        match val {
+            Ok(v) => Ok((v as u32).into()),
+            Err(_err) => {
+                // TODO
+                Ok((-1).into())
+            }
+        }
+    }
+
+    fn alloc_file(&self, file: FsRawFileControlBlock) -> Result<usize, megstd::io::Error> {
+        let mut vec = self.files.lock().unwrap();
+        for (handle, entry) in vec.iter_mut().enumerate() {
+            if entry.is_none() {
+                *entry = Some(Arc::new(Mutex::new(file)));
+                return Ok(handle);
+            }
+        }
+        let handle = vec.len();
+        if handle >= Self::MAX_FILES {
+            return Err(megstd::io::ErrorKind::OutOfMemory.into());
+        }
+        vec.push(Some(Arc::new(Mutex::new(file))));
+        Ok(handle)
+    }
+
+    fn close_file(&self, handle: usize) {
+        let mut vec = self.files.lock().unwrap();
+        if let Some(entry) = vec.get_mut(handle) {
+            *entry = None;
+        }
     }
 
     fn alloc(
@@ -654,10 +730,19 @@ impl ParamsDecoder<'_> {
     }
 
     #[inline]
+    fn get_buffer<'a>(
+        &mut self,
+        memory: &'a WasmMemory,
+    ) -> Result<&'a mut [u8], WasmRuntimeErrorKind> {
+        self.get_memarg()
+            .and_then(|memarg| unsafe { memory.slice_mut(memarg.base(), memarg.len()) })
+    }
+
+    #[inline]
     fn get_string<'a>(&mut self, memory: &'a WasmMemory) -> Option<&'a str> {
         self.get_memarg()
             .ok()
-            .and_then(|memarg| memory.read_bytes(memarg.base(), memarg.len()).ok())
+            .and_then(|memarg| unsafe { memory.slice(memarg.base(), memarg.len()) }.ok())
             .and_then(|v| core::str::from_utf8(v).ok())
     }
 
@@ -666,7 +751,7 @@ impl ParamsDecoder<'_> {
     fn get_string16(&mut self, memory: &WasmMemory) -> Option<String> {
         self.get_memarg()
             .ok()
-            .and_then(|memarg| memory.read_bytes(memarg.base(), memarg.len() * 2).ok())
+            .and_then(|memarg| unsafe { memory.slice(memarg.base(), memarg.len() * 2) }.ok())
             .and_then(|v| unsafe { core::mem::transmute(v) })
             .and_then(|p| String::from_utf16(p).ok())
     }
@@ -696,7 +781,7 @@ impl ParamsDecoder<'_> {
     ) -> Result<ConstBitmap8<'a>, WasmRuntimeErrorKind> {
         const SIZE_OF_BITMAP: usize = 20;
         let base = self.get_u32()? as usize;
-        let array = memory.read_bytes(base as usize, SIZE_OF_BITMAP)?;
+        let array = unsafe { memory.slice(base as usize, SIZE_OF_BITMAP) }?;
 
         let width = LE::read_u32(&array[0..4]) as usize;
         let height = LE::read_u32(&array[4..8]) as usize;
@@ -704,7 +789,7 @@ impl ParamsDecoder<'_> {
         let base = LE::read_u32(&array[12..16]) as usize;
 
         let len = width * height;
-        let slice = memory.read_bytes(base, len)?;
+        let slice = unsafe { memory.slice(base, len) }?;
 
         Ok(ConstBitmap8::from_bytes(
             slice,
@@ -718,7 +803,7 @@ impl ParamsDecoder<'_> {
     ) -> Result<ConstBitmap32<'a>, WasmRuntimeErrorKind> {
         const SIZE_OF_BITMAP: usize = 20;
         let base = self.get_u32()? as usize;
-        let array = memory.read_bytes(base as usize, SIZE_OF_BITMAP)?;
+        let array = unsafe { memory.slice(base as usize, SIZE_OF_BITMAP) }?;
 
         let width = LE::read_u32(&array[0..4]) as usize;
         let height = LE::read_u32(&array[4..8]) as usize;
@@ -742,21 +827,31 @@ impl ParamsDecoder<'_> {
         OsBitmap1::from_memory(memory, base)
     }
 
-    #[inline]
     fn get_window<'a>(
         &mut self,
         rt: &'a ArleRuntime,
     ) -> Result<&'a mut OsWindow, WasmRuntimeErrorKind> {
-        match self.get_u32() {
-            Ok(v) => rt
-                .windows
-                .lock()
-                .unwrap()
-                .get(&(v as usize))
-                .map(|v| unsafe { &mut *v.get() })
-                .ok_or(WasmRuntimeErrorKind::InvalidParameter),
-            Err(err) => Err(err),
-        }
+        let handle = self.get_usize()?;
+        rt.windows
+            .lock()
+            .unwrap()
+            .get(&handle)
+            .map(|v| unsafe { &mut *v.get() })
+            .ok_or(WasmRuntimeErrorKind::InvalidParameter)
+    }
+
+    fn get_file(
+        &mut self,
+        rt: &ArleRuntime,
+    ) -> Result<Arc<Mutex<FsRawFileControlBlock>>, WasmRuntimeErrorKind> {
+        let handle = self.get_usize()?;
+        rt.files
+            .lock()
+            .unwrap()
+            .get(handle)
+            .and_then(|v| v.as_ref())
+            .map(|v| v.clone())
+            .ok_or(WasmRuntimeErrorKind::InvalidParameter)
     }
 }
 
@@ -791,7 +886,7 @@ struct OsBitmap1<'a> {
 impl<'a> OsBitmap1<'a> {
     fn from_memory(memory: &'a WasmMemory, base: u32) -> Result<Self, WasmRuntimeErrorKind> {
         const SIZE_OF_BITMAP: usize = 16;
-        let array = memory.read_bytes(base as usize, SIZE_OF_BITMAP)?;
+        let array = unsafe { memory.slice(base as usize, SIZE_OF_BITMAP) }?;
 
         let width = LE::read_u32(&array[0..4]) as usize;
         let height = LE::read_u32(&array[4..8]) as usize;
@@ -800,7 +895,7 @@ impl<'a> OsBitmap1<'a> {
 
         let dim = Size::new(width as isize, height as isize);
         let size = stride * height;
-        let slice = memory.read_bytes(base, size)?;
+        let slice = unsafe { memory.slice(base, size) }?;
 
         Ok(Self { slice, dim, stride })
     }

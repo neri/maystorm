@@ -9,7 +9,10 @@ use core::{
     ptr::slice_from_raw_parts_mut,
     sync::atomic::{AtomicUsize, Ordering},
 };
-use megstd::{io, sys::fs_imp::FileType};
+use megstd::{
+    io::{ErrorKind, Result},
+    sys::fs_imp::FileType,
+};
 
 /// Minimal Initial Ram Filesystem
 pub struct InitRamfs {
@@ -123,30 +126,22 @@ impl FsDriver for InitRamfs {
         Some(FsRawDirEntry::new(
             dir_ent.inode(),
             dir_ent.name(),
-            Some(file.into()),
+            file.into(),
         ))
     }
 
-    fn find_file(&self, dir: INodeType, lpc: &str) -> io::Result<INodeType> {
+    fn find_file(&self, dir: INodeType, lpc: &str) -> Result<INodeType> {
         self.get_file(dir)
             .and_then(|v| v.children.iter().find(|v| v.name() == lpc))
             .map(|v| v.inode())
-            .ok_or(io::ErrorKind::NotFound.into())
+            .ok_or(ErrorKind::NotFound.into())
     }
 
-    fn open(&self, inode: INodeType) -> io::Result<INodeType> {
-        if self
-            .get_file(inode)
-            .map(|v| v.file_type.is_file())
-            .unwrap_or(false)
-        {
-            Ok(inode)
-        } else {
-            Err(io::ErrorKind::IsADirectory.into())
-        }
+    fn open(&self, inode: INodeType) -> Result<INodeType> {
+        Ok(inode)
     }
 
-    fn close(&self, _inode: INodeType) -> io::Result<()> {
+    fn close(&self, _inode: INodeType) -> Result<()> {
         Ok(())
     }
 
@@ -154,12 +149,12 @@ impl FsDriver for InitRamfs {
         self.get_file(inode).map(|v| v.into())
     }
 
-    fn read_data(&self, inode: INodeType, offset: OffsetType, buf: &mut [u8]) -> io::Result<usize> {
-        let dir_ent = self.get_file(inode).ok_or(io::ErrorKind::NotFound)?;
+    fn read_data(&self, inode: INodeType, offset: OffsetType, buf: &mut [u8]) -> Result<usize> {
+        let dir_ent = self.get_file(inode).ok_or(ErrorKind::NotFound)?;
         match dir_ent.file_type {
             FileType::File => (),
-            FileType::Dir => return Err(io::ErrorKind::IsADirectory.into()),
-            _ => return Err(io::ErrorKind::InvalidData.into()),
+            FileType::Dir => return Err(ErrorKind::IsADirectory.into()),
+            _ => return Err(ErrorKind::InvalidData.into()),
         }
 
         let size_left = dir_ent.size as OffsetType - offset;
@@ -175,8 +170,8 @@ impl FsDriver for InitRamfs {
         Ok(count)
     }
 
-    fn write_data(&self, _inode: INodeType, _offset: OffsetType, _buf: &[u8]) -> io::Result<usize> {
-        Err(io::ErrorKind::ReadOnlyFilesystem.into())
+    fn write_data(&self, _inode: INodeType, _offset: OffsetType, _buf: &[u8]) -> Result<usize> {
+        Err(ErrorKind::ReadOnlyFilesystem.into())
     }
 }
 

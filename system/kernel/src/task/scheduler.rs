@@ -12,10 +12,14 @@ use crate::{
     ui::window::{WindowHandle, WindowMessage},
     *,
 };
-use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc, vec::*};
+use alloc::{
+    borrow::ToOwned, boxed::Box, collections::btree_map::BTreeMap, string::String, sync::Arc,
+    vec::*,
+};
 use bitflags::*;
 use core::{
-    cell::UnsafeCell, ffi::c_void, fmt::Write, num::*, ops::*, sync::atomic::*, time::Duration,
+    cell::UnsafeCell, ffi::c_void, fmt::Write, intrinsics::transmute, num::*, ops::*,
+    sync::atomic::*, time::Duration,
 };
 use megstd::string::*;
 use num_derive::FromPrimitive;
@@ -26,9 +30,10 @@ const THRESHOLD_LEAVE_SAVING: usize = 950;
 const THRESHOLD_ENTER_FULL: usize = 750;
 const THRESHOLD_LEAVE_FULL: usize = 999;
 
+static SCHEDULER_STATE: AtomicUsize = AtomicUsize::new(SchedulerState::Disabled.as_raw());
 static mut SCHEDULER: Option<Box<Scheduler>> = None;
-
-static SCHEDULER_ENABLED: AtomicBool = AtomicBool::new(false);
+static mut THREAD_POOL: ThreadPool = ThreadPool::new();
+static PROCESS_POOL: ProcessPool = ProcessPool::new();
 
 /// System Scheduler
 pub struct Scheduler {
@@ -38,13 +43,9 @@ pub struct Scheduler {
 
     locals: Vec<Box<LocalScheduler>>,
 
-    process_pool: ProcessPool,
-    thread_pool: ThreadPool,
-
     usage: AtomicUsize,
     usage_total: AtomicUsize,
     is_frozen: AtomicBool,
-    state: SchedulerState,
 
     next_timer: AtomicUsize,
     sem_timer: Semaphore,
@@ -52,6 +53,7 @@ pub struct Scheduler {
     timer_queue: ConcurrentFifo<TimerEvent>,
 }
 
+#[repr(usize)]
 #[allow(non_camel_case_types)]
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
@@ -66,6 +68,32 @@ pub enum SchedulerState {
     FullThrottle,
 }
 
+impl SchedulerState {
+    #[inline]
+    pub const fn as_raw(self) -> usize {
+        self as usize
+    }
+
+    #[inline]
+    pub const fn from_raw(val: usize) -> Self {
+        unsafe { transmute(val) }
+    }
+}
+
+impl From<SchedulerState> for usize {
+    #[inline]
+    fn from(val: SchedulerState) -> Self {
+        val.as_raw()
+    }
+}
+
+impl From<usize> for SchedulerState {
+    #[inline]
+    fn from(val: usize) -> Self {
+        Self::from_raw(val)
+    }
+}
+
 impl Scheduler {
     /// Start scheduler and sleep forever
     pub fn start(f: fn(usize) -> (), args: usize) -> ! {
@@ -76,37 +104,33 @@ impl Scheduler {
         let queue_higher = ThreadQueue::with_capacity(SIZE_OF_SUB_QUEUE);
         let queue_normal = ThreadQueue::with_capacity(SIZE_OF_MAIN_QUEUE);
 
+        ProcessPool::shared().add(ProcessContextData::new(
+            ProcessId(0),
+            Priority::Idle,
+            "idle",
+            "/",
+        ));
+
+        let mut locals = Vec::new();
+        for index in 0..System::current_device().num_of_active_cpus() {
+            locals.push(LocalScheduler::new(ProcessorIndex(index)));
+        }
+
         unsafe {
             SCHEDULER = Some(Box::new(Self {
                 queue_realtime,
                 queue_higher,
                 queue_normal,
-                locals: Vec::new(),
-                process_pool: ProcessPool::default(),
-                thread_pool: ThreadPool::default(),
+                locals,
                 usage: AtomicUsize::new(0),
                 usage_total: AtomicUsize::new(0),
                 is_frozen: AtomicBool::new(false),
-                state: SchedulerState::Running,
                 next_timer: AtomicUsize::new(0),
                 sem_timer: Semaphore::new(0),
                 timer_queue: ConcurrentFifo::with_capacity(100),
             }));
         }
-
-        let shared = Self::shared();
-
-        shared.process_pool.add(ProcessContextData::new(
-            ProcessId(0),
-            Priority::Idle,
-            "idle",
-        ));
-
-        for index in 0..System::current_device().num_of_active_cpus() {
-            shared
-                .locals
-                .push(LocalScheduler::new(ProcessorIndex(index)));
-        }
+        fence(Ordering::SeqCst);
 
         SpawnOption::with_priority(Priority::Normal).start_process(f, args, "System");
 
@@ -116,7 +140,7 @@ impl Scheduler {
             "Scheduler",
         );
 
-        SCHEDULER_ENABLED.store(true, Ordering::SeqCst);
+        SCHEDULER_STATE.store(SchedulerState::Running.into(), Ordering::SeqCst);
 
         loop {
             unsafe {
@@ -127,22 +151,27 @@ impl Scheduler {
 
     #[inline]
     #[track_caller]
-    fn shared<'a>() -> &'a mut Self {
-        unsafe { SCHEDULER.as_mut().unwrap() }
+    fn shared<'a>() -> &'a Self {
+        unsafe { SCHEDULER.as_ref().unwrap() }
     }
 
     /// Returns whether or not the thread scheduler is running.
     pub fn is_enabled() -> bool {
-        unsafe { &SCHEDULER }.is_some() && SCHEDULER_ENABLED.load(Ordering::SeqCst)
+        match Self::current_state() {
+            SchedulerState::Disabled => false,
+            _ => true,
+        }
     }
 
     /// Returns the current state of the scheduler.
+    #[inline]
     pub fn current_state() -> SchedulerState {
-        if Self::is_enabled() {
-            Self::shared().state
-        } else {
-            SchedulerState::Disabled
-        }
+        SCHEDULER_STATE.load(Ordering::Relaxed).into()
+    }
+
+    #[inline]
+    fn set_current_state(val: SchedulerState) {
+        SCHEDULER_STATE.store(val.into(), Ordering::SeqCst);
     }
 
     /// All threads will stop.
@@ -151,7 +180,7 @@ impl Scheduler {
             let sch = Self::shared();
             sch.is_frozen.store(true, Ordering::SeqCst);
             if force {
-                let _ = Cpu::broadcast_schedule();
+                return Cpu::broadcast_schedule();
             }
         }
         Ok(())
@@ -265,7 +294,7 @@ impl Scheduler {
     /// Returns whether the specified processor is stalled or not.
     fn is_stalled_processor(index: ProcessorIndex) -> bool {
         let shared = Self::shared();
-        let state = shared.state;
+        let state = Self::current_state();
         if shared.is_frozen.load(Ordering::SeqCst)
             || (state == SchedulerState::Saving && index != ProcessorIndex(0))
             || (state != SchedulerState::FullThrottle
@@ -295,7 +324,7 @@ impl Scheduler {
         }
     }
 
-    fn _enqueue(&mut self, handle: ThreadHandle) {
+    fn _enqueue(&self, handle: ThreadHandle) {
         match handle.as_ref().priority {
             Priority::Realtime => self.queue_realtime.enqueue(handle).unwrap(),
             Priority::High | Priority::Normal | Priority::Low => {
@@ -398,7 +427,7 @@ impl Scheduler {
             let actual1000 = actual as usize * 1000;
 
             let mut usage = 0;
-            for thread in shared.thread_pool.data.lock().values() {
+            for thread in ThreadPool::shared().data.lock().values() {
                 let thread = thread.clone();
                 let thread = unsafe { &mut (*thread.get()) };
 
@@ -414,9 +443,9 @@ impl Scheduler {
                 process.load0.fetch_add(load as u32, Ordering::SeqCst);
             }
 
-            for process in shared.process_pool.read().unwrap().values() {
+            for process in ProcessPool::shared().read().unwrap().values() {
                 let process = process.clone();
-                let process = unsafe { &mut (*process.get()) };
+
                 let load = process.load0.swap(0, Ordering::SeqCst);
                 process.load.store(load, Ordering::SeqCst);
             }
@@ -427,28 +456,28 @@ impl Scheduler {
             shared.usage_total.store(usage_total, Ordering::SeqCst);
             shared.usage.store(usage_per_cpu, Ordering::SeqCst);
 
-            match shared.state {
+            match Self::current_state() {
                 SchedulerState::Disabled => (),
                 SchedulerState::Saving => {
                     if usage_total > THRESHOLD_LEAVE_SAVING {
-                        shared.state = SchedulerState::Running;
+                        Self::set_current_state(SchedulerState::Running);
                     }
                 }
                 SchedulerState::Running => {
                     if usage_total < THRESHOLD_ENTER_SAVING {
-                        shared.state = SchedulerState::Saving;
+                        Self::set_current_state(SchedulerState::Saving);
                     } else if usage_total
                         > (System::current_device().num_of_performance_cpus() - 1) * 1000
                             + THRESHOLD_ENTER_FULL
                     {
-                        shared.state = SchedulerState::FullThrottle;
+                        Self::set_current_state(SchedulerState::FullThrottle);
                     }
                 }
                 SchedulerState::FullThrottle => {
                     if usage_total
                         < System::current_device().num_of_performance_cpus() * THRESHOLD_LEAVE_FULL
                     {
-                        shared.state = SchedulerState::Running;
+                        Self::set_current_state(SchedulerState::Running);
                     }
                 }
             }
@@ -478,10 +507,14 @@ impl Scheduler {
     ) -> Option<ThreadHandle> {
         let current_pid = Self::current_pid();
         let pid = if options.raise_pid {
-            let child =
-                ProcessContextData::new(current_pid, options.priority.unwrap_or_default(), name);
+            let child = ProcessContextData::new(
+                current_pid,
+                options.priority.unwrap_or_default(),
+                name,
+                current_pid.cwd().as_str(),
+            );
             let pid = child.pid;
-            Self::shared().process_pool.add(child);
+            ProcessPool::shared().add(child);
             pid
         } else {
             current_pid
@@ -522,9 +555,8 @@ impl Scheduler {
     }
 
     pub fn get_idle_statistics(vec: &mut Vec<u32>) {
-        let sch = Self::shared();
         vec.clear();
-        for thread in sch.thread_pool.data.lock().values() {
+        for thread in ThreadPool::shared().data.lock().values() {
             let thread = thread.clone();
             let thread = unsafe { &(*thread.get()) };
             if thread.priority != Priority::Idle {
@@ -536,11 +568,9 @@ impl Scheduler {
 
     pub fn print_statistics(sb: &mut StringBuffer) {
         let max_load = 1000 * System::current_device().num_of_active_cpus() as u32;
-        let sch = Self::shared();
         writeln!(sb, "PID P #TH %CPU TIME     NAME").unwrap();
-        for process in sch.process_pool.read().unwrap().values() {
+        for process in ProcessPool::shared().read().unwrap().values() {
             let process = process.clone();
-            let process = unsafe { &*process.get() };
             if process.pid == ProcessId(0) {
                 continue;
             }
@@ -582,9 +612,8 @@ impl Scheduler {
     }
 
     pub fn get_thread_statistics(sb: &mut StringBuffer) {
-        let shared = Self::shared();
         writeln!(sb, " ID PID P ST %CPU stack            NAME").unwrap();
-        for thread in shared.thread_pool.data.lock().values() {
+        for thread in ThreadPool::shared().data.lock().values() {
             let thread = thread.clone();
             let thread = unsafe { &mut (*thread.get()) };
 
@@ -1177,18 +1206,27 @@ impl From<Priority> for Quantum {
 
 #[derive(Default)]
 struct ProcessPool {
-    data: RwLock<BTreeMap<ProcessId, Arc<UnsafeCell<Box<ProcessContextData>>>>>,
+    data: RwLock<BTreeMap<ProcessId, Arc<ProcessContextData>>>,
 }
 
 impl ProcessPool {
     #[inline]
+    const fn new() -> Self {
+        Self {
+            data: RwLock::new(BTreeMap::new()),
+        }
+    }
+
+    #[inline]
+    fn shared<'a>() -> &'a Self {
+        &PROCESS_POOL
+    }
+
+    #[inline]
     #[track_caller]
-    fn add(&self, process: Box<ProcessContextData>) {
+    fn add(&self, process: ProcessContextData) {
         let key = process.pid;
-        self.data
-            .write()
-            .unwrap()
-            .insert(key, Arc::new(UnsafeCell::new(process)));
+        self.data.write().unwrap().insert(key, Arc::new(process));
     }
 
     #[inline]
@@ -1198,20 +1236,13 @@ impl ProcessPool {
     }
 
     #[inline]
-    fn read(
-        &self,
-    ) -> LockResult<RwLockReadGuard<BTreeMap<ProcessId, Arc<UnsafeCell<Box<ProcessContextData>>>>>>
-    {
+    fn read(&self) -> LockResult<RwLockReadGuard<BTreeMap<ProcessId, Arc<ProcessContextData>>>> {
         self.data.read()
     }
 
     #[inline]
-    fn get<'a>(&self, handle: ProcessId) -> Option<&'a Box<ProcessContextData>> {
-        self.data
-            .read()
-            .unwrap()
-            .get(&handle)
-            .map(|v| unsafe { &*(v.clone().get()) })
+    fn get(&self, handle: ProcessId) -> Option<Arc<ProcessContextData>> {
+        self.data.read().unwrap().get(&handle).map(|v| v.clone())
     }
 }
 
@@ -1222,9 +1253,15 @@ struct ThreadPool {
 
 impl ThreadPool {
     #[inline]
-    #[track_caller]
-    fn shared<'a>() -> &'a mut Self {
-        &mut Scheduler::shared().thread_pool
+    const fn new() -> Self {
+        Self {
+            data: SpinMutex::new(BTreeMap::new()),
+        }
+    }
+
+    #[inline]
+    fn shared<'a>() -> &'a Self {
+        unsafe { &THREAD_POOL }
     }
 
     fn add(thread: Box<ThreadContextData>) {
@@ -1258,13 +1295,15 @@ impl ThreadPool {
     }
 
     #[inline]
-    fn get_mut<F, R>(&mut self, key: ThreadHandle, f: F) -> Option<R>
+    fn get_mut<F, R>(&self, key: ThreadHandle, f: F) -> Option<R>
     where
         F: FnOnce(&mut ThreadContextData) -> R,
     {
         self.data.lock().get_mut(&key).map(|thread| unsafe {
             let thread = thread.clone().get();
-            f(&mut *thread)
+            let r = f(&mut *thread);
+            fence(Ordering::SeqCst);
+            r
         })
     }
 }
@@ -1276,8 +1315,8 @@ pub struct ProcessId(pub usize);
 impl ProcessId {
     #[inline]
     #[must_use]
-    fn get<'a>(&self) -> Option<&'a Box<ProcessContextData>> {
-        Scheduler::shared().process_pool.get(*self)
+    fn get(&self) -> Option<Arc<ProcessContextData>> {
+        ProcessPool::shared().get(*self)
     }
 
     #[inline]
@@ -1288,6 +1327,17 @@ impl ProcessId {
     #[inline]
     pub fn name<'a>(&self) -> Option<&'a str> {
         self.get().and_then(|v| v.name())
+    }
+
+    pub fn cwd(&self) -> String {
+        self.get()
+            .map(|v| v.cwd.lock().unwrap().clone())
+            .unwrap_or("".to_owned())
+    }
+
+    #[inline]
+    pub unsafe fn set_cwd(&self, path: &str) {
+        self.get().map(|v| *v.cwd.lock().unwrap() = path.to_owned());
     }
 }
 
@@ -1303,6 +1353,8 @@ struct ProcessContextData {
     cpu_time: AtomicUsize,
     load0: AtomicU32,
     load: AtomicU32,
+
+    cwd: Mutex<String>,
 
     name: [u8; CONTEXT_LABEL_LENGTH],
 }
@@ -1322,7 +1374,7 @@ fn set_name_array(array: &mut [u8; CONTEXT_LABEL_LENGTH], name: &str) {
 }
 
 impl ProcessContextData {
-    fn new(parent: ProcessId, priority: Priority, name: &str) -> Box<ProcessContextData> {
+    fn new(parent: ProcessId, priority: Priority, name: &str, cwd: &str) -> ProcessContextData {
         let pid = Self::next_pid();
         let mut child = Self {
             parent,
@@ -1334,12 +1386,13 @@ impl ProcessContextData {
             cpu_time: AtomicUsize::new(0),
             load0: AtomicU32::new(0),
             load: AtomicU32::new(0),
+            cwd: Mutex::new(cwd.to_owned()),
             name: [0u8; CONTEXT_LABEL_LENGTH],
         };
 
         child.set_name(name);
 
-        Box::new(child)
+        child
     }
 
     #[inline]
@@ -1363,7 +1416,7 @@ impl ProcessContextData {
 
     fn exit(&self) {
         self.sem.signal();
-        Scheduler::shared().process_pool.remove(self.pid);
+        ProcessPool::shared().remove(self.pid);
     }
 }
 

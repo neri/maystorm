@@ -134,6 +134,7 @@ static mut SYSTEM: UnsafeCell<System> = UnsafeCell::new(System::new());
 
 impl System {
     const SYSTEM_NAME: &'static str = "MEG-OS";
+    const SYSTEMN_CODENAME: &'static str = "Azalea+";
     const SYSTEM_SHORT_NAME: &'static str = "megos";
     const RELEASE: &'static str = "alpha";
     const VERSION: Version<'static> = Version::new(0, 11, 0, Self::RELEASE);
@@ -249,19 +250,25 @@ impl System {
         unsafe { &*SYSTEM.get() }
     }
 
-    /// Returns the name of current system.
+    /// Returns the name of the current system.
     #[inline]
     pub const fn name() -> &'static str {
         &Self::SYSTEM_NAME
     }
 
-    /// Returns abbreviated name of current system.
+    /// Returns the codename of the current system.
+    #[inline]
+    pub const fn codename() -> &'static str {
+        &Self::SYSTEMN_CODENAME
+    }
+
+    /// Returns abbreviated name of the current system.
     #[inline]
     pub const fn short_name() -> &'static str {
         &Self::SYSTEM_SHORT_NAME
     }
 
-    /// Returns the version of current system.
+    /// Returns the version of the current system.
     #[inline]
     pub const fn version<'a>() -> &'a Version<'a> {
         &Self::VERSION
@@ -366,11 +373,6 @@ impl System {
     #[track_caller]
     pub fn reset() -> ! {
         Cpu::reset();
-    }
-
-    #[track_caller]
-    pub fn shutdown() -> ! {
-        todo!();
     }
 
     /// Get main screen

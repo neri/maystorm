@@ -7,7 +7,7 @@
 
 use alloc::{format, string::*, vec::*};
 use bootprot::*;
-use core::{fmt::Write, num::NonZeroU8};
+use core::{fmt, fmt::Write, num::NonZeroU8};
 use kernel::{
     arch::cpu::*,
     drivers::pci,
@@ -20,7 +20,7 @@ use kernel::{
     ui::window::WindowManager,
     *,
 };
-use megstd::string::*;
+use megstd::{io::Read, string::*};
 
 extern crate alloc;
 
@@ -78,7 +78,7 @@ impl Shell {
     fn exec_cmd(cmdline: &str) {
         match Self::parse_cmd(&cmdline, |name, args| match name {
             "clear" | "cls" => System::stdout().reset().unwrap(),
-            "cd" | "exit" => println!("Feature not available"),
+            "exit" => println!("Feature not available"),
             "echo" => {
                 let stdout = System::stdout();
                 for (index, word) in args.iter().skip(1).enumerate() {
@@ -90,7 +90,12 @@ impl Shell {
                 stdout.write_str("\r\n").unwrap();
             }
             "ver" => {
-                println!("{} v{}", System::name(), System::version(),)
+                println!(
+                    "{} v{} [codename {}]",
+                    System::name(),
+                    System::version(),
+                    System::codename()
+                )
             }
             "reboot" => {
                 System::reset();
@@ -296,7 +301,9 @@ impl Shell {
         None
     }
 
-    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> isize, &'static str); 7] = [
+    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> isize, &'static str); 9] = [
+        ("cd", Self::cmd_cd, ""),
+        ("pwd", Self::cmd_pwd, ""),
         ("dir", Self::cmd_dir, "Show directory"),
         ("help", Self::cmd_help, "Show Help"),
         ("type", Self::cmd_type, "Show file"),
@@ -313,6 +320,21 @@ impl Shell {
                 println!("{}\t{}", cmd.0, cmd.2);
             }
         }
+        0
+    }
+
+    fn cmd_cd(argv: &[&str]) -> isize {
+        match FileManager::chdir(argv.get(1).unwrap_or(&"/")) {
+            Ok(_) => 0,
+            Err(err) => {
+                println!("{:?}", err.kind());
+                1
+            }
+        }
+    }
+
+    fn cmd_pwd(_argv: &[&str]) -> isize {
+        println!("{}", Scheduler::current_pid().cwd());
         0
     }
 
@@ -429,13 +451,16 @@ impl Shell {
     }
 
     fn cmd_dir(args: &[&str]) -> isize {
-        let path = args.get(1).unwrap_or(&"/");
+        let path = args.get(1).unwrap_or(&"");
         let dir = match FileManager::read_dir(path) {
             Ok(v) => v,
-            Err(_) => return 1,
+            Err(err) => {
+                println!("{:?}", err.kind());
+                return 1;
+            }
         };
         for dir_ent in dir {
-            let metadata = dir_ent.metadata().unwrap();
+            let metadata = dir_ent.metadata();
             let suffix = if metadata.file_type().is_dir() {
                 "/"
             } else if metadata.file_type().is_symlink() {
@@ -680,7 +705,7 @@ impl Shell {
     }
 
     #[allow(dead_code)]
-    fn format_si(sb: &mut dyn Write, val: usize) -> core::fmt::Result {
+    fn format_si(sb: &mut dyn fmt::Write, val: usize) -> core::fmt::Result {
         let kb = (val / 1000) % 1000;
         let mb = (val / 1000_000) % 1000;
         let gb = val / 1000_000_000;
@@ -717,7 +742,7 @@ impl Shell {
     }
 
     #[allow(dead_code)]
-    fn format_bytes(sb: &mut dyn Write, val: usize) -> core::fmt::Result {
+    fn format_bytes(sb: &mut dyn fmt::Write, val: usize) -> core::fmt::Result {
         let kb = (val >> 10) & 0x3FF;
         let mb = (val >> 20) & 0x3FF;
         let gb = val >> 30;

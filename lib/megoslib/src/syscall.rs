@@ -195,6 +195,31 @@ pub fn os_dealloc(ptr: usize, size: usize, align: usize) {
 }
 
 #[inline]
+pub fn os_open(name: &str, options: usize) -> isize {
+    unsafe { svc3(Function::Open, name.as_ptr() as usize, name.len(), options) as isize }
+}
+
+#[inline]
+pub fn os_close(handle: usize) -> isize {
+    unsafe { svc1(Function::Close, handle) as isize }
+}
+
+#[inline]
+pub fn os_read(handle: usize, buf: &mut [u8]) -> isize {
+    unsafe { svc3(Function::Read, handle, buf.as_mut_ptr() as usize, buf.len()) as isize }
+}
+
+#[inline]
+pub fn os_write(handle: usize, buf: &[u8]) -> isize {
+    unsafe { svc3(Function::Write, handle, buf.as_ptr() as usize, buf.len()) as isize }
+}
+
+#[inline]
+pub fn os_lseek(handle: usize, offset: &mut i64, whence: usize) -> isize {
+    unsafe { svc3(Function::LSeek, handle, offset as *mut _ as usize, whence) as isize }
+}
+
+#[inline]
 pub unsafe fn game_v1_init(window: usize, screen: *const c_void) -> usize {
     svc2(Function::GameV1Init, window, screen as usize)
 }

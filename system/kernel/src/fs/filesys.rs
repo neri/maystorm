@@ -1,8 +1,8 @@
 use super::initramfs::*;
-use crate::*;
+use crate::{task::scheduler::Scheduler, *};
 use alloc::{
     borrow::ToOwned,
-    format,
+    fmt, format,
     string::String,
     sync::{Arc, Weak},
     vec::Vec,
@@ -12,7 +12,7 @@ use core::{
     num::{NonZeroU64, NonZeroUsize},
 };
 use megstd::{
-    io::{self, Result},
+    io::{ErrorKind, Read, Result, Write},
     sys::fs_imp::FileType,
 };
 
@@ -43,13 +43,6 @@ impl FileManager {
     }
 
     #[inline]
-    pub fn canonical_path(path: &str) -> io::Result<String> {
-        let path_components = Self::_canonical_path_components("", "", path)?;
-        let path_components = path_components.iter().map(|v| v.as_str()).collect();
-        Ok(Self::_join_path(&path_components))
-    }
-
-    #[inline]
     fn _join_path(path_components: &Vec<&str>) -> String {
         format!(
             "{}{}",
@@ -59,38 +52,48 @@ impl FileManager {
     }
 
     fn _canonical_path_components(
-        security_domain: &str,
-        prefix: &str,
+        security_prefix: &str,
+        base: &str,
         path: &str,
-    ) -> io::Result<Vec<String>> {
+    ) -> Result<Vec<String>> {
         let path = if path.starts_with("/") {
             path.to_owned()
         } else {
-            format!("{prefix}{}{path}", Self::PATH_SEPARATOR)
+            format!("{base}{}{path}", Self::PATH_SEPARATOR)
         };
 
-        let mut components = Vec::new();
+        let mut path_components = Vec::new();
         for component in path.split("/") {
             if component.is_empty() || component == "." {
             } else if component == ".." {
-                let _ = components.pop();
+                let _ = path_components.pop();
             } else {
-                components.push(component);
+                path_components.push(component);
             }
         }
 
-        if !Self::_join_path(&components).starts_with(security_domain) {
-            return Err(io::ErrorKind::PermissionDenied.into());
+        if !Self::_join_path(&path_components).starts_with(security_prefix) {
+            return Err(ErrorKind::PermissionDenied.into());
         }
 
-        Ok(components.into_iter().map(|v| v.to_owned()).collect())
+        Ok(path_components.into_iter().map(|v| v.to_owned()).collect())
     }
 
-    fn resolv(path_components: &Vec<String>) -> io::Result<(Arc<dyn FsDriver>, INodeType)> {
+    pub fn canonical_path_components(path: &str) -> Result<Vec<String>> {
+        Self::_canonical_path_components("", Scheduler::current_pid().cwd().as_str(), path)
+    }
+
+    pub fn canonical_path(path: &str) -> Result<String> {
+        let path_components = Self::canonical_path_components(path)?;
+        let path_components = path_components.iter().map(|v| v.as_str()).collect();
+        Ok(Self::_join_path(&path_components))
+    }
+
+    fn resolv(path_components: &Vec<String>) -> Result<(Arc<dyn FsDriver>, INodeType)> {
         let shared = FileManager::shared();
         let fs = match shared.rootfs.as_ref() {
             Some(v) => v.clone(),
-            None => return Err(io::ErrorKind::NotConnected.into()),
+            None => return Err(ErrorKind::NotConnected.into()),
         };
         let mut dir = fs.root_dir();
         for lpc in path_components {
@@ -99,25 +102,44 @@ impl FileManager {
         Ok((fs, dir))
     }
 
-    pub fn read_dir(path: &str) -> io::Result<FsRawReadDir> {
-        let path = Self::_canonical_path_components("", "", path)?;
+    pub fn chdir(path: &str) -> Result<()> {
+        let path_components = Self::canonical_path_components(path)?;
+        let (fs, inode) = Self::resolv(&path_components)?;
+        let _stat = fs.stat(inode).ok_or(ErrorKind::NotFound)?;
+        let path_components = path_components.iter().map(|v| v.as_str()).collect();
+        unsafe { Scheduler::current_pid().set_cwd(Self::_join_path(&path_components).as_str()) };
+        Ok(())
+    }
+
+    pub fn read_dir(path: &str) -> Result<FsRawReadDir> {
+        let path = Self::canonical_path_components(path)?;
         let (fs, dir) = Self::resolv(&path)?;
         Ok(FsRawReadDir::new(&fs, dir))
     }
 
-    pub fn open(path: &str) -> io::Result<FsRawFileControlBlock> {
-        let path = Self::_canonical_path_components("", "", path)?;
+    pub fn open(path: &str) -> Result<FsRawFileControlBlock> {
+        let path = Self::canonical_path_components(path)?;
         let (fs, inode) = Self::resolv(&path)?;
         let inode = fs.open(inode)?;
 
         let stat = match fs.stat(inode) {
             Some(v) => v,
-            None => return Err(io::ErrorKind::InvalidData.into()),
+            None => return Err(ErrorKind::InvalidData.into()),
         };
+        if stat.file_type().is_dir() {
+            return Err(ErrorKind::IsADirectory.into());
+        }
 
         let fcb = FsRawFileControlBlock::new(&fs, inode, stat.len());
 
         Ok(fcb)
+    }
+
+    pub fn stat(path: &str) -> Result<FsRawMetaData> {
+        let path = Self::canonical_path_components(path)?;
+        let (fs, inode) = Self::resolv(&path)?;
+        let stat = fs.stat(inode).ok_or(ErrorKind::NotFound)?;
+        Ok(stat)
     }
 }
 
@@ -151,17 +173,25 @@ pub trait FsDriver {
     /// Reads the specified directory
     fn read_dir(&self, dir: INodeType, index: usize) -> Option<FsRawDirEntry>;
     /// Finds the specified file name in the specified directory
+    ///
+    /// # NOTE
+    ///
+    /// This function is also used to search for file system objects other than files, such as directories.
     fn find_file(&self, dir: INodeType, name: &str) -> Result<INodeType>;
     /// Opens a file with the specified inode. If necessary, the re-mapped inode may be returned.
     fn open(&self, inode: INodeType) -> Result<INodeType>;
     /// Closes the file of the specified inode
+    ///
+    /// # NOTE
+    ///
+    /// Errors generated by this function may be ignored.
     fn close(&self, inode: INodeType) -> Result<()>;
     /// Obtains metadata for the specified inode
     fn stat(&self, inode: INodeType) -> Option<FsRawMetaData>;
     /// Reads data from the specified inode
-    fn read_data(&self, inode: INodeType, offset: OffsetType, buf: &mut [u8]) -> io::Result<usize>;
+    fn read_data(&self, inode: INodeType, offset: OffsetType, buf: &mut [u8]) -> Result<usize>;
     /// Writes data to the specified inode
-    fn write_data(&self, inode: INodeType, offset: OffsetType, buf: &[u8]) -> io::Result<usize>;
+    fn write_data(&self, inode: INodeType, offset: OffsetType, buf: &[u8]) -> Result<usize>;
 }
 
 pub struct FsRawReadDir {
@@ -198,12 +228,12 @@ impl Iterator for FsRawReadDir {
 pub struct FsRawDirEntry {
     inode: INodeType,
     name: String,
-    metadata: Option<FsRawMetaData>,
+    metadata: FsRawMetaData,
 }
 
 impl FsRawDirEntry {
     #[inline]
-    pub fn new(inode: INodeType, name: &str, metadata: Option<FsRawMetaData>) -> Self {
+    pub fn new(inode: INodeType, name: &str, metadata: FsRawMetaData) -> Self {
         Self {
             inode,
             name: name.to_owned(),
@@ -222,13 +252,8 @@ impl FsRawDirEntry {
     }
 
     #[inline]
-    pub fn metadata(&self) -> Option<&FsRawMetaData> {
-        self.metadata.as_ref()
-    }
-
-    #[inline]
-    pub fn into_metadata(self) -> Option<FsRawMetaData> {
-        self.metadata
+    pub fn metadata(&self) -> &FsRawMetaData {
+        &self.metadata
     }
 }
 
@@ -272,33 +297,11 @@ impl FsRawFileControlBlock {
         }
     }
 
-    pub fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let fs = match self.fs.upgrade() {
-            Some(v) => v,
-            None => return Err(io::ErrorKind::NotFound.into()),
-        };
-        fs.read_data(self.inode, self.file_pos, buf).map(|v| {
-            self.file_pos += v as OffsetType;
-            v
-        })
-    }
-
-    pub fn read_to_end(&mut self, vec: &mut Vec<u8>) -> io::Result<usize> {
+    pub fn read_to_end(&mut self, vec: &mut Vec<u8>) -> Result<usize> {
         let size = (self.file_size - self.file_pos) as usize;
         vec.resize(size, 0);
         self.read(vec.as_mut_slice()).map(|v| {
             vec.resize(v, 0);
-            v
-        })
-    }
-
-    pub fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let fs = match self.fs.upgrade() {
-            Some(v) => v,
-            None => return Err(io::ErrorKind::NotFound.into()),
-        };
-        fs.write_data(self.inode, self.file_pos, buf).map(|v| {
-            self.file_pos += v as OffsetType;
             v
         })
     }
@@ -314,6 +317,44 @@ impl FsRawFileControlBlock {
 
     pub fn stat(&self) -> Option<FsRawMetaData> {
         self.fs.upgrade().and_then(|v| v.as_ref().stat(self.inode))
+    }
+}
+
+impl Read for FsRawFileControlBlock {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        let fs = match self.fs.upgrade() {
+            Some(v) => v,
+            None => return Err(ErrorKind::NotFound.into()),
+        };
+        fs.read_data(self.inode, self.file_pos, buf).map(|v| {
+            self.file_pos += v as OffsetType;
+            v
+        })
+    }
+}
+
+impl Write for FsRawFileControlBlock {
+    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        let fs = match self.fs.upgrade() {
+            Some(v) => v,
+            None => return Err(ErrorKind::NotFound.into()),
+        };
+        fs.write_data(self.inode, self.file_pos, buf).map(|v| {
+            self.file_pos += v as OffsetType;
+            v
+        })
+    }
+
+    fn flush(&mut self) -> Result<()> {
+        todo!()
+    }
+}
+
+impl fmt::Write for FsRawFileControlBlock {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.write(s.as_bytes())
+            .map(|_| ())
+            .map_err(|_| core::fmt::Error)
     }
 }
 

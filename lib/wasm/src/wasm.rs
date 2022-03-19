@@ -978,24 +978,40 @@ impl WasmMemory {
         }
     }
 
-    /// Read the specified range of memory
-    #[inline]
-    pub fn read_bytes(&self, offset: usize, size: usize) -> Result<&[u8], WasmRuntimeErrorKind> {
+    pub unsafe fn slice<'a>(
+        &self,
+        offset: usize,
+        size: usize,
+    ) -> Result<&'a [u8], WasmRuntimeErrorKind> {
         let memory = self.memory();
         let limit = memory.len();
         if offset < limit && size < limit && offset + size < limit {
-            unsafe {
-                Ok(slice::from_raw_parts(
-                    memory.get_unchecked(offset) as *const _,
-                    size,
-                ))
-            }
+            Ok(slice::from_raw_parts(
+                memory.get_unchecked(offset) as *const _,
+                size,
+            ))
         } else {
             Err(WasmRuntimeErrorKind::OutOfBounds)
         }
     }
 
-    #[inline]
+    pub unsafe fn slice_mut<'a>(
+        &self,
+        offset: usize,
+        size: usize,
+    ) -> Result<&'a mut [u8], WasmRuntimeErrorKind> {
+        let memory = self.memory_mut();
+        let limit = memory.len();
+        if offset < limit && size < limit && offset + size < limit {
+            Ok(slice::from_raw_parts_mut(
+                memory.get_unchecked_mut(offset) as *mut _,
+                size,
+            ))
+        } else {
+            Err(WasmRuntimeErrorKind::OutOfBounds)
+        }
+    }
+
     pub unsafe fn transmute<T>(&self, offset: usize) -> Result<&T, WasmRuntimeErrorKind> {
         let memory = self.memory();
         let limit = memory.len();
@@ -1007,7 +1023,6 @@ impl WasmMemory {
         }
     }
 
-    #[inline]
     pub fn read_u32_array(
         &self,
         offset: usize,

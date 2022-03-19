@@ -27,12 +27,14 @@ impl Theme {
 
     #[inline]
     pub const fn status_bar_background(&self) -> Color {
-        Color::from_argb(0x80ECEFF1)
+        // Color::from_argb(0x80ECEFF1)
+        Color::from_argb(0x80263238)
     }
 
     #[inline]
     pub const fn status_bar_foreground(&self) -> Color {
-        Color::BLACK
+        // Color::BLACK
+        Color::WHITE
     }
 
     #[inline]

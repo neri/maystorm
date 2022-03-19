@@ -1,5 +1,4 @@
 use crate::{
-    arch::cpu::*,
     fs::*,
     log::{EventManager, SimpleMessagePayload},
     mem::*,
@@ -106,7 +105,7 @@ async fn status_bar_main() {
 
     let screen_bounds = WindowManager::main_screen_bounds();
     let window = WindowBuilder::new()
-        .style(WindowStyle::FLOATING | WindowStyle::SUSPENDED)
+        .style(WindowStyle::NO_SHADOW | WindowStyle::FLOATING | WindowStyle::SUSPENDED)
         .frame(Rect::new(0, 0, screen_bounds.width(), STATUS_BAR_HEIGHT))
         .bg_color(bg_color)
         .build("Status Bar");
@@ -262,17 +261,12 @@ async fn activity_monitor_main() {
     };
 
     let mut sb = StringBuffer::with_capacity(0x1000);
-    let mut time0 = Timer::measure();
-    let mut tsc0 = unsafe { Cpu::read_tsc() };
 
     let interval = Duration::from_secs(1);
     window.create_timer(0, interval);
     while let Some(message) = window.await_message().await {
         match message {
             WindowMessage::Timer(_) => {
-                let time1 = Timer::measure();
-                let tsc1 = unsafe { Cpu::read_tsc() };
-
                 Scheduler::get_idle_statistics(&mut usage_temp);
                 let max_value = num_of_cpus as u32 * 1000;
                 usage_history[usage_cursor] = (254
@@ -375,22 +369,20 @@ async fn activity_monitor_main() {
                             .unwrap();
                             writeln!(sb, "B Used").unwrap();
 
-                            let hz = ((tsc1 - tsc0) as usize / (time1.0 - time0.0) + 5) / 10;
-                            let hz0 = hz % 100;
-                            let hz1 = hz / 100;
                             let usage = Scheduler::usage_per_cpu();
                             let usage0 = usage % 10;
                             let usage1 = usage / 10;
-                            write!(sb, "CPU: {}.{:02} GHz {:3}.{}%", hz1, hz0, usage1, usage0,)
-                                .unwrap();
+                            write!(sb, "CPU: {:3}.{}%", usage1, usage0,).unwrap();
 
                             let n_cores = device.num_of_performance_cpus();
                             let n_threads = device.num_of_active_cpus();
                             if n_cores != n_threads {
-                                writeln!(sb, " {} Cores {} Threads", n_cores, n_threads,).unwrap();
+                                write!(sb, " {}C{}T", n_cores, n_threads,).unwrap();
                             } else {
-                                writeln!(sb, " {} Processors", n_cores,).unwrap();
+                                write!(sb, " {}CPU", n_cores,).unwrap();
                             }
+
+                            writeln!(sb, " {:?}", Scheduler::current_state()).unwrap();
 
                             Scheduler::print_statistics(&mut sb);
 
@@ -407,8 +399,6 @@ async fn activity_monitor_main() {
                     )
                     .unwrap();
 
-                tsc0 = tsc1;
-                time0 = time1;
                 window.set_needs_display();
                 window.create_timer(0, interval);
             }

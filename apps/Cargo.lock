@@ -79,10 +79,6 @@ dependencies = [
 [[package]]
 name = "megosabi"
 version = "0.1.0"
-dependencies = [
- "num-derive",
- "num-traits",
-]
 
 [[package]]
 name = "megoslib"
