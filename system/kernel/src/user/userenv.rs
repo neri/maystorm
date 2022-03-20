@@ -263,7 +263,7 @@ async fn activity_monitor_main() {
     let mut sb = StringBuffer::with_capacity(0x1000);
 
     let interval = Duration::from_secs(1);
-    window.create_timer(0, interval);
+    window.create_timer(0, Duration::from_secs(0));
     while let Some(message) = window.await_message().await {
         match message {
             WindowMessage::Timer(_) => {
@@ -525,13 +525,13 @@ async fn test_window_main() {
     let bg_color = Color::from_argb(0x80FFFFFF);
     // Timer::sleep_async(Duration::from_millis(500)).await;
 
-    let width = 480;
-    let height = 360;
+    let width = 640;
+    let height = 480;
     let window = WindowBuilder::new()
         .size(Size::new(width, height))
         .bg_color(bg_color)
         .inactive_title_color(bg_color)
-        .active_title_color(Color::LIGHT_BLUE)
+        // .active_title_color(Color::LIGHT_BLUE)
         .level(WindowLevel::POPUP)
         .build("Welcome");
     window.set_back_button_enabled(true);
@@ -545,7 +545,7 @@ async fn test_window_main() {
         // bitmap.draw_round_rect(bitmap.bounds(), radius, Color::LIGHT_GRAY);
 
         let font = FontManager::title_font();
-        let title_height = 0;
+        let title_height = 48;
         let button_width = 120;
         let button_height = 28;
         let button_radius = 8;
@@ -555,22 +555,22 @@ async fn test_window_main() {
             bitmap.bounds().mid_x(),
             bitmap.bounds().max_y() - padding_bottom - padding,
         );
-        // {
-        //     let mut rect = bitmap.bounds();
-        //     rect.size.height = title_height;
-        //     bitmap
-        //         .view(rect, |mut bitmap| {
-        //             let rect = bitmap.bounds();
-        //             bitmap.fill_rect(rect, Color::LIGHT_BLUE);
-        //             AttributedString::new()
-        //                 .font(FontDescriptor::new(FontFamily::SansSerif, 32).unwrap())
-        //                 .middle_center()
-        //                 .color(Color::WHITE)
-        //                 .text("Welcome to MYOS!")
-        //                 .draw_text(&mut bitmap, rect, 1);
-        //         })
-        //         .unwrap();
-        // }
+        {
+            let mut rect = bitmap.bounds();
+            rect.size.height = title_height;
+            bitmap
+                .view(rect, |mut bitmap| {
+                    let rect = bitmap.bounds();
+                    bitmap.fill_rect(rect, Color::LIGHT_BLUE);
+                    AttributedString::new()
+                        .font(FontDescriptor::new(FontFamily::SansSerif, 32).unwrap())
+                        .middle_center()
+                        .color(Color::WHITE)
+                        .text("Welcome to MYOS!")
+                        .draw_text(&mut bitmap, rect, 1);
+                })
+                .unwrap();
+        }
         {
             let rect = bitmap.bounds().insets_by(EdgeInsets::new(
                 title_height + padding,

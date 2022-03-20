@@ -1,8 +1,8 @@
-// MEG-OS Arlequin Subsystem
+//! MEG-OS Arlequin Subsystem
 
 use super::*;
 use crate::{
-    fs::{FileManager, FsRawFileControlBlock},
+    fs::{FileManager, FsRawFileControlBlock, Whence},
     sync::Mutex,
     ui::theme::Theme,
     *,
@@ -168,6 +168,7 @@ impl ArleRuntime {
         params: &[WasmUnsafeValue],
     ) -> Result<WasmValue, WasmRuntimeErrorKind> {
         use megosabi::svc::Function;
+
         let mut params = ParamsDecoder::new(params);
         let memory = self
             .module
@@ -240,8 +241,11 @@ impl ArleRuntime {
                 return Self::encode_io_result(file.lock().unwrap().write(buf));
             }
             Function::LSeek => {
-                let _file = params.get_file(self)?;
-                todo!()
+                let file = params.get_file(self)?;
+                let offset = params.get_i32()?;
+                let whence = Whence::try_from(params.get_usize()?)
+                    .map_err(|_| WasmRuntimeErrorKind::InvalidParameter)?;
+                return Ok((file.lock().unwrap().lseek(offset as i64, whence) as i32).into());
             }
 
             Function::NewWindow => {
@@ -523,7 +527,7 @@ impl ArleRuntime {
             }
 
             #[allow(unreachable_patterns)]
-            _ => return Err(WasmRuntimeErrorKind::InvalidParameter),
+            _ => return Err(WasmRuntimeErrorKind::NotSupprted),
         }
 
         Ok(WasmValue::I32(0))

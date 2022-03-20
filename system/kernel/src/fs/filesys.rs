@@ -105,7 +105,10 @@ impl FileManager {
     pub fn chdir(path: &str) -> Result<()> {
         let path_components = Self::canonical_path_components(path)?;
         let (fs, inode) = Self::resolv(&path_components)?;
-        let _stat = fs.stat(inode).ok_or(ErrorKind::NotFound)?;
+        let stat = fs.stat(inode).ok_or(ErrorKind::NotFound)?;
+        if !stat.file_type().is_dir() {
+            return Err(ErrorKind::NotADirectory.into());
+        }
         let path_components = path_components.iter().map(|v| v.as_str()).collect();
         unsafe { Scheduler::current_pid().set_cwd(Self::_join_path(&path_components).as_str()) };
         Ok(())
@@ -379,12 +382,22 @@ pub enum Whence {
     SeekEnd,
 }
 
-impl From<usize> for Whence {
-    fn from(v: usize) -> Self {
-        match v {
-            1 => Self::SeekCur,
-            2 => Self::SeekEnd,
-            _ => Self::SeekSet,
+impl Default for Whence {
+    #[inline]
+    fn default() -> Self {
+        Self::SeekSet
+    }
+}
+
+impl TryFrom<usize> for Whence {
+    type Error = ();
+
+    fn try_from(value: usize) -> core::result::Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::SeekSet),
+            1 => Ok(Self::SeekCur),
+            2 => Ok(Self::SeekEnd),
+            _ => Err(()),
         }
     }
 }

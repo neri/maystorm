@@ -1,10 +1,6 @@
-// Font Driver
-
-use crate::sync::Mutex;
-use crate::*;
-use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
-use alloc::vec::*;
+use crate::{sync::Mutex, *};
+use alloc::{boxed::Box, collections::BTreeMap, vec::*};
+use core::cell::UnsafeCell;
 use megstd::drawing::*;
 
 #[allow(dead_code)]
@@ -21,7 +17,7 @@ const TERMINAL_FONT: FixedFontDriver = FixedFontDriver::new(7, 10, &embedded::FO
 // const TERMINAL_FONT: FixedFontDriver = FixedFontDriver::new(8, 10, &embedded::FONT_MEGH0810_DATA);
 const SMALL_FONT: FixedFontDriver = FixedFontDriver::new(6, 8, &embedded::FONT_MEGH0608_DATA);
 
-static mut FONT_MANAGER: FontManager = FontManager::new();
+static mut FONT_MANAGER: UnsafeCell<FontManager> = UnsafeCell::new(FontManager::new());
 
 pub struct FontManager {
     fonts: Option<BTreeMap<FontFamily, Box<dyn FontDriver>>>,
@@ -37,12 +33,17 @@ impl FontManager {
     }
 
     #[inline]
-    fn shared<'a>() -> &'a mut Self {
-        unsafe { &mut FONT_MANAGER }
+    fn shared<'a>() -> &'a Self {
+        unsafe { &*FONT_MANAGER.get() }
     }
 
-    pub fn init() {
-        let shared = Self::shared();
+    #[inline]
+    unsafe fn shared_mut<'a>() -> &'a mut Self {
+        FONT_MANAGER.get_mut()
+    }
+
+    pub unsafe fn init() {
+        let shared = Self::shared_mut();
 
         let mut fonts: BTreeMap<FontFamily, Box<dyn FontDriver>> = BTreeMap::new();
 
@@ -73,12 +74,6 @@ impl FontManager {
             include_bytes!("../../../../../ext/hershey/timesrb.jhf"),
         ));
         fonts.insert(FontFamily::Serif, font);
-
-        let font = Box::new(HersheyFont::new(
-            0,
-            include_bytes!("../../../../../ext/hershey/japanese.jhf"),
-        ));
-        fonts.insert(FontFamily::Japanese, font);
 
         shared.fonts = Some(fonts);
     }
@@ -131,7 +126,6 @@ pub enum FontFamily {
     FixedSystem,
     Terminal,
     SmallFixed,
-    Japanese,
 }
 
 #[derive(Copy, Clone)]

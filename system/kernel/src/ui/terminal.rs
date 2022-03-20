@@ -86,7 +86,7 @@ impl Terminal {
                 window_size.height,
             ))
             .bg_color(bg_color)
-            // .active_title_color(Color::DARK_GRAY)
+            // .active_title_color(Color::LIGHT_BLUE)
             .build("Terminal");
 
         Self {

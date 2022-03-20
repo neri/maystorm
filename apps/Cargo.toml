@@ -1,15 +1,13 @@
+
 [workspace]
 members = [
   "bball",
-  "bench",
   "gbench",
   "ghello",
-  "ghello2",
   "hello",
   "hello2",
   "life",
-  "noiz2bg",
-  "winhello",
+  "noiz2bg", # "whello",
   "test",
 ]
 

@@ -37,17 +37,6 @@ pub fn os_monotonic() -> u32 {
 }
 
 #[inline]
-pub fn os_bench<F>(f: F) -> usize
-where
-    F: FnOnce() -> (),
-{
-    let time0 = unsafe { svc0(Function::Monotonic) };
-    f();
-    let time1 = unsafe { svc0(Function::Monotonic) };
-    time1 - time0
-}
-
-#[inline]
 pub fn os_time_of_day() -> u32 {
     unsafe { svc1(Function::Time, 0) as u32 }
 }
@@ -215,8 +204,8 @@ pub fn os_write(handle: usize, buf: &[u8]) -> isize {
 }
 
 #[inline]
-pub fn os_lseek(handle: usize, offset: &mut i64, whence: usize) -> isize {
-    unsafe { svc3(Function::LSeek, handle, offset as *mut _ as usize, whence) as isize }
+pub fn os_lseek(handle: usize, offset: i32, whence: usize) -> isize {
+    unsafe { svc3(Function::LSeek, handle, offset as usize, whence) as isize }
 }
 
 #[inline]

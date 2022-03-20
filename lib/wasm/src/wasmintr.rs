@@ -1069,6 +1069,7 @@ impl WasmInterpreter<'_> {
             })
         } else if let Some(f) = target.dlink() {
             let (_, locals) = value_stack.split_at_mut(stack_under);
+            let (locals, _) = locals.split_at_mut(param_len);
 
             let result = match f(module, locals) {
                 Ok(v) => v,
@@ -1230,14 +1231,14 @@ impl fmt::Debug for WasmRuntimeError {
         if let Some(function_name) = self.function_name() {
             write!(
                 f,
-                "{:?} (at 0x{:x} [${}:{}] opcode {:02x} {} function {})",
+                "{:?} (at 0x{:x} [{}({}):{}] opcode {:02x} {})",
                 self.kind(),
                 self.file_position(),
+                function_name,
                 self.function(),
                 self.position(),
                 opcode as usize,
                 opcode.to_str(),
-                function_name,
             )
         } else {
             write!(

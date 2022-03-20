@@ -169,11 +169,11 @@ impl MemoryManager {
         total += shared.pairs()[..shared.n_free.load(Ordering::Relaxed)]
             .iter()
             .fold(0, |v, i| v + i.size());
-        total += shared
-            .slab
-            .as_ref()
-            .map(|v| v.free_memory_size())
-            .unwrap_or(0);
+        // total += shared
+        //     .slab
+        //     .as_ref()
+        //     .map(|v| v.free_memory_size())
+        //     .unwrap_or(0);
         total
     }
 

@@ -285,14 +285,19 @@ impl Hoe {
             23 => {
                 // seek
                 self.get_file(regs.eax).map(|file| {
-                    file.seek(regs.ebx as i32 as isize, Whence::from(regs.ecx as usize));
+                    file.seek(
+                        regs.ebx as i32 as isize,
+                        Whence::try_from(regs.ecx as usize).unwrap_or_default(),
+                    );
                 });
             }
             24 => {
                 // get size
                 // SAFETY: Undefined return value when a handle is invalid
                 self.get_file(regs.eax).map(|file| {
-                    regs.eax = file.get_file_size(Whence::from(regs.ecx as usize)) as u32;
+                    regs.eax = file
+                        .get_file_size(Whence::try_from(regs.ecx as usize).unwrap_or_default())
+                        as u32;
                 });
             }
             25 => {
