@@ -2017,8 +2017,8 @@ impl OperationalBitmap {
     where
         F: FnMut(&mut OperationalBitmap, Point, u8),
     {
-        const FRAC_SIZE: isize = 6;
-        const ONE: isize = 1 << FRAC_SIZE;
+        const FRAC_SHIFT: isize = 6;
+        const ONE: isize = 1 << FRAC_SHIFT;
         const FRAC_MASK: isize = ONE - 1;
         const FRAC_HALF: isize = ONE / 2;
         const IPART_MASK: isize = !FRAC_MASK;
@@ -2026,8 +2026,8 @@ impl OperationalBitmap {
         let mut plot = |bitmap: &mut OperationalBitmap, x: isize, y: isize, level: isize| {
             f(
                 bitmap,
-                Point::new(x >> FRAC_SIZE, y >> FRAC_SIZE),
-                (0xFF * level >> FRAC_SIZE) as u8,
+                Point::new(x >> FRAC_SHIFT, y >> FRAC_SHIFT),
+                (0xFF * level >> FRAC_SHIFT) as u8,
             );
         };
         #[inline]
@@ -2048,17 +2048,17 @@ impl OperationalBitmap {
         }
         #[inline]
         fn mul(a: isize, b: isize) -> isize {
-            (a * b) >> FRAC_SIZE
+            (a * b) >> FRAC_SHIFT
         }
         #[inline]
         fn div(a: isize, b: isize) -> Option<isize> {
-            (a << FRAC_SIZE).checked_div(b)
+            (a << FRAC_SHIFT).checked_div(b)
         }
 
-        let mut x1 = (c1.x() << FRAC_SIZE) / scale;
-        let mut x2 = (c2.x() << FRAC_SIZE) / scale;
-        let mut y1 = (c1.y() << FRAC_SIZE) / scale;
-        let mut y2 = (c2.y() << FRAC_SIZE) / scale;
+        let mut x1 = (c1.x() << FRAC_SHIFT) / scale;
+        let mut x2 = (c2.x() << FRAC_SHIFT) / scale;
+        let mut y1 = (c1.y() << FRAC_SHIFT) / scale;
+        let mut y2 = (c2.y() << FRAC_SHIFT) / scale;
 
         let width = isize::max(x1, x2) - isize::min(x1, x2);
         let height = isize::max(y1, y2) - isize::min(y1, y2);
@@ -2105,15 +2105,15 @@ impl OperationalBitmap {
         }
 
         if steep {
-            for i in (xpxl1 >> FRAC_SIZE) + 1..(xpxl2 >> FRAC_SIZE) {
-                let y = i << FRAC_SIZE;
+            for i in (xpxl1 >> FRAC_SHIFT) + 1..(xpxl2 >> FRAC_SHIFT) {
+                let y = i << FRAC_SHIFT;
                 plot(self, intery, y, rfpart(intery));
                 plot(self, intery + ONE, y, fpart(intery));
                 intery += gradient;
             }
         } else {
-            for i in (xpxl1 >> FRAC_SIZE) + 1..(xpxl2 >> FRAC_SIZE) {
-                let x = i << FRAC_SIZE;
+            for i in (xpxl1 >> FRAC_SHIFT) + 1..(xpxl2 >> FRAC_SHIFT) {
+                let x = i << FRAC_SHIFT;
                 plot(self, x, intery, rfpart(intery));
                 plot(self, x, intery + ONE, fpart(intery));
                 intery += gradient;

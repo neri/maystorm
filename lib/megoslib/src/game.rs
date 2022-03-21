@@ -1,5 +1,4 @@
-//! Retro Game Framework v1
-
+/// Retro Game Framework v1
 pub mod v1 {
 
     pub mod prelude {

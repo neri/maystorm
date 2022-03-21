@@ -69,7 +69,13 @@ pub enum Function {
     /// Frees an allocated memory block
     Dealloc,
 
-    ///
+    // File and directory functions
+    MkDir,
+
+    RmDir,
+
+    ChDir,
+
     Open,
 
     Close,
@@ -79,4 +85,12 @@ pub enum Function {
     Write,
 
     LSeek,
+
+    IoCtl,
+
+    Unlink,
+
+    OpenDir,
+
+    ReadDir,
 }

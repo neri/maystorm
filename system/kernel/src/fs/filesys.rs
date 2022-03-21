@@ -102,6 +102,14 @@ impl FileManager {
         Ok((fs, dir))
     }
 
+    pub fn mkdir(_path: &str) -> Result<()> {
+        Err(ErrorKind::Unsupported.into())
+    }
+
+    pub fn rmdir(_path: &str) -> Result<()> {
+        Err(ErrorKind::Unsupported.into())
+    }
+
     pub fn chdir(path: &str) -> Result<()> {
         let path_components = Self::canonical_path_components(path)?;
         let (fs, inode) = Self::resolv(&path_components)?;
@@ -136,6 +144,10 @@ impl FileManager {
         let fcb = FsRawFileControlBlock::new(&fs, inode, stat.len());
 
         Ok(fcb)
+    }
+
+    pub fn unlink(_path: &str) -> Result<()> {
+        Err(ErrorKind::Unsupported.into())
     }
 
     pub fn stat(path: &str) -> Result<FsRawMetaData> {
@@ -300,15 +312,6 @@ impl FsRawFileControlBlock {
         }
     }
 
-    pub fn read_to_end(&mut self, vec: &mut Vec<u8>) -> Result<usize> {
-        let size = (self.file_size - self.file_pos) as usize;
-        vec.resize(size, 0);
-        self.read(vec.as_mut_slice()).map(|v| {
-            vec.resize(v, 0);
-            v
-        })
-    }
-
     pub fn lseek(&mut self, offset: OffsetType, whence: Whence) -> OffsetType {
         match whence {
             Whence::SeekSet => self.file_pos = offset,
@@ -318,7 +321,7 @@ impl FsRawFileControlBlock {
         self.file_pos
     }
 
-    pub fn stat(&self) -> Option<FsRawMetaData> {
+    pub fn fstat(&self) -> Option<FsRawMetaData> {
         self.fs.upgrade().and_then(|v| v.as_ref().stat(self.inode))
     }
 }
@@ -331,6 +334,23 @@ impl Read for FsRawFileControlBlock {
         };
         fs.read_data(self.inode, self.file_pos, buf).map(|v| {
             self.file_pos += v as OffsetType;
+            v
+        })
+    }
+
+    fn read_to_end(&mut self, vec: &mut Vec<u8>) -> Result<usize> {
+        let size = (self.file_size - self.file_pos) as usize;
+        if vec.capacity() < size {
+            if let Err(_err) = vec.try_reserve(size - vec.len()) {
+                return Err(ErrorKind::OutOfMemory.into());
+            }
+        }
+        unsafe {
+            vec.set_len(size);
+        }
+        // vec.resize(size, 0);
+        self.read(vec.as_mut_slice()).map(|v| {
+            vec.resize(v, 0);
             v
         })
     }

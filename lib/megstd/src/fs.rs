@@ -50,6 +50,10 @@ impl Read for File {
     fn read(&mut self, _buf: &mut [u8]) -> Result<usize> {
         todo!()
     }
+
+    fn read_to_end(&mut self, _buf: &mut alloc::vec::Vec<u8>) -> Result<usize> {
+        todo!()
+    }
 }
 
 impl Write for File {

@@ -260,7 +260,7 @@ impl Shell {
     fn spawn_main(name: &str, argv: &[&str], wait_until: bool) -> Option<usize> {
         FileManager::open(name)
             .map(|mut fcb| {
-                let stat = fcb.stat().unwrap();
+                let stat = fcb.fstat().unwrap();
                 let file_size = stat.len() as usize;
                 if file_size > 0 {
                     let mut vec = Vec::with_capacity(file_size);

@@ -6,6 +6,7 @@ KRNL_ARCH	= x86_64-unknown-none
 EFI_SUFFIX	= x64
 MNT			= ./mnt/
 MISC		= ./misc/
+ASSETS		= ./assets/
 EFI_BOOT	= $(MNT)efi/boot
 EFI_VENDOR	= $(MNT)efi/megos
 KERNEL_BIN	= $(EFI_VENDOR)/kernel.bin
@@ -18,7 +19,7 @@ TARGET_ISO	= var/megos.iso
 TARGETS		= boot kernel
 ALL_TARGETS	= $(TARGETS) apps
 OVMF		= var/ovmfx64.fd
-INITRD_FILES	= LICENSE $(MISC)initrd/* apps/target/wasm32-unknown-unknown/release/*.wasm
+INITRD_FILES	= LICENSE $(ASSETS)initrd/* apps/target/wasm32-unknown-unknown/release/*.wasm
 
 default: $(TARGETS)
 

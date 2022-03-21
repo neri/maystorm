@@ -49,8 +49,7 @@ fn _start() {
                 let center = Point::new(x, y);
                 let mut life = unsafe { current.get_pixel_unchecked(center) };
 
-                let mut count = 0;
-                for coords in &[
+                let count = [
                     (-1, -1),
                     (0, -1),
                     (1, -1),
@@ -59,14 +58,21 @@ fn _start() {
                     (-1, 1),
                     (0, 1),
                     (1, 1),
-                ] {
-                    let x = coords.0;
-                    let y = coords.1;
-                    let point = Point::new(center.x + x, center.y + y);
-                    if unsafe { current.get_pixel_unchecked(point) } != 0 {
-                        count += 1;
+                ]
+                .iter()
+                .fold(0, |acc, coords| {
+                    if unsafe {
+                        current.get_pixel_unchecked(Point::new(
+                            center.x + coords.0,
+                            center.y + coords.1,
+                        ))
+                    } != 0
+                    {
+                        acc + 1
+                    } else {
+                        acc
                     }
-                }
+                });
 
                 if life == 0 {
                     if count == 3 {

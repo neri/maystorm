@@ -1,5 +1,7 @@
 use core::{convert::TryFrom, ops::*};
 
+pub type FloatType = f64;
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
 pub struct Point {
@@ -144,6 +146,13 @@ impl SubAssign for Point {
             y: self.y - rhs.y,
         }
     }
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Default, PartialEq)]
+pub struct PointF {
+    pub x: FloatType,
+    pub y: FloatType,
 }
 
 #[repr(C)]
