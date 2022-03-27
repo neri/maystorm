@@ -91,7 +91,7 @@ impl PageManager {
             MemoryType::LOADER_DATA,
             count as usize,
         ) {
-            Ok(v) => v.unwrap(),
+            Ok(v) => v,
             Err(err) => return Err(err.status()),
         };
         let shared = Self::shared();

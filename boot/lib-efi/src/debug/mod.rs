@@ -66,7 +66,11 @@ impl Console {
             '\r' => self.update_cursor(|_, y| (0, y)),
             '\n' => self.update_cursor(|_, y| (0, y + 1)),
             _ => {
-                let (x, y) = self.cursor;
+                let (mut x, mut y) = self.cursor;
+                if x >= self.cols {
+                    x = 0;
+                    y += 1;
+                }
                 let y = usize::min(y, self.rows - 1);
                 self.draw_char(x, y, c, Self::FG_COLOR, Self::BG_COLOR);
                 self.cursor = (x + 1, y);

@@ -14,11 +14,15 @@ megosabi = {path = "../../lib/megosabi"}
 megstd = {path = "../../lib/megstd", default-features = false, features = ["kernel"]}
 wasm = {path = "../../lib/wasm"}
 
-acpi = {git = "https://github.com/rust-osdev/acpi"}
+acpi = {}
+# {git = "https://github.com/rust-osdev/acpi"}
 # aml = {git = "https://github.com/rust-osdev/acpi"}
-bitflags = {version = "1"}
-byteorder = {version = "1", default-features = false}
-futures-util = {default-features = false, features = ["alloc"], version = "0.3"}
-num-derive = {version = "0.2", default-features = false}
-num-traits = {version = "0.2", default-features = false}
-seq-macro = {version = "0.2"}
+bitflags = {}
+byteorder = {default-features = false}
+futures-util = {default-features = false, features = ["alloc"]}
+libm = {}
+num-derive = {default-features = false}
+num-traits = {default-features = false}
+seq-macro = {}
+
+ab_glyph = {default-features = false, features = ["libm"]}

@@ -17,6 +17,10 @@ static INITRD_PATH: &str = "/EFI/MEGOS/initrd.img";
 
 #[entry]
 fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
+    unsafe {
+        uefi::alloc::init(st.boot_services());
+    }
+
     let mut info = BootInfo::default();
     let bs = st.boot_services();
     info.platform = Platform::UEFI;
@@ -39,7 +43,6 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
 
     // Init graphics
     if let Ok(gop) = bs.locate_protocol::<::uefi::proto::console::gop::GraphicsOutput>() {
-        let gop = gop.unwrap();
         let gop = unsafe { &mut *gop.get() };
 
         let gop_info = gop.current_mode_info();
@@ -106,14 +109,15 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
     //
 
     // because some UEFI implementations require an additional buffer during exit_boot_services
-    let buf_size = st.boot_services().memory_map_size() * 2;
+    let mmap_size = st.boot_services().memory_map_size();
+    let buf_size = mmap_size.map_size * 2;
     let buf_ptr = st
         .boot_services()
         .allocate_pool(::uefi::table::boot::MemoryType::LOADER_DATA, buf_size)
-        .unwrap()
         .unwrap();
     let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr, buf_size) };
-    let (_st, mm) = st.exit_boot_services(handle, buf).unwrap().unwrap();
+    let (_st, mm) = st.exit_boot_services(handle, buf).unwrap();
+    uefi::alloc::exit_boot_services();
 
     // ------------------------------------------------------------------------
 

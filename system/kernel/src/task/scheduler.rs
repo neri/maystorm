@@ -27,8 +27,8 @@ use num_traits::FromPrimitive;
 
 const THRESHOLD_ENTER_SAVING: usize = 500;
 const THRESHOLD_LEAVE_SAVING: usize = 950;
-const THRESHOLD_ENTER_FULL: usize = 750;
-const THRESHOLD_LEAVE_FULL: usize = 999;
+const THRESHOLD_ENTER_FULL: usize = 950;
+const THRESHOLD_LEAVE_FULL: usize = 666;
 
 static SCHEDULER_STATE: AtomicUsize = AtomicUsize::new(SchedulerState::Disabled.as_raw());
 static mut SCHEDULER: Option<Box<Scheduler>> = None;

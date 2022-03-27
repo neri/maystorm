@@ -374,15 +374,15 @@ impl Shell {
                 let mb = (100 * (bytes & 0x3FFF_FFFF)) / 0x4000_0000;
                 println!(", Memory {}.{:02} GB", gb, mb);
 
-                let manufacturer_name = device.manufacturer_name();
-                let model_name = device.model_name();
-                if manufacturer_name.is_some() || model_name.is_some() {
-                    println!(
-                        "  Manufacturer [{}] Model [{}]",
-                        manufacturer_name.unwrap_or("Unknown"),
-                        model_name.unwrap_or("Unknown"),
-                    );
-                }
+                // let manufacturer_name = device.manufacturer_name();
+                // let model_name = device.model_name();
+                // if manufacturer_name.is_some() || model_name.is_some() {
+                //     println!(
+                //         "  Manufacturer [{}] Model [{}]",
+                //         manufacturer_name.unwrap_or("Unknown"),
+                //         model_name.unwrap_or("Unknown"),
+                //     );
+                // }
             }
             "cpu" => {
                 let device = System::current_device();

@@ -42,7 +42,7 @@ async fn logo_task(f: fn()) {
 
     window.draw(|bitmap| {
         AttributedString::new()
-            .font(FontDescriptor::new(FontFamily::Cursive, 64).unwrap())
+            .font(FontDescriptor::new(FontFamily::SansSerif, 64).unwrap())
             .color(Color::LIGHT_GRAY)
             .middle_center()
             .text("Hello")
@@ -82,13 +82,7 @@ async fn logo_task(f: fn()) {
 async fn shell_launcher(f: fn()) {
     {
         // Main Terminal
-        let bounds = WindowManager::main_screen_bounds();
-        let font = if bounds.width() > 800 && bounds.height() > 600 {
-            FontManager::system_font()
-        } else {
-            FontDescriptor::new(FontFamily::Terminal, 0).unwrap()
-        };
-        let terminal = Terminal::new(80, 24, font);
+        let terminal = Terminal::new(80, 24, FontManager::monospace_font());
         System::set_stdout(Box::new(terminal));
     }
     SpawnOption::new().start_process(unsafe { core::mem::transmute(f) }, 0, "shell");
@@ -128,7 +122,7 @@ async fn status_bar_main() {
         .unwrap();
     window.show();
 
-    let font = FontManager::system_font();
+    let font = FontManager::monospace_font();
     let mut sb = Sb255::new();
 
     let interval = Duration::from_millis(500);
@@ -154,6 +148,7 @@ async fn status_bar_main() {
                 } else {
                     write!(sb, "{:2}:{:02}", hour, min).unwrap();
                 }
+
                 let ats = AttributedString::new()
                     .font(font)
                     .color(fg_color)
@@ -248,7 +243,7 @@ async fn activity_monitor_main() {
         ACTIVITY_WINDOW = Some(window);
     }
 
-    let font = FontDescriptor::new(FontFamily::SmallFixed, 8).unwrap_or(FontManager::system_font());
+    let font = FontDescriptor::new(FontFamily::SmallFixed, 8).unwrap_or(FontManager::ui_font());
 
     let num_of_cpus = System::current_device().num_of_active_cpus();
     let n_items = 64;
@@ -490,7 +485,10 @@ async fn _notification_task() {
 
                                 let rect2 = rect.insets_by(insets);
                                 let ats = AttributedString::new()
-                                    .font(FontDescriptor::new(FontFamily::SansSerif, 14).unwrap())
+                                    .font(
+                                        FontDescriptor::new(FontFamily::SansSerif, 14)
+                                            .unwrap_or(FontManager::ui_font()),
+                                    )
                                     .color(fg_color)
                                     .center()
                                     .text(payload.message());
@@ -533,7 +531,7 @@ async fn test_window_main() {
         .inactive_title_color(bg_color)
         // .active_title_color(Color::LIGHT_BLUE)
         .level(WindowLevel::POPUP)
-        .build("Welcome");
+        .build("Welcome to ようこそ!");
     window.set_back_button_enabled(true);
 
     window.draw(|bitmap| {
@@ -566,7 +564,7 @@ async fn test_window_main() {
                         .font(FontDescriptor::new(FontFamily::SansSerif, 32).unwrap())
                         .middle_center()
                         .color(Color::WHITE)
-                        .text("Welcome to MYOS!")
+                        .text("ようこそ MYOS!")
                         .draw_text(&mut bitmap, rect, 1);
                 })
                 .unwrap();
@@ -582,13 +580,12 @@ async fn test_window_main() {
                 .view(rect, |mut bitmap| {
                     let mut offset = 0;
                     for family in [
-                        FontFamily::SansSerif,
-                        FontFamily::SystemUI,
-                        FontFamily::Serif,
-                        // FontFamily::Cursive,
-                        // FontFamily::Japanese,
+                        // FontFamily::SansSerif,
+                        // FontFamily::Serif,
+                        // FontFamily::Monospace,
+                        FontFamily::Cursive,
                     ] {
-                        for point in [32, 28, 24, 20, 16, 14, 12, 10, 8] {
+                        for point in [32, 28, 24, 20, 16, 14, 12, 10] {
                             offset +=
                                 font_test(&mut bitmap, offset, Color::BLACK, family, point, 1);
                         }
@@ -685,6 +682,7 @@ fn font_test(
         .font(font)
         .top_left()
         .color(color)
+        // .text("あのイーハトーヴォのすきとおった風、夏でも底に冷たさをもつ青いそら、うつくしい森で飾られたモリーオ市、郊外のぎらぎらひかる草の波。");
         .text("The quick brown fox jumps over the lazy dog.");
     // .text("AVATAR Lorem ipsum dolor sit amet,");
 

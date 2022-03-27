@@ -30,6 +30,8 @@ pub use crate::arch::page::{NonNullPhysicalAddress, PhysicalAddress};
 
 static mut MM: UnsafeCell<MemoryManager> = UnsafeCell::new(MemoryManager::new());
 
+static LAST_ALLOC_PTR: AtomicUsize = AtomicUsize::new(0);
+
 pub struct MemoryManager {
     reserved_memory_size: usize,
     page_size_min: usize,
@@ -201,10 +203,10 @@ impl MemoryManager {
     pub unsafe fn pg_dealloc(base: NonZeroUsize, layout: Layout) {
         let shared = Self::shared();
         let _ = base;
-        // let align_m1 = Self::PAGE_SIZE_MIN - 1;
-        // let size = (layout.size() + align_m1) & !(align_m1);
+        let align_m1 = Self::PAGE_SIZE_MIN - 1;
+        let size = (layout.size() + align_m1) & !(align_m1);
         // let mut pairs = shared.pairs();
-        shared.dummy_size.fetch_add(layout.size(), Ordering::SeqCst);
+        shared.dummy_size.fetch_add(size, Ordering::SeqCst);
     }
 
     #[must_use]
@@ -244,6 +246,15 @@ impl MemoryManager {
     pub unsafe fn zalloc2(layout: Layout) -> Option<NonZeroUsize> {
         Self::pg_alloc(layout)
             .and_then(|v| NonZeroUsize::new(PageManager::direct_map(v.get() as PhysicalAddress)))
+            .map(|v| {
+                LAST_ALLOC_PTR.store(v.get(), core::sync::atomic::Ordering::SeqCst);
+                v
+            })
+    }
+
+    #[inline]
+    pub fn last_alloc_ptr() -> usize {
+        LAST_ALLOC_PTR.load(core::sync::atomic::Ordering::Relaxed)
     }
 
     /// Deallocate kernel memory

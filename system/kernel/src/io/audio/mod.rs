@@ -465,7 +465,7 @@ impl SineWaveOscillator {
             time: 0.0,
         };
         AudioNode::new(ctx, move |data| {
-            let result = data * unsafe { core::intrinsics::sinf64(this.delta * this.time) };
+            let result = data * libm::sin(this.delta * this.time);
             this.time = this.time + 1.0;
             if this.time >= this.length {
                 this.time -= this.length;

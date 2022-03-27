@@ -5,8 +5,7 @@ use megoslib::game::v1::prelude::*;
 
 #[no_mangle]
 fn _start() {
-    let width = 144;
-    let presenter = GameWindow::new("hello", Size::new(width, 64));
+    let presenter = GameWindow::new("hello", Size::new(192, 96));
 
     let chars = b"Hello, world!";
     for (index, char) in chars.iter().enumerate() {
@@ -22,7 +21,7 @@ fn _start() {
             let value = position * position / 8 - 16;
             presenter.move_sprite(
                 index as v1::SpriteIndex,
-                Point::new(8 + index as isize * 10, 28 + value),
+                Point::new(32 + index as isize * 10, 44 + value),
             );
         }
 

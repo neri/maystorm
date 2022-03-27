@@ -1,13 +1,19 @@
 #![no_std]
 #![feature(core_intrinsics)]
+#![feature(alloc_error_handler)]
 
-// use crate::debug::console::DebugConsole;
-use core::fmt::Write;
-use core::panic::PanicInfo;
-use uefi::prelude::*;
-use uefi::proto::media::file::*;
-use uefi::proto::media::fs::*;
-use uefi::table::boot::MemoryType;
+use alloc::vec::Vec;
+use core::{alloc::Layout, fmt::Write, panic::PanicInfo};
+use uefi::CStr16;
+use uefi::{
+    prelude::*,
+    proto::{
+        loaded_image::LoadedImage,
+        media::{file::*, fs::*},
+    },
+    table::boot::{MemoryType, OpenProtocolParams},
+};
+extern crate alloc;
 
 pub mod debug;
 
@@ -15,6 +21,11 @@ pub mod debug;
 fn panic(info: &PanicInfo) -> ! {
     println!("{}", info);
     loop {}
+}
+
+#[alloc_error_handler]
+fn alloc_error_handler(layout: Layout) -> ! {
+    panic!("allocation error: {:?}", layout)
 }
 
 #[macro_export]
@@ -39,62 +50,65 @@ pub fn get_file(
     bs: &BootServices,
     path: &str,
 ) -> Result<&'static mut [u8], Status> {
-    let li = unsafe {
-        match bs.handle_protocol::<uefi::proto::loaded_image::LoadedImage>(handle) {
-            Ok(val) => val.unwrap().get().as_ref().unwrap(),
-            Err(_) => return Err(Status::LOAD_ERROR),
-        }
+    let li: &LoadedImage = match bs.open_protocol(
+        OpenProtocolParams {
+            handle,
+            agent: handle,
+            controller: None,
+        },
+        uefi::table::boot::OpenProtocolAttributes::GetProtocol,
+    ) {
+        Ok(val) => unsafe { &*val.interface.get() },
+        Err(_) => return Err(Status::LOAD_ERROR),
     };
-    let fs = unsafe {
-        match bs.handle_protocol::<SimpleFileSystem>(li.device()) {
-            Ok(val) => val.unwrap().get().as_mut().unwrap(),
-            Err(_) => return Err(Status::LOAD_ERROR),
-        }
+    let fs: &mut SimpleFileSystem = match bs.open_protocol(
+        OpenProtocolParams {
+            handle: li.device(),
+            agent: handle,
+            controller: None,
+        },
+        uefi::table::boot::OpenProtocolAttributes::GetProtocol,
+    ) {
+        Ok(val) => unsafe { &mut *val.interface.get() },
+        Err(_) => return Err(Status::LOAD_ERROR),
     };
     let mut root = match fs.open_volume() {
-        Ok(val) => val.unwrap(),
+        Ok(val) => val,
         Err(err) => return Err(err.status()),
     };
 
-    let path_len = path.len();
-    let path_pool = match bs.allocate_pool(MemoryType::LOADER_DATA, path_len) {
-        Ok(val) => val.unwrap(),
-        Err(err) => return Err(err.status()),
-    };
-    for (index, c) in path.chars().enumerate() {
-        unsafe {
-            let c = match c {
-                '/' => '\\',
-                _ => c,
-            };
-            path_pool.add(index).write(c as u8);
-        }
-    }
-    let path =
-        unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(path_pool, path_len)) };
+    let mut path = path
+        .chars()
+        .map(|c| match c {
+            '/' => '\\',
+            _ => c,
+        })
+        .map(|c| c as u16)
+        .collect::<Vec<u16>>();
+    path.push(0);
+    let path = CStr16::from_u16_with_nul(&path).unwrap();
+
     let handle = match root
         .handle()
         .open(path, FileMode::Read, FileAttribute::empty())
     {
-        Ok(handle) => handle.unwrap(),
+        Ok(handle) => handle,
         Err(err) => {
-            bs.free_pool(path_pool).unwrap().unwrap();
             return Err(err.status());
         }
     };
-    bs.free_pool(path_pool).unwrap().unwrap();
 
-    let mut file = match handle.into_type().unwrap().unwrap() {
+    let mut file = match handle.into_type().unwrap() {
         FileType::Regular(file) => file,
-        FileType::Dir(_) => return Err(Status::ACCESS_DENIED),
+        FileType::Dir(_) => return Err(Status::UNSUPPORTED),
     };
 
-    match file.set_position(u64::MAX) {
+    match file.set_position(RegularFile::END_OF_FILE) {
         Ok(_) => (),
         Err(err) => return Err(err.status()),
     };
     let file_size = match file.get_position() {
-        Ok(val) => val.unwrap(),
+        Ok(val) => val,
         Err(err) => return Err(err.status()),
     } as usize;
     match file.set_position(0) {
@@ -103,13 +117,13 @@ pub fn get_file(
     };
 
     let pool = match bs.allocate_pool(MemoryType::LOADER_DATA, file_size) {
-        Ok(val) => val.unwrap(),
+        Ok(val) => val,
         Err(err) => return Err(err.status()),
     };
     let buffer = unsafe { core::slice::from_raw_parts_mut(pool, file_size) };
 
     if let Err(err) = file.read(buffer) {
-        bs.free_pool(pool).unwrap().unwrap();
+        bs.free_pool(pool).unwrap();
         return Err(err.status());
     }
 

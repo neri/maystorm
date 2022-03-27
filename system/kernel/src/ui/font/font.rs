@@ -1,7 +1,9 @@
-use crate::{sync::Mutex, *};
+use crate::{fs::FileManager, sync::Mutex, *};
 use alloc::{boxed::Box, collections::BTreeMap, vec::*};
-use core::cell::UnsafeCell;
-use megstd::drawing::*;
+use core::{cell::UnsafeCell, mem::MaybeUninit};
+use megstd::{drawing::*, io::Read};
+
+use ab_glyph::{self, Font as AbFont};
 
 #[allow(dead_code)]
 mod embedded {
@@ -22,6 +24,10 @@ static mut FONT_MANAGER: UnsafeCell<FontManager> = UnsafeCell::new(FontManager::
 pub struct FontManager {
     fonts: Option<BTreeMap<FontFamily, Box<dyn FontDriver>>>,
     buffer: Mutex<OperationalBitmap>,
+
+    monospace_font: MaybeUninit<FontDescriptor>,
+    title_font: MaybeUninit<FontDescriptor>,
+    ui_font: MaybeUninit<FontDescriptor>,
 }
 
 impl FontManager {
@@ -29,6 +35,9 @@ impl FontManager {
         Self {
             fonts: None,
             buffer: Mutex::new(OperationalBitmap::new(Size::new(96, 96))),
+            monospace_font: MaybeUninit::uninit(),
+            title_font: MaybeUninit::uninit(),
+            ui_font: MaybeUninit::uninit(),
         }
     }
 
@@ -52,30 +61,58 @@ impl FontManager {
         fonts.insert(FontFamily::Terminal, Box::new(TERMINAL_FONT));
 
         let font = Box::new(HersheyFont::new(
-            0,
-            include_bytes!("../../../../../ext/hershey/futural.jhf"),
-        ));
-        fonts.insert(FontFamily::SystemUI, font);
-
-        let font = Box::new(HersheyFont::new(
             4,
             include_bytes!("../../../../../ext/hershey/cursive.jhf"),
         ));
         fonts.insert(FontFamily::Cursive, font);
 
-        let font = Box::new(HersheyFont::new(
-            0,
-            include_bytes!("../../../../../ext/hershey/futuram.jhf"),
-        ));
-        fonts.insert(FontFamily::SansSerif, font);
+        if let Ok(mut file) = FileManager::open("/megos/fonts/mono.ttf") {
+            let mut data = Vec::new();
+            file.read_to_end(&mut data).unwrap();
+            let font = Box::new(TrueTypeFont::new(data));
+            fonts.insert(FontFamily::Monospace, font);
+        }
 
-        let font = Box::new(HersheyFont::new(
-            0,
-            include_bytes!("../../../../../ext/hershey/timesrb.jhf"),
-        ));
-        fonts.insert(FontFamily::Serif, font);
+        if let Ok(mut file) = FileManager::open("/megos/fonts/sans.ttf") {
+            let mut data = Vec::new();
+            file.read_to_end(&mut data).unwrap();
+            let font = Box::new(TrueTypeFont::new(data));
+            fonts.insert(FontFamily::SansSerif, font);
+        } else {
+            let font = Box::new(HersheyFont::new(
+                0,
+                include_bytes!("../../../../../ext/hershey/futuram.jhf"),
+            ));
+            fonts.insert(FontFamily::SansSerif, font);
+        }
+
+        if let Ok(mut file) = FileManager::open("/megos/fonts/serif.ttf") {
+            let mut data = Vec::new();
+            file.read_to_end(&mut data).unwrap();
+            let font = Box::new(TrueTypeFont::new(data));
+            fonts.insert(FontFamily::Serif, font);
+        } else {
+            let font = Box::new(HersheyFont::new(
+                0,
+                include_bytes!("../../../../../ext/hershey/timesrb.jhf"),
+            ));
+            fonts.insert(FontFamily::Serif, font);
+        }
 
         shared.fonts = Some(fonts);
+
+        shared.monospace_font.write(
+            FontDescriptor::new(FontFamily::Monospace, 14)
+                .unwrap_or(FontDescriptor::new(FontFamily::FixedSystem, 0).unwrap()),
+        );
+
+        shared.ui_font.write(
+            FontDescriptor::new(FontFamily::SansSerif, 16).unwrap_or(Self::monospace_font()),
+        );
+
+        shared
+            .title_font
+            .write(FontDescriptor::new(FontFamily::SansSerif, 16).unwrap_or(Self::ui_font()));
     }
 
     fn driver_for(family: FontFamily) -> Option<&'static dyn FontDriver> {
@@ -98,31 +135,30 @@ impl FontManager {
     }
 
     #[inline]
-    #[track_caller]
-    pub fn system_font() -> FontDescriptor {
-        FontDescriptor::new(FontFamily::FixedSystem, 0).unwrap()
-    }
-
-    #[inline]
-    #[track_caller]
-    pub fn title_font() -> FontDescriptor {
-        FontDescriptor::new(FontFamily::SansSerif, 18).unwrap_or(Self::system_font())
+    pub fn monospace_font() -> FontDescriptor {
+        unsafe { Self::shared().monospace_font.assume_init() }
     }
 
     #[inline]
     #[track_caller]
     pub fn ui_font() -> FontDescriptor {
-        FontDescriptor::new(FontFamily::SystemUI, 16).unwrap_or(Self::system_font())
+        unsafe { Self::shared().ui_font.assume_init() }
+    }
+
+    #[inline]
+    #[track_caller]
+    pub fn title_font() -> FontDescriptor {
+        unsafe { Self::shared().title_font.assume_init() }
     }
 }
 
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FontFamily {
-    SystemUI,
     SansSerif,
     Serif,
     Cursive,
+    Monospace,
     FixedSystem,
     Terminal,
     SmallFixed,
@@ -142,8 +178,9 @@ impl FontDescriptor {
                 Self {
                     driver,
                     point: point as i32,
-                    line_height: (driver.preferred_line_height() * point / driver.base_height())
-                        as i32,
+                    line_height: ((driver.preferred_line_height() * point
+                        + driver.base_height() / 2)
+                        / driver.base_height()) as i32,
                 }
             } else {
                 Self {
@@ -175,7 +212,8 @@ impl FontDescriptor {
         if self.point() == self.driver.base_height() {
             self.driver.width_of(character)
         } else {
-            self.driver.width_of(character) * self.point() / self.driver.base_height()
+            (self.driver.width_of(character) * self.point() + self.driver.base_height() / 2)
+                / self.driver.base_height()
         }
     }
 
@@ -213,6 +251,7 @@ pub trait FontDriver {
 pub struct FixedFontDriver<'a> {
     size: Size,
     data: &'a [u8],
+    fix_y: isize,
     line_height: isize,
     stride: usize,
 }
@@ -222,9 +261,11 @@ impl FixedFontDriver<'_> {
         let width = width as isize;
         let height = height as isize;
         let line_height = height * 5 / 4;
+        let fix_y = (line_height - height) / 2;
         let stride = ((width as usize + 7) >> 3) * height as usize;
         FixedFontDriver {
             size: Size::new(width, height),
+            fix_y,
             line_height,
             stride,
             data,
@@ -270,8 +311,7 @@ impl FontDriver for FixedFontDriver<'_> {
     }
 
     #[inline]
-    fn width_of(&self, character: char) -> isize {
-        let _ = character;
+    fn width_of(&self, _character: char) -> isize {
         self.size.width
     }
 
@@ -284,7 +324,7 @@ impl FontDriver for FixedFontDriver<'_> {
         color: Color,
     ) {
         if let Some(font) = self.glyph_for(character) {
-            let origin = Point::new(origin.x, origin.y);
+            let origin = Point::new(origin.x, origin.y + self.fix_y);
             let size = Size::new(self.width_of(character), self.size.height());
             bitmap.draw_font(font, size, origin, color);
         }
@@ -294,6 +334,7 @@ impl FontDriver for FixedFontDriver<'_> {
 #[allow(dead_code)]
 struct HersheyFont<'a> {
     data: &'a [u8],
+    fix_y: isize,
     line_height: isize,
     glyph_info: Vec<(usize, usize, isize)>,
 }
@@ -306,8 +347,10 @@ impl<'a> HersheyFont<'a> {
 
     fn new(extra_height: isize, font_data: &'a [u8]) -> Self {
         let descent = Self::DESCENT + extra_height;
+        let fix_y = descent / 2;
         let mut font = Self {
             data: font_data,
+            fix_y,
             line_height: Self::POINT + descent,
             glyph_info: Vec::with_capacity(96),
         };
@@ -341,6 +384,7 @@ impl<'a> HersheyFont<'a> {
         color: Color,
     ) {
         if data.len() >= 12 {
+            let origin = origin + Point::new(0, self.fix_y * height / Self::POINT);
             let mut buffer = FontManager::shared().buffer.lock().unwrap();
             buffer.reset();
 
@@ -507,18 +551,18 @@ impl<'a> HersheyFont<'a> {
             if false {
                 let rect = Rect::new(origin.x, origin.y, box_w, act_h);
                 bitmap.draw_rect(rect, Color::from_argb(0x80FF8888));
-                // let rect = Rect::new(origin.x + offset_act_x, origin.y, act_w, act_h);
-                // bitmap.draw_rect(rect, Color::from_argb(0xC08888FF));
-                // bitmap.draw_hline(
-                //     Point::new(origin.x, origin.y + height - 1),
-                //     box_w,
-                //     Color::from_rgb(0xFFFF33),
-                // );
-                // bitmap.draw_hline(
-                //     Point::new(origin.x, origin.y + height * 3 / 4),
-                //     box_w,
-                //     Color::from_rgb(0xFF3333),
-                // );
+                let rect = Rect::new(origin.x + offset_act_x, origin.y, act_w, act_h);
+                bitmap.draw_rect(rect, Color::from_argb(0xC08888FF));
+                bitmap.draw_hline(
+                    Point::new(origin.x, origin.y + height - 1),
+                    box_w,
+                    Color::from_rgb(0xFFFF33),
+                );
+                bitmap.draw_hline(
+                    Point::new(origin.x, origin.y + height * 3 / 4),
+                    box_w,
+                    Color::from_rgb(0xFF3333),
+                );
             }
 
             {
@@ -600,5 +644,99 @@ impl FontDriver for HersheyFont<'_> {
         };
         let data = &self.data[base..last];
         self.draw_data(data, bitmap, origin, width, height, color);
+    }
+}
+
+pub struct TrueTypeFont {
+    font: ab_glyph::FontVec,
+    line_height: isize,
+    units_per_em: f32,
+}
+
+impl TrueTypeFont {
+    const BASE_HEIGHT: isize = 256;
+
+    #[inline]
+    pub fn new(font_data: Vec<u8>) -> Self {
+        let font = ab_glyph::FontVec::try_from_vec(font_data).unwrap();
+        let units_per_em = font.units_per_em().unwrap();
+        let line_height = (Self::BASE_HEIGHT as f32
+            * (font.ascent_unscaled() - font.descent_unscaled() + font.line_gap_unscaled())
+            / units_per_em) as isize;
+
+        Self {
+            font,
+            units_per_em,
+            line_height,
+        }
+    }
+}
+
+impl FontDriver for TrueTypeFont {
+    fn is_scalable(&self) -> bool {
+        true
+    }
+
+    fn base_height(&self) -> isize {
+        Self::BASE_HEIGHT
+    }
+
+    fn preferred_line_height(&self) -> isize {
+        self.line_height
+    }
+
+    fn width_of(&self, character: char) -> isize {
+        let glyph_id = self.font.glyph_id(character);
+        (self.font.h_advance_unscaled(glyph_id) * Self::BASE_HEIGHT as f32 / self.units_per_em)
+            as isize
+    }
+
+    fn draw_char(
+        &self,
+        character: char,
+        bitmap: &mut Bitmap,
+        origin: Point,
+        height: isize,
+        color: Color,
+    ) {
+        let scale = height as f32 * self.font.height_unscaled() / self.units_per_em;
+        let ascent = (height as f32 * self.font.ascent_unscaled() / self.units_per_em) as isize;
+        // let descent = (height as f32 * self.font.descent_unscaled() / self.units_per_em) as isize;
+        let glyph = self.font.glyph_id(character).with_scale(scale);
+        self.font.outline_glyph(glyph).map(|glyph| {
+            let bounds = glyph.px_bounds();
+
+            // debug
+            // if false {
+            //     bitmap.draw_rect(
+            //         Rect::new(
+            //             origin.x + bounds.min.x as isize,
+            //             origin.y,
+            //             bounds.width() as isize,
+            //             ascent - descent,
+            //         ),
+            //         Color::LIGHT_RED,
+            //     );
+            //     bitmap.draw_hline(
+            //         origin + Point::new(bounds.min.x as isize, isize::min(ascent, ascent)),
+            //         bounds.width() as isize,
+            //         Color::BLUE,
+            //     );
+            // }
+
+            let origin = origin + Point::new(bounds.min.x as isize, ascent + bounds.min.y as isize);
+            let color = color.into_true_color();
+            glyph.draw(|x, y, a| {
+                let point = origin + Point::new(x as isize, y as isize);
+                if let Some(b) = bitmap.get_pixel(point) {
+                    let b = b.into_true_color();
+                    let mut c = color.components();
+                    c.a = (a * 255.0) as u8;
+                    unsafe {
+                        bitmap.set_pixel_unchecked(point, b.blend_draw(c.into()).into());
+                    }
+                }
+            })
+        });
     }
 }

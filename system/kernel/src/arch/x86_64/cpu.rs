@@ -1689,20 +1689,3 @@ pub(super) unsafe extern "C" fn cpu_int40_handler(ctx: *mut haribote::HoeSyscall
         hoe.syscall(regs);
     });
 }
-
-#[no_mangle]
-pub fn sin(val: f64) -> f64 {
-    // TODO: VERY DIRTY, DO NOT USE FPU
-    let xmm0 = val;
-    unsafe {
-        asm!(
-            "
-            fld qword ptr [{0}]
-            fsin
-            fstp qword ptr [{0}]
-            ",
-            in(reg) &xmm0,
-        );
-    }
-    xmm0
-}
