@@ -208,12 +208,11 @@ impl AttributedStringBuilder {
     }
 }
 
-pub struct TextProcessing {
-    //
-}
+pub struct TextProcessing;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineBreakMode {
+    NoWrap,
     CharWrapping,
     WordWrapping,
     TrancatingTail,
@@ -287,7 +286,7 @@ impl TextProcessing {
         let mut vec = Vec::with_capacity(usize::min(max_lines, limit_max_lines));
 
         // TODO: Line Breaking
-        let _ = line_break;
+        let no_wrap = line_break == LineBreakMode::NoWrap && max_lines == 1;
 
         let mut current_line = LineStatus::empty();
         current_line.height = font.line_height();
@@ -307,7 +306,12 @@ impl TextProcessing {
                 current_line.end_position = index;
                 let current_width = font.width_of(c);
                 let new_width = current_line.width + current_width;
-                if current_line.width > 0 && new_width > size.width {
+                let line_is_over = if no_wrap {
+                    current_width > size.width
+                } else {
+                    current_line.width > 0 && new_width > size.width
+                };
+                if line_is_over {
                     current_height += current_line.height;
                     vec.push(current_line);
                     current_line = LineStatus::empty();

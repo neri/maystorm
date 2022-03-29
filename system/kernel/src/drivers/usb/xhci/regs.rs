@@ -3,14 +3,14 @@
 use super::*;
 use crate::{
     drivers::usb::*,
-    mem::{MemoryManager, PhysicalAddress},
+    mem::{MemoryManager, NonNullPhysicalAddress, PhysicalAddress},
 };
 use bitflags::*;
 use core::{
     ffi::c_void,
     mem::size_of,
     mem::transmute,
-    num::{NonZeroU64, NonZeroU8, NonZeroUsize},
+    num::{NonZeroU8, NonZeroUsize},
     slice,
     sync::atomic::*,
 };
@@ -241,18 +241,18 @@ impl OperationalRegisters {
     }
 
     #[inline]
-    pub fn set_crcr(&self, val: NonZeroU64) {
-        self.crcr.store(val.get(), Ordering::SeqCst);
+    pub fn set_crcr(&self, val: NonNullPhysicalAddress) {
+        self.crcr.store(val.get().as_u64(), Ordering::SeqCst);
     }
 
     #[inline]
-    pub fn dcbaap(&self) -> u64 {
-        self.dcbaap.load(Ordering::SeqCst)
+    pub fn dcbaap(&self) -> PhysicalAddress {
+        self.dcbaap.load(Ordering::SeqCst).into()
     }
 
     #[inline]
-    pub fn set_dcbaap(&self, val: NonZeroU64) {
-        self.dcbaap.store(val.get(), Ordering::SeqCst);
+    pub fn set_dcbaap(&self, val: NonNullPhysicalAddress) {
+        self.dcbaap.store(val.get().as_u64(), Ordering::SeqCst);
     }
 
     #[inline]
@@ -501,8 +501,8 @@ impl InterrupterRegisterSet {
         let (base, erst) = MemoryManager::alloc_dma(count).unwrap();
         *erst = EventRingSegmentTableEntry::new(initial_dp, len as u16);
         self.erstsz.store(count as u32, Ordering::SeqCst);
-        self.erdp.store(initial_dp, Ordering::SeqCst);
-        self.erstba.store(base, Ordering::SeqCst);
+        self.erdp.store(initial_dp.as_u64(), Ordering::SeqCst);
+        self.erstba.store(base.as_u64(), Ordering::SeqCst);
     }
 
     #[inline]
@@ -511,17 +511,17 @@ impl InterrupterRegisterSet {
     }
 
     pub fn dequeue_event<'a>(&'a self, event_cycle: &'a CycleBit) -> Option<&'a Trb> {
-        let erdp = self.erdp.load(Ordering::SeqCst);
+        let erdp = PhysicalAddress::from(self.erdp.load(Ordering::SeqCst));
         let cycle = event_cycle.value();
         let event = unsafe { &*MemoryManager::direct_map::<Trb>(erdp & !15) };
         if event.cycle_bit() == cycle {
             let er_base = erdp & !0xFFF;
-            let mut index = 1 + (erdp - er_base) / size_of::<Trb>() as u64;
-            if index == InterrupterRegisterSet::SIZE_EVENT_RING as u64 {
+            let mut index = 1 + (erdp - er_base) / size_of::<Trb>();
+            if index == InterrupterRegisterSet::SIZE_EVENT_RING {
                 index = 0;
                 event_cycle.toggle();
             }
-            let new_erdp = er_base | index * size_of::<Trb>() as u64 | 8;
+            let new_erdp = er_base.as_u64() | (index * size_of::<Trb>()) as u64 | 8;
             self.erdp.store(new_erdp, Ordering::SeqCst);
 
             Some(event)

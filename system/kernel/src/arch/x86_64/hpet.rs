@@ -13,7 +13,8 @@ pub(super) struct Hpet {
 impl Hpet {
     pub unsafe fn new(info: &acpi::HpetInfo) -> Box<Self> {
         let mut hpet = Hpet {
-            mmio: MmioSlice::from_phys(info.base_address as PhysicalAddress, 0x1000).unwrap(),
+            mmio: MmioSlice::from_phys(PhysicalAddress::from_usize(info.base_address), 0x1000)
+                .unwrap(),
             main_cnt_period: 0,
             measure_div: 0,
         };

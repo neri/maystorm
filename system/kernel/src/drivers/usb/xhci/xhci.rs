@@ -25,7 +25,7 @@ use core::{
     marker::PhantomData,
     mem::transmute,
     mem::{size_of, MaybeUninit},
-    num::{NonZeroU64, NonZeroU8},
+    num::NonZeroU8,
     pin::Pin,
     slice,
     sync::atomic::*,
@@ -239,21 +239,22 @@ impl Xhci {
 
         // make Device Context Base Address Array
         let dcbaa_size = self.dcbaa_len * 8;
-        let pa_dcbaa = MemoryManager::alloc_pages(dcbaa_size).unwrap().get() as u64;
-        self.opr.set_dcbaap(NonZeroU64::new(pa_dcbaa).unwrap());
+        let pa_dcbaa = MemoryManager::alloc_pages(dcbaa_size).unwrap().get();
+        self.opr
+            .set_dcbaap(NonNullPhysicalAddress::new(pa_dcbaa).unwrap());
 
         // make Scratchpad
         let max_scratchpad_size = self.cap.max_scratchpad_size();
         if max_scratchpad_size > 0 {
             let array_size = max_scratchpad_size * 8;
-            let sp_array = MemoryManager::alloc_pages(array_size).unwrap().get() as u64;
+            let sp_array = MemoryManager::alloc_pages(array_size).unwrap().get();
             let sp_size = max_scratchpad_size * self.opr.page_size();
-            let scratchpad = MemoryManager::alloc_pages(sp_size).unwrap().get() as u64;
+            let scratchpad = MemoryManager::alloc_pages(sp_size).unwrap().get();
             let spava = MemoryManager::direct_map::<u64>(sp_array);
             for i in 0..max_scratchpad_size {
                 spava
                     .add(i)
-                    .write_volatile(scratchpad + (i * self.opr.page_size()) as u64);
+                    .write_volatile(scratchpad.as_u64() + (i * self.opr.page_size()) as u64);
             }
             self.dcbaa()[0] = sp_array;
         }
@@ -284,7 +285,7 @@ impl Xhci {
         }
     }
 
-    fn dcbaa(&self) -> &'static mut [u64] {
+    fn dcbaa(&self) -> &'static mut [PhysicalAddress] {
         unsafe {
             slice::from_raw_parts_mut(
                 MemoryManager::direct_map(self.opr.dcbaap() & !63),
@@ -306,11 +307,11 @@ impl Xhci {
         }
     }
 
-    pub fn get_device_context(&self, slot_id: SlotId) -> u64 {
+    pub fn get_device_context(&self, slot_id: SlotId) -> PhysicalAddress {
         *self.dcbaa().get(slot_id.0.get() as usize).unwrap()
     }
 
-    pub fn set_device_context(&self, slot_id: SlotId, value: u64) {
+    pub fn set_device_context(&self, slot_id: SlotId, value: PhysicalAddress) {
         *self.dcbaa().get_mut(slot_id.0.get() as usize).unwrap() = value;
     }
 
@@ -602,12 +603,9 @@ impl Xhci {
         device: &HciDeviceContext,
         setup: UsbControlSetupData,
     ) -> Result<(*const u8, usize), UsbError> {
-        self.control_async(device, setup).await.map(|len| {
-            (
-                MemoryManager::direct_map(device.buffer as PhysicalAddress) as *const _,
-                len,
-            )
-        })
+        self.control_async(device, setup)
+            .await
+            .map(|len| (MemoryManager::direct_map(device.buffer) as *const _, len))
     }
 
     pub async unsafe fn transfer_async(
@@ -825,13 +823,13 @@ impl Xhci {
         let device_context_size = self.context_size * 32;
         let device_context = unsafe { MemoryManager::alloc_pages(device_context_size) }
             .unwrap()
-            .get() as u64;
+            .get();
         self.set_device_context(slot_id, device_context);
 
         let input_context_size = self.context_size * 33;
         let input_context_pa = unsafe { MemoryManager::alloc_pages(input_context_size) }
             .unwrap()
-            .get() as u64;
+            .get();
         let input_context = self.input_context(slot_id);
         input_context.init(input_context_pa, self.context_size);
 
@@ -876,7 +874,7 @@ impl Xhci {
 
         let buffer = unsafe { MemoryManager::alloc_pages(MemoryManager::PAGE_SIZE_MIN) }
             .unwrap()
-            .get() as u64;
+            .get();
         let device = HciDeviceContext {
             root_port_id: device.root_port_id,
             port_id: PortId(port_id.0),
@@ -912,13 +910,13 @@ impl Xhci {
         let device_context_size = self.context_size * 32;
         let device_context = unsafe { MemoryManager::alloc_pages(device_context_size) }
             .unwrap()
-            .get() as u64;
+            .get();
         self.set_device_context(slot_id, device_context);
 
         let input_context_size = self.context_size * 33;
         let input_context_pa = unsafe { MemoryManager::alloc_pages(input_context_size) }
             .unwrap()
-            .get() as u64;
+            .get();
         let input_context = self.input_context(slot_id);
         input_context.init(input_context_pa, self.context_size);
 
@@ -942,7 +940,7 @@ impl Xhci {
 
         let buffer = unsafe { MemoryManager::alloc_pages(MemoryManager::PAGE_SIZE_MIN) }
             .unwrap()
-            .get() as u64;
+            .get();
         let device = HciDeviceContext {
             root_port_id: port_id,
             port_id,
@@ -1505,12 +1503,17 @@ impl EpRingContext {
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ScheduledTrb(pub u64);
+pub struct ScheduledTrb(pub PhysicalAddress);
 
 impl ScheduledTrb {
     #[inline]
+    pub const fn empty() -> Self {
+        Self(PhysicalAddress::NULL)
+    }
+
+    #[inline]
     pub fn next(&self) -> Self {
-        Self(self.0 + size_of::<Trb>() as u64)
+        Self(self.0 + size_of::<Trb>())
     }
 
     #[inline]
@@ -1535,7 +1538,7 @@ impl CommandRequestBlock {
     pub const fn new() -> Self {
         Self {
             state: AtomicUsize::new(0),
-            scheduled_trb: ScheduledTrb(0),
+            scheduled_trb: ScheduledTrb::empty(),
             signal: Semaphore::new(0),
             reuse_delay: Timer::JUST,
             request: Trb::empty(),
@@ -1640,7 +1643,7 @@ impl InputContext {
     #[inline]
     pub const fn empty() -> Self {
         Self {
-            pa: 0,
+            pa: PhysicalAddress::NULL,
             context_size: 0,
         }
     }
@@ -1652,35 +1655,30 @@ impl InputContext {
     }
 
     #[inline]
-    pub fn raw_data(&self) -> u64 {
-        self.pa as u64
+    pub fn raw_data(&self) -> PhysicalAddress {
+        self.pa
     }
 
     #[inline]
     pub fn control<'a>(&self) -> &'a mut InputControlContext {
-        unsafe {
-            &mut *(MemoryManager::direct_map::<InputControlContext>(
-                self.raw_data() as PhysicalAddress
-            ))
-        }
+        unsafe { &mut *(MemoryManager::direct_map::<InputControlContext>(self.raw_data().into())) }
     }
 
     #[inline]
     pub fn slot<'a>(&self) -> &'a mut SlotContext {
         unsafe {
-            &mut *(MemoryManager::direct_map::<SlotContext>(
-                self.raw_data() as PhysicalAddress + self.context_size as PhysicalAddress,
-            ))
+            &mut *(MemoryManager::direct_map::<SlotContext>(PhysicalAddress::from(
+                self.raw_data() + self.context_size,
+            )))
         }
     }
 
     #[inline]
     pub fn endpoint<'a>(&self, dci: DCI) -> &'a mut EndpointContext {
         unsafe {
-            &mut *(MemoryManager::direct_map::<EndpointContext>(
-                self.raw_data() as PhysicalAddress
-                    + self.context_size as PhysicalAddress * (1 + dci.0.get() as PhysicalAddress),
-            ))
+            &mut *(MemoryManager::direct_map::<EndpointContext>(PhysicalAddress::from(
+                self.raw_data() + self.context_size * (1 + dci.0.get() as usize),
+            )))
         }
     }
 }
@@ -1699,7 +1697,7 @@ pub struct HciDeviceContext {
     parent_slot_id: Option<SlotId>,
     route_string: UsbRouteString,
     psiv: PSIV,
-    buffer: u64,
+    buffer: PhysicalAddress,
 }
 
 impl HciContext {

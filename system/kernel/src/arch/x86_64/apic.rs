@@ -123,7 +123,7 @@ impl Apic {
             .local_apic_id
             .into();
         CURRENT_PROCESSOR_INDEXES[shared.master_apic_id.0 as usize] = 0;
-        LocalApic::init(acpi_apic.local_apic_address);
+        LocalApic::init(acpi_apic.local_apic_address.into());
 
         Msr::TscAux.write(0);
 
@@ -691,7 +691,7 @@ impl ApicDestinationShorthand {
     }
 }
 
-static mut LOCAL_APIC_PA: PhysicalAddress = 0;
+static mut LOCAL_APIC_PA: PhysicalAddress = PhysicalAddress::NULL;
 static mut LOCAL_APIC: Option<UnsafeCell<MmioSlice>> = None;
 
 #[allow(dead_code)]
@@ -723,13 +723,14 @@ impl LocalApic {
         LOCAL_APIC_PA = base;
         LOCAL_APIC = MmioSlice::from_phys(base, 0x1000).map(|v| UnsafeCell::new(v));
 
-        Msr::ApicBase
-            .write(LOCAL_APIC_PA | Self::IA32_APIC_BASE_MSR_ENABLE | Self::IA32_APIC_BASE_MSR_BSP);
+        Msr::ApicBase.write(
+            LOCAL_APIC_PA.as_u64() | Self::IA32_APIC_BASE_MSR_ENABLE | Self::IA32_APIC_BASE_MSR_BSP,
+        );
     }
 
     unsafe fn init_ap() -> ApicId {
         let shared = Apic::shared();
-        Msr::ApicBase.write(LOCAL_APIC_PA | Self::IA32_APIC_BASE_MSR_ENABLE);
+        Msr::ApicBase.write(LOCAL_APIC_PA.as_u64() | Self::IA32_APIC_BASE_MSR_ENABLE);
 
         let apicid = LocalApic::current_processor_id();
 
@@ -900,7 +901,11 @@ struct IoApic {
 impl IoApic {
     unsafe fn new(acpi_ioapic: &acpi::platform::interrupt::IoApic) -> Self {
         let mut ioapic = IoApic {
-            mmio: MmioSlice::from_phys(acpi_ioapic.address as PhysicalAddress, 0x14).unwrap(),
+            mmio: MmioSlice::from_phys(
+                PhysicalAddress::from_usize(acpi_ioapic.address as usize),
+                0x14,
+            )
+            .unwrap(),
             global_int: Irq(acpi_ioapic.global_system_interrupt_base as u8),
             entries: 0,
             id: acpi_ioapic.id,

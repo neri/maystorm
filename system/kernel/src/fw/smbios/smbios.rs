@@ -13,8 +13,8 @@ pub struct SmBios {
 impl SmBios {
     #[inline]
     pub unsafe fn init(entry: PhysicalAddress) -> Box<Self> {
-        let ep: &SmBiosEntryV1 = transmute(entry as usize);
-        let base = PageManager::direct_map(ep.base as PhysicalAddress);
+        let ep: &SmBiosEntryV1 = transmute(entry.as_usize());
+        let base = PageManager::direct_map(PhysicalAddress::new(ep.base as u64));
         let n_structures = ep.n_structures as usize;
         Box::new(Self { base, n_structures })
     }

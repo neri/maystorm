@@ -126,7 +126,7 @@ pub struct System {
 
     // copy of boot info
     boot_flags: BootFlags,
-    initrd_base: usize,
+    initrd_base: PhysicalAddress,
     initrd_size: usize,
 }
 
@@ -150,7 +150,7 @@ impl System {
             main_screen: None,
             em_console: EmConsole::new(FontManager::preferred_console_font()),
             stdout: None,
-            initrd_base: 0,
+            initrd_base: PhysicalAddress::NULL,
             initrd_size: 0,
         }
     }
@@ -159,12 +159,12 @@ impl System {
     pub unsafe fn init(info: &BootInfo, f: fn() -> ()) -> ! {
         let shared = SYSTEM.get_mut();
         shared.boot_flags = info.flags;
-        shared.initrd_base = info.initrd_base as usize;
+        shared.initrd_base = PhysicalAddress::new(info.initrd_base as u64);
         shared.initrd_size = info.initrd_size as usize;
         shared.current_device.total_memory_size = info.total_memory_size as usize;
 
         let main_screen = Bitmap32::from_static(
-            PageManager::direct_map(info.vram_base) as *mut TrueColor,
+            PageManager::direct_map(info.vram_base.into()) as *mut TrueColor,
             Size::new(info.screen_width as isize, info.screen_height as isize),
             info.vram_stride as usize,
         );
@@ -179,7 +179,7 @@ impl System {
 
         if info.smbios != 0 {
             let device = &mut shared.current_device;
-            let smbios = fw::smbios::SmBios::init(info.smbios);
+            let smbios = fw::smbios::SmBios::init(info.smbios.into());
             device.manufacturer_name = smbios.manufacturer_name().map(|v| v.to_string());
             device.model_name = smbios.model_name().map(|v| v.to_string());
             shared.smbios = Some(smbios);
@@ -221,7 +221,7 @@ impl System {
             drivers::usb::UsbManager::init();
 
             fs::FileManager::init(
-                PageManager::direct_map(shared.initrd_base as PhysicalAddress),
+                PageManager::direct_map(shared.initrd_base),
                 shared.initrd_size,
             );
 
@@ -478,9 +478,9 @@ impl ::acpi::AcpiHandler for MyAcpiHandler {
     ) -> PhysicalMapping<Self, T> {
         PhysicalMapping::new(
             physical_address,
-            NonNull::new_unchecked(
-                PageManager::direct_map(physical_address as PhysicalAddress) as *mut T
-            ),
+            NonNull::new_unchecked(PageManager::direct_map(PhysicalAddress::from_usize(
+                physical_address,
+            )) as *mut T),
             size,
             size,
             Self::new(),

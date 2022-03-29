@@ -1,6 +1,6 @@
 //! xHC Data Structures
 
-use crate::drivers::usb::*;
+use crate::{drivers::usb::*, mem::PhysicalAddress};
 use core::{mem::transmute, num::NonZeroU8, sync::atomic::*};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
@@ -267,14 +267,15 @@ pub trait TrbCommon {
 
 pub trait TrbPtr: TrbCommon {
     #[inline]
-    fn ptr(&self) -> u64 {
+    fn ptr(&self) -> PhysicalAddress {
         let low = self.raw_data()[0].load(Ordering::SeqCst) as u64;
         let high = self.raw_data()[1].load(Ordering::SeqCst) as u64;
-        low | (high << 32)
+        PhysicalAddress::new(low | (high << 32))
     }
 
     #[inline]
-    fn set_ptr(&self, val: u64) {
+    fn set_ptr(&self, val: PhysicalAddress) {
+        let val = val.as_u64();
         let low = val as u32;
         let high = (val >> 32) as u32;
         self.raw_data()[0].store(low, Ordering::SeqCst);
@@ -517,7 +518,7 @@ pub struct TrbLink(TrbRawData);
 
 impl TrbLink {
     #[inline]
-    pub fn new(ptr: u64, toggle_cycle: bool) -> Self {
+    pub fn new(ptr: PhysicalAddress, toggle_cycle: bool) -> Self {
         let result: Self = unsafe { transmute(Trb::new(TrbType::LINK)) };
         result.set_ptr(ptr);
         if toggle_cycle {
@@ -557,7 +558,7 @@ impl TrbCommon for TrbNop {
 pub struct TrbNormal(TrbRawData);
 
 impl TrbNormal {
-    pub fn new(ptr: u64, xfer_len: usize, ioc: bool, isp: bool) -> Self {
+    pub fn new(ptr: PhysicalAddress, xfer_len: usize, ioc: bool, isp: bool) -> Self {
         let result: Self = unsafe { transmute(Trb::new(TrbType::NORMAL)) };
         result.set_ptr(ptr);
         result.set_xfer_len(xfer_len);
@@ -615,7 +616,7 @@ impl TrbIDt for TrbSetupStage {}
 pub struct TrbDataStage(TrbRawData);
 
 impl TrbDataStage {
-    pub fn new(ptr: u64, xfer_len: usize, dir: bool, isp: bool) -> Self {
+    pub fn new(ptr: PhysicalAddress, xfer_len: usize, dir: bool, isp: bool) -> Self {
         let result: Self = unsafe { transmute(Trb::new(TrbType::DATA)) };
         result.set_ptr(ptr);
         result.set_xfer_len(xfer_len);
@@ -805,7 +806,7 @@ pub struct TrbAddressDeviceCommand(TrbRawData);
 
 impl TrbAddressDeviceCommand {
     #[inline]
-    pub fn new(slot_id: SlotId, input_context_ptr: u64) -> Self {
+    pub fn new(slot_id: SlotId, input_context_ptr: PhysicalAddress) -> Self {
         let result: Self = unsafe { transmute(Trb::new(TrbType::ADDRESS_DEVICE_COMMAND)) };
         result.set_slot_id(slot_id);
         result.set_ptr(input_context_ptr);
@@ -829,7 +830,7 @@ pub struct TrbConfigureEndpointCommand(TrbRawData);
 
 impl TrbConfigureEndpointCommand {
     #[inline]
-    pub fn new(slot_id: SlotId, input_context_ptr: u64) -> Self {
+    pub fn new(slot_id: SlotId, input_context_ptr: PhysicalAddress) -> Self {
         let result: Self = unsafe { transmute(Trb::new(TrbType::CONFIGURE_ENDPOINT_COMMAND)) };
         result.set_slot_id(slot_id);
         result.set_ptr(input_context_ptr);
@@ -853,7 +854,7 @@ pub struct TrbEvaluateContextCommand(TrbRawData);
 
 impl TrbEvaluateContextCommand {
     #[inline]
-    pub fn new(slot_id: SlotId, input_context_ptr: u64) -> Self {
+    pub fn new(slot_id: SlotId, input_context_ptr: PhysicalAddress) -> Self {
         let result: Self = unsafe { transmute(Trb::new(TrbType::EVALUATE_CONTEXT_COMMAND)) };
         result.set_slot_id(slot_id);
         result.set_ptr(input_context_ptr);
@@ -907,17 +908,17 @@ pub struct EventRingSegmentTableEntry {
 
 impl EventRingSegmentTableEntry {
     #[inline]
-    pub const fn new(base: u64, size: u16) -> Self {
+    pub const fn new(base: PhysicalAddress, size: u16) -> Self {
         Self {
-            base,
+            base: base.as_u64(),
             size,
             _rsrv: [0; 6],
         }
     }
 
     #[inline]
-    pub const fn base(&self) -> u64 {
-        self.base
+    pub const fn base(&self) -> PhysicalAddress {
+        PhysicalAddress::new(self.base)
     }
 
     #[inline]
@@ -1091,7 +1092,8 @@ impl EndpointContext {
     }
 
     #[inline]
-    pub fn set_trdp(&mut self, dp: u64) {
+    pub fn set_trdp(&mut self, dp: PhysicalAddress) {
+        let dp = dp.as_u64();
         self.data[2] = dp as u32;
         self.data[3] = (dp >> 32) as u32;
     }

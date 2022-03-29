@@ -1,7 +1,7 @@
 use crate::{
     drivers::pci::*,
     io::audio::{AudioDriver, AudioManager},
-    mem::{mmio::MmioSlice, MemoryManager},
+    mem::{mmio::MmioSlice, MemoryManager, PhysicalAddress},
     sync::{semaphore::Semaphore, spinlock::SpinLoopWait, Mutex},
     task::scheduler::{Priority, SpawnOption, Timer},
     *,
@@ -1199,7 +1199,7 @@ bitflags! {
 impl CorbRegisterSet {
     pub const CORBRPRST: u16 = 0x8000;
 
-    pub unsafe fn init(&self, pa_corb: u64) {
+    pub unsafe fn init(&self, pa_corb: PhysicalAddress) {
         self.stop();
 
         self.set_write_pointer(0);
@@ -1224,7 +1224,8 @@ impl CorbRegisterSet {
     }
 
     #[inline]
-    pub fn set_base(&self, base: u64) {
+    pub fn set_base(&self, base: PhysicalAddress) {
+        let base = base.as_u64();
         self.lbase.store(base as u32, Ordering::SeqCst);
         self.ubase.store((base >> 32) as u32, Ordering::SeqCst);
     }
@@ -1310,9 +1311,9 @@ bitflags! {
 impl RirbRegisterSet {
     pub const RIRBWPRST: u16 = 0x8000;
 
-    fn init(&self, pa_rirb: u64) {
+    fn init(&self, pa_rirb: PhysicalAddress) {
         self.stop();
-        self.set_base(pa_rirb as u64);
+        self.set_base(pa_rirb);
         self.set_rintcnt(1);
         self.reset_write_pointer();
     }
@@ -1328,7 +1329,8 @@ impl RirbRegisterSet {
     }
 
     #[inline]
-    pub fn set_base(&self, base: u64) {
+    pub fn set_base(&self, base: PhysicalAddress) {
+        let base = base.as_u64();
         self.lbase.store(base as u32, Ordering::SeqCst);
         self.ubase.store((base >> 32) as u32, Ordering::SeqCst);
     }
@@ -1547,7 +1549,8 @@ impl StreamDescriptorRegisterSet {
     }
 
     #[inline]
-    pub fn set_base(&self, base: u64) {
+    pub fn set_base(&self, base: PhysicalAddress) {
+        let base = base.as_u64();
         self.bdpl.store(base as u32, Ordering::SeqCst);
         self.bdpu.store((base >> 32) as u32, Ordering::SeqCst);
     }
@@ -1627,14 +1630,14 @@ impl BufferDescriptor {
     }
 
     #[inline]
-    pub const fn new(address: u64, length: usize, ioc: bool) -> Self {
+    pub const fn new(address: PhysicalAddress, length: usize, ioc: bool) -> Self {
         let flags = if ioc {
             BufferDescriptorFlag::IOC
         } else {
             BufferDescriptorFlag::empty()
         };
         Self {
-            address,
+            address: address.as_u64(),
             length: length as u32,
             flags: flags.bits(),
         }

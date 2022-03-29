@@ -7,23 +7,211 @@ use bootprot::*;
 use core::{
     alloc::Layout,
     arch::asm,
-    mem::transmute,
+    fmt,
     num::{NonZeroU64, NonZeroUsize},
-    ops::{AddAssign, BitOrAssign, SubAssign},
+    ops::{Add, AddAssign, BitAnd, BitOr, BitOrAssign, Mul, Not, Sub, SubAssign},
     sync::atomic::*,
 };
 
-pub type PhysicalAddress = u64;
-pub type NonNullPhysicalAddress = NonZeroU64;
 type PageTableRepr = u64;
 
-pub struct PageManager {
-    _phantom: (),
+#[repr(transparent)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PhysicalAddress(u64);
+
+impl PhysicalAddress {
+    pub const NULL: Self = Self(0);
+
+    // pub const MAX: Self = Self(0x0FFF_FFFF_FFFF);
+
+    #[inline]
+    pub const fn new(val: u64) -> Self {
+        Self(val)
+    }
+
+    #[inline]
+    pub const fn from_usize(val: usize) -> Self {
+        Self(val as u64)
+    }
+
+    #[inline]
+    pub const fn as_u64(&self) -> u64 {
+        self.0 as u64
+    }
+
+    #[inline]
+    pub const fn as_usize(&self) -> usize {
+        self.0 as usize
+    }
+
+    /// Gets a pointer identical to the specified physical address.
+    ///
+    /// # Safety
+    ///
+    /// Pointers of this form may not map to some memory.
+    #[inline]
+    pub const unsafe fn identity_map<T>(&self) -> *mut T {
+        self.0 as usize as *mut T
+    }
+
+    /// Gets the pointer corresponding to the specified physical address.
+    #[inline]
+    pub const fn direct_map<T>(&self) -> *mut T {
+        PageManager::direct_map(*self) as *mut T
+    }
 }
+
+impl Default for PhysicalAddress {
+    #[inline]
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl Add<usize> for PhysicalAddress {
+    type Output = Self;
+
+    #[inline]
+    fn add(self, rhs: usize) -> Self::Output {
+        Self(self.0 + rhs as u64)
+    }
+}
+
+impl Add<u64> for PhysicalAddress {
+    type Output = Self;
+
+    #[inline]
+    fn add(self, rhs: u64) -> Self::Output {
+        Self(self.0 + rhs)
+    }
+}
+
+impl Sub<PhysicalAddress> for PhysicalAddress {
+    type Output = usize;
+
+    #[inline]
+    fn sub(self, rhs: PhysicalAddress) -> Self::Output {
+        (self.0 - rhs.0) as usize
+    }
+}
+
+impl Sub<usize> for PhysicalAddress {
+    type Output = Self;
+
+    #[inline]
+    fn sub(self, rhs: usize) -> Self::Output {
+        Self(self.0 - rhs as u64)
+    }
+}
+
+impl Mul<usize> for PhysicalAddress {
+    type Output = Self;
+
+    fn mul(self, rhs: usize) -> Self::Output {
+        Self(self.0 * rhs as u64)
+    }
+}
+
+impl Mul<u64> for PhysicalAddress {
+    type Output = Self;
+
+    fn mul(self, rhs: u64) -> Self::Output {
+        Self(self.0 * rhs)
+    }
+}
+
+impl BitAnd<u64> for PhysicalAddress {
+    type Output = Self;
+
+    #[inline]
+    fn bitand(self, rhs: u64) -> Self::Output {
+        Self(self.0 & rhs)
+    }
+}
+
+impl BitAnd<PhysicalAddress> for u64 {
+    type Output = Self;
+
+    fn bitand(self, rhs: PhysicalAddress) -> Self::Output {
+        self & rhs.0
+    }
+}
+
+impl BitOr<u64> for PhysicalAddress {
+    type Output = Self;
+
+    #[inline]
+    fn bitor(self, rhs: u64) -> Self::Output {
+        Self(self.0 | rhs)
+    }
+}
+
+impl Not for PhysicalAddress {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        Self(!self.0)
+    }
+}
+
+impl From<u64> for PhysicalAddress {
+    #[inline]
+    fn from(val: u64) -> Self {
+        Self::new(val)
+    }
+}
+
+impl From<PhysicalAddress> for u64 {
+    #[inline]
+    fn from(val: PhysicalAddress) -> Self {
+        val.as_u64()
+    }
+}
+
+impl fmt::Debug for PhysicalAddress {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:012x}", self.0)
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct NonNullPhysicalAddress(NonZeroU64);
+
+impl NonNullPhysicalAddress {
+    #[inline]
+    pub const fn get(&self) -> PhysicalAddress {
+        PhysicalAddress(self.0.get())
+    }
+
+    #[inline]
+    pub const fn new(val: PhysicalAddress) -> Option<Self> {
+        match NonZeroU64::new(val.as_u64()) {
+            Some(v) => Some(Self(v)),
+            None => None,
+        }
+    }
+
+    #[inline]
+    pub const unsafe fn new_unchecked(val: PhysicalAddress) -> Self {
+        Self(NonZeroU64::new_unchecked(val.as_u64()))
+    }
+}
+
+impl From<NonNullPhysicalAddress> for PhysicalAddress {
+    #[inline]
+    fn from(val: NonNullPhysicalAddress) -> Self {
+        val.get()
+    }
+}
+
+pub struct PageManager;
 
 impl PageManager {
     const PAGE_SIZE_MIN: usize = 0x1000;
-    const PAGE_SIZE_2M: usize = 0x200000;
+    // const PAGE_SIZE_2M: usize = 0x200000;
+    const PAGE_SIZE_M1: PageTableRepr = 0xFFF;
+    const PAGE_SIZE_2M_M1: PageTableRepr = 0x1F_FFFF;
     const PAGE_KERNEL_PREFIX: usize = 0xFFFF_0000_0000_0000;
     const PAGE_RECURSIVE: usize = 0x1FE;
     // const PAGE_KERNEL_HEAP: usize = 0x1FC;
@@ -33,13 +221,13 @@ impl PageManager {
 
     #[inline]
     pub unsafe fn init(_info: &BootInfo) {
-        let base = Self::read_pdbr() as usize & !(Self::PAGE_SIZE_MIN - 1);
-        let p = base as *const u64 as *mut PageTableEntry;
+        let base = Self::read_pdbr() & !Self::PAGE_SIZE_M1;
+        let p = base.as_usize() as *mut PageTableEntry;
 
         // FFFF_FF00_0000_0000 - FFFF_FF7F_FFFF_FFFF RECURSIVE PAGE TABLE AREA
         p.add(Self::PAGE_RECURSIVE)
             .write_volatile(PageTableEntry::new(
-                base as u64,
+                base,
                 PageAttributes::NO_EXECUTE | PageAttributes::WRITE | PageAttributes::PRESENT,
             ));
 
@@ -116,18 +304,18 @@ impl PageManager {
     #[inline]
     #[track_caller]
     pub(super) unsafe fn map(va: usize, len: NonZeroUsize, template: PageTableEntry) {
-        let mask_4k = Self::PAGE_SIZE_MIN - 1;
-        let mask_2m = Self::PAGE_SIZE_2M - 1;
-        let len = (len.get() + mask_4k - 1) & !mask_4k;
+        let mask_4k = Self::PAGE_SIZE_M1;
+        let mask_2m = Self::PAGE_SIZE_2M_M1;
+        let len = (len.get() + mask_4k as usize) & !(mask_4k) as usize;
 
-        if (va & mask_4k) != 0 {
+        if (va as PageTableRepr & mask_4k) != 0 {
             panic!("INVALID VA: {:016x}", va);
         }
 
         if template.contains(PageAttributes::LARGE)
-            && (va & mask_2m) == 0
-            && (len & mask_2m) == 0
-            && (template.frame_address() as usize & mask_2m) == 0
+            && (va & mask_2m as usize) == 0
+            && (len & mask_2m as usize) == 0
+            && (mask_2m & template.frame_address()) == 0
         {
             // 2M Pages
             todo!();
@@ -169,7 +357,7 @@ impl PageManager {
             ))
             .unwrap()
             .get() as PhysicalAddress;
-            let table: *mut u8 = transmute(Self::direct_map(pa));
+            let table: *mut u8 = pa.direct_map();
             table.write_bytes(0, Self::PAGE_SIZE_MIN);
             pte.write_volatile(PageTableEntry::new(
                 pa as PhysicalAddress,
@@ -192,20 +380,25 @@ impl PageManager {
     }
 
     #[inline]
-    unsafe fn read_pdbr() -> u64 {
+    unsafe fn read_pdbr() -> PhysicalAddress {
         let result: u64;
         asm!("mov {}, cr3", out(reg) result);
-        result
+        PhysicalAddress::new(result)
     }
 
     #[inline]
-    unsafe fn write_pdbr(val: u64) {
-        asm!("mov cr3, {}", in(reg) val);
+    unsafe fn write_pdbr(val: PhysicalAddress) {
+        asm!("mov cr3, {}", in(reg) val.as_u64());
     }
 
     #[inline]
     pub const fn direct_map(pa: PhysicalAddress) -> usize {
-        Self::DIRECT_BASE + pa as usize
+        Self::DIRECT_BASE + pa.as_usize()
+    }
+
+    #[inline]
+    pub const fn direct_unmap(va: usize) -> PhysicalAddress {
+        PhysicalAddress::from_usize(va - Self::DIRECT_BASE)
     }
 
     #[inline]
@@ -293,7 +486,7 @@ impl PageTableEntry {
 
     #[inline]
     pub const fn new(base: PhysicalAddress, attr: PageAttributes) -> Self {
-        Self((base & Self::ADDRESS_BIT) | attr.bits())
+        Self((base.as_u64() & Self::ADDRESS_BIT) | attr.bits())
     }
 
     #[inline]
@@ -328,7 +521,7 @@ impl PageTableEntry {
 
     #[inline]
     pub const fn frame_address(&self) -> PhysicalAddress {
-        self.0 & Self::ADDRESS_BIT
+        PhysicalAddress::new(self.0 & Self::ADDRESS_BIT)
     }
 
     #[inline]
@@ -338,7 +531,7 @@ impl PageTableEntry {
 
     #[inline]
     pub fn set_frame_address(&mut self, pa: PhysicalAddress) {
-        self.0 = (pa & Self::ADDRESS_BIT) | (self.0 & !Self::ADDRESS_BIT);
+        self.0 = (pa.as_u64() & Self::ADDRESS_BIT) | (self.0 & !Self::ADDRESS_BIT);
     }
 
     #[inline]
@@ -367,7 +560,7 @@ impl BitOrAssign<PageAttributes> for PageTableEntry {
 
 impl AddAssign<usize> for PageTableEntry {
     fn add_assign(&mut self, rhs: usize) {
-        let pa = self.frame_address() + rhs as PhysicalAddress;
+        let pa = self.frame_address() + rhs;
         self.set_frame_address(pa);
     }
 }
@@ -375,7 +568,7 @@ impl AddAssign<usize> for PageTableEntry {
 impl From<PhysicalAddress> for PageTableEntry {
     #[inline]
     fn from(value: PhysicalAddress) -> Self {
-        Self(value as PageTableRepr)
+        Self(value.as_u64())
     }
 }
 

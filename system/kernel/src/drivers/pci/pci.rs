@@ -1,4 +1,4 @@
-use crate::{arch::cpu::*, sync::RwLock, system::System};
+use crate::{arch::cpu::*, mem::PhysicalAddress, sync::RwLock, system::System};
 use alloc::{
     boxed::Box,
     collections::{btree_map::Values, BTreeMap},
@@ -464,11 +464,11 @@ impl PciBar {
     }
 
     #[inline]
-    pub const fn base(&self) -> u64 {
+    pub const fn base(&self) -> PhysicalAddress {
         if self.is_isolated_io() {
-            self.0 & 0xFFFF_FFFC
+            PhysicalAddress::new(self.0 & 0xFFFF_FFFC)
         } else {
-            (self.0 & Self::VALID_BASE_MASK) & !0x0F
+            PhysicalAddress::new((self.0 & Self::VALID_BASE_MASK) & !0x0F)
         }
     }
 

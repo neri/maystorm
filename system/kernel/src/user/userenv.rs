@@ -580,12 +580,12 @@ async fn test_window_main() {
                 .view(rect, |mut bitmap| {
                     let mut offset = 0;
                     for family in [
-                        // FontFamily::SansSerif,
-                        // FontFamily::Serif,
-                        // FontFamily::Monospace,
-                        FontFamily::Cursive,
+                        FontFamily::SansSerif,
+                        FontFamily::Serif,
+                        FontFamily::Monospace,
+                        // FontFamily::Cursive,
                     ] {
-                        for point in [32, 28, 24, 20, 16, 14, 12, 10] {
+                        for point in [32, 28, 24, 20, 16, 14, 12, 10, 8] {
                             offset +=
                                 font_test(&mut bitmap, offset, Color::BLACK, family, point, 1);
                         }
@@ -682,8 +682,9 @@ fn font_test(
         .font(font)
         .top_left()
         .color(color)
-        // .text("あのイーハトーヴォのすきとおった風、夏でも底に冷たさをもつ青いそら、うつくしい森で飾られたモリーオ市、郊外のぎらぎらひかる草の波。");
-        .text("The quick brown fox jumps over the lazy dog.");
+        .line_break_mode(LineBreakMode::NoWrap)
+        .text("あのイーハトーヴォのすきとおった風、夏でも底に冷たさをもつ青いそら、うつくしい森で飾られたモリーオ市、郊外のぎらぎらひかる草の波。");
+    // .text("The quick brown fox jumps over the lazy dog.");
     // .text("AVATAR Lorem ipsum dolor sit amet,");
 
     let bounds = ats.bounding_size(rect.size(), max_lines);

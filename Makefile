@@ -39,7 +39,6 @@ $(EFI_VENDOR):
 
 run:
 	qemu-system-x86_64 -machine q35 \
-		-m 1G \
 		-cpu Haswell -smp 4,cores=2,threads=2 \
 		-bios $(OVMF) \
 		-rtc base=localtime,clock=host \

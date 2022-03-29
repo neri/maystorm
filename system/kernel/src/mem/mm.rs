@@ -35,8 +35,8 @@ static LAST_ALLOC_PTR: AtomicUsize = AtomicUsize::new(0);
 pub struct MemoryManager {
     reserved_memory_size: usize,
     page_size_min: usize,
-    dummy_size: AtomicUsize,
-    n_free: AtomicUsize,
+    lost_size: AtomicUsize,
+    n_fragments: AtomicUsize,
     pairs: SpinMutex<[MemFreePair; Self::MAX_FREE_PAIRS]>,
     slab: Option<Box<SlabAllocator>>,
     real_bitmap: [u32; 8],
@@ -51,8 +51,8 @@ impl MemoryManager {
         Self {
             reserved_memory_size: 0,
             page_size_min: 0x1000,
-            dummy_size: AtomicUsize::new(0),
-            n_free: AtomicUsize::new(0),
+            lost_size: AtomicUsize::new(0),
+            n_fragments: AtomicUsize::new(0),
             pairs: SpinMutex::new([MemFreePair::empty(); Self::MAX_FREE_PAIRS]),
             slab: None,
             real_bitmap: [0; 8],
@@ -66,18 +66,18 @@ impl MemoryManager {
         let mm: &[BootMemoryMapDescriptor] =
             slice::from_raw_parts(info.mmap_base as usize as *const _, info.mmap_len as usize);
         let mut free_count = 0;
-        let mut n_free = 0;
+        let mut n_fragments = 0;
         let mut pairs = shared.pairs();
         for mem_desc in mm {
             if mem_desc.mem_type == BootMemoryType::Available {
                 let size = mem_desc.page_count as usize * Self::PAGE_SIZE_MIN;
-                pairs[n_free] = MemFreePair::new(mem_desc.base as usize, size);
+                pairs[n_fragments] = MemFreePair::new(mem_desc.base.into(), size);
                 free_count += size;
             }
-            n_free += 1;
+            n_fragments += 1;
         }
         drop(pairs);
-        shared.n_free.store(n_free, Ordering::SeqCst);
+        shared.n_fragments.store(n_fragments, Ordering::SeqCst);
         shared.reserved_memory_size = info.total_memory_size as usize - free_count;
 
         if cfg!(any(target_arch = "x86_64")) {
@@ -167,8 +167,8 @@ impl MemoryManager {
     #[inline]
     pub fn free_memory_size() -> usize {
         let shared = Self::shared();
-        let mut total = shared.dummy_size.load(Ordering::Relaxed);
-        total += shared.pairs()[..shared.n_free.load(Ordering::Relaxed)]
+        let mut total = shared.lost_size.load(Ordering::Relaxed);
+        total += shared.pairs()[..shared.n_fragments.load(Ordering::Relaxed)]
             .iter()
             .fold(0, |v, i| v + i.size());
         // total += shared
@@ -181,36 +181,48 @@ impl MemoryManager {
 
     /// Allocate pages
     #[must_use]
-    pub unsafe fn pg_alloc(layout: Layout) -> Option<NonZeroUsize> {
+    pub unsafe fn pg_alloc(layout: Layout) -> Option<NonNullPhysicalAddress> {
         if layout.align() > Self::PAGE_SIZE_MIN {
             return None;
         }
         let shared = Self::shared();
         let align_m1 = Self::PAGE_SIZE_MIN - 1;
         let size = (layout.size() + align_m1) & !(align_m1);
-        let n_free = shared.n_free.load(Ordering::SeqCst);
         let pairs = shared.pairs();
-        for i in 0..n_free {
+        let n_fragments = shared.n_fragments.load(Ordering::SeqCst);
+        for i in 0..n_fragments {
             let free_pair = &pairs[i];
             match free_pair.alloc(size) {
-                Ok(v) => return NonZeroUsize::new(v),
+                Ok(v) => return NonNullPhysicalAddress::new(v),
                 Err(_) => (),
             }
         }
         None
     }
 
-    pub unsafe fn pg_dealloc(base: NonZeroUsize, layout: Layout) {
+    pub unsafe fn pg_dealloc(base: PhysicalAddress, layout: Layout) {
         let shared = Self::shared();
-        let _ = base;
         let align_m1 = Self::PAGE_SIZE_MIN - 1;
         let size = (layout.size() + align_m1) & !(align_m1);
-        // let mut pairs = shared.pairs();
-        shared.dummy_size.fetch_add(size, Ordering::SeqCst);
+        let new_entry = MemFreePair::new(base, size);
+        let mut pairs = shared.pairs();
+        let n_fragments = shared.n_fragments.load(Ordering::SeqCst);
+        for i in 0..n_fragments {
+            if pairs[i].try_merge(new_entry).is_ok() {
+                return;
+            }
+        }
+        if n_fragments < pairs.len() {
+            pairs[n_fragments] = new_entry;
+            shared.n_fragments.fetch_add(1, Ordering::SeqCst);
+            drop(pairs);
+            return;
+        }
+        shared.lost_size.fetch_add(size, Ordering::SeqCst);
     }
 
     #[must_use]
-    pub unsafe fn alloc_pages(size: usize) -> Option<NonZeroUsize> {
+    pub unsafe fn alloc_pages(size: usize) -> Option<NonNullPhysicalAddress> {
         let result = Self::pg_alloc(Layout::from_size_align_unchecked(size, Self::PAGE_SIZE_MIN));
         if let Some(p) = result {
             let p = Self::direct_map::<c_void>(p.get() as PhysicalAddress);
@@ -223,7 +235,7 @@ impl MemoryManager {
     #[must_use]
     pub unsafe fn alloc_dma<T>(len: usize) -> Option<(PhysicalAddress, *mut T)> {
         Self::alloc_pages(size_of::<T>() * len).map(|v| {
-            let pa = v.get() as PhysicalAddress;
+            let pa = v.get();
             (pa, Self::direct_map(pa))
         })
     }
@@ -271,7 +283,7 @@ impl MemoryManager {
                     return Ok(());
                 }
             }
-            Self::pg_dealloc(base, layout);
+            Self::pg_dealloc(PageManager::direct_unmap(base.get()), layout);
             Ok(())
         } else {
             Ok(())
@@ -298,19 +310,20 @@ impl MemoryManager {
         let shared = Self::shared();
         sb.clear();
 
-        let dummy = shared.dummy_size.load(Ordering::Relaxed);
-        let free = shared.pairs()[..shared.n_free.load(Ordering::Relaxed)]
+        let lost_size = shared.lost_size.load(Ordering::Relaxed);
+        let n_fragments = shared.n_fragments.load(Ordering::Relaxed);
+        let free = shared.pairs()[..n_fragments]
             .iter()
             .fold(0, |v, i| v + i.size());
-        let total = free + dummy;
+        let total = free;
 
         writeln!(
             sb,
-            "Memory {} MB Pages {} ({} + {})",
+            "Total {} MB, Free Pages {}, Fragments {}, Lost {} MB",
             System::current_device().total_memory_size() >> 20,
             total / Self::PAGE_SIZE_MIN,
-            free / Self::PAGE_SIZE_MIN,
-            dummy / Self::PAGE_SIZE_MIN,
+            n_fragments,
+            (lost_size >> 20),
         )
         .unwrap();
 
@@ -344,8 +357,8 @@ impl MemFreePair {
     }
 
     #[inline]
-    pub const fn new(base: usize, size: usize) -> Self {
-        let base = (base / Self::PAGE_SIZE) as u64;
+    pub const fn new(base: PhysicalAddress, size: usize) -> Self {
+        let base = base.as_u64() / Self::PAGE_SIZE as u64;
         let size = (size / Self::PAGE_SIZE) as u64;
         Self(base | (size << 32))
     }
@@ -361,12 +374,15 @@ impl MemFreePair {
     }
 
     #[inline]
-    fn split(data: u64) -> (usize, usize) {
-        ((data & 0xFFFF_FFFF) as usize, (data >> 32) as usize)
+    fn split(data: u64) -> (PhysicalAddress, usize) {
+        (
+            PhysicalAddress::new(data & 0xFFFF_FFFF),
+            (data >> 32) as usize,
+        )
     }
 
     #[inline]
-    pub fn base(&self) -> usize {
+    pub fn base(&self) -> PhysicalAddress {
         Self::split(self.raw()).0 * Self::PAGE_SIZE
     }
 
@@ -376,23 +392,38 @@ impl MemFreePair {
     }
 
     #[inline]
-    pub fn alloc(&self, size: usize) -> Result<usize, ()> {
-        let size = (size + Self::PAGE_SIZE - 1) / Self::PAGE_SIZE;
-
+    pub fn try_merge(&self, other: Self) -> Result<(), ()> {
         let p = self.inner();
+        p.fetch_update(Ordering::SeqCst, Ordering::Relaxed, |data| {
+            let (base0, size0) = Self::split(data);
+            let (base1, size1) = Self::split(other.raw());
+            if base0 + size0 == base1 {
+                Some((base0.as_u64()) | (((size0 + size1) as u64) << 32))
+            } else if base1 + size1 == base0 {
+                Some((base1.as_u64()) | (((size0 + size1) as u64) << 32))
+            } else {
+                None
+            }
+        })
+        .map(|_| ())
+        .map_err(|_| ())
+    }
 
+    #[inline]
+    pub fn alloc(&self, size: usize) -> Result<PhysicalAddress, ()> {
+        let size = (size + Self::PAGE_SIZE - 1) / Self::PAGE_SIZE;
+        let p = self.inner();
         p.fetch_update(Ordering::SeqCst, Ordering::Relaxed, |data| {
             let (base, limit) = Self::split(data);
             if limit < size {
                 return None;
             }
             let new_size = limit - size;
-            let new_data = ((base + size) as u64) | ((new_size as u64) << 32);
+            let new_data = ((base + size).as_u64()) | ((new_size as u64) << 32);
             Some(new_data)
         })
         .map(|data| Self::split(data).0 * Self::PAGE_SIZE)
         .map_err(|_| ())
-        // Ok(_) => return Ok((base + new_size) * Self::PAGE_SIZE),
     }
 }
 
