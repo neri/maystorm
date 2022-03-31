@@ -1,8 +1,8 @@
 // System Management BIOS
 
-use crate::arch::page::{PageManager, PhysicalAddress};
+use crate::arch::page::PhysicalAddress;
 use alloc::boxed::Box;
-use core::{mem::transmute, ptr::addr_of, slice, str};
+use core::{ffi::c_void, mem::transmute, ptr::addr_of, slice, str};
 
 /// System Management BIOS Entry Point
 pub struct SmBios {
@@ -14,7 +14,7 @@ impl SmBios {
     #[inline]
     pub unsafe fn init(entry: PhysicalAddress) -> Box<Self> {
         let ep: &SmBiosEntryV1 = transmute(entry.as_usize());
-        let base = PageManager::direct_map(PhysicalAddress::new(ep.base as u64));
+        let base = PhysicalAddress::new(ep.base as u64).direct_map::<c_void>() as usize;
         let n_structures = ep.n_structures as usize;
         Box::new(Self { base, n_structures })
     }

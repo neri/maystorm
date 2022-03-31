@@ -513,7 +513,7 @@ impl InterrupterRegisterSet {
     pub fn dequeue_event<'a>(&'a self, event_cycle: &'a CycleBit) -> Option<&'a Trb> {
         let erdp = PhysicalAddress::from(self.erdp.load(Ordering::SeqCst));
         let cycle = event_cycle.value();
-        let event = unsafe { &*MemoryManager::direct_map::<Trb>(erdp & !15) };
+        let event = unsafe { &*(erdp & !15).direct_map::<Trb>() };
         if event.cycle_bit() == cycle {
             let er_base = erdp & !0xFFF;
             let mut index = 1 + (erdp - er_base) / size_of::<Trb>();

@@ -32,9 +32,9 @@ impl FileManager {
         Self { rootfs: None }
     }
 
-    pub unsafe fn init(initrd_base: usize, initrd_size: usize) {
+    pub unsafe fn init(initrd_base: *mut u8, initrd_size: usize) {
         let shared = FS.get_mut();
-        shared.rootfs = InitRamfs::from_static(initrd_base as *mut u8, initrd_size);
+        shared.rootfs = InitRamfs::from_static(initrd_base, initrd_size);
     }
 
     #[inline]

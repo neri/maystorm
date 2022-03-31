@@ -8,6 +8,7 @@ use core::{
     alloc::Layout,
     arch::asm,
     fmt,
+    mem::transmute,
     num::{NonZeroU64, NonZeroUsize},
     ops::{Add, AddAssign, BitAnd, BitOr, BitOrAssign, Mul, Not, Sub, SubAssign},
     sync::atomic::*,
@@ -205,6 +206,7 @@ impl From<NonNullPhysicalAddress> for PhysicalAddress {
     }
 }
 
+/// Page Manager
 pub struct PageManager;
 
 impl PageManager {
@@ -269,10 +271,7 @@ impl PageManager {
                 Self::map(
                     va,
                     len,
-                    PageTableEntry::new(
-                        pa,
-                        PageAttributes::NO_EXECUTE | PageAttributes::GLOBAL | PageAttributes::WRITE,
-                    ),
+                    PageTableEntry::new(pa, PageAttributes::NO_EXECUTE | PageAttributes::WRITE),
                 );
                 va
             }
@@ -392,7 +391,7 @@ impl PageManager {
     }
 
     #[inline]
-    pub const fn direct_map(pa: PhysicalAddress) -> usize {
+    const fn direct_map(pa: PhysicalAddress) -> usize {
         Self::DIRECT_BASE + pa.as_usize()
     }
 
@@ -430,6 +429,7 @@ bitflags! {
     }
 }
 
+#[repr(u64)]
 #[allow(dead_code)]
 #[non_exhaustive]
 pub(super) enum PageTableAvl {
@@ -443,8 +443,7 @@ impl PageAttributes {
 
     #[inline]
     pub const fn avl(self) -> PageTableAvl {
-        // ((self.bits() & Self::AVL) >> Self::AVL_SHIFT) // TODO:
-        PageTableAvl::None
+        unsafe { transmute((self.bits() & Self::AVL_MASK.bits()) >> Self::AVL_SHIFT) }
     }
 
     #[inline]
@@ -602,25 +601,23 @@ impl PageLevel {
 
     #[inline]
     pub const fn parent(&self) -> Option<Self> {
-        use PageLevel::*;
         match *self {
-            Level1 => Some(Level2),
-            Level2 => Some(Level3),
-            Level3 => Some(Level4),
-            Level4 => None,
+            Self::Level1 => Some(Self::Level2),
+            Self::Level2 => Some(Self::Level3),
+            Self::Level3 => Some(Self::Level4),
+            Self::Level4 => None,
         }
     }
 
     #[inline]
     pub const fn component(&self, va: usize) -> usize {
-        use PageLevel::*;
         (va >> (Self::FIRST_LEVEL_BITS
             + Self::BITS_PER_LEVEL
                 * match *self {
-                    Level1 => 0,
-                    Level2 => 1,
-                    Level3 => 2,
-                    Level4 => 3,
+                    Self::Level1 => 0,
+                    Self::Level2 => 1,
+                    Self::Level3 => 2,
+                    Self::Level4 => 3,
                 }))
             & Self::MASK_PER_LEVEL
     }
@@ -629,10 +626,10 @@ impl PageLevel {
     pub const unsafe fn pte_of(&self, va: usize) -> *mut PageTableEntry {
         let base = va & Self::MASK_MAX_VA;
         let pte = match *self {
-            PageLevel::Level1 => Self::RECURSIVE_LV1 + ((base >> 12) << 3),
-            PageLevel::Level2 => Self::RECURSIVE_LV2 + ((base >> 21) << 3),
-            PageLevel::Level3 => Self::RECURSIVE_LV3 + ((base >> 30) << 3),
-            PageLevel::Level4 => Self::RECURSIVE_LV4 + ((base >> 39) << 3),
+            Self::Level1 => Self::RECURSIVE_LV1 + ((base >> 12) << 3),
+            Self::Level2 => Self::RECURSIVE_LV2 + ((base >> 21) << 3),
+            Self::Level3 => Self::RECURSIVE_LV3 + ((base >> 30) << 3),
+            Self::Level4 => Self::RECURSIVE_LV4 + ((base >> 39) << 3),
         };
         pte as *mut PageTableEntry
     }

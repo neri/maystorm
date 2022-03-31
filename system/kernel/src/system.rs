@@ -1,11 +1,6 @@
 use crate::{
-    arch::cpu::*,
-    arch::page::{PageManager, PhysicalAddress},
-    io::emcon::*,
-    io::tty::*,
-    task::scheduler::*,
-    ui::font::FontManager,
-    *,
+    arch::cpu::*, arch::page::PhysicalAddress, io::emcon::*, io::tty::*, task::scheduler::*,
+    ui::font::FontManager, *,
 };
 use alloc::{boxed::Box, string::*, vec::Vec};
 use bootprot::BootInfo;
@@ -164,7 +159,7 @@ impl System {
         shared.current_device.total_memory_size = info.total_memory_size as usize;
 
         let main_screen = Bitmap32::from_static(
-            PageManager::direct_map(info.vram_base.into()) as *mut TrueColor,
+            PhysicalAddress::new(info.vram_base).direct_map(),
             Size::new(info.screen_width as isize, info.screen_height as isize),
             info.vram_stride as usize,
         );
@@ -220,10 +215,7 @@ impl System {
             io::hid_mgr::HidManager::init();
             drivers::usb::UsbManager::init();
 
-            fs::FileManager::init(
-                PageManager::direct_map(shared.initrd_base),
-                shared.initrd_size,
-            );
+            fs::FileManager::init(shared.initrd_base.direct_map(), shared.initrd_size);
 
             drivers::pci::Pci::init();
 
@@ -478,9 +470,7 @@ impl ::acpi::AcpiHandler for MyAcpiHandler {
     ) -> PhysicalMapping<Self, T> {
         PhysicalMapping::new(
             physical_address,
-            NonNull::new_unchecked(PageManager::direct_map(PhysicalAddress::from_usize(
-                physical_address,
-            )) as *mut T),
+            NonNull::new_unchecked(PhysicalAddress::from_usize(physical_address).direct_map()),
             size,
             size,
             Self::new(),

@@ -22,7 +22,7 @@ const SMALL_FONT: FixedFontDriver = FixedFontDriver::new(6, 8, &embedded::FONT_M
 static mut FONT_MANAGER: UnsafeCell<FontManager> = UnsafeCell::new(FontManager::new());
 
 pub struct FontManager {
-    fonts: Option<BTreeMap<FontFamily, Box<dyn FontDriver>>>,
+    fonts: BTreeMap<FontFamily, Box<dyn FontDriver>>,
     buffer: Mutex<OperationalBitmap>,
 
     monospace_font: MaybeUninit<FontDescriptor>,
@@ -33,7 +33,7 @@ pub struct FontManager {
 impl FontManager {
     const fn new() -> Self {
         Self {
-            fonts: None,
+            fonts: BTreeMap::new(),
             buffer: Mutex::new(OperationalBitmap::new(Size::new(96, 96))),
             monospace_font: MaybeUninit::uninit(),
             title_font: MaybeUninit::uninit(),
@@ -54,52 +54,54 @@ impl FontManager {
     pub unsafe fn init() {
         let shared = Self::shared_mut();
 
-        let mut fonts: BTreeMap<FontFamily, Box<dyn FontDriver>> = BTreeMap::new();
-
-        fonts.insert(FontFamily::FixedSystem, Box::new(SYSTEM_FONT));
-        fonts.insert(FontFamily::SmallFixed, Box::new(SMALL_FONT));
-        fonts.insert(FontFamily::Terminal, Box::new(TERMINAL_FONT));
+        shared
+            .fonts
+            .insert(FontFamily::FixedSystem, Box::new(SYSTEM_FONT));
+        shared
+            .fonts
+            .insert(FontFamily::SmallFixed, Box::new(SMALL_FONT));
+        shared
+            .fonts
+            .insert(FontFamily::Terminal, Box::new(TERMINAL_FONT));
 
         let font = Box::new(HersheyFont::new(
             4,
             include_bytes!("../../../../../ext/hershey/cursive.jhf"),
         ));
-        fonts.insert(FontFamily::Cursive, font);
+        shared.fonts.insert(FontFamily::Cursive, font);
 
         if let Ok(mut file) = FileManager::open("/megos/fonts/mono.ttf") {
             let mut data = Vec::new();
             file.read_to_end(&mut data).unwrap();
             let font = Box::new(TrueTypeFont::new(data));
-            fonts.insert(FontFamily::Monospace, font);
+            shared.fonts.insert(FontFamily::Monospace, font);
         }
 
         if let Ok(mut file) = FileManager::open("/megos/fonts/sans.ttf") {
             let mut data = Vec::new();
             file.read_to_end(&mut data).unwrap();
             let font = Box::new(TrueTypeFont::new(data));
-            fonts.insert(FontFamily::SansSerif, font);
+            shared.fonts.insert(FontFamily::SansSerif, font);
         } else {
             let font = Box::new(HersheyFont::new(
                 0,
                 include_bytes!("../../../../../ext/hershey/futuram.jhf"),
             ));
-            fonts.insert(FontFamily::SansSerif, font);
+            shared.fonts.insert(FontFamily::SansSerif, font);
         }
 
         if let Ok(mut file) = FileManager::open("/megos/fonts/serif.ttf") {
             let mut data = Vec::new();
             file.read_to_end(&mut data).unwrap();
             let font = Box::new(TrueTypeFont::new(data));
-            fonts.insert(FontFamily::Serif, font);
+            shared.fonts.insert(FontFamily::Serif, font);
         } else {
             let font = Box::new(HersheyFont::new(
                 0,
                 include_bytes!("../../../../../ext/hershey/timesrb.jhf"),
             ));
-            fonts.insert(FontFamily::Serif, font);
+            shared.fonts.insert(FontFamily::Serif, font);
         }
-
-        shared.fonts = Some(fonts);
 
         shared.monospace_font.write(
             FontDescriptor::new(FontFamily::Monospace, 14)
@@ -117,11 +119,7 @@ impl FontManager {
 
     fn driver_for(family: FontFamily) -> Option<&'static dyn FontDriver> {
         let shared = Self::shared();
-        shared
-            .fonts
-            .as_ref()
-            .and_then(|v| v.get(&family))
-            .map(|v| v.as_ref())
+        shared.fonts.get(&family).map(|v| v.as_ref())
     }
 
     #[inline]

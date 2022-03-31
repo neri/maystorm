@@ -1,12 +1,8 @@
-use super::slab::*;
+use super::{fixedvec::FixedVec, slab::*};
 use crate::{
     arch::cpu::Cpu,
     arch::page::*,
-    sync::{
-        fifo::EventQueue,
-        semaphore::Semaphore,
-        spinlock::{SpinMutex, SpinMutexGuard},
-    },
+    sync::{fifo::EventQueue, semaphore::Semaphore, spinlock::SpinMutex},
     system::System,
     task::scheduler::*,
 };
@@ -32,12 +28,14 @@ static mut MM: UnsafeCell<MemoryManager> = UnsafeCell::new(MemoryManager::new())
 
 static LAST_ALLOC_PTR: AtomicUsize = AtomicUsize::new(0);
 
+/// Memory Manager
 pub struct MemoryManager {
     reserved_memory_size: usize,
     page_size_min: usize,
     lost_size: AtomicUsize,
+    free_pages: AtomicUsize,
     n_fragments: AtomicUsize,
-    pairs: SpinMutex<[MemFreePair; Self::MAX_FREE_PAIRS]>,
+    mem_list: SpinMutex<FixedVec<MemFreePair, { Self::MAX_FREE_PAIRS }>>,
     slab: Option<Box<SlabAllocator>>,
     real_bitmap: [u32; 8],
     fifo: MaybeUninit<EventQueue<Arc<AsyncMmapRequest>>>,
@@ -52,8 +50,9 @@ impl MemoryManager {
             reserved_memory_size: 0,
             page_size_min: 0x1000,
             lost_size: AtomicUsize::new(0),
+            free_pages: AtomicUsize::new(0),
             n_fragments: AtomicUsize::new(0),
-            pairs: SpinMutex::new([MemFreePair::empty(); Self::MAX_FREE_PAIRS]),
+            mem_list: SpinMutex::new(FixedVec::new(MemFreePair::empty())),
             slab: None,
             real_bitmap: [0; 8],
             fifo: MaybeUninit::uninit(),
@@ -66,19 +65,21 @@ impl MemoryManager {
         let mm: &[BootMemoryMapDescriptor] =
             slice::from_raw_parts(info.mmap_base as usize as *const _, info.mmap_len as usize);
         let mut free_count = 0;
-        let mut n_fragments = 0;
-        let mut pairs = shared.pairs();
+
+        let mut list = shared.mem_list.lock();
         for mem_desc in mm {
             if mem_desc.mem_type == BootMemoryType::Available {
                 let size = mem_desc.page_count as usize * Self::PAGE_SIZE_MIN;
-                pairs[n_fragments] = MemFreePair::new(mem_desc.base.into(), size);
+                list.push(MemFreePair::new(mem_desc.base.into(), size))
+                    .unwrap();
                 free_count += size;
             }
-            n_fragments += 1;
         }
-        drop(pairs);
-        shared.n_fragments.store(n_fragments, Ordering::SeqCst);
+        shared.n_fragments.store(list.len(), Ordering::Release);
+        drop(list);
+
         shared.reserved_memory_size = info.total_memory_size as usize - free_count;
+        shared.free_pages.store(free_count, Ordering::SeqCst);
 
         if cfg!(any(target_arch = "x86_64")) {
             shared.real_bitmap = info.real_bitmap;
@@ -119,11 +120,6 @@ impl MemoryManager {
     }
 
     #[inline]
-    fn pairs(&self) -> SpinMutexGuard<[MemFreePair; Self::MAX_FREE_PAIRS]> {
-        self.pairs.lock()
-    }
-
-    #[inline]
     pub unsafe fn mmap(request: MemoryMapRequest) -> Option<NonZeroUsize> {
         if Scheduler::is_enabled() {
             let fifo = &*Self::shared().fifo.as_ptr();
@@ -141,11 +137,6 @@ impl MemoryManager {
         } else {
             NonZeroUsize::new(PageManager::mmap(request))
         }
-    }
-
-    #[inline]
-    pub fn direct_map<T: Sized>(pa: PhysicalAddress) -> *mut T {
-        unsafe { transmute(PageManager::direct_map(pa)) }
     }
 
     #[inline]
@@ -167,16 +158,7 @@ impl MemoryManager {
     #[inline]
     pub fn free_memory_size() -> usize {
         let shared = Self::shared();
-        let mut total = shared.lost_size.load(Ordering::Relaxed);
-        total += shared.pairs()[..shared.n_fragments.load(Ordering::Relaxed)]
-            .iter()
-            .fold(0, |v, i| v + i.size());
-        // total += shared
-        //     .slab
-        //     .as_ref()
-        //     .map(|v| v.free_memory_size())
-        //     .unwrap_or(0);
-        total
+        shared.free_pages.load(Ordering::Relaxed)
     }
 
     /// Allocate pages
@@ -188,15 +170,18 @@ impl MemoryManager {
         let shared = Self::shared();
         let align_m1 = Self::PAGE_SIZE_MIN - 1;
         let size = (layout.size() + align_m1) & !(align_m1);
-        let pairs = shared.pairs();
-        let n_fragments = shared.n_fragments.load(Ordering::SeqCst);
-        for i in 0..n_fragments {
-            let free_pair = &pairs[i];
-            match free_pair.alloc(size) {
-                Ok(v) => return NonNullPhysicalAddress::new(v),
+
+        let list = shared.mem_list.lock();
+        for pair in list.as_slice() {
+            match pair.alloc(size) {
+                Ok(v) => {
+                    shared.free_pages.fetch_sub(size, Ordering::Relaxed);
+                    return NonNullPhysicalAddress::new(v);
+                }
                 Err(_) => (),
             }
         }
+
         None
     }
 
@@ -205,27 +190,31 @@ impl MemoryManager {
         let align_m1 = Self::PAGE_SIZE_MIN - 1;
         let size = (layout.size() + align_m1) & !(align_m1);
         let new_entry = MemFreePair::new(base, size);
-        let mut pairs = shared.pairs();
-        let n_fragments = shared.n_fragments.load(Ordering::SeqCst);
-        for i in 0..n_fragments {
-            if pairs[i].try_merge(new_entry).is_ok() {
+        shared.free_pages.fetch_add(size, Ordering::Relaxed);
+
+        let mut list = shared.mem_list.lock();
+        shared.n_fragments.store(list.len(), Ordering::Release);
+        for pair in list.as_slice() {
+            if pair.try_merge(new_entry).is_ok() {
                 return;
             }
         }
-        if n_fragments < pairs.len() {
-            pairs[n_fragments] = new_entry;
-            shared.n_fragments.fetch_add(1, Ordering::SeqCst);
-            drop(pairs);
-            return;
+        match list.push(new_entry) {
+            Ok(_) => {
+                drop(list);
+                return;
+            }
+            Err(_) => {
+                shared.lost_size.fetch_add(size, Ordering::SeqCst);
+            }
         }
-        shared.lost_size.fetch_add(size, Ordering::SeqCst);
     }
 
     #[must_use]
     pub unsafe fn alloc_pages(size: usize) -> Option<NonNullPhysicalAddress> {
         let result = Self::pg_alloc(Layout::from_size_align_unchecked(size, Self::PAGE_SIZE_MIN));
         if let Some(p) = result {
-            let p = Self::direct_map::<c_void>(p.get() as PhysicalAddress);
+            let p = p.get().direct_map::<c_void>();
             p.write_bytes(0, size);
         }
         result
@@ -236,7 +225,7 @@ impl MemoryManager {
     pub unsafe fn alloc_dma<T>(len: usize) -> Option<(PhysicalAddress, *mut T)> {
         Self::alloc_pages(size_of::<T>() * len).map(|v| {
             let pa = v.get();
-            (pa, Self::direct_map(pa))
+            (pa, pa.direct_map())
         })
     }
 
@@ -257,7 +246,7 @@ impl MemoryManager {
     #[must_use]
     pub unsafe fn zalloc2(layout: Layout) -> Option<NonZeroUsize> {
         Self::pg_alloc(layout)
-            .and_then(|v| NonZeroUsize::new(PageManager::direct_map(v.get() as PhysicalAddress)))
+            .and_then(|v| NonZeroUsize::new(v.get().direct_map::<c_void>() as usize))
             .map(|v| {
                 LAST_ALLOC_PTR.store(v.get(), core::sync::atomic::Ordering::SeqCst);
                 v
@@ -312,10 +301,7 @@ impl MemoryManager {
 
         let lost_size = shared.lost_size.load(Ordering::Relaxed);
         let n_fragments = shared.n_fragments.load(Ordering::Relaxed);
-        let free = shared.pairs()[..n_fragments]
-            .iter()
-            .fold(0, |v, i| v + i.size());
-        let total = free;
+        let total = shared.free_pages.load(Ordering::Relaxed);
 
         writeln!(
             sb,

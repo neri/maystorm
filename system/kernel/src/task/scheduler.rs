@@ -61,11 +61,11 @@ pub enum SchedulerState {
     /// The scheduler has not started yet.
     Disabled = 0,
     /// The scheduler is running on minimal power.
-    Saving,
+    Minimal,
     /// The scheduler is running.
     Running,
     /// The scheduler is running on maximum power.
-    FullThrottle,
+    Maximum,
 }
 
 impl SchedulerState {
@@ -140,7 +140,7 @@ impl Scheduler {
             "Scheduler",
         );
 
-        SCHEDULER_STATE.store(SchedulerState::Running.into(), Ordering::SeqCst);
+        SCHEDULER_STATE.store(SchedulerState::Minimal.into(), Ordering::SeqCst);
 
         loop {
             unsafe {
@@ -296,8 +296,8 @@ impl Scheduler {
         let shared = Self::shared();
         let state = Self::current_state();
         if shared.is_frozen.load(Ordering::SeqCst)
-            || (state == SchedulerState::Saving && index != ProcessorIndex(0))
-            || (state != SchedulerState::FullThrottle
+            || (state == SchedulerState::Minimal && index != ProcessorIndex(0))
+            || (state != SchedulerState::Maximum
                 && System::cpu(index).processor_type() == ProcessorCoreType::Sub)
         {
             true
@@ -458,22 +458,22 @@ impl Scheduler {
 
             match Self::current_state() {
                 SchedulerState::Disabled => (),
-                SchedulerState::Saving => {
+                SchedulerState::Minimal => {
                     if usage_total > THRESHOLD_LEAVE_SAVING {
                         Self::set_current_state(SchedulerState::Running);
                     }
                 }
                 SchedulerState::Running => {
                     if usage_total < THRESHOLD_ENTER_SAVING {
-                        Self::set_current_state(SchedulerState::Saving);
+                        Self::set_current_state(SchedulerState::Minimal);
                     } else if usage_total
                         > (System::current_device().num_of_performance_cpus() - 1) * 1000
                             + THRESHOLD_ENTER_FULL
                     {
-                        Self::set_current_state(SchedulerState::FullThrottle);
+                        Self::set_current_state(SchedulerState::Maximum);
                     }
                 }
-                SchedulerState::FullThrottle => {
+                SchedulerState::Maximum => {
                     if usage_total
                         < System::current_device().num_of_performance_cpus() * THRESHOLD_LEAVE_FULL
                     {

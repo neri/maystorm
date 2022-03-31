@@ -250,7 +250,7 @@ impl Xhci {
             let sp_array = MemoryManager::alloc_pages(array_size).unwrap().get();
             let sp_size = max_scratchpad_size * self.opr.page_size();
             let scratchpad = MemoryManager::alloc_pages(sp_size).unwrap().get();
-            let spava = MemoryManager::direct_map::<u64>(sp_array);
+            let spava = sp_array.direct_map::<u64>();
             for i in 0..max_scratchpad_size {
                 spava
                     .add(i)
@@ -286,12 +286,7 @@ impl Xhci {
     }
 
     fn dcbaa(&self) -> &'static mut [PhysicalAddress] {
-        unsafe {
-            slice::from_raw_parts_mut(
-                MemoryManager::direct_map(self.opr.dcbaap() & !63),
-                self.dcbaa_len,
-            )
-        }
+        unsafe { slice::from_raw_parts_mut((self.opr.dcbaap() & !63).direct_map(), self.dcbaa_len) }
     }
 
     fn _msi_handler(p: usize) {
@@ -462,7 +457,7 @@ impl Xhci {
         let ctx = unsafe { &mut *ctx.as_mut_ptr() };
 
         let tr_base = ctx.tr_base().unwrap().get();
-        let tr = MemoryManager::direct_map::<Trb>(tr_base);
+        let tr = tr_base.direct_map::<Trb>();
         let mut index = ctx.index;
 
         let scheduled_trb = ScheduledTrb(tr_base + (size_of::<Trb>() * index) as u64);
@@ -605,7 +600,7 @@ impl Xhci {
     ) -> Result<(*const u8, usize), UsbError> {
         self.control_async(device, setup)
             .await
-            .map(|len| (MemoryManager::direct_map(device.buffer) as *const _, len))
+            .map(|len| (device.buffer.direct_map() as *const u8, len))
     }
 
     pub async unsafe fn transfer_async(
@@ -666,7 +661,7 @@ impl Xhci {
         xfer_buffer: *mut u8,
     ) -> Result<usize, UsbError> {
         self.transfer_async(device, dci, len).await.map(|len| {
-            let p = MemoryManager::direct_map(device.buffer as PhysicalAddress);
+            let p = device.buffer.direct_map();
             let q = xfer_buffer;
             q.copy_from(p, len);
             len
@@ -704,7 +699,7 @@ impl Xhci {
         if copy_dc {
             unsafe {
                 let slot = slot as *const _ as *mut u8;
-                let dc = MemoryManager::direct_map(self.get_device_context(slot_id));
+                let dc = self.get_device_context(slot_id).direct_map();
                 slot.copy_from(dc, self.context_size);
             }
         }
@@ -755,7 +750,7 @@ impl Xhci {
 
         unsafe {
             let slot = input_context.slot() as *const _ as *mut u8;
-            let dc = MemoryManager::direct_map(self.get_device_context(slot_id));
+            let dc = self.get_device_context(slot_id).direct_map();
             slot.copy_from(dc, self.context_size * 2);
         }
 
@@ -782,7 +777,7 @@ impl Xhci {
 
         unsafe {
             let slot = input_context.slot() as *const _ as *mut u8;
-            let dc = MemoryManager::direct_map(self.get_device_context(slot_id));
+            let dc = self.get_device_context(slot_id).direct_map();
             slot.copy_from(dc, self.context_size * 2);
         }
 
@@ -973,7 +968,7 @@ impl Xhci {
 
         unsafe {
             let slot = input_context.slot() as *const _ as *mut u8;
-            let dc = MemoryManager::direct_map(self.get_device_context(slot_id));
+            let dc = self.get_device_context(slot_id).direct_map();
             slot.copy_from(dc, self.context_size * 2);
         }
 
@@ -1456,7 +1451,7 @@ impl EpRingContext {
     pub fn clear(&mut self) {
         if let Some(tr_base) = self.tr_base {
             unsafe {
-                let p = MemoryManager::direct_map::<c_void>(tr_base.get());
+                let p = tr_base.get().direct_map::<c_void>();
                 p.write_bytes(0, Self::size());
             }
         }
@@ -1518,7 +1513,7 @@ impl ScheduledTrb {
 
     #[inline]
     pub unsafe fn peek(&self) -> &mut Trb {
-        &mut *(MemoryManager::direct_map(self.0))
+        &mut *(self.0.direct_map())
     }
 }
 
@@ -1661,24 +1656,21 @@ impl InputContext {
 
     #[inline]
     pub fn control<'a>(&self) -> &'a mut InputControlContext {
-        unsafe { &mut *(MemoryManager::direct_map::<InputControlContext>(self.raw_data().into())) }
+        unsafe { &mut *(self.raw_data().direct_map()) }
     }
 
     #[inline]
     pub fn slot<'a>(&self) -> &'a mut SlotContext {
-        unsafe {
-            &mut *(MemoryManager::direct_map::<SlotContext>(PhysicalAddress::from(
-                self.raw_data() + self.context_size,
-            )))
-        }
+        unsafe { &mut *(PhysicalAddress::from(self.raw_data() + self.context_size).direct_map()) }
     }
 
     #[inline]
     pub fn endpoint<'a>(&self, dci: DCI) -> &'a mut EndpointContext {
         unsafe {
-            &mut *(MemoryManager::direct_map::<EndpointContext>(PhysicalAddress::from(
+            &mut *(PhysicalAddress::from(
                 self.raw_data() + self.context_size * (1 + dci.0.get() as usize),
-            )))
+            )
+            .direct_map())
         }
     }
 }
@@ -1854,7 +1846,7 @@ impl UsbHostInterface for HciContext {
         }
         let device = self.device();
 
-        let p = MemoryManager::direct_map::<u8>(device.buffer);
+        let p = device.buffer.direct_map::<u8>();
         p.copy_from(data, len);
 
         Box::pin(host.clone().control_async(device, setup))
@@ -1876,7 +1868,7 @@ impl UsbHostInterface for HciContext {
         }
         let device = self.device();
 
-        let p = MemoryManager::direct_map::<u8>(device.buffer);
+        let p = device.buffer.direct_map::<u8>();
         p.write_bytes(0, len);
 
         Box::pin(host.read_async(device, dci, len, buffer))
@@ -1898,7 +1890,7 @@ impl UsbHostInterface for HciContext {
         }
         let device = self.device();
 
-        let p = MemoryManager::direct_map::<u8>(device.buffer);
+        let p = device.buffer.direct_map::<u8>();
         p.copy_from(buffer, len);
 
         Box::pin(host.transfer_async(device, dci, len))
