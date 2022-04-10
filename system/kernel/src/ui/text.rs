@@ -291,6 +291,7 @@ impl TextProcessing {
         let mut current_line = LineStatus::empty();
         current_line.height = font.line_height();
         let mut current_height = current_line.height;
+        let mut prev_char = ' ';
         for (index, c) in s.chars().enumerate() {
             if c == '\n' {
                 current_line.end_position = index;
@@ -302,6 +303,7 @@ impl TextProcessing {
                 }
                 current_line.start_position = index + 1;
                 current_line.height = font.line_height();
+                prev_char = ' ';
             } else {
                 current_line.end_position = index;
                 let current_width = font.width_of(c);
@@ -321,8 +323,10 @@ impl TextProcessing {
                     current_line.start_position = index;
                     current_line.width = current_width;
                     current_line.height = font.line_height();
+                    prev_char = ' ';
                 } else {
-                    current_line.width = new_width;
+                    current_line.width = font.kern(prev_char, c) + new_width;
+                    prev_char = c;
                 }
             }
         }
@@ -409,10 +413,13 @@ impl TextProcessing {
                     TextAlignment::Trailing | TextAlignment::Right => coords.right - line.width,
                     TextAlignment::Center => coords.left + (rect.width() - line.width) / 2,
                 };
+                let mut prev_char = ' ';
                 for _ in line.start_position..line.end_position {
                     let c = chars.next().unwrap();
+                    cursor.x += font.kern(prev_char, c);
                     font.draw_char(c, to, cursor, color);
                     cursor.x += font.width_of(c);
+                    prev_char = c;
                 }
             }
 

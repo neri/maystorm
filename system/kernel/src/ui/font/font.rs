@@ -220,6 +220,16 @@ impl FontDescriptor {
     }
 
     #[inline]
+    pub fn kern(&self, first: char, second: char) -> isize {
+        if self.point() == self.driver.base_height() {
+            self.driver.kern(first, second)
+        } else {
+            (self.driver.kern(first, second) * self.point() + self.driver.base_height() / 2)
+                / self.driver.base_height()
+        }
+    }
+
+    #[inline]
     pub fn is_scalable(&self) -> bool {
         self.driver.is_scalable()
     }
@@ -239,6 +249,8 @@ pub trait FontDriver {
     fn preferred_line_height(&self) -> isize;
 
     fn width_of(&self, character: char) -> isize;
+
+    fn kern(&self, first: char, second: char) -> isize;
 
     fn draw_char(
         &self,
@@ -315,6 +327,10 @@ impl FontDriver for FixedFontDriver<'_> {
     #[inline]
     fn width_of(&self, _character: char) -> isize {
         self.size.width
+    }
+
+    fn kern(&self, _first: char, _second: char) -> isize {
+        0
     }
 
     fn draw_char(
@@ -632,6 +648,10 @@ impl FontDriver for HersheyFont<'_> {
         }
     }
 
+    fn kern(&self, _first: char, _second: char) -> isize {
+        0
+    }
+
     fn draw_char(
         &self,
         character: char,
@@ -691,6 +711,14 @@ impl FontDriver for TrueTypeFont {
         let glyph_id = self.font.glyph_id(character);
         (self.font.h_advance_unscaled(glyph_id) * Self::BASE_HEIGHT as f32 / self.units_per_em)
             as isize
+    }
+
+    fn kern(&self, first: char, second: char) -> isize {
+        (self
+            .font
+            .kern_unscaled(self.font.glyph_id(first), self.font.glyph_id(second))
+            * Self::BASE_HEIGHT as f32
+            / self.units_per_em) as isize
     }
 
     fn draw_char(
