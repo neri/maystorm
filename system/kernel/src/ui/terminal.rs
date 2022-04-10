@@ -74,7 +74,7 @@ impl Terminal {
         let n_instances = TerminalAgent::next_instance();
         let screen_insets = WindowManager::screen_insets();
         let window_size = Size::new(
-            font.width_of('m') * cols as isize,
+            font.em_width() * cols as isize,
             font.line_height() * rows as isize,
         ) + insets;
 
@@ -144,7 +144,7 @@ impl Terminal {
                 None
             }
             _ => {
-                let w = self.font.width_of('m');
+                let w = self.font.em_width();
                 let h = self.font.line_height();
 
                 if self.x >= self.cols {
@@ -194,7 +194,7 @@ impl Terminal {
     }
 
     fn set_needs_update_cursor(&mut self) {
-        let w = self.font.width_of('m');
+        let w = self.font.em_width();
         let h = self.font.line_height();
         let dims = self.dims();
         if self.x >= dims.0 as usize || self.y >= dims.1 as usize {
@@ -280,10 +280,6 @@ impl TtyWrite for Terminal {
             self.set_needs_update_cursor();
         }
         r
-    }
-
-    fn attribute(&self) -> u8 {
-        self.attribute
     }
 
     fn set_attribute(&mut self, attribute: u8) {

@@ -57,10 +57,6 @@ impl TtyWrite for Null {
         false
     }
 
-    fn attribute(&self) -> u8 {
-        0
-    }
-
     fn set_attribute(&mut self, _attribute: u8) {}
 }
 

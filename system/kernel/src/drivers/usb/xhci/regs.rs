@@ -471,7 +471,7 @@ impl RuntimeRegisters {
     }
 
     #[inline]
-    pub fn irs0(&self) -> &InterrupterRegisterSet {
+    pub fn primary_irs(&self) -> &InterrupterRegisterSet {
         unsafe { self.irs.get_unchecked(0) }
     }
 

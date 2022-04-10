@@ -1046,6 +1046,11 @@ impl UsbControlSetupData {
     }
 
     #[inline]
+    pub const fn empty() -> Self {
+        Self::request(UsbControlRequestBitmap(0), UsbControlRequest(0))
+    }
+
+    #[inline]
     pub const fn value(mut self, value: u16) -> Self {
         self.wValue = value;
         self

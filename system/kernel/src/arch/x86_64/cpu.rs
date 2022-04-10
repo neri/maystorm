@@ -232,13 +232,6 @@ impl Cpu {
         }
     }
 
-    #[inline]
-    pub fn breakpoint() {
-        unsafe {
-            asm!("int3");
-        }
-    }
-
     pub fn reset() -> ! {
         unsafe {
             Cpu::disable_interrupt();
@@ -293,54 +286,54 @@ impl Cpu {
         Apic::register_msi(f, val)
     }
 
-    #[inline]
-    pub fn secure_rand() -> Result<u64, ()> {
-        if unsafe { Feature::F01C(F01C::RDRND).has_feature() } {
-            unsafe { Self::secure_rand_unsafe().ok_or(()) }
-        } else {
-            Err(())
-        }
-    }
+    // #[inline]
+    // pub fn secure_rand() -> Result<u64, ()> {
+    //     if unsafe { Feature::F01C(F01C::RDRND).has_feature() } {
+    //         unsafe { Self::secure_rand_unsafe().ok_or(()) }
+    //     } else {
+    //         Err(())
+    //     }
+    // }
 
-    /// SAFETY: Does not check the CPUID feature bit
-    #[inline]
-    pub unsafe fn secure_srand_unsafe() -> Option<u64> {
-        let mut status: usize;
-        let mut result: u64;
+    // /// SAFETY: Does not check the CPUID feature bit
+    // #[inline]
+    // pub unsafe fn secure_srand_unsafe() -> Option<u64> {
+    //     let mut status: usize;
+    //     let mut result: u64;
 
-        asm!("
-            rdseed {0}
-            sbb {1}, {1}
-            ", 
-            out(reg) result,
-            out(reg) status,
-        );
-        if status != 0 {
-            Some(result)
-        } else {
-            None
-        }
-    }
+    //     asm!("
+    //         rdseed {0}
+    //         sbb {1}, {1}
+    //         ",
+    //         out(reg) result,
+    //         out(reg) status,
+    //     );
+    //     if status != 0 {
+    //         Some(result)
+    //     } else {
+    //         None
+    //     }
+    // }
 
-    /// SAFETY: Does not check the CPUID feature bit
-    #[inline]
-    pub unsafe fn secure_rand_unsafe() -> Option<u64> {
-        let mut status: usize;
-        let mut result: u64;
+    // /// SAFETY: Does not check the CPUID feature bit
+    // #[inline]
+    // pub unsafe fn secure_rand_unsafe() -> Option<u64> {
+    //     let mut status: usize;
+    //     let mut result: u64;
 
-        asm!("
-            rdrand {0}
-            sbb {1}, {1}
-            ", 
-            out(reg) result,
-            out(reg) status,
-        );
-        if status != 0 {
-            Some(result)
-        } else {
-            None
-        }
-    }
+    //     asm!("
+    //         rdrand {0}
+    //         sbb {1}, {1}
+    //         ",
+    //         out(reg) result,
+    //         out(reg) status,
+    //     );
+    //     if status != 0 {
+    //         Some(result)
+    //     } else {
+    //         None
+    //     }
+    // }
 
     #[inline]
     pub(super) fn rdtsc() -> u64 {
@@ -1300,7 +1293,8 @@ impl DescriptorPair {
     }
 }
 
-static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
+static mut IDT: UnsafeCell<InterruptDescriptorTable> =
+    UnsafeCell::new(InterruptDescriptorTable::new());
 
 #[repr(C, align(16))]
 pub struct InterruptDescriptorTable {
@@ -1337,18 +1331,20 @@ impl InterruptDescriptorTable {
     }
 
     unsafe fn load() {
+        let idt = &*IDT.get();
         asm!("
             push {0}
             push {1}
             lidt [rsp + 6]
             add rsp, 16
-            ", in(reg) &IDT.table, in(reg) ((IDT.table.len() * 8 - 1) << 48));
+            ", in(reg) &(idt.table), in(reg) ((idt.table.len() * 8 - 1) << 48));
     }
 
     #[track_caller]
     pub unsafe fn register(vec: InterruptVector, offset: usize, dpl: PrivilegeLevel) {
         let table_offset = vec.0 as usize * 2;
-        if !IDT.table[table_offset].is_null() {
+        let mut idt = IDT.get_mut();
+        if !idt.table[table_offset].is_null() {
             panic!("IDT entry #{} is already in use", vec.0);
         }
         let pair = DescriptorEntry::gate_descriptor(
@@ -1361,8 +1357,9 @@ impl InterruptDescriptorTable {
                 DescriptorType::TrapGate
             },
         );
-        IDT.table[table_offset + 1] = pair.high;
-        IDT.table[table_offset] = pair.low;
+        idt.table[table_offset + 1] = pair.high;
+        idt.table[table_offset] = pair.low;
+        fence(Ordering::SeqCst);
     }
 }
 
@@ -1389,12 +1386,12 @@ pub enum Msr {
 #[derive(Copy, Clone)]
 union MsrResult {
     qword: u64,
-    tuple: AccumulatorPair,
+    pair: AccumulatorPair,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
-struct AccumulatorPair {
+pub struct AccumulatorPair {
     eax: u32,
     edx: u32,
 }
@@ -1405,8 +1402,8 @@ impl Msr {
         let value = MsrResult { qword: value };
         asm!(
             "wrmsr",
-            in("eax") value.tuple.eax,
-            in("edx") value.tuple.edx,
+            in("eax") value.pair.eax,
+            in("edx") value.pair.edx,
             in("ecx") self as u32,
             options(nomem, nostack),
         );
@@ -1424,7 +1421,7 @@ impl Msr {
             options(nomem, nostack),
         );
         MsrResult {
-            tuple: AccumulatorPair { eax, edx },
+            pair: AccumulatorPair { eax, edx },
         }
         .qword
     }
@@ -1433,7 +1430,6 @@ impl Msr {
 #[allow(dead_code)]
 #[repr(C)]
 pub(super) struct X64StackContext {
-    // xmm: [u128; 16],
     _mxcsr: u64,
     cr2: u64,
     _gs: u64,
@@ -1674,7 +1670,7 @@ rbp {:016x} r10 {:016x} r15 {:016x} gs {:04x}",
     if is_user {
         RuntimeEnvironment::exit(1);
     } else {
-        Cpu::stop();
+        panic!("Unhandled Exception in kernel mode");
     }
 }
 

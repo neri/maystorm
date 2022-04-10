@@ -135,39 +135,7 @@ impl PartialEq for CycleBit {
 
 pub type TrbRawData = [AtomicU32; 4];
 
-/// xHCI Common Transfer Request Block
-#[repr(transparent)]
-pub struct Trb(TrbRawData);
-
-impl Trb {
-    #[inline]
-    pub const fn new(trb_type: TrbType) -> Self {
-        let mut slice = [0; 4];
-        slice[3] = (trb_type as u32) << 10;
-        unsafe { transmute(slice) }
-    }
-
-    #[inline]
-    pub const fn empty() -> Self {
-        Self::new(TrbType::RESERVED)
-    }
-
-    #[inline]
-    pub fn set_trb_type(&mut self, trb_type: TrbType) {
-        let val =
-            (self.raw_data()[3].load(Ordering::SeqCst) & 0xFFFF_03FF) | ((trb_type as u32) << 10);
-        self.raw_data()[3].store(val, Ordering::SeqCst)
-    }
-}
-
-impl TrbCommon for Trb {
-    #[inline]
-    fn raw_data(&self) -> &TrbRawData {
-        &self.0
-    }
-}
-
-pub trait TrbCommon {
+pub trait TrbBase {
     fn raw_data(&self) -> &TrbRawData;
 
     #[inline]
@@ -190,7 +158,7 @@ pub trait TrbCommon {
 
     fn copy<T>(&self, src: &T, cycle: &CycleBit)
     where
-        T: TrbCommon,
+        T: TrbBase,
     {
         let dest = self.raw_data();
         let src = src.raw_data();
@@ -205,7 +173,7 @@ pub trait TrbCommon {
 
     fn copy_without_cycle<T>(&self, src: &T)
     where
-        T: TrbCommon,
+        T: TrbBase,
     {
         let dest = self.raw_data();
         let src = src.raw_data();
@@ -221,7 +189,7 @@ pub trait TrbCommon {
 
     fn raw_copy<T>(&self, src: &T)
     where
-        T: TrbCommon,
+        T: TrbBase,
     {
         let dest = self.raw_data();
         let src = src.raw_data();
@@ -240,32 +208,65 @@ pub trait TrbCommon {
         result
     }
 
-    fn as_common_trb(&self) -> &Trb {
+    #[inline]
+    fn as_trb(&self) -> &Trb {
         unsafe { transmute(self.raw_data()) }
+    }
+
+    #[inline]
+    unsafe fn transmute<T: TrbBase>(&self) -> &T {
+        transmute(self.as_trb())
     }
 
     fn as_event(&self) -> Option<TrbEvent> {
         match self.trb_type() {
-            Some(TrbType::COMMAND_COMPLETION_EVENT) => Some(TrbEvent::CommandCompletion(unsafe {
-                transmute(self.raw_data())
-            })),
-            Some(TrbType::PORT_STATUS_CHANGE_EVENT) => Some(TrbEvent::PortStatusChange(unsafe {
-                transmute(self.raw_data())
-            })),
-            Some(TrbType::TRANSFER_EVENT) => {
-                Some(TrbEvent::Transfer(unsafe { transmute(self.raw_data()) }))
+            Some(TrbType::COMMAND_COMPLETION_EVENT) => {
+                Some(TrbEvent::CommandCompletion(unsafe { self.transmute() }))
             }
+            Some(TrbType::PORT_STATUS_CHANGE_EVENT) => {
+                Some(TrbEvent::PortStatusChange(unsafe { self.transmute() }))
+            }
+            Some(TrbType::TRANSFER_EVENT) => Some(TrbEvent::Transfer(unsafe { self.transmute() })),
             Some(TrbType::DEVICE_NOTIFICATION_EVENT) => {
-                Some(TrbEvent::DeviceNotification(unsafe {
-                    transmute(self.raw_data())
-                }))
+                Some(TrbEvent::DeviceNotification(unsafe { self.transmute() }))
             }
             _ => None,
         }
     }
 }
 
-pub trait TrbPtr: TrbCommon {
+/// xHCI Common Transfer Request Block
+#[repr(transparent)]
+pub struct Trb(TrbRawData);
+
+impl Trb {
+    #[inline]
+    pub const fn new(trb_type: TrbType) -> Self {
+        let slice = [0, 0, 0, (trb_type as u32) << 10];
+        unsafe { transmute(slice) }
+    }
+
+    #[inline]
+    pub const fn empty() -> Self {
+        Self::new(TrbType::RESERVED)
+    }
+
+    #[inline]
+    pub fn set_trb_type(&mut self, trb_type: TrbType) {
+        let val =
+            (self.raw_data()[3].load(Ordering::SeqCst) & 0xFFFF_03FF) | ((trb_type as u32) << 10);
+        self.raw_data()[3].store(val, Ordering::SeqCst)
+    }
+}
+
+impl TrbBase for Trb {
+    #[inline]
+    fn raw_data(&self) -> &TrbRawData {
+        &self.0
+    }
+}
+
+pub trait TrbPtr: TrbBase {
     #[inline]
     fn ptr(&self) -> PhysicalAddress {
         let low = self.raw_data()[0].load(Ordering::SeqCst) as u64;
@@ -283,7 +284,7 @@ pub trait TrbPtr: TrbCommon {
     }
 }
 
-pub trait TrbCC: TrbCommon {
+pub trait TrbCC: TrbBase {
     #[inline]
     fn completion_code(&self) -> Option<TrbCompletionCode> {
         let val = (self.raw_data()[2].load(Ordering::SeqCst) >> 24) & 0xFF;
@@ -291,14 +292,14 @@ pub trait TrbCC: TrbCommon {
     }
 }
 
-pub trait TrbPortId: TrbCommon {
+pub trait TrbPortId: TrbBase {
     #[inline]
     fn port_id(&self) -> Option<PortId> {
         NonZeroU8::new((self.raw_data()[0].load(Ordering::SeqCst) >> 24) as u8).map(|v| PortId(v))
     }
 }
 
-pub trait TrbSlotId: TrbCommon {
+pub trait TrbSlotId: TrbBase {
     #[inline]
     fn slot_id(&self) -> Option<SlotId> {
         NonZeroU8::new((self.raw_data()[3].load(Ordering::SeqCst) >> 24) as u8).map(|v| SlotId(v))
@@ -314,7 +315,7 @@ pub trait TrbSlotId: TrbCommon {
     }
 }
 
-pub trait TrbDci: TrbCommon {
+pub trait TrbDci: TrbBase {
     #[inline]
     fn dci(&self) -> Option<DCI> {
         NonZeroU8::new(0x1F & (self.raw_data()[3].load(Ordering::SeqCst) >> 16) as u8)
@@ -330,7 +331,7 @@ pub trait TrbDci: TrbCommon {
     }
 }
 
-pub trait TrbXferLen: TrbCommon {
+pub trait TrbXferLen: TrbBase {
     #[inline]
     fn xfer_len(&self) -> usize {
         (self.raw_data()[2].load(Ordering::SeqCst) & 0x0001_FFFF) as usize
@@ -347,7 +348,7 @@ pub trait TrbXferLen: TrbCommon {
 }
 
 /// Interrupt on Short Packet
-pub trait TrbIsp: TrbCommon {
+pub trait TrbIsp: TrbBase {
     #[inline]
     fn isp(&self) -> bool {
         (self.raw_data()[3].load(Ordering::SeqCst) & 0x0000_0004) != 0
@@ -365,7 +366,7 @@ pub trait TrbIsp: TrbCommon {
 }
 
 /// Interrupt on Completion
-pub trait TrbIoC: TrbCommon {
+pub trait TrbIoC: TrbBase {
     #[inline]
     fn ioc(&self) -> bool {
         (self.raw_data()[3].load(Ordering::SeqCst) & 0x0000_0020) != 0
@@ -383,7 +384,7 @@ pub trait TrbIoC: TrbCommon {
 }
 
 /// Immediate Data
-pub trait TrbIDt: TrbCommon {
+pub trait TrbIDt: TrbBase {
     #[inline]
     fn idt(&self) -> bool {
         (self.raw_data()[3].load(Ordering::SeqCst) & 0x0000_0040) != 0
@@ -401,7 +402,7 @@ pub trait TrbIDt: TrbCommon {
 }
 
 /// Direction is device to host
-pub trait TrbDir: TrbCommon {
+pub trait TrbDir: TrbBase {
     #[inline]
     fn dir(&self) -> bool {
         (self.raw_data()[3].load(Ordering::SeqCst) & 0x0001_0000) != 0
@@ -474,8 +475,8 @@ impl TrbType {
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
 pub enum TrbCompletionCode {
-    // invalid = 0
-    SUCCESS = 1,
+    INVALID = 0,
+    SUCCESS,
     DATA_BUFFER_ERROR,
     BABBLE_DETECTED,
     USB_TRANSACTION_ERROR,
@@ -528,7 +529,7 @@ impl TrbLink {
     }
 }
 
-impl TrbCommon for TrbLink {
+impl TrbBase for TrbLink {
     #[inline]
     fn raw_data(&self) -> &TrbRawData {
         &self.0
@@ -547,7 +548,7 @@ impl TrbNop {
     }
 }
 
-impl TrbCommon for TrbNop {
+impl TrbBase for TrbNop {
     #[inline]
     fn raw_data(&self) -> &TrbRawData {
         &self.0
@@ -568,7 +569,7 @@ impl TrbNormal {
     }
 }
 
-impl TrbCommon for TrbNormal {
+impl TrbBase for TrbNormal {
     #[inline]
     fn raw_data(&self) -> &TrbRawData {
         &self.0
@@ -599,9 +600,14 @@ impl TrbSetupStage {
         result.raw_data()[3].fetch_or((trt as u32) << 16, Ordering::SeqCst);
         result
     }
+
+    #[inline]
+    pub fn setup_data(&self) -> &UsbControlSetupData {
+        unsafe { &*(self as *const _ as *const UsbControlSetupData) }
+    }
 }
 
-impl TrbCommon for TrbSetupStage {
+impl TrbBase for TrbSetupStage {
     #[inline]
     fn raw_data(&self) -> &TrbRawData {
         &self.0
@@ -626,7 +632,7 @@ impl TrbDataStage {
     }
 }
 
-impl TrbCommon for TrbDataStage {
+impl TrbBase for TrbDataStage {
     #[inline]
     fn raw_data(&self) -> &TrbRawData {
         &self.0
@@ -655,7 +661,7 @@ impl TrbStatusStage {
     }
 }
 
-impl TrbCommon for TrbStatusStage {
+impl TrbBase for TrbStatusStage {
     #[inline]
     fn raw_data(&self) -> &TrbRawData {
         &self.0
@@ -702,7 +708,7 @@ impl TrbCommandCompletionEvent {
     }
 }
 
-impl TrbCommon for TrbCommandCompletionEvent {
+impl TrbBase for TrbCommandCompletionEvent {
     #[inline]
     fn raw_data(&self) -> &TrbRawData {
         &self.0
@@ -718,7 +724,7 @@ impl TrbPtr for TrbCommandCompletionEvent {}
 /// TRB for PORT_STATUS_CHANGE_EVENT
 pub struct TrbPortStatusChangeEvent(TrbRawData);
 
-impl TrbCommon for TrbPortStatusChangeEvent {
+impl TrbBase for TrbPortStatusChangeEvent {
     #[inline]
     fn raw_data(&self) -> &TrbRawData {
         &self.0
@@ -756,7 +762,7 @@ impl TrbTransferEvent {
     }
 }
 
-impl TrbCommon for TrbTransferEvent {
+impl TrbBase for TrbTransferEvent {
     #[inline]
     fn raw_data(&self) -> &TrbRawData {
         &self.0
@@ -788,7 +794,7 @@ impl TrbDeviceNotificationEvent {
     }
 }
 
-impl TrbCommon for TrbDeviceNotificationEvent {
+impl TrbBase for TrbDeviceNotificationEvent {
     #[inline]
     fn raw_data(&self) -> &TrbRawData {
         &self.0
@@ -814,7 +820,7 @@ impl TrbAddressDeviceCommand {
     }
 }
 
-impl TrbCommon for TrbAddressDeviceCommand {
+impl TrbBase for TrbAddressDeviceCommand {
     #[inline]
     fn raw_data(&self) -> &TrbRawData {
         &self.0
@@ -838,7 +844,7 @@ impl TrbConfigureEndpointCommand {
     }
 }
 
-impl TrbCommon for TrbConfigureEndpointCommand {
+impl TrbBase for TrbConfigureEndpointCommand {
     #[inline]
     fn raw_data(&self) -> &TrbRawData {
         &self.0
@@ -862,7 +868,7 @@ impl TrbEvaluateContextCommand {
     }
 }
 
-impl TrbCommon for TrbEvaluateContextCommand {
+impl TrbBase for TrbEvaluateContextCommand {
     #[inline]
     fn raw_data(&self) -> &TrbRawData {
         &self.0
@@ -886,7 +892,7 @@ impl TrbResetEndpointCommand {
     }
 }
 
-impl TrbCommon for TrbResetEndpointCommand {
+impl TrbBase for TrbResetEndpointCommand {
     #[inline]
     fn raw_data(&self) -> &TrbRawData {
         &self.0

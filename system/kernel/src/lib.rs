@@ -8,6 +8,7 @@
 #![feature(const_mut_refs)]
 #![feature(control_flow_enum)]
 #![feature(core_intrinsics)]
+#![feature(iter_advance_by)]
 #![feature(lang_items)]
 #![feature(maybe_uninit_uninit_array)]
 #![feature(negative_impls)]

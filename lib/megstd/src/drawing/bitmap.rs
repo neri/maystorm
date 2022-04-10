@@ -1343,7 +1343,7 @@ impl<'a> Bitmap32<'a> {
     }
 
     /// expr
-    pub fn blt_affine<'b, T: AsRef<ConstBitmap32<'b>>>(
+    pub fn blt_rotate<'b, T: AsRef<ConstBitmap32<'b>>>(
         &mut self,
         src: &T,
         origin: Point,
@@ -1920,7 +1920,7 @@ impl From<OwnedBitmap32> for OwnedBitmap {
 pub struct OperationalBitmap {
     width: usize,
     height: usize,
-    vec: UnsafeCell<Vec<u8>>,
+    vec: Vec<u8>,
 }
 
 impl ColorTrait for u8 {}
@@ -1947,14 +1947,14 @@ impl RasterImage for OperationalBitmap {
 
     #[inline]
     fn slice(&self) -> &[Self::ColorType] {
-        unsafe { &*self.vec.get() }
+        self.vec.as_slice()
     }
 }
 
 impl MutableRasterImage for OperationalBitmap {
     #[inline]
     fn slice_mut(&mut self) -> &mut [Self::ColorType] {
-        self.vec.get_mut().as_mut_slice()
+        self.vec.as_mut_slice()
     }
 }
 
@@ -1965,7 +1965,7 @@ impl OperationalBitmap {
         Self {
             width: size.width() as usize,
             height: size.height() as usize,
-            vec: UnsafeCell::new(vec),
+            vec,
         }
     }
 
@@ -1975,7 +1975,7 @@ impl OperationalBitmap {
         Self {
             width: size.width() as usize,
             height: size.height() as usize,
-            vec: UnsafeCell::new(vec),
+            vec,
         }
     }
 
@@ -1984,7 +1984,7 @@ impl OperationalBitmap {
         Self {
             width: size.width() as usize,
             height: size.height() as usize,
-            vec: UnsafeCell::new(vec),
+            vec,
         }
     }
 
@@ -1995,11 +1995,10 @@ impl OperationalBitmap {
 
     pub fn fill(&mut self, color: u8) {
         let count = self.stride() * self.height() as usize;
-        let vec = self.vec.get_mut();
-        if vec.capacity() >= count {
-            vec.fill(color);
+        if self.vec.capacity() >= count {
+            self.vec.fill(color);
         } else {
-            vec.resize(count, color);
+            self.vec.resize(count, color);
         }
     }
 

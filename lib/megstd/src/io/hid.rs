@@ -253,7 +253,7 @@ impl HidUsage {
 }
 
 impl core::fmt::Display for HidUsage {
-    fn fmt(&self, f: &mut _core::fmt::Formatter<'_>) -> _core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{:04x}_{:04x}", self.usage_page().0, self.usage())
     }
 }
@@ -513,7 +513,7 @@ impl HidReporteReader<'_> {
         self.index
     }
 
-    pub fn next_u16(&mut self) -> Option<u16> {
+    fn next_u16(&mut self) -> Option<u16> {
         if self.index + 1 < self.data.len() {
             let result = unsafe {
                 (*self.data.get_unchecked(self.index) as u16)
@@ -526,7 +526,7 @@ impl HidReporteReader<'_> {
         }
     }
 
-    pub fn next_u32(&mut self) -> Option<u32> {
+    fn next_u32(&mut self) -> Option<u32> {
         if self.index + 3 < self.data.len() {
             let result = unsafe {
                 (*self.data.get_unchecked(self.index) as u32)
@@ -545,11 +545,11 @@ impl HidReporteReader<'_> {
         &mut self,
         lead_byte: HidReportLeadByte,
     ) -> Option<HidReportAmbiguousSignedValue> {
-        match lead_byte.data_size() {
-            0 => Some(HidReportAmbiguousSignedValue::Zero),
-            1 => self.next().map(|v| v.into()),
-            2 => self.next_u16().map(|v| v.into()),
-            _ => self.next_u32().map(|v| v.into()),
+        match lead_byte.trail_bytes() {
+            HidTrailBytes::Zero => Some(HidReportAmbiguousSignedValue::Zero),
+            HidTrailBytes::Byte => self.next().map(|v| v.into()),
+            HidTrailBytes::Word => self.next_u16().map(|v| v.into()),
+            HidTrailBytes::DWord => self.next_u32().map(|v| v.into()),
         }
     }
 }
@@ -559,9 +559,9 @@ impl Iterator for HidReporteReader<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.data.len() {
-            let result = self.data.get(self.index).map(|v| *v);
+            let result = unsafe { *self.data.get_unchecked(self.index) };
             self.index += 1;
-            result
+            Some(result)
         } else {
             None
         }
@@ -582,18 +582,18 @@ pub struct HidReportLeadByte(pub u8);
 
 impl HidReportLeadByte {
     #[inline]
-    pub const fn data_size(&self) -> usize {
-        match self.0 & 3 {
-            0 => 0,
-            1 => 1,
-            2 => 2,
-            _ => 4,
-        }
+    pub const fn is_long_item(&self) -> bool {
+        self.0 == 0xFE
+    }
+
+    #[inline]
+    pub const fn trail_bytes(&self) -> HidTrailBytes {
+        HidTrailBytes::from_u8(self.0)
     }
 
     #[inline]
     pub const fn report_type(&self) -> HidReportItemType {
-        HidReportItemType::from_u8((self.0 >> 2) & 3)
+        HidReportItemType::from_u8(self.0)
     }
 
     #[inline]
@@ -603,8 +603,39 @@ impl HidReportLeadByte {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum HidTrailBytes {
+    Zero,
+    Byte,
+    Word,
+    DWord,
+}
+
+impl HidTrailBytes {
+    #[inline]
+    pub const fn from_u8(val: u8) -> Self {
+        match val & 3 {
+            0 => Self::Zero,
+            1 => Self::Byte,
+            2 => Self::Word,
+            3 => Self::DWord,
+            _ => unreachable!(),
+        }
+    }
+
+    #[inline]
+    pub const fn trail_bytes(&self) -> usize {
+        match *self {
+            Self::Zero => 0,
+            Self::Byte => 1,
+            Self::Word => 2,
+            Self::DWord => 4,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum HidReportItemType {
-    Main = 0,
+    Main,
     Global,
     Local,
     Reserved,
@@ -613,19 +644,13 @@ pub enum HidReportItemType {
 impl HidReportItemType {
     #[inline]
     pub const fn from_u8(val: u8) -> Self {
-        match val {
+        match (val >> 2) & 3 {
             0 => Self::Main,
             1 => Self::Global,
             2 => Self::Local,
-            _ => Self::Reserved,
+            3 => Self::Reserved,
+            _ => unreachable!(),
         }
-    }
-}
-
-impl From<u8> for HidReportItemType {
-    #[inline]
-    fn from(v: u8) -> Self {
-        Self::from_u8(v)
     }
 }
 

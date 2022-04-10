@@ -68,10 +68,12 @@ impl UsbHidDriver {
         device: Arc<UsbDeviceControl>,
         if_no: UsbInterfaceNumber,
         ep: UsbEndpointAddress,
-        class: UsbClass,
+        _class: UsbClass,
         ps: u16,
         report_desc: Box<[u8]>,
     ) {
+        let device_lock = device.lock_device().await;
+
         let addr = device.device().addr();
         let report_desc = match Self::parse_report(&report_desc) {
             Ok(v) => v,
@@ -80,15 +82,29 @@ impl UsbHidDriver {
                 return;
             }
         };
-        // log!("HID REPORT {:?}", report_desc);
+
+        // log!(
+        //     "HID {}:{} VEN {} DEV {} CLASS {} UP {:08x} {:?}",
+        //     addr.0.get(),
+        //     if_no.0,
+        //     device.device().vid(),
+        //     device.device().pid(),
+        //     class,
+        //     report_desc.primary_app().unwrap().usage.0,
+        //     report_desc.report_ids,
+        // );
+        // for app in report_desc.tagged.values() {
+        //     log!(
+        //         "HID {}:{} APP {} {:08x}",
+        //         addr.0.get(),
+        //         if_no.0,
+        //         app.report_id,
+        //         app.usage.0
+        //     );
+        // }
 
         // disable boot protocol
-        if class.sub() == UsbSubClass(0x01) {
-            match Self::set_boot_protocol(&device, if_no, false).await {
-                Ok(_) => (),
-                Err(_) => (),
-            }
-        }
+        let _result = Self::set_boot_protocol(&device, if_no, false).await.is_ok();
 
         if let Some(app) = report_desc.primary_app() {
             let mut data = [0; 64];
@@ -119,20 +135,34 @@ impl UsbHidDriver {
                     }
                     let len = (bit_position + 7) / 8;
                     if len > 0 {
-                        let _ =
-                            Self::set_report(&device, if_no, HidReportType::Output, 0, len, &data)
-                                .await;
+                        let _ = Self::set_report(
+                            &device,
+                            if_no,
+                            HidReportType::Output,
+                            app.report_id,
+                            len,
+                            &data,
+                        )
+                        .await;
                         Timer::sleep_async(Duration::from_millis(100)).await;
                         data.fill(0);
-                        let _ =
-                            Self::set_report(&device, if_no, HidReportType::Output, 0, len, &data)
-                                .await;
+                        let _ = Self::set_report(
+                            &device,
+                            if_no,
+                            HidReportType::Output,
+                            app.report_id,
+                            len,
+                            &data,
+                        )
+                        .await;
                         Timer::sleep_async(Duration::from_millis(50)).await;
                     }
                 }
                 _ => (),
             }
         }
+
+        drop(device_lock);
 
         let mut key_state = KeyboardState::new();
         let mut mouse_state = MouseState::empty();
@@ -148,7 +178,16 @@ impl UsbHidDriver {
                         Some(v) => v,
                         None => continue,
                     };
-                    let mut bit_position = if report_desc.has_report_id() { 8 } else { 0 };
+
+                    // log!(
+                    //     "USB{} {:02x} {} {:08x}",
+                    //     addr.0.get(),
+                    //     buffer[0],
+                    //     _size,
+                    //     app.usage.0,
+                    // );
+
+                    let mut bit_position = report_desc.initial_bit_position();
                     match app.usage {
                         HidUsage::KEYBOARD => {
                             let mut report = KeyReportRaw::default();
@@ -284,7 +323,7 @@ impl UsbHidDriver {
                             }
                         }
                         _ => {
-                            // other app
+                            // TODO: Other app
                         }
                     }
                 }
@@ -434,8 +473,8 @@ impl UsbHidDriver {
         })
     }
 
-    fn parse_report(report_desc: &[u8]) -> Result<ParsedReport, usize> {
-        let mut parsed_report = ParsedReport::new();
+    fn parse_report(report_desc: &[u8]) -> Result<HidParsedReport, usize> {
+        let mut parsed_report = HidParsedReport::new();
 
         let mut current_app = ParsedReportApplication::empty();
         let mut collection_ctx = Vec::new();
@@ -446,16 +485,41 @@ impl UsbHidDriver {
         let mut local = HidReportLocalState::new();
         while let Some(lead_byte) = reader.next() {
             let lead_byte = HidReportLeadByte(lead_byte);
-            let tag = match lead_byte.item_tag() {
-                Some(v) => v,
-                None => {
-                    log!("UNKNOWN TAG {} {:02x}", reader.position(), lead_byte.0);
+            let (tag, param) = if lead_byte.is_long_item() {
+                let len = match reader.next() {
+                    Some(v) => v as usize,
+                    None => return Err(reader.position()),
+                };
+                let lead_byte = match reader.next() {
+                    Some(v) => v,
+                    None => return Err(reader.position()),
+                };
+                if reader.advance_by(len).is_err() {
                     return Err(reader.position());
                 }
-            };
-            let param = match reader.read_param(lead_byte) {
-                Some(v) => v,
-                None => return Err(reader.position()),
+                let lead_byte = HidReportLeadByte(lead_byte);
+                let tag = match lead_byte.item_tag() {
+                    Some(v) => v,
+                    None => {
+                        log!("UNKNOWN TAG {} {:02x}", reader.position(), lead_byte.0);
+                        return Err(reader.position());
+                    }
+                };
+                let param = HidReportAmbiguousSignedValue::Zero;
+                (tag, param)
+            } else {
+                let tag = match lead_byte.item_tag() {
+                    Some(v) => v,
+                    None => {
+                        log!("UNKNOWN TAG {} {:02x}", reader.position(), lead_byte.0);
+                        return Err(reader.position());
+                    }
+                };
+                let param = match reader.read_param(lead_byte) {
+                    Some(v) => v,
+                    None => return Err(reader.position()),
+                };
+                (tag, param)
             };
 
             match tag {
@@ -605,13 +669,13 @@ impl UsbHidDriver {
 }
 
 #[derive(Debug)]
-pub struct ParsedReport {
+pub struct HidParsedReport {
     report_ids: Vec<u8>,
     primary: Option<ParsedReportApplication>,
     tagged: BTreeMap<u8, ParsedReportApplication>,
 }
 
-impl ParsedReport {
+impl HidParsedReport {
     #[inline]
     pub const fn new() -> Self {
         Self {
@@ -624,6 +688,15 @@ impl ParsedReport {
     #[inline]
     pub fn has_report_id(&self) -> bool {
         self.report_ids.len() > 0
+    }
+
+    #[inline]
+    pub fn initial_bit_position(&self) -> usize {
+        if self.has_report_id() {
+            8
+        } else {
+            0
+        }
     }
 
     #[inline]

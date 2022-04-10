@@ -41,7 +41,7 @@ pub struct Scheduler {
     queue_higher: ThreadQueue,
     queue_normal: ThreadQueue,
 
-    locals: Vec<Box<LocalScheduler>>,
+    locals: Box<[Box<LocalScheduler>]>,
 
     usage: AtomicUsize,
     usage_total: AtomicUsize,
@@ -111,8 +111,9 @@ impl Scheduler {
             "/",
         ));
 
-        let mut locals = Vec::new();
-        for index in 0..System::current_device().num_of_active_cpus() {
+        let num_of_active_cpus = System::current_device().num_of_active_cpus();
+        let mut locals = Vec::with_capacity(num_of_active_cpus);
+        for index in 0..num_of_active_cpus {
             locals.push(LocalScheduler::new(ProcessorIndex(index)));
         }
 
@@ -121,7 +122,7 @@ impl Scheduler {
                 queue_realtime,
                 queue_higher,
                 queue_normal,
-                locals,
+                locals: locals.into_boxed_slice(),
                 usage: AtomicUsize::new(0),
                 usage_total: AtomicUsize::new(0),
                 is_frozen: AtomicBool::new(false),
@@ -131,8 +132,7 @@ impl Scheduler {
             }));
         }
         fence(Ordering::SeqCst);
-
-        SpawnOption::with_priority(Priority::Normal).start_process(f, args, "System");
+        SCHEDULER_STATE.store(SchedulerState::Minimal.into(), Ordering::SeqCst);
 
         SpawnOption::with_priority(Priority::Realtime).start_process(
             Self::_scheduler_thread,
@@ -140,7 +140,7 @@ impl Scheduler {
             "Scheduler",
         );
 
-        SCHEDULER_STATE.store(SchedulerState::Minimal.into(), Ordering::SeqCst);
+        SpawnOption::with_priority(Priority::Normal).start_process(f, args, "System");
 
         loop {
             unsafe {
@@ -1310,7 +1310,7 @@ impl ThreadPool {
 
 #[repr(transparent)]
 #[derive(Debug, Default, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
-pub struct ProcessId(pub usize);
+pub struct ProcessId(usize);
 
 impl ProcessId {
     #[inline]
@@ -1338,6 +1338,13 @@ impl ProcessId {
     #[inline]
     pub unsafe fn set_cwd(&self, path: &str) {
         self.get().map(|v| *v.cwd.lock().unwrap() = path.to_owned());
+    }
+}
+
+impl From<ProcessId> for usize {
+    #[inline]
+    fn from(val: ProcessId) -> Self {
+        val.0
     }
 }
 

@@ -428,7 +428,7 @@ _minimal_GDT:
 _end_GDT:
 
 _mxcsr:
-    dd 0x00001000
+    dd 0x00001F80
 
 _exception_table:
     dd _asm_int_00 - _base

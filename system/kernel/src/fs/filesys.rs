@@ -51,11 +51,7 @@ impl FileManager {
         )
     }
 
-    fn _canonical_path_components(
-        security_prefix: &str,
-        base: &str,
-        path: &str,
-    ) -> Result<Vec<String>> {
+    fn _canonical_path_components(base: &str, path: &str) -> Vec<String> {
         let path = if path.starts_with("/") {
             path.to_owned()
         } else {
@@ -72,19 +68,15 @@ impl FileManager {
             }
         }
 
-        if !Self::_join_path(&path_components).starts_with(security_prefix) {
-            return Err(ErrorKind::PermissionDenied.into());
-        }
-
-        Ok(path_components.into_iter().map(|v| v.to_owned()).collect())
+        path_components.into_iter().map(|v| v.to_owned()).collect()
     }
 
-    pub fn canonical_path_components(path: &str) -> Result<Vec<String>> {
-        Self::_canonical_path_components("", Scheduler::current_pid().cwd().as_str(), path)
+    pub fn canonical_path_components(path: &str) -> Vec<String> {
+        Self::_canonical_path_components(Scheduler::current_pid().cwd().as_str(), path)
     }
 
     pub fn canonical_path(path: &str) -> Result<String> {
-        let path_components = Self::canonical_path_components(path)?;
+        let path_components = Self::canonical_path_components(path);
         let path_components = path_components.iter().map(|v| v.as_str()).collect();
         Ok(Self::_join_path(&path_components))
     }
@@ -111,7 +103,7 @@ impl FileManager {
     }
 
     pub fn chdir(path: &str) -> Result<()> {
-        let path_components = Self::canonical_path_components(path)?;
+        let path_components = Self::canonical_path_components(path);
         let (fs, inode) = Self::resolv(&path_components)?;
         let stat = fs.stat(inode).ok_or(ErrorKind::NotFound)?;
         if !stat.file_type().is_dir() {
@@ -123,13 +115,13 @@ impl FileManager {
     }
 
     pub fn read_dir(path: &str) -> Result<FsRawReadDir> {
-        let path = Self::canonical_path_components(path)?;
+        let path = Self::canonical_path_components(path);
         let (fs, dir) = Self::resolv(&path)?;
         Ok(FsRawReadDir::new(&fs, dir))
     }
 
     pub fn open(path: &str) -> Result<FsRawFileControlBlock> {
-        let path = Self::canonical_path_components(path)?;
+        let path = Self::canonical_path_components(path);
         let (fs, inode) = Self::resolv(&path)?;
         let inode = fs.open(inode)?;
 
@@ -151,7 +143,7 @@ impl FileManager {
     }
 
     pub fn stat(path: &str) -> Result<FsRawMetaData> {
-        let path = Self::canonical_path_components(path)?;
+        let path = Self::canonical_path_components(path);
         let (fs, inode) = Self::resolv(&path)?;
         let stat = fs.stat(inode).ok_or(ErrorKind::NotFound)?;
         Ok(stat)

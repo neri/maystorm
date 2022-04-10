@@ -149,10 +149,7 @@ impl StackHeap {
     {
         let Self { vec, stack_pointer } = self;
 
-        let vec = unsafe {
-            let dummy = Vec::new();
-            vec.get().replace(dummy)
-        };
+        let vec = unsafe { vec.get().replace(Vec::new()) };
 
         let mut child = Self {
             vec: UnsafeCell::new(vec),

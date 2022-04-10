@@ -167,6 +167,7 @@ pub struct FontDescriptor {
     driver: &'static dyn FontDriver,
     point: i32,
     line_height: i32,
+    em_width: i32,
 }
 
 impl FontDescriptor {
@@ -179,12 +180,15 @@ impl FontDescriptor {
                     line_height: ((driver.preferred_line_height() * point
                         + driver.base_height() / 2)
                         / driver.base_height()) as i32,
+                    em_width: ((driver.width_of('M') * point + driver.base_height() / 2)
+                        / driver.base_height()) as i32,
                 }
             } else {
                 Self {
                     driver,
                     point: driver.base_height() as i32,
                     line_height: driver.preferred_line_height() as i32,
+                    em_width: driver.width_of('M') as i32,
                 }
             }
         })
@@ -196,13 +200,13 @@ impl FontDescriptor {
     }
 
     #[inline]
-    pub const fn height(&self) -> isize {
-        self.point()
+    pub const fn line_height(&self) -> isize {
+        self.line_height as isize
     }
 
     #[inline]
-    pub const fn line_height(&self) -> isize {
-        self.line_height as isize
+    pub const fn em_width(&self) -> isize {
+        self.em_width as isize
     }
 
     #[inline]

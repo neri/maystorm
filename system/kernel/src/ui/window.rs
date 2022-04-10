@@ -81,7 +81,7 @@ pub struct WindowManager<'a> {
     buttons_down: AtomicUsize,
     buttons_up: AtomicUsize,
 
-    main_screen: Bitmap32<'a>,
+    main_screen: UnsafeCell<Bitmap32<'a>>,
     screen_size: Size,
     off_screen: OwnedBitmap32,
     screen_insets: EdgeInsets,
@@ -194,7 +194,7 @@ impl WindowManager<'static> {
                 buttons: AtomicUsize::new(0),
                 buttons_down: AtomicUsize::new(0),
                 buttons_up: AtomicUsize::new(0),
-                main_screen,
+                main_screen: UnsafeCell::new(main_screen),
                 screen_size,
                 off_screen,
                 screen_insets: EdgeInsets::default(),
@@ -861,7 +861,7 @@ impl WindowManager<'_> {
         let shared = Self::shared();
         let _ = shared.root.update_opt(|root| {
             if root.bitmap.is_none() {
-                let bitmap = ConstBitmap::from(&shared.main_screen);
+                let bitmap = ConstBitmap::from(unsafe { &*shared.main_screen.get() });
                 root.bitmap = Some(UnsafeCell::new(OwnedBitmap::same_format(
                     &bitmap,
                     root.frame.size(),
@@ -940,7 +940,7 @@ impl WindowManager<'_> {
                 sb,
                 "{:3} {:3} {:2x} {:4} {:4} {:4} {:4} {}",
                 window.handle.0,
-                window.pid.0,
+                usize::from(window.pid),
                 window.level.0,
                 frame.x(),
                 frame.y(),
@@ -1207,14 +1207,14 @@ impl RawWindow {
         let mut frame = rect;
         frame.origin += self.frame.origin;
         let shared = WindowManager::shared_mut();
-        let main_screen = &mut shared.main_screen;
+        let main_screen = unsafe { &mut *shared.main_screen.get() };
         let off_screen = shared.off_screen.as_mut();
         if self.draw_into(off_screen, frame) {
             if shared
                 .attributes
                 .contains(WindowManagerAttributes::PORTRAIT)
             {
-                main_screen.blt_affine(off_screen, frame.origin, frame);
+                main_screen.blt_rotate(off_screen, frame.origin, frame);
             } else {
                 main_screen.blt(off_screen, frame.origin, frame);
             }

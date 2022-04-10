@@ -138,10 +138,6 @@ impl TtyWrite for EmConsole {
         false
     }
 
-    fn attribute(&self) -> u8 {
-        0
-    }
-
     fn set_attribute(&mut self, attribute: u8) {
         if attribute > 0 {
             self.fg_color = IndexedColor(attribute & 0x0F).into();

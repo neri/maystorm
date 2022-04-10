@@ -105,7 +105,7 @@ impl Usb2HubDriver {
             hub_desc,
         });
 
-        let focus = device.focus_hub();
+        let focus = device.focus_device();
         hub.clone().init_hub().await;
         drop(focus);
 
@@ -114,7 +114,7 @@ impl Usb2HubDriver {
         loop {
             match device.read_slice(ep, &mut port_event, 1, ps as usize).await {
                 Ok(_) => {
-                    let focus = device.focus_hub();
+                    let focus = device.focus_device();
                     let port_change_bitmap = (port_event[0] as u16) | ((port_event[1] as u16) << 8);
                     for i in 1..=n_ports {
                         if (port_change_bitmap & (1 << i)) != 0 {
@@ -323,7 +323,7 @@ impl Usb3HubDriver {
             hub_desc,
         });
 
-        let focus = device.focus_hub();
+        let focus = device.focus_device();
         hub.clone().init_hub().await;
         drop(focus);
 
@@ -333,7 +333,7 @@ impl Usb3HubDriver {
             match device.read_slice(ep, &mut port_event, 1, ps as usize).await {
                 Ok(_) => {
                     let port_change_bitmap = (port_event[0] as u16) | ((port_event[1] as u16) << 8);
-                    let focus = device.focus_hub();
+                    let focus = device.focus_device();
                     for i in 1..=n_ports {
                         if (port_change_bitmap & (1 << i)) != 0 {
                             let port =

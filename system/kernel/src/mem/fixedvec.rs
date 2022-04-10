@@ -49,26 +49,33 @@ impl<T, const N: usize> FixedVec<T, N> {
     }
 
     #[inline]
+    pub unsafe fn set_len(&mut self, new_len: usize) {
+        self.len = new_len;
+    }
+
+    #[inline]
     pub const fn capacity(&self) -> usize {
         self.data.len()
     }
 
     #[inline]
+    #[track_caller]
     pub fn as_slice(&self) -> &[T] {
         let range = Range {
             start: 0,
             end: self.len(),
         };
-        self.data.get(range).unwrap()
+        unsafe { self.data.get_unchecked(range) }
     }
 
     #[inline]
-    pub fn as_slice_mut(&mut self) -> &mut [T] {
+    #[track_caller]
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
         let range = Range {
             start: 0,
             end: self.len(),
         };
-        self.data.get_mut(range).unwrap()
+        unsafe { self.data.get_unchecked_mut(range) }
     }
 }
 
@@ -84,6 +91,6 @@ impl<T, const N: usize> Deref for FixedVec<T, N> {
 impl<T, const N: usize> DerefMut for FixedVec<T, N> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.as_slice_mut()
+        self.as_mut_slice()
     }
 }

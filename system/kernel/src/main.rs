@@ -9,7 +9,6 @@ use alloc::{format, string::*, vec::*};
 use bootprot::*;
 use core::{fmt, fmt::Write, num::NonZeroU8};
 use kernel::{
-    arch::cpu::*,
     drivers::pci,
     drivers::usb,
     fs::*,
@@ -428,10 +427,6 @@ impl Shell {
                 WindowManager::get_statistics(&mut sb);
                 print!("{}", sb.as_str());
             }
-            "random" => match Cpu::secure_rand() {
-                Ok(rand) => println!("{:016x}", rand),
-                Err(_) => println!("# No SecureRandom"),
-            },
             "drivers" => {
                 for driver in pci::Pci::drivers() {
                     println!(

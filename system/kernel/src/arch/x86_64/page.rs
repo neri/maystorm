@@ -1,5 +1,3 @@
-// x64 Paging
-
 use super::apic::Apic;
 use crate::mem::*;
 use bitflags::*;
@@ -7,6 +5,7 @@ use bootprot::*;
 use core::{
     alloc::Layout,
     arch::asm,
+    ffi::c_void,
     fmt,
     mem::transmute,
     num::{NonZeroU64, NonZeroUsize},
@@ -356,7 +355,7 @@ impl PageManager {
             ))
             .unwrap()
             .get() as PhysicalAddress;
-            let table: *mut u8 = pa.direct_map();
+            let table = pa.direct_map::<c_void>();
             table.write_bytes(0, Self::PAGE_SIZE_MIN);
             pte.write_volatile(PageTableEntry::new(
                 pa as PhysicalAddress,

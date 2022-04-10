@@ -22,6 +22,8 @@ pub struct UserEnv;
 
 impl UserEnv {
     pub fn start(f: fn()) {
+        writeln!(System::em_console(), "Init",).unwrap();
+
         // f();
         // SpawnOption::new().start_process(unsafe { core::mem::transmute(f) }, 0, "shell");
         Scheduler::spawn_async(Task::new(logo_task(f)));
@@ -683,8 +685,8 @@ fn font_test(
         .top_left()
         .color(color)
         .line_break_mode(LineBreakMode::NoWrap)
-        .text("あのイーハトーヴォのすきとおった風、夏でも底に冷たさをもつ青いそら、うつくしい森で飾られたモリーオ市、郊外のぎらぎらひかる草の波。");
-    // .text("The quick brown fox jumps over the lazy dog.");
+        // .text("あのイーハトーヴォのすきとおった風、夏でも底に冷たさをもつ青いそら、うつくしい森で飾られたモリーオ市、郊外のぎらぎらひかる草の波。");
+        .text("The quick brown fox jumps over the lazy dog.");
     // .text("AVATAR Lorem ipsum dolor sit amet,");
 
     let bounds = ats.bounding_size(rect.size(), max_lines);

@@ -1,13 +1,12 @@
 //! WebAssembly Runtime Library
 
 use crate::{intcode::*, opcode::*, wasmintr::*, *};
-use _core::mem::size_of;
 use alloc::{boxed::Box, string::*, vec::Vec};
 use bitflags::*;
 use core::{
     cell::{RefCell, UnsafeCell},
     fmt,
-    mem::transmute,
+    mem::{size_of, transmute},
     ops::*,
     slice, str,
 };
@@ -192,9 +191,9 @@ impl WasmLoader {
                         .ok_or(WasmDecodeErrorKind::InvalidType)?;
                     let dlink = resolver(import.mod_name(), import.name(), func_type)?;
                     self.module.functions.push(WasmFunction::from_import(
-                        index,
-                        func_type,
                         self.module.n_ext_func,
+                        index,
+                        func_type.clone(),
                         dlink,
                     ));
                     self.module.n_ext_func += 1;
@@ -223,7 +222,7 @@ impl WasmLoader {
             self.module.functions.push(WasmFunction::internal(
                 base_index + index,
                 type_index,
-                func_type,
+                func_type.clone(),
             ));
         }
         Ok(())
@@ -1224,15 +1223,15 @@ pub struct WasmFunction {
 impl WasmFunction {
     #[inline]
     fn from_import(
-        type_index: usize,
-        func_type: &WasmType,
         index: usize,
+        type_index: usize,
+        func_type: WasmType,
         dlink: WasmDynFunc,
     ) -> Self {
         Self {
             index,
             type_index,
-            func_type: func_type.clone(),
+            func_type,
             origin: WasmFunctionOrigin::Import(index),
             code_block: None,
             dlink: Some(dlink),
@@ -1240,11 +1239,11 @@ impl WasmFunction {
     }
 
     #[inline]
-    fn internal(index: usize, type_index: usize, func_type: &WasmType) -> Self {
+    fn internal(index: usize, type_index: usize, func_type: WasmType) -> Self {
         Self {
             index,
             type_index,
-            func_type: func_type.clone(),
+            func_type,
             origin: WasmFunctionOrigin::Internal,
             code_block: None,
             dlink: None,

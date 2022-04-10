@@ -1,11 +1,7 @@
 //! TeleTypewriter
 
-use alloc::boxed::Box;
-use alloc::string::String;
-use alloc::vec::Vec;
-use core::fmt::Write;
-use core::future::Future;
-use core::pin::Pin;
+use alloc::{boxed::Box, string::String, vec::Vec};
+use core::{fmt::Write, future::Future, pin::Pin};
 
 pub trait TtyWrite: Write {
     fn reset(&mut self) -> Result<(), TtyError>;
@@ -19,8 +15,6 @@ pub trait TtyWrite: Write {
     fn is_cursor_enabled(&self) -> bool;
 
     fn set_cursor_enabled(&mut self, enabled: bool) -> bool;
-
-    fn attribute(&self) -> u8;
 
     fn set_attribute(&mut self, attribute: u8);
 }
@@ -89,71 +83,3 @@ pub enum TtyError {
 }
 
 pub type TtyReadResult = Result<char, TtyError>;
-
-pub struct CombinedTty<'a> {
-    stdout: &'a mut dyn Tty,
-    stdin: &'a mut dyn Tty,
-}
-
-impl<'a> CombinedTty<'a> {
-    pub fn new(stdout: &'a mut dyn Tty, stdin: &'a mut dyn Tty) -> Self {
-        Self { stdout, stdin }
-    }
-}
-
-impl Write for CombinedTty<'_> {
-    fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        self.stdout.write_str(s)
-    }
-}
-
-impl TtyWrite for CombinedTty<'_> {
-    #[inline]
-    fn reset(&mut self) -> Result<(), TtyError> {
-        self.stdout.reset()
-    }
-
-    #[inline]
-    fn dims(&self) -> (isize, isize) {
-        self.stdout.dims()
-    }
-
-    #[inline]
-    fn cursor_position(&self) -> (isize, isize) {
-        self.stdout.cursor_position()
-    }
-
-    #[inline]
-    fn set_cursor_position(&mut self, x: isize, y: isize) {
-        self.stdout.set_cursor_position(x, y)
-    }
-
-    #[inline]
-    fn is_cursor_enabled(&self) -> bool {
-        self.stdout.is_cursor_enabled()
-    }
-
-    #[inline]
-    fn set_cursor_enabled(&mut self, enabled: bool) -> bool {
-        self.stdout.set_cursor_enabled(enabled)
-    }
-
-    #[inline]
-    fn attribute(&self) -> u8 {
-        self.stdout.attribute()
-    }
-
-    #[inline]
-    fn set_attribute(&mut self, attribute: u8) {
-        self.stdout.set_attribute(attribute)
-    }
-}
-
-impl TtyRead for CombinedTty<'_> {
-    #[inline]
-    fn read_async(&self) -> Pin<Box<dyn Future<Output = TtyReadResult> + '_>> {
-        self.stdin.read_async()
-    }
-}
-
-impl Tty for CombinedTty<'_> {}

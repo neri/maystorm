@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     r,
-    sync::{fifo::AsyncEventQueue, RwLock},
+    sync::{fifo::AsyncEventQueue, semaphore::AsyncSemaphore, RwLock},
     task::{scheduler::*, Task},
     *,
 };
@@ -274,6 +274,7 @@ impl Deref for UsbDeviceIterResult {
 pub struct UsbDeviceControl {
     host: Arc<dyn UsbHostInterface>,
     device: UnsafeCell<UsbDevice>,
+    sem: Pin<Arc<AsyncSemaphore>>,
 }
 
 impl UsbDeviceControl {
@@ -617,6 +618,7 @@ impl UsbDeviceControl {
         Ok(Self {
             host,
             device: UnsafeCell::new(device),
+            sem: AsyncSemaphore::new(1),
         })
     }
 
@@ -1076,19 +1078,33 @@ impl UsbDeviceControl {
 
     /// Focuses on packets from the specified hub and delays tasks on other devices.
     #[must_use]
-    pub fn focus_hub(&self) -> UsbHubFocusScope {
+    pub fn focus_device(&self) -> UsbDeviceFocusedScope {
         self.host().focus_hub().unwrap();
-        UsbHubFocusScope(self)
+        UsbDeviceFocusedScope(self)
+    }
+
+    pub async fn lock_device(self: &Arc<Self>) -> UsbDeviceLockedScope {
+        self.sem.clone().wait().await;
+        UsbDeviceLockedScope(self.clone())
     }
 }
 
 #[repr(transparent)]
-pub struct UsbHubFocusScope<'a>(&'a UsbDeviceControl);
+pub struct UsbDeviceFocusedScope<'a>(&'a UsbDeviceControl);
 
-impl Drop for UsbHubFocusScope<'_> {
+impl Drop for UsbDeviceFocusedScope<'_> {
     #[inline]
     fn drop(&mut self) {
         let _ = self.0.host().unfocus_hub();
+    }
+}
+
+pub struct UsbDeviceLockedScope(Arc<UsbDeviceControl>);
+
+impl Drop for UsbDeviceLockedScope {
+    #[inline]
+    fn drop(&mut self) {
+        self.0.sem.signal();
     }
 }
 

@@ -1,10 +1,9 @@
 use crate::{
-    arch::cpu::*, arch::page::PhysicalAddress, io::emcon::*, io::tty::*, task::scheduler::*,
-    ui::font::FontManager, *,
+    arch::cpu::*, arch::page::PhysicalAddress, io::emcon::*, io::tty::*, task::scheduler::*, *,
 };
 use alloc::{boxed::Box, string::*, vec::Vec};
 use bootprot::BootInfo;
-use core::{cell::UnsafeCell, fmt, ptr::*, sync::atomic::*};
+use core::{cell::UnsafeCell, fmt, mem::transmute, ptr::*, sync::atomic::*};
 use megstd::{drawing::*, time::SystemTime};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -68,7 +67,7 @@ impl fmt::Display for Version<'_> {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ProcessorIndex(pub usize);
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ProcessorCoreType {
     /// Main Processor
     Main,
@@ -115,7 +114,7 @@ pub struct System {
     smbios: Option<Box<fw::smbios::SmBios>>,
 
     // screens
-    main_screen: Option<Bitmap32<'static>>,
+    main_screen: Option<UnsafeCell<Bitmap32<'static>>>,
     em_console: EmConsole,
     stdout: Option<Box<dyn Tty>>,
 
@@ -130,7 +129,7 @@ static mut SYSTEM: UnsafeCell<System> = UnsafeCell::new(System::new());
 impl System {
     const SYSTEM_NAME: &'static str = "MEG-OS";
     const SYSTEMN_CODENAME: &'static str = "Azalea+";
-    const SYSTEM_SHORT_NAME: &'static str = "megos";
+    const SYSTEM_SHORT_NAME: &'static str = "myos";
     const RELEASE: &'static str = "alpha";
     const VERSION: Version<'static> = Version::new(0, 11, 0, Self::RELEASE);
 
@@ -143,7 +142,7 @@ impl System {
             smbios: None,
             boot_flags: BootFlags::empty(),
             main_screen: None,
-            em_console: EmConsole::new(FontManager::preferred_console_font()),
+            em_console: EmConsole::new(ui::font::FontManager::preferred_console_font()),
             stdout: None,
             initrd_base: PhysicalAddress::NULL,
             initrd_size: 0,
@@ -163,7 +162,7 @@ impl System {
             Size::new(info.screen_width as isize, info.screen_height as isize),
             info.vram_stride as usize,
         );
-        shared.main_screen = Some(main_screen);
+        shared.main_screen = Some(UnsafeCell::new(main_screen));
         // Self::em_console().reset().unwrap();
 
         mem::MemoryManager::init_first(info);
@@ -190,45 +189,56 @@ impl System {
         let shared = unsafe { Self::shared_mut() };
 
         // banner
-        if false {
+        if true {
             let device = System::current_device();
+            let bytes = device.total_memory_size();
+            let gb = bytes >> 30;
+            let mb = (100 * (bytes & 0x3FFF_FFFF)) / 0x4000_0000;
 
             writeln!(
                 System::em_console(),
-                "{} v{} Processor {} / {} {:?}, Memory {} MB",
+                "{} v{} [{} Processor cores, Memory {}.{:02} GB]",
                 System::name(),
                 System::version(),
-                device.num_of_performance_cpus(),
                 device.num_of_active_cpus(),
-                device.processor_system_type(),
-                device.total_memory_size() >> 20,
+                gb,
+                mb
             )
             .unwrap();
         }
 
         unsafe {
+            writeln!(System::em_console(), "late_init").unwrap();
             mem::MemoryManager::late_init();
 
+            writeln!(System::em_console(), "event_log").unwrap();
             log::EventManager::init();
 
-            io::audio::AudioManager::init();
-            io::hid_mgr::HidManager::init();
-            drivers::usb::UsbManager::init();
-
+            writeln!(System::em_console(), "init_fs").unwrap();
             fs::FileManager::init(shared.initrd_base.direct_map(), shared.initrd_size);
 
+            writeln!(System::em_console(), "init_audio").unwrap();
+            io::audio::AudioManager::init();
+            writeln!(System::em_console(), "init_hid").unwrap();
+            io::hid_mgr::HidManager::init();
+            writeln!(System::em_console(), "init_usb").unwrap();
+            drivers::usb::UsbManager::init();
+            writeln!(System::em_console(), "init_pci").unwrap();
             drivers::pci::Pci::init();
 
             if let Some(main_screen) = shared.main_screen.as_mut() {
-                FontManager::init();
-                ui::window::WindowManager::init(main_screen.clone());
+                writeln!(System::em_console(), "init_font").unwrap();
+                ui::font::FontManager::init();
+                writeln!(System::em_console(), "init_window").unwrap();
+                ui::window::WindowManager::init(main_screen.get_mut().clone());
             }
 
+            writeln!(System::em_console(), "arch_late_init").unwrap();
             arch::Arch::late_init();
 
             rt::RuntimeEnvironment::init();
 
-            user::userenv::UserEnv::start(core::mem::transmute(args));
+            user::userenv::UserEnv::start(transmute(args));
         }
     }
 
@@ -369,7 +379,7 @@ impl System {
 
     /// Get main screen
     pub fn main_screen() -> Bitmap<'static> {
-        unsafe { Self::shared_mut().main_screen.as_mut().unwrap().into() }
+        unsafe { &mut *Self::shared_mut().main_screen.as_mut().unwrap().get() }.into()
     }
 
     pub fn em_console<'a>() -> &'a mut EmConsole {
