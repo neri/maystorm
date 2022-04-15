@@ -1399,7 +1399,7 @@ impl RawWindow {
 
             let rect = self.title_frame();
             bitmap
-                .view(rect, |mut bitmap| {
+                .view(rect, |bitmap| {
                     let rect = bitmap.bounds();
 
                     if is_thin {
@@ -1432,7 +1432,7 @@ impl RawWindow {
                                 })
                                 .center()
                                 .text(text)
-                                .draw_text(&mut bitmap, rect2, 1);
+                                .draw_text(bitmap, rect2, 1);
                         }
 
                         AttributedString::new()
@@ -1440,7 +1440,7 @@ impl RawWindow {
                             .color(self.title_foreground())
                             .center()
                             .text(text)
-                            .draw_text(&mut bitmap, rect, 1);
+                            .draw_text(bitmap, rect, 1);
                     }
                 })
                 .unwrap();
@@ -1757,7 +1757,7 @@ impl RawWindow {
 
         let rect = coords.into();
         bitmap
-            .view(rect, |mut bitmap| f(&mut bitmap))
+            .view(rect, |bitmap| f(bitmap))
             .ok_or(WindowDrawingError::InconsistentCoordinates)
     }
 }

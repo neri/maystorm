@@ -3,7 +3,8 @@
 use super::super::*;
 use crate::{task::Task, *};
 use alloc::sync::Arc;
-// use num_traits::FromPrimitive;
+use core::pin::Pin;
+use futures_util::Future;
 
 pub struct UsbMsdStarter;
 
@@ -15,11 +16,35 @@ impl UsbMsdStarter {
 }
 
 impl UsbInterfaceDriverStarter for UsbMsdStarter {
-    fn instantiate(&self, device: &Arc<UsbDeviceControl>, interface: &UsbInterface) -> bool {
+    fn instantiate(
+        &self,
+        device: &Arc<UsbDeviceControl>,
+        if_no: UsbInterfaceNumber,
+    ) -> Pin<Box<dyn Future<Output = Result<Task, UsbError>>>> {
+        Box::pin(UsbMsdDriver::_instantiate(device.clone(), if_no))
+    }
+}
+
+pub struct UsbMsdDriver {
+    //
+}
+
+impl UsbMsdDriver {
+    async fn _instantiate(
+        device: Arc<UsbDeviceControl>,
+        if_no: UsbInterfaceNumber,
+    ) -> Result<Task, UsbError> {
+        let interface = match device
+            .device()
+            .current_configuration()
+            .find_interface(if_no, None)
+        {
+            Some(v) => v,
+            None => return Err(UsbError::InvalidParameter),
+        };
         if interface.class() != UsbClass::MSD_BULK_ONLY {
-            return false;
+            return Err(UsbError::Unsupported);
         }
-        let if_no = interface.if_no();
         let endpoint = match interface.endpoints().first() {
             Some(v) => v,
             None => todo!(),
@@ -29,22 +54,14 @@ impl UsbInterfaceDriverStarter for UsbMsdStarter {
 
         device.configure_endpoint(endpoint.descriptor()).unwrap();
 
-        UsbManager::register_xfer_task(Task::new(UsbMsdDriver::_usb_msd_task(
+        Ok(Task::new(Self::_usb_msd_task(
             device.clone(),
             if_no,
             ep,
             ps,
-        )));
-
-        true
+        )))
     }
-}
 
-pub struct UsbMsdDriver {
-    //
-}
-
-impl UsbMsdDriver {
     async fn _usb_msd_task(
         device: Arc<UsbDeviceControl>,
         if_no: UsbInterfaceNumber,

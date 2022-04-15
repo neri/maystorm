@@ -7,7 +7,8 @@ use crate::{
     *,
 };
 use alloc::{boxed::Box, collections::BTreeMap, sync::Arc, vec::Vec};
-use core::{num::NonZeroU8, time::Duration};
+use core::{num::NonZeroU8, pin::Pin, time::Duration};
+use futures_util::Future;
 use megstd::io::hid::*;
 use num_traits::FromPrimitive;
 
@@ -21,20 +22,44 @@ impl UsbHidStarter {
 }
 
 impl UsbInterfaceDriverStarter for UsbHidStarter {
-    fn instantiate(&self, device: &Arc<UsbDeviceControl>, interface: &UsbInterface) -> bool {
+    fn instantiate(
+        &self,
+        device: &Arc<UsbDeviceControl>,
+        if_no: UsbInterfaceNumber,
+    ) -> Pin<Box<dyn Future<Output = Result<Task, UsbError>>>> {
+        Box::pin(UsbHidDriver::_instantiate(device.clone(), if_no))
+    }
+}
+
+pub struct UsbHidDriver;
+
+impl UsbHidDriver {
+    const BUFFER_LEN: usize = 64;
+
+    async fn _instantiate(
+        device: Arc<UsbDeviceControl>,
+        if_no: UsbInterfaceNumber,
+    ) -> Result<Task, UsbError> {
+        let interface = match device
+            .device()
+            .current_configuration()
+            .find_interface(if_no, None)
+        {
+            Some(v) => v,
+            None => return Err(UsbError::InvalidParameter),
+        };
         let class = interface.class();
         if class.base() != UsbBaseClass::HID {
-            return false;
+            return Err(UsbError::Unsupported);
         }
-        let if_no = interface.if_no();
         let endpoint = match interface.endpoints().first() {
             Some(v) => v,
             None => todo!(),
         };
         let ep = endpoint.address();
-        let ps = endpoint.descriptor().max_packet_size();
-        if ps > 64 {
-            return false;
+        let ps = endpoint.descriptor().max_packet_size() as usize;
+        if ps > UsbHidDriver::BUFFER_LEN {
+            return Err(UsbError::UnexpectedToken);
         }
 
         let report_desc = match interface.hid_reports_by(UsbDescriptorType::HidReport) {
@@ -45,69 +70,57 @@ impl UsbInterfaceDriverStarter for UsbHidStarter {
             }
             None => Box::new([]),
         };
-
-        device.configure_endpoint(endpoint.descriptor()).unwrap();
-
-        UsbManager::register_xfer_task(Task::new(UsbHidDriver::_usb_hid_task(
-            device.clone(),
-            if_no,
-            ep,
-            class,
-            ps,
-            report_desc,
-        )));
-
-        true
-    }
-}
-
-pub struct UsbHidDriver;
-
-impl UsbHidDriver {
-    async fn _usb_hid_task(
-        device: Arc<UsbDeviceControl>,
-        if_no: UsbInterfaceNumber,
-        ep: UsbEndpointAddress,
-        _class: UsbClass,
-        ps: u16,
-        report_desc: Box<[u8]>,
-    ) {
-        let device_lock = device.lock_device().await;
-
-        let addr = device.device().addr();
         let report_desc = match Self::parse_report(&report_desc) {
             Ok(v) => v,
             Err(err) => {
                 log!("HID PARSE ERROR {}", err);
-                return;
+                return Err(UsbError::InvalidDescriptor);
             }
         };
 
+        device.configure_endpoint(endpoint.descriptor()).unwrap();
+
+        // disable boot protocol
+        if class.sub() == UsbSubClass(1) {
+            let _result = Self::set_boot_protocol(&device, if_no, false).await.is_ok();
+        }
+
+        Ok(Task::new(Self::_usb_hid_task(
+            device.clone(),
+            if_no,
+            ep,
+            ps,
+            report_desc,
+        )))
+    }
+
+    async fn _usb_hid_task(
+        device: Arc<UsbDeviceControl>,
+        if_no: UsbInterfaceNumber,
+        ep: UsbEndpointAddress,
+        ps: usize,
+        report_desc: HidParsedReport,
+    ) {
+        let addr = device.device().addr();
+
         // log!(
-        //     "HID {}:{} VEN {} DEV {} CLASS {} UP {:08x} {:?}",
+        //     "HID {}:{} VEN {} DEV {} CLASS {} UP {:08x} {:?} {}",
         //     addr.0.get(),
         //     if_no.0,
         //     device.device().vid(),
         //     device.device().pid(),
-        //     class,
+        //     device.device().class(),
         //     report_desc.primary_app().unwrap().usage.0,
         //     report_desc.report_ids,
+        //     device.device().preferred_device_name().unwrap_or_default(),
         // );
         // for app in report_desc.tagged.values() {
-        //     log!(
-        //         "HID {}:{} APP {} {:08x}",
-        //         addr.0.get(),
-        //         if_no.0,
-        //         app.report_id,
-        //         app.usage.0
-        //     );
+        //     log!(" APP {} {:08x}", app.report_id, app.usage.0);
         // }
 
-        // disable boot protocol
-        let _result = Self::set_boot_protocol(&device, if_no, false).await.is_ok();
-
         if let Some(app) = report_desc.primary_app() {
-            let mut data = [0; 64];
+            let mut data = [0; Self::BUFFER_LEN];
+            let empty_data = [0; Self::BUFFER_LEN];
             let mut bit_position = 0;
             match app.usage {
                 HidUsage::KEYBOARD => {
@@ -145,14 +158,13 @@ impl UsbHidDriver {
                         )
                         .await;
                         Timer::sleep_async(Duration::from_millis(100)).await;
-                        data.fill(0);
                         let _ = Self::set_report(
                             &device,
                             if_no,
                             HidReportType::Output,
                             app.report_id,
                             len,
-                            &data,
+                            &empty_data,
                         )
                         .await;
                         Timer::sleep_async(Duration::from_millis(50)).await;
@@ -162,13 +174,18 @@ impl UsbHidDriver {
             }
         }
 
-        drop(device_lock);
+        // log!(
+        //     "HID {}:{} started loop {}",
+        //     addr.0.get(),
+        //     if_no.0,
+        //     device.device().preferred_device_name().unwrap_or_default()
+        // );
 
         let mut key_state = KeyboardState::new();
         let mut mouse_state = MouseState::empty();
-        let mut buffer = [0; 64];
+        let mut buffer = [0; Self::BUFFER_LEN];
         loop {
-            match device.read_slice(ep, &mut buffer, 1, ps as usize).await {
+            match device.read_slice(ep, &mut buffer, 1, ps).await {
                 Ok(_size) => {
                     let app = match if report_desc.has_report_id() {
                         report_desc.app_by_report_id(buffer[0])
@@ -328,9 +345,9 @@ impl UsbHidDriver {
                     }
                 }
                 Err(UsbError::Aborted) => break,
-                Err(_err) => {
+                Err(err) => {
                     // TODO: error
-                    log!("USB HID error {} {:?}", addr.0, _err);
+                    log!("USB HID error {}:{} {:?}", addr.0, if_no.0, err);
                 }
             }
         }

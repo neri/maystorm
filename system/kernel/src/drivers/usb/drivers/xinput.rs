@@ -8,6 +8,8 @@ use crate::{
     *,
 };
 use alloc::sync::Arc;
+use core::pin::Pin;
+use futures_util::Future;
 
 pub struct XInputStarter;
 
@@ -19,31 +21,43 @@ impl XInputStarter {
 }
 
 impl UsbInterfaceDriverStarter for XInputStarter {
-    fn instantiate(&self, device: &Arc<UsbDeviceControl>, interface: &UsbInterface) -> bool {
-        let class = interface.class();
-        if class != UsbClass::XINPUT {
-            return false;
-        }
-        let if_no = interface.if_no();
-        let endpoint = interface.endpoints().first().unwrap();
-        let ep = endpoint.address();
-        let ps = endpoint.descriptor().max_packet_size();
-        device.configure_endpoint(endpoint.descriptor()).unwrap();
-
-        UsbManager::register_xfer_task(Task::new(XInputDriver::_xinput_task(
-            device.clone(),
-            if_no,
-            ep,
-            ps,
-        )));
-
-        true
+    fn instantiate(
+        &self,
+        device: &Arc<UsbDeviceControl>,
+        if_no: UsbInterfaceNumber,
+    ) -> Pin<Box<dyn Future<Output = Result<Task, UsbError>>>> {
+        Box::pin(XInputDriver::_instantiate(device.clone(), if_no))
     }
 }
 
 pub struct XInputDriver;
 
 impl XInputDriver {
+    async fn _instantiate(
+        device: Arc<UsbDeviceControl>,
+        if_no: UsbInterfaceNumber,
+    ) -> Result<Task, UsbError> {
+        let interface = match device
+            .device()
+            .current_configuration()
+            .find_interface(if_no, None)
+        {
+            Some(v) => v,
+            None => return Err(UsbError::InvalidParameter),
+        };
+        let class = interface.class();
+        if class != UsbClass::XINPUT {
+            return Err(UsbError::Unsupported);
+        }
+        let endpoint = interface.endpoints().first().unwrap();
+        let ep = endpoint.address();
+        let ps = endpoint.descriptor().max_packet_size();
+
+        device.configure_endpoint(endpoint.descriptor()).unwrap();
+
+        Ok(Task::new(Self::_xinput_task(device.clone(), if_no, ep, ps)))
+    }
+
     async fn _xinput_task(
         device: Arc<UsbDeviceControl>,
         _if_no: UsbInterfaceNumber,

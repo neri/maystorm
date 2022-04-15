@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     r,
-    sync::{fifo::AsyncEventQueue, semaphore::AsyncSemaphore, RwLock},
+    sync::{fifo::AsyncEventQueue, RwLock},
     task::{scheduler::*, Task},
     *,
 };
@@ -77,7 +77,11 @@ pub trait UsbClassDriverStarter {
 }
 
 pub trait UsbInterfaceDriverStarter {
-    fn instantiate(&self, device: &Arc<UsbDeviceControl>, interface: &UsbInterface) -> bool;
+    fn instantiate(
+        &self,
+        device: &Arc<UsbDeviceControl>,
+        if_no: UsbInterfaceNumber,
+    ) -> Pin<Box<dyn Future<Output = Result<Task, UsbError>>>>;
 }
 
 static mut USB_MANAGER: MaybeUninit<UsbManager> = MaybeUninit::uninit();
@@ -143,6 +147,7 @@ impl UsbManager {
                 }
 
                 shared.devices.write().unwrap().push(device.clone());
+                let mut tasks = Vec::new();
 
                 let mut is_configured = false;
                 for driver in shared.specific_driver_starters.read().unwrap().iter() {
@@ -162,9 +167,16 @@ impl UsbManager {
                 if !is_configured {
                     for interface in device.device().current_configuration().interfaces() {
                         for driver in shared.interface_driver_starters.read().unwrap().iter() {
-                            if driver.instantiate(&device, interface) {
-                                is_configured = true;
-                                break;
+                            match driver.instantiate(&device, interface.if_no()).await {
+                                Ok(task) => {
+                                    tasks.push(task);
+                                    is_configured = true;
+                                    break;
+                                }
+                                Err(UsbError::Unsupported) => (),
+                                Err(_) => {
+                                    //
+                                }
                             }
                         }
                     }
@@ -172,6 +184,10 @@ impl UsbManager {
 
                 if is_configured {
                     device.device().is_configured.store(true, Ordering::SeqCst);
+                    tasks
+                        .into_iter()
+                        .for_each(|task| UsbManager::register_xfer_task(task));
+
                     if let Some(device_name) = device.device().preferred_device_name() {
                         notify!(r::Icons::Usb, "\"{}\"\nhas been configured.", device_name);
                     } else {
@@ -274,7 +290,6 @@ impl Deref for UsbDeviceIterResult {
 pub struct UsbDeviceControl {
     host: Arc<dyn UsbHostInterface>,
     device: UnsafeCell<UsbDevice>,
-    sem: Pin<Arc<AsyncSemaphore>>,
 }
 
 impl UsbDeviceControl {
@@ -618,7 +633,6 @@ impl UsbDeviceControl {
         Ok(Self {
             host,
             device: UnsafeCell::new(device),
-            sem: AsyncSemaphore::new(1),
         })
     }
 
@@ -1082,11 +1096,6 @@ impl UsbDeviceControl {
         self.host().focus_hub().unwrap();
         UsbDeviceFocusedScope(self)
     }
-
-    pub async fn lock_device(self: &Arc<Self>) -> UsbDeviceLockedScope {
-        self.sem.clone().wait().await;
-        UsbDeviceLockedScope(self.clone())
-    }
 }
 
 #[repr(transparent)]
@@ -1096,15 +1105,6 @@ impl Drop for UsbDeviceFocusedScope<'_> {
     #[inline]
     fn drop(&mut self) {
         let _ = self.0.host().unfocus_hub();
-    }
-}
-
-pub struct UsbDeviceLockedScope(Arc<UsbDeviceControl>);
-
-impl Drop for UsbDeviceLockedScope {
-    #[inline]
-    fn drop(&mut self) {
-        self.0.sem.signal();
     }
 }
 

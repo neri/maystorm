@@ -1,4 +1,4 @@
-use crate::{arch::cpu::*, mem::PhysicalAddress, sync::RwLock, system::System};
+use crate::{arch::cpu::*, mem::PhysicalAddress, sync::RwLock, system::System, *};
 use alloc::{
     boxed::Box,
     collections::{btree_map::Values, BTreeMap},
@@ -150,6 +150,7 @@ impl Pci {
             for registrar in &shared.registrars {
                 match registrar.instantiate(&device) {
                     Some(v) => {
+                        // log!("PCI INIT {:?}", device.address());
                         shared.drivers.write().unwrap().insert(device.address(), v);
                     }
                     None => {}

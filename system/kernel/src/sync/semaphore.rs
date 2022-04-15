@@ -1,15 +1,15 @@
 // Semaphore
 
-use super::signal::SignallingObject;
+use super::{fifo::ConcurrentFifo, signal::SignallingObject};
 use crate::arch::cpu::Cpu;
 use alloc::{boxed::Box, sync::Arc};
 use core::{
     marker::PhantomData,
     pin::Pin,
     sync::atomic::*,
-    task::{Context, Poll},
+    task::{Context, Poll, Waker},
 };
-use futures_util::{task::AtomicWaker, Future};
+use futures_util::Future;
 
 /// counting semaphore
 pub struct Semaphore {
@@ -126,7 +126,7 @@ impl Default for BinarySemaphore {
 
 pub struct AsyncSemaphore {
     value: AtomicUsize,
-    waker: AtomicWaker,
+    fifo: ConcurrentFifo<Waker>,
 }
 
 impl AsyncSemaphore {
@@ -134,7 +134,7 @@ impl AsyncSemaphore {
     pub fn new(value: usize) -> Pin<Arc<Self>> {
         Arc::pin(Self {
             value: AtomicUsize::new(value),
-            waker: AtomicWaker::new(),
+            fifo: ConcurrentFifo::with_capacity(16),
         })
     }
 
@@ -167,10 +167,9 @@ impl AsyncSemaphore {
 
     #[must_use]
     pub fn poll(&self, cx: &mut Context<'_>) -> bool {
-        self.waker.register(cx.waker());
         let result = self.try_lock();
-        if result {
-            self.waker.take();
+        if !result {
+            self.fifo.enqueue(cx.waker().clone()).unwrap();
         }
         result
     }
@@ -178,7 +177,9 @@ impl AsyncSemaphore {
     #[inline]
     pub fn signal(&self) {
         let _ = Cpu::interlocked_increment(&self.value);
-        let _ = self.waker.wake();
+        if let Some(waker) = self.fifo.dequeue() {
+            waker.wake_by_ref();
+        }
     }
 }
 

@@ -1280,11 +1280,12 @@ pub enum UsbEndpointType {
     Interrupt,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+#[derive(Debug, Clone, Copy)]
 pub enum UsbError {
     General,
     HostUnavailable,
-    ControllerError,
+    Unsupported,
+    ControllerError(usize),
     InvalidParameter,
     InvalidDescriptor,
     UnexpectedToken,

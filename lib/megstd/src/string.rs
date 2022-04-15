@@ -31,7 +31,7 @@ impl Sb255 {
     }
 
     #[inline]
-    fn as_slice(&self) -> &[u8] {
+    fn as_slice<'a>(&'a self) -> &'a [u8] {
         unsafe { slice::from_raw_parts(&self.0[1], self.len()) }
     }
 

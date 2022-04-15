@@ -26,6 +26,7 @@ use core::{
     mem::transmute,
     mem::{size_of, MaybeUninit},
     num::NonZeroU8,
+    ops::{Deref, DerefMut},
     pin::Pin,
     slice,
     sync::atomic::*,
@@ -317,7 +318,7 @@ impl Xhci {
             .set_target(dci);
     }
 
-    pub fn async_doorbell(
+    pub fn ring_a_doorbell_async(
         &self,
         parent_slot_id: Option<SlotId>,
         slot_id: Option<SlotId>,
@@ -398,25 +399,27 @@ impl Xhci {
         for ctx in self.ring_context.write().unwrap().iter_mut() {
             let ctx = unsafe { &mut *ctx.as_mut_ptr() };
             if ctx.tr_base().is_none() {
-                ctx.alloc(slot_id, dci);
+                unsafe {
+                    ctx.alloc(slot_id, dci);
+                }
                 return ctx.tr_value();
             }
         }
         None
     }
 
-    pub fn schedule_ep_ring(
-        &self,
-        slot_id: Option<SlotId>,
-        dci: Option<DCI>,
-    ) -> Option<Pin<Arc<AsyncSemaphore>>> {
-        if let Some(index) = self.ep_ring_index(slot_id, dci) {
-            let ctx = &mut self.ring_context.write().unwrap()[index];
-            let ctx = unsafe { &mut *ctx.as_mut_ptr() };
-            return ctx.asem().map(|v| v.clone());
-        }
-        return None;
-    }
+    // pub fn schedule_ep_ring(
+    //     &self,
+    //     slot_id: Option<SlotId>,
+    //     dci: Option<DCI>,
+    // ) -> Option<Pin<Arc<AsyncSemaphore>>> {
+    //     if let Some(index) = self.ep_ring_index(slot_id, dci) {
+    //         let ctx = &mut self.ring_context.write().unwrap()[index];
+    //         let ctx = unsafe { &mut *ctx.as_mut_ptr() };
+    //         return ctx.semaphore().map(|v| v.clone());
+    //     }
+    //     return None;
+    // }
 
     pub fn allocate_crb<'a>(&'a self) -> Option<&'a mut CommandRequestBlock> {
         for crb in &self.crbs {
@@ -527,6 +530,16 @@ impl Xhci {
     ) -> Result<usize, UsbError> {
         let slot_id = Some(device.slot_id);
         let dci = Some(DCI::CONTROL);
+        let ctx = match self.ep_ring_index(slot_id, dci) {
+            Some(index) => {
+                let ctx = &mut self.ring_context.write().unwrap()[index];
+                &mut *ctx.as_mut_ptr()
+            }
+            None => todo!(),
+        };
+        let ctx = ctx.scoped().await;
+        ctx.set_scheduled();
+
         let buffer = device.buffer;
         let trt = if setup.wLength > 0 {
             if setup.bmRequestType.is_device_to_host() {
@@ -547,28 +560,21 @@ impl Xhci {
             self.issue_trb(None, &data_trb, slot_id, dci);
         }
 
-        let ctx = match self.ep_ring_index(slot_id, dci) {
-            Some(index) => {
-                let ctx = &mut self.ring_context.write().unwrap()[index];
-                &mut *ctx.as_mut_ptr()
-            }
-            None => todo!(),
-        };
-        ctx.set_scheduled();
-
         let status_trb = TrbStatusStage::new(!dir);
         self.issue_trb(None, &status_trb, slot_id, dci);
 
-        self.async_doorbell(device.parent_slot_id, slot_id, dci)
+        self.ring_a_doorbell_async(device.parent_slot_id, slot_id, dci)
             .unwrap();
 
-        ctx.asem().unwrap().clone().wait().await;
+        ctx.semaphore().clone().wait().await;
 
         let result = match ctx.response.as_event() {
             Some(TrbEvent::Transfer(v)) => Some(v.copied()),
             _ => None,
         };
-        match ctx.state() {
+        let state = ctx.state();
+        drop(ctx);
+        match state {
             RequestState::Available | RequestState::Acquired | RequestState::Scheduled => {
                 unreachable!()
             }
@@ -582,9 +588,9 @@ impl Xhci {
                         Err(UsbError::General)
                     }
                     Some(_err) => Err(UsbError::General),
-                    None => Err(UsbError::ControllerError),
+                    None => Err(UsbError::General),
                 },
-                None => Err(UsbError::ControllerError),
+                None => Err(UsbError::General),
             },
             RequestState::Aborted => Err(UsbError::Aborted),
         }
@@ -623,10 +629,10 @@ impl Xhci {
 
         self.issue_trb(None, &trb, slot_id, dci);
 
-        self.async_doorbell(device.parent_slot_id, slot_id, dci)
+        self.ring_a_doorbell_async(device.parent_slot_id, slot_id, dci)
             .unwrap();
 
-        ctx.asem().unwrap().clone().wait().await;
+        ctx.semaphore().clone().wait().await;
 
         let result = match ctx.response.as_event() {
             Some(TrbEvent::Transfer(v)) => Some(v.copied()),
@@ -641,8 +647,8 @@ impl Xhci {
                     Some(TrbCompletionCode::SUCCESS) | Some(TrbCompletionCode::SHORT_PACKET) => {
                         Ok(len - result.transfer_length())
                     }
-                    Some(_err) => Err(UsbError::General),
-                    None => Err(UsbError::ControllerError),
+                    Some(_err) => Err(UsbError::ControllerError(_err as usize)),
+                    None => Err(UsbError::General),
                 },
                 None => Err(UsbError::UnexpectedToken),
             },
@@ -808,7 +814,9 @@ impl Xhci {
             Ok(result) => result.slot_id().unwrap(),
             Err(_err) => {
                 // TODO:
-                return Err(UsbError::ControllerError);
+                return Err(UsbError::ControllerError(
+                    _err.completion_code().unwrap() as usize
+                ));
             }
         };
 
@@ -1356,22 +1364,9 @@ enum QueuedDoorbell {
     Doorbell(Option<SlotId>, Option<SlotId>, Option<DCI>),
     FocusHub(Option<SlotId>),
     UnfocusHub(Option<SlotId>),
-    // FocusSlot(Option<SlotId>, Option<SlotId>),
-    // UnfocusSlot(Option<SlotId>, Option<SlotId>),
 }
 
-// impl QueuedDoorbell {
-//     #[inline]
-//     pub fn hub(&self) -> Option<SlotId> {
-//         match self {
-//             QueuedDoorbell::Doorbell(hub, _, _) => *hub,
-//             QueuedDoorbell::FocusHub(hub) => *hub,
-//             QueuedDoorbell::UnfocusHub(hub) => *hub,
-//         }
-//     }
-// }
-
-struct EpRingContext {
+pub struct EpRingContext {
     tr_base: Option<NonNullPhysicalAddress>,
     state: AtomicUsize,
     slot_id: Option<SlotId>,
@@ -1379,7 +1374,8 @@ struct EpRingContext {
     index: usize,
     pcs: CycleBit,
     response: Trb,
-    signal: Option<Pin<Arc<AsyncSemaphore>>>,
+    sem_scope: MaybeUninit<Pin<Arc<AsyncSemaphore>>>,
+    signal: MaybeUninit<Pin<Arc<AsyncSemaphore>>>,
     last_setup: Trb,
 }
 
@@ -1453,8 +1449,17 @@ impl EpRingContext {
     }
 
     #[inline]
-    pub fn asem(&self) -> Option<&Pin<Arc<AsyncSemaphore>>> {
-        self.signal.as_ref()
+    pub fn semaphore(&self) -> &Pin<Arc<AsyncSemaphore>> {
+        unsafe { self.signal.assume_init_ref() }
+    }
+
+    #[inline]
+    pub async fn scoped<'a>(&'a mut self) -> EpRingScopeGuard<'a> {
+        unsafe { self.sem_scope.assume_init_ref() }
+            .clone()
+            .wait()
+            .await;
+        EpRingScopeGuard(self)
     }
 
     #[inline]
@@ -1471,18 +1476,16 @@ impl EpRingContext {
     }
 
     #[inline]
-    pub fn alloc(&mut self, slot_id: Option<SlotId>, dci: Option<DCI>) {
-        self.tr_base = NonNullPhysicalAddress::new(
-            unsafe { MemoryManager::alloc_pages(Self::size()) }
-                .unwrap()
-                .get() as PhysicalAddress,
-        );
+    pub unsafe fn alloc(&mut self, slot_id: Option<SlotId>, dci: Option<DCI>) {
+        self.tr_base =
+            NonNullPhysicalAddress::new(MemoryManager::alloc_pages(Self::size()).unwrap().get());
         self.slot_id = slot_id;
         self.dci = dci;
         self.pcs.reset();
         self.index = 0;
         self.response = Trb::empty();
-        self.signal = Some(AsyncSemaphore::new(0));
+        self.sem_scope.write(AsyncSemaphore::new(1));
+        self.signal.write(AsyncSemaphore::new(0));
     }
 
     #[inline]
@@ -1490,7 +1493,9 @@ impl EpRingContext {
         match self.compare_exchange_state(RequestState::Scheduled, RequestState::Completed) {
             Ok(_) => {
                 self.response.raw_copy(response);
-                self.signal.as_ref().unwrap().signal();
+                unsafe {
+                    self.signal.assume_init_ref().signal();
+                }
                 Some(())
             }
             Err(state) => match state {
@@ -1503,6 +1508,33 @@ impl EpRingContext {
     #[inline]
     pub fn set_scheduled(&self) {
         self.set_state(RequestState::Scheduled);
+    }
+}
+
+pub struct EpRingScopeGuard<'a>(&'a mut EpRingContext);
+
+impl Drop for EpRingScopeGuard<'_> {
+    #[inline]
+    fn drop(&mut self) {
+        unsafe {
+            self.0.sem_scope.assume_init_ref().signal();
+        }
+    }
+}
+
+impl Deref for EpRingScopeGuard<'_> {
+    type Target = EpRingContext;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for EpRingScopeGuard<'_> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 

@@ -208,32 +208,22 @@ impl System {
         }
 
         unsafe {
-            writeln!(System::em_console(), "late_init").unwrap();
             mem::MemoryManager::late_init();
 
-            writeln!(System::em_console(), "event_log").unwrap();
             log::EventManager::init();
 
-            writeln!(System::em_console(), "init_fs").unwrap();
             fs::FileManager::init(shared.initrd_base.direct_map(), shared.initrd_size);
 
-            writeln!(System::em_console(), "init_audio").unwrap();
             io::audio::AudioManager::init();
-            writeln!(System::em_console(), "init_hid").unwrap();
             io::hid_mgr::HidManager::init();
-            writeln!(System::em_console(), "init_usb").unwrap();
             drivers::usb::UsbManager::init();
-            writeln!(System::em_console(), "init_pci").unwrap();
             drivers::pci::Pci::init();
 
             if let Some(main_screen) = shared.main_screen.as_mut() {
-                writeln!(System::em_console(), "init_font").unwrap();
                 ui::font::FontManager::init();
-                writeln!(System::em_console(), "init_window").unwrap();
                 ui::window::WindowManager::init(main_screen.get_mut().clone());
             }
 
-            writeln!(System::em_console(), "arch_late_init").unwrap();
             arch::Arch::late_init();
 
             rt::RuntimeEnvironment::init();

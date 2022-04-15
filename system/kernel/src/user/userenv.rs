@@ -22,11 +22,10 @@ pub struct UserEnv;
 
 impl UserEnv {
     pub fn start(f: fn()) {
-        writeln!(System::em_console(), "Init",).unwrap();
-
         // f();
         // SpawnOption::new().start_process(unsafe { core::mem::transmute(f) }, 0, "shell");
         Scheduler::spawn_async(Task::new(logo_task(f)));
+        // WindowManager::set_pointer_visible(true);
         Scheduler::perform_tasks();
     }
 }
@@ -44,7 +43,7 @@ async fn logo_task(f: fn()) {
 
     window.draw(|bitmap| {
         AttributedString::new()
-            .font(FontDescriptor::new(FontFamily::SansSerif, 64).unwrap())
+            .font(FontDescriptor::new(FontFamily::SansSerif, 96).unwrap())
             .color(Color::LIGHT_GRAY)
             .middle_center()
             .text("Hello")
@@ -154,7 +153,7 @@ async fn status_bar_main() {
                 let ats = AttributedString::new()
                     .font(font)
                     .color(fg_color)
-                    .middle_right()
+                    .middle_center()
                     .text(sb.as_str());
 
                 let bounds = Rect::from(window.content_size())
@@ -549,7 +548,7 @@ async fn test_window_main() {
         let button_width = 120;
         let button_height = 28;
         let button_radius = 8;
-        let padding = 8;
+        let padding = 4;
         let padding_bottom = button_height;
         let button_center_top = Point::new(
             bitmap.bounds().mid_x(),
@@ -559,7 +558,7 @@ async fn test_window_main() {
             let mut rect = bitmap.bounds();
             rect.size.height = title_height;
             bitmap
-                .view(rect, |mut bitmap| {
+                .view(rect, |bitmap| {
                     let rect = bitmap.bounds();
                     bitmap.fill_rect(rect, Color::LIGHT_BLUE);
                     AttributedString::new()
@@ -567,7 +566,7 @@ async fn test_window_main() {
                         .middle_center()
                         .color(Color::WHITE)
                         .text("ようこそ MYOS!")
-                        .draw_text(&mut bitmap, rect, 1);
+                        .draw_text(bitmap, rect, 1);
                 })
                 .unwrap();
         }
@@ -579,7 +578,7 @@ async fn test_window_main() {
                 4,
             ));
             bitmap
-                .view(rect, |mut bitmap| {
+                .view(rect, |bitmap| {
                     let mut offset = 0;
                     for family in [
                         FontFamily::SansSerif,
@@ -587,9 +586,8 @@ async fn test_window_main() {
                         FontFamily::Monospace,
                         // FontFamily::Cursive,
                     ] {
-                        for point in [32, 28, 24, 20, 16, 14, 12, 10, 8] {
-                            offset +=
-                                font_test(&mut bitmap, offset, Color::BLACK, family, point, 1);
+                        for point in [48, 32, 28, 24, 20, 16] {
+                            offset += font_test(bitmap, offset, Color::BLACK, family, point);
                         }
                     }
                 })
@@ -603,7 +601,7 @@ async fn test_window_main() {
                 button_height,
             );
             bitmap
-                .view(rect, |mut bitmap| {
+                .view(rect, |bitmap| {
                     let rect = bitmap.bounds();
                     bitmap.fill_round_rect(
                         rect,
@@ -620,7 +618,7 @@ async fn test_window_main() {
                         .middle_center()
                         .color(Theme::shared().button_default_foreground())
                         .text("Ok")
-                        .draw_text(&mut bitmap, rect, 1);
+                        .draw_text(bitmap, rect, 1);
                 })
                 .unwrap();
         }
@@ -632,7 +630,7 @@ async fn test_window_main() {
                 button_height,
             );
             bitmap
-                .view(rect, |mut bitmap| {
+                .view(rect, |bitmap| {
                     let rect = bitmap.bounds();
                     bitmap.fill_round_rect(
                         rect,
@@ -649,7 +647,7 @@ async fn test_window_main() {
                         .middle_center()
                         .color(Theme::shared().button_destructive_foreground())
                         .text("Cancel")
-                        .draw_text(&mut bitmap, rect, 1);
+                        .draw_text(bitmap, rect, 1);
                 })
                 .unwrap();
         }
@@ -675,8 +673,8 @@ fn font_test(
     color: Color,
     family: FontFamily,
     point: isize,
-    max_lines: usize,
 ) -> isize {
+    let max_lines = 0;
     let font = FontDescriptor::new(family, point).unwrap();
     let rect = Rect::new(0, offset, bitmap.width() as isize, isize::MAX);
 
@@ -686,8 +684,8 @@ fn font_test(
         .color(color)
         .line_break_mode(LineBreakMode::NoWrap)
         // .text("あのイーハトーヴォのすきとおった風、夏でも底に冷たさをもつ青いそら、うつくしい森で飾られたモリーオ市、郊外のぎらぎらひかる草の波。");
-        .text("The quick brown fox jumps over the lazy dog.");
-    // .text("AVATAR Lorem ipsum dolor sit amet,");
+        // .text("The quick brown fox jumps over the lazy dog.");
+        .text("WAVE AVATAR Lorem ipsum dolor sit amet, consectetur adipiscing elit,");
 
     let bounds = ats.bounding_size(rect.size(), max_lines);
     ats.draw_text(bitmap, rect, max_lines);

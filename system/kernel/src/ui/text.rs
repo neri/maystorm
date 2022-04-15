@@ -1,6 +1,7 @@
 // Text Drawing
 
 use super::font::*;
+use crate::*;
 use alloc::vec::Vec;
 use core::num::NonZeroUsize;
 use megstd::drawing::*;
@@ -51,7 +52,7 @@ impl AttributedString<'_> {
 
     #[inline]
     pub fn bounding_size(&self, size: Size, max_lines: usize) -> Size {
-        TextProcessing::bounding_size(self.font, self.text, size, max_lines, self.line_break_mode)
+        TextProcessing::bounding_size(&self.font, self.text, size, max_lines, self.line_break_mode)
     }
 
     #[inline]
@@ -59,7 +60,7 @@ impl AttributedString<'_> {
         TextProcessing::draw_text(
             bitmap,
             self.text,
-            self.font,
+            &self.font,
             rect,
             self.color,
             max_lines,
@@ -261,6 +262,7 @@ pub struct LineStatus {
 }
 
 impl LineStatus {
+    #[inline]
     const fn empty() -> Self {
         Self {
             start_position: 0,
@@ -269,12 +271,20 @@ impl LineStatus {
             height: 0,
         }
     }
+
+    #[inline]
+    fn new_line(&mut self, start_position: usize, width: isize, height: isize) {
+        self.start_position = start_position;
+        self.end_position = start_position;
+        self.width = width;
+        self.height = height;
+    }
 }
 
 impl TextProcessing {
     pub fn line_statuses(
-        font: FontDescriptor,
-        s: &str,
+        font: &FontDescriptor,
+        text: &str,
         size: Size,
         max_lines: usize,
         line_break: LineBreakMode,
@@ -286,13 +296,13 @@ impl TextProcessing {
         let mut vec = Vec::with_capacity(usize::min(max_lines, limit_max_lines));
 
         // TODO: Line Breaking
-        let no_wrap = line_break == LineBreakMode::NoWrap && max_lines == 1;
+        let no_wrap = max_lines == 1 && line_break == LineBreakMode::NoWrap;
 
         let mut current_line = LineStatus::empty();
         current_line.height = font.line_height();
         let mut current_height = current_line.height;
         let mut prev_char = ' ';
-        for (index, c) in s.chars().enumerate() {
+        for (index, c) in text.chars().enumerate() {
             if c == '\n' {
                 current_line.end_position = index;
                 current_height += current_line.height;
@@ -301,17 +311,16 @@ impl TextProcessing {
                 if vec.len() >= max_lines || current_height >= size.height() {
                     break;
                 }
-                current_line.start_position = index + 1;
-                current_line.height = font.line_height();
+                current_line.new_line(index + 1, 0, font.line_height());
                 prev_char = ' ';
             } else {
                 current_line.end_position = index;
                 let current_width = font.width_of(c);
-                let new_width = current_line.width + current_width;
+                let new_line_width = current_line.width + font.kern(prev_char, c) + current_width;
                 let line_is_over = if no_wrap {
-                    current_width > size.width
+                    current_line.width > size.width
                 } else {
-                    current_line.width > 0 && new_width > size.width
+                    current_line.width > 0 && new_line_width > size.width
                 };
                 if line_is_over {
                     current_height += current_line.height;
@@ -320,12 +329,10 @@ impl TextProcessing {
                     if vec.len() >= max_lines || current_height >= size.height() {
                         break;
                     }
-                    current_line.start_position = index;
-                    current_line.width = current_width;
-                    current_line.height = font.line_height();
+                    current_line.new_line(index, current_width, font.line_height());
                     prev_char = ' ';
                 } else {
-                    current_line.width = font.kern(prev_char, c) + new_width;
+                    current_line.width = new_line_width;
                     prev_char = c;
                 }
             }
@@ -339,13 +346,13 @@ impl TextProcessing {
     }
 
     pub fn bounding_size(
-        font: FontDescriptor,
-        s: &str,
+        font: &FontDescriptor,
+        text: &str,
         size: Size,
         max_lines: usize,
         line_break: LineBreakMode,
     ) -> Size {
-        let lines = Self::line_statuses(font, s, size, max_lines, line_break);
+        let lines = Self::line_statuses(font, text, size, max_lines, line_break);
         Size::new(
             lines.iter().fold(0, |v, i| isize::max(v, i.width)),
             lines.iter().fold(0, |v, i| v + i.height),
@@ -353,16 +360,22 @@ impl TextProcessing {
     }
 
     /// Write string to bitmap
-    pub fn write_str(to: &mut Bitmap, s: &str, font: FontDescriptor, origin: Point, color: Color) {
+    pub fn write_str(
+        bitmap: &mut Bitmap,
+        text: &str,
+        font: &FontDescriptor,
+        origin: Point,
+        color: Color,
+    ) {
         Self::draw_text(
-            to,
-            s,
+            bitmap,
+            text,
             font,
             Coordinates::new(
                 origin.x,
                 origin.y,
-                to.width() as isize,
-                to.height() as isize,
+                bitmap.width() as isize,
+                bitmap.height() as isize,
             )
             .into(),
             color,
@@ -375,9 +388,9 @@ impl TextProcessing {
 
     /// Write text to bitmap
     pub fn draw_text(
-        to: &mut Bitmap,
-        s: &str,
-        font: FontDescriptor,
+        bitmap: &mut Bitmap,
+        text: &str,
+        font: &FontDescriptor,
         rect: Rect,
         color: Color,
         max_lines: usize,
@@ -390,8 +403,10 @@ impl TextProcessing {
             Err(_) => return,
         };
 
-        let lines = Self::line_statuses(font, s, rect.size(), max_lines, line_break);
-        let mut chars = s.chars();
+        // bitmap.draw_rect(rect, Color::YELLOW);
+
+        let lines = Self::line_statuses(font, text, rect.size(), max_lines, line_break);
+        let mut chars = text.chars();
         let mut cursor = Point::default();
         let mut prev_position = 0;
 
@@ -402,6 +417,7 @@ impl TextProcessing {
             VerticalAlignment::Center => coords.top + (rect.height() - perferred_height) / 2,
             VerticalAlignment::Bottom => coords.bottom - perferred_height,
         };
+
         for line in lines {
             for _ in prev_position..line.start_position {
                 let _ = chars.next();
@@ -414,11 +430,34 @@ impl TextProcessing {
                     TextAlignment::Center => coords.left + (rect.width() - line.width) / 2,
                 };
                 let mut prev_char = ' ';
-                for _ in line.start_position..line.end_position {
+
+                for index in line.start_position..line.end_position {
                     let c = chars.next().unwrap();
+
+                    if cursor.x >= rect.max_x() {
+                        panic!(
+                            "OUT OF BOUNDS {} > {}, [{}, {}, {}] {:02x}, TEXT {:#}",
+                            cursor.x,
+                            rect.width(),
+                            line.start_position,
+                            line.end_position,
+                            index,
+                            c as u32,
+                            text,
+                        );
+                    }
+
                     cursor.x += font.kern(prev_char, c);
-                    font.draw_char(c, to, cursor, color);
-                    cursor.x += font.width_of(c);
+                    let font_width = font.width_of(c);
+
+                    // bitmap.draw_rect(
+                    //     Rect::new(cursor.x, cursor.y, font_width, line.height),
+                    //     Color::LIGHT_BLUE,
+                    // );
+                    // bitmap.draw_vline(cursor, line.height, Color::LIGHT_RED);
+
+                    font.draw_char(c, bitmap, cursor, color);
+                    cursor.x += font_width;
                     prev_char = c;
                 }
             }

@@ -700,7 +700,7 @@ impl<'a> Bitmap8<'a> {
 impl Bitmap8<'_> {
     pub fn view<F, R>(&mut self, rect: Rect, f: F) -> Option<R>
     where
-        F: FnOnce(Bitmap) -> R,
+        F: FnOnce(&mut Bitmap) -> R,
     {
         let coords = match Coordinates::try_from(rect) {
             Ok(v) => v,
@@ -730,8 +730,8 @@ impl Bitmap8<'_> {
                 stride,
                 slice: UnsafeCell::new(&mut slice[offset..offset + new_len]),
             };
-            let bitmap = Bitmap::from(&mut view);
-            f(bitmap)
+            let mut bitmap = Bitmap::from(&mut view);
+            f(&mut bitmap)
         };
         Some(r)
     }
@@ -803,11 +803,12 @@ impl BasicDrawing for Bitmap8<'_> {
     }
 
     fn draw_vline(&mut self, origin: Point, height: isize, color: Self::ColorType) {
+        let size = self.size();
         let dx = origin.x;
         let mut dy = origin.y;
         let mut h = height;
 
-        if dx < 0 || dx >= (self.width as isize) {
+        if dx < 0 || dx >= size.width {
             return;
         }
         if dy < 0 {
@@ -815,8 +816,8 @@ impl BasicDrawing for Bitmap8<'_> {
             dy = 0;
         }
         let b = dy + h;
-        if b >= (self.height as isize) {
-            h = (self.height as isize) - dy;
+        if h >= size.height || b >= size.height {
+            h = size.height - dy - 1;
         }
         if h <= 0 {
             return;
@@ -1195,11 +1196,12 @@ impl BasicDrawing for Bitmap32<'_> {
     }
 
     fn draw_hline(&mut self, origin: Point, width: isize, color: Self::ColorType) {
+        let size = self.size();
         let mut dx = origin.x;
         let dy = origin.y;
         let mut w = width;
 
-        if dy < 0 || dy >= (self.height as isize) {
+        if dy < 0 || dy >= size.height {
             return;
         }
         if dx < 0 {
@@ -1207,8 +1209,8 @@ impl BasicDrawing for Bitmap32<'_> {
             dx = 0;
         }
         let r = dx + w;
-        if r >= (self.width as isize) {
-            w = (self.width as isize) - dx;
+        if r >= size.width {
+            w = size.width - dx;
         }
         if w <= 0 {
             return;
@@ -1219,11 +1221,12 @@ impl BasicDrawing for Bitmap32<'_> {
     }
 
     fn draw_vline(&mut self, origin: Point, height: isize, color: Self::ColorType) {
+        let size = self.size();
         let dx = origin.x;
         let mut dy = origin.y;
         let mut h = height;
 
-        if dx < 0 || dx >= (self.width as isize) {
+        if dx < 0 || dx >= size.width {
             return;
         }
         if dy < 0 {
@@ -1231,8 +1234,8 @@ impl BasicDrawing for Bitmap32<'_> {
             dy = 0;
         }
         let b = dy + h;
-        if b >= (self.height as isize) {
-            h = (self.height as isize) - dy;
+        if h >= size.height || b >= size.height {
+            h = size.height - dy - 1;
         }
         if h <= 0 {
             return;
@@ -1386,7 +1389,7 @@ impl<'a> Bitmap32<'a> {
 impl Bitmap32<'_> {
     pub fn view<F, R>(&mut self, rect: Rect, f: F) -> Option<R>
     where
-        F: FnOnce(Bitmap) -> R,
+        F: FnOnce(&mut Bitmap) -> R,
     {
         let coords = match Coordinates::try_from(rect) {
             Ok(v) => v,
@@ -1416,8 +1419,8 @@ impl Bitmap32<'_> {
                 stride,
                 slice: UnsafeCell::new(&mut slice[offset..offset + new_len]),
             };
-            let bitmap = Bitmap::from(&mut view);
-            f(bitmap)
+            let mut bitmap = Bitmap::from(&mut view);
+            f(&mut bitmap)
         };
         Some(r)
     }
@@ -1642,7 +1645,7 @@ impl Bitmap<'_> {
     #[inline]
     pub fn view<F, R>(&mut self, rect: Rect, f: F) -> Option<R>
     where
-        F: FnOnce(Bitmap) -> R,
+        F: FnOnce(&mut Bitmap) -> R,
     {
         match self {
             Self::Indexed(ref mut v) => v.view(rect, f),
