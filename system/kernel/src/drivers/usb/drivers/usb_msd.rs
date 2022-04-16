@@ -20,8 +20,9 @@ impl UsbInterfaceDriverStarter for UsbMsdStarter {
         &self,
         device: &Arc<UsbDeviceControl>,
         if_no: UsbInterfaceNumber,
+        class: UsbClass,
     ) -> Pin<Box<dyn Future<Output = Result<Task, UsbError>>>> {
-        Box::pin(UsbMsdDriver::_instantiate(device.clone(), if_no))
+        Box::pin(UsbMsdDriver::_instantiate(device.clone(), if_no, class))
     }
 }
 
@@ -33,7 +34,11 @@ impl UsbMsdDriver {
     async fn _instantiate(
         device: Arc<UsbDeviceControl>,
         if_no: UsbInterfaceNumber,
+        class: UsbClass,
     ) -> Result<Task, UsbError> {
+        if class != UsbClass::MSD_BULK_ONLY {
+            return Err(UsbError::Unsupported);
+        }
         let interface = match device
             .device()
             .current_configuration()
@@ -42,12 +47,9 @@ impl UsbMsdDriver {
             Some(v) => v,
             None => return Err(UsbError::InvalidParameter),
         };
-        if interface.class() != UsbClass::MSD_BULK_ONLY {
-            return Err(UsbError::Unsupported);
-        }
         let endpoint = match interface.endpoints().first() {
             Some(v) => v,
-            None => todo!(),
+            None => return Err(UsbError::InvalidDescriptor),
         };
         let ep = endpoint.address();
         let ps = endpoint.descriptor().max_packet_size();

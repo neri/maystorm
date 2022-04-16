@@ -12,6 +12,7 @@ use core::{
     num::NonZeroU8,
     ops::Deref,
     pin::Pin,
+    ptr::null_mut,
     slice,
     sync::atomic::*,
     time::Duration,
@@ -46,10 +47,11 @@ pub trait UsbHostInterface {
     ) -> Pin<Box<dyn Future<Output = Result<UsbAddress, UsbError>>>>;
 
     /// Performs a control transfer
-    unsafe fn control(
+    unsafe fn control_recv(
         self: Arc<Self>,
         setup: UsbControlSetupData,
-    ) -> Pin<Box<dyn Future<Output = Result<(*const u8, usize), UsbError>>>>;
+        data: *mut u8,
+    ) -> Pin<Box<dyn Future<Output = Result<usize, UsbError>>>>;
 
     unsafe fn control_send(
         self: Arc<Self>,
@@ -81,6 +83,7 @@ pub trait UsbInterfaceDriverStarter {
         &self,
         device: &Arc<UsbDeviceControl>,
         if_no: UsbInterfaceNumber,
+        class: UsbClass,
     ) -> Pin<Box<dyn Future<Output = Result<Task, UsbError>>>>;
 }
 
@@ -167,7 +170,10 @@ impl UsbManager {
                 if !is_configured {
                     for interface in device.device().current_configuration().interfaces() {
                         for driver in shared.interface_driver_starters.read().unwrap().iter() {
-                            match driver.instantiate(&device, interface.if_no()).await {
+                            match driver
+                                .instantiate(&device, interface.if_no(), interface.class())
+                                .await
+                            {
                                 Ok(task) => {
                                     tasks.push(task);
                                     is_configured = true;
@@ -439,7 +445,7 @@ impl UsbDeviceControl {
                 Err(err) => return Err(err),
             };
 
-        let mut config = Vec::new();
+        let mut config = Vec::with_capacity(prot_config_desc.total_length());
         match Self::_control_var(
             &host,
             UsbControlSetupData::request(
@@ -846,7 +852,9 @@ impl UsbDeviceControl {
         if setup.wLength > 0 {
             return Err(UsbError::InvalidParameter);
         }
-        unsafe { host.clone().control(setup) }.await.map(|_| ())
+        unsafe { host.clone().control_recv(setup, null_mut()) }
+            .await
+            .map(|_| ())
     }
 
     async fn _control_var(
@@ -856,14 +864,12 @@ impl UsbDeviceControl {
         min_len: usize,
         max_len: usize,
     ) -> Result<(), UsbError> {
-        vec.resize(0, 0);
+        vec.resize(max_len, 0);
         setup.wLength = max_len as u16;
-        unsafe { host.clone().control(setup) }
+        unsafe { host.clone().control_recv(setup, vec.as_mut_ptr()) }
             .await
-            .and_then(|(ptr, len)| {
+            .and_then(|len| {
                 if len >= min_len {
-                    let p = unsafe { core::slice::from_raw_parts(ptr, len) };
-                    vec.extend_from_slice(p);
                     Ok(())
                 } else {
                     Err(UsbError::ShortPacket)
@@ -877,14 +883,10 @@ impl UsbDeviceControl {
         data: &mut [u8],
     ) -> Result<(), UsbError> {
         setup.wLength = data.len() as u16;
-        unsafe { host.clone().control(setup) }
+        unsafe { host.clone().control_recv(setup, data.as_mut_ptr()) }
             .await
-            .and_then(|(ptr, len)| {
+            .and_then(|len| {
                 if len == data.len() {
-                    unsafe {
-                        let p = data.get_unchecked_mut(0) as *mut u8;
-                        p.copy_from(ptr, len);
-                    }
                     Ok(())
                 } else {
                     Err(UsbError::ShortPacket)
@@ -921,22 +923,19 @@ impl UsbDeviceControl {
         let mut result = MaybeUninit::<T>::zeroed();
         match unsafe {
             host.clone()
-                .control(
+                .control_recv(
                     UsbControlSetupData::request(request_type, UsbControlRequest::GET_DESCRIPTOR)
                         .value((desc_type as u16) << 8 | index as u16)
                         .length(size_of_t as u16),
+                    result.as_mut_ptr() as *mut u8,
                 )
                 .await
         } {
-            Ok((ptr, len)) => {
-                if len < size_of_t {
+            Ok(len) => {
+                if len != size_of_t {
                     return Err(UsbError::InvalidDescriptor);
                 }
-                let result = unsafe {
-                    let p = result.as_mut_ptr();
-                    p.copy_from(ptr as *const T, 1);
-                    result.assume_init()
-                };
+                let result = unsafe { result.assume_init() };
                 if result.descriptor_type() == desc_type {
                     Ok(result)
                 } else {

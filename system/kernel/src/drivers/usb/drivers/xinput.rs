@@ -25,8 +25,9 @@ impl UsbInterfaceDriverStarter for XInputStarter {
         &self,
         device: &Arc<UsbDeviceControl>,
         if_no: UsbInterfaceNumber,
+        class: UsbClass,
     ) -> Pin<Box<dyn Future<Output = Result<Task, UsbError>>>> {
-        Box::pin(XInputDriver::_instantiate(device.clone(), if_no))
+        Box::pin(XInputDriver::_instantiate(device.clone(), if_no, class))
     }
 }
 
@@ -36,7 +37,11 @@ impl XInputDriver {
     async fn _instantiate(
         device: Arc<UsbDeviceControl>,
         if_no: UsbInterfaceNumber,
+        class: UsbClass,
     ) -> Result<Task, UsbError> {
+        if class != UsbClass::XINPUT {
+            return Err(UsbError::Unsupported);
+        }
         let interface = match device
             .device()
             .current_configuration()
@@ -45,11 +50,10 @@ impl XInputDriver {
             Some(v) => v,
             None => return Err(UsbError::InvalidParameter),
         };
-        let class = interface.class();
-        if class != UsbClass::XINPUT {
-            return Err(UsbError::Unsupported);
-        }
-        let endpoint = interface.endpoints().first().unwrap();
+        let endpoint = match interface.endpoints().first() {
+            Some(v) => v,
+            None => return Err(UsbError::InvalidDescriptor),
+        };
         let ep = endpoint.address();
         let ps = endpoint.descriptor().max_packet_size();
 

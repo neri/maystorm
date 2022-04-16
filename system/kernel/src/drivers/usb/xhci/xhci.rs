@@ -527,21 +527,21 @@ impl Xhci {
         self: Arc<Self>,
         device: &HciDeviceContext,
         setup: UsbControlSetupData,
+        transfer_mode: TransferDirection<u8>,
     ) -> Result<usize, UsbError> {
         let slot_id = Some(device.slot_id);
         let dci = Some(DCI::CONTROL);
         let ctx = match self.ep_ring_index(slot_id, dci) {
             Some(index) => {
                 let ctx = &mut self.ring_context.write().unwrap()[index];
-                &mut *ctx.as_mut_ptr()
+                (&mut *ctx.as_mut_ptr()).scoped().await
             }
             None => todo!(),
         };
-        let ctx = ctx.scoped().await;
         ctx.set_scheduled();
 
-        let buffer = device.buffer;
-        let trt = if setup.wLength > 0 {
+        let len = setup.wLength as usize;
+        let trt = if len > 0 {
             if setup.bmRequestType.is_device_to_host() {
                 TrbTranfserType::ControlIn
             } else {
@@ -552,11 +552,16 @@ impl Xhci {
         };
         let dir = trt == TrbTranfserType::ControlIn;
 
+        let buffer = ctx.buffer();
+        if let TransferDirection::Write(p) = transfer_mode {
+            buffer.direct_map::<u8>().copy_from_nonoverlapping(p, len);
+        }
+
         let setup_trb = TrbSetupStage::new(trt, setup);
         self.issue_trb(None, &setup_trb, slot_id, dci);
 
-        if setup.wLength > 0 {
-            let data_trb = TrbDataStage::new(buffer, setup.wLength as usize, dir, false);
+        if len > 0 {
+            let data_trb = TrbDataStage::new(*buffer, len, dir, false);
             self.issue_trb(None, &data_trb, slot_id, dci);
         }
 
@@ -572,22 +577,24 @@ impl Xhci {
             Some(TrbEvent::Transfer(v)) => Some(v.copied()),
             _ => None,
         };
-        let state = ctx.state();
-        drop(ctx);
-        match state {
+        match ctx.state() {
             RequestState::Available | RequestState::Acquired | RequestState::Scheduled => {
                 unreachable!()
             }
             RequestState::Completed => match result {
                 Some(result) => match result.completion_code() {
                     Some(TrbCompletionCode::SUCCESS) => {
-                        Ok(setup.wLength as usize - result.transfer_length())
+                        let size = len - result.transfer_length();
+                        if let TransferDirection::Read(p) = transfer_mode {
+                            p.copy_from_nonoverlapping(buffer.direct_map(), size);
+                        }
+                        Ok(size)
                     }
                     Some(TrbCompletionCode::STALL) => {
                         let _ = self.reset_endpoint(slot_id.unwrap(), dci.unwrap());
                         Err(UsbError::General)
                     }
-                    Some(_err) => Err(UsbError::General),
+                    Some(err) => Err(UsbError::ControllerError(err as usize)),
                     None => Err(UsbError::General),
                 },
                 None => Err(UsbError::General),
@@ -596,36 +603,30 @@ impl Xhci {
         }
     }
 
-    pub async unsafe fn control_async2(
-        self: Arc<Self>,
-        device: &HciDeviceContext,
-        setup: UsbControlSetupData,
-    ) -> Result<(*const u8, usize), UsbError> {
-        self.control_async(device, setup)
-            .await
-            .map(|len| (device.buffer.direct_map() as *const u8, len))
-    }
-
     pub async unsafe fn transfer_async(
         self: Arc<Self>,
         device: &HciDeviceContext,
         dci: DCI,
+        transfer_mode: TransferDirection<u8>,
         len: usize,
     ) -> Result<usize, UsbError> {
         let slot_id = Some(device.slot_id);
         let dci = Some(dci);
-        let buffer = device.buffer;
-
-        let trb = TrbNormal::new(buffer, len, true, true);
-
         let ctx = match self.ep_ring_index(slot_id, dci) {
             Some(index) => {
                 let ctx = &mut self.ring_context.write().unwrap()[index];
-                &mut *ctx.as_mut_ptr()
+                (&mut *ctx.as_mut_ptr()).scoped().await
             }
             None => todo!(),
         };
         ctx.set_scheduled();
+
+        let buffer = ctx.buffer();
+        if let TransferDirection::Write(p) = transfer_mode {
+            buffer.direct_map::<u8>().copy_from_nonoverlapping(p, len);
+        }
+
+        let trb = TrbNormal::new(*buffer, len, true, true);
 
         self.issue_trb(None, &trb, slot_id, dci);
 
@@ -645,30 +646,19 @@ impl Xhci {
             RequestState::Completed => match result {
                 Some(result) => match result.completion_code() {
                     Some(TrbCompletionCode::SUCCESS) | Some(TrbCompletionCode::SHORT_PACKET) => {
-                        Ok(len - result.transfer_length())
+                        let size = len - result.transfer_length();
+                        if let TransferDirection::Read(p) = transfer_mode {
+                            p.copy_from_nonoverlapping(buffer.direct_map(), size);
+                        }
+                        Ok(size)
                     }
-                    Some(_err) => Err(UsbError::ControllerError(_err as usize)),
+                    Some(err) => Err(UsbError::ControllerError(err as usize)),
                     None => Err(UsbError::General),
                 },
                 None => Err(UsbError::UnexpectedToken),
             },
             RequestState::Aborted => Err(UsbError::Aborted),
         }
-    }
-
-    pub async unsafe fn read_async(
-        self: Arc<Self>,
-        device: &HciDeviceContext,
-        dci: DCI,
-        len: usize,
-        xfer_buffer: *mut u8,
-    ) -> Result<usize, UsbError> {
-        self.transfer_async(device, dci, len).await.map(|len| {
-            let p = device.buffer.direct_map();
-            let q = xfer_buffer;
-            q.copy_from(p, len);
-            len
-        })
     }
 
     #[inline]
@@ -872,9 +862,6 @@ impl Xhci {
             }
         }
 
-        let buffer = unsafe { MemoryManager::alloc_pages(MemoryManager::PAGE_SIZE_MIN) }
-            .unwrap()
-            .get();
         let device = HciDeviceContext {
             root_port_id: device.root_port_id,
             port_id: PortId(port_id.0),
@@ -882,7 +869,6 @@ impl Xhci {
             parent_slot_id: Some(device.slot_id),
             route_string: new_route,
             psiv: speed,
-            buffer,
         };
         let ctx = Arc::new(HciContext::new(Arc::downgrade(&self), device));
         let addr = UsbAddress(slot_id.0);
@@ -938,9 +924,6 @@ impl Xhci {
             }
         }
 
-        let buffer = unsafe { MemoryManager::alloc_pages(MemoryManager::PAGE_SIZE_MIN) }
-            .unwrap()
-            .get();
         let device = HciDeviceContext {
             root_port_id: port_id,
             port_id,
@@ -948,7 +931,6 @@ impl Xhci {
             parent_slot_id: None,
             route_string: UsbRouteString::EMPTY,
             psiv,
-            buffer,
         };
         let ctx = Arc::new(HciContext::new(Arc::downgrade(&self), device));
         let addr = UsbAddress(slot_id.0);
@@ -1377,6 +1359,7 @@ pub struct EpRingContext {
     sem_scope: MaybeUninit<Pin<Arc<AsyncSemaphore>>>,
     signal: MaybeUninit<Pin<Arc<AsyncSemaphore>>>,
     last_setup: Trb,
+    buffer: PhysicalAddress,
 }
 
 impl EpRingContext {
@@ -1449,6 +1432,11 @@ impl EpRingContext {
     }
 
     #[inline]
+    pub fn buffer(&self) -> &PhysicalAddress {
+        &self.buffer
+    }
+
+    #[inline]
     pub fn semaphore(&self) -> &Pin<Arc<AsyncSemaphore>> {
         unsafe { self.signal.assume_init_ref() }
     }
@@ -1486,10 +1474,13 @@ impl EpRingContext {
         self.response = Trb::empty();
         self.sem_scope.write(AsyncSemaphore::new(1));
         self.signal.write(AsyncSemaphore::new(0));
+        self.buffer = MemoryManager::alloc_pages(MemoryManager::PAGE_SIZE_MIN)
+            .unwrap()
+            .get();
     }
 
     #[inline]
-    pub fn set_response<T: TrbBase>(&mut self, response: &T) -> Option<()> {
+    pub fn set_response<T: TrbBase>(&self, response: &T) -> Option<()> {
         match self.compare_exchange_state(RequestState::Scheduled, RequestState::Completed) {
             Ok(_) => {
                 self.response.raw_copy(response);
@@ -1498,10 +1489,7 @@ impl EpRingContext {
                 }
                 Some(())
             }
-            Err(state) => match state {
-                // RequestState::Completed => Some(()),
-                _ => None,
-            },
+            Err(_state) => None,
         }
     }
 
@@ -1731,7 +1719,6 @@ pub struct HciDeviceContext {
     parent_slot_id: Option<SlotId>,
     route_string: UsbRouteString,
     psiv: PSIV,
-    buffer: PhysicalAddress,
 }
 
 impl HciContext {
@@ -1860,17 +1847,21 @@ impl UsbHostInterface for HciContext {
         }
     }
 
-    unsafe fn control(
+    unsafe fn control_recv(
         self: Arc<Self>,
         setup: UsbControlSetupData,
-    ) -> Pin<Box<dyn Future<Output = Result<(*const u8, usize), UsbError>>>> {
+        data: *mut u8,
+    ) -> Pin<Box<dyn Future<Output = Result<usize, UsbError>>>> {
         let host = match self.host.upgrade() {
             Some(ref v) => v.clone(),
             None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
         };
         let device = self.device();
 
-        Box::pin(host.clone().control_async2(device, setup))
+        Box::pin(
+            host.clone()
+                .control_async(device, setup, TransferDirection::Read(data)),
+        )
     }
 
     unsafe fn control_send(
@@ -1888,10 +1879,10 @@ impl UsbHostInterface for HciContext {
         }
         let device = self.device();
 
-        let p = device.buffer.direct_map::<u8>();
-        p.copy_from(data, len);
-
-        Box::pin(host.clone().control_async(device, setup))
+        Box::pin(
+            host.clone()
+                .control_async(device, setup, TransferDirection::Write(data)),
+        )
     }
 
     unsafe fn read(
@@ -1905,15 +1896,11 @@ impl UsbHostInterface for HciContext {
             None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
         };
         let dci = DCI::from(ep);
-        if !dci.can_read() {
+        if len == 0 || !dci.can_read() {
             return Box::pin(AsyncUsbError::new(UsbError::InvalidParameter));
         }
-        let device = self.device();
 
-        let p = device.buffer.direct_map::<u8>();
-        p.write_bytes(0, len);
-
-        Box::pin(host.read_async(device, dci, len, buffer))
+        Box::pin(host.transfer_async(self.device(), dci, TransferDirection::Read(buffer), len))
     }
 
     unsafe fn write(
@@ -1927,15 +1914,11 @@ impl UsbHostInterface for HciContext {
             None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
         };
         let dci = DCI::from(ep);
-        if !dci.can_write() {
+        if len == 0 || !dci.can_write() {
             return Box::pin(AsyncUsbError::new(UsbError::InvalidParameter));
         }
-        let device = self.device();
 
-        let p = device.buffer.direct_map::<u8>();
-        p.copy_from(buffer, len);
-
-        Box::pin(host.transfer_async(device, dci, len))
+        Box::pin(host.transfer_async(self.device(), dci, TransferDirection::Write(buffer), len))
     }
 }
 
@@ -1963,4 +1946,10 @@ impl<T> Future for AsyncUsbError<T> {
     ) -> core::task::Poll<Self::Output> {
         Poll::Ready(Err(self.error))
     }
+}
+
+#[derive(Clone, Copy)]
+pub enum TransferDirection<T> {
+    Read(*mut T),
+    Write(*const T),
 }

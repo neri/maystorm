@@ -1021,7 +1021,8 @@ impl UsbRouteString {
 
 #[repr(C)]
 #[allow(non_snake_case)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy)]
+//, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UsbControlSetupData {
     pub bmRequestType: UsbControlRequestBitmap,
     pub bRequest: UsbControlRequest,

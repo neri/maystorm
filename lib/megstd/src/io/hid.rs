@@ -382,7 +382,7 @@ impl Usage {
     pub const MOD_MAX: Self = Self(0xE7);
 
     #[inline]
-    pub const fn full_usage(&self) -> HidUsage {
+    pub const fn full_qualified_usage(&self) -> HidUsage {
         HidUsage::new(UsagePage::KEYBOARD, self.0 as u16)
     }
 }
@@ -744,7 +744,7 @@ pub enum HidReportCollectionType {
     UsageModifier,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum HidReportAmbiguousSignedValue {
     Zero,
     U8(u8),
@@ -754,7 +754,7 @@ pub enum HidReportAmbiguousSignedValue {
 
 impl HidReportAmbiguousSignedValue {
     #[inline]
-    pub const fn usize(&self) -> usize {
+    pub const fn as_usize(&self) -> usize {
         match *self {
             Self::Zero => 0,
             Self::U8(v) => v as usize,
@@ -764,7 +764,7 @@ impl HidReportAmbiguousSignedValue {
     }
 
     #[inline]
-    pub const fn isize(&self) -> isize {
+    pub const fn as_isize(&self) -> isize {
         match *self {
             Self::Zero => 0,
             Self::U8(v) => v as i8 as isize,
@@ -792,6 +792,73 @@ impl From<u32> for HidReportAmbiguousSignedValue {
     #[inline]
     fn from(val: u32) -> Self {
         Self::U32(val)
+    }
+}
+
+impl From<HidReportAmbiguousSignedValue> for usize {
+    #[inline]
+    fn from(val: HidReportAmbiguousSignedValue) -> Self {
+        val.as_usize()
+    }
+}
+
+impl From<HidReportAmbiguousSignedValue> for isize {
+    #[inline]
+    fn from(val: HidReportAmbiguousSignedValue) -> Self {
+        val.as_isize()
+    }
+}
+
+impl From<HidReportAmbiguousSignedValue> for u8 {
+    #[inline]
+    fn from(val: HidReportAmbiguousSignedValue) -> Self {
+        val.as_usize() as u8
+    }
+}
+
+impl From<HidReportAmbiguousSignedValue> for u16 {
+    #[inline]
+    fn from(val: HidReportAmbiguousSignedValue) -> Self {
+        val.as_usize() as u16
+    }
+}
+
+impl From<HidReportAmbiguousSignedValue> for u32 {
+    #[inline]
+    fn from(val: HidReportAmbiguousSignedValue) -> Self {
+        val.as_usize() as u32
+    }
+}
+
+impl From<HidReportAmbiguousSignedValue> for i8 {
+    #[inline]
+    fn from(val: HidReportAmbiguousSignedValue) -> Self {
+        val.as_isize() as i8
+    }
+}
+
+impl From<HidReportAmbiguousSignedValue> for i16 {
+    #[inline]
+    fn from(val: HidReportAmbiguousSignedValue) -> Self {
+        val.as_isize() as i16
+    }
+}
+
+impl From<HidReportAmbiguousSignedValue> for i32 {
+    #[inline]
+    fn from(val: HidReportAmbiguousSignedValue) -> Self {
+        val.as_isize() as i32
+    }
+}
+
+impl core::fmt::Debug for HidReportAmbiguousSignedValue {
+    fn fmt(&self, f: &mut _core::fmt::Formatter<'_>) -> _core::fmt::Result {
+        match self {
+            Self::Zero => write!(f, "Zero"),
+            Self::U8(arg0) => write!(f, "{:02x}", arg0),
+            Self::U16(arg0) => write!(f, "{:04x}", arg0),
+            Self::U32(arg0) => write!(f, "{:08x}", arg0),
+        }
     }
 }
 
