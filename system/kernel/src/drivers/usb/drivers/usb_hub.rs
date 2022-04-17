@@ -7,24 +7,23 @@ use crate::{
 };
 use alloc::sync::Arc;
 use bitflags::*;
-use core::{mem::transmute, num::NonZeroU8, time::Duration};
+use core::{mem::transmute, num::NonZeroU8, pin::Pin, time::Duration};
+use futures_util::Future;
 use num_traits::FromPrimitive;
 
 pub struct UsbHubStarter;
 
 impl UsbHubStarter {
     #[inline]
-    pub fn new() -> Arc<dyn UsbClassDriverStarter> {
-        Arc::new(Self {})
+    pub fn new() -> Box<dyn UsbClassDriverStarter> {
+        Box::new(Self {})
     }
-}
 
-impl UsbClassDriverStarter for UsbHubStarter {
-    fn instantiate(&self, device: &Arc<UsbDeviceControl>) -> bool {
+    async fn _instantiate(device: Arc<UsbDeviceControl>) -> Result<Task, UsbError> {
         let class = device.device().class();
         match class {
             UsbClass::HUB_FS | UsbClass::HUB_HS_MTT | UsbClass::HUB_HS_STT | UsbClass::HUB_SS => (),
-            _ => return false,
+            _ => return Err(UsbError::Unsupported),
         }
 
         let config = device.device().current_configuration();
@@ -37,7 +36,7 @@ impl UsbClassDriverStarter for UsbHubStarter {
         }
         let interface = match current_interface.or(config.interfaces().first()) {
             Some(v) => v,
-            None => return false,
+            None => return Err(UsbError::InvalidDescriptor),
         };
         let endpoint = match interface.endpoints().first() {
             Some(v) => v,
@@ -46,29 +45,30 @@ impl UsbClassDriverStarter for UsbHubStarter {
         let ep = endpoint.address();
         let ps = endpoint.descriptor().max_packet_size();
         if ps > 8 {
-            return false;
+            return Err(UsbError::InvalidDescriptor);
         }
         device.configure_endpoint(endpoint.descriptor()).unwrap();
 
         match class {
-            UsbClass::HUB_FS | UsbClass::HUB_HS_MTT | UsbClass::HUB_HS_STT => {
-                UsbManager::register_xfer_task(Task::new(Usb2HubDriver::_usb_hub_task(
-                    device.clone(),
-                    ep,
-                    ps,
-                )));
-            }
-            UsbClass::HUB_SS => {
-                UsbManager::register_xfer_task(Task::new(Usb3HubDriver::_usb_hub_task(
-                    device.clone(),
-                    ep,
-                    ps,
-                )));
-            }
-            _ => (),
+            UsbClass::HUB_FS | UsbClass::HUB_HS_MTT | UsbClass::HUB_HS_STT => Ok(Task::new(
+                Usb2HubDriver::_usb_hub_task(device.clone(), ep, ps),
+            )),
+            UsbClass::HUB_SS => Ok(Task::new(Usb3HubDriver::_usb_hub_task(
+                device.clone(),
+                ep,
+                ps,
+            ))),
+            _ => Err(UsbError::Unsupported),
         }
+    }
+}
 
-        true
+impl UsbClassDriverStarter for UsbHubStarter {
+    fn instantiate(
+        &self,
+        device: &Arc<UsbDeviceControl>,
+    ) -> Pin<Box<dyn Future<Output = Result<Task, UsbError>>>> {
+        Box::pin(Self::_instantiate(device.clone()))
     }
 }
 

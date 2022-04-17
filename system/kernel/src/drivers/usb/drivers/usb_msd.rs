@@ -10,8 +10,8 @@ pub struct UsbMsdStarter;
 
 impl UsbMsdStarter {
     #[inline]
-    pub fn new() -> Arc<dyn UsbInterfaceDriverStarter> {
-        Arc::new(Self {})
+    pub fn new() -> Box<dyn UsbInterfaceDriverStarter> {
+        Box::new(Self {})
     }
 }
 

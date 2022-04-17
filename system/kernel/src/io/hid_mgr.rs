@@ -1,17 +1,13 @@
 //! Human Interface Device Manager
 
-use crate::sync::atomic::AtomicBitflags;
-use crate::sync::RwLock;
-use crate::ui::window::*;
-use crate::*;
-use alloc::collections::BTreeMap;
-use alloc::sync::Arc;
+use crate::{sync::atomic::AtomicBitflags, sync::RwLock, ui::window::*, *};
+use alloc::{collections::BTreeMap, sync::Arc};
 use bitflags::*;
-use core::cell::UnsafeCell;
-use core::num::*;
-use core::sync::atomic::{AtomicUsize, Ordering};
-use megstd::drawing::*;
-use megstd::io::hid::*;
+use core::{
+    num::*,
+    sync::atomic::{AtomicUsize, Ordering},
+};
+use megstd::{drawing::*, io::hid::*};
 
 const INVALID_UNICHAR: char = '\u{FEFF}';
 
@@ -260,7 +256,7 @@ pub struct HidManager {
     current_game_inputs: RwLock<Option<GameInputHandle>>,
 }
 
-static mut HID_MANAGER: UnsafeCell<HidManager> = UnsafeCell::new(HidManager::new());
+static HID_MANAGER: HidManager = HidManager::new();
 
 impl HidManager {
     #[inline]
@@ -280,7 +276,7 @@ impl HidManager {
 
     #[inline]
     fn shared<'a>() -> &'a HidManager {
-        unsafe { &*HID_MANAGER.get() }
+        &HID_MANAGER
     }
 
     fn post_key_event(event: KeyEvent) {

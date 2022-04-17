@@ -75,7 +75,10 @@ pub trait UsbHostInterface {
 }
 
 pub trait UsbClassDriverStarter {
-    fn instantiate(&self, device: &Arc<UsbDeviceControl>) -> bool;
+    fn instantiate(
+        &self,
+        device: &Arc<UsbDeviceControl>,
+    ) -> Pin<Box<dyn Future<Output = Result<Task, UsbError>>>>;
 }
 
 pub trait UsbInterfaceDriverStarter {
@@ -91,9 +94,9 @@ static mut USB_MANAGER: MaybeUninit<UsbManager> = MaybeUninit::uninit();
 
 pub struct UsbManager {
     devices: RwLock<Vec<Arc<UsbDeviceControl>>>,
-    specific_driver_starters: RwLock<Vec<Arc<dyn UsbClassDriverStarter>>>,
-    class_driver_starters: RwLock<Vec<Arc<dyn UsbClassDriverStarter>>>,
-    interface_driver_starters: RwLock<Vec<Arc<dyn UsbInterfaceDriverStarter>>>,
+    specific_driver_starters: RwLock<Vec<Box<dyn UsbClassDriverStarter>>>,
+    class_driver_starters: RwLock<Vec<Box<dyn UsbClassDriverStarter>>>,
+    interface_driver_starters: RwLock<Vec<Box<dyn UsbInterfaceDriverStarter>>>,
     request_queue: AsyncEventQueue<Task>,
 }
 
@@ -154,16 +157,30 @@ impl UsbManager {
 
                 let mut is_configured = false;
                 for driver in shared.specific_driver_starters.read().unwrap().iter() {
-                    if driver.instantiate(&device) {
-                        is_configured = true;
-                        break;
+                    match driver.instantiate(&device).await {
+                        Ok(task) => {
+                            tasks.push(task);
+                            is_configured = true;
+                            break;
+                        }
+                        Err(UsbError::Unsupported) => (),
+                        Err(_) => {
+                            //
+                        }
                     }
                 }
                 if !is_configured {
                     for driver in shared.class_driver_starters.read().unwrap().iter() {
-                        if driver.instantiate(&device) {
-                            is_configured = true;
-                            break;
+                        match driver.instantiate(&device).await {
+                            Ok(task) => {
+                                tasks.push(task);
+                                is_configured = true;
+                                break;
+                            }
+                            Err(UsbError::Unsupported) => (),
+                            Err(_) => {
+                                //
+                            }
                         }
                     }
                 }
@@ -748,14 +765,10 @@ impl UsbDeviceControl {
         min_len: usize,
         max_len: usize,
     ) -> Result<usize, UsbError> {
-        let raw_buffer = match buffer.get(0) {
-            Some(v) => v as *const _ as *mut u8,
-            None => return Err(UsbError::InvalidParameter),
-        };
         if max_len > buffer.len() || min_len > max_len {
             return Err(UsbError::InvalidParameter);
         }
-        unsafe { self.host_clone().read(ep, raw_buffer, max_len) }
+        unsafe { self.host_clone().read(ep, buffer.as_mut_ptr(), max_len) }
             .await
             .and_then(|result| {
                 if result >= min_len {
@@ -787,12 +800,8 @@ impl UsbDeviceControl {
     }
 
     pub async fn write_slice(&self, ep: UsbEndpointAddress, buffer: &[u8]) -> Result<(), UsbError> {
-        let raw_buffer = match buffer.get(0) {
-            Some(v) => v as *const _ as *mut u8,
-            None => return Err(UsbError::InvalidParameter),
-        };
         let len = buffer.len();
-        unsafe { self.host_clone().write(ep, raw_buffer, len) }
+        unsafe { self.host_clone().write(ep, buffer.as_ptr(), len) }
             .await
             .and_then(|result| {
                 if result == len {
@@ -835,11 +844,7 @@ impl UsbDeviceControl {
             return Err(UsbError::InvalidParameter);
         }
         setup.wLength = max_len as u16;
-        let data = match data.get(0) {
-            Some(v) => v as *const _ as *const u8,
-            None => return Err(UsbError::InvalidParameter),
-        };
-        match unsafe { self.host_clone().control_send(setup, data) }.await {
+        match unsafe { self.host_clone().control_send(setup, data.as_ptr()) }.await {
             Ok(_v) => Ok(()),
             Err(err) => Err(err),
         }
@@ -870,6 +875,7 @@ impl UsbDeviceControl {
             .await
             .and_then(|len| {
                 if len >= min_len {
+                    vec.resize(len, 0);
                     Ok(())
                 } else {
                     Err(UsbError::ShortPacket)

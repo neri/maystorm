@@ -1,12 +1,17 @@
 //! USB Device Driver Modules
 
 use super::{UsbClassDriverStarter, UsbInterfaceDriverStarter};
-use alloc::{sync::Arc, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
+
+pub mod usb_hid;
+pub mod usb_hub;
+pub mod usb_msd;
+pub mod xinput;
 
 pub(super) fn install_drivers(
-    specific_drivers: &mut Vec<Arc<dyn UsbClassDriverStarter>>,
-    class_drivers: &mut Vec<Arc<dyn UsbClassDriverStarter>>,
-    interface_drivers: &mut Vec<Arc<dyn UsbInterfaceDriverStarter>>,
+    specific_drivers: &mut Vec<Box<dyn UsbClassDriverStarter>>,
+    class_drivers: &mut Vec<Box<dyn UsbClassDriverStarter>>,
+    interface_drivers: &mut Vec<Box<dyn UsbInterfaceDriverStarter>>,
 ) {
     // TODO: Device Specific Drivers
     let _ = specific_drivers;
@@ -27,8 +32,3 @@ pub(super) fn install_drivers(
     // FF_5D_01 Xinput
     interface_drivers.push(xinput::XInputStarter::new());
 }
-
-pub mod usb_hid;
-pub mod usb_hub;
-pub mod usb_msd;
-pub mod xinput;
