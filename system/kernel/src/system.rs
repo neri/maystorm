@@ -188,8 +188,8 @@ impl System {
     fn late_init(args: usize) {
         let shared = unsafe { Self::shared_mut() };
 
-        // banner
-        if true {
+        if false {
+            // banner
             let device = System::current_device();
             let bytes = device.total_memory_size();
             let gb = bytes >> 30;

@@ -25,8 +25,8 @@ use megstd::string::*;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
-const THRESHOLD_ENTER_SAVING: usize = 500;
-const THRESHOLD_LEAVE_SAVING: usize = 950;
+const THRESHOLD_ENTER_SAVING: usize = 5;
+const THRESHOLD_LEAVE_SAVING: usize = 50;
 const THRESHOLD_ENTER_FULL: usize = 950;
 const THRESHOLD_LEAVE_FULL: usize = 666;
 
@@ -132,7 +132,7 @@ impl Scheduler {
             }));
         }
         fence(Ordering::SeqCst);
-        SCHEDULER_STATE.store(SchedulerState::Minimal.into(), Ordering::SeqCst);
+        SCHEDULER_STATE.store(SchedulerState::Running.into(), Ordering::SeqCst);
 
         SpawnOption::with_priority(Priority::Realtime).start_process(
             Self::_scheduler_thread,
@@ -506,7 +506,7 @@ impl Scheduler {
         options: SpawnOption,
     ) -> Option<ThreadHandle> {
         let current_pid = Self::current_pid();
-        let pid = if options.raise_pid {
+        let pid = if options.new_process {
             let child = ProcessContextData::new(
                 current_pid,
                 options.priority.unwrap_or_default(),
@@ -612,7 +612,7 @@ impl Scheduler {
     }
 
     pub fn get_thread_statistics(sb: &mut StringBuffer) {
-        writeln!(sb, " ID PID P ST %CPU stack            NAME").unwrap();
+        writeln!(sb, " ID PID P ST %CPU TIME     stack            NAME").unwrap();
         for thread in ThreadPool::shared().data.lock().values() {
             let thread = thread.clone();
             let thread = unsafe { &mut (*thread.get()) };
@@ -642,6 +642,17 @@ impl Scheduler {
                 write!(sb, " {:4}", load1,).unwrap();
             } else {
                 write!(sb, " {:2}.{:1}", load1, load0,).unwrap();
+            }
+
+            let time = thread.cpu_time.load(Ordering::Relaxed) / 10_000;
+            let dsec = time % 100;
+            let sec = time / 100 % 60;
+            let min = time / 60_00 % 60;
+            let hour = time / 3600_00;
+            if hour > 0 {
+                write!(sb, " {:02}:{:02}:{:02}", hour, min, sec,).unwrap();
+            } else {
+                write!(sb, " {:02}:{:02}.{:02}", min, sec, dsec,).unwrap();
             }
 
             write!(sb, " {:016x}", cts.0).unwrap();
@@ -772,7 +783,7 @@ pub unsafe extern "C" fn sch_setup_new_thread() {
 /// Build an option to start a new thread or process.
 pub struct SpawnOption {
     priority: Option<Priority>,
-    raise_pid: bool,
+    new_process: bool,
     personality: Option<Box<dyn Personality>>,
 }
 
@@ -781,7 +792,7 @@ impl SpawnOption {
     pub const fn new() -> Self {
         Self {
             priority: None,
-            raise_pid: false,
+            new_process: false,
             personality: None,
         }
     }
@@ -790,7 +801,7 @@ impl SpawnOption {
     pub const fn with_priority(priority: Priority) -> Self {
         Self {
             priority: Some(priority),
-            raise_pid: false,
+            new_process: false,
             personality: None,
         }
     }
@@ -810,7 +821,7 @@ impl SpawnOption {
     /// Start the specified function in a new process.
     #[inline]
     pub fn start_process(mut self, start: fn(usize), args: usize, name: &str) -> Option<ProcessId> {
-        self.raise_pid = true;
+        self.new_process = true;
         Scheduler::spawn(start, args, name, self)
             .and_then(|v| v.get())
             .map(|v| v.pid)

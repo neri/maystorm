@@ -53,6 +53,7 @@ impl TerminalAgent {
 
 pub struct Terminal {
     window: WindowHandle,
+    alpha: u8,
     font: FontDescriptor,
     cols: usize,
     rows: usize,
@@ -66,10 +67,47 @@ pub struct Terminal {
 }
 
 impl Terminal {
+    pub fn with_window(
+        window: WindowHandle,
+        insets: Option<EdgeInsets>,
+        font: FontDescriptor,
+        alpha: u8,
+        attribute: u8,
+    ) -> Self {
+        let insets = insets.unwrap_or(DEFAULT_INSETS);
+        let attribute = if attribute > 0 {
+            attribute
+        } else {
+            DEFAULT_ATTRIBUTE
+        };
+        let alpha = if alpha > 0 { alpha } else { BG_ALPHA };
+        let (fg_color, bg_color) = Self::split_attr(attribute, alpha);
+
+        let rect = window.content_size().bounds().insets_by(insets);
+        let cols = (rect.width() / font.em_width()) as usize;
+        let rows = (rect.height() / font.line_height()) as usize;
+
+        Self {
+            window,
+            alpha,
+            font,
+            cols,
+            rows,
+            insets,
+            x: 0,
+            y: 0,
+            attribute,
+            fg_color,
+            bg_color,
+            is_cursor_enabled: true,
+        }
+    }
+
     pub fn new(cols: usize, rows: usize, font: FontDescriptor) -> Self {
         let insets = DEFAULT_INSETS;
         let attribute = DEFAULT_ATTRIBUTE;
-        let (fg_color, bg_color) = Self::split_attr(attribute);
+        let alpha = BG_ALPHA;
+        let (fg_color, bg_color) = Self::split_attr(attribute, alpha);
 
         let n_instances = TerminalAgent::next_instance();
         let screen_insets = WindowManager::screen_insets();
@@ -86,11 +124,11 @@ impl Terminal {
                 window_size.height,
             ))
             .bg_color(bg_color)
-            // .active_title_color(Color::LIGHT_BLUE)
             .build("Terminal");
 
         Self {
             window,
+            alpha,
             font,
             cols,
             rows,
@@ -104,10 +142,10 @@ impl Terminal {
         }
     }
 
-    fn split_attr(val: u8) -> (Color, Color) {
+    fn split_attr(val: u8, alpha: u8) -> (Color, Color) {
         (
             Color::Indexed(IndexedColor(val & 0x0F)),
-            Color::from(TrueColor::from(IndexedColor(val >> 4)).with_opacity(BG_ALPHA)),
+            Color::from(TrueColor::from(IndexedColor(val >> 4)).with_opacity(alpha)),
         )
     }
 
@@ -289,7 +327,7 @@ impl TtyWrite for Terminal {
             DEFAULT_ATTRIBUTE
         };
         self.attribute = attribute;
-        let (fg_color, bg_color) = Self::split_attr(attribute);
+        let (fg_color, bg_color) = Self::split_attr(attribute, self.alpha);
         self.fg_color = fg_color;
         self.bg_color = bg_color;
     }

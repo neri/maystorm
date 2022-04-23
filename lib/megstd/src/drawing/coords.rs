@@ -72,6 +72,7 @@ impl Point {
 
 impl Add<Self> for Point {
     type Output = Self;
+    #[inline]
     fn add(self, rhs: Self) -> Self {
         Point {
             x: self.x + rhs.x,
@@ -82,6 +83,7 @@ impl Add<Self> for Point {
 
 impl Add<Size> for Point {
     type Output = Self;
+    #[inline]
     fn add(self, rhs: Size) -> Self {
         Point {
             x: self.x + rhs.width,
@@ -92,6 +94,7 @@ impl Add<Size> for Point {
 
 impl Add<isize> for Point {
     type Output = Self;
+    #[inline]
     fn add(self, rhs: isize) -> Self {
         Point {
             x: self.x + rhs,
@@ -101,6 +104,7 @@ impl Add<isize> for Point {
 }
 
 impl AddAssign for Point {
+    #[inline]
     fn add_assign(&mut self, rhs: Self) {
         *self = Self {
             x: self.x + rhs.x,
@@ -111,6 +115,7 @@ impl AddAssign for Point {
 
 impl Sub<Self> for Point {
     type Output = Self;
+    #[inline]
     fn sub(self, rhs: Self) -> Self {
         Point {
             x: self.x - rhs.x,
@@ -121,6 +126,7 @@ impl Sub<Self> for Point {
 
 impl Sub<Size> for Point {
     type Output = Self;
+    #[inline]
     fn sub(self, rhs: Size) -> Self {
         Point {
             x: self.x - rhs.width,
@@ -131,6 +137,7 @@ impl Sub<Size> for Point {
 
 impl Sub<isize> for Point {
     type Output = Self;
+    #[inline]
     fn sub(self, rhs: isize) -> Self {
         Point {
             x: self.x - rhs,
@@ -140,6 +147,7 @@ impl Sub<isize> for Point {
 }
 
 impl SubAssign for Point {
+    #[inline]
     fn sub_assign(&mut self, rhs: Self) {
         *self = Self {
             x: self.x - rhs.x,
@@ -177,10 +185,16 @@ impl Size {
     pub const fn height(&self) -> isize {
         self.height
     }
+
+    #[inline]
+    pub const fn bounds(&self) -> Rect {
+        Rect::new(0, 0, self.width, self.height)
+    }
 }
 
 impl Add<Self> for Size {
     type Output = Self;
+    #[inline]
     fn add(self, rhs: Self) -> Self {
         Size {
             width: self.width + rhs.width,
@@ -191,6 +205,7 @@ impl Add<Self> for Size {
 
 impl Add<EdgeInsets> for Size {
     type Output = Self;
+    #[inline]
     fn add(self, rhs: EdgeInsets) -> Self {
         Size {
             width: self.width + rhs.left + rhs.right,
@@ -200,6 +215,7 @@ impl Add<EdgeInsets> for Size {
 }
 
 impl AddAssign<Self> for Size {
+    #[inline]
     fn add_assign(&mut self, rhs: Self) {
         *self = Self {
             width: self.width + rhs.width,
@@ -209,6 +225,7 @@ impl AddAssign<Self> for Size {
 }
 
 impl AddAssign<EdgeInsets> for Size {
+    #[inline]
     fn add_assign(&mut self, rhs: EdgeInsets) {
         *self = Self {
             width: self.width + rhs.left + rhs.right,
@@ -219,6 +236,7 @@ impl AddAssign<EdgeInsets> for Size {
 
 impl Sub<Self> for Size {
     type Output = Self;
+    #[inline]
     fn sub(self, rhs: Self) -> Self {
         Size {
             width: self.width - rhs.width,
@@ -229,6 +247,7 @@ impl Sub<Self> for Size {
 
 impl Sub<EdgeInsets> for Size {
     type Output = Self;
+    #[inline]
     fn sub(self, rhs: EdgeInsets) -> Self {
         Size {
             width: self.width - (rhs.left + rhs.left),
@@ -238,6 +257,7 @@ impl Sub<EdgeInsets> for Size {
 }
 
 impl SubAssign for Size {
+    #[inline]
     fn sub_assign(&mut self, rhs: Self) {
         *self = Self {
             width: self.width - rhs.width,
@@ -248,7 +268,7 @@ impl SubAssign for Size {
 
 impl Mul<isize> for Size {
     type Output = Self;
-
+    #[inline]
     fn mul(self, rhs: isize) -> Self::Output {
         Self {
             width: self.width * rhs,
@@ -259,7 +279,7 @@ impl Mul<isize> for Size {
 
 impl Mul<usize> for Size {
     type Output = Self;
-
+    #[inline]
     fn mul(self, rhs: usize) -> Self::Output {
         Self {
             width: self.width * rhs as isize,
@@ -269,6 +289,7 @@ impl Mul<usize> for Size {
 }
 
 impl MulAssign<isize> for Size {
+    #[inline]
     fn mul_assign(&mut self, rhs: isize) {
         *self = self.mul(rhs);
     }
@@ -276,7 +297,7 @@ impl MulAssign<isize> for Size {
 
 impl Div<isize> for Size {
     type Output = Self;
-
+    #[inline]
     fn div(self, rhs: isize) -> Self::Output {
         Self {
             width: self.width / rhs,
@@ -287,7 +308,7 @@ impl Div<isize> for Size {
 
 impl Div<usize> for Size {
     type Output = Self;
-
+    #[inline]
     fn div(self, rhs: usize) -> Self::Output {
         Self {
             width: self.width / rhs as isize,
@@ -473,16 +494,15 @@ impl Rect {
 }
 
 impl From<Size> for Rect {
+    #[inline]
     fn from(size: Size) -> Self {
-        Rect {
-            origin: Point::new(0, 0),
-            size,
-        }
+        size.bounds()
     }
 }
 
 impl Add<Point> for Rect {
     type Output = Self;
+    #[inline]
     fn add(self, rhs: Point) -> Self::Output {
         Self {
             origin: self.origin + rhs,
@@ -503,6 +523,7 @@ impl Sub<Point> for Rect {
 
 impl Add<Size> for Rect {
     type Output = Self;
+    #[inline]
     fn add(self, rhs: Size) -> Self::Output {
         Self {
             origin: self.origin,
@@ -513,6 +534,7 @@ impl Add<Size> for Rect {
 
 impl Sub<Size> for Rect {
     type Output = Self;
+    #[inline]
     fn sub(self, rhs: Size) -> Self::Output {
         Self {
             origin: self.origin,
@@ -523,6 +545,7 @@ impl Sub<Size> for Rect {
 
 impl Add<EdgeInsets> for Rect {
     type Output = Self;
+    #[inline]
     fn add(self, rhs: EdgeInsets) -> Self::Output {
         Rect {
             origin: Point {
@@ -539,6 +562,7 @@ impl Add<EdgeInsets> for Rect {
 
 impl Sub<EdgeInsets> for Rect {
     type Output = Self;
+    #[inline]
     fn sub(self, rhs: EdgeInsets) -> Self::Output {
         self.insets_by(rhs)
     }
@@ -546,6 +570,7 @@ impl Sub<EdgeInsets> for Rect {
 
 impl Mul<isize> for Rect {
     type Output = Self;
+    #[inline]
     fn mul(self, rhs: isize) -> Self::Output {
         Self::new(
             self.x() * rhs,
@@ -558,6 +583,7 @@ impl Mul<isize> for Rect {
 
 impl Mul<usize> for Rect {
     type Output = Self;
+    #[inline]
     fn mul(self, rhs: usize) -> Self::Output {
         Self::new(
             self.x() * rhs as isize,

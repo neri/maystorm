@@ -1,5 +1,6 @@
 use crate::{
     fs::*,
+    io::tty::*,
     log::{EventManager, SimpleMessagePayload},
     mem::*,
     res::icon::IconManager,
@@ -22,50 +23,51 @@ pub struct UserEnv;
 
 impl UserEnv {
     pub fn start(f: fn()) {
-        // f();
-        // SpawnOption::new().start_process(unsafe { core::mem::transmute(f) }, 0, "shell");
-        Scheduler::spawn_async(Task::new(logo_task(f)));
-        // WindowManager::set_pointer_visible(true);
+        Scheduler::spawn_async(Task::new(slpash_task(f)));
         Scheduler::perform_tasks();
     }
 }
 
-#[allow(dead_code)]
-async fn logo_task(f: fn()) {
-    let width = 320;
-    let height = 200;
+async fn slpash_task(f: fn()) {
+    if false {
+        let width = 320;
+        let height = 200;
 
-    let window = WindowBuilder::new()
-        .style(WindowStyle::SUSPENDED)
-        .bg_color(Color::Transparent)
-        .size(Size::new(width, height))
-        .build("");
+        let window = WindowBuilder::new()
+            .style(WindowStyle::SUSPENDED)
+            .bg_color(Color::Transparent)
+            .size(Size::new(width, height))
+            .build("");
 
-    window.draw(|bitmap| {
-        AttributedString::new()
-            .font(FontDescriptor::new(FontFamily::SansSerif, 96).unwrap())
-            .color(Color::LIGHT_GRAY)
-            .middle_center()
-            .text("Hello")
-            .draw_text(bitmap, bitmap.bounds(), 0);
-    });
-    window.show();
+        window.draw(|bitmap| {
+            AttributedString::new()
+                .font(FontDescriptor::new(FontFamily::SansSerif, 96).unwrap())
+                .color(Color::LIGHT_GRAY)
+                .middle_center()
+                .text("Hello")
+                .draw_text(bitmap, bitmap.bounds(), 0);
+        });
+        window.show();
 
-    window.create_timer(0, Duration::from_millis(2000));
+        window.create_timer(0, Duration::from_millis(2000));
 
-    while let Some(message) = window.await_message().await {
-        match message {
-            WindowMessage::Timer(_) => window.close(),
-            _ => window.handle_default_message(message),
+        while let Some(message) = window.await_message().await {
+            match message {
+                WindowMessage::Timer(_) => window.close(),
+                _ => window.handle_default_message(message),
+            }
         }
     }
 
-    WindowManager::set_desktop_color(Theme::shared().desktop_color());
-    if let Ok(mut file) = FileManager::open("wall.qoi") {
-        let mut vec = Vec::new();
-        file.read_to_end(&mut vec).unwrap();
-        if let Some(mut dib) = ImageLoader::from_qoi(vec.as_slice()) {
-            WindowManager::set_desktop_bitmap(&dib.into_bitmap());
+    if false {
+        if let Ok(mut file) = FileManager::open("wall.qoi") {
+            let mut vec = Vec::new();
+            file.read_to_end(&mut vec).unwrap();
+            if let Some(mut dib) = ImageLoader::from_qoi(vec.as_slice()) {
+                WindowManager::set_desktop_bitmap(&dib.into_bitmap());
+            }
+        } else {
+            WindowManager::set_desktop_color(Theme::shared().desktop_color());
         }
     }
 
@@ -81,9 +83,23 @@ async fn logo_task(f: fn()) {
 
 #[allow(dead_code)]
 async fn shell_launcher(f: fn()) {
-    {
+    if false {
         // Main Terminal
         let terminal = Terminal::new(80, 24, FontManager::monospace_font());
+        System::set_stdout(Box::new(terminal));
+    } else {
+        let screen_size = WindowManager::user_screen_bounds();
+        let font =
+            FontDescriptor::new(FontFamily::Monospace, 16).unwrap_or(FontManager::monospace_font());
+        let window = WindowBuilder::new()
+            .style(WindowStyle::NO_SHADOW)
+            .level(WindowLevel::DESKTOP_ITEMS)
+            .frame(screen_size)
+            .bg_color(TrueColor::from_gray(0, 0).into())
+            .build("Terminal");
+
+        let mut terminal = Terminal::with_window(window, None, font, u8::MAX, 0);
+        terminal.reset().unwrap();
         System::set_stdout(Box::new(terminal));
     }
     SpawnOption::new().start_process(unsafe { core::mem::transmute(f) }, 0, "shell");
@@ -100,82 +116,59 @@ async fn status_bar_main() {
 
     let screen_bounds = WindowManager::main_screen_bounds();
     let window = WindowBuilder::new()
-        .style(WindowStyle::NO_SHADOW | WindowStyle::FLOATING | WindowStyle::SUSPENDED)
+        .style(WindowStyle::NO_SHADOW | WindowStyle::FLOATING)
+        // .style(WindowStyle::FLOATING)
         .frame(Rect::new(0, 0, screen_bounds.width(), STATUS_BAR_HEIGHT))
         .bg_color(bg_color)
         .build("Status Bar");
     WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT, 0, 0, 0));
 
-    window
-        .draw_in_rect(
-            Rect::from(window.content_size()).insets_by(STATUS_BAR_PADDING),
-            |bitmap| {
-                let font = FontManager::title_font();
-                let ats = AttributedString::new()
-                    .font(font)
-                    .color(fg_color)
-                    .middle_left()
-                    .text(System::short_name());
-                let rect = Rect::new(INNER_PADDING.left, 0, 320, bitmap.height() as isize);
-                ats.draw_text(bitmap, rect, 1);
-            },
-        )
-        .unwrap();
-    window.show();
-
     let font = FontManager::monospace_font();
-    let mut sb = Sb255::new();
+    let mut sb0 = Sb255::new();
+    let mut sb1 = Sb255::new();
 
-    let interval = Duration::from_millis(500);
-    window.create_timer(0, interval);
+    window.create_timer(0, Duration::from_secs(0));
     while let Some(message) = window.await_message().await {
         match message {
             WindowMessage::Timer(_) => {
-                window.create_timer(0, interval);
-
-                sb.clear();
-
                 let time = System::system_time();
                 let tod = time.secs % 86400;
                 let min = tod / 60 % 60;
                 let hour = tod / 3600;
-                if true {
-                    let sec = tod % 60;
-                    if sec % 2 == 0 {
-                        write!(sb, "{:2} {:02} {:02}", hour, min, sec).unwrap();
-                    } else {
-                        write!(sb, "{:2}:{:02}:{:02}", hour, min, sec).unwrap();
-                    };
-                } else {
-                    write!(sb, "{:2}:{:02}", hour, min).unwrap();
+                sb0.clear();
+                write!(sb0, "{:2}:{:02}", hour, min).unwrap();
+
+                if sb0 != sb1 {
+                    let ats = AttributedString::new()
+                        .font(font)
+                        .color(fg_color)
+                        .middle_center()
+                        .text(sb0.as_str());
+
+                    let bounds = Rect::from(window.content_size())
+                        .insets_by(STATUS_BAR_PADDING)
+                        .insets_by(INNER_PADDING);
+                    let width = ats
+                        .bounding_size(Size::new(isize::MAX, isize::MAX), 1)
+                        .width;
+                    let rect = Rect::new(
+                        bounds.max_x() - width,
+                        bounds.min_y(),
+                        width,
+                        bounds.height(),
+                    );
+
+                    window
+                        .draw_in_rect(rect, |bitmap| {
+                            bitmap.fill_rect(bitmap.bounds(), bg_color);
+                            ats.draw_text(bitmap, bitmap.bounds(), 1);
+                        })
+                        .unwrap();
+
+                    window.set_needs_display();
+                    sb1 = sb0;
                 }
-
-                let ats = AttributedString::new()
-                    .font(font)
-                    .color(fg_color)
-                    .middle_center()
-                    .text(sb.as_str());
-
-                let bounds = Rect::from(window.content_size())
-                    .insets_by(STATUS_BAR_PADDING)
-                    .insets_by(INNER_PADDING);
-                let width = ats
-                    .bounding_size(Size::new(isize::MAX, isize::MAX), 1)
-                    .width;
-                let rect = Rect::new(
-                    bounds.max_x() - width,
-                    bounds.min_y(),
-                    width,
-                    bounds.height(),
-                );
-                window
-                    .draw_in_rect(rect, |bitmap| {
-                        bitmap.fill_rect(bitmap.bounds(), bg_color);
-                        ats.draw_text(bitmap, bitmap.bounds(), 1);
-                    })
-                    .unwrap();
-
-                window.set_needs_display();
+                window.create_timer(0, Duration::from_millis(500));
             }
             _ => window.handle_default_message(message),
         }
@@ -416,9 +409,12 @@ async fn _notification_task() {
     let margin_top = 8;
     let padding = 8;
     let radius = 8;
-    let bg_color = Color::from_argb(0xE0FFF9C4);
-    let fg_color = Color::BLACK;
-    let border_color = Color::from_rgb(0xCBC693);
+    let bg_color = Color::from_argb(0xC0000000);
+    //Color::from_argb(0xE0FFF9C4);
+    let fg_color = Color::WHITE;
+    //Color::BLACK;
+    let border_color = Color::DARK_GRAY;
+    //Color::from_rgb(0xCBC693);
     let window_width = 280;
     let window_height = 90;
     let screen_bounds = WindowManager::user_screen_bounds();
@@ -464,7 +460,7 @@ async fn _notification_task() {
                                 bitmap.fill_round_rect(rect, radius, bg_color);
                                 bitmap.draw_round_rect(rect, radius, border_color);
 
-                                if let Some(ref mut icon) = IconManager::bitmap(payload.icon()) {
+                                if let Some(ref icon) = IconManager::mask(payload.icon()) {
                                     let long_side =
                                         usize::max(icon.width(), icon.height()) as isize;
                                     let origin = Point::new(
@@ -474,12 +470,7 @@ async fn _notification_task() {
                                         rect.min_y()
                                             + isize::max(0, (rect.height() - long_side) / 2),
                                     );
-                                    bitmap.blt_transparent(
-                                        icon.into_bitmap().as_const(),
-                                        origin,
-                                        rect,
-                                        IndexedColor::DEFAULT_KEY,
-                                    );
+                                    icon.draw_to(bitmap, origin, rect, fg_color);
 
                                     insets.left += padding + long_side;
                                 }

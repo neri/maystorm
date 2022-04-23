@@ -4,6 +4,7 @@ use ::alloc::vec::Vec;
 use core::{fmt, slice, str};
 
 /// Small String Buffer
+#[derive(Clone, Copy, Eq, Ord)]
 pub struct Sb255([u8; 256]);
 
 impl Sb255 {
@@ -43,6 +44,20 @@ impl Sb255 {
     #[inline]
     pub unsafe fn as_str_unchecked(&self) -> &str {
         str::from_utf8_unchecked(self.as_slice())
+    }
+}
+
+impl PartialEq for Sb255 {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+impl PartialOrd for Sb255 {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        self.as_str().partial_cmp(other.as_str())
     }
 }
 

@@ -55,6 +55,9 @@ impl IconManager {
             r::Icons::ChevronLeft => ImageLoader::from_qoi_mask(include_bytes!(
                 "../../../../ext/material-design-icons/ic_chevron_left_black_24dp.qoi"
             )),
+            r::Icons::Usb => ImageLoader::from_qoi_mask(include_bytes!(
+                "../../../../ext/material-design-icons/ic_usb_black_24dp.qoi"
+            )),
             _ => None,
         }
     }
