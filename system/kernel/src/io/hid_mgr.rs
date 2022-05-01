@@ -286,7 +286,6 @@ impl HidManager {
             let bit_position = Modifier::from_bits_truncate(1 << (usage.0 - Usage::MOD_MIN.0));
             shared.key_modifier.set(bit_position, !event.is_break());
         }
-        // write!(System::em_console(), "[K{:02x}]", event.usage().0);
         let event = KeyEvent::new(usage, shared.key_modifier.value(), event.flags());
         WindowManager::post_key_event(event);
     }

@@ -7,9 +7,9 @@ mod wasm;
 pub use crate::wasm::*;
 
 pub mod intcode;
+pub mod intr;
 pub mod opcode;
 pub mod stack;
-pub mod wasmintr;
 
 #[cfg(test)]
 mod tests;

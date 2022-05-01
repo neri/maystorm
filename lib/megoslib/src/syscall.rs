@@ -63,8 +63,8 @@ pub fn os_new_window1(title: &str, width: usize, height: usize) -> usize {
 /// Create a new window.
 #[inline]
 #[rustfmt::skip]
-pub fn os_new_window2(title: &str, width: usize, height: usize, bg_color: usize, flag: usize) -> usize {
-    unsafe { svc6( Function::NewWindow, title.as_ptr() as usize, title.len(), width, height, bg_color, flag) }
+pub fn os_new_window2(title: &str, width: usize, height: usize, bg_color: usize, options: usize) -> usize {
+    unsafe { svc6( Function::NewWindow, title.as_ptr() as usize, title.len(), width, height, bg_color, options) }
 }
 
 /// Close a window.

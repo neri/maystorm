@@ -13,4 +13,6 @@ pub mod window {
     pub const OPAQUE_CONTENT: u32 = 1 << 2;
     /// Thin frame
     pub const THIN_FRAME: u32 = 1 << 3;
+    /// Full Screen
+    pub const FULLSCREEN: u32 = 1 << 4;
 }

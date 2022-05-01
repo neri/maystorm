@@ -36,18 +36,16 @@ impl Window {
 
     #[inline]
     pub fn begin_draw(&self) -> DrawingContext {
-        DrawingContext {
-            ctx: os_begin_draw(self.handle.0),
-        }
+        unsafe { DrawingContext::from_raw(os_begin_draw(self.handle.0)) }
     }
 
     #[inline]
     pub fn draw<F, R>(&self, f: F) -> R
     where
-        F: FnOnce(&DrawingContext) -> R,
+        F: FnOnce(&mut DrawingContext) -> R,
     {
-        let context = self.begin_draw();
-        f(&context)
+        let mut context = self.begin_draw();
+        f(&mut context)
     }
 
     #[inline]
@@ -70,12 +68,17 @@ pub struct DrawingContext {
 
 impl DrawingContext {
     #[inline]
-    pub const fn raw_context(&self) -> usize {
+    pub const unsafe fn from_raw(ctx: usize) -> Self {
+        Self { ctx }
+    }
+
+    #[inline]
+    pub const unsafe fn raw_context(&self) -> usize {
         self.ctx
     }
 
     #[inline]
-    pub fn draw_string(&self, s: &str, origin: Point, color: WindowColor) {
+    pub fn draw_string(&mut self, s: &str, origin: Point, color: WindowColor) {
         os_win_draw_string(
             self.ctx,
             origin.x as usize,
@@ -86,7 +89,7 @@ impl DrawingContext {
     }
 
     #[inline]
-    pub fn draw_line(&self, c1: Point, c2: Point, color: WindowColor) {
+    pub fn draw_line(&mut self, c1: Point, c2: Point, color: WindowColor) {
         os_win_draw_line(
             self.ctx,
             c1.x as usize,
@@ -98,7 +101,7 @@ impl DrawingContext {
     }
 
     #[inline]
-    pub fn fill_rect(&self, rect: Rect, color: WindowColor) {
+    pub fn fill_rect(&mut self, rect: Rect, color: WindowColor) {
         os_win_fill_rect(
             self.ctx,
             rect.x() as usize,
@@ -111,7 +114,7 @@ impl DrawingContext {
 
     #[inline]
     pub fn draw_shape(
-        &self,
+        &mut self,
         rect: Rect,
         radius: isize,
         bg_color: WindowColor,
@@ -133,7 +136,7 @@ impl DrawingContext {
     }
 
     #[inline]
-    pub fn blt8<'a, T: AsRef<ConstBitmap8<'a>>>(&self, bitmap: &T, origin: Point) {
+    pub fn blt8<'a, T: AsRef<ConstBitmap8<'a>>>(&mut self, bitmap: &T, origin: Point) {
         os_blt8(
             self.ctx,
             origin.x as usize,
@@ -143,7 +146,7 @@ impl DrawingContext {
     }
 
     #[inline]
-    pub fn blt32<'a, T: AsRef<ConstBitmap32<'a>>>(&self, bitmap: &T, origin: Point) {
+    pub fn blt32<'a, T: AsRef<ConstBitmap32<'a>>>(&mut self, bitmap: &T, origin: Point) {
         os_blt32(
             self.ctx,
             origin.x as usize,
@@ -163,7 +166,7 @@ impl Drop for DrawingContext {
 pub struct WindowBuilder {
     size: Size,
     bg_color: WindowColor,
-    flag: u32,
+    options: u32,
 }
 
 impl WindowBuilder {
@@ -172,7 +175,7 @@ impl WindowBuilder {
         Self {
             size: Size::new(300, 400),
             bg_color: WindowColor::WHITE,
-            flag: 0,
+            options: 0,
         }
     }
 
@@ -184,7 +187,7 @@ impl WindowBuilder {
             self.size.width() as usize,
             self.size.height() as usize,
             self.bg_color.0 as usize,
-            self.flag as usize,
+            self.options as usize,
         ));
         Window { handle }
     }
@@ -206,28 +209,34 @@ impl WindowBuilder {
     /// Sets the window's content bitmap to ARGB32 format.
     #[inline]
     pub const fn bitmap_argb32(mut self) -> Self {
-        self.flag |= megosabi::window::USE_BITMAP32;
+        self.options |= megosabi::window::USE_BITMAP32;
         self
     }
 
     /// Makes the border of the window a thin border.
     #[inline]
     pub const fn thin_frame(mut self) -> Self {
-        self.flag |= megosabi::window::THIN_FRAME;
+        self.options |= megosabi::window::THIN_FRAME;
         self
     }
 
     /// Content is opaque
     #[inline]
     pub const fn opaque(mut self) -> Self {
-        self.flag |= megosabi::window::OPAQUE_CONTENT;
+        self.options |= megosabi::window::OPAQUE_CONTENT;
+        self
+    }
+
+    #[inline]
+    pub const fn fullscreen(mut self) -> Self {
+        self.options |= megosabi::window::FULLSCREEN;
         self
     }
 
     /// Set window options
     #[inline]
     pub const fn with_options(mut self, options: u32) -> Self {
-        self.flag = options;
+        self.options = options;
         self
     }
 }

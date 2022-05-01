@@ -13,6 +13,9 @@ pub struct HrbRecognizer {
 
 impl HrbRecognizer {
     pub fn new() -> Box<Self> {
+        unsafe {
+            HoeManager::init();
+        }
         Box::new(Self { _phantom: () })
     }
 }

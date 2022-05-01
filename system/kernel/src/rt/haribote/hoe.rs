@@ -10,11 +10,58 @@ use crate::{
 };
 use alloc::{boxed::Box, sync::Arc};
 use core::{alloc::Layout, ptr::*, slice, str, time::Duration};
-use megstd::{drawing::*, io::Read};
+use megstd::{
+    drawing::*,
+    io::{hid::Usage, Read},
+};
 
 #[allow(dead_code)]
 mod fonts {
     include!("hankaku.rs");
+}
+
+static mut HOE_MANAGER: UnsafeCell<HoeManager> = UnsafeCell::new(HoeManager::new());
+
+pub(super) struct HoeManager {
+    japanese_font: Vec<u8>,
+    default_lang_mode: HoeLangMode,
+}
+
+impl HoeManager {
+    #[inline]
+    pub const fn new() -> Self {
+        Self {
+            japanese_font: Vec::new(),
+            default_lang_mode: HoeLangMode::Ascii,
+        }
+    }
+
+    #[inline]
+    pub fn shared<'a>() -> &'a Self {
+        unsafe { &*HOE_MANAGER.get() }
+    }
+
+    #[inline]
+    fn default_lang_mode() -> HoeLangMode {
+        Self::shared().default_lang_mode
+    }
+
+    #[inline]
+    fn japanese_font<'a>() -> &'a [u8] {
+        Self::shared().japanese_font.as_slice()
+    }
+
+    pub(super) unsafe fn init() {
+        let mut shared = &mut *HOE_MANAGER.get();
+
+        if let Ok(mut file) = FileManager::open("/hari/nihongo.fnt") {
+            let mut buf = Vec::new();
+            if let Ok(_) = file.read_to_end(&mut buf) {
+                shared.japanese_font.extend_from_slice(buf.as_slice());
+                shared.default_lang_mode = HoeLangMode::ShiftJIS;
+            }
+        }
+    }
 }
 
 /// Contextual structure of the Haribote-OS Emulator subsystem
@@ -26,6 +73,7 @@ pub struct Hoe {
     files: Vec<HoeFile>,
     audio_ctx: Option<Arc<AudioContext>>,
     note: Option<NoteControl>,
+    lang_mode: HoeLangMode,
     malloc_start: u32,
     malloc_free: u32,
 }
@@ -92,6 +140,7 @@ impl Hoe {
             files: Vec::new(),
             audio_ctx: None,
             note: None,
+            lang_mode: HoeManager::default_lang_mode(),
             malloc_start: 0,
             malloc_free: 0,
         })
@@ -133,7 +182,9 @@ impl Hoe {
             5 => {
                 // open window
                 regs.eax = self.alloc_window(
-                    self.load_cstring(regs.ecx).unwrap_or_default(),
+                    self.load_cstring(regs.ecx)
+                        .and_then(|v| v.to_str())
+                        .unwrap_or_default(),
                     regs.esi,
                     regs.edi,
                     regs.ebx,
@@ -144,13 +195,16 @@ impl Hoe {
                 // BUG: The official documentation says to use ECX for the length of the string,
                 // but the actual implementation uses the ASCIZ string
                 self.get_window(regs.ebx).map(|(window, refreshing)| {
-                    let text = self.load_cstring(regs.ebp).unwrap_or_default();
+                    let text = match self.load_cstring(regs.ebp) {
+                        Some(v) => v,
+                        None => return,
+                    };
                     let color = regs.eax as u8;
                     let origin = Point::new(regs.esi as isize, regs.edi as isize);
                     {
                         let mut origin = origin;
-                        for ch in text.bytes() {
-                            origin.x += window.put_font(self, origin, ch, color);
+                        for jc in text.chars(self.lang_mode) {
+                            origin.x += window.put_font(self, origin, jc, color);
                         }
                     }
                     if refreshing {
@@ -276,7 +330,7 @@ impl Hoe {
             }
             21 => {
                 // file open
-                let name = self.load_cstring(regs.ebx);
+                let name = self.load_cstring(regs.ebx).and_then(|v| v.to_str());
                 regs.eax = name.and_then(|name| self.alloc_file(name)).unwrap_or(0);
             }
             22 => {
@@ -321,7 +375,7 @@ impl Hoe {
             }
             27 => {
                 // langmode
-                regs.eax = 0;
+                regs.eax = self.lang_mode as u32;
                 regs.ecx = Self::OS_ID;
                 regs.edx = Self::OS_VER;
             }
@@ -379,7 +433,7 @@ impl Hoe {
     }
 
     /// Load an ASCIZ string from the application data segment
-    fn load_cstring<'a>(&self, offset: u32) -> Option<&'a str> {
+    fn load_cstring<'a>(&self, offset: u32) -> Option<JisString<'a>> {
         if offset > 0 {
             unsafe {
                 let base = self.context.base_of_data as usize as *const u8;
@@ -398,7 +452,7 @@ impl Hoe {
                     len += 1;
                 }
 
-                Some(str::from_utf8_unchecked(slice::from_raw_parts(base, len)))
+                Some(JisString(slice::from_raw_parts(base, len)))
             }
         } else {
             None
@@ -406,10 +460,9 @@ impl Hoe {
     }
 
     /// Load a string from the application data segment
-    fn load_string<'a>(&self, offset: u32, len: u32) -> Option<&'a str> {
-        self.safe_ptr(offset, len).map(|ptr| unsafe {
-            str::from_utf8_unchecked(slice::from_raw_parts(ptr as *const u8, len as usize))
-        })
+    fn load_string<'a>(&self, offset: u32, len: u32) -> Option<JisString<'a>> {
+        self.safe_ptr(offset, len)
+            .map(|ptr| unsafe { JisString(slice::from_raw_parts(ptr as *const u8, len as usize)) })
     }
 
     /// Store a string into the application data segment
@@ -636,7 +689,7 @@ impl HoeWindow {
             ))
             .bg_color(Hoe::get_color(Self::WINDOW_BGCOLOR))
             // .active_title_color(Color::LIGHT_BLUE)
-            // .inactive_title_color(Theme::shared().window_title_inactive_background())
+            // .inactive_title_color(ui::theme::Theme::shared().window_title_inactive_background())
             .opaque()
             .build(title);
         let window = HoeWindow {
@@ -652,6 +705,16 @@ impl HoeWindow {
     fn get_message(&self, sleep: bool) -> Result<Option<u32>, WindowResult> {
         let message_handler = |message| match message {
             WindowMessage::Close => Err(WindowResult::Close),
+            WindowMessage::Key(key) => match key.key_data().map(|v| v.usage()) {
+                Some(Usage::KEY_DOWN_ARROW) => Ok(Some(0x32)),
+                Some(Usage::KEY_LEFT_ARROW) => Ok(Some(0x34)),
+                Some(Usage::KEY_RIGHT_ARROW) => Ok(Some(0x36)),
+                Some(Usage::KEY_UP_ARROW) => Ok(Some(0x38)),
+                _ => {
+                    self.handle.handle_default_message(message);
+                    Ok(None)
+                }
+            },
             WindowMessage::Char(c) => match c {
                 '\x0D' => Ok(Some(0x0A)),
                 _ => Ok(Some(c as u8 as u32)),
@@ -779,29 +842,67 @@ impl HoeWindow {
 
     const BIT_MASKS: [u8; 8] = [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
 
-    fn put_font(&self, hoe: &Hoe, origin: Point, ch: u8, color: u8) -> isize {
-        if ch > 0x20
-            && ch < 0x80
-            && origin.x < self.width as isize - 8
-            && origin.y < self.height as isize - 16
-        {
-            let buffer = self.buffer(hoe);
+    fn put_font_data(&self, hoe: &Hoe, origin: Point, data: &[u8], color: u8) {
+        if origin.x < self.width as isize - 8 && origin.y < self.height as isize - 16 {
             let stride = self.width as usize;
-            let font_stride = 16;
-            let font_offset = (ch as usize - 0x20) * font_stride;
-            let glyph = &fonts::FONT_HANKAKU_DATA[font_offset..font_offset + font_stride];
+            let buffer = self.buffer(hoe);
             for y in 0..16 {
-                let data = glyph[y as usize];
+                let byte = data[y as usize];
                 let cursor = origin.x as usize + (origin.y as usize + y) * stride;
                 let line = &mut buffer[cursor..cursor + 8];
                 for (index, bit) in Self::BIT_MASKS.iter().enumerate() {
-                    if (data & bit) != 0 {
+                    if (byte & bit) != 0 {
                         line[index] = color;
                     }
                 }
             }
         }
-        8
+    }
+
+    fn put_font(&self, hoe: &Hoe, origin: Point, jc: JisChar, color: u8) -> isize {
+        match jc {
+            JisChar::ANK(ch) => {
+                match ch {
+                    0x21..=0x7F => {
+                        let font_stride = 16;
+                        let font_offset = (ch as usize - 0x20) * font_stride;
+                        let glyph =
+                            &fonts::FONT_HANKAKU_DATA[font_offset..font_offset + font_stride];
+                        self.put_font_data(hoe, origin, glyph, color);
+                    }
+                    0x80..=0xFF => {
+                        let x0 = (origin.x + 1) as u32;
+                        let y0 = (origin.y + 1) as u32;
+                        let x1 = x0 + 6;
+                        let y1 = y0 + 13;
+                        self.fill_rect(hoe, x0, y0, x1, y1, color, false);
+                    }
+                    _ => {}
+                }
+                8
+            }
+            JisChar::Kanji(kanji) => {
+                if origin.x < self.width as isize - 16 && origin.y < self.height as isize - 16 {
+                    let base = 0x1000 + kanji as usize * 32;
+                    let left = HoeManager::japanese_font().get(base..base + 16);
+                    let right = HoeManager::japanese_font().get(base + 16..base + 32);
+                    match (left, right) {
+                        (Some(left), Some(right)) => {
+                            self.put_font_data(hoe, origin, left, color);
+                            self.put_font_data(hoe, origin + Point::new(8, 0), right, color);
+                        }
+                        _ => {
+                            let x0 = (origin.x + 1) as u32;
+                            let y0 = (origin.y + 1) as u32;
+                            let x1 = x0 + 13;
+                            let y1 = y0 + 13;
+                            self.fill_rect(hoe, x0, y0, x1, y1, color, false);
+                        }
+                    }
+                }
+                16
+            }
+        }
     }
 }
 
@@ -846,4 +947,115 @@ impl HoeFile {
         let dest = unsafe { slice::from_raw_parts_mut(ptr as *mut u8, size as usize) };
         self.0.read(dest).map(|v| v as u32).unwrap_or(0)
     }
+}
+
+#[allow(dead_code, non_camel_case_types)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum HoeLangMode {
+    Ascii = 0,
+    ShiftJIS,
+    EUC,
+}
+
+pub struct JisString<'a>(&'a [u8]);
+
+impl<'a> JisString<'a> {
+    #[inline]
+    pub fn to_str(&self) -> Option<&'a str> {
+        str::from_utf8(self.0).ok()
+    }
+
+    #[inline]
+    pub fn chars(&'a self, lang_mode: HoeLangMode) -> JisChars<'a> {
+        JisChars::new(self, lang_mode)
+    }
+}
+
+impl core::fmt::Display for JisString<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.to_str().map(|v| f.write_str(v));
+        Ok(())
+    }
+}
+
+pub struct JisChars<'a> {
+    data: &'a JisString<'a>,
+    lang_mode: HoeLangMode,
+    index: usize,
+}
+
+impl<'a> JisChars<'a> {
+    #[inline]
+    pub const fn new(data: &'a JisString<'a>, lang_mode: HoeLangMode) -> Self {
+        Self {
+            data,
+            lang_mode,
+            index: 0,
+        }
+    }
+}
+
+impl Iterator for JisChars<'_> {
+    type Item = JisChar;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(lead) = self.data.0.get(self.index) {
+            let lead = *lead;
+            self.index += 1;
+            match self.lang_mode {
+                HoeLangMode::Ascii => Some(JisChar::ANK(lead)),
+                HoeLangMode::ShiftJIS => {
+                    if (lead >= 0x81 && lead <= 0x9F) || (lead >= 0xE0 && lead <= 0xEF) {
+                        if let Some(trail) = self.data.0.get(self.index) {
+                            let trail = *trail;
+                            self.index += 1;
+                            let mut k = if lead >= 0x81 && lead <= 0x9F {
+                                (lead - 0x81) * 2
+                            } else {
+                                (lead - 0xE0) * 2 + 62
+                            };
+                            let t;
+                            if trail >= 0x40 && trail <= 0x7E {
+                                t = trail - 0x40;
+                            } else if trail >= 0x80 && trail <= 0x9E {
+                                t = trail - 0x80 + 63;
+                            } else {
+                                t = trail - 0x9F;
+                                k += 1;
+                            }
+                            Some(JisChar::Kanji((k as u16) * 94 + (t as u16)))
+                        } else {
+                            // invalid character sequence
+                            None
+                        }
+                    } else {
+                        Some(JisChar::ANK(lead))
+                    }
+                }
+                HoeLangMode::EUC => {
+                    if lead >= 0x81 && lead <= 0xFE {
+                        if let Some(trail) = self.data.0.get(self.index) {
+                            let trail = *trail;
+                            self.index += 1;
+                            Some(JisChar::Kanji(
+                                (lead as u16 - 0xA1) * 94 + (trail as u16 - 0xA1),
+                            ))
+                        } else {
+                            None
+                        }
+                    } else {
+                        Some(JisChar::ANK(lead))
+                    }
+                }
+            }
+        } else {
+            None
+        }
+    }
+}
+
+#[allow(non_camel_case_types)]
+pub enum JisChar {
+    ANK(u8),
+    Kanji(u16),
 }

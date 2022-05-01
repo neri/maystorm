@@ -337,7 +337,7 @@ impl WindowManager<'_> {
                                 .attributes
                                 .contains(WindowManagerAttributes::CLOSE_DOWN)
                             {
-                                captured.update(|window| {
+                                let _ = captured.update_opt(|window| {
                                     if window.test_frame(position, window.close_button_frame()) {
                                         window.set_close_state(ViewActionState::Pressed);
                                     } else {
@@ -348,7 +348,7 @@ impl WindowManager<'_> {
                                 .attributes
                                 .contains(WindowManagerAttributes::BACK_DOWN)
                             {
-                                captured.update(|window| {
+                                let _ = captured.update_opt(|window| {
                                     if window.test_frame(position, window.back_button_frame()) {
                                         window.set_back_state(ViewActionState::Pressed);
                                     } else {
@@ -389,29 +389,22 @@ impl WindowManager<'_> {
                                 .attributes
                                 .contains(WindowManagerAttributes::CLOSE_DOWN)
                             {
-                                captured.update(|window| {
+                                let _ = captured.update_opt(|window| {
                                     window.set_close_state(ViewActionState::Normal);
+                                    if window.test_frame(position, window.close_button_frame()) {
+                                        let _ = captured.post(WindowMessage::Close);
+                                    }
                                 });
-                                let target_window = captured.as_ref();
-                                if target_window
-                                    .test_frame(position, target_window.close_button_frame())
-                                {
-                                    let _ = captured.post(WindowMessage::Close);
-                                }
                             } else if shared
                                 .attributes
                                 .contains(WindowManagerAttributes::BACK_DOWN)
                             {
-                                captured.update(|window| {
+                                let _ = captured.update_opt(|window| {
                                     window.set_back_state(ViewActionState::Normal);
+                                    if window.test_frame(position, window.back_button_frame()) {
+                                        let _ = captured.post(WindowMessage::Back);
+                                    }
                                 });
-
-                                let target_window = captured.as_ref();
-                                if target_window
-                                    .test_frame(position, target_window.back_button_frame())
-                                {
-                                    let _ = captured.post(WindowMessage::Back);
-                                }
                             } else {
                                 let _ = Self::make_mouse_events(
                                     captured,
@@ -462,7 +455,7 @@ impl WindowManager<'_> {
                                 && target_window
                                     .test_frame(position, target_window.close_button_frame())
                             {
-                                target.update(|window| {
+                                let _ = target.update_opt(|window| {
                                     window.set_close_state(ViewActionState::Pressed)
                                 });
                                 shared
@@ -472,7 +465,7 @@ impl WindowManager<'_> {
                                 && target_window
                                     .test_frame(position, target_window.back_button_frame())
                             {
-                                target.update(|window| {
+                                let _ = target.update_opt(|window| {
                                     window.set_back_state(ViewActionState::Pressed)
                                 });
                                 shared.attributes.insert(WindowManagerAttributes::BACK_DOWN);
@@ -1037,22 +1030,24 @@ struct RawWindow {
 
 bitflags! {
     pub struct WindowStyle: usize {
-        const BORDER        = 0b0000_0000_0000_0001;
-        const THIN_FRAME    = 0b0000_0000_0000_0010;
-        const TITLE         = 0b0000_0000_0000_0100;
-        const CLOSE_BUTTON  = 0b0000_0000_0000_1000;
+        const BORDER            = 0b0000_0000_0000_0001;
+        const THIN_FRAME        = 0b0000_0000_0000_0010;
+        const TITLE             = 0b0000_0000_0000_0100;
+        const CLOSE_BUTTON      = 0b0000_0000_0000_1000;
 
         const OPAQUE_CONTENT    = 0b0000_0000_0001_0000;
-        const OPAQUE        = 0b0000_0000_0010_0000;
-        const NO_SHADOW     = 0b0000_0000_0100_0000;
-        const FLOATING      = 0b0000_0000_1000_0000;
+        const OPAQUE            = 0b0000_0000_0010_0000;
+        const NO_SHADOW         = 0b0000_0000_0100_0000;
+        const FLOATING          = 0b0000_0000_1000_0000;
 
-        const DARK_BORDER   = 0b0000_0001_0000_0000;
-        const DARK_TITLE    = 0b0000_0010_0000_0000;
-        const DARK_ACTIVE   = 0b0000_0100_0000_0000;
-        const PINCHABLE     = 0b0000_1000_0000_0000;
+        const DARK_BORDER       = 0b0000_0001_0000_0000;
+        const DARK_TITLE        = 0b0000_0010_0000_0000;
+        const DARK_ACTIVE       = 0b0000_0100_0000_0000;
+        const PINCHABLE         = 0b0000_1000_0000_0000;
 
-        const SUSPENDED     = 0b1000_0000_0000_0000;
+        const FULLSCREEN        = 0b0001_0000_0000_0000;
+
+        const SUSPENDED         = 0b1000_0000_0000_0000;
 
     }
 }
@@ -1786,7 +1781,7 @@ impl WindowLevel {
 pub struct WindowBuilder {
     frame: Rect,
     style: WindowStyle,
-    window_options: u32,
+    options: u32,
     level: WindowLevel,
     bg_color: Color,
     active_title_color: Option<Color>,
@@ -1803,7 +1798,7 @@ impl WindowBuilder {
             frame: Rect::new(isize::MIN, isize::MIN, 300, 300),
             level: WindowLevel::NORMAL,
             style: WindowStyle::default(),
-            window_options: 0,
+            options: 0,
             bg_color: Theme::shared().window_default_background(),
             active_title_color: None,
             inactive_title_color: None,
@@ -1824,7 +1819,7 @@ impl WindowBuilder {
     }
 
     fn build_inner<'a>(mut self, title: &str) -> Box<RawWindow> {
-        let window_options = self.window_options;
+        let window_options = self.options;
         if (window_options & megosabi::window::THIN_FRAME) != 0 {
             self.style.insert(WindowStyle::THIN_FRAME);
         }
@@ -1834,27 +1829,37 @@ impl WindowBuilder {
         if (window_options & megosabi::window::USE_BITMAP32) != 0 {
             self.bitmap_strategy = BitmapStrategy::Expressive;
         }
+        if (window_options & megosabi::window::FULLSCREEN) != 0 {
+            self.style.insert(WindowStyle::FULLSCREEN);
+        }
         if self.style.contains(WindowStyle::THIN_FRAME) {
             self.style.insert(WindowStyle::BORDER);
         }
 
         let screen_bounds = WindowManager::user_screen_bounds();
         let content_insets = self.style.as_content_insets();
-        let mut frame = self.frame;
-        frame.size += content_insets;
-        if frame.x() == isize::MIN {
-            frame.origin.x = (screen_bounds.max_x() - frame.width()) / 2;
-        } else if frame.x() < 0 {
-            frame.origin.x += screen_bounds.max_x() - (content_insets.left + content_insets.right);
-        }
-        if frame.y() == isize::MIN {
-            frame.origin.y = isize::max(
-                screen_bounds.min_y(),
-                (screen_bounds.max_y() - frame.height()) / 2,
-            );
-        } else if frame.y() < 0 {
-            frame.origin.y += screen_bounds.max_y() - (content_insets.top + content_insets.bottom);
-        }
+        let frame = if self.style.contains(WindowStyle::FULLSCREEN) {
+            WindowManager::user_screen_bounds()
+        } else {
+            let mut frame = self.frame;
+            frame.size += content_insets;
+            if frame.x() == isize::MIN {
+                frame.origin.x = (screen_bounds.max_x() - frame.width()) / 2;
+            } else if frame.x() < 0 {
+                frame.origin.x +=
+                    screen_bounds.max_x() - (content_insets.left + content_insets.right);
+            }
+            if frame.y() == isize::MIN {
+                frame.origin.y = isize::max(
+                    screen_bounds.min_y(),
+                    (screen_bounds.max_y() - frame.height()) / 2,
+                );
+            } else if frame.y() < 0 {
+                frame.origin.y +=
+                    screen_bounds.max_y() - (content_insets.top + content_insets.bottom);
+            }
+            frame
+        };
 
         if self.style.contains(WindowStyle::FLOATING) && self.level <= WindowLevel::NORMAL {
             self.level = WindowLevel::FLOATING;
@@ -2035,27 +2040,33 @@ impl WindowBuilder {
     /// Sets the window's content bitmap to ARGB32 format.
     #[inline]
     pub const fn bitmap_argb32(mut self) -> Self {
-        self.window_options |= megosabi::window::USE_BITMAP32;
+        self.options |= megosabi::window::USE_BITMAP32;
         self
     }
 
     /// Makes the border of the window a thin border.
     #[inline]
     pub const fn thin_frame(mut self) -> Self {
-        self.window_options |= megosabi::window::THIN_FRAME;
+        self.options |= megosabi::window::THIN_FRAME;
         self
     }
 
     /// Content is opaque
     #[inline]
     pub const fn opaque(mut self) -> Self {
-        self.window_options |= megosabi::window::OPAQUE_CONTENT;
+        self.options |= megosabi::window::OPAQUE_CONTENT;
+        self
+    }
+
+    #[inline]
+    pub const fn fullscreen(mut self) -> Self {
+        self.options |= megosabi::window::FULLSCREEN;
         self
     }
 
     #[inline]
     pub const fn with_options(mut self, options: u32) -> Self {
-        self.window_options = options;
+        self.options = options;
         self
     }
 }

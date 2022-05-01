@@ -1,6 +1,6 @@
 //! WebAssembly Runtime Library
 
-use crate::{intcode::*, opcode::*, wasmintr::*, *};
+use crate::{intcode::*, intr::*, opcode::*, *};
 use alloc::{boxed::Box, string::*, vec::Vec};
 use bitflags::*;
 use core::{
@@ -9,6 +9,7 @@ use core::{
     mem::{size_of, transmute},
     ops::*,
     slice, str,
+    sync::atomic::{AtomicU32, Ordering},
 };
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
@@ -351,7 +352,7 @@ impl WasmLoader {
                 return Err(WasmDecodeErrorKind::InvalidGlobal);
             }
 
-            self.module.globals.append(value, is_mutable);
+            WasmGlobal::new(value, is_mutable).map(|v| self.module.globals.push(v))?;
         }
         Ok(())
     }
@@ -395,7 +396,7 @@ pub struct WasmModule {
     tables: Vec<WasmTable>,
     functions: Vec<WasmFunction>,
     start: Option<usize>,
-    globals: WasmGlobal,
+    globals: Vec<WasmGlobal>,
     names: Option<WasmName>,
     n_ext_func: usize,
 }
@@ -411,7 +412,7 @@ impl WasmModule {
             tables: Vec::new(),
             functions: Vec::new(),
             start: None,
-            globals: WasmGlobal::new(),
+            globals: Vec::new(),
             names: None,
             n_ext_func: 0,
         }
@@ -514,13 +515,18 @@ impl WasmModule {
     }
 
     #[inline]
-    pub fn globals(&self) -> &WasmGlobal {
-        &self.globals
+    pub fn globals(&self) -> &[WasmGlobal] {
+        self.globals.as_slice()
     }
 
     #[inline]
-    pub fn global_get(&self, index: usize) -> Option<WasmValue> {
+    pub fn global_get(&self, index: usize) -> Option<&WasmGlobal> {
         self.globals.get(index)
+    }
+
+    #[inline]
+    pub unsafe fn global_get_unchecked(&self, index: usize) -> &WasmGlobal {
+        self.globals.get_unchecked(index)
     }
 
     #[inline]
@@ -1483,6 +1489,8 @@ pub enum WasmDecodeErrorKind {
     InvalidBytecode,
     /// Unsupported byte codes
     UnsupportedByteCode,
+    /// Unsupported global data type
+    UnsupportedGlobalType,
     /// Invalid parameter was specified.
     InvalidParameter,
     /// Invalid stack level.
@@ -1900,7 +1908,7 @@ impl From<WasmValue> for WasmUnsafeValue {
     #[inline]
     fn from(v: WasmValue) -> Self {
         match v {
-            WasmValue::I32(v) => Self::from_i64(v as i64),
+            WasmValue::I32(v) => Self::from_i32(v),
             WasmValue::I64(v) => Self::from_i64(v),
             WasmValue::F32(v) => Self::from_f32(v),
             WasmValue::F64(v) => Self::from_f64(v),
@@ -1908,78 +1916,35 @@ impl From<WasmValue> for WasmUnsafeValue {
     }
 }
 
-/// WebAssembly global variables
+/// WebAssembly global variable
 pub struct WasmGlobal {
-    data: Vec<UnsafeCell<WasmUnsafeValue>>,
-    props: Vec<WasmGlobalProp>,
-}
-
-impl WasmGlobal {
-    #[inline]
-    pub const fn new() -> Self {
-        Self {
-            data: Vec::new(),
-            props: Vec::new(),
-        }
-    }
-
-    pub fn append(&mut self, value: WasmValue, is_mutable: bool) {
-        let data = UnsafeCell::new(WasmUnsafeValue::from(value));
-        let props = WasmGlobalProp::new(value.val_type(), is_mutable);
-        self.data.push(data);
-        self.props.push(props);
-    }
-
-    pub fn get(&self, index: usize) -> Option<WasmValue> {
-        let val = match self.data.get(index) {
-            Some(v) => unsafe { &*v.get() },
-            None => return None,
-        };
-        let val_type = match self.props.get(index) {
-            Some(v) => v.val_type(),
-            None => return None,
-        };
-        Some(unsafe { val.get_by_type(val_type) })
-    }
-
-    #[inline]
-    pub fn get_type(&self, index: usize) -> Option<WasmValType> {
-        self.props.get(index).map(|v| v.props().0)
-    }
-
-    #[inline]
-    pub fn get_is_mutable(&self, index: usize) -> Option<bool> {
-        self.props.get(index).map(|v| v.props().1)
-    }
-
-    #[inline]
-    pub fn get_raw_slice(&self) -> &[UnsafeCell<WasmUnsafeValue>] {
-        self.data.as_slice()
-    }
-
-    #[inline]
-    pub unsafe fn get_raw_unchecked(&self, index: usize) -> &UnsafeCell<WasmUnsafeValue> {
-        self.data.get_unchecked(index)
-    }
-}
-
-pub struct WasmGlobalProp {
+    data: AtomicU32,
     val_type: WasmValType,
     is_mutable: bool,
 }
 
-impl WasmGlobalProp {
+impl WasmGlobal {
     #[inline]
-    pub const fn new(val_type: WasmValType, is_mutable: bool) -> Self {
-        Self {
+    pub fn new(val: WasmValue, is_mutable: bool) -> Result<Self, WasmDecodeErrorKind> {
+        let val_type = val.val_type();
+        let val = val
+            .get_u32()
+            .map_err(|_| WasmDecodeErrorKind::UnsupportedGlobalType)?;
+        Ok(Self {
+            data: AtomicU32::new(val),
             val_type,
             is_mutable,
-        }
+        })
     }
 
     #[inline]
-    pub fn props(&self) -> (WasmValType, bool) {
-        (self.val_type, self.is_mutable)
+    pub fn value(&self) -> WasmValue {
+        self.data.load(Ordering::Acquire).into()
+    }
+
+    #[inline]
+    pub fn set_value(&self, val: WasmUnsafeValue) {
+        self.data.store(unsafe { val.get_u32() }, Ordering::Release);
     }
 
     #[inline]
@@ -2528,7 +2493,8 @@ impl WasmCodeBlock {
                     let global_ref = stream.read_unsigned()? as usize;
                     let val_type = module
                         .globals()
-                        .get_type(global_ref)
+                        .get(global_ref)
+                        .map(|v| v.val_type())
                         .ok_or(WasmDecodeErrorKind::InvalidGlobal)?;
                     int_codes.push(WasmImc::new(
                         position,
@@ -2541,14 +2507,12 @@ impl WasmCodeBlock {
                 }
                 WasmOpcode::GlobalSet => {
                     let global_ref = stream.read_unsigned()? as usize;
-                    let val_type = module
+                    let global = module
                         .globals()
-                        .get_type(global_ref)
+                        .get(global_ref)
                         .ok_or(WasmDecodeErrorKind::InvalidGlobal)?;
-                    let is_mutable = module
-                        .globals()
-                        .get_is_mutable(global_ref)
-                        .ok_or(WasmDecodeErrorKind::InvalidGlobal)?;
+                    let val_type = global.val_type();
+                    let is_mutable = global.is_mutable();
                     if !is_mutable {
                         return Err(WasmDecodeErrorKind::InvalidGlobal);
                     }

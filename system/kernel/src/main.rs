@@ -373,15 +373,12 @@ impl Shell {
                 let mb = (100 * (bytes & 0x3FFF_FFFF)) / 0x4000_0000;
                 println!(", Memory {}.{:02} GB", gb, mb);
 
-                // let manufacturer_name = device.manufacturer_name();
-                // let model_name = device.model_name();
-                // if manufacturer_name.is_some() || model_name.is_some() {
-                //     println!(
-                //         "  Manufacturer [{}] Model [{}]",
-                //         manufacturer_name.unwrap_or("Unknown"),
-                //         model_name.unwrap_or("Unknown"),
-                //     );
-                // }
+                if let Some(manufacturer_name) = device.manufacturer_name() {
+                    println!("  Manufacturer: {}", manufacturer_name);
+                }
+                if let Some(model_name) = device.model_name() {
+                    println!("  Model: {}", model_name);
+                }
             }
             "cpu" => {
                 let device = System::current_device();
@@ -454,6 +451,14 @@ impl Shell {
                 return 1;
             }
         };
+
+        let stdout = System::stdout();
+        let width = stdout.dims().0 as usize;
+        let item_len = 16;
+        let items_per_line = width / item_len;
+        let needs_new_line = items_per_line > 0 && (width - (items_per_line * item_len)) > 0;
+
+        let mut acc = 0;
         for dir_ent in dir {
             let metadata = dir_ent.metadata();
             let suffix = if metadata.file_type().is_dir() {
@@ -465,8 +470,18 @@ impl Shell {
             };
             let name = format!("{}{}", dir_ent.name(), suffix);
             print!(" {:<15}", name);
+
+            acc += 1;
+            if acc >= items_per_line {
+                if needs_new_line {
+                    println!("");
+                }
+                acc = 0;
+            }
         }
-        println!("");
+        if acc < items_per_line {
+            println!("");
+        }
         0
     }
 

@@ -243,26 +243,16 @@ impl WasmInterpreter<'_> {
                 }
 
                 WasmIntMnemonic::GlobalGet => {
-                    let global = unsafe {
-                        &*self
-                            .module
-                            .globals()
-                            .get_raw_unchecked(code.param1() as usize)
-                            .get()
-                    };
+                    let global =
+                        unsafe { self.module.globals().get_unchecked(code.param1() as usize) };
                     let ref_a = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
-                    *ref_a = *global;
+                    *ref_a = global.value().into();
                 }
                 WasmIntMnemonic::GlobalSet => {
-                    let global = unsafe {
-                        &mut *self
-                            .module
-                            .globals()
-                            .get_raw_unchecked(code.param1() as usize)
-                            .get()
-                    };
+                    let global =
+                        unsafe { self.module.globals().get_unchecked(code.param1() as usize) };
                     let ref_a = unsafe { value_stack.get_unchecked(code.stack_level()) };
-                    *global = *ref_a;
+                    global.set_value(*ref_a);
                 }
 
                 WasmIntMnemonic::I32Load => {

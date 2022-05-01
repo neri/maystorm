@@ -6,6 +6,7 @@ use core::{
     fmt::Write,
     future::Future,
     pin::Pin,
+    sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll},
 };
 use megstd::drawing::*;
@@ -16,26 +17,29 @@ const BG_ALPHA: u8 = 0xE0;
 // const DEFAULT_ATTRIBUTE: u8 = 0xF8;
 // const BG_ALPHA: u8 = 0xFF;
 
-static mut TA: TerminalAgent = TerminalAgent::new();
+static TA: TerminalAgent = TerminalAgent::new();
 
-pub struct TerminalAgent {
-    n_instances: usize,
+struct TerminalAgent {
+    n_instances: AtomicUsize,
 }
 
 impl TerminalAgent {
+    #[inline]
     const fn new() -> Self {
-        Self { n_instances: 0 }
+        Self {
+            n_instances: AtomicUsize::new(0),
+        }
     }
 
-    fn shared<'a>() -> &'a mut Self {
-        unsafe { &mut TA }
+    #[inline]
+    fn shared<'a>() -> &'a Self {
+        &TA
     }
 
+    #[inline]
     fn next_instance() -> usize {
         let shared = Self::shared();
-        let r = shared.n_instances;
-        shared.n_instances = r + 1;
-        r
+        shared.n_instances.fetch_add(1, Ordering::SeqCst)
     }
 
     // fn console_thread(_: usize) {

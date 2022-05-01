@@ -1,4 +1,4 @@
-//! Scheduler
+//! MEG-OS Scheduler
 
 use super::{executor::Executor, *};
 use crate::{
@@ -1028,23 +1028,13 @@ impl Timer {
     }
 
     #[inline]
-    pub fn usleep(us: u64) {
-        Self::sleep(Duration::from_micros(us));
-    }
-
-    #[inline]
-    pub fn msleep(ms: u64) {
-        Self::sleep(Duration::from_millis(ms));
-    }
-
-    #[inline]
     pub fn measure() -> TimeSpec {
         Self::timer_source().measure()
     }
 
     #[inline]
     pub fn monotonic() -> Duration {
-        Self::measure().into()
+        Self::measure().into_duration()
     }
 }
 
@@ -1293,7 +1283,7 @@ impl ThreadPool {
         self.data
             .lock()
             .get(&key)
-            .map(|v| &mut *(&*Arc::as_ptr(v)).get())
+            .map(|v| &mut *UnsafeCell::get(&*Arc::as_ptr(v)))
     }
 
     #[inline]

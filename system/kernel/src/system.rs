@@ -128,7 +128,7 @@ static mut SYSTEM: UnsafeCell<System> = UnsafeCell::new(System::new());
 
 impl System {
     const SYSTEM_NAME: &'static str = "MEG-OS";
-    const SYSTEMN_CODENAME: &'static str = "Azalea+";
+    const SYSTEMN_CODENAME: &'static str = "Maystorm-11";
     const SYSTEM_SHORT_NAME: &'static str = "myos";
     const RELEASE: &'static str = "alpha";
     const VERSION: Version<'static> = Version::new(0, 11, 0, Self::RELEASE);
@@ -167,15 +167,29 @@ impl System {
 
         mem::MemoryManager::init_first(info);
 
-        shared.acpi = Some(Box::new(
+        let acpi = Box::new(
             ::acpi::AcpiTables::from_rsdp(MyAcpiHandler::new(), info.acpi_rsdptr as usize).unwrap(),
-        ));
+        );
+        let pi = acpi.platform_info().unwrap();
+        shared.current_device.power_profile = match pi.power_profile {
+            acpi::PowerProfile::Unspecified => 0,
+            acpi::PowerProfile::Desktop => 1,
+            acpi::PowerProfile::Mobile => 2,
+            acpi::PowerProfile::Workstation => 3,
+            acpi::PowerProfile::EnterpriseServer => 4,
+            acpi::PowerProfile::SohoServer => 5,
+            acpi::PowerProfile::AppliancePc => 6,
+            acpi::PowerProfile::PerformanceServer => 7,
+            acpi::PowerProfile::Tablet => 8,
+            acpi::PowerProfile::Reserved(v) => v,
+        };
+        shared.acpi = Some(acpi);
 
         if info.smbios != 0 {
             let device = &mut shared.current_device;
             let smbios = fw::smbios::SmBios::init(info.smbios.into());
-            device.manufacturer_name = smbios.manufacturer_name().map(|v| v.to_string());
-            device.model_name = smbios.model_name().map(|v| v.to_string());
+            device.manufacturer_name = smbios.manufacturer_name();
+            device.model_name = smbios.model_name();
             shared.smbios = Some(smbios);
         }
 
@@ -397,6 +411,7 @@ pub struct DeviceInfo {
     num_of_active_cpus: AtomicUsize,
     num_of_main_cpus: AtomicUsize,
     total_memory_size: usize,
+    power_profile: u8,
 }
 
 impl DeviceInfo {
@@ -409,6 +424,7 @@ impl DeviceInfo {
             num_of_active_cpus: AtomicUsize::new(0),
             num_of_main_cpus: AtomicUsize::new(0),
             total_memory_size: 0,
+            power_profile: 0,
         }
     }
 
@@ -446,6 +462,11 @@ impl DeviceInfo {
     #[inline]
     pub fn num_of_performance_cpus(&self) -> usize {
         self.num_of_main_cpus.load(Ordering::SeqCst)
+    }
+
+    /// A power profile in ACPI FADT tables
+    pub fn power_profile(&self) -> u8 {
+        self.power_profile
     }
 }
 

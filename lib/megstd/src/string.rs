@@ -133,6 +133,7 @@ impl StringBuffer {
 impl fmt::Write for StringBuffer {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         for c in s.bytes() {
+            self.vec.try_reserve(1).map_err(|_| core::fmt::Error)?;
             self.vec.push(c);
         }
         Ok(())

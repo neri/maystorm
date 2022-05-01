@@ -20,7 +20,7 @@ use megstd::{
     rand::*,
 };
 use num_traits::FromPrimitive;
-use wasm::{wasmintr::*, *};
+use wasm::{intr::*, *};
 
 include!("megg0808.rs");
 

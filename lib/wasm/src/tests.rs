@@ -1,7 +1,7 @@
 // test
 
 use crate::{
-    wasmintr::{WasmInterpreter, WasmInvocation},
+    intr::{WasmInterpreter, WasmInvocation},
     Leb128Stream, WasmCodeBlock, WasmLoader, WasmModule, WasmRuntimeErrorKind, WasmValType,
 };
 use alloc::borrow::ToOwned;
@@ -659,7 +659,7 @@ fn global() {
     let module = WasmLoader::instantiate(&slice, |_, _, _| unreachable!()).unwrap();
     let runnable = module.func_by_index(0).unwrap();
 
-    assert_eq!(module.global_get(0).unwrap().get_i32().unwrap(), 123);
+    assert_eq!(module.global_get(0).unwrap().value().get_i32(), Ok(123));
 
     let result = runnable
         .invoke(&[456.into()])
@@ -669,7 +669,7 @@ fn global() {
         .unwrap();
     assert_eq!(result, 579);
 
-    assert_eq!(module.global_get(0).unwrap().get_i32().unwrap(), 579);
+    assert_eq!(module.global_get(0).unwrap().value().get_i32(), Ok(579));
 
     let result = runnable
         .invoke(&[789.into()])
@@ -679,7 +679,7 @@ fn global() {
         .unwrap();
     assert_eq!(result, 1368);
 
-    assert_eq!(module.global_get(0).unwrap().get_i32().unwrap(), 1368);
+    assert_eq!(module.global_get(0).unwrap().value().get_i32(), Ok(1368));
 }
 
 #[test]

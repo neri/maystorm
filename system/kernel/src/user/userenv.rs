@@ -75,7 +75,7 @@ async fn slpash_task(f: fn()) {
 
     Scheduler::spawn_async(Task::new(status_bar_main()));
     Scheduler::spawn_async(Task::new(_notification_task()));
-    Scheduler::spawn_async(Task::new(activity_monitor_main()));
+    // Scheduler::spawn_async(Task::new(activity_monitor_main()));
     Scheduler::spawn_async(Task::new(shell_launcher(f)));
 
     // Scheduler::spawn_async(Task::new(test_window_main()));
@@ -88,13 +88,22 @@ async fn shell_launcher(f: fn()) {
         let terminal = Terminal::new(80, 24, FontManager::monospace_font());
         System::set_stdout(Box::new(terminal));
     } else {
-        let screen_size = WindowManager::user_screen_bounds();
-        let font =
-            FontDescriptor::new(FontFamily::Monospace, 16).unwrap_or(FontManager::monospace_font());
+        let size = WindowManager::main_screen_bounds();
+        let point = 
+        // if size.width() >= 1600 {
+        //     32
+        // } else 
+        if size.width() >= 1200 {
+            24
+        } else {
+            16
+        };
+        let font = FontDescriptor::new(FontFamily::Monospace, point)
+            .unwrap_or(FontManager::monospace_font());
         let window = WindowBuilder::new()
             .style(WindowStyle::NO_SHADOW)
+            .fullscreen()
             .level(WindowLevel::DESKTOP_ITEMS)
-            .frame(screen_size)
             .bg_color(TrueColor::from_gray(0, 0).into())
             .build("Terminal");
 

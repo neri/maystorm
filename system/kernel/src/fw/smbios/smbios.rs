@@ -1,7 +1,10 @@
 // System Management BIOS
 
 use crate::arch::page::PhysicalAddress;
-use alloc::boxed::Box;
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+};
 use core::{ffi::c_void, mem::transmute, ptr::addr_of, slice, str};
 
 /// System Management BIOS Entry Point
@@ -21,26 +24,30 @@ impl SmBios {
 
     /// Returns the system manufacturer name, if available
     #[inline]
-    pub fn manufacturer_name<'a>(&'a self) -> Option<&'a str> {
-        self.find(HeaderType::SYSTEM_INFO).and_then(|h| {
-            let slice = h.as_slice();
-            h.string(slice[4] as usize)
-        })
+    pub fn manufacturer_name(&self) -> Option<String> {
+        self.find(HeaderType::SYSTEM_INFO)
+            .and_then(|h| {
+                let slice = h.as_slice();
+                h.string(slice[4] as usize)
+            })
+            .map(|v| v.to_string())
     }
 
     /// Returns the system model name, if available
     #[inline]
-    pub fn model_name<'a>(&'a self) -> Option<&'a str> {
-        self.find(HeaderType::SYSTEM_INFO).and_then(|h| {
-            let slice = h.as_slice();
-            h.string(slice[5] as usize)
-        })
+    pub fn model_name(&self) -> Option<String> {
+        self.find(HeaderType::SYSTEM_INFO)
+            .and_then(|h| {
+                let slice = h.as_slice();
+                h.string(slice[5] as usize)
+            })
+            .map(|v| v.to_string())
     }
 
     /// Returns an iterator that iterates through the SMBIOS structure
     #[inline]
     pub fn iter(&self) -> impl Iterator<Item = &'static SmBiosHeader> {
-        SmBiosStructWalker {
+        SmBiosStructIterator {
             base: self.base,
             offset: 0,
             index: 0,
@@ -48,7 +55,7 @@ impl SmBios {
         }
     }
 
-    /// Finds a structure with the specified header type.
+    /// Find the first structure matching the specified header type.
     #[inline]
     pub fn find(&self, header_type: HeaderType) -> Option<&'static SmBiosHeader> {
         self.iter().find(|v| v.header_type() == header_type)
@@ -110,7 +117,7 @@ impl HeaderType {
 #[repr(C)]
 #[allow(dead_code)]
 pub struct SmBiosEntryV1 {
-    // "_SM_"
+    /// b"_SM_"
     anchor: [u8; 4],
     checksum: u8,
     len: u8,
@@ -119,7 +126,7 @@ pub struct SmBiosEntryV1 {
     max_struct: u16,
     revision: u8,
     formatted: [u8; 5],
-    // "_DMI_"
+    /// b"_DMI_"
     anchor2: [u8; 5],
     checksum2: u8,
     len2: u8,
@@ -134,14 +141,14 @@ pub struct SmBiosEntryV1 {
 //     }
 // }
 
-struct SmBiosStructWalker {
+struct SmBiosStructIterator {
     base: usize,
     offset: usize,
     index: usize,
     limit: usize,
 }
 
-impl Iterator for SmBiosStructWalker {
+impl Iterator for SmBiosStructIterator {
     type Item = &'static SmBiosHeader;
 
     #[inline]
@@ -194,9 +201,9 @@ impl SmBiosHeader {
     }
 
     #[inline]
-    fn strings(&self) -> SmBiosStringWalker {
+    fn strings(&self) -> SmBiosStrings {
         let base = self as *const _ as usize + self.header_size();
-        SmBiosStringWalker { base, offset: 0 }
+        SmBiosStrings { base, offset: 0 }
     }
 
     #[inline]
@@ -225,12 +232,12 @@ impl SmBiosHeader {
     }
 }
 
-struct SmBiosStringWalker {
+struct SmBiosStrings {
     base: usize,
     offset: usize,
 }
 
-impl Iterator for SmBiosStringWalker {
+impl Iterator for SmBiosStrings {
     type Item = &'static str;
 
     #[inline]

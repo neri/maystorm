@@ -73,7 +73,7 @@ boot:
 kernel:
 	(cd system; cargo build -Zbuild-std --release --target $(KRNL_ARCH).json)
 
-install: $(EFI_VENDOR) $(EFI_BOOT) $(ALL_TARGETS) tools/mkinitrd/src/*.rs
+install: test $(EFI_VENDOR) $(EFI_BOOT) $(ALL_TARGETS) tools/mkinitrd/src/*.rs
 	cp $(TARGET_BOOT_EFI) $(BOOT_EFI1)
 	cp $(TARGET_BOOT_EFI) $(BOOT_EFI2)
 	cp $(TARGET_KERNEL) $(KERNEL_BIN)

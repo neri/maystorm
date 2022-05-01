@@ -3,10 +3,10 @@
 use super::apic::*;
 use crate::{io::hid_mgr::*, sync::spinlock::SpinLoopWait, task::scheduler::*, *};
 use bitflags::*;
-use core::{arch::asm, time::Duration};
+use core::{arch::asm, cell::UnsafeCell, time::Duration};
 use megstd::io::hid::*;
 
-static mut PS2: Ps2 = Ps2::new();
+static mut PS2: UnsafeCell<Ps2> = UnsafeCell::new(Ps2::new());
 
 pub(super) struct Ps2 {
     key_state: Ps2KeyState,
@@ -53,38 +53,46 @@ impl Ps2 {
         Self::send_command(Ps2Command::ENABLE_SECOND_PORT, 1).unwrap();
 
         Self::send_data(Ps2Data::RESET_COMMAND, 1).unwrap();
-        Timer::usleep(100_000);
+        Timer::sleep(Duration::from_millis(100));
         Self::send_data(Ps2Data::ENABLE_SEND, 1).unwrap();
 
         Self::send_second_data(Ps2Data::RESET_COMMAND, 1).unwrap();
-        Timer::usleep(100_000);
+        Timer::sleep(Duration::from_millis(100));
         // Self::send_second_data(Ps2Data::SET_DEFAULT, 1).unwrap();
         Self::send_second_data(Ps2Data::ENABLE_SEND, 1).unwrap();
 
         Ok(())
     }
 
-    unsafe fn read_data() -> Ps2Data {
+    fn read_data() -> Ps2Data {
         let mut al: u8;
-        asm!("in al, 0x60", lateout("al") al);
+        unsafe {
+            asm!("in al, 0x60", lateout("al") al);
+        }
         Ps2Data(al)
     }
 
-    unsafe fn write_data(data: Ps2Data) {
-        asm!("out 0x60, al", in("al") data.0);
+    fn write_data(data: Ps2Data) {
+        unsafe {
+            asm!("out 0x60, al", in("al") data.0);
+        }
     }
 
-    unsafe fn read_status() -> Ps2Status {
+    fn read_status() -> Ps2Status {
         let mut al: u8;
-        asm!("in al, 0x64", lateout("al") al);
-        Ps2Status::from_bits_unchecked(al)
+        unsafe {
+            asm!("in al, 0x64", lateout("al") al);
+            Ps2Status::from_bits_unchecked(al)
+        }
     }
 
-    unsafe fn write_command(command: Ps2Command) {
-        asm!("out 0x64, al", in("al") command.0);
+    fn write_command(command: Ps2Command) {
+        unsafe {
+            asm!("out 0x64, al", in("al") command.0);
+        }
     }
 
-    unsafe fn wait_for_write(timeout: u64) -> Result<(), Ps2Error> {
+    fn wait_for_write(timeout: u64) -> Result<(), Ps2Error> {
         let mut spin_loop = SpinLoopWait::new();
         let deadline = Timer::new(Duration::from_micros(Self::WRITE_TIMEOUT * timeout));
         while deadline.until() {
@@ -97,7 +105,7 @@ impl Ps2 {
         Err(Ps2Error::Timeout)
     }
 
-    unsafe fn wait_for_read(timeout: u64) -> Result<(), Ps2Error> {
+    fn wait_for_read(timeout: u64) -> Result<(), Ps2Error> {
         let mut spin_loop = SpinLoopWait::new();
         let deadline = Timer::new(Duration::from_micros(timeout * Self::READ_TIMEOUT));
         while deadline.until() {
@@ -111,7 +119,7 @@ impl Ps2 {
     }
 
     // Wait for write, then command
-    unsafe fn send_command(command: Ps2Command, timeout: u64) -> Result<(), Ps2Error> {
+    fn send_command(command: Ps2Command, timeout: u64) -> Result<(), Ps2Error> {
         Self::wait_for_write(timeout).and_then(|_| {
             Self::write_command(command);
             Ok(())
@@ -119,7 +127,7 @@ impl Ps2 {
     }
 
     // Wait for write, then data
-    unsafe fn send_data(data: Ps2Data, timeout: u64) -> Result<(), Ps2Error> {
+    fn send_data(data: Ps2Data, timeout: u64) -> Result<(), Ps2Error> {
         Self::wait_for_write(timeout).and_then(|_| {
             Self::write_data(data);
             Ok(())
@@ -127,22 +135,22 @@ impl Ps2 {
     }
 
     // Send to second port (mouse)
-    unsafe fn send_second_data(data: Ps2Data, timeout: u64) -> Result<(), Ps2Error> {
+    fn send_second_data(data: Ps2Data, timeout: u64) -> Result<(), Ps2Error> {
         Self::send_command(Ps2Command::WRITE_SECOND_PORT, timeout)
             .and_then(|_| Self::send_data(data, timeout))
     }
 
     // IRQ 01 PS/2 Keyboard
     fn irq_01(_: usize) {
-        let ps2 = unsafe { &mut PS2 };
-        let data = unsafe { Self::read_data() };
+        let ps2 = unsafe { &mut *PS2.get() };
+        let data = Self::read_data();
         ps2.process_key_data(data);
     }
 
     // IRQ 12 PS/2 Mouse
     fn irq_12(_: usize) {
-        let ps2 = unsafe { &mut PS2 };
-        let data = unsafe { Self::read_data() };
+        let ps2 = unsafe { &mut *PS2.get() };
+        let data = Self::read_data();
         ps2.process_mouse_data(data);
     }
 
