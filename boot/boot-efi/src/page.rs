@@ -1,4 +1,4 @@
-// Minimal Page Manager
+//! Minimal Page Manager
 
 use crate::*;
 use bitflags::*;

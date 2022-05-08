@@ -17,7 +17,7 @@ use crate::{
 };
 use ::alloc::{sync::Arc, vec::*};
 use core::{fmt::Write, time::Duration};
-use megstd::{drawing::img::*, drawing::*, io::Read, string::*};
+use megstd::{drawing::image::ImageLoader, drawing::*, io::Read, string::*};
 
 pub struct UserEnv;
 

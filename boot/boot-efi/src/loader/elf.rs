@@ -1,4 +1,4 @@
-// Executable and Linking Format
+//! Executable and Linking Format
 
 pub type ElfHalf = u16;
 pub type ElfWord = u32;

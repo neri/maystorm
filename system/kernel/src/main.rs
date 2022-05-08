@@ -493,7 +493,7 @@ impl Shell {
             let mut file = match FileManager::open(path) {
                 Ok(v) => v,
                 Err(err) => {
-                    println!("{:?}", err.kind());
+                    println!("type: {}: {:?}", path, err.kind());
                     continue;
                 }
             };

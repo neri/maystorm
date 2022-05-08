@@ -2,7 +2,7 @@
 #![feature(core_intrinsics)]
 #![feature(alloc_error_handler)]
 
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 use core::{alloc::Layout, fmt::Write, panic::PanicInfo};
 use uefi::CStr16;
 use uefi::{
@@ -11,7 +11,7 @@ use uefi::{
         loaded_image::LoadedImage,
         media::{file::*, fs::*},
     },
-    table::boot::{MemoryType, OpenProtocolParams},
+    table::boot::OpenProtocolParams,
 };
 extern crate alloc;
 
@@ -45,11 +45,7 @@ macro_rules! println {
     };
 }
 
-pub fn get_file(
-    handle: Handle,
-    bs: &BootServices,
-    path: &str,
-) -> Result<&'static mut [u8], Status> {
+pub fn get_file(handle: Handle, bs: &BootServices, path: &str) -> Result<Box<[u8]>, Status> {
     let li: &LoadedImage = match bs.open_protocol(
         OpenProtocolParams {
             handle,
@@ -116,16 +112,18 @@ pub fn get_file(
         Err(err) => return Err(err.status()),
     };
 
-    let pool = match bs.allocate_pool(MemoryType::LOADER_DATA, file_size) {
-        Ok(val) => val,
-        Err(err) => return Err(err.status()),
-    };
-    let buffer = unsafe { core::slice::from_raw_parts_mut(pool, file_size) };
-
-    if let Err(err) = file.read(buffer) {
-        bs.free_pool(pool).unwrap();
-        return Err(err.status());
+    let mut buffer = Vec::new();
+    if buffer.try_reserve(file_size).is_err() {
+        return Err(Status::OUT_OF_RESOURCES);
+    }
+    unsafe {
+        buffer.set_len(file_size);
     }
 
-    Ok(buffer)
+    file.read(buffer.as_mut_slice())
+        .map(|size| {
+            buffer.resize(size, 0);
+            buffer.into_boxed_slice()
+        })
+        .map_err(|v| v.status())
 }

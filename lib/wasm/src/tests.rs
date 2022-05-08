@@ -137,6 +137,29 @@ fn fused_add() {
 }
 
 #[test]
+fn const_local() {
+    let slice = [
+        1, 1, 0x7F, 0x41, 0xFB, 0x00, 0x21, 0, 0x41, 0x12, 0x1A, 0x20, 0, 0x0B,
+    ];
+    let param_types = [];
+    let result_types = [WasmValType::I32];
+    let mut stream = Leb128Stream::from_slice(&slice);
+    let module = WasmModule::new();
+    let info =
+        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
+    let mut interp = WasmInterpreter::new(&module);
+
+    let mut locals = [];
+    let result = interp
+        .invoke(0, &info, &mut locals, &result_types)
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(result, 123);
+}
+
+#[test]
 fn sub() {
     let slice = [0, 0x20, 0, 0x20, 1, 0x6B, 0x0B];
     let param_types = [WasmValType::I32, WasmValType::I32];

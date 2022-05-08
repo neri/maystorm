@@ -1,6 +1,6 @@
 //! WebAssembly Runtime Library
 
-use crate::{intcode::*, intr::*, opcode::*, *};
+use crate::{intcode::*, opcode::*, *};
 use alloc::{boxed::Box, string::*, vec::Vec};
 use bitflags::*;
 use core::{
@@ -30,44 +30,44 @@ impl WasmEndian {
 
     #[inline]
     unsafe fn read_u16(slice: &[u8], offset: usize) -> u16 {
-        let p = slice.get_unchecked(offset) as *const u8;
+        let p = slice.as_ptr().add(offset);
         let p: *const u16 = transmute(p);
-        *p
+        p.read()
     }
 
     #[inline]
     unsafe fn read_u32(slice: &[u8], offset: usize) -> u32 {
-        let p = slice.get_unchecked(offset) as *const u8;
+        let p = slice.as_ptr().add(offset);
         let p: *const u32 = transmute(p);
-        *p
+        p.read()
     }
 
     #[inline]
     unsafe fn read_u64(slice: &[u8], offset: usize) -> u64 {
-        let p = slice.get_unchecked(offset) as *const u8;
+        let p = slice.as_ptr().add(offset);
         let p: *const u64 = transmute(p);
-        *p
+        p.read()
     }
 
     #[inline]
     unsafe fn write_u16(slice: &mut [u8], offset: usize, val: u16) {
-        let p = slice.get_unchecked_mut(offset) as *mut u8;
+        let p = slice.as_mut_ptr().add(offset);
         let p: *mut u16 = transmute(p);
-        *p = val;
+        p.write(val);
     }
 
     #[inline]
     unsafe fn write_u32(slice: &mut [u8], offset: usize, val: u32) {
-        let p = slice.get_unchecked_mut(offset) as *mut u8;
+        let p = slice.as_mut_ptr().add(offset);
         let p: *mut u32 = transmute(p);
-        *p = val;
+        p.write(val);
     }
 
     #[inline]
     unsafe fn write_u64(slice: &mut [u8], offset: usize, val: u64) {
-        let p = slice.get_unchecked_mut(offset) as *mut u8;
+        let p = slice.as_mut_ptr().add(offset);
         let p: *mut u64 = transmute(p);
-        *p = val;
+        p.write(val);
     }
 }
 
@@ -949,19 +949,19 @@ impl WasmMemory {
     }
 
     #[inline]
-    fn memory(&self) -> &[u8] {
+    fn as_slice<'a>(&'a self) -> &'a [u8] {
         unsafe { &*self.data.get() }
     }
 
     #[inline]
-    fn memory_mut(&self) -> &mut [u8] {
+    fn as_mut_slice<'a>(&'a self) -> &'a mut [u8] {
         unsafe { &mut *self.data.get() }
     }
 
     /// memory.size
     #[inline]
     pub fn size(&self) -> i32 {
-        let memory = self.memory();
+        let memory = self.as_slice();
         (memory.len() / Self::PAGE_SIZE) as i32
     }
 
@@ -971,7 +971,7 @@ impl WasmMemory {
         let old_size = memory.len();
         if delta > 0 {
             let additional = delta as usize * Self::PAGE_SIZE;
-            if memory.try_reserve_exact(additional).is_err() {
+            if memory.try_reserve(additional).is_err() {
                 return -1;
             }
             memory.resize(old_size + additional, 0);
@@ -984,32 +984,29 @@ impl WasmMemory {
     }
 
     pub unsafe fn slice<'a>(
-        &self,
+        &'a self,
         offset: usize,
         size: usize,
     ) -> Result<&'a [u8], WasmRuntimeErrorKind> {
-        let memory = self.memory();
+        let memory = self.as_slice();
         let limit = memory.len();
         if offset < limit && size < limit && offset + size < limit {
-            Ok(slice::from_raw_parts(
-                memory.get_unchecked(offset) as *const _,
-                size,
-            ))
+            Ok(slice::from_raw_parts(memory.as_ptr().add(offset), size))
         } else {
             Err(WasmRuntimeErrorKind::OutOfBounds)
         }
     }
 
     pub unsafe fn slice_mut<'a>(
-        &self,
+        &'a self,
         offset: usize,
         size: usize,
     ) -> Result<&'a mut [u8], WasmRuntimeErrorKind> {
-        let memory = self.memory_mut();
+        let memory = self.as_mut_slice();
         let limit = memory.len();
         if offset < limit && size < limit && offset + size < limit {
             Ok(slice::from_raw_parts_mut(
-                memory.get_unchecked_mut(offset) as *mut _,
+                memory.as_mut_ptr().add(offset),
                 size,
             ))
         } else {
@@ -1018,11 +1015,11 @@ impl WasmMemory {
     }
 
     pub unsafe fn transmute<T>(&self, offset: usize) -> Result<&T, WasmRuntimeErrorKind> {
-        let memory = self.memory();
+        let memory = self.as_slice();
         let limit = memory.len();
         let size = size_of::<T>();
         if offset < limit && size < limit && offset + size < limit {
-            Ok(transmute(memory.get_unchecked(offset) as *const _))
+            Ok(transmute(memory.as_ptr().add(offset)))
         } else {
             Err(WasmRuntimeErrorKind::OutOfBounds)
         }
@@ -1033,13 +1030,13 @@ impl WasmMemory {
         offset: usize,
         len: usize,
     ) -> Result<&[u32], WasmRuntimeErrorKind> {
-        let memory = self.memory();
+        let memory = self.as_slice();
         let limit = memory.len();
         let size = len * 4;
         if offset < limit && size < limit && offset + size < limit {
             unsafe {
                 Ok(slice::from_raw_parts(
-                    memory.get_unchecked(offset) as *const _ as *const u32,
+                    memory.as_ptr().add(offset) as *const u32,
                     len,
                 ))
             }
@@ -1051,7 +1048,7 @@ impl WasmMemory {
     /// Write slice to memory
     #[inline]
     pub fn write_slice(&self, offset: usize, src: &[u8]) -> Result<(), WasmRuntimeErrorKind> {
-        let memory = self.memory_mut();
+        let memory = self.as_mut_slice();
         let size = src.len();
         let limit = memory.len();
         if offset < limit && size < limit && offset + size < limit {
@@ -1072,7 +1069,7 @@ impl WasmMemory {
         val: u8,
         count: usize,
     ) -> Result<(), WasmRuntimeErrorKind> {
-        let memory = self.memory_mut();
+        let memory = self.as_mut_slice();
         let limit = memory.len();
         if offset < limit && count < limit && offset + count < limit {
             let dest = &mut memory[offset] as *mut u8;
@@ -1086,96 +1083,77 @@ impl WasmMemory {
     }
 
     #[inline]
-    pub fn read_u8(&self, offset: usize) -> Result<u8, WasmRuntimeErrorKind> {
-        let slice = self.memory();
-        slice
-            .get(offset)
-            .map(|v| *v)
-            .ok_or(WasmRuntimeErrorKind::OutOfBounds)
-    }
-
-    #[inline]
-    pub fn write_u8(&self, offset: usize, val: u8) -> Result<(), WasmRuntimeErrorKind> {
-        let slice = self.memory_mut();
-        slice
-            .get_mut(offset)
-            .map(|v| *v = val)
-            .ok_or(WasmRuntimeErrorKind::OutOfBounds)
-    }
-
-    #[inline]
-    pub fn read_u16(&self, offset: usize) -> Result<u16, WasmRuntimeErrorKind> {
-        let slice = self.memory();
-        let limit = slice.len();
-        if offset + 1 < limit {
-            Ok(unsafe { WasmEndian::read_u16(slice, offset) })
+    fn effective_address(
+        offset: u32,
+        index: u32,
+        limit: usize,
+    ) -> Result<usize, WasmRuntimeErrorKind> {
+        let ea = (offset as u64).wrapping_add(index as u64);
+        if ea < limit as u64 {
+            Ok(ea as usize)
         } else {
             Err(WasmRuntimeErrorKind::OutOfBounds)
         }
     }
 
     #[inline]
-    pub fn write_u16(&self, offset: usize, val: u16) -> Result<(), WasmRuntimeErrorKind> {
-        let slice = self.memory_mut();
-        let limit = slice.len();
-        if offset + 1 < limit {
-            unsafe {
-                WasmEndian::write_u16(slice, offset, val);
-            }
-            Ok(())
-        } else {
-            Err(WasmRuntimeErrorKind::OutOfBounds)
-        }
+    pub fn read_u8(&self, offset: u32, index: u32) -> Result<u8, WasmRuntimeErrorKind> {
+        let slice = self.as_slice();
+        Self::effective_address(offset, index, slice.len())
+            .map(|ea| unsafe { slice.as_ptr().add(ea).read() })
     }
 
     #[inline]
-    pub fn read_u32(&self, offset: usize) -> Result<u32, WasmRuntimeErrorKind> {
-        let slice = self.memory();
-        let limit = slice.len();
-        if offset + 3 < limit {
-            Ok(unsafe { WasmEndian::read_u32(slice, offset) })
-        } else {
-            Err(WasmRuntimeErrorKind::OutOfBounds)
-        }
+    pub fn write_u8(&self, offset: u32, index: u32, val: u8) -> Result<(), WasmRuntimeErrorKind> {
+        let slice = self.as_mut_slice();
+        Self::effective_address(offset, index, slice.len()).map(|ea| unsafe {
+            slice.as_mut_ptr().add(ea).write(val);
+        })
     }
 
     #[inline]
-    pub fn write_u32(&self, offset: usize, val: u32) -> Result<(), WasmRuntimeErrorKind> {
-        let slice = self.memory_mut();
-        let limit = slice.len();
-        if offset + 3 < limit {
-            unsafe {
-                WasmEndian::write_u32(slice, offset, val);
-            }
-            Ok(())
-        } else {
-            Err(WasmRuntimeErrorKind::OutOfBounds)
-        }
+    pub fn read_u16(&self, offset: u32, index: u32) -> Result<u16, WasmRuntimeErrorKind> {
+        let slice = self.as_slice();
+        Self::effective_address(offset, index, slice.len() - 1)
+            .map(|ea| unsafe { WasmEndian::read_u16(slice, ea) })
     }
 
     #[inline]
-    pub fn read_u64(&self, offset: usize) -> Result<u64, WasmRuntimeErrorKind> {
-        let slice = self.memory();
-        let limit = slice.len();
-        if offset + 7 < limit {
-            Ok(unsafe { WasmEndian::read_u64(slice, offset) })
-        } else {
-            Err(WasmRuntimeErrorKind::OutOfBounds)
-        }
+    pub fn write_u16(&self, offset: u32, index: u32, val: u16) -> Result<(), WasmRuntimeErrorKind> {
+        let slice = self.as_mut_slice();
+        Self::effective_address(offset, index, slice.len() - 1).map(|ea| unsafe {
+            WasmEndian::write_u16(slice, ea, val);
+        })
     }
 
     #[inline]
-    pub fn write_u64(&self, offset: usize, val: u64) -> Result<(), WasmRuntimeErrorKind> {
-        let slice = self.memory_mut();
-        let limit = slice.len();
-        if offset + 7 < limit {
-            unsafe {
-                WasmEndian::write_u64(slice, offset, val);
-            }
-            Ok(())
-        } else {
-            Err(WasmRuntimeErrorKind::OutOfBounds)
-        }
+    pub fn read_u32(&self, offset: u32, index: u32) -> Result<u32, WasmRuntimeErrorKind> {
+        let slice = self.as_slice();
+        Self::effective_address(offset, index, slice.len() - 3)
+            .map(|ea| unsafe { WasmEndian::read_u32(slice, ea) })
+    }
+
+    #[inline]
+    pub fn write_u32(&self, offset: u32, index: u32, val: u32) -> Result<(), WasmRuntimeErrorKind> {
+        let slice = self.as_mut_slice();
+        Self::effective_address(offset, index, slice.len() - 3).map(|ea| unsafe {
+            WasmEndian::write_u32(slice, ea, val);
+        })
+    }
+
+    #[inline]
+    pub fn read_u64(&self, offset: u32, index: u32) -> Result<u64, WasmRuntimeErrorKind> {
+        let slice = self.as_slice();
+        Self::effective_address(offset, index, slice.len() - 7)
+            .map(|ea| unsafe { WasmEndian::read_u64(slice, ea) })
+    }
+
+    #[inline]
+    pub fn write_u64(&self, offset: u32, index: u32, val: u64) -> Result<(), WasmRuntimeErrorKind> {
+        let slice = self.as_mut_slice();
+        Self::effective_address(offset, index, slice.len() - 7).map(|ea| unsafe {
+            WasmEndian::write_u64(slice, ea, val);
+        })
     }
 }
 
@@ -1939,12 +1917,12 @@ impl WasmGlobal {
 
     #[inline]
     pub fn value(&self) -> WasmValue {
-        self.data.load(Ordering::Acquire).into()
+        self.data.load(Ordering::Relaxed).into()
     }
 
     #[inline]
     pub fn set_value(&self, val: WasmUnsafeValue) {
-        self.data.store(unsafe { val.get_u32() }, Ordering::Release);
+        self.data.store(unsafe { val.get_u32() }, Ordering::SeqCst);
     }
 
     #[inline]
@@ -2069,7 +2047,6 @@ pub struct WasmCodeBlock {
     max_stack: usize,
     flags: WasmBlockFlag,
     int_codes: Box<[WasmImc]>,
-    ext_params: Box<[usize]>,
 }
 
 bitflags! {
@@ -2112,11 +2089,6 @@ impl WasmCodeBlock {
         &self.int_codes
     }
 
-    #[inline]
-    pub const fn ext_params(&self) -> &[usize] {
-        &self.ext_params
-    }
-
     /// Analyzes the WebAssembly bytecode stream to generate intermediate code blocks.
     pub fn generate(
         func_index: usize,
@@ -2151,7 +2123,6 @@ impl WasmCodeBlock {
         let mut flags = WasmBlockFlag::LEAF_FUNCTION;
 
         let mut int_codes: Vec<WasmImc> = Vec::new();
-        let mut ext_params = Vec::new();
 
         loop {
             max_stack = usize::max(max_stack, value_stack.len());
@@ -2176,7 +2147,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::Unreachable,
                         value_stack.len(),
-                        0,
                     ));
                 }
 
@@ -2201,12 +2171,17 @@ impl WasmCodeBlock {
                         int_codes.push(WasmImc::new(
                             position,
                             opcode,
-                            WasmIntMnemonic::Block,
+                            WasmIntMnemonic::Block(target),
                             value_stack.len(),
-                            target as u64,
                         ));
                     } else {
-                        int_codes.push(WasmIntMnemonic::Undefined.into());
+                        // TODO:
+                        int_codes.push(WasmImc::new(
+                            position,
+                            opcode,
+                            WasmIntMnemonic::Undefined,
+                            value_stack.len(),
+                        ));
                     }
                 }
                 WasmOpcode::Loop => {
@@ -2228,12 +2203,17 @@ impl WasmCodeBlock {
                         int_codes.push(WasmImc::new(
                             position,
                             opcode,
-                            WasmIntMnemonic::Block,
+                            WasmIntMnemonic::Block(target),
                             value_stack.len(),
-                            target as u64,
                         ));
                     } else {
-                        int_codes.push(WasmIntMnemonic::Undefined.into());
+                        // TODO:
+                        int_codes.push(WasmImc::new(
+                            position,
+                            opcode,
+                            WasmIntMnemonic::Undefined,
+                            value_stack.len(),
+                        ));
                     }
                 }
                 WasmOpcode::If => {
@@ -2254,7 +2234,13 @@ impl WasmCodeBlock {
                     });
                     block_stack.push(blocks.len());
                     blocks.push(block);
-                    int_codes.push(WasmIntMnemonic::Undefined.into());
+                    // TODO: if else block
+                    int_codes.push(WasmImc::new(
+                        position,
+                        opcode,
+                        WasmIntMnemonic::Undefined,
+                        value_stack.len(),
+                    ));
                 }
                 WasmOpcode::Else => {
                     let block_ref = block_stack
@@ -2268,7 +2254,13 @@ impl WasmCodeBlock {
                     for _ in 0..n_drops {
                         value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     }
-                    int_codes.push(WasmIntMnemonic::Undefined.into());
+                    // TODO: if else block
+                    int_codes.push(WasmImc::new(
+                        position,
+                        opcode,
+                        WasmIntMnemonic::Undefined,
+                        value_stack.len(),
+                    ));
                 }
                 WasmOpcode::End => {
                     if block_stack.len() > 0 {
@@ -2286,9 +2278,8 @@ impl WasmCodeBlock {
                         int_codes.push(WasmImc::new(
                             position,
                             opcode,
-                            WasmIntMnemonic::End,
+                            WasmIntMnemonic::End(block_ref),
                             value_stack.len(),
-                            block_ref as u64,
                         ));
                     // TODO: type check
                     } else {
@@ -2297,7 +2288,6 @@ impl WasmCodeBlock {
                             opcode,
                             WasmIntMnemonic::Return,
                             value_stack.len() - 1,
-                            0,
                         ));
                         break;
                     }
@@ -2311,9 +2301,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::Br,
+                        WasmIntMnemonic::Br(*target),
                         value_stack.len(),
-                        *target as u64,
                     ));
                 }
                 WasmOpcode::BrIf => {
@@ -2328,21 +2317,19 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::BrIf,
+                        WasmIntMnemonic::BrIf(*target),
                         value_stack.len(),
-                        *target as u64,
                     ));
                 }
                 WasmOpcode::BrTable => {
                     let table_len = 1 + stream.read_unsigned()? as usize;
-                    let param_position = ext_params.len();
-                    ext_params.push(table_len);
+                    let mut table = Vec::with_capacity(table_len);
                     for _ in 0..table_len {
                         let br = stream.read_unsigned()? as usize;
                         let target = block_stack
                             .get(block_stack.len() - br - 1)
                             .ok_or(WasmDecodeErrorKind::OutOfBranch)?;
-                        ext_params.push(*target);
+                        table.push(*target);
                     }
                     let cc = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     if cc != WasmValType::I32 {
@@ -2351,9 +2338,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::BrTable,
+                        WasmIntMnemonic::BrTable(table.into_boxed_slice()),
                         value_stack.len(),
-                        param_position as u64,
                     ));
                 }
 
@@ -2363,7 +2349,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::Return,
                         value_stack.len() - 1,
-                        0,
                     ));
                     // TODO: type check
                 }
@@ -2378,9 +2363,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::Call,
+                        WasmIntMnemonic::Call(func_index),
                         value_stack.len(),
-                        func_index as u64,
                     ));
                     // TODO: type check
                     for _param in function.param_types() {
@@ -2392,10 +2376,10 @@ impl WasmCodeBlock {
                 }
                 WasmOpcode::CallIndirect => {
                     flags.remove(WasmBlockFlag::LEAF_FUNCTION);
-                    let type_ref = stream.read_unsigned()? as usize;
+                    let type_index = stream.read_unsigned()? as usize;
                     let _reserved = stream.read_unsigned()? as usize;
                     let func_type = module
-                        .type_by_ref(type_ref)
+                        .type_by_ref(type_index)
                         .ok_or(WasmDecodeErrorKind::InvalidParameter)?;
                     let index = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     if index != WasmValType::I32 {
@@ -2404,9 +2388,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::CallIndirect,
+                        WasmIntMnemonic::CallIndirect(type_index),
                         value_stack.len(),
-                        type_ref as u64,
                     ));
                     // TODO: type check
                     for _param in func_type.param_types() {
@@ -2435,7 +2418,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::Select,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(a);
                 }
@@ -2448,9 +2430,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::LocalGet,
+                        WasmIntMnemonic::LocalGet(local_ref),
                         value_stack.len(),
-                        local_ref as u64,
                     ));
                     value_stack.push(val);
                 }
@@ -2466,9 +2447,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::LocalSet,
+                        WasmIntMnemonic::LocalSet(local_ref),
                         value_stack.len(),
-                        local_ref as u64,
                     ));
                 }
                 WasmOpcode::LocalTee => {
@@ -2483,9 +2463,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::LocalSet,
+                        WasmIntMnemonic::LocalTee(local_ref),
                         value_stack.len() - 1,
-                        local_ref as u64,
                     ));
                 }
 
@@ -2499,9 +2478,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::GlobalGet,
+                        WasmIntMnemonic::GlobalGet(global_ref),
                         value_stack.len(),
-                        global_ref as u64,
                     ));
                     value_stack.push(val_type);
                 }
@@ -2523,9 +2501,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::GlobalSet,
+                        WasmIntMnemonic::GlobalSet(global_ref),
                         value_stack.len(),
-                        global_ref as u64,
                     ));
                 }
 
@@ -2541,9 +2518,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::I32Load,
+                        WasmIntMnemonic::I32Load(arg.offset),
                         value_stack.len(),
-                        arg.offset as u64,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -2559,9 +2535,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::I32Load8S,
+                        WasmIntMnemonic::I32Load8S(arg.offset),
                         value_stack.len(),
-                        arg.offset as u64,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -2577,9 +2552,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::I32Load8U,
+                        WasmIntMnemonic::I32Load8U(arg.offset),
                         value_stack.len(),
-                        arg.offset as u64,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -2595,9 +2569,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::I32Load16S,
+                        WasmIntMnemonic::I32Load16S(arg.offset),
                         value_stack.len(),
-                        arg.offset as u64,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -2613,9 +2586,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::I32Load16U,
+                        WasmIntMnemonic::I32Load16U(arg.offset),
                         value_stack.len(),
-                        arg.offset as u64,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -2632,9 +2604,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::I64Load,
+                        WasmIntMnemonic::I64Load(arg.offset),
                         value_stack.len(),
-                        arg.offset as u64,
                     ));
                     value_stack.push(WasmValType::I64);
                 }
@@ -2650,9 +2621,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::I64Load8S,
+                        WasmIntMnemonic::I64Load8S(arg.offset),
                         value_stack.len(),
-                        arg.offset as u64,
                     ));
                     value_stack.push(WasmValType::I64);
                 }
@@ -2668,9 +2638,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::I64Load8U,
+                        WasmIntMnemonic::I64Load8U(arg.offset),
                         value_stack.len(),
-                        arg.offset as u64,
                     ));
                     value_stack.push(WasmValType::I64);
                 }
@@ -2686,9 +2655,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::I64Load16S,
+                        WasmIntMnemonic::I64Load16S(arg.offset),
                         value_stack.len(),
-                        arg.offset as u64,
                     ));
                     value_stack.push(WasmValType::I64);
                 }
@@ -2704,9 +2672,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::I64Load16U,
+                        WasmIntMnemonic::I64Load16U(arg.offset),
                         value_stack.len(),
-                        arg.offset as u64,
                     ));
                     value_stack.push(WasmValType::I64);
                 }
@@ -2722,9 +2689,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::I64Load32S,
+                        WasmIntMnemonic::I64Load32S(arg.offset),
                         value_stack.len(),
-                        arg.offset as u64,
                     ));
                     value_stack.push(WasmValType::I64);
                 }
@@ -2740,9 +2706,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::I64Load32U,
+                        WasmIntMnemonic::I64Load32U(arg.offset),
                         value_stack.len(),
-                        arg.offset as u64,
                     ));
                     value_stack.push(WasmValType::I64);
                 }
@@ -2760,9 +2725,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::I32Store,
+                        WasmIntMnemonic::I32Store(arg.offset),
                         value_stack.len(),
-                        arg.offset as u64,
                     ));
                 }
                 WasmOpcode::I32Store8 => {
@@ -2778,9 +2742,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::I32Store8,
+                        WasmIntMnemonic::I32Store8(arg.offset),
                         value_stack.len(),
-                        arg.offset as u64,
                     ));
                 }
                 WasmOpcode::I32Store16 => {
@@ -2796,9 +2759,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::I32Store16,
+                        WasmIntMnemonic::I32Store16(arg.offset),
                         value_stack.len(),
-                        arg.offset as u64,
                     ));
                 }
 
@@ -2815,9 +2777,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::I64Store,
+                        WasmIntMnemonic::I64Store(arg.offset),
                         value_stack.len(),
-                        arg.offset as u64,
                     ));
                 }
                 WasmOpcode::I64Store8 => {
@@ -2833,9 +2794,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::I64Store8,
+                        WasmIntMnemonic::I64Store8(arg.offset),
                         value_stack.len(),
-                        arg.offset as u64,
                     ));
                 }
                 WasmOpcode::I64Store16 => {
@@ -2851,9 +2811,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::I64Store16,
+                        WasmIntMnemonic::I64Store16(arg.offset),
                         value_stack.len(),
-                        arg.offset as u64,
                     ));
                 }
                 WasmOpcode::I64Store32 => {
@@ -2869,9 +2828,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::I64Store32,
+                        WasmIntMnemonic::I64Store32(arg.offset),
                         value_stack.len(),
-                        arg.offset as u64,
                     ));
                 }
 
@@ -2922,7 +2880,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::MemorySize,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -2937,7 +2894,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::MemoryGrow,
                         value_stack.len() - 1,
-                        0,
                     ));
                     let a = *value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     if a != WasmValType::I32 {
@@ -2947,15 +2903,14 @@ impl WasmCodeBlock {
 
                 WasmOpcode::I32Const => {
                     let val = stream.read_signed()?;
-                    if val < (i32::MIN as i64) || val > (i32::MAX as i64) {
-                        return Err(WasmDecodeErrorKind::InvalidParameter);
-                    }
+                    let val: i32 = val
+                        .try_into()
+                        .map_err(|_| WasmDecodeErrorKind::InvalidParameter)?;
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::I32Const,
+                        WasmIntMnemonic::I32Const(val),
                         value_stack.len(),
-                        val as u64,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -2964,9 +2919,8 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::I64Const,
+                        WasmIntMnemonic::I64Const(val),
                         value_stack.len(),
-                        val as u64,
                     ));
                     value_stack.push(WasmValType::I64);
                 }
@@ -2988,7 +2942,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32Eqz,
                         value_stack.len() - 1,
-                        0,
                     ));
                     let a = *value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     if a != WasmValType::I32 {
@@ -3001,7 +2954,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32Clz,
                         value_stack.len() - 1,
-                        0,
                     ));
                     let a = *value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     if a != WasmValType::I32 {
@@ -3014,7 +2966,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32Ctz,
                         value_stack.len() - 1,
-                        0,
                     ));
                     let a = *value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     if a != WasmValType::I32 {
@@ -3027,7 +2978,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32Popcnt,
                         value_stack.len() - 1,
-                        0,
                     ));
                     let a = *value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     if a != WasmValType::I32 {
@@ -3040,7 +2990,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32Extend8S,
                         value_stack.len() - 1,
-                        0,
                     ));
                     let a = *value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     if a != WasmValType::I32 {
@@ -3053,7 +3002,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32Extend16S,
                         value_stack.len() - 1,
-                        0,
                     ));
                     let a = *value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     if a != WasmValType::I32 {
@@ -3073,7 +3021,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32Eq,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3088,7 +3035,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32Ne,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3103,7 +3049,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32LtS,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3118,7 +3063,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32LtU,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3133,7 +3077,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32GtS,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3148,7 +3091,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32GtU,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3163,7 +3105,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32LeS,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3178,7 +3119,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32LeU,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3193,7 +3133,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32GeS,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3208,7 +3147,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32GeU,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3223,7 +3161,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32Add,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I32Sub => {
@@ -3237,7 +3174,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32Sub,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I32Mul => {
@@ -3251,7 +3187,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32Mul,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I32DivS => {
@@ -3265,7 +3200,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32DivS,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I32DivU => {
@@ -3279,7 +3213,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32DivU,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I32RemS => {
@@ -3293,7 +3226,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32RemS,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I32RemU => {
@@ -3307,7 +3239,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32RemU,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I32And => {
@@ -3321,7 +3252,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32And,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I32Or => {
@@ -3335,7 +3265,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32Or,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I32Xor => {
@@ -3349,7 +3278,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32Xor,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I32Shl => {
@@ -3363,7 +3291,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32Shl,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I32ShrS => {
@@ -3377,7 +3304,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32ShrS,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I32ShrU => {
@@ -3391,7 +3317,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32ShrU,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I32Rotl => {
@@ -3405,7 +3330,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32Rotl,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I32Rotr => {
@@ -3419,7 +3343,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32Rotr,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
 
@@ -3435,7 +3358,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64Eq,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3450,7 +3372,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64Ne,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3465,7 +3386,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64LtS,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3480,7 +3400,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64LtU,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3495,7 +3414,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64GtS,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3510,7 +3428,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64GtU,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3525,7 +3442,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64LeS,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3540,7 +3456,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64LeU,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3555,7 +3470,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64GeS,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3570,7 +3484,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64GeU,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3582,7 +3495,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64Clz,
                         value_stack.len() - 1,
-                        0,
                     ));
                     let a = *value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     if a != WasmValType::I64 {
@@ -3595,7 +3507,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64Ctz,
                         value_stack.len() - 1,
-                        0,
                     ));
                     let a = *value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     if a != WasmValType::I64 {
@@ -3608,7 +3519,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64Popcnt,
                         value_stack.len() - 1,
-                        0,
                     ));
                     let a = *value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     if a != WasmValType::I64 {
@@ -3621,7 +3531,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64Extend8S,
                         value_stack.len() - 1,
-                        0,
                     ));
                     let a = *value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     if a != WasmValType::I64 {
@@ -3634,7 +3543,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64Extend16S,
                         value_stack.len() - 1,
-                        0,
                     ));
                     let a = *value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     if a != WasmValType::I64 {
@@ -3647,7 +3555,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64Extend32S,
                         value_stack.len() - 1,
-                        0,
                     ));
                     let a = *value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     if a != WasmValType::I64 {
@@ -3667,7 +3574,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64Add,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I64Sub => {
@@ -3681,7 +3587,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64Sub,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I64Mul => {
@@ -3695,7 +3600,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64Mul,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I64DivS => {
@@ -3709,7 +3613,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64DivS,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I64DivU => {
@@ -3723,7 +3626,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64DivU,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I64RemS => {
@@ -3737,7 +3639,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64RemS,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I64RemU => {
@@ -3751,7 +3652,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64RemU,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I64And => {
@@ -3765,7 +3665,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64And,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I64Or => {
@@ -3779,7 +3678,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64Or,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I64Xor => {
@@ -3793,7 +3691,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64Xor,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I64Shl => {
@@ -3807,7 +3704,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64Shl,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I64ShrS => {
@@ -3821,7 +3717,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64ShrS,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I64ShrU => {
@@ -3835,7 +3730,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64ShrU,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I64Rotl => {
@@ -3849,7 +3743,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64Rotl,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
                 WasmOpcode::I64Rotr => {
@@ -3863,7 +3756,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64Rotr,
                         value_stack.len() - 1,
-                        0,
                     ));
                 }
 
@@ -3878,7 +3770,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64Eqz,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3892,7 +3783,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I32WrapI64,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I32);
                 }
@@ -3908,7 +3798,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64ExtendI32S,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I64);
                 }
@@ -3922,7 +3811,6 @@ impl WasmCodeBlock {
                         opcode,
                         WasmIntMnemonic::I64ExtendI32U,
                         value_stack.len(),
-                        0,
                     ));
                     value_stack.push(WasmValType::I64);
                 }
@@ -4143,20 +4031,11 @@ impl WasmCodeBlock {
             }
         }
 
-        macro_rules! fused_const_opr {
+        macro_rules! fused_inst {
             ( $array:ident, $index:expr, $opr:expr ) => {
                 let next = $index + 1;
-                $array[$index].mnemonic = Nop;
                 $array[next].mnemonic = $opr;
-                $array[next].param1 = $array[$index].param1();
-            };
-        }
-
-        macro_rules! fused_branch {
-            ( $array:ident, $index:expr, $opr:expr ) => {
-                let next = $index + 1;
                 $array[$index].mnemonic = Nop;
-                $array[next].mnemonic = $opr;
             };
         }
 
@@ -4168,45 +4047,62 @@ impl WasmCodeBlock {
                 let this_op = int_codes[i].mnemonic();
                 let next_op = int_codes[i + 1].mnemonic();
                 match (this_op, next_op) {
-                    (I32Const, I32Add) => {
-                        fused_const_opr!(int_codes, i, FusedI32AddI);
+                    (I32Const(val), LocalSet(local_index)) => {
+                        fused_inst!(int_codes, i, FusedI32SetConst(*local_index, *val));
                     }
-                    (I32Const, I32Sub) => {
-                        fused_const_opr!(int_codes, i, FusedI32SubI);
+                    (I32Const(val), I32Add) => {
+                        fused_inst!(int_codes, i, FusedI32AddI(*val));
                     }
-                    (I32Const, I32And) => {
-                        fused_const_opr!(int_codes, i, FusedI32AndI);
+                    (I32Const(val), I32Sub) => {
+                        fused_inst!(int_codes, i, FusedI32SubI(*val));
                     }
-                    (I32Const, I32Or) => {
-                        fused_const_opr!(int_codes, i, FusedI32OrI);
+                    (I32Const(val), I32And) => {
+                        fused_inst!(int_codes, i, FusedI32AndI(*val));
                     }
-                    (I32Const, I32Xor) => {
-                        fused_const_opr!(int_codes, i, FusedI32XorI);
+                    (I32Const(val), I32Or) => {
+                        fused_inst!(int_codes, i, FusedI32OrI(*val));
                     }
-                    (I32Const, I32Shl) => {
-                        fused_const_opr!(int_codes, i, FusedI32ShlI);
+                    (I32Const(val), I32Xor) => {
+                        fused_inst!(int_codes, i, FusedI32XorI(*val));
                     }
-                    (I32Const, I32ShrS) => {
-                        fused_const_opr!(int_codes, i, FusedI32ShrSI);
+                    (I32Const(val), I32Shl) => {
+                        fused_inst!(int_codes, i, FusedI32ShlI(*val));
                     }
-                    (I32Const, I32ShrU) => {
-                        fused_const_opr!(int_codes, i, FusedI32ShrUI);
+                    (I32Const(val), I32ShrS) => {
+                        fused_inst!(int_codes, i, FusedI32ShrSI(*val));
                     }
-
-                    (I64Const, I64Add) => {
-                        fused_const_opr!(int_codes, i, FusedI64AddI);
-                    }
-                    (I64Const, I64Sub) => {
-                        fused_const_opr!(int_codes, i, FusedI64SubI);
+                    (I32Const(val), I32ShrU) => {
+                        fused_inst!(int_codes, i, FusedI32ShrUI(*val));
                     }
 
-                    (I32Eqz, BrIf) => {
-                        fused_branch!(int_codes, i, FusedI32BrZ);
+                    (I64Const(val), LocalSet(local_index)) => {
+                        fused_inst!(int_codes, i, FusedI64SetConst(*local_index, *val));
                     }
-                    (I64Eqz, BrIf) => {
-                        fused_branch!(int_codes, i, FusedI64BrZ);
+                    (I64Const(val), I64Add) => {
+                        fused_inst!(int_codes, i, FusedI64AddI(*val));
+                    }
+                    (I64Const(val), I64Sub) => {
+                        fused_inst!(int_codes, i, FusedI64SubI(*val));
                     }
 
+                    (I32Eqz, BrIf(target)) => {
+                        fused_inst!(int_codes, i, FusedI32BrZ(*target));
+                    }
+                    (I32Eq, BrIf(target)) => {
+                        fused_inst!(int_codes, i, FusedI32BrEq(*target));
+                    }
+                    (I32Ne, BrIf(target)) => {
+                        fused_inst!(int_codes, i, FusedI32BrNe(*target));
+                    }
+                    (I64Eqz, BrIf(target)) => {
+                        fused_inst!(int_codes, i, FusedI64BrZ(*target));
+                    }
+                    (I64Eq, BrIf(target)) => {
+                        fused_inst!(int_codes, i, FusedI64BrEq(*target));
+                    }
+                    (I64Ne, BrIf(target)) => {
+                        fused_inst!(int_codes, i, FusedI64BrNe(*target));
+                    }
                     _ => (),
                 }
             }
@@ -4215,55 +4111,40 @@ impl WasmCodeBlock {
         // compaction
         let mut actual_len = 0;
         for index in 0..int_codes.len() {
-            use WasmIntMnemonic::*;
-            let code = int_codes[index];
-            match code.mnemonic() {
-                Nop => (),
-                Block => {
-                    let target = code.param1() as usize;
+            let code = &int_codes[index];
+            match *code.mnemonic() {
+                WasmIntMnemonic::Nop => (),
+                WasmIntMnemonic::Block(target) => {
                     let ref mut block = blocks[target].borrow_mut();
                     block.start_position = actual_len;
                 }
-                End => {
-                    let target = code.param1() as usize;
+                WasmIntMnemonic::End(target) => {
                     let ref mut block = blocks[target].borrow_mut();
                     block.end_position = actual_len;
                 }
                 _ => {
-                    int_codes[actual_len] = code;
+                    unsafe {
+                        int_codes
+                            .as_mut_ptr()
+                            .add(actual_len)
+                            .write(int_codes.as_ptr().add(index).read());
+                    }
                     actual_len += 1;
                 }
             }
         }
-        int_codes.resize(
-            actual_len,
-            WasmImc::from_mnemonic(WasmIntMnemonic::Unreachable),
-        );
+        unsafe {
+            int_codes.set_len(actual_len);
+        }
 
         // fixes branching targets
         for code in int_codes.iter_mut() {
-            use WasmIntMnemonic::*;
-            let mnemonic = code.mnemonic();
-            if mnemonic.is_branch() {
-                let target = code.param1() as usize;
-                let block = blocks.get(target).ok_or(WasmDecodeErrorKind::OutOfBranch)?;
-                code.set_param1(block.borrow().preferred_target() as u64);
-            } else {
-                match code.mnemonic() {
-                    BrTable => {
-                        let table_position = code.param1() as usize;
-                        let table_len = ext_params[table_position];
-                        for i in 0..table_len {
-                            let index = table_position + i + 1;
-                            let target = ext_params[index];
-                            let block =
-                                blocks.get(target).ok_or(WasmDecodeErrorKind::OutOfBranch)?;
-                            ext_params[index] = block.borrow().preferred_target();
-                        }
-                    }
-                    _ => (),
-                }
-            }
+            code.adjust_branch_target(|_opcode, target| {
+                blocks
+                    .get(target)
+                    .ok_or(WasmDecodeErrorKind::OutOfBranch)
+                    .map(|block| block.borrow().preferred_target())
+            })?;
         }
 
         Ok(Self {
@@ -4273,7 +4154,6 @@ impl WasmCodeBlock {
             max_stack,
             flags,
             int_codes: int_codes.into_boxed_slice(),
-            ext_params: ext_params.into_boxed_slice(),
         })
     }
 }

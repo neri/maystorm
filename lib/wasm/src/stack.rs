@@ -24,13 +24,6 @@ impl<T> FixedStack<'_, T> {
     pub const fn len(&self) -> usize {
         self.stack_pointer
     }
-}
-
-impl<T: Sized + Copy + Clone> FixedStack<'_, T> {
-    #[inline]
-    pub fn remove_all(&mut self) {
-        self.stack_pointer = 0;
-    }
 
     #[inline]
     pub fn as_slice(&self) -> &[T] {
@@ -40,6 +33,13 @@ impl<T: Sized + Copy + Clone> FixedStack<'_, T> {
     #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         &mut self.slice[..self.stack_pointer]
+    }
+}
+
+impl<T: Sized> FixedStack<'_, T> {
+    #[inline]
+    pub fn remove_all(&mut self) {
+        while self.pop().is_some() {}
     }
 
     #[inline]
@@ -63,11 +63,12 @@ impl<T: Sized + Copy + Clone> FixedStack<'_, T> {
     #[inline]
     pub fn push(&mut self, data: T) -> Result<(), ()> {
         if self.stack_pointer < self.slice.len() {
-            self.slice
-                .get_mut(self.stack_pointer)
-                .map(|v| *v = data)
-                .map(|_| self.stack_pointer += 1)
-                .ok_or(())
+            unsafe {
+                let p = self.slice.get_unchecked_mut(self.stack_pointer) as *mut T;
+                p.write(data);
+                self.stack_pointer += 1;
+            }
+            Ok(())
         } else {
             Err(())
         }
@@ -77,15 +78,18 @@ impl<T: Sized + Copy + Clone> FixedStack<'_, T> {
     pub fn pop(&mut self) -> Option<T> {
         if self.stack_pointer > 0 {
             let new_sp = self.stack_pointer - 1;
-            self.slice.get(new_sp).map(|v| *v).map(|v| {
+            unsafe {
+                let p = self.slice.get_unchecked(new_sp) as *const T;
                 self.stack_pointer = new_sp;
-                v
-            })
+                Some(p.read())
+            }
         } else {
             None
         }
     }
+}
 
+impl<T: Sized + Clone> FixedStack<'_, T> {
     #[track_caller]
     pub fn resize(&mut self, new_size: usize, new_value: T) {
         if new_size < self.slice.len() {
@@ -95,27 +99,8 @@ impl<T: Sized + Copy + Clone> FixedStack<'_, T> {
             }
             self.stack_pointer = new_size;
         } else {
-            self.slice[usize::MAX];
+            todo!()
         }
-    }
-
-    #[track_caller]
-    pub fn extend_from_slice(&mut self, other: &[T]) {
-        if other.len() == 0 {
-            return;
-        }
-        let count = other.len();
-        let cur_size = self.stack_pointer;
-        let new_size = cur_size + count;
-        if new_size > self.slice.len() {
-            self.slice[usize::MAX];
-        }
-        unsafe {
-            let p = self.slice.get_unchecked_mut(cur_size) as *mut T;
-            let q = other.get_unchecked(0) as *const T;
-            q.copy_to_nonoverlapping(p, count);
-        }
-        self.stack_pointer = new_size;
     }
 }
 

@@ -63,15 +63,10 @@ impl UsbHidDriver {
             return Err(UsbError::InvalidDescriptor);
         }
 
-        let report_desc = match interface.hid_reports_by(UsbDescriptorType::HidReport) {
-            Some(v) => {
-                let mut vec = Vec::new();
-                vec.extend_from_slice(v);
-                vec.into_boxed_slice()
-            }
-            None => Box::new([]),
-        };
-        let report_desc = match Self::parse_report(&report_desc) {
+        let report_desc = interface
+            .hid_reports_by(UsbDescriptorType::HidReport)
+            .unwrap_or(&[]);
+        let report_desc = match Self::parse_report(report_desc) {
             Ok(v) => v,
             Err(err) => {
                 log!("HID PARSE ERROR {}", err);

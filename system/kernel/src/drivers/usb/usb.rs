@@ -18,6 +18,7 @@ use core::{
     time::Duration,
 };
 use futures_util::Future;
+use megstd::uuid::Uuid;
 use num_traits::FromPrimitive;
 
 /// USB Driver to Host interface
@@ -593,7 +594,9 @@ impl UsbDeviceControl {
                                 // return Err(UsbError::InvalidDescriptor);
                             }
                         };
-                        current_interface.hid_reports.insert(report_type, vec);
+                        current_interface
+                            .hid_reports
+                            .insert(report_type, vec.into_boxed_slice());
                     }
                 }
                 _ => {
@@ -637,7 +640,7 @@ impl UsbDeviceControl {
         let device = UsbDevice {
             addr,
             route_string: host.route_string(),
-            uuid,
+            uuid: Uuid::from_raw(uuid),
             parent,
             children: Vec::new(),
             speed: host.speed(),
@@ -1121,7 +1124,7 @@ pub struct UsbDevice {
     children: Vec<UsbAddress>,
     speed: PSIV,
 
-    uuid: [u8; 16],
+    uuid: Uuid,
 
     is_configured: AtomicBool,
     manufacturer_string: Option<String>,
@@ -1140,18 +1143,18 @@ pub struct UsbDevice {
 impl UsbDevice {
     /// Gets the USB address of this device.
     #[inline]
-    pub const fn addr(&self) -> UsbAddress {
+    pub fn addr(&self) -> UsbAddress {
         self.addr
     }
 
     /// Gets the USB address of the parent device.
     #[inline]
-    pub const fn parent(&self) -> Option<UsbAddress> {
+    pub fn parent(&self) -> Option<UsbAddress> {
         self.parent
     }
 
     #[inline]
-    pub const fn route_string(&self) -> UsbRouteString {
+    pub fn route_string(&self) -> UsbRouteString {
         self.route_string
     }
 
@@ -1162,40 +1165,40 @@ impl UsbDevice {
 
     /// Gets the uuid of this device, if available.
     #[inline]
-    pub const fn uuid(&self) -> &[u8; 16] {
+    pub fn uuid(&self) -> &Uuid {
         &self.uuid
     }
 
     #[inline]
-    pub const fn protocol_speed(&self) -> usize {
+    pub fn protocol_speed(&self) -> usize {
         self.speed.protocol_speed()
     }
 
     #[inline]
-    pub const fn usb_version(&self) -> UsbVersion {
+    pub fn usb_version(&self) -> UsbVersion {
         self.descriptor.usb_version()
     }
 
     /// Gets the vendor ID for this device.
     #[inline]
-    pub const fn vid(&self) -> UsbVendorId {
+    pub fn vid(&self) -> UsbVendorId {
         self.descriptor.vid()
     }
 
     /// Gets the product ID for this device.
     #[inline]
-    pub const fn pid(&self) -> UsbProductId {
+    pub fn pid(&self) -> UsbProductId {
         self.descriptor.pid()
     }
 
     /// Gets the device class of this device.
     #[inline]
-    pub const fn class(&self) -> UsbClass {
+    pub fn class(&self) -> UsbClass {
         self.descriptor.class()
     }
 
     #[inline]
-    pub const fn preferred_lang_id(&self) -> UsbLangId {
+    pub fn preferred_lang_id(&self) -> UsbLangId {
         self.lang_id
     }
 
@@ -1362,7 +1365,7 @@ impl UsbConfiguration {
 pub struct UsbInterface {
     descriptor: UsbInterfaceDescriptor,
     endpoints: Vec<UsbEndpoint>,
-    hid_reports: BTreeMap<UsbDescriptorType, Vec<u8>>,
+    hid_reports: BTreeMap<UsbDescriptorType, Box<[u8]>>,
     name: Option<String>,
 }
 
@@ -1394,7 +1397,7 @@ impl UsbInterface {
 
     #[inline]
     pub fn hid_reports_by(&self, desc_type: UsbDescriptorType) -> Option<&[u8]> {
-        self.hid_reports.get(&desc_type).map(|v| v.as_slice())
+        self.hid_reports.get(&desc_type).map(|v| v.as_ref())
     }
 
     #[inline]

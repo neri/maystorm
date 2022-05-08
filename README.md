@@ -1,6 +1,6 @@
 # MEG-OS
 
-A 2020s hobby operating system written in Rust that supports WebAssembly.
+A hobby operating system written in Rust that supports WebAssembly.
 
 * [Documentation](https://meg-os.github.io/maystorm/kernel/)
 

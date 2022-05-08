@@ -1,7 +1,7 @@
 //! Icon Resource Manager
 
 use crate::r;
-use megstd::drawing::{img::ImageLoader, *};
+use megstd::drawing::{image::ImageLoader, *};
 
 pub struct IconManager {}
 

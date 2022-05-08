@@ -872,7 +872,7 @@ where
 
     fn _start_thread(p: usize) {
         {
-            let this = unsafe { Box::into_inner(Box::from_raw(p as *mut Self)) };
+            let this = unsafe { Box::from_raw(p as *mut Self) };
             let r = (this.start)();
             *this.mutex.lock().unwrap() = Some(r);
         }

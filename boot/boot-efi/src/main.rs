@@ -68,13 +68,14 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
     }
 
     // Load KERNEL
-    let mut kernel = ElfLoader::new(match get_file(handle, &bs, KERNEL_PATH) {
+    let blob = match get_file(handle, &bs, KERNEL_PATH) {
         Ok(blob) => (blob),
         Err(status) => {
             writeln!(st.stdout(), "Error: Load failed {}", KERNEL_PATH).unwrap();
             return status;
         }
-    });
+    };
+    let mut kernel = ElfLoader::new(&blob);
     if kernel.recognize().is_err() {
         writeln!(st.stdout(), "Error: BAD KERNEL SIGNATURE FOUND").unwrap();
         return Status::UNSUPPORTED;
@@ -85,8 +86,9 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
     // Load initrd
     match get_file(handle, &bs, INITRD_PATH) {
         Ok(blob) => {
-            info.initrd_base = &blob[0] as *const u8 as u32;
+            info.initrd_base = blob.as_ptr() as u32;
             info.initrd_size = blob.len() as u32;
+            forget(blob);
         }
         Err(status) => {
             writeln!(st.stdout(), "Error: Load failed {}", INITRD_PATH).unwrap();

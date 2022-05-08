@@ -1,10 +1,7 @@
 // Minimal ELF File Loader
 
-use super::elf::*;
-use super::*;
-use crate::blob::*;
-use crate::page::*;
-// use crate::*;
+use super::{elf::*, *};
+use crate::{blob::*, page::*};
 use core::ptr::copy_nonoverlapping;
 
 pub struct ElfLoader<'a> {
@@ -82,7 +79,7 @@ impl ImageLoader for ElfLoader<'_> {
 
             // Step 1 - allocate memory
             let page_mask = PageConfig::UEFI_PAGE_SIZE - 1;
-            let vmem = PageManager::valloc(image_base, image_size) as *const u8 as *mut u8;
+            let vmem = PageManager::valloc(image_base, image_size) as *mut u8;
             vmem.write_bytes(0, image_size);
 
             // Step 2 - locate segments

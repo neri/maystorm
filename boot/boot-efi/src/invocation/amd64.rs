@@ -1,4 +1,4 @@
-// Kernel Invocation
+//! Kernel Invocation for amd64
 
 use crate::page::*;
 use bootprot::*;

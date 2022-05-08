@@ -1,9 +1,8 @@
-// Universally Unique Identifier
-
 use core::{fmt::*, mem::transmute};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
+/// Universally Unique Identifier
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Uuid {
     a: u32,
@@ -42,6 +41,11 @@ impl Uuid {
             c: 0,
             d: [0; 8],
         }
+    }
+
+    #[inline]
+    pub fn from_raw(data: [u8; 16]) -> Self {
+        unsafe { transmute(data) }
     }
 
     #[inline]
