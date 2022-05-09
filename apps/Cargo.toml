@@ -7,7 +7,7 @@ members = [
   "hello",
   "hello2",
   "life",
-  "noiz2bg", # "whello",
+  "noiz2bg",
   "test",
 ]
 

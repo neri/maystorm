@@ -1,9 +1,7 @@
 #![no_main]
 #![no_std]
 
-// use core::fmt::*;
-use megoslib::game::v1::prelude::*;
-use megoslib::*;
+use megstd::{game::v1::prelude::*, sys::syscall::*};
 
 #[no_mangle]
 fn _start() {

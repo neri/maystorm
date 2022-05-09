@@ -1,7 +1,7 @@
 #![no_main]
 #![no_std]
 
-use megoslib::game::v1::prelude::*;
+use megstd::game::v1::prelude::*;
 
 #[no_mangle]
 fn _start() {

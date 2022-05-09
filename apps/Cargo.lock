@@ -12,7 +12,7 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 name = "bball"
 version = "0.1.0"
 dependencies = [
- "megoslib",
+ "megstd",
 ]
 
 [[package]]
@@ -31,35 +31,35 @@ checksum = "14c189c53d098945499cdfa7ecc63567cf3886b3332b312a5b4585d8d3a6a610"
 name = "gbench"
 version = "0.1.0"
 dependencies = [
- "megoslib",
+ "megstd",
 ]
 
 [[package]]
 name = "ghello"
 version = "0.1.0"
 dependencies = [
- "megoslib",
+ "megstd",
 ]
 
 [[package]]
 name = "hello"
 version = "0.1.0"
 dependencies = [
- "megoslib",
+ "megstd",
 ]
 
 [[package]]
 name = "hello2"
 version = "0.1.0"
 dependencies = [
- "megoslib",
+ "megstd",
 ]
 
 [[package]]
 name = "life"
 version = "0.1.0"
 dependencies = [
- "megoslib",
+ "megstd",
 ]
 
 [[package]]
@@ -67,19 +67,12 @@ name = "megosabi"
 version = "0.1.0"
 
 [[package]]
-name = "megoslib"
-version = "0.1.0"
-dependencies = [
- "megosabi",
- "megstd",
-]
-
-[[package]]
 name = "megstd"
 version = "0.1.0"
 dependencies = [
  "bitflags",
  "byteorder",
+ "megosabi",
  "num-derive",
  "num-traits",
  "rapid-qoi",
@@ -89,7 +82,7 @@ dependencies = [
 name = "noiz2bg"
 version = "0.1.0"
 dependencies = [
- "megoslib",
+ "megstd",
 ]
 
 [[package]]
@@ -151,7 +144,7 @@ dependencies = [
 name = "test"
 version = "0.1.0"
 dependencies = [
- "megoslib",
+ "megstd",
 ]
 
 [[package]]

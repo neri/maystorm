@@ -15,7 +15,6 @@ megstd = {path = "../../lib/megstd", default-features = false, features = ["kern
 wasm = {path = "../../lib/wasm"}
 
 acpi = {}
-# {git = "https://github.com/rust-osdev/acpi"}
 # aml = {git = "https://github.com/rust-osdev/acpi"}
 bitflags = {}
 byteorder = {default-features = false}

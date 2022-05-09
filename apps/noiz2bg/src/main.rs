@@ -28,8 +28,7 @@ ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #![no_main]
 #![no_std]
 
-use megoslib::{window::*, *};
-use megstd::drawing::*;
+use megstd::{sys::syscall::*, window::*, *};
 
 #[no_mangle]
 fn _start() {
@@ -137,17 +136,19 @@ impl App<'_> {
                     let y = (board.y + oy).checked_div(board.z).unwrap_or(0) + BITMAP_HEIGHT / 2;
                     let width = board.width;
                     let height = board.height;
-                    // self.bitmap
-                    //     .blend_rect(Rect::new(x, y, width, height), board.color);
-                    let color = board.color.argb();
-                    os_blend_rect(
-                        &self.bitmap as *const _ as usize,
-                        x as usize,
-                        y as usize,
-                        width as usize,
-                        height as usize,
-                        color,
-                    );
+                    if false {
+                        self.bitmap
+                            .blend_rect(Rect::new(x, y, width, height), board.color);
+                    } else {
+                        os_blend_rect(
+                            &self.bitmap as *const _ as usize,
+                            x as usize,
+                            y as usize,
+                            width as usize,
+                            height as usize,
+                            board.color.argb(),
+                        );
+                    }
                     oy += self.board_repy;
                 }
                 ox += self.board_repx;

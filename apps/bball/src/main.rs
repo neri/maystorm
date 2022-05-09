@@ -1,8 +1,7 @@
 #![no_main]
 #![no_std]
 
-use megoslib::{window::*, *};
-use megstd::drawing::*;
+use megstd::window::*;
 
 #[no_mangle]
 fn _start() {

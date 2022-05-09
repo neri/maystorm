@@ -7,11 +7,15 @@ version = "0.1.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = []
+default = ["wasm"]
+game = []
 kernel = []
+wasm = ["dep:megosabi", "window", "game"]
+window = []
 
 [dependencies]
-# megoslib = {path = "../megoslib", optional = true}
+megosabi = {path = "../megosabi", optional = true}
+
 bitflags = {default-features = false}
 byteorder = {default-features = false}
 num-derive = {default-features = false}

@@ -1,20 +1,11 @@
-// sys
+#[cfg(feature = "wasm")]
+#[macro_use]
+mod wasm;
+#[cfg(feature = "wasm")]
+pub use wasm::*;
 
-pub mod fs_imp;
-
-pub mod path {
-    pub const MAIN_SEP_STR: &'static str = "/";
-}
-
-pub mod fcntl {
-    pub const O_ACCMODE: usize = 3;
-    pub const O_RDONLY: usize = 0;
-    pub const O_WRONLY: usize = 1;
-    pub const O_RDWR: usize = 2;
-    pub const O_CREAT: usize = 0o00000100;
-    pub const O_EXCL: usize = 0o00000200;
-    pub const O_NOCTTY: usize = 0o00000400;
-    pub const O_TRUNC: usize = 0o00001000;
-    pub const O_APPEND: usize = 0o00002000;
-    pub const O_NONBLOCK: usize = 0o00004000;
-}
+#[cfg(not(feature = "wasm"))]
+#[macro_use]
+mod kernel;
+#[cfg(not(feature = "wasm"))]
+pub use kernel::*;

@@ -135,6 +135,7 @@ impl WasmLoader {
                 WasmSectionType::Data => self.parse_sec_data(section),
                 WasmSectionType::Start => self.parse_sec_start(section),
                 WasmSectionType::Global => self.parse_sec_global(section),
+                WasmSectionType::DataCount => self.parse_sec_data_count(section),
             }?;
         }
 
@@ -357,6 +358,16 @@ impl WasmLoader {
         Ok(())
     }
 
+    /// Parse "datacount" section
+    fn parse_sec_data_count(
+        &mut self,
+        mut section: WasmSection,
+    ) -> Result<(), WasmDecodeErrorKind> {
+        let count = section.stream.read_unsigned()? as usize;
+        self.module.data_count = Some(count);
+        Ok(())
+    }
+
     fn eval_offset(&self, mut stream: &mut Leb128Stream) -> Result<usize, WasmDecodeErrorKind> {
         self.eval_expr(&mut stream)
             .and_then(|v| {
@@ -397,6 +408,7 @@ pub struct WasmModule {
     functions: Vec<WasmFunction>,
     start: Option<usize>,
     globals: Vec<WasmGlobal>,
+    data_count: Option<usize>,
     names: Option<WasmName>,
     n_ext_func: usize,
 }
@@ -413,6 +425,7 @@ impl WasmModule {
             functions: Vec::new(),
             start: None,
             globals: Vec::new(),
+            data_count: None,
             names: None,
             n_ext_func: 0,
         }
@@ -527,6 +540,11 @@ impl WasmModule {
     #[inline]
     pub unsafe fn global_get_unchecked(&self, index: usize) -> &WasmGlobal {
         self.globals.get_unchecked(index)
+    }
+
+    #[inline]
+    pub fn data_count(&self) -> Option<usize> {
+        self.data_count
     }
 
     #[inline]
@@ -677,7 +695,7 @@ impl Leb128Stream<'_> {
     #[inline]
     pub fn read_opcode(&mut self) -> Result<WasmOpcode, WasmDecodeErrorKind> {
         self.read_byte()
-            .and_then(|v| WasmOpcode::new(v).ok_or(WasmDecodeErrorKind::InvalidBytecode))
+            .and_then(|v| WasmOpcode::new(v).ok_or(WasmDecodeErrorKind::InvalidBytecode(v)))
     }
 
     #[inline]
@@ -812,6 +830,7 @@ pub enum WasmSectionType {
     Element,
     Code,
     Data,
+    DataCount,
 }
 
 /// WebAssembly primitive types
@@ -1455,7 +1474,7 @@ impl WasmExportIndex {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum WasmDecodeErrorKind {
     /// Not an executable file.
     BadExecutable,
@@ -1464,9 +1483,9 @@ pub enum WasmDecodeErrorKind {
     /// Unexpected token detected during decoding.
     UnexpectedToken,
     /// Detected a bytecode that cannot be decoded.
-    InvalidBytecode,
-    /// Unsupported byte codes
-    UnsupportedByteCode,
+    InvalidBytecode(u8),
+    /// Unsupported opcode
+    UnsupportedOpCode(WasmOpcode),
     /// Unsupported global data type
     UnsupportedGlobalType,
     /// Invalid parameter was specified.
@@ -1492,9 +1511,9 @@ pub enum WasmDecodeErrorKind {
     /// The `else` block and the `if` block do not match.
     ElseWithoutIf,
     /// Imported function does not exist.
-    NoMethod,
+    NoMethod(String),
     /// Imported module does not exist.
-    NoModule,
+    NoModule(String),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -1673,6 +1692,7 @@ impl fmt::Display for WasmValue {
 /// The internal representation is `union`, so information about the type needs to be provided externally.
 #[derive(Copy, Clone)]
 pub union WasmUnsafeValue {
+    usize: usize,
     i32: i32,
     u32: u32,
     i64: i64,
@@ -1682,6 +1702,11 @@ pub union WasmUnsafeValue {
 }
 
 impl WasmUnsafeValue {
+    #[inline(always)]
+    const fn _is_32bit_env() -> bool {
+        size_of::<usize>() == size_of::<u32>()
+    }
+
     #[inline]
     pub const fn zero() -> Self {
         Self { u64: 0 }
@@ -1690,10 +1715,15 @@ impl WasmUnsafeValue {
     #[inline]
     pub const fn from_bool(v: bool) -> Self {
         if v {
-            Self::from_i32(1)
+            Self::from_usize(1)
         } else {
-            Self::from_i32(0)
+            Self::from_usize(0)
         }
+    }
+
+    #[inline]
+    pub const fn from_usize(v: usize) -> Self {
+        Self { usize: v }
     }
 
     #[inline]
@@ -1732,6 +1762,11 @@ impl WasmUnsafeValue {
     }
 
     #[inline]
+    pub unsafe fn write_bool(&mut self, val: bool) {
+        self.usize = val as usize;
+    }
+
+    #[inline]
     pub unsafe fn get_i32(&self) -> i32 {
         self.i32
     }
@@ -1742,6 +1777,11 @@ impl WasmUnsafeValue {
     }
 
     #[inline]
+    pub unsafe fn write_i32(&mut self, val: i32) {
+        self.copy_from_i32(&Self::from(val));
+    }
+
+    #[inline]
     pub unsafe fn get_i64(&self) -> i64 {
         self.i64
     }
@@ -1749,6 +1789,11 @@ impl WasmUnsafeValue {
     #[inline]
     pub unsafe fn get_u64(&self) -> u64 {
         self.u64
+    }
+
+    #[inline]
+    pub unsafe fn write_i64(&mut self, val: i64) {
+        *self = Self::from(val);
     }
 
     #[inline]
@@ -1788,7 +1833,7 @@ impl WasmUnsafeValue {
         F: FnOnce(i32) -> i32,
     {
         let val = self.i32;
-        self.i32 = f(val);
+        self.copy_from_i32(&Self::from(f(val)));
     }
 
     /// Retrieves the value held by the instance as a value of type `u32` and re-stores the value processed by the closure.
@@ -1798,7 +1843,7 @@ impl WasmUnsafeValue {
         F: FnOnce(u32) -> u32,
     {
         let val = self.u32;
-        self.u32 = f(val);
+        self.copy_from_i32(&Self::from(f(val)));
     }
 
     /// Retrieves the value held by the instance as a value of type `i64` and re-stores the value processed by the closure.
@@ -1808,7 +1853,7 @@ impl WasmUnsafeValue {
         F: FnOnce(i64) -> i64,
     {
         let val = self.i64;
-        self.i64 = f(val);
+        *self = Self::from(f(val));
     }
 
     /// Retrieves the value held by the instance as a value of type `u64` and re-stores the value processed by the closure.
@@ -1818,7 +1863,7 @@ impl WasmUnsafeValue {
         F: FnOnce(u64) -> u64,
     {
         let val = self.u64;
-        self.u64 = f(val);
+        *self = Self::from(f(val));
     }
 
     /// Converts the value held by the instance to the [WasmValue] type as a value of the specified type.
@@ -1829,6 +1874,15 @@ impl WasmUnsafeValue {
             WasmValType::I64 => WasmValue::I64(self.get_i64()),
             WasmValType::F32 => WasmValue::F32(self.get_f32()),
             WasmValType::F64 => WasmValue::F64(self.get_f64()),
+        }
+    }
+
+    #[inline]
+    pub unsafe fn copy_from_i32(&mut self, other: &Self) {
+        if Self::_is_32bit_env() {
+            self.u32 = other.u32;
+        } else {
+            *self = *other;
         }
     }
 }
@@ -2135,9 +2189,9 @@ impl WasmCodeBlock {
                 WasmProposalType::Mvp => {}
                 WasmProposalType::MvpI64 => {}
                 WasmProposalType::SignExtend => {}
-                #[cfg(feature = "float")]
+                #[cfg(not(feature = "float"))]
                 WasmProposalType::MvpF32 | WasmProposalType::MvpF64 => {}
-                _ => return Err(WasmDecodeErrorKind::UnsupportedByteCode),
+                _ => return Err(WasmDecodeErrorKind::UnsupportedOpCode(opcode)),
             }
 
             match opcode {
@@ -2430,7 +2484,11 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::LocalGet(local_ref),
+                        if val == WasmValType::I32 {
+                            WasmIntMnemonic::LocalGet32(local_ref)
+                        } else {
+                            WasmIntMnemonic::LocalGet(local_ref)
+                        },
                         value_stack.len(),
                     ));
                     value_stack.push(val);
@@ -2447,7 +2505,11 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::LocalSet(local_ref),
+                        if val == WasmValType::I32 {
+                            WasmIntMnemonic::LocalSet32(local_ref)
+                        } else {
+                            WasmIntMnemonic::LocalSet(local_ref)
+                        },
                         value_stack.len(),
                     ));
                 }
@@ -2463,7 +2525,11 @@ impl WasmCodeBlock {
                     int_codes.push(WasmImc::new(
                         position,
                         opcode,
-                        WasmIntMnemonic::LocalTee(local_ref),
+                        if val == WasmValType::I32 {
+                            WasmIntMnemonic::LocalTee32(local_ref)
+                        } else {
+                            WasmIntMnemonic::LocalTee(local_ref)
+                        },
                         value_stack.len() - 1,
                     ));
                 }
@@ -4010,7 +4076,7 @@ impl WasmCodeBlock {
                 }
 
                 #[allow(unreachable_patterns)]
-                _ => return Err(WasmDecodeErrorKind::UnsupportedByteCode),
+                _ => return Err(WasmDecodeErrorKind::UnsupportedOpCode(opcode)),
             }
         }
 

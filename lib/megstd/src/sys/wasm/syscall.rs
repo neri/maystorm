@@ -1,7 +1,4 @@
-// MEG-OS System Calls
-
-use core::arch::asm;
-use core::ffi::c_void;
+use core::{arch::asm, ffi::c_void};
 use megosabi::svc::Function;
 
 #[allow(dead_code)]
@@ -56,6 +53,7 @@ pub fn os_version() -> u32 {
 /// Create a new window.
 #[inline]
 #[rustfmt::skip]
+#[must_use]
 pub fn os_new_window1(title: &str, width: usize, height: usize) -> usize {
     unsafe { svc4(Function::NewWindow, title.as_ptr() as usize, title.len(), width, height) }
 }
@@ -63,6 +61,7 @@ pub fn os_new_window1(title: &str, width: usize, height: usize) -> usize {
 /// Create a new window.
 #[inline]
 #[rustfmt::skip]
+#[must_use]
 pub fn os_new_window2(title: &str, width: usize, height: usize, bg_color: usize, options: usize) -> usize {
     unsafe { svc6( Function::NewWindow, title.as_ptr() as usize, title.len(), width, height, bg_color, options) }
 }
@@ -75,6 +74,7 @@ pub fn os_close_window(window: usize) {
 
 /// Create a drawing context
 #[inline]
+#[must_use]
 pub fn os_begin_draw(window: usize) -> usize {
     unsafe { svc1(Function::BeginDraw, window) }
 }
@@ -173,17 +173,19 @@ pub fn os_srand(srand: u32) -> u32 {
 
 /// Allocates memory blocks with a simple allocator
 #[inline]
-pub fn os_alloc(size: usize, align: usize) -> usize {
-    unsafe { svc2(Function::Alloc, size, align) }
+#[must_use]
+pub unsafe fn os_alloc(size: usize, align: usize) -> *mut u8 {
+    svc2(Function::Alloc, size, align) as *mut u8
 }
 
 /// Frees an allocated memory block
 #[inline]
-pub fn os_dealloc(ptr: usize, size: usize, align: usize) {
-    unsafe { svc3(Function::Dealloc, ptr, size, align) };
+pub unsafe fn os_dealloc(ptr: *mut u8, size: usize, align: usize) {
+    svc3(Function::Dealloc, ptr as usize, size, align);
 }
 
 #[inline]
+#[must_use]
 pub fn os_open(name: &str, options: usize) -> isize {
     unsafe { svc3(Function::Open, name.as_ptr() as usize, name.len(), options) as isize }
 }
@@ -209,12 +211,14 @@ pub fn os_lseek(handle: usize, offset: i32, whence: usize) -> isize {
 }
 
 #[inline]
+#[must_use]
 pub unsafe fn game_v1_init(window: usize, screen: *const c_void) -> usize {
     svc2(Function::GameV1Init, window, screen as usize)
 }
 
 #[inline]
 #[rustfmt::skip]
+#[must_use]
 pub unsafe fn game_v1_init_long(window: usize, screen: *const c_void, scale: usize, fps: usize) -> usize {
     svc4(Function::GameV1Init, window, screen as usize, scale, fps)
 }

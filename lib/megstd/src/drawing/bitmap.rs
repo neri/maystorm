@@ -3,8 +3,10 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::cell::UnsafeCell;
 use core::convert::TryFrom;
+use core::intrinsics::copy_nonoverlapping;
 use core::mem::swap;
 use core::mem::transmute;
+use core::num::NonZeroUsize;
 use num_derive::FromPrimitive;
 
 pub trait Blt<T: Drawable>: Drawable {
@@ -2465,5 +2467,163 @@ mod memory_colors {
         for i in 0..count {
             dest[i] = dest[i].blend_draw(src[i]);
         }
+    }
+}
+
+#[repr(C)]
+pub struct ConstBitmap1<'a> {
+    width: usize,
+    height: usize,
+    stride: usize,
+    slice: &'a [u8],
+}
+
+impl Drawable for ConstBitmap1<'_> {
+    type ColorType = u8;
+
+    #[inline]
+    fn width(&self) -> usize {
+        self.width
+    }
+
+    #[inline]
+    fn height(&self) -> usize {
+        self.height
+    }
+
+    fn bpp(&self) -> usize {
+        1
+    }
+}
+
+impl<'a> ConstBitmap1<'a> {
+    #[inline]
+    pub const fn from_slice(slice: &'a [u8], size: Size, stride: Option<NonZeroUsize>) -> Self {
+        Self {
+            width: size.width() as usize,
+            height: size.height() as usize,
+            stride: match stride {
+                Some(v) => v.get(),
+                None => (size.width() + 7) as usize / 8,
+            },
+            slice,
+        }
+    }
+}
+
+impl ConstBitmap1<'_> {
+    #[inline]
+    fn slice(&self) -> &[u8] {
+        self.slice
+    }
+}
+
+impl GetPixel for ConstBitmap1<'_> {
+    unsafe fn get_pixel_unchecked(&self, point: Point) -> Self::ColorType {
+        let index = (point.x as usize / 8) + self.stride * point.y as usize;
+        let position = 0x80u8 >> ((point.x as usize) & 7);
+        *self.slice().get_unchecked(index) & position
+    }
+}
+
+impl<'a> AsRef<ConstBitmap1<'a>> for ConstBitmap1<'a> {
+    #[inline]
+    fn as_ref(&self) -> &ConstBitmap1<'a> {
+        self
+    }
+}
+
+#[repr(C)]
+pub struct Bitmap1<'a> {
+    width: usize,
+    height: usize,
+    stride: usize,
+    slice: UnsafeCell<&'a mut [u8]>,
+}
+
+impl Drawable for Bitmap1<'_> {
+    type ColorType = u8;
+
+    #[inline]
+    fn width(&self) -> usize {
+        self.width
+    }
+
+    #[inline]
+    fn height(&self) -> usize {
+        self.height
+    }
+
+    fn bpp(&self) -> usize {
+        1
+    }
+}
+
+impl<'a> Bitmap1<'a> {
+    #[inline]
+    pub const fn from_slice(slice: &'a mut [u8], size: Size, stride: Option<NonZeroUsize>) -> Self {
+        Self {
+            width: size.width() as usize,
+            height: size.height() as usize,
+            stride: match stride {
+                Some(v) => v.get(),
+                None => (size.width() + 7) as usize / 8,
+            },
+            slice: UnsafeCell::new(slice),
+        }
+    }
+
+    #[inline]
+    pub const fn as_const(&self) -> &'a ConstBitmap1<'a> {
+        unsafe { transmute(self) }
+    }
+}
+
+impl Bitmap1<'_> {
+    #[inline]
+    fn slice_mut(&self) -> &mut [u8] {
+        unsafe { &mut *self.slice.get() }
+    }
+
+    pub fn copy_from<'a, T: AsRef<ConstBitmap1<'a>>>(&mut self, other: &T) {
+        unsafe {
+            let p = self.slice_mut();
+            let q = other.as_ref().slice();
+            let count = p.len();
+            copy_nonoverlapping(q.as_ptr(), p.as_mut_ptr(), count);
+        }
+    }
+}
+
+impl GetPixel for Bitmap1<'_> {
+    unsafe fn get_pixel_unchecked(&self, point: Point) -> Self::ColorType {
+        self.as_ref().get_pixel_unchecked(point)
+    }
+}
+
+impl SetPixel for Bitmap1<'_> {
+    unsafe fn set_pixel_unchecked(&mut self, point: Point, pixel: Self::ColorType) {
+        let index = (point.x as usize / 8) + self.stride * point.y as usize;
+        let position = 0x80u8 >> ((point.x as usize) & 7);
+        let bits = self.slice_mut().get_unchecked_mut(index);
+        if pixel == 0 {
+            *bits &= !position;
+        } else {
+            *bits |= position;
+        }
+    }
+}
+
+impl<'a> AsRef<ConstBitmap1<'a>> for Bitmap1<'a> {
+    #[inline]
+    fn as_ref(&self) -> &ConstBitmap1<'a> {
+        self.as_const()
+    }
+}
+
+impl<'a> AsMut<Bitmap1<'a>> for Bitmap1<'a> {
+    #[inline]
+    fn as_mut(&mut self) -> &mut Bitmap1<'a> {
+        self
     }
 }

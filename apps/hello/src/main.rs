@@ -1,7 +1,7 @@
 #![no_main]
 #![no_std]
 
-use megoslib::*;
+use megstd::sys::syscall::*;
 
 #[no_mangle]
 fn _start() {

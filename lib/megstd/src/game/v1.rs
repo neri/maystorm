@@ -81,6 +81,11 @@ pub const PALETTE_5: u8 = 5;
 pub const PALETTE_6: u8 = 6;
 pub const PALETTE_7: u8 = 7;
 
+#[cfg(feature = "game")]
+pub mod prelude {
+    pub use crate::sys::game_v1_imp::*;
+}
+
 /// An object that mimics the screen of a retro game.
 ///
 /// You can change the contents of this object directly, but you need to notify GamePresenter in order for the changes to be displayed correctly.

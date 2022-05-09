@@ -1,8 +1,7 @@
 // MEG-OS Window API
 
-use super::*;
-use megosabi;
-use megstd::drawing::*;
+pub use crate::drawing::*;
+use crate::sys::syscall::{self, OsDrawShape};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct WindowHandle(pub usize);
@@ -16,7 +15,7 @@ pub struct Window {
 impl Window {
     #[inline]
     pub fn new(title: &str, size: Size) -> Self {
-        let handle = WindowHandle(os_new_window1(
+        let handle = WindowHandle(syscall::os_new_window1(
             title,
             size.width as usize,
             size.height as usize,
@@ -26,7 +25,7 @@ impl Window {
 
     #[inline]
     pub fn close(self) {
-        os_close_window(self.handle.0);
+        syscall::os_close_window(self.handle.0);
     }
 
     #[inline]
@@ -36,7 +35,7 @@ impl Window {
 
     #[inline]
     pub fn begin_draw(&self) -> DrawingContext {
-        unsafe { DrawingContext::from_raw(os_begin_draw(self.handle.0)) }
+        unsafe { DrawingContext::from_raw(syscall::os_begin_draw(self.handle.0)) }
     }
 
     #[inline]
@@ -50,12 +49,12 @@ impl Window {
 
     #[inline]
     pub fn wait_char(&self) -> char {
-        core::char::from_u32(os_wait_char(self.handle.0)).unwrap_or('\0')
+        core::char::from_u32(syscall::os_wait_char(self.handle.0)).unwrap_or('\0')
     }
 
     #[inline]
     pub fn read_char(&self) -> Option<char> {
-        match os_read_char(self.handle.0) {
+        match syscall::os_read_char(self.handle.0) {
             megosabi::OPTION_CHAR_NONE => None,
             c => Some(unsafe { core::char::from_u32_unchecked(c as u32) }),
         }
@@ -79,7 +78,7 @@ impl DrawingContext {
 
     #[inline]
     pub fn draw_string(&mut self, s: &str, origin: Point, color: WindowColor) {
-        os_win_draw_string(
+        syscall::os_win_draw_string(
             self.ctx,
             origin.x as usize,
             origin.y as usize,
@@ -90,7 +89,7 @@ impl DrawingContext {
 
     #[inline]
     pub fn draw_line(&mut self, c1: Point, c2: Point, color: WindowColor) {
-        os_win_draw_line(
+        syscall::os_win_draw_line(
             self.ctx,
             c1.x as usize,
             c1.y as usize,
@@ -102,7 +101,7 @@ impl DrawingContext {
 
     #[inline]
     pub fn fill_rect(&mut self, rect: Rect, color: WindowColor) {
-        os_win_fill_rect(
+        syscall::os_win_fill_rect(
             self.ctx,
             rect.x() as usize,
             rect.y() as usize,
@@ -125,7 +124,7 @@ impl DrawingContext {
             bg_color: bg_color.0,
             border_color: border_color.0,
         };
-        os_draw_shape(
+        syscall::os_draw_shape(
             self.ctx,
             rect.x() as usize,
             rect.y() as usize,
@@ -136,8 +135,26 @@ impl DrawingContext {
     }
 
     #[inline]
+    pub fn blt1<'a, T: AsRef<ConstBitmap1<'a>>>(
+        &mut self,
+        bitmap: &T,
+        origin: Point,
+        color: WindowColor,
+        mode: usize,
+    ) {
+        syscall::os_blt1(
+            self.ctx,
+            origin.x as usize,
+            origin.y as usize,
+            bitmap as *const _ as usize,
+            color.0 as u32,
+            mode,
+        );
+    }
+
+    #[inline]
     pub fn blt8<'a, T: AsRef<ConstBitmap8<'a>>>(&mut self, bitmap: &T, origin: Point) {
-        os_blt8(
+        syscall::os_blt8(
             self.ctx,
             origin.x as usize,
             origin.y as usize,
@@ -147,7 +164,7 @@ impl DrawingContext {
 
     #[inline]
     pub fn blt32<'a, T: AsRef<ConstBitmap32<'a>>>(&mut self, bitmap: &T, origin: Point) {
-        os_blt32(
+        syscall::os_blt32(
             self.ctx,
             origin.x as usize,
             origin.y as usize,
@@ -159,7 +176,7 @@ impl DrawingContext {
 impl Drop for DrawingContext {
     #[inline]
     fn drop(&mut self) {
-        os_end_draw(self.ctx);
+        syscall::os_end_draw(self.ctx);
     }
 }
 
@@ -182,7 +199,7 @@ impl WindowBuilder {
     /// Create a window from the specified options.
     #[inline]
     pub fn build(self, title: &str) -> Window {
-        let handle = WindowHandle(os_new_window2(
+        let handle = WindowHandle(syscall::os_new_window2(
             title,
             self.size.width() as usize,
             self.size.height() as usize,

@@ -5,6 +5,7 @@
 #![no_std]
 #![no_main]
 
+extern crate alloc;
 use alloc::{format, string::*, vec::*};
 use bootprot::*;
 use core::{fmt, fmt::Write, num::NonZeroU8};
@@ -20,8 +21,6 @@ use kernel::{
     *,
 };
 use megstd::{io::Read, string::*};
-
-extern crate alloc;
 
 /// Kernel entry point
 #[no_mangle]

@@ -1,8 +1,7 @@
 #![no_main]
 #![no_std]
 
-use megoslib::{bitmap::*, window::*, *};
-use megstd::drawing::*;
+use megstd::{sys::syscall::*, window::*};
 
 const DRAW_SCALE: isize = 2;
 const BITMAP_WIDTH: isize = 64;
@@ -25,8 +24,9 @@ fn _start() {
     }
 
     let mut current =
-        OsMutBitmap1::from_slice(&mut curr_data, Size::new(BITMAP_WIDTH, BITMAP_HEIGHT));
-    let mut next = OsMutBitmap1::from_slice(&mut next_data, Size::new(BITMAP_WIDTH, BITMAP_HEIGHT));
+        Bitmap1::from_slice(&mut curr_data, Size::new(BITMAP_WIDTH, BITMAP_HEIGHT), None);
+    let mut next =
+        Bitmap1::from_slice(&mut next_data, Size::new(BITMAP_WIDTH, BITMAP_HEIGHT), None);
 
     loop {
         window.draw(|ctx| {
@@ -34,8 +34,8 @@ fn _start() {
                 Rect::new(0, 0, BITMAP_WIDTH * DRAW_SCALE, BITMAP_HEIGHT * DRAW_SCALE),
                 WindowColor::WHITE,
             );
-            current.blt(
-                ctx,
+            ctx.blt1(
+                &current,
                 Point::new(0, 0),
                 WindowColor::DARK_GRAY,
                 DRAW_SCALE as usize,

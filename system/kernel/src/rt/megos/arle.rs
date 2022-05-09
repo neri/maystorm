@@ -8,7 +8,7 @@ use crate::{
     *,
     {io::hid_mgr::*, ui::text::*, ui::window::*},
 };
-use alloc::{collections::BTreeMap, sync::Arc};
+use alloc::{borrow::ToOwned, collections::BTreeMap, sync::Arc};
 use byteorder::*;
 use core::{
     alloc::Layout, intrinsics::transmute, num::NonZeroU32, sync::atomic::*, time::Duration,
@@ -63,9 +63,9 @@ impl BinaryLoader for ArleBinaryLoader {
                         ("svc4", [WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32]) => Ok(ArleRuntime::syscall),
                         ("svc5", [WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32]) => Ok(ArleRuntime::syscall),
                         ("svc6", [WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32]) => Ok(ArleRuntime::syscall),
-                        _ => Err(WasmDecodeErrorKind::NoMethod),
+                        _ => Err(WasmDecodeErrorKind::NoMethod(name.to_owned())),
                     },
-                    _ => Err(WasmDecodeErrorKind::NoModule),
+                    _ => Err(WasmDecodeErrorKind::NoModule(mod_name.to_owned())),
                 }
             })
             .map_err(|v| {

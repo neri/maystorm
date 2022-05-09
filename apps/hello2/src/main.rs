@@ -1,8 +1,7 @@
 #![no_main]
 #![no_std]
 
-use core::fmt::Write;
-use megoslib::*;
+use megstd::*;
 
 #[no_mangle]
 fn _start() {

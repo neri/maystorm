@@ -142,10 +142,25 @@ impl WasmInterpreter<'_> {
                     }
                 }
 
+                WasmIntMnemonic::LocalGet32(local_index) => {
+                    let local = unsafe { locals.get_unchecked(local_index) };
+                    let ref_a = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
+                    unsafe {
+                        ref_a.copy_from_i32(local);
+                    }
+                }
                 WasmIntMnemonic::LocalGet(local_index) => {
                     let local = unsafe { locals.get_unchecked(local_index) };
                     let ref_a = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
                     *ref_a = *local;
+                }
+                WasmIntMnemonic::LocalSet32(local_index)
+                | WasmIntMnemonic::LocalTee32(local_index) => {
+                    let local = unsafe { locals.get_unchecked_mut(local_index) };
+                    let ref_a = unsafe { value_stack.get_unchecked(code.stack_level()) };
+                    unsafe {
+                        local.copy_from_i32(ref_a);
+                    }
                 }
                 WasmIntMnemonic::LocalSet(local_index) | WasmIntMnemonic::LocalTee(local_index) => {
                     let local = unsafe { locals.get_unchecked_mut(local_index) };
@@ -294,76 +309,80 @@ impl WasmInterpreter<'_> {
 
                 WasmIntMnemonic::I32Const(val) => {
                     let ref_a = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
-                    *ref_a = WasmUnsafeValue::from_i32(val);
+                    unsafe {
+                        ref_a.write_i32(val);
+                    }
                 }
                 WasmIntMnemonic::I64Const(val) => {
                     let ref_a = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
-                    *ref_a = WasmUnsafeValue::from_i64(val);
+                    unsafe {
+                        ref_a.write_i64(val);
+                    }
                 }
 
                 WasmIntMnemonic::I32Eqz => {
                     let var = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
-                    *var = WasmUnsafeValue::from_bool(unsafe { var.get_i32() == 0 });
+                    unsafe { var.write_bool(var.get_i32() == 0) }
                 }
                 WasmIntMnemonic::I32Eq => {
                     let stack_level = code.stack_level();
                     let rhs = unsafe { *value_stack.get_unchecked(stack_level + 1) };
                     let lhs = unsafe { value_stack.get_unchecked_mut(stack_level) };
-                    *lhs = WasmUnsafeValue::from(unsafe { lhs.get_u32() == rhs.get_u32() });
+                    unsafe { lhs.write_bool(lhs.get_u32() == rhs.get_u32()) }
                 }
                 WasmIntMnemonic::I32Ne => {
                     let stack_level = code.stack_level();
                     let rhs = unsafe { *value_stack.get_unchecked(stack_level + 1) };
                     let lhs = unsafe { value_stack.get_unchecked_mut(stack_level) };
-                    *lhs = WasmUnsafeValue::from(unsafe { lhs.get_u32() != rhs.get_u32() });
+                    unsafe { lhs.write_bool(lhs.get_u32() != rhs.get_u32()) }
                 }
                 WasmIntMnemonic::I32LtS => {
                     let stack_level = code.stack_level();
                     let rhs = unsafe { *value_stack.get_unchecked(stack_level + 1) };
                     let lhs = unsafe { value_stack.get_unchecked_mut(stack_level) };
-                    *lhs = WasmUnsafeValue::from(unsafe { lhs.get_i32() < rhs.get_i32() });
+                    unsafe { lhs.write_bool(lhs.get_i32() < rhs.get_i32()) }
                 }
                 WasmIntMnemonic::I32LtU => {
                     let stack_level = code.stack_level();
                     let rhs = unsafe { *value_stack.get_unchecked(stack_level + 1) };
                     let lhs = unsafe { value_stack.get_unchecked_mut(stack_level) };
-                    *lhs = WasmUnsafeValue::from(unsafe { lhs.get_u32() < rhs.get_u32() });
+                    unsafe { lhs.write_bool(lhs.get_u32() < rhs.get_u32()) }
                 }
                 WasmIntMnemonic::I32GtS => {
                     let stack_level = code.stack_level();
                     let rhs = unsafe { *value_stack.get_unchecked(stack_level + 1) };
                     let lhs = unsafe { value_stack.get_unchecked_mut(stack_level) };
-                    *lhs = WasmUnsafeValue::from(unsafe { lhs.get_i32() > rhs.get_i32() });
+                    unsafe { lhs.write_bool(lhs.get_i32() > rhs.get_i32()) }
                 }
                 WasmIntMnemonic::I32GtU => {
                     let stack_level = code.stack_level();
                     let rhs = unsafe { *value_stack.get_unchecked(stack_level + 1) };
                     let lhs = unsafe { value_stack.get_unchecked_mut(stack_level) };
-                    *lhs = WasmUnsafeValue::from(unsafe { lhs.get_u32() > rhs.get_u32() });
+                    unsafe { lhs.write_bool(lhs.get_u32() > rhs.get_u32()) }
                 }
                 WasmIntMnemonic::I32LeS => {
                     let stack_level = code.stack_level();
                     let rhs = unsafe { *value_stack.get_unchecked(stack_level + 1) };
                     let lhs = unsafe { value_stack.get_unchecked_mut(stack_level) };
-                    *lhs = WasmUnsafeValue::from(unsafe { lhs.get_i32() <= rhs.get_i32() });
+                    unsafe { lhs.write_bool(lhs.get_i32() <= rhs.get_i32()) }
                 }
                 WasmIntMnemonic::I32LeU => {
                     let stack_level = code.stack_level();
                     let rhs = unsafe { *value_stack.get_unchecked(stack_level + 1) };
                     let lhs = unsafe { value_stack.get_unchecked_mut(stack_level) };
-                    *lhs = WasmUnsafeValue::from(unsafe { lhs.get_u32() <= rhs.get_u32() });
+                    unsafe { lhs.write_bool(lhs.get_u32() <= rhs.get_u32()) }
                 }
                 WasmIntMnemonic::I32GeS => {
                     let stack_level = code.stack_level();
                     let rhs = unsafe { *value_stack.get_unchecked(stack_level + 1) };
                     let lhs = unsafe { value_stack.get_unchecked_mut(stack_level) };
-                    *lhs = WasmUnsafeValue::from(unsafe { lhs.get_i32() >= rhs.get_i32() });
+                    unsafe { lhs.write_bool(lhs.get_i32() >= rhs.get_i32()) }
                 }
                 WasmIntMnemonic::I32GeU => {
                     let stack_level = code.stack_level();
                     let rhs = unsafe { *value_stack.get_unchecked(stack_level + 1) };
                     let lhs = unsafe { value_stack.get_unchecked_mut(stack_level) };
-                    *lhs = WasmUnsafeValue::from(unsafe { lhs.get_u32() >= rhs.get_u32() });
+                    unsafe { lhs.write_bool(lhs.get_u32() >= rhs.get_u32()) }
                 }
 
                 WasmIntMnemonic::I32Clz => {
@@ -768,7 +787,9 @@ impl WasmInterpreter<'_> {
 
                 WasmIntMnemonic::FusedI32SetConst(local_index, val) => {
                     let local = unsafe { locals.get_unchecked_mut(local_index) };
-                    *local = val.into();
+                    unsafe {
+                        local.write_i32(val);
+                    }
                 }
                 WasmIntMnemonic::FusedI32AddI(val) => {
                     let lhs = unsafe { value_stack.get_unchecked_mut(code.stack_level()) };
