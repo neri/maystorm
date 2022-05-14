@@ -13,8 +13,8 @@ struct App {
 }
 
 impl App {
-    const WINDOW_WIDTH: isize = 240;
-    const WINDOW_HEIGHT: isize = 160;
+    const WINDOW_WIDTH: isize = 160;
+    const WINDOW_HEIGHT: isize = 144;
 
     fn new() -> Self {
         let presenter = GameWindow::with_options(
@@ -105,7 +105,7 @@ impl App {
                 Self::WINDOW_WIDTH / v1::TILE_SIZE - 4,
                 Self::WINDOW_HEIGHT / v1::TILE_SIZE - 4,
             ),
-            v1::NameTableEntry::from_index(0),
+            v1::NameTableEntry::from_index(1),
         );
 
         screen.set_name(
@@ -120,7 +120,7 @@ impl App {
         );
 
         let mut player = Player::new(
-            Point::new(Self::WINDOW_WIDTH / 2, Self::WINDOW_HEIGHT / 2),
+            Point::new(Self::WINDOW_WIDTH / 2 - 8, Self::WINDOW_HEIGHT / 2 - 8),
             1,
             Direction::Neutral,
         );
@@ -134,7 +134,7 @@ impl App {
 
         screen.set_sprite(0x21, 0xE0, v1::PALETTE_1);
 
-        let chars = b"Welcome to MYOS";
+        let chars = b"Hello world!";
         for (index, char) in chars.iter().enumerate() {
             self.presenter
                 .screen()

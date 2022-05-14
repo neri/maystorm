@@ -2,8 +2,7 @@
 // Most of them are clones of Rust's original definition.
 
 use crate::sys::path::MAIN_SEP_STR;
-use crate::{OsStr, OsString};
-use alloc::boxed::Box;
+use crate::*;
 use core::{
     cmp, fmt,
     hash::{Hash, Hasher},
@@ -11,6 +10,7 @@ use core::{
     ops, str,
 };
 
+#[repr(transparent)]
 pub struct Path {
     inner: OsStr,
 }
@@ -141,6 +141,7 @@ impl AsRef<Path> for OsStr {
     }
 }
 
+#[repr(transparent)]
 #[derive(Clone)]
 pub struct PathBuf {
     inner: OsString,
@@ -148,7 +149,7 @@ pub struct PathBuf {
 
 impl PathBuf {
     #[inline]
-    pub const fn new() -> PathBuf {
+    pub fn new() -> PathBuf {
         Self {
             inner: OsString::new(),
         }

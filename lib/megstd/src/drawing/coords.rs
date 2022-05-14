@@ -1,4 +1,4 @@
-use core::{convert::TryFrom, ops::*};
+use core::{convert::TryFrom, mem::swap, ops::*};
 
 pub type FloatType = f64;
 
@@ -23,6 +23,19 @@ impl Point {
     #[inline]
     pub const fn y(&self) -> isize {
         self.y
+    }
+
+    #[inline]
+    pub const fn swap(&mut self) {
+        swap(&mut self.x, &mut self.y);
+    }
+
+    #[inline]
+    pub const fn swapped(&self) -> Self {
+        Self {
+            x: self.y,
+            y: self.x,
+        }
     }
 
     pub fn line_to<F>(&self, other: Point, mut f: F)
@@ -189,6 +202,19 @@ impl Size {
     #[inline]
     pub const fn bounds(&self) -> Rect {
         Rect::new(0, 0, self.width, self.height)
+    }
+
+    #[inline]
+    pub const fn swap(&mut self) {
+        swap(&mut self.width, &mut self.height);
+    }
+
+    #[inline]
+    pub const fn swapped(&self) -> Self {
+        Self {
+            width: self.height,
+            height: self.width,
+        }
     }
 }
 

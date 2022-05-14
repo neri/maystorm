@@ -1,8 +1,10 @@
 //! MEG-OS standard library like std
 #![no_std]
-#![feature(const_mut_refs)]
 #![feature(alloc_error_handler)]
 #![feature(asm_experimental_arch)]
+#![feature(const_mut_refs)]
+#![feature(const_swap)]
+#![feature(toowned_clone_into)]
 
 #[macro_use]
 pub mod sys;
@@ -13,14 +15,12 @@ pub mod fs;
 pub mod game;
 pub mod io;
 pub mod mem;
+pub mod osstr;
 pub mod path;
 pub mod rand;
 pub mod string;
 pub mod time;
 pub mod uuid;
-
-pub use osstr::*;
-mod osstr;
 
 #[cfg(feature = "window")]
 pub mod window {
@@ -31,5 +31,6 @@ extern crate alloc;
 
 pub use prelude::*;
 mod prelude {
-    pub use crate::sys::prelude::*;
+    pub use crate::{osstr::*, sys::prelude::*};
+    pub use alloc::{boxed::Box, rc::Rc, string::String, sync::Arc, vec::Vec};
 }

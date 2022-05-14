@@ -13,7 +13,7 @@ pub(super) fn install_drivers(
     class_drivers: &mut Vec<Box<dyn UsbClassDriverStarter>>,
     interface_drivers: &mut Vec<Box<dyn UsbInterfaceDriverStarter>>,
 ) {
-    // TODO: Device Specific Drivers
+    // ## Device Specific Drivers
     let _ = specific_drivers;
 
     // ## Device Class Drivers

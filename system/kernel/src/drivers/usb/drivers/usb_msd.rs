@@ -21,8 +21,16 @@ impl UsbInterfaceDriverStarter for UsbMsdStarter {
         device: &Arc<UsbDeviceControl>,
         if_no: UsbInterfaceNumber,
         class: UsbClass,
-    ) -> Pin<Box<dyn Future<Output = Result<Task, UsbError>>>> {
-        Box::pin(UsbMsdDriver::_instantiate(device.clone(), if_no, class))
+    ) -> Option<Pin<Box<dyn Future<Output = Result<Task, UsbError>>>>> {
+        if class == UsbClass::MSD_BULK_ONLY {
+            Some(Box::pin(UsbMsdDriver::_instantiate(
+                device.clone(),
+                if_no,
+                class,
+            )))
+        } else {
+            None
+        }
     }
 }
 
@@ -34,11 +42,8 @@ impl UsbMsdDriver {
     async fn _instantiate(
         device: Arc<UsbDeviceControl>,
         if_no: UsbInterfaceNumber,
-        class: UsbClass,
+        _class: UsbClass,
     ) -> Result<Task, UsbError> {
-        if class != UsbClass::MSD_BULK_ONLY {
-            return Err(UsbError::Unsupported);
-        }
         let interface = match device
             .device()
             .current_configuration()

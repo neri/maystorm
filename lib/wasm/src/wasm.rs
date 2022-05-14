@@ -4160,6 +4160,31 @@ impl WasmCodeBlock {
                     (I32Ne, BrIf(target)) => {
                         fused_inst!(int_codes, i, FusedI32BrNe(*target));
                     }
+                    (I32LtS, BrIf(target)) => {
+                        fused_inst!(int_codes, i, FusedI32BrLtS(*target));
+                    }
+                    (I32LtU, BrIf(target)) => {
+                        fused_inst!(int_codes, i, FusedI32BrLtU(*target));
+                    }
+                    (I32GtS, BrIf(target)) => {
+                        fused_inst!(int_codes, i, FusedI32BrGtS(*target));
+                    }
+                    (I32GtU, BrIf(target)) => {
+                        fused_inst!(int_codes, i, FusedI32BrGtU(*target));
+                    }
+                    (I32LeS, BrIf(target)) => {
+                        fused_inst!(int_codes, i, FusedI32BrLeS(*target));
+                    }
+                    (I32LeU, BrIf(target)) => {
+                        fused_inst!(int_codes, i, FusedI32BrLeU(*target));
+                    }
+                    (I32GeS, BrIf(target)) => {
+                        fused_inst!(int_codes, i, FusedI32BrGeS(*target));
+                    }
+                    (I32GeU, BrIf(target)) => {
+                        fused_inst!(int_codes, i, FusedI32BrGeU(*target));
+                    }
+
                     (I64Eqz, BrIf(target)) => {
                         fused_inst!(int_codes, i, FusedI64BrZ(*target));
                     }
@@ -4174,7 +4199,7 @@ impl WasmCodeBlock {
             }
         }
 
-        // compaction
+        // compaction and block adjustment
         let mut actual_len = 0;
         for index in 0..int_codes.len() {
             let code = &int_codes[index];
@@ -4202,6 +4227,7 @@ impl WasmCodeBlock {
         unsafe {
             int_codes.set_len(actual_len);
         }
+        int_codes.shrink_to_fit();
 
         // fixes branching targets
         for code in int_codes.iter_mut() {

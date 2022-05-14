@@ -26,8 +26,16 @@ impl UsbInterfaceDriverStarter for XInputStarter {
         device: &Arc<UsbDeviceControl>,
         if_no: UsbInterfaceNumber,
         class: UsbClass,
-    ) -> Pin<Box<dyn Future<Output = Result<Task, UsbError>>>> {
-        Box::pin(XInputDriver::_instantiate(device.clone(), if_no, class))
+    ) -> Option<Pin<Box<dyn Future<Output = Result<Task, UsbError>>>>> {
+        if class == UsbClass::XINPUT {
+            Some(Box::pin(XInputDriver::_instantiate(
+                device.clone(),
+                if_no,
+                class,
+            )))
+        } else {
+            None
+        }
     }
 }
 
@@ -37,11 +45,8 @@ impl XInputDriver {
     async fn _instantiate(
         device: Arc<UsbDeviceControl>,
         if_no: UsbInterfaceNumber,
-        class: UsbClass,
+        _class: UsbClass,
     ) -> Result<Task, UsbError> {
-        if class != UsbClass::XINPUT {
-            return Err(UsbError::Unsupported);
-        }
         let interface = match device
             .device()
             .current_configuration()

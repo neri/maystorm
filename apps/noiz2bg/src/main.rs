@@ -28,7 +28,7 @@ ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #![no_main]
 #![no_std]
 
-use megstd::{sys::syscall::*, window::*, *};
+use megstd::{sys::syscall::*, window::*};
 
 #[no_mangle]
 fn _start() {

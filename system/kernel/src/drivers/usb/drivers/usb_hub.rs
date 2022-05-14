@@ -21,10 +21,6 @@ impl UsbHubStarter {
 
     async fn _instantiate(device: Arc<UsbDeviceControl>) -> Result<Task, UsbError> {
         let class = device.device().class();
-        match class {
-            UsbClass::HUB_FS | UsbClass::HUB_HS_MTT | UsbClass::HUB_HS_STT | UsbClass::HUB_SS => (),
-            _ => return Err(UsbError::Unsupported),
-        }
 
         let config = device.device().current_configuration();
         let mut current_interface = None;
@@ -67,8 +63,14 @@ impl UsbClassDriverStarter for UsbHubStarter {
     fn instantiate(
         &self,
         device: &Arc<UsbDeviceControl>,
-    ) -> Pin<Box<dyn Future<Output = Result<Task, UsbError>>>> {
-        Box::pin(Self::_instantiate(device.clone()))
+    ) -> Option<Pin<Box<dyn Future<Output = Result<Task, UsbError>>>>> {
+        let class = device.device().class();
+        match class {
+            UsbClass::HUB_FS | UsbClass::HUB_HS_MTT | UsbClass::HUB_HS_STT | UsbClass::HUB_SS => {
+                Some(Box::pin(Self::_instantiate(device.clone())))
+            }
+            _ => None,
+        }
     }
 }
 

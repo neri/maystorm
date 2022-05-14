@@ -163,6 +163,15 @@ pub enum WasmIntMnemonic {
     FusedI32BrZ(usize),
     FusedI32BrEq(usize),
     FusedI32BrNe(usize),
+    FusedI32BrLtS(usize),
+    FusedI32BrLtU(usize),
+    FusedI32BrGtS(usize),
+    FusedI32BrGtU(usize),
+    FusedI32BrLeS(usize),
+    FusedI32BrLeU(usize),
+    FusedI32BrGeS(usize),
+    FusedI32BrGeU(usize),
+
     FusedI64BrZ(usize),
     FusedI64BrEq(usize),
     FusedI64BrNe(usize),
@@ -251,6 +260,30 @@ impl WasmImc {
                 *target = f(WasmOpcode::BrIf, *target)?;
             }
             FusedI32BrNe(target) => {
+                *target = f(WasmOpcode::BrIf, *target)?;
+            }
+            FusedI32BrLtS(target) => {
+                *target = f(WasmOpcode::BrIf, *target)?;
+            }
+            FusedI32BrLtU(target) => {
+                *target = f(WasmOpcode::BrIf, *target)?;
+            }
+            FusedI32BrGtS(target) => {
+                *target = f(WasmOpcode::BrIf, *target)?;
+            }
+            FusedI32BrGtU(target) => {
+                *target = f(WasmOpcode::BrIf, *target)?;
+            }
+            FusedI32BrLeS(target) => {
+                *target = f(WasmOpcode::BrIf, *target)?;
+            }
+            FusedI32BrLeU(target) => {
+                *target = f(WasmOpcode::BrIf, *target)?;
+            }
+            FusedI32BrGeS(target) => {
+                *target = f(WasmOpcode::BrIf, *target)?;
+            }
+            FusedI32BrGeU(target) => {
                 *target = f(WasmOpcode::BrIf, *target)?;
             }
 

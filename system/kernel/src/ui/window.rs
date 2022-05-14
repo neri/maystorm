@@ -83,7 +83,6 @@ pub struct WindowManager<'a> {
 
     main_screen: UnsafeCell<Bitmap32<'a>>,
     screen_size: Size,
-    off_screen: OwnedBitmap32,
     screen_insets: EdgeInsets,
 
     resources: Resources<'a>,
@@ -116,13 +115,12 @@ impl WindowManager<'static> {
 
         let mut screen_size = main_screen.size();
         if screen_size.width < screen_size.height {
-            attributes.insert(WindowManagerAttributes::PORTRAIT);
-            swap(&mut screen_size.width, &mut screen_size.height);
+            attributes.insert(WindowManagerAttributes::ROTATE);
+            screen_size.swap();
         }
 
         let pointer_x = 0;
         let pointer_y = 0;
-        let off_screen = OwnedBitmap32::new(screen_size, TrueColor::TRANSPARENT);
         let mut window_pool = BTreeMap::new();
         let mut window_orders = Vec::with_capacity(MAX_WINDOWS);
 
@@ -196,7 +194,6 @@ impl WindowManager<'static> {
                 buttons_up: AtomicUsize::new(0),
                 main_screen: UnsafeCell::new(main_screen),
                 screen_size,
-                off_screen,
                 screen_insets: EdgeInsets::default(),
                 resources: Resources {
                     _phantom: &(),
@@ -300,8 +297,8 @@ impl WindowManager<'_> {
                 .attributes
                 .test_and_clear(WindowManagerAttributes::NEEDS_REDRAW)
             {
-                let desktop = shared.root;
-                desktop.as_ref().draw_to_screen(desktop.frame());
+                // let desktop = shared.root;
+                // desktop.as_ref().draw_to_screen(desktop.frame());
             }
             if shared
                 .attributes
@@ -855,7 +852,7 @@ impl WindowManager<'_> {
         let _ = shared.root.update_opt(|root| {
             if root.bitmap.is_none() {
                 let bitmap = ConstBitmap::from(unsafe { &*shared.main_screen.get() });
-                root.bitmap = Some(UnsafeCell::new(OwnedBitmap::same_format(
+                root.bitmap = Some(UnsafeCell::new(OwnedBitmap::new(
                     &bitmap,
                     root.frame.size(),
                     root.bg_color,
@@ -962,7 +959,7 @@ impl WindowManager<'_> {
 
 bitflags! {
     struct WindowManagerAttributes: usize {
-        const PORTRAIT      = 0b0000_0001;
+        const ROTATE        = 0b0000_0001;
         const EVENT         = 0b0000_0010;
         const MOUSE_MOVE    = 0b0000_0100;
         const NEEDS_REDRAW  = 0b0000_1000;
@@ -1016,6 +1013,7 @@ struct RawWindow {
     inactive_title_color: Color,
     bitmap: Option<UnsafeCell<OwnedBitmap>>,
     shadow_bitmap: Option<UnsafeCell<OperationalBitmap>>,
+    back_buffer: UnsafeCell<OwnedBitmap32>,
 
     /// Window Title
     title: [u8; WINDOW_TITLE_LENGTH],
@@ -1199,24 +1197,22 @@ impl RawWindow {
     }
 
     fn draw_to_screen(&self, rect: Rect) {
-        let mut frame = rect;
-        frame.origin += self.frame.origin;
+        let offset = self.frame.origin;
+        let screen_rect = rect + offset;
         let shared = WindowManager::shared_mut();
         let main_screen = unsafe { &mut *shared.main_screen.get() };
-        let off_screen = shared.off_screen.as_mut();
-        if self.draw_into(off_screen, frame) {
-            if shared
-                .attributes
-                .contains(WindowManagerAttributes::PORTRAIT)
-            {
-                main_screen.blt_rotate(off_screen, frame.origin, frame);
+        let back_buffer = unsafe { &mut *self.back_buffer.get() };
+        let back_buffer = back_buffer.as_mut();
+        if self.draw_into(back_buffer, offset, screen_rect) {
+            if shared.attributes.contains(WindowManagerAttributes::ROTATE) {
+                main_screen.blt_rotate(back_buffer, rect.origin + offset, rect);
             } else {
-                main_screen.blt(off_screen, frame.origin, frame);
+                main_screen.blt(back_buffer, rect.origin + offset, rect);
             }
         }
     }
 
-    fn draw_into(&self, target_bitmap: &mut Bitmap32, frame: Rect) -> bool {
+    fn draw_into(&self, target_bitmap: &mut Bitmap32, offset: Point, frame: Rect) -> bool {
         let coords1 = match Coordinates::from_rect(frame) {
             Ok(coords) => coords,
             Err(_) => return false,
@@ -1249,7 +1245,7 @@ impl RawWindow {
                     let blt_origin = Point::new(
                         cmp::max(coords1.left, coords2.left),
                         cmp::max(coords1.top, coords2.top),
-                    );
+                    ) - offset;
                     let x = if coords1.left > coords2.left {
                         coords1.left - coords2.left
                     } else {
@@ -1287,10 +1283,6 @@ impl RawWindow {
                                 );
                             }
                             Bitmap::Argb32(bitmap) => {
-                                // let rect = Rect {
-                                //     origin: blt_origin,
-                                //     size: blt_rect.size,
-                                // };
                                 if window.style.contains(WindowStyle::OPAQUE)
                                     || self.handle == window.handle && is_opaque
                                 {
@@ -1302,9 +1294,9 @@ impl RawWindow {
                         }
                     } else {
                         if window.style.contains(WindowStyle::OPAQUE) {
-                            target_bitmap.fill_rect(blt_rect, window.bg_color.into());
+                            target_bitmap.fill_rect(blt_rect - offset, window.bg_color.into());
                         } else {
-                            target_bitmap.blend_rect(blt_rect, window.bg_color.into());
+                            target_bitmap.blend_rect(blt_rect - offset, window.bg_color.into());
                         }
                     }
                 }
@@ -1595,13 +1587,9 @@ impl RawWindow {
     #[inline]
     pub fn set_needs_display(&self) {
         match self.handle.post(WindowMessage::Draw) {
-            Ok(()) => (),
+            Ok(_) => {}
             Err(_) => {
-                let shared = WindowManager::shared();
-                shared
-                    .attributes
-                    .insert(WindowManagerAttributes::NEEDS_REDRAW);
-                shared.sem_event.signal();
+                // TODO:
             }
         }
     }
@@ -1923,6 +1911,16 @@ impl WindowBuilder {
             ViewActionState::Disabled
         };
 
+        let back_buffer = if let Some(ref shadow_bitmap) = shadow_bitmap {
+            let shadow_bitmap = unsafe { &*shadow_bitmap.get() };
+            UnsafeCell::new(OwnedBitmap32::new(
+                shadow_bitmap.size(),
+                TrueColor::TRANSPARENT,
+            ))
+        } else {
+            UnsafeCell::new(OwnedBitmap32::new(frame.size(), TrueColor::TRANSPARENT))
+        };
+
         let handle = WindowManager::next_window_handle();
 
         let mut window = Box::new(RawWindow {
@@ -1937,6 +1935,7 @@ impl WindowBuilder {
             inactive_title_color,
             bitmap: None,
             shadow_bitmap,
+            back_buffer,
             title: title_array,
             close_button_state,
             back_button_state: ViewActionState::Disabled,
@@ -2312,10 +2311,7 @@ impl WindowHandle {
     /// Draws the contents of the window on the screen as a bitmap.
     pub fn draw_into(&self, target_bitmap: &mut Bitmap32, rect: Rect) {
         let window = self.as_ref();
-        let mut frame = rect;
-        frame.origin.x += window.frame.x();
-        frame.origin.y += window.frame.y();
-        window.draw_into(target_bitmap, frame);
+        window.draw_into(target_bitmap, Point::default(), rect + window.frame.origin);
     }
 
     /// Post a window message.

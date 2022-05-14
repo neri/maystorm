@@ -1,10 +1,13 @@
 use crate::sys::syscall::*;
-pub use core::fmt::*;
+pub use core::fmt;
 
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => {
-        { let _ = write!(OsPrint(), $($arg)*); }
+        {
+            use core::fmt::Write;
+            let _ = write!(OsPrint(), $($arg)*);
+        }
     };
 }
 
@@ -19,14 +22,14 @@ macro_rules! println {
 }
 
 #[panic_handler]
-fn panic(info: &core::panic::PanicInfo) -> ! {
-    println!("{}", info);
+fn panic(_info: &core::panic::PanicInfo) -> ! {
+    // println!("{}", info);
     os_exit();
 }
 
 pub struct OsPrint();
 
-impl Write for OsPrint {
+impl fmt::Write for OsPrint {
     #[inline]
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         os_print(s);

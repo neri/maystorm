@@ -98,6 +98,7 @@ impl Xhci {
     /// The maximum number of device slots allowed.
     /// This means the maximum number of USB devices that can be connected to this controller.
     const MAX_DEVICE_SLOTS: usize = 64;
+    const MAX_DOORBELLS: usize = Self::MAX_DEVICE_SLOTS * 32;
     const MAX_TR: usize = 256;
     const MAX_CRB: usize = 256;
     const SIZE_EP_RING: usize = MemoryManager::PAGE_SIZE_MIN / size_of::<Trb>();
@@ -157,7 +158,7 @@ impl Xhci {
             slot2port: RwLock::new([None; 256]),
             crbs: [CommandRequestBlock::EMPTY; Self::MAX_CRB],
             ics: [InputContext::EMPTY; Self::MAX_DEVICE_SLOTS],
-            doorbell_queue: AsyncEventQueue::new(Self::MAX_DEVICE_SLOTS),
+            doorbell_queue: AsyncEventQueue::new(Self::MAX_DOORBELLS),
             sem_event_thread: Semaphore::new(0),
         });
 

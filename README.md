@@ -30,7 +30,7 @@ A hobby operating system written in Rust that supports WebAssembly.
 * llvm (ld.lld)
 * qemu + ovmf (optional)
 
-### To build
+### build
 
 1. Install llvm
 2. Install rust (nightly)
@@ -43,13 +43,13 @@ If you get an error that the linker cannot be found, configure your linker in `~
 linker = "/opt/homebrew/opt/llvm/bin/ld.lld"
 ```
 
-### To run on qemu
+### run on qemu
 
 1. Copy qemu's OVMF for x64 to `var/ovmfx64.fd`.
 2. Follow the build instructions to finish the installation.
 3. `make run`
 
-### To run on real hardware
+### run on real hardware
 
 * Copy the files in the path `mnt/efi` created by the build to a USB memory stick and reboot your computer.
 * You may need to change settings such as SecureBoot.

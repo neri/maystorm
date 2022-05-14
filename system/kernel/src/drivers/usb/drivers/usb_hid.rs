@@ -27,8 +27,16 @@ impl UsbInterfaceDriverStarter for UsbHidStarter {
         device: &Arc<UsbDeviceControl>,
         if_no: UsbInterfaceNumber,
         class: UsbClass,
-    ) -> Pin<Box<dyn Future<Output = Result<Task, UsbError>>>> {
-        Box::pin(UsbHidDriver::_instantiate(device.clone(), if_no, class))
+    ) -> Option<Pin<Box<dyn Future<Output = Result<Task, UsbError>>>>> {
+        if class.base() == UsbBaseClass::HID {
+            Some(Box::pin(UsbHidDriver::_instantiate(
+                device.clone(),
+                if_no,
+                class,
+            )))
+        } else {
+            None
+        }
     }
 }
 
@@ -42,9 +50,6 @@ impl UsbHidDriver {
         if_no: UsbInterfaceNumber,
         class: UsbClass,
     ) -> Result<Task, UsbError> {
-        if class.base() != UsbBaseClass::HID {
-            return Err(UsbError::Unsupported);
-        }
         let interface = match device
             .device()
             .current_configuration()

@@ -1887,14 +1887,22 @@ impl Drawable for OwnedBitmap {
 
 impl OwnedBitmap {
     #[inline]
-    pub fn same_format<'b, T: AsRef<ConstBitmap<'b>>>(
-        template: &T,
+    pub fn new<'b, T: AsRef<ConstBitmap<'b>>>(
+        template_bitmap: &T,
         size: Size,
         bg_color: Color,
     ) -> OwnedBitmap {
-        match template.as_ref() {
+        match template_bitmap.as_ref() {
             ConstBitmap::Indexed(_) => Self::Indexed(OwnedBitmap8::new(size, bg_color.into())),
             ConstBitmap::Argb32(_) => Self::Argb32(OwnedBitmap32::new(size, bg_color.into())),
+        }
+    }
+
+    #[inline]
+    pub fn same_format(&self, size: Size, bg_color: Color) -> OwnedBitmap {
+        match self {
+            Self::Indexed(_) => Self::Indexed(OwnedBitmap8::new(size, bg_color.into())),
+            Self::Argb32(_) => Self::Argb32(OwnedBitmap32::new(size, bg_color.into())),
         }
     }
 

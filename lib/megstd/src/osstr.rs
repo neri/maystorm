@@ -1,21 +1,26 @@
 // impl OsString for MEG-OS
 // Most of them are clones of Rust's original definition.
 
-use alloc::{borrow::ToOwned, boxed::Box, string::String, vec::Vec};
+use crate::*;
+use alloc::borrow::{Cow, ToOwned};
+use alloc::collections::TryReserveError;
 use core::{
     cmp, fmt,
     hash::{Hash, Hasher},
-    ops, str,
+    mem, ops, str,
 };
 
-type Buf = Vec<u8>;
-type Slice = [u8];
-
+#[repr(transparent)]
 pub struct OsStr {
     inner: Slice,
 }
 
 impl OsStr {
+    #[inline]
+    pub fn new<S: AsRef<OsStr> + ?Sized>(s: &S) -> &OsStr {
+        s.as_ref()
+    }
+
     #[inline]
     fn from_inner(inner: &Slice) -> &OsStr {
         unsafe { &*(inner as *const Slice as *const OsStr) }
@@ -27,11 +32,6 @@ impl OsStr {
     }
 
     #[inline]
-    pub fn new<S: AsRef<OsStr> + ?Sized>(s: &S) -> &OsStr {
-        s.as_ref()
-    }
-
-    #[inline]
     pub fn to_os_string(&self) -> OsString {
         OsString {
             inner: self.inner.to_owned(),
@@ -40,17 +40,17 @@ impl OsStr {
 
     #[inline]
     pub fn to_str(&self) -> Option<&str> {
-        str::from_utf8(&self.inner).ok()
+        self.inner.to_str()
     }
 
     #[inline]
-    pub const fn is_empty(&self) -> bool {
-        self.inner.len() == 0
+    pub fn is_empty(&self) -> bool {
+        self.inner.inner.is_empty()
     }
 
     #[inline]
-    pub const fn len(&self) -> usize {
-        self.inner.len()
+    pub fn len(&self) -> usize {
+        self.inner.inner.len()
     }
 
     #[inline]
@@ -149,6 +149,7 @@ impl Hash for OsStr {
     }
 }
 
+#[repr(transparent)]
 #[derive(Clone)]
 pub struct OsString {
     inner: Buf,
@@ -156,8 +157,10 @@ pub struct OsString {
 
 impl OsString {
     #[inline]
-    pub const fn new() -> OsString {
-        Self { inner: Buf::new() }
+    pub fn new() -> OsString {
+        OsString {
+            inner: Buf::from_string(String::new()),
+        }
     }
 
     #[inline]
@@ -167,7 +170,7 @@ impl OsString {
 
     #[inline]
     pub fn push<T: AsRef<OsStr>>(&mut self, s: T) {
-        self.inner.extend_from_slice(&s.as_ref().inner)
+        self.inner.push_slice(&s.as_ref().inner)
     }
 
     #[inline]
@@ -206,7 +209,7 @@ impl OsString {
 
     #[inline]
     pub fn into_boxed_os_str(self) -> Box<OsStr> {
-        let rw = Box::into_raw(self.inner.into_boxed_slice()) as *mut OsStr;
+        let rw = Box::into_raw(self.inner.into_box()) as *mut OsStr;
         unsafe { Box::from_raw(rw) }
     }
 }
@@ -259,7 +262,7 @@ impl AsRef<OsStr> for OsStr {
 impl AsRef<OsStr> for str {
     #[inline]
     fn as_ref(&self) -> &OsStr {
-        OsStr::from_inner(self.as_bytes())
+        OsStr::from_inner(Slice::from_str(self))
     }
 }
 
@@ -280,5 +283,207 @@ impl AsRef<OsStr> for OsString {
 impl fmt::Debug for OsString {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&**self, formatter)
+    }
+}
+
+#[repr(transparent)]
+pub struct Slice {
+    pub inner: [u8],
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Buf {
+    pub inner: Vec<u8>,
+}
+
+impl Buf {
+    pub fn from_string(s: String) -> Buf {
+        Buf {
+            inner: s.into_bytes(),
+        }
+    }
+
+    #[inline]
+    pub fn with_capacity(capacity: usize) -> Buf {
+        Buf {
+            inner: Vec::with_capacity(capacity),
+        }
+    }
+
+    #[inline]
+    pub fn clear(&mut self) {
+        self.inner.clear()
+    }
+
+    #[inline]
+    pub fn capacity(&self) -> usize {
+        self.inner.capacity()
+    }
+
+    #[inline]
+    pub fn reserve(&mut self, additional: usize) {
+        self.inner.reserve(additional)
+    }
+
+    #[inline]
+    pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
+        self.inner.try_reserve(additional)
+    }
+
+    #[inline]
+    pub fn reserve_exact(&mut self, additional: usize) {
+        self.inner.reserve_exact(additional)
+    }
+
+    #[inline]
+    pub fn try_reserve_exact(&mut self, additional: usize) -> Result<(), TryReserveError> {
+        self.inner.try_reserve_exact(additional)
+    }
+
+    #[inline]
+    pub fn shrink_to_fit(&mut self) {
+        self.inner.shrink_to_fit()
+    }
+
+    #[inline]
+    pub fn shrink_to(&mut self, min_capacity: usize) {
+        self.inner.shrink_to(min_capacity)
+    }
+
+    #[inline]
+    pub fn as_slice(&self) -> &Slice {
+        // SAFETY: Slice just wraps [u8],
+        // and &*self.inner is &[u8], therefore
+        // transmuting &[u8] to &Slice is safe.
+        unsafe { mem::transmute(&*self.inner) }
+    }
+
+    #[inline]
+    pub fn as_mut_slice(&mut self) -> &mut Slice {
+        // SAFETY: Slice just wraps [u8],
+        // and &mut *self.inner is &mut [u8], therefore
+        // transmuting &mut [u8] to &mut Slice is safe.
+        unsafe { mem::transmute(&mut *self.inner) }
+    }
+
+    pub fn into_string(self) -> Result<String, Buf> {
+        String::from_utf8(self.inner).map_err(|p| Buf {
+            inner: p.into_bytes(),
+        })
+    }
+
+    pub fn push_slice(&mut self, s: &Slice) {
+        self.inner.extend_from_slice(&s.inner)
+    }
+
+    #[inline]
+    pub fn into_box(self) -> Box<Slice> {
+        unsafe { mem::transmute(self.inner.into_boxed_slice()) }
+    }
+
+    #[inline]
+    pub fn from_box(boxed: Box<Slice>) -> Buf {
+        let inner: Box<[u8]> = unsafe { mem::transmute(boxed) };
+        Buf {
+            inner: inner.into_vec(),
+        }
+    }
+
+    #[inline]
+    pub fn into_arc(&self) -> Arc<Slice> {
+        self.as_slice().into_arc()
+    }
+
+    #[inline]
+    pub fn into_rc(&self) -> Rc<Slice> {
+        self.as_slice().into_rc()
+    }
+}
+
+impl Slice {
+    #[inline]
+    fn from_u8_slice(s: &[u8]) -> &Slice {
+        unsafe { mem::transmute(s) }
+    }
+
+    #[inline]
+    pub fn from_str(s: &str) -> &Slice {
+        Slice::from_u8_slice(s.as_bytes())
+    }
+
+    pub fn to_str(&self) -> Option<&str> {
+        str::from_utf8(&self.inner).ok()
+    }
+
+    pub fn to_string_lossy(&self) -> Cow<'_, str> {
+        String::from_utf8_lossy(&self.inner)
+    }
+
+    pub fn to_owned(&self) -> Buf {
+        Buf {
+            inner: self.inner.to_vec(),
+        }
+    }
+
+    pub fn clone_into(&self, buf: &mut Buf) {
+        self.inner.clone_into(&mut buf.inner)
+    }
+
+    #[inline]
+    pub fn into_box(&self) -> Box<Slice> {
+        let boxed: Box<[u8]> = self.inner.into();
+        unsafe { mem::transmute(boxed) }
+    }
+
+    pub fn empty_box() -> Box<Slice> {
+        let boxed: Box<[u8]> = Default::default();
+        unsafe { mem::transmute(boxed) }
+    }
+
+    #[inline]
+    pub fn into_arc(&self) -> Arc<Slice> {
+        let arc: Arc<[u8]> = Arc::from(&self.inner);
+        unsafe { Arc::from_raw(Arc::into_raw(arc) as *const Slice) }
+    }
+
+    #[inline]
+    pub fn into_rc(&self) -> Rc<Slice> {
+        let rc: Rc<[u8]> = Rc::from(&self.inner);
+        unsafe { Rc::from_raw(Rc::into_raw(rc) as *const Slice) }
+    }
+
+    #[inline]
+    pub fn make_ascii_lowercase(&mut self) {
+        self.inner.make_ascii_lowercase()
+    }
+
+    #[inline]
+    pub fn make_ascii_uppercase(&mut self) {
+        self.inner.make_ascii_uppercase()
+    }
+
+    #[inline]
+    pub fn to_ascii_lowercase(&self) -> Buf {
+        Buf {
+            inner: self.inner.to_ascii_lowercase(),
+        }
+    }
+
+    #[inline]
+    pub fn to_ascii_uppercase(&self) -> Buf {
+        Buf {
+            inner: self.inner.to_ascii_uppercase(),
+        }
+    }
+
+    #[inline]
+    pub fn is_ascii(&self) -> bool {
+        self.inner.is_ascii()
+    }
+
+    #[inline]
+    pub fn eq_ignore_ascii_case(&self, other: &Self) -> bool {
+        self.inner.eq_ignore_ascii_case(&other.inner)
     }
 }

@@ -880,6 +880,70 @@ impl WasmInterpreter<'_> {
                         codes.set_position(target);
                     }
                 }
+                WasmIntMnemonic::FusedI32BrLtS(target) => {
+                    let stack_level = code.stack_level();
+                    let rhs = unsafe { *value_stack.get_unchecked(stack_level + 1) };
+                    let lhs = unsafe { *value_stack.get_unchecked(stack_level) };
+                    if unsafe { lhs.get_i32() < rhs.get_i32() } {
+                        codes.set_position(target);
+                    }
+                }
+                WasmIntMnemonic::FusedI32BrLtU(target) => {
+                    let stack_level = code.stack_level();
+                    let rhs = unsafe { *value_stack.get_unchecked(stack_level + 1) };
+                    let lhs = unsafe { *value_stack.get_unchecked(stack_level) };
+                    if unsafe { lhs.get_u32() < rhs.get_u32() } {
+                        codes.set_position(target);
+                    }
+                }
+                WasmIntMnemonic::FusedI32BrGtS(target) => {
+                    let stack_level = code.stack_level();
+                    let rhs = unsafe { *value_stack.get_unchecked(stack_level + 1) };
+                    let lhs = unsafe { *value_stack.get_unchecked(stack_level) };
+                    if unsafe { lhs.get_i32() > rhs.get_i32() } {
+                        codes.set_position(target);
+                    }
+                }
+                WasmIntMnemonic::FusedI32BrGtU(target) => {
+                    let stack_level = code.stack_level();
+                    let rhs = unsafe { *value_stack.get_unchecked(stack_level + 1) };
+                    let lhs = unsafe { *value_stack.get_unchecked(stack_level) };
+                    if unsafe { lhs.get_u32() > rhs.get_u32() } {
+                        codes.set_position(target);
+                    }
+                }
+                WasmIntMnemonic::FusedI32BrLeS(target) => {
+                    let stack_level = code.stack_level();
+                    let rhs = unsafe { *value_stack.get_unchecked(stack_level + 1) };
+                    let lhs = unsafe { *value_stack.get_unchecked(stack_level) };
+                    if unsafe { lhs.get_i32() <= rhs.get_i32() } {
+                        codes.set_position(target);
+                    }
+                }
+                WasmIntMnemonic::FusedI32BrLeU(target) => {
+                    let stack_level = code.stack_level();
+                    let rhs = unsafe { *value_stack.get_unchecked(stack_level + 1) };
+                    let lhs = unsafe { *value_stack.get_unchecked(stack_level) };
+                    if unsafe { lhs.get_u32() <= rhs.get_u32() } {
+                        codes.set_position(target);
+                    }
+                }
+                WasmIntMnemonic::FusedI32BrGeS(target) => {
+                    let stack_level = code.stack_level();
+                    let rhs = unsafe { *value_stack.get_unchecked(stack_level + 1) };
+                    let lhs = unsafe { *value_stack.get_unchecked(stack_level) };
+                    if unsafe { lhs.get_i32() >= rhs.get_i32() } {
+                        codes.set_position(target);
+                    }
+                }
+                WasmIntMnemonic::FusedI32BrGeU(target) => {
+                    let stack_level = code.stack_level();
+                    let rhs = unsafe { *value_stack.get_unchecked(stack_level + 1) };
+                    let lhs = unsafe { *value_stack.get_unchecked(stack_level) };
+                    if unsafe { lhs.get_u32() >= rhs.get_u32() } {
+                        codes.set_position(target);
+                    }
+                }
 
                 WasmIntMnemonic::FusedI64BrZ(target) => {
                     let cc =
@@ -903,7 +967,7 @@ impl WasmInterpreter<'_> {
                     if unsafe { lhs.get_u64() != rhs.get_u64() } {
                         codes.set_position(target);
                     }
-                } // _ => return Err(self.error(WasmRuntimeErrorKind::NotSupprted, code)),
+                }
             }
         }
         if let Some(result_type) = result_types.first() {

@@ -59,18 +59,6 @@ async fn slpash_task(f: fn()) {
         }
     }
 
-    if false {
-        if let Ok(mut file) = FileManager::open("wall.qoi") {
-            let mut vec = Vec::new();
-            file.read_to_end(&mut vec).unwrap();
-            if let Some(mut dib) = ImageLoader::from_qoi(vec.as_slice()) {
-                WindowManager::set_desktop_bitmap(&dib.into_bitmap());
-            }
-        } else {
-            WindowManager::set_desktop_color(Theme::shared().desktop_color());
-        }
-    }
-
     WindowManager::set_pointer_visible(true);
 
     Scheduler::spawn_async(Task::new(status_bar_main()));
@@ -84,20 +72,24 @@ async fn slpash_task(f: fn()) {
 #[allow(dead_code)]
 async fn shell_launcher(f: fn()) {
     if false {
+        if true {
+            if let Ok(mut file) = FileManager::open("wall.qoi") {
+                let mut vec = Vec::new();
+                file.read_to_end(&mut vec).unwrap();
+                if let Some(mut dib) = ImageLoader::from_qoi(vec.as_slice()) {
+                    WindowManager::set_desktop_bitmap(&dib.into_bitmap());
+                }
+            } else {
+                WindowManager::set_desktop_color(Theme::shared().desktop_color());
+            }
+        }
+
         // Main Terminal
         let terminal = Terminal::new(80, 24, FontManager::monospace_font());
         System::set_stdout(Box::new(terminal));
     } else {
         let size = WindowManager::main_screen_bounds();
-        let point = 
-        // if size.width() >= 1600 {
-        //     32
-        // } else 
-        if size.width() >= 1200 {
-            24
-        } else {
-            16
-        };
+        let point = if size.width() >= 1200 { 24 } else { 16 };
         let font = FontDescriptor::new(FontFamily::Monospace, point)
             .unwrap_or(FontManager::monospace_font());
         let window = WindowBuilder::new()
@@ -653,7 +645,7 @@ async fn test_window_main() {
         }
     });
 
-    // WindowManager::set_barrier_opacity(0x80);
+    WindowManager::set_barrier_opacity(0x80);
 
     while let Some(message) = window.await_message().await {
         match message {
@@ -665,6 +657,8 @@ async fn test_window_main() {
             _ => window.handle_default_message(message),
         }
     }
+
+    WindowManager::set_barrier_opacity(0);
 }
 
 fn font_test(

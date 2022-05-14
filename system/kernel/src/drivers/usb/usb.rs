@@ -79,7 +79,7 @@ pub trait UsbClassDriverStarter {
     fn instantiate(
         &self,
         device: &Arc<UsbDeviceControl>,
-    ) -> Pin<Box<dyn Future<Output = Result<Task, UsbError>>>>;
+    ) -> Option<Pin<Box<dyn Future<Output = Result<Task, UsbError>>>>>;
 }
 
 pub trait UsbInterfaceDriverStarter {
@@ -88,7 +88,7 @@ pub trait UsbInterfaceDriverStarter {
         device: &Arc<UsbDeviceControl>,
         if_no: UsbInterfaceNumber,
         class: UsbClass,
-    ) -> Pin<Box<dyn Future<Output = Result<Task, UsbError>>>>;
+    ) -> Option<Pin<Box<dyn Future<Output = Result<Task, UsbError>>>>>;
 }
 
 static mut USB_MANAGER: MaybeUninit<UsbManager> = MaybeUninit::uninit();
@@ -158,7 +158,11 @@ impl UsbManager {
 
                 let mut is_configured = false;
                 for driver in shared.specific_driver_starters.read().unwrap().iter() {
-                    match driver.instantiate(&device).await {
+                    let instantiator = match driver.instantiate(&device) {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    match instantiator.await {
                         Ok(task) => {
                             tasks.push(task);
                             is_configured = true;
@@ -172,7 +176,11 @@ impl UsbManager {
                 }
                 if !is_configured {
                     for driver in shared.class_driver_starters.read().unwrap().iter() {
-                        match driver.instantiate(&device).await {
+                        let instantiator = match driver.instantiate(&device) {
+                            Some(v) => v,
+                            None => continue,
+                        };
+                        match instantiator.await {
                             Ok(task) => {
                                 tasks.push(task);
                                 is_configured = true;
@@ -188,10 +196,15 @@ impl UsbManager {
                 if !is_configured {
                     for interface in device.device().current_configuration().interfaces() {
                         for driver in shared.interface_driver_starters.read().unwrap().iter() {
-                            match driver
-                                .instantiate(&device, interface.if_no(), interface.class())
-                                .await
-                            {
+                            let instantiator = match driver.instantiate(
+                                &device,
+                                interface.if_no(),
+                                interface.class(),
+                            ) {
+                                Some(v) => v,
+                                None => continue,
+                            };
+                            match instantiator.await {
                                 Ok(task) => {
                                     tasks.push(task);
                                     is_configured = true;
