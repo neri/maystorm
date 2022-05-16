@@ -1,3 +1,5 @@
+pub mod megos;
+
 #[cfg(feature = "wasm")]
 #[macro_use]
 mod wasm;

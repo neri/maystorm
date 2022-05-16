@@ -24,8 +24,7 @@ use core::{
     time::Duration,
 };
 use futures_util::task::AtomicWaker;
-use megstd::io::hid::*;
-use megstd::{drawing::*, string::StringBuffer};
+use megstd::{drawing::*, io::hid::*, string::StringBuffer, sys::megos};
 
 const MAX_WINDOWS: usize = 255;
 const WINDOW_SYSTEM_EVENT_QUEUE_SIZE: usize = 100;
@@ -1808,16 +1807,16 @@ impl WindowBuilder {
 
     fn build_inner<'a>(mut self, title: &str) -> Box<RawWindow> {
         let window_options = self.options;
-        if (window_options & megosabi::window::THIN_FRAME) != 0 {
+        if (window_options & megos::window::THIN_FRAME) != 0 {
             self.style.insert(WindowStyle::THIN_FRAME);
         }
-        if (window_options & megosabi::window::OPAQUE_CONTENT) != 0 {
+        if (window_options & megos::window::OPAQUE_CONTENT) != 0 {
             self.style.insert(WindowStyle::OPAQUE_CONTENT);
         }
-        if (window_options & megosabi::window::USE_BITMAP32) != 0 {
+        if (window_options & megos::window::USE_BITMAP32) != 0 {
             self.bitmap_strategy = BitmapStrategy::Expressive;
         }
-        if (window_options & megosabi::window::FULLSCREEN) != 0 {
+        if (window_options & megos::window::FULLSCREEN) != 0 {
             self.style.insert(WindowStyle::FULLSCREEN);
         }
         if self.style.contains(WindowStyle::THIN_FRAME) {
@@ -2039,27 +2038,27 @@ impl WindowBuilder {
     /// Sets the window's content bitmap to ARGB32 format.
     #[inline]
     pub const fn bitmap_argb32(mut self) -> Self {
-        self.options |= megosabi::window::USE_BITMAP32;
+        self.options |= megos::window::USE_BITMAP32;
         self
     }
 
     /// Makes the border of the window a thin border.
     #[inline]
     pub const fn thin_frame(mut self) -> Self {
-        self.options |= megosabi::window::THIN_FRAME;
+        self.options |= megos::window::THIN_FRAME;
         self
     }
 
     /// Content is opaque
     #[inline]
     pub const fn opaque(mut self) -> Self {
-        self.options |= megosabi::window::OPAQUE_CONTENT;
+        self.options |= megos::window::OPAQUE_CONTENT;
         self
     }
 
     #[inline]
     pub const fn fullscreen(mut self) -> Self {
-        self.options |= megosabi::window::FULLSCREEN;
+        self.options |= megos::window::FULLSCREEN;
         self
     }
 

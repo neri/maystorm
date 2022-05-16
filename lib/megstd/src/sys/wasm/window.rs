@@ -1,6 +1,7 @@
 // MEG-OS Window API
 
 pub use crate::drawing::*;
+use crate::sys::megos;
 use crate::sys::syscall::{self, OsDrawShape};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -55,7 +56,7 @@ impl Window {
     #[inline]
     pub fn read_char(&self) -> Option<char> {
         match syscall::os_read_char(self.handle.0) {
-            megosabi::OPTION_CHAR_NONE => None,
+            megos::OPTION_CHAR_NONE => None,
             c => Some(unsafe { core::char::from_u32_unchecked(c as u32) }),
         }
     }
@@ -226,27 +227,27 @@ impl WindowBuilder {
     /// Sets the window's content bitmap to ARGB32 format.
     #[inline]
     pub const fn bitmap_argb32(mut self) -> Self {
-        self.options |= megosabi::window::USE_BITMAP32;
+        self.options |= megos::window::USE_BITMAP32;
         self
     }
 
     /// Makes the border of the window a thin border.
     #[inline]
     pub const fn thin_frame(mut self) -> Self {
-        self.options |= megosabi::window::THIN_FRAME;
+        self.options |= megos::window::THIN_FRAME;
         self
     }
 
     /// Content is opaque
     #[inline]
     pub const fn opaque(mut self) -> Self {
-        self.options |= megosabi::window::OPAQUE_CONTENT;
+        self.options |= megos::window::OPAQUE_CONTENT;
         self
     }
 
     #[inline]
     pub const fn fullscreen(mut self) -> Self {
-        self.options |= megosabi::window::FULLSCREEN;
+        self.options |= megos::window::FULLSCREEN;
         self
     }
 

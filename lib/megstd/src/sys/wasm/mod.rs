@@ -4,6 +4,7 @@ pub mod prelude;
 pub mod fs_imp;
 mod os_alloc;
 
+#[macro_use]
 pub mod syscall;
 
 #[cfg(feature = "window")]

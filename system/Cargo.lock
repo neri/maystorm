@@ -105,7 +105,6 @@ dependencies = [
  "byteorder",
  "futures-util",
  "libm",
- "megosabi",
  "megstd",
  "num-derive 0.3.3",
  "num-traits",
@@ -127,10 +126,6 @@ checksum = "6389c490849ff5bc16be905ae24bc913a9c8892e19b2341dbc175e14c341c2b8"
 dependencies = [
  "cfg-if",
 ]
-
-[[package]]
-name = "megosabi"
-version = "0.1.0"
 
 [[package]]
 name = "megstd"

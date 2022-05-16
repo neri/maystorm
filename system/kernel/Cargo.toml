@@ -10,7 +10,6 @@ version = "0.1.0"
 
 [dependencies]
 bootprot = {path = "../../lib/bootprot"}
-megosabi = {path = "../../lib/megosabi"}
 megstd = {path = "../../lib/megstd", default-features = false, features = ["kernel"]}
 wasm = {path = "../../lib/wasm"}
 

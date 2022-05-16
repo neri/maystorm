@@ -26,7 +26,7 @@ jobs:
     - name: Build Documentation
       run: |
         cd system
-        cargo doc --no-deps --target x86_64-unknown-none.json -p kernel -p megstd -p bootprot -p megosabi
+        cargo doc --no-deps --target x86_64-unknown-none.json -p kernel -p megstd -p bootprot
 
     - name: Deploy Docs
       uses: peaceiris/actions-gh-pages@v3

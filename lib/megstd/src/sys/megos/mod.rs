@@ -1,7 +1,3 @@
-// MEG-OS Arlequin System Call ABI
-#![no_std]
-#![feature(asm_experimental_arch)]
-
 pub mod svc;
 
 /// Invalid character representation in Rust

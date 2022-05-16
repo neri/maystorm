@@ -167,7 +167,7 @@ impl ArleRuntime {
         &mut self,
         params: &[WasmUnsafeValue],
     ) -> Result<WasmValue, WasmRuntimeErrorKind> {
-        use megosabi::svc::Function;
+        use megstd::sys::megos::svc::Function;
 
         let mut params = ParamsDecoder::new(params);
         let memory = self
@@ -369,7 +369,8 @@ impl ArleRuntime {
                 let window = params.get_window(self)?;
                 let c = self.read_key(window.native());
                 return Ok(WasmValue::from(
-                    c.map(|v| v as u32).unwrap_or(megosabi::OPTION_CHAR_NONE),
+                    c.map(|v| v as u32)
+                        .unwrap_or(megstd::sys::megos::OPTION_CHAR_NONE),
                 ));
             }
 

@@ -10,12 +10,10 @@ version = "0.1.0"
 default = ["wasm"]
 game = []
 kernel = []
-wasm = ["dep:megosabi", "window", "game"]
+wasm = ["window", "game"]
 window = []
 
 [dependencies]
-megosabi = {path = "../megosabi", optional = true}
-
 bitflags = {default-features = false}
 byteorder = {default-features = false}
 num-derive = {default-features = false}
