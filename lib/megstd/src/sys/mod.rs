@@ -1,13 +1,13 @@
 pub mod megos;
 
-#[cfg(feature = "wasm")]
-#[macro_use]
-mod wasm;
-#[cfg(feature = "wasm")]
-pub use wasm::*;
-
-#[cfg(not(feature = "wasm"))]
-#[macro_use]
-mod kernel;
-#[cfg(not(feature = "wasm"))]
-pub use kernel::*;
+cfg_if::cfg_if! {
+    if #[cfg(feature = "wasm")] {
+        #[macro_use]
+        mod wasm;
+        pub use wasm::*;
+    } else {
+        #[macro_use]
+        mod kernel;
+        pub use kernel::*;
+    }
+}

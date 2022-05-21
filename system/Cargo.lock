@@ -133,6 +133,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags",
  "byteorder",
+ "cfg-if",
  "num-derive 0.3.3",
  "num-traits",
  "rapid-qoi",

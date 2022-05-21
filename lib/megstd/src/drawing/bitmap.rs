@@ -1,6 +1,8 @@
 use super::*;
+use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
+use core::borrow::Borrow;
 use core::cell::UnsafeCell;
 use core::convert::TryFrom;
 use core::intrinsics::copy_nonoverlapping;
@@ -850,6 +852,16 @@ impl<'a> AsMut<Bitmap8<'a>> for Bitmap8<'a> {
     }
 }
 
+impl ToOwned for Bitmap8<'_> {
+    type Owned = OwnedBitmap8;
+
+    #[inline]
+    fn to_owned(&self) -> Self::Owned {
+        let vec = self.slice().to_vec();
+        OwnedBitmap8::from_vec(vec, self.size())
+    }
+}
+
 pub struct OwnedBitmap8 {
     width: usize,
     height: usize,
@@ -929,6 +941,13 @@ impl<'a> AsRef<ConstBitmap8<'a>> for OwnedBitmap8 {
 impl<'a> AsMut<Bitmap8<'a>> for OwnedBitmap8 {
     #[inline]
     fn as_mut(&mut self) -> &mut Bitmap8<'a> {
+        unsafe { transmute(self) }
+    }
+}
+
+impl<'a> Borrow<Bitmap8<'a>> for OwnedBitmap8 {
+    #[inline]
+    fn borrow(&self) -> &Bitmap8<'a> {
         unsafe { transmute(self) }
     }
 }
@@ -1442,6 +1461,16 @@ impl<'a> AsMut<Bitmap32<'a>> for Bitmap32<'a> {
     }
 }
 
+impl ToOwned for Bitmap32<'_> {
+    type Owned = OwnedBitmap32;
+
+    #[inline]
+    fn to_owned(&self) -> Self::Owned {
+        let vec = self.slice().to_vec();
+        OwnedBitmap32::from_vec(vec, self.size())
+    }
+}
+
 pub struct OwnedBitmap32 {
     width: usize,
     height: usize,
@@ -1521,6 +1550,13 @@ impl<'a> AsRef<ConstBitmap32<'a>> for OwnedBitmap32 {
 impl<'a> AsMut<Bitmap32<'a>> for OwnedBitmap32 {
     #[inline]
     fn as_mut(&mut self) -> &mut Bitmap32<'a> {
+        unsafe { transmute(self) }
+    }
+}
+
+impl<'a> Borrow<Bitmap32<'a>> for OwnedBitmap32 {
+    #[inline]
+    fn borrow(&self) -> &Bitmap32<'a> {
         unsafe { transmute(self) }
     }
 }
@@ -1852,6 +1888,18 @@ impl<'a> AsMut<Bitmap<'a>> for Bitmap<'a> {
     }
 }
 
+impl ToOwned for Bitmap<'_> {
+    type Owned = OwnedBitmap;
+
+    #[inline]
+    fn to_owned(&self) -> Self::Owned {
+        match self {
+            Bitmap::Indexed(v) => OwnedBitmap::Indexed((*v).to_owned()),
+            Bitmap::Argb32(v) => OwnedBitmap::Argb32((*v).to_owned()),
+        }
+    }
+}
+
 pub enum OwnedBitmap {
     Indexed(OwnedBitmap8),
     Argb32(OwnedBitmap32),
@@ -1926,6 +1974,12 @@ impl From<OwnedBitmap32> for OwnedBitmap {
     #[inline]
     fn from(val: OwnedBitmap32) -> Self {
         Self::Argb32(val)
+    }
+}
+
+impl<'a> Borrow<Bitmap<'a>> for OwnedBitmap {
+    fn borrow(&self) -> &Bitmap<'a> {
+        todo!()
     }
 }
 

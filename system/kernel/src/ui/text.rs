@@ -2,76 +2,79 @@
 
 use super::font::*;
 use crate::*;
-use alloc::vec::Vec;
+use alloc::{borrow::Cow, vec::Vec};
 use core::num::NonZeroUsize;
 use megstd::drawing::*;
 
 pub struct AttributedString<'a> {
-    text: &'a str,
-    font: FontDescriptor,
-    color: Color,
-    line_break_mode: LineBreakMode,
-    align: TextAlignment,
-    valign: VerticalAlignment,
+    text: Cow<'a, str>,
+    attributes: AttributeSet,
 }
 
 impl AttributedString<'_> {
-    pub fn new() -> AttributedStringBuilder {
-        AttributedStringBuilder::new()
+    #[inline]
+    pub fn new() -> AttributeSet {
+        AttributeSet::new()
     }
 
     #[inline]
-    pub const fn text(&self) -> &str {
-        self.text
+    pub fn text(&self) -> &Cow<str> {
+        &self.text
     }
 
     #[inline]
-    pub const fn font(&self) -> &FontDescriptor {
-        &self.font
+    pub fn font(&self) -> &FontDescriptor {
+        &self.attributes.font
     }
 
     #[inline]
-    pub const fn color(&self) -> Color {
-        self.color
+    pub fn color(&self) -> Color {
+        self.attributes.color
     }
 
     #[inline]
-    pub const fn line_break_mode(&self) -> LineBreakMode {
-        self.line_break_mode
+    pub fn line_break_mode(&self) -> LineBreakMode {
+        self.attributes.line_break_mode
     }
 
     #[inline]
-    pub const fn align(&self) -> TextAlignment {
-        self.align
+    pub fn align(&self) -> TextAlignment {
+        self.attributes.align
     }
 
     #[inline]
-    pub const fn valign(&self) -> VerticalAlignment {
-        self.valign
+    pub fn valign(&self) -> VerticalAlignment {
+        self.attributes.valign
     }
 
     #[inline]
     pub fn bounding_size(&self, size: Size, max_lines: usize) -> Size {
-        TextProcessing::bounding_size(&self.font, self.text, size, max_lines, self.line_break_mode)
+        TextProcessing::bounding_size(
+            self.font(),
+            &self.text,
+            size,
+            max_lines,
+            self.line_break_mode(),
+        )
     }
 
     #[inline]
     pub fn draw_text(&self, bitmap: &mut Bitmap, rect: Rect, max_lines: usize) {
         TextProcessing::draw_text(
             bitmap,
-            self.text,
-            &self.font,
+            &self.text,
+            self.font(),
             rect,
-            self.color,
+            self.color(),
             max_lines,
-            self.line_break_mode,
-            self.align,
-            self.valign,
+            self.line_break_mode(),
+            self.align(),
+            self.valign(),
         );
     }
 }
 
-pub struct AttributedStringBuilder {
+pub struct AttributeSet {
     font: FontDescriptor,
     color: Color,
     line_break_mode: LineBreakMode,
@@ -79,7 +82,7 @@ pub struct AttributedStringBuilder {
     valign: VerticalAlignment,
 }
 
-impl AttributedStringBuilder {
+impl AttributeSet {
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -94,12 +97,8 @@ impl AttributedStringBuilder {
     #[inline]
     pub fn text(self, text: &str) -> AttributedString {
         AttributedString {
-            text,
-            font: self.font,
-            color: self.color,
-            line_break_mode: self.line_break_mode,
-            align: self.align,
-            valign: self.valign,
+            text: Cow::Borrowed(text),
+            attributes: self,
         }
     }
 
@@ -356,33 +355,6 @@ impl TextProcessing {
         Size::new(
             lines.iter().fold(0, |v, i| isize::max(v, i.width)),
             lines.iter().fold(0, |v, i| v + i.height),
-        )
-    }
-
-    /// Write string to bitmap
-    pub fn write_str(
-        bitmap: &mut Bitmap,
-        text: &str,
-        font: &FontDescriptor,
-        origin: Point,
-        color: Color,
-    ) {
-        Self::draw_text(
-            bitmap,
-            text,
-            font,
-            Coordinates::new(
-                origin.x,
-                origin.y,
-                bitmap.width() as isize,
-                bitmap.height() as isize,
-            )
-            .into(),
-            color,
-            1,
-            LineBreakMode::default(),
-            TextAlignment::default(),
-            VerticalAlignment::default(),
         )
     }
 

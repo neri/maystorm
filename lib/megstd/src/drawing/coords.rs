@@ -489,7 +489,22 @@ impl Rect {
         }
     }
 
+    #[inline]
     pub const fn contains_rect(self, rhs: Self) -> bool {
+        let cl = match Coordinates::from_rect(self) {
+            Ok(coords) => coords,
+            Err(_) => return false,
+        };
+        let cr = match Coordinates::from_rect(rhs) {
+            Ok(coords) => coords,
+            Err(_) => return false,
+        };
+
+        cl.left <= cr.left && cl.right >= cr.right && cl.top <= cr.top && cl.bottom >= cr.bottom
+    }
+
+    #[inline]
+    pub const fn overlaps(self, rhs: Self) -> bool {
         let cl = match Coordinates::from_rect(self) {
             Ok(coords) => coords,
             Err(_) => return false,
@@ -539,11 +554,26 @@ impl Add<Point> for Rect {
 
 impl Sub<Point> for Rect {
     type Output = Self;
+    #[inline]
     fn sub(self, rhs: Point) -> Self::Output {
         Self {
             origin: self.origin - rhs,
             size: self.size,
         }
+    }
+}
+
+impl AddAssign<Point> for Rect {
+    #[inline]
+    fn add_assign(&mut self, rhs: Point) {
+        self.origin += rhs;
+    }
+}
+
+impl SubAssign<Point> for Rect {
+    #[inline]
+    fn sub_assign(&mut self, rhs: Point) {
+        self.origin -= rhs;
     }
 }
 
@@ -566,6 +596,20 @@ impl Sub<Size> for Rect {
             origin: self.origin,
             size: self.size - rhs,
         }
+    }
+}
+
+impl AddAssign<Size> for Rect {
+    #[inline]
+    fn add_assign(&mut self, rhs: Size) {
+        self.size += rhs;
+    }
+}
+
+impl SubAssign<Size> for Rect {
+    #[inline]
+    fn sub_assign(&mut self, rhs: Size) {
+        self.size -= rhs;
     }
 }
 
@@ -690,6 +734,11 @@ impl Coordinates {
     #[inline]
     pub const fn size(&self) -> Size {
         Size::new(self.right - self.left, self.bottom - self.top)
+    }
+
+    #[inline]
+    pub const fn is_valid(&self) -> bool {
+        self.left < self.right && self.top < self.bottom
     }
 
     #[inline]

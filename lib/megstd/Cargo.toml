@@ -16,6 +16,7 @@ window = []
 [dependencies]
 bitflags = {default-features = false}
 byteorder = {default-features = false}
+cfg-if = {}
 num-derive = {default-features = false}
 num-traits = {default-features = false}
 rapid-qoi = {default-features = false, features = ["alloc"]}

@@ -5,8 +5,8 @@ use crate::{
     io::hid_mgr::*,
     res::icon::IconManager,
     sync::atomic::AtomicBitflags,
-    sync::RwLock,
     sync::{fifo::*, semaphore::*},
+    sync::{Mutex, RwLock},
     task::scheduler::*,
     *,
 };
@@ -83,6 +83,7 @@ pub struct WindowManager<'a> {
     main_screen: UnsafeCell<Bitmap32<'a>>,
     screen_size: Size,
     screen_insets: EdgeInsets,
+    update_coords: Mutex<Coordinates>,
 
     resources: Resources<'a>,
 
@@ -118,8 +119,8 @@ impl WindowManager<'static> {
             screen_size.swap();
         }
 
-        let pointer_x = 0;
-        let pointer_y = 0;
+        let pointer_x = screen_size.width / 2;
+        let pointer_y = screen_size.height / 2;
         let mut window_pool = BTreeMap::new();
         let mut window_orders = Vec::with_capacity(MAX_WINDOWS);
 
@@ -212,6 +213,7 @@ impl WindowManager<'static> {
                 captured_origin: Point::default(),
                 entered: None,
                 system_event: ConcurrentFifo::with_capacity(WINDOW_SYSTEM_EVENT_QUEUE_SIZE),
+                update_coords: Mutex::new(Coordinates::VOID),
             }));
         }
 
@@ -296,8 +298,13 @@ impl WindowManager<'_> {
                 .attributes
                 .test_and_clear(WindowManagerAttributes::NEEDS_REDRAW)
             {
-                // let desktop = shared.root;
-                // desktop.as_ref().draw_to_screen(desktop.frame());
+                let mut update_coords = shared.update_coords.lock().unwrap();
+                if update_coords.is_valid() {
+                    let coords = *update_coords;
+                    *update_coords = Coordinates::VOID;
+                    drop(update_coords);
+                    shared.root.as_ref().draw_inner_to_screen(coords.into());
+                }
             }
             if shared
                 .attributes
@@ -646,7 +653,14 @@ impl WindowManager<'_> {
     #[inline]
     pub fn invalidate_screen(rect: Rect) {
         let shared = Self::shared();
-        shared.root.invalidate_rect(rect);
+        let mut update_coords = shared.update_coords.lock().unwrap();
+        if let Ok(coords) = Coordinates::from_rect(rect) {
+            update_coords.merge(coords);
+            shared
+                .attributes
+                .insert(WindowManagerAttributes::NEEDS_REDRAW);
+            shared.sem_event.signal();
+        }
     }
 
     fn set_active(window: Option<WindowHandle>) {
@@ -683,7 +697,7 @@ impl WindowManager<'_> {
         )
     }
 
-    fn update_relative_coord(
+    fn _update_relative_coord(
         coord: &AtomicIsize,
         movement: isize,
         min_value: isize,
@@ -702,7 +716,7 @@ impl WindowManager<'_> {
         }
     }
 
-    fn update_absolute_coord(
+    fn _update_absolute_coord(
         coord: &AtomicIsize,
         new_value: isize,
         min_value: isize,
@@ -749,12 +763,12 @@ impl WindowManager<'_> {
                 .fetch_or(button_up.bits() as usize, Ordering::SeqCst);
         }
 
-        let moved = Self::update_relative_coord(
+        let moved = Self::_update_relative_coord(
             &shared.pointer_x,
             pointer.x,
             screen_bounds.x(),
             screen_bounds.width() - 1,
-        ) | Self::update_relative_coord(
+        ) | Self::_update_relative_coord(
             &shared.pointer_y,
             pointer.y,
             screen_bounds.y(),
@@ -762,6 +776,7 @@ impl WindowManager<'_> {
         );
 
         if button_changed | moved {
+            fence(Ordering::SeqCst);
             shared
                 .attributes
                 .insert(WindowManagerAttributes::MOUSE_MOVE);
@@ -796,12 +811,12 @@ impl WindowManager<'_> {
         let pointer_x = screen_bounds.width() * pointer_state.x / pointer_state.max_x;
         let pointer_y = screen_bounds.height() * pointer_state.y / pointer_state.max_y;
 
-        let moved = Self::update_absolute_coord(
+        let moved = Self::_update_absolute_coord(
             &shared.pointer_x,
             pointer_x,
             screen_bounds.x(),
             screen_bounds.width() - 1,
-        ) | Self::update_absolute_coord(
+        ) | Self::_update_absolute_coord(
             &shared.pointer_y,
             pointer_y,
             screen_bounds.y(),
@@ -809,6 +824,7 @@ impl WindowManager<'_> {
         );
 
         if button_changed | moved {
+            fence(Ordering::SeqCst);
             shared
                 .attributes
                 .insert(WindowManagerAttributes::MOUSE_MOVE);
@@ -1131,7 +1147,9 @@ impl RawWindow {
         self.draw_frame();
         self.update_shadow();
         WindowManager::add_hierarchy(self.handle);
-        WindowManager::invalidate_screen(self.shadow_frame());
+
+        let frame = self.shadow_frame();
+        self.draw_outer_to_screen(frame.origin(), frame.bounds(), false);
     }
 
     fn hide(&self) {
@@ -1195,36 +1213,60 @@ impl RawWindow {
         frame.contains(position)
     }
 
-    fn draw_to_screen(&self, rect: Rect) {
-        let offset = self.frame.origin;
+    fn draw_inner_to_screen(&self, rect: Rect) {
+        let coords = match Coordinates::from_rect(rect) {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        let bounds = self.frame.bounds();
+
+        let is_opaque = self.style.contains(WindowStyle::OPAQUE)
+            || self.style.contains(WindowStyle::OPAQUE_CONTENT)
+                && bounds.insets_by(self.content_insets).contains_rect(rect);
+
+        let inner_coords = match Coordinates::from_rect(bounds) {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        let frame_origin = self.frame.origin;
+        let offset = self.shadow_frame().origin;
+        let rect = Rect::from(coords.trimmed(inner_coords)) + (frame_origin - offset);
+        self.draw_outer_to_screen(offset, rect, is_opaque);
+    }
+
+    fn draw_outer_to_screen(&self, offset: Point, rect: Rect, is_opaque: bool) {
         let screen_rect = rect + offset;
         let shared = WindowManager::shared_mut();
         let main_screen = unsafe { &mut *shared.main_screen.get() };
         let back_buffer = unsafe { &mut *self.back_buffer.get() };
         let back_buffer = back_buffer.as_mut();
-        if self.draw_into(back_buffer, offset, screen_rect) {
+        if self.draw_into(back_buffer, offset, screen_rect, is_opaque) {
             if shared.attributes.contains(WindowManagerAttributes::ROTATE) {
                 main_screen.blt_rotate(back_buffer, rect.origin + offset, rect);
             } else {
                 main_screen.blt(back_buffer, rect.origin + offset, rect);
+                // if is_opaque {
+                //     main_screen.draw_rect(rect + offset, Color::BLUE.into());
+                // } else {
+                //     main_screen.draw_rect(rect + offset, Color::RED.into());
+                // }
             }
         }
     }
 
-    fn draw_into(&self, target_bitmap: &mut Bitmap32, offset: Point, frame: Rect) -> bool {
+    fn draw_into(
+        &self,
+        target_bitmap: &mut Bitmap32,
+        offset: Point,
+        frame: Rect,
+        is_opaque: bool,
+    ) -> bool {
         let coords1 = match Coordinates::from_rect(frame) {
             Ok(coords) => coords,
             Err(_) => return false,
         };
 
         let window_orders = WindowManager::shared().window_orders.read().unwrap();
-
-        let is_opaque = self.style.contains(WindowStyle::OPAQUE)
-            || self.style.contains(WindowStyle::OPAQUE_CONTENT)
-                && self
-                    .frame
-                    .insets_by(self.content_insets)
-                    .contains_rect(frame);
 
         let first_index = if is_opaque {
             window_orders
@@ -1239,7 +1281,7 @@ impl RawWindow {
             let window = handle.as_ref();
             let frame = window.shadow_frame();
             if let Ok(coords2) = Coordinates::from_rect(frame) {
-                if frame.contains_rect(frame) {
+                if frame.overlaps(frame) {
                     let adjust_point = window.frame.origin() - coords2.left_top();
                     let blt_origin = Point::new(
                         cmp::max(coords1.left, coords2.left),
@@ -1588,14 +1630,14 @@ impl RawWindow {
         match self.handle.post(WindowMessage::Draw) {
             Ok(_) => {}
             Err(_) => {
-                // TODO:
+                WindowManager::invalidate_screen(self.shadow_frame());
             }
         }
     }
 
     fn invalidate_rect(&mut self, rect: Rect) {
         if self.attributes.contains(WindowAttributes::VISIBLE) {
-            self.draw_to_screen(rect);
+            self.draw_inner_to_screen(rect);
         }
     }
 
@@ -2310,7 +2352,12 @@ impl WindowHandle {
     /// Draws the contents of the window on the screen as a bitmap.
     pub fn draw_into(&self, target_bitmap: &mut Bitmap32, rect: Rect) {
         let window = self.as_ref();
-        window.draw_into(target_bitmap, Point::default(), rect + window.frame.origin);
+        window.draw_into(
+            target_bitmap,
+            Point::default(),
+            rect + window.frame.origin,
+            false,
+        );
     }
 
     /// Post a window message.
