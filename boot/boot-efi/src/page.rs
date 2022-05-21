@@ -6,7 +6,7 @@ use bootprot::*;
 use core::{intrinsics::*, ops::*, ptr, slice};
 use uefi::table::boot::*;
 
-pub struct PageConfig {}
+pub struct PageConfig();
 
 impl PageConfig {
     /// UEFI virtual page size (not the actual page size)

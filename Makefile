@@ -1,25 +1,32 @@
 .PHONY: love default all clean install iso run runs test apps doc kernel boot
 .SUFFIXED: .wasm
 
-EFI_ARCH	= x86_64-unknown-uefi
-KRNL_ARCH	= x86_64-unknown-none
-EFI_SUFFIX	= x64
+
 MNT			= ./mnt/
 MISC		= ./misc/
 ASSETS		= ./assets/
+
 EFI_BOOT	= $(MNT)efi/boot
 EFI_VENDOR	= $(MNT)efi/megos
 KERNEL_BIN	= $(EFI_VENDOR)/kernel.bin
-BOOT_EFI1	= $(EFI_BOOT)/boot$(EFI_SUFFIX).efi
-BOOT_EFI2	= $(EFI_VENDOR)/boot$(EFI_SUFFIX).efi
 INITRD_IMG	= $(EFI_VENDOR)/initrd.img
+
+KRNL_ARCH	= x86_64-unknown-none
 TARGET_KERNEL	= system/target/$(KRNL_ARCH)/release/kernel
-TARGET_BOOT_EFI	= boot/target/$(EFI_ARCH)/release/boot-efi.efi
 TARGET_ISO	= var/megos.iso
 TARGETS		= boot kernel
 ALL_TARGETS	= $(TARGETS) apps
-OVMF		= var/ovmfx64.fd
 INITRD_FILES	= LICENSE $(ASSETS)initrd/* apps/target/wasm32-unknown-unknown/release/*.wasm
+
+OVMF_X64		= var/ovmfx64.fd
+BOOT_EFI_BOOT1	= $(EFI_BOOT)/bootx64.efi
+BOOT_EFI_VENDOR1	= $(EFI_VENDOR)/bootx64.efi
+TARGET_BOOT_EFI1	= boot/target/x86_64-unknown-uefi/release/boot-efi.efi
+
+OVMF_X86		= var/ovmfx86.fd
+BOOT_EFI_BOOT2	= $(EFI_BOOT)/bootia32.efi
+BOOT_EFI_VENDOR2	= $(EFI_VENDOR)/bootia32.efi
+TARGET_BOOT_EFI2	= boot/target/i686-unknown-uefi/release/boot-efi.efi
 
 default: $(TARGETS)
 
@@ -40,27 +47,27 @@ $(EFI_VENDOR):
 run:
 	qemu-system-x86_64 -machine q35 \
 		-cpu Haswell -smp 4,cores=2,threads=2 \
-		-bios $(OVMF) \
+		-bios $(OVMF_X64) \
 		-rtc base=localtime,clock=host \
 		-device nec-usb-xhci,id=xhci -device usb-tablet \
 		-drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
 		-device intel-hda -device hda-duplex \
 		-monitor stdio
 
-run_leg:
-	qemu-system-x86_64 -machine q35 \
-		-cpu Haswell -smp 4,cores=2,threads=2 \
-		-bios $(OVMF) \
-		-rtc base=localtime,clock=host \
-		-device nec-usb-xhci,id=xhci \
-		-drive format=raw,file=fat:rw:$(MNT) \
-		-device intel-hda -device hda-duplex \
-		-monitor stdio
-
 run_up:
 	qemu-system-x86_64 -machine q35 \
 		-cpu IvyBridge \
-		-bios $(OVMF) \
+		-bios $(OVMF_X64) \
+		-rtc base=localtime,clock=host \
+		-device nec-usb-xhci,id=xhci -device usb-tablet \
+		-drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
+		-device intel-hda -device hda-duplex \
+		-monitor stdio
+
+run_x86:
+	qemu-system-i386 -machine q35 \
+		-cpu Haswell -smp 4,cores=2,threads=2 \
+		-bios $(OVMF_X86) \
 		-rtc base=localtime,clock=host \
 		-device nec-usb-xhci,id=xhci -device usb-tablet \
 		-drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
@@ -68,14 +75,17 @@ run_up:
 		-monitor stdio
 
 boot:
-	(cd boot; cargo build -Zbuild-std --release --target $(EFI_ARCH).json)
+	(cd boot; cargo build -Zbuild-std --release --target x86_64-unknown-uefi)
+	(cd boot; cargo build -Zbuild-std --release --target i686-unknown-uefi)
 
 kernel:
 	(cd system; cargo build -Zbuild-std --release --target $(KRNL_ARCH).json)
 
 install: test $(EFI_VENDOR) $(EFI_BOOT) $(ALL_TARGETS) tools/mkinitrd/src/*.rs
-	cp $(TARGET_BOOT_EFI) $(BOOT_EFI1)
-	cp $(TARGET_BOOT_EFI) $(BOOT_EFI2)
+	cp $(TARGET_BOOT_EFI1) $(BOOT_EFI_BOOT1)
+	cp $(TARGET_BOOT_EFI1) $(BOOT_EFI_VENDOR1)
+	cp $(TARGET_BOOT_EFI2) $(BOOT_EFI_BOOT2)
+	cp $(TARGET_BOOT_EFI2) $(BOOT_EFI_VENDOR2)
 	cp $(TARGET_KERNEL) $(KERNEL_BIN)
 	cargo run --manifest-path ./tools/mkinitrd/Cargo.toml -- $(INITRD_IMG) $(INITRD_FILES)
 

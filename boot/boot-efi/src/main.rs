@@ -26,20 +26,31 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
     info.platform = Platform::UEFI;
     info.color_mode = ColorMode::Argb32;
 
-    // Find ACPI Table
+    // Find the ACPI Table
     info.acpi_rsdptr = match st.find_config_table(::uefi::table::cfg::ACPI2_GUID) {
         Some(val) => val as u64,
         None => {
             writeln!(st.stdout(), "Error: ACPI Table Not Found").unwrap();
-            return Status::UNSUPPORTED;
+            return Status::LOAD_ERROR;
         }
     };
 
-    // Find SMBIOS Table
+    // Find the SMBIOS Table
     info.smbios = match st.find_config_table(::uefi::table::cfg::SMBIOS_GUID) {
         Some(val) => val as u64,
         None => 0,
     };
+
+    // Check the CPU
+    let invocation = Invocation::new();
+    if !invocation.is_compatible() {
+        writeln!(
+            st.stdout(),
+            "Attempts to boot the operating system, but it is not compatible with this processor."
+        )
+        .unwrap();
+        return Status::LOAD_ERROR;
+    }
 
     // Init graphics
     if let Ok(gop) = bs.locate_protocol::<::uefi::proto::console::gop::GraphicsOutput>() {
@@ -64,10 +75,10 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
         debug::Console::init(info.vram_base as usize, width, height, stride);
     } else if !info.flags.contains(BootFlags::HEADLESS) {
         writeln!(st.stdout(), "Error: GOP Not Found").unwrap();
-        return Status::UNSUPPORTED;
+        return Status::LOAD_ERROR;
     }
 
-    // Load KERNEL
+    // Load the KERNEL
     let blob = match get_file(handle, &bs, KERNEL_PATH) {
         Ok(blob) => (blob),
         Err(status) => {
@@ -78,12 +89,12 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
     let mut kernel = ElfLoader::new(&blob);
     if kernel.recognize().is_err() {
         writeln!(st.stdout(), "Error: BAD KERNEL SIGNATURE FOUND").unwrap();
-        return Status::UNSUPPORTED;
+        return Status::LOAD_ERROR;
     }
     let bounds = kernel.image_bounds();
     info.kernel_base = bounds.0.as_u64();
 
-    // Load initrd
+    // Load the initrd
     match get_file(handle, &bs, INITRD_PATH) {
         Ok(blob) => {
             info.initrd_base = blob.as_ptr() as u32;
@@ -135,7 +146,7 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
 
     // println!("hello, world");
     unsafe {
-        Invocation::invoke_kernel(&info, entry, new_sp);
+        invocation.invoke_kernel(&info, entry, new_sp);
     }
 }
 

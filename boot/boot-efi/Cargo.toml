@@ -10,5 +10,6 @@ version = "0.1.0"
 bitflags = {}
 bootprot = {path = "../../lib/bootprot"}
 byteorder = {default-features = false}
+cfg-if = {}
 lib-efi = {path = "../lib-efi"}
 uefi = {}
