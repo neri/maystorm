@@ -1222,7 +1222,7 @@ impl RawWindow {
 
         let is_opaque = self.style.contains(WindowStyle::OPAQUE)
             || self.style.contains(WindowStyle::OPAQUE_CONTENT)
-                && bounds.insets_by(self.content_insets).contains_rect(rect);
+                && bounds.insets_by(self.content_insets).contains(rect);
 
         let inner_coords = match Coordinates::from_rect(bounds) {
             Ok(v) => v,

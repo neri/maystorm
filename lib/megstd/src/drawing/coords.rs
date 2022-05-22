@@ -478,32 +478,6 @@ impl Rect {
     }
 
     #[inline]
-    pub const fn contains(self, point: Point) -> bool {
-        if let Ok(coords) = Coordinates::from_rect(self) {
-            coords.left <= point.x
-                && coords.right > point.x
-                && coords.top <= point.y
-                && coords.bottom > point.y
-        } else {
-            false
-        }
-    }
-
-    #[inline]
-    pub const fn contains_rect(self, rhs: Self) -> bool {
-        let cl = match Coordinates::from_rect(self) {
-            Ok(coords) => coords,
-            Err(_) => return false,
-        };
-        let cr = match Coordinates::from_rect(rhs) {
-            Ok(coords) => coords,
-            Err(_) => return false,
-        };
-
-        cl.left <= cr.left && cl.right >= cr.right && cl.top <= cr.top && cl.bottom >= cr.bottom
-    }
-
-    #[inline]
     pub const fn overlaps(self, rhs: Self) -> bool {
         let cl = match Coordinates::from_rect(self) {
             Ok(coords) => coords,
@@ -531,6 +505,40 @@ impl Rect {
             origin: Point::new(0, 0),
             size: self.size,
         }
+    }
+}
+
+pub trait Contains<T> {
+    fn contains(&self, other: T) -> bool;
+}
+
+impl Contains<Point> for Rect {
+    #[inline]
+    fn contains(&self, other: Point) -> bool {
+        if let Ok(coords) = Coordinates::from_rect(*self) {
+            coords.left <= other.x
+                && coords.right > other.x
+                && coords.top <= other.y
+                && coords.bottom > other.y
+        } else {
+            false
+        }
+    }
+}
+
+impl Contains<Rect> for Rect {
+    #[inline]
+    fn contains(&self, other: Rect) -> bool {
+        let cl = match Coordinates::from_rect(*self) {
+            Ok(coords) => coords,
+            Err(_) => return false,
+        };
+        let cr = match Coordinates::from_rect(other) {
+            Ok(coords) => coords,
+            Err(_) => return false,
+        };
+
+        cl.left <= cr.left && cl.right >= cr.right && cl.top <= cr.top && cl.bottom >= cr.bottom
     }
 }
 
