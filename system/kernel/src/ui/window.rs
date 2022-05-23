@@ -1224,14 +1224,63 @@ impl RawWindow {
             || self.style.contains(WindowStyle::OPAQUE_CONTENT)
                 && bounds.insets_by(self.content_insets).contains(rect);
 
-        let inner_coords = match Coordinates::from_rect(bounds) {
-            Ok(v) => v,
-            Err(_) => return,
+        let shared = WindowManager::shared();
+        let is_direct = if is_opaque
+            && !shared.attributes.contains(WindowManagerAttributes::ROTATE)
+            && self.bitmap().is_some()
+        {
+            let window_orders = shared.window_orders.read().unwrap();
+            let first_index = 1 + window_orders
+                .iter()
+                .position(|&v| v == self.handle)
+                .unwrap_or(0);
+            let screen_rect = rect + self.frame.origin;
+
+            let mut is_direct = true;
+            for handle in window_orders[first_index..].iter() {
+                let window = match handle.get() {
+                    Some(v) => v,
+                    None => continue,
+                };
+                if screen_rect.overlaps(window.shadow_frame()) {
+                    is_direct = false;
+                    break;
+                }
+            }
+            is_direct
+        } else {
+            false
         };
-        let frame_origin = self.frame.origin;
-        let offset = self.shadow_frame().origin;
-        let rect = Rect::from(coords.trimmed(inner_coords)) + (frame_origin - offset);
-        self.draw_outer_to_screen(offset, rect, is_opaque);
+        if is_direct {
+            let offset = self.frame.origin;
+            let bitmap = self.bitmap().unwrap();
+            let main_screen = unsafe { &mut *shared.main_screen.get() };
+            match bitmap {
+                Bitmap::Indexed(bitmap) => {
+                    main_screen.blt8(
+                        bitmap,
+                        offset + coords.left_top(),
+                        coords.into(),
+                        &IndexedColor::COLOR_PALETTE,
+                    );
+                }
+                Bitmap::Argb32(bitmap) => {
+                    main_screen.blt(bitmap, offset + coords.left_top(), coords.into());
+                }
+            }
+            // main_screen.draw_rect(rect + offset, Color::YELLOW.into());
+        } else {
+            drop(shared);
+
+            let inner_coords = match Coordinates::from_rect(bounds) {
+                Ok(v) => v,
+                Err(_) => return,
+            };
+            let frame_origin = self.frame.origin;
+            let offset = self.shadow_frame().origin;
+            let rect = Rect::from(coords.trimmed(inner_coords)) + (frame_origin - offset);
+            self.draw_outer_to_screen(offset, rect, is_opaque);
+        }
     }
 
     fn draw_outer_to_screen(&self, offset: Point, rect: Rect, is_opaque: bool) {
@@ -1245,6 +1294,7 @@ impl RawWindow {
                 main_screen.blt_rotate(back_buffer, rect.origin + offset, rect);
             } else {
                 main_screen.blt(back_buffer, rect.origin + offset, rect);
+
                 // if is_opaque {
                 //     main_screen.draw_rect(rect + offset, Color::BLUE.into());
                 // } else {
