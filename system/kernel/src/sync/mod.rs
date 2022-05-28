@@ -6,8 +6,10 @@ pub mod signal;
 pub mod spinlock;
 
 pub mod atomic {
+    mod atomicenum;
     mod atomicflags;
     mod atomicfloat;
+    pub use atomicenum::*;
     pub use atomicflags::*;
     pub use atomicfloat::*;
 }

@@ -192,11 +192,11 @@ impl WasmImc {
     pub const MAX_SOURCE_SIZE: usize = 0xFF_FF_FF;
 
     #[inline]
-    pub fn from_mnemonic(mnemonic: WasmIntMnemonic) -> Self {
+    pub const fn from_mnemonic(mnemonic: WasmIntMnemonic) -> Self {
         Self {
             source: 0,
             mnemonic,
-            stack_level: StackType::default(),
+            stack_level: 0,
         }
     }
 
@@ -310,7 +310,7 @@ impl WasmImc {
     }
 }
 
-impl From<WasmIntMnemonic> for WasmImc {
+impl const From<WasmIntMnemonic> for WasmImc {
     #[inline]
     fn from(val: WasmIntMnemonic) -> Self {
         Self::from_mnemonic(val)

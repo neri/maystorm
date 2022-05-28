@@ -68,7 +68,7 @@ impl Default for PhysicalAddress {
     }
 }
 
-impl Add<usize> for PhysicalAddress {
+impl const Add<usize> for PhysicalAddress {
     type Output = Self;
 
     #[inline]
@@ -77,7 +77,7 @@ impl Add<usize> for PhysicalAddress {
     }
 }
 
-impl Add<u64> for PhysicalAddress {
+impl const Add<u64> for PhysicalAddress {
     type Output = Self;
 
     #[inline]
@@ -86,7 +86,7 @@ impl Add<u64> for PhysicalAddress {
     }
 }
 
-impl Sub<PhysicalAddress> for PhysicalAddress {
+impl const Sub<PhysicalAddress> for PhysicalAddress {
     type Output = usize;
 
     #[inline]
@@ -95,7 +95,7 @@ impl Sub<PhysicalAddress> for PhysicalAddress {
     }
 }
 
-impl Sub<usize> for PhysicalAddress {
+impl const Sub<usize> for PhysicalAddress {
     type Output = Self;
 
     #[inline]
@@ -104,7 +104,7 @@ impl Sub<usize> for PhysicalAddress {
     }
 }
 
-impl Mul<usize> for PhysicalAddress {
+impl const Mul<usize> for PhysicalAddress {
     type Output = Self;
 
     fn mul(self, rhs: usize) -> Self::Output {
@@ -112,7 +112,7 @@ impl Mul<usize> for PhysicalAddress {
     }
 }
 
-impl Mul<u64> for PhysicalAddress {
+impl const Mul<u64> for PhysicalAddress {
     type Output = Self;
 
     fn mul(self, rhs: u64) -> Self::Output {
@@ -120,7 +120,7 @@ impl Mul<u64> for PhysicalAddress {
     }
 }
 
-impl BitAnd<u64> for PhysicalAddress {
+impl const BitAnd<u64> for PhysicalAddress {
     type Output = Self;
 
     #[inline]
@@ -129,7 +129,7 @@ impl BitAnd<u64> for PhysicalAddress {
     }
 }
 
-impl BitAnd<PhysicalAddress> for u64 {
+impl const BitAnd<PhysicalAddress> for u64 {
     type Output = Self;
 
     fn bitand(self, rhs: PhysicalAddress) -> Self::Output {
@@ -137,7 +137,7 @@ impl BitAnd<PhysicalAddress> for u64 {
     }
 }
 
-impl BitOr<u64> for PhysicalAddress {
+impl const BitOr<u64> for PhysicalAddress {
     type Output = Self;
 
     #[inline]
@@ -146,7 +146,7 @@ impl BitOr<u64> for PhysicalAddress {
     }
 }
 
-impl Not for PhysicalAddress {
+impl const Not for PhysicalAddress {
     type Output = Self;
 
     fn not(self) -> Self::Output {
@@ -154,14 +154,14 @@ impl Not for PhysicalAddress {
     }
 }
 
-impl From<u64> for PhysicalAddress {
+impl const From<u64> for PhysicalAddress {
     #[inline]
     fn from(val: u64) -> Self {
         Self::new(val)
     }
 }
 
-impl From<PhysicalAddress> for u64 {
+impl const From<PhysicalAddress> for u64 {
     #[inline]
     fn from(val: PhysicalAddress) -> Self {
         val.as_u64()
@@ -198,7 +198,7 @@ impl NonNullPhysicalAddress {
     }
 }
 
-impl From<NonNullPhysicalAddress> for PhysicalAddress {
+impl const From<NonNullPhysicalAddress> for PhysicalAddress {
     #[inline]
     fn from(val: NonNullPhysicalAddress) -> Self {
         val.get()
@@ -523,47 +523,51 @@ impl PageTableEntry {
     }
 
     #[inline]
-    pub fn attributes(&self) -> PageAttributes {
+    pub const fn attributes(&self) -> PageAttributes {
         PageAttributes::from_bits_truncate(self.0 & Self::NORMAL_ATTRIBUTE_BITS)
     }
 
     #[inline]
-    pub fn set_frame_address(&mut self, pa: PhysicalAddress) {
+    pub const fn set_frame_address(&mut self, pa: PhysicalAddress) {
         self.0 = (pa.as_u64() & Self::ADDRESS_BIT) | (self.0 & !Self::ADDRESS_BIT);
     }
 
     #[inline]
-    pub fn set_attributes(&mut self, flags: PageAttributes) {
+    pub const fn set_attributes(&mut self, flags: PageAttributes) {
         self.0 = (self.0 & Self::ADDRESS_BIT) | (flags.bits() & !Self::ADDRESS_BIT);
     }
 }
 
-impl AddAssign<PageAttributes> for PageTableEntry {
+impl const AddAssign<PageAttributes> for PageTableEntry {
+    #[inline]
     fn add_assign(&mut self, rhs: PageAttributes) {
         self.insert(rhs);
     }
 }
 
-impl SubAssign<PageAttributes> for PageTableEntry {
+impl const SubAssign<PageAttributes> for PageTableEntry {
+    #[inline]
     fn sub_assign(&mut self, rhs: PageAttributes) {
         self.remove(rhs);
     }
 }
 
-impl BitOrAssign<PageAttributes> for PageTableEntry {
+impl const BitOrAssign<PageAttributes> for PageTableEntry {
+    #[inline]
     fn bitor_assign(&mut self, rhs: PageAttributes) {
         self.insert(rhs);
     }
 }
 
-impl AddAssign<usize> for PageTableEntry {
+impl const AddAssign<usize> for PageTableEntry {
+    #[inline]
     fn add_assign(&mut self, rhs: usize) {
         let pa = self.frame_address() + rhs;
         self.set_frame_address(pa);
     }
 }
 
-impl From<PhysicalAddress> for PageTableEntry {
+impl const From<PhysicalAddress> for PageTableEntry {
     #[inline]
     fn from(value: PhysicalAddress) -> Self {
         Self(value.as_u64())

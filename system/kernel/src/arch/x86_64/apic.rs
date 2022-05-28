@@ -477,21 +477,21 @@ impl ApicId {
     }
 }
 
-impl From<u8> for ApicId {
+impl const From<u8> for ApicId {
     #[inline]
     fn from(val: u8) -> Self {
         Self(val)
     }
 }
 
-impl From<u32> for ApicId {
+impl const From<u32> for ApicId {
     #[inline]
     fn from(val: u32) -> Self {
         Self(val as u8)
     }
 }
 
-impl From<usize> for ApicId {
+impl const From<usize> for ApicId {
     #[inline]
     fn from(val: usize) -> Self {
         Self(val as u8)
@@ -539,7 +539,7 @@ impl Irq {
     }
 }
 
-impl From<Irq> for InterruptVector {
+impl const From<Irq> for InterruptVector {
     #[inline]
     fn from(irq: Irq) -> InterruptVector {
         irq.as_vec()
@@ -563,7 +563,7 @@ impl Msi {
     }
 }
 
-impl From<Msi> for InterruptVector {
+impl const From<Msi> for InterruptVector {
     #[inline]
     fn from(msi: Msi) -> Self {
         msi.as_vec()
@@ -615,7 +615,7 @@ impl ApicPolarity {
     }
 }
 
-impl From<&acpi::platform::interrupt::Polarity> for ApicPolarity {
+impl const From<&acpi::platform::interrupt::Polarity> for ApicPolarity {
     #[inline]
     fn from(src: &acpi::platform::interrupt::Polarity) -> Self {
         match *src {
@@ -644,7 +644,7 @@ impl ApicTriggerMode {
     }
 }
 
-impl From<&acpi::platform::interrupt::TriggerMode> for ApicTriggerMode {
+impl const From<&acpi::platform::interrupt::TriggerMode> for ApicTriggerMode {
     #[inline]
     fn from(src: &acpi::platform::interrupt::TriggerMode) -> Self {
         match *src {

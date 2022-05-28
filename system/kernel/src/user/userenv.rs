@@ -71,7 +71,7 @@ async fn slpash_task(f: fn()) {
 
 #[allow(dead_code)]
 async fn shell_launcher(f: fn()) {
-    if false {
+    if true {
         if true {
             if let Ok(mut file) = FileManager::open("wall.qoi") {
                 let mut vec = Vec::new();

@@ -6,6 +6,7 @@
 #![feature(cfg_target_has_atomic)]
 #![feature(const_btree_new)]
 #![feature(const_mut_refs)]
+#![feature(const_trait_impl)]
 #![feature(control_flow_enum)]
 #![feature(core_intrinsics)]
 #![feature(iter_advance_by)]

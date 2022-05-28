@@ -11,7 +11,7 @@ pub struct FixedStack<'a, T> {
 
 impl<'a, T> FixedStack<'a, T> {
     #[inline]
-    pub fn from_slice(slice: &'a mut [T]) -> Self {
+    pub const fn from_slice(slice: &'a mut [T]) -> Self {
         Self {
             slice,
             stack_pointer: 0,
@@ -26,13 +26,25 @@ impl<T> FixedStack<'_, T> {
     }
 
     #[inline]
-    pub fn as_slice(&self) -> &[T] {
-        &self.slice[..self.stack_pointer]
+    pub fn get(&self) -> Option<&[T]> {
+        self.slice.get(..self.stack_pointer)
     }
 
     #[inline]
+    pub fn get_mut(&mut self) -> Option<&mut [T]> {
+        self.slice.get_mut(..self.stack_pointer)
+    }
+
+    #[inline]
+    #[track_caller]
+    pub fn as_slice(&self) -> &[T] {
+        self.get().unwrap()
+    }
+
+    #[inline]
+    #[track_caller]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        &mut self.slice[..self.stack_pointer]
+        self.get_mut().unwrap()
     }
 }
 

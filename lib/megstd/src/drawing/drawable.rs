@@ -63,7 +63,7 @@ where
     T: GetPixel,
 {
     #[inline]
-    pub fn new(inner: &'a T) -> Self {
+    pub const fn new(inner: &'a T) -> Self {
         Self { inner, x: 0, y: 0 }
     }
 }

@@ -83,8 +83,9 @@ impl Point {
     }
 }
 
-impl Add<Self> for Point {
+impl const Add<Self> for Point {
     type Output = Self;
+
     #[inline]
     fn add(self, rhs: Self) -> Self {
         Point {
@@ -94,8 +95,9 @@ impl Add<Self> for Point {
     }
 }
 
-impl Add<Size> for Point {
+impl const Add<Size> for Point {
     type Output = Self;
+
     #[inline]
     fn add(self, rhs: Size) -> Self {
         Point {
@@ -105,8 +107,9 @@ impl Add<Size> for Point {
     }
 }
 
-impl Add<isize> for Point {
+impl const Add<isize> for Point {
     type Output = Self;
+
     #[inline]
     fn add(self, rhs: isize) -> Self {
         Point {
@@ -116,7 +119,7 @@ impl Add<isize> for Point {
     }
 }
 
-impl AddAssign for Point {
+impl const AddAssign for Point {
     #[inline]
     fn add_assign(&mut self, rhs: Self) {
         *self = Self {
@@ -126,7 +129,7 @@ impl AddAssign for Point {
     }
 }
 
-impl Sub<Self> for Point {
+impl const Sub<Self> for Point {
     type Output = Self;
     #[inline]
     fn sub(self, rhs: Self) -> Self {
@@ -137,8 +140,9 @@ impl Sub<Self> for Point {
     }
 }
 
-impl Sub<Size> for Point {
+impl const Sub<Size> for Point {
     type Output = Self;
+
     #[inline]
     fn sub(self, rhs: Size) -> Self {
         Point {
@@ -148,8 +152,9 @@ impl Sub<Size> for Point {
     }
 }
 
-impl Sub<isize> for Point {
+impl const Sub<isize> for Point {
     type Output = Self;
+
     #[inline]
     fn sub(self, rhs: isize) -> Self {
         Point {
@@ -159,7 +164,7 @@ impl Sub<isize> for Point {
     }
 }
 
-impl SubAssign for Point {
+impl const SubAssign for Point {
     #[inline]
     fn sub_assign(&mut self, rhs: Self) {
         *self = Self {
@@ -218,8 +223,9 @@ impl Size {
     }
 }
 
-impl Add<Self> for Size {
+impl const Add<Self> for Size {
     type Output = Self;
+
     #[inline]
     fn add(self, rhs: Self) -> Self {
         Size {
@@ -229,8 +235,9 @@ impl Add<Self> for Size {
     }
 }
 
-impl Add<EdgeInsets> for Size {
+impl const Add<EdgeInsets> for Size {
     type Output = Self;
+
     #[inline]
     fn add(self, rhs: EdgeInsets) -> Self {
         Size {
@@ -240,7 +247,7 @@ impl Add<EdgeInsets> for Size {
     }
 }
 
-impl AddAssign<Self> for Size {
+impl const AddAssign<Self> for Size {
     #[inline]
     fn add_assign(&mut self, rhs: Self) {
         *self = Self {
@@ -250,7 +257,7 @@ impl AddAssign<Self> for Size {
     }
 }
 
-impl AddAssign<EdgeInsets> for Size {
+impl const AddAssign<EdgeInsets> for Size {
     #[inline]
     fn add_assign(&mut self, rhs: EdgeInsets) {
         *self = Self {
@@ -260,8 +267,9 @@ impl AddAssign<EdgeInsets> for Size {
     }
 }
 
-impl Sub<Self> for Size {
+impl const Sub<Self> for Size {
     type Output = Self;
+
     #[inline]
     fn sub(self, rhs: Self) -> Self {
         Size {
@@ -271,8 +279,9 @@ impl Sub<Self> for Size {
     }
 }
 
-impl Sub<EdgeInsets> for Size {
+impl const Sub<EdgeInsets> for Size {
     type Output = Self;
+
     #[inline]
     fn sub(self, rhs: EdgeInsets) -> Self {
         Size {
@@ -282,7 +291,7 @@ impl Sub<EdgeInsets> for Size {
     }
 }
 
-impl SubAssign for Size {
+impl const SubAssign for Size {
     #[inline]
     fn sub_assign(&mut self, rhs: Self) {
         *self = Self {
@@ -292,8 +301,9 @@ impl SubAssign for Size {
     }
 }
 
-impl Mul<isize> for Size {
+impl const Mul<isize> for Size {
     type Output = Self;
+
     #[inline]
     fn mul(self, rhs: isize) -> Self::Output {
         Self {
@@ -303,8 +313,9 @@ impl Mul<isize> for Size {
     }
 }
 
-impl Mul<usize> for Size {
+impl const Mul<usize> for Size {
     type Output = Self;
+
     #[inline]
     fn mul(self, rhs: usize) -> Self::Output {
         Self {
@@ -314,15 +325,16 @@ impl Mul<usize> for Size {
     }
 }
 
-impl MulAssign<isize> for Size {
+impl const MulAssign<isize> for Size {
     #[inline]
     fn mul_assign(&mut self, rhs: isize) {
         *self = self.mul(rhs);
     }
 }
 
-impl Div<isize> for Size {
+impl const Div<isize> for Size {
     type Output = Self;
+
     #[inline]
     fn div(self, rhs: isize) -> Self::Output {
         Self {
@@ -332,8 +344,9 @@ impl Div<isize> for Size {
     }
 }
 
-impl Div<usize> for Size {
+impl const Div<usize> for Size {
     type Output = Self;
+
     #[inline]
     fn div(self, rhs: usize) -> Self::Output {
         Self {
@@ -413,22 +426,14 @@ impl Rect {
     pub const fn min_x(&self) -> isize {
         let a = self.x();
         let b = self.x() + self.width();
-        if a < b {
-            a
-        } else {
-            b
-        }
+        min(a, b)
     }
 
     #[inline]
     pub const fn max_x(&self) -> isize {
         let a = self.x();
         let b = self.x() + self.width();
-        if a > b {
-            a
-        } else {
-            b
-        }
+        max(a, b)
     }
 
     #[inline]
@@ -440,22 +445,14 @@ impl Rect {
     pub const fn min_y(&self) -> isize {
         let a = self.y();
         let b = self.y() + self.height();
-        if a < b {
-            a
-        } else {
-            b
-        }
+        min(a, b)
     }
 
     #[inline]
     pub const fn max_y(&self) -> isize {
         let a = self.y();
         let b = self.y() + self.height();
-        if a > b {
-            a
-        } else {
-            b
-        }
+        max(a, b)
     }
 
     #[inline]
@@ -512,7 +509,7 @@ pub trait Contains<T> {
     fn contains(&self, other: T) -> bool;
 }
 
-impl Contains<Point> for Rect {
+impl const Contains<Point> for Rect {
     #[inline]
     fn contains(&self, other: Point) -> bool {
         if let Ok(coords) = Coordinates::from_rect(*self) {
@@ -526,7 +523,7 @@ impl Contains<Point> for Rect {
     }
 }
 
-impl Contains<Rect> for Rect {
+impl const Contains<Rect> for Rect {
     #[inline]
     fn contains(&self, other: Rect) -> bool {
         let cl = match Coordinates::from_rect(*self) {
@@ -542,15 +539,16 @@ impl Contains<Rect> for Rect {
     }
 }
 
-impl From<Size> for Rect {
+impl const From<Size> for Rect {
     #[inline]
     fn from(size: Size) -> Self {
         size.bounds()
     }
 }
 
-impl Add<Point> for Rect {
+impl const Add<Point> for Rect {
     type Output = Self;
+
     #[inline]
     fn add(self, rhs: Point) -> Self::Output {
         Self {
@@ -560,8 +558,9 @@ impl Add<Point> for Rect {
     }
 }
 
-impl Sub<Point> for Rect {
+impl const Sub<Point> for Rect {
     type Output = Self;
+
     #[inline]
     fn sub(self, rhs: Point) -> Self::Output {
         Self {
@@ -571,22 +570,23 @@ impl Sub<Point> for Rect {
     }
 }
 
-impl AddAssign<Point> for Rect {
+impl const AddAssign<Point> for Rect {
     #[inline]
     fn add_assign(&mut self, rhs: Point) {
         self.origin += rhs;
     }
 }
 
-impl SubAssign<Point> for Rect {
+impl const SubAssign<Point> for Rect {
     #[inline]
     fn sub_assign(&mut self, rhs: Point) {
         self.origin -= rhs;
     }
 }
 
-impl Add<Size> for Rect {
+impl const Add<Size> for Rect {
     type Output = Self;
+
     #[inline]
     fn add(self, rhs: Size) -> Self::Output {
         Self {
@@ -596,8 +596,9 @@ impl Add<Size> for Rect {
     }
 }
 
-impl Sub<Size> for Rect {
+impl const Sub<Size> for Rect {
     type Output = Self;
+
     #[inline]
     fn sub(self, rhs: Size) -> Self::Output {
         Self {
@@ -607,22 +608,23 @@ impl Sub<Size> for Rect {
     }
 }
 
-impl AddAssign<Size> for Rect {
+impl const AddAssign<Size> for Rect {
     #[inline]
     fn add_assign(&mut self, rhs: Size) {
         self.size += rhs;
     }
 }
 
-impl SubAssign<Size> for Rect {
+impl const SubAssign<Size> for Rect {
     #[inline]
     fn sub_assign(&mut self, rhs: Size) {
         self.size -= rhs;
     }
 }
 
-impl Add<EdgeInsets> for Rect {
+impl const Add<EdgeInsets> for Rect {
     type Output = Self;
+
     #[inline]
     fn add(self, rhs: EdgeInsets) -> Self::Output {
         Rect {
@@ -638,16 +640,18 @@ impl Add<EdgeInsets> for Rect {
     }
 }
 
-impl Sub<EdgeInsets> for Rect {
+impl const Sub<EdgeInsets> for Rect {
     type Output = Self;
+
     #[inline]
     fn sub(self, rhs: EdgeInsets) -> Self::Output {
         self.insets_by(rhs)
     }
 }
 
-impl Mul<isize> for Rect {
+impl const Mul<isize> for Rect {
     type Output = Self;
+
     #[inline]
     fn mul(self, rhs: isize) -> Self::Output {
         Self::new(
@@ -659,8 +663,9 @@ impl Mul<isize> for Rect {
     }
 }
 
-impl Mul<usize> for Rect {
+impl const Mul<usize> for Rect {
     type Output = Self;
+
     #[inline]
     fn mul(self, rhs: usize) -> Self::Output {
         Self::new(
@@ -703,13 +708,13 @@ impl Coordinates {
     pub const fn from_diagonal(c1: Point, c2: Point) -> Self {
         let a = c1.x();
         let b = c2.x();
-        let left = if a < b { a } else { b };
-        let right = if a > b { a } else { b };
+        let left = min(a, b);
+        let right = max(a, b);
 
         let a = c1.y();
         let b = c2.y();
-        let top = if a < b { a } else { b };
-        let bottom = if a > b { a } else { b };
+        let top = min(a, b);
+        let bottom = max(a, b);
 
         Self {
             left,
@@ -750,49 +755,29 @@ impl Coordinates {
     }
 
     #[inline]
-    pub fn merge(&mut self, other: Self) {
+    #[must_use]
+    pub const fn merged(&self, other: Self) -> Self {
+        Self {
+            left: min(self.left, other.left),
+            top: min(self.top, other.top),
+            right: max(self.right, other.right),
+            bottom: max(self.bottom, other.bottom),
+        }
+    }
+
+    #[inline]
+    pub const fn merge(&mut self, other: Self) {
         *self = self.merged(other);
     }
 
     #[inline]
     #[must_use]
-    pub fn merged(&self, other: Self) -> Self {
-        Self {
-            left: isize::min(self.left, other.left),
-            top: isize::min(self.top, other.top),
-            right: isize::max(self.right, other.right),
-            bottom: isize::max(self.bottom, other.bottom),
-        }
-    }
-
-    #[inline]
     pub const fn trimmed(&self, other: Self) -> Self {
-        let left = if self.left > other.left {
-            self.left
-        } else {
-            other.left
-        };
-        let top = if self.top > other.top {
-            self.top
-        } else {
-            other.top
-        };
-        let right = if self.right < other.right {
-            self.right
-        } else {
-            other.right
-        };
-        let bottom = if self.bottom < other.bottom {
-            self.bottom
-        } else {
-            other.bottom
-        };
-
         Self {
-            left,
-            top,
-            right,
-            bottom,
+            left: max(self.left, other.left),
+            top: max(self.top, other.top),
+            right: min(self.right, other.right),
+            bottom: min(self.bottom, other.bottom),
         }
     }
 
@@ -851,28 +836,33 @@ impl Coordinates {
     }
 }
 
-impl Add for Coordinates {
+impl const Add for Coordinates {
     type Output = Self;
 
+    #[inline]
     fn add(self, rhs: Self) -> Self::Output {
         self.merged(rhs)
     }
 }
 
-impl AddAssign for Coordinates {
+impl const AddAssign for Coordinates {
+    #[inline]
     fn add_assign(&mut self, rhs: Self) {
         self.merge(rhs)
     }
 }
 
-impl TryFrom<Rect> for Coordinates {
+impl const TryFrom<Rect> for Coordinates {
     type Error = ();
+
+    #[inline]
     fn try_from(value: Rect) -> Result<Self, Self::Error> {
         Self::from_rect(value)
     }
 }
 
-impl From<Coordinates> for Rect {
+impl const From<Coordinates> for Rect {
+    #[inline]
     fn from(coods: Coordinates) -> Rect {
         Rect {
             origin: coods.left_top(),
@@ -881,7 +871,7 @@ impl From<Coordinates> for Rect {
     }
 }
 
-impl From<Size> for Coordinates {
+impl const From<Size> for Coordinates {
     #[inline]
     fn from(size: Size) -> Self {
         Self::from_size(size)
@@ -919,8 +909,10 @@ impl EdgeInsets {
     }
 }
 
-impl Add for EdgeInsets {
+impl const Add for EdgeInsets {
     type Output = Self;
+
+    #[inline]
     fn add(self, rhs: Self) -> Self {
         Self {
             top: self.top + rhs.top,
@@ -931,7 +923,8 @@ impl Add for EdgeInsets {
     }
 }
 
-impl AddAssign for EdgeInsets {
+impl const AddAssign for EdgeInsets {
+    #[inline]
     fn add_assign(&mut self, rhs: Self) {
         *self = Self {
             top: self.top + rhs.top,
@@ -942,8 +935,10 @@ impl AddAssign for EdgeInsets {
     }
 }
 
-impl Sub for EdgeInsets {
+impl const Sub for EdgeInsets {
     type Output = Self;
+
+    #[inline]
     fn sub(self, rhs: Self) -> Self {
         Self {
             top: self.top - rhs.top,
@@ -954,7 +949,8 @@ impl Sub for EdgeInsets {
     }
 }
 
-impl SubAssign for EdgeInsets {
+impl const SubAssign for EdgeInsets {
+    #[inline]
     fn sub_assign(&mut self, rhs: Self) {
         *self = Self {
             top: self.top - rhs.top,
@@ -962,5 +958,23 @@ impl SubAssign for EdgeInsets {
             bottom: self.bottom - rhs.bottom,
             right: self.right - rhs.right,
         }
+    }
+}
+
+#[inline]
+const fn min(lhs: isize, rhs: isize) -> isize {
+    if lhs < rhs {
+        lhs
+    } else {
+        rhs
+    }
+}
+
+#[inline]
+const fn max(lhs: isize, rhs: isize) -> isize {
+    if lhs > rhs {
+        lhs
+    } else {
+        rhs
     }
 }

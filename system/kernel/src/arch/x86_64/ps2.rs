@@ -260,13 +260,13 @@ impl MouseLeadByte {
     }
 }
 
-impl From<Ps2Data> for MouseLeadByte {
+impl const From<Ps2Data> for MouseLeadByte {
     fn from(data: Ps2Data) -> Self {
         unsafe { MouseLeadByte::from_bits_unchecked(data.0) }
     }
 }
 
-impl Into<MouseButton> for MouseLeadByte {
+impl const Into<MouseButton> for MouseLeadByte {
     fn into(self) -> MouseButton {
         unsafe { MouseButton::from_bits_unchecked(self.bits() & MouseLeadByte::BUTTONS.bits()) }
     }

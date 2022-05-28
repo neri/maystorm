@@ -1,7 +1,7 @@
 //! WebAssembly Runtime Library
-
 #![no_std]
 #![feature(const_mut_refs)]
+#![feature(const_trait_impl)]
 
 mod wasm;
 pub use crate::wasm::*;

@@ -175,8 +175,10 @@ pub struct SmBiosHeader {
 }
 
 impl SmBiosHeader {
-    /// Some Chinese products return the "Default string"
+    /// Some products return meaningless strings.
     pub const DEFAULT_STRING: &'static str = "Default string";
+    /// Some products return meaningless strings.
+    pub const TO_BE_FILLED_BY_OEM: &'static str = "To be filled by O.E.M.";
 
     #[inline]
     pub const fn header_type(&self) -> HeaderType {
@@ -210,7 +212,7 @@ impl SmBiosHeader {
     pub fn string<'a>(&'a self, index: usize) -> Option<&'a str> {
         if index > 0 {
             self.strings().nth(index - 1).and_then(|v| match v {
-                Self::DEFAULT_STRING => None,
+                Self::DEFAULT_STRING | Self::TO_BE_FILLED_BY_OEM => None,
                 _ => Some(v),
             })
         } else {

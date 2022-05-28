@@ -748,7 +748,7 @@ pub enum UsbHub2PortFeatureSel {
     PORT_INDICATOR = 22,
 }
 
-impl From<UsbHub2PortFeatureSel> for u16 {
+impl const From<UsbHub2PortFeatureSel> for u16 {
     #[inline]
     fn from(val: UsbHub2PortFeatureSel) -> Self {
         val as u16
@@ -777,7 +777,7 @@ pub enum UsbHub3PortFeatureSel {
     FORCE_LINKPM_ACCEPT = 30,
 }
 
-impl From<UsbHub3PortFeatureSel> for u16 {
+impl const From<UsbHub3PortFeatureSel> for u16 {
     #[inline]
     fn from(val: UsbHub3PortFeatureSel) -> Self {
         val as u16

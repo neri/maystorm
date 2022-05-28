@@ -4,6 +4,7 @@
 #![feature(asm_experimental_arch)]
 #![feature(const_mut_refs)]
 #![feature(const_swap)]
+#![feature(const_trait_impl)]
 #![feature(toowned_clone_into)]
 
 #[macro_use]

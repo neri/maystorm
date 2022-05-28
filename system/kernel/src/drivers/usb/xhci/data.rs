@@ -68,7 +68,7 @@ impl DCI {
     }
 }
 
-impl From<UsbEndpointAddress> for DCI {
+impl const From<UsbEndpointAddress> for DCI {
     #[inline]
     fn from(val: UsbEndpointAddress) -> Self {
         unsafe {
@@ -119,7 +119,7 @@ impl CycleBit {
     }
 }
 
-impl From<bool> for CycleBit {
+impl const From<bool> for CycleBit {
     #[inline]
     fn from(val: bool) -> Self {
         Self(AtomicBool::new(val))

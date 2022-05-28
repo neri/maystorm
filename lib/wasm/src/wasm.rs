@@ -1627,49 +1627,49 @@ impl WasmValue {
     }
 }
 
-impl From<i32> for WasmValue {
+impl const From<i32> for WasmValue {
     #[inline]
     fn from(v: i32) -> Self {
         Self::I32(v)
     }
 }
 
-impl From<u32> for WasmValue {
+impl const From<u32> for WasmValue {
     #[inline]
     fn from(v: u32) -> Self {
         Self::I32(v as i32)
     }
 }
 
-impl From<i64> for WasmValue {
+impl const From<i64> for WasmValue {
     #[inline]
     fn from(v: i64) -> Self {
         Self::I64(v)
     }
 }
 
-impl From<u64> for WasmValue {
+impl const From<u64> for WasmValue {
     #[inline]
     fn from(v: u64) -> Self {
         Self::I64(v as i64)
     }
 }
 
-impl From<f32> for WasmValue {
+impl const From<f32> for WasmValue {
     #[inline]
     fn from(v: f32) -> Self {
         Self::F32(v)
     }
 }
 
-impl From<f64> for WasmValue {
+impl const From<f64> for WasmValue {
     #[inline]
     fn from(v: f64) -> Self {
         Self::F64(v)
     }
 }
 
-impl From<bool> for WasmValue {
+impl const From<bool> for WasmValue {
     #[inline]
     fn from(v: bool) -> Self {
         Self::I32(if v { 1 } else { 0 })
@@ -1887,56 +1887,56 @@ impl WasmUnsafeValue {
     }
 }
 
-impl From<bool> for WasmUnsafeValue {
+impl const From<bool> for WasmUnsafeValue {
     #[inline]
     fn from(v: bool) -> Self {
         Self::from_bool(v)
     }
 }
 
-impl From<u32> for WasmUnsafeValue {
+impl const From<u32> for WasmUnsafeValue {
     #[inline]
     fn from(v: u32) -> Self {
         Self::from_u32(v)
     }
 }
 
-impl From<i32> for WasmUnsafeValue {
+impl const From<i32> for WasmUnsafeValue {
     #[inline]
     fn from(v: i32) -> Self {
         Self::from_i32(v)
     }
 }
 
-impl From<u64> for WasmUnsafeValue {
+impl const From<u64> for WasmUnsafeValue {
     #[inline]
     fn from(v: u64) -> Self {
         Self::from_u64(v)
     }
 }
 
-impl From<i64> for WasmUnsafeValue {
+impl const From<i64> for WasmUnsafeValue {
     #[inline]
     fn from(v: i64) -> Self {
         Self::from_i64(v)
     }
 }
 
-impl From<f32> for WasmUnsafeValue {
+impl const From<f32> for WasmUnsafeValue {
     #[inline]
     fn from(v: f32) -> Self {
         Self::from_f32(v)
     }
 }
 
-impl From<f64> for WasmUnsafeValue {
+impl const From<f64> for WasmUnsafeValue {
     #[inline]
     fn from(v: f64) -> Self {
         Self::from_f64(v)
     }
 }
 
-impl From<WasmValue> for WasmUnsafeValue {
+impl const From<WasmValue> for WasmUnsafeValue {
     #[inline]
     fn from(v: WasmValue) -> Self {
         match v {

@@ -616,7 +616,7 @@ impl Feature {
 }
 
 /// CPUID Feature Function 0000_0001, EDX
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum F01D {
     FPU = 0,
     VME = 1,
@@ -652,7 +652,7 @@ pub enum F01D {
 
 /// CPUID Feature Function 0000_0001, ECX
 #[allow(non_camel_case_types)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum F01C {
     SSE3 = 0,
     PCLMULQDQ = 1,
@@ -689,7 +689,7 @@ pub enum F01C {
 
 /// CPUID Feature Function 0000_0007, EBX
 #[allow(non_camel_case_types)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum F070B {
     FSGSBASE = 0,
     IA32_TSC_ADJUST = 1,
@@ -727,7 +727,7 @@ pub enum F070B {
 
 /// CPUID Feature Function 0000_0007, ECX
 #[allow(non_camel_case_types)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum F070C {
     PREFETCHWT1 = 0,
     AVX512_VBMI = 1,
@@ -755,7 +755,7 @@ pub enum F070C {
 
 /// CPUID Feature Function 0000_0007, EDX
 #[allow(non_camel_case_types)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum F070D {
     AVX512_4VNNIW = 2,
     AVX512_4FMAPS = 3,
@@ -783,7 +783,7 @@ pub enum F070D {
 
 /// CPUID Feature Function 8000_0001, EDX
 #[allow(non_camel_case_types)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum F81D {
     SYSCALL = 11,
     NX = 20,
@@ -794,7 +794,7 @@ pub enum F81D {
 
 /// CPUID Feature Function 8000_0001, ECX
 #[allow(non_camel_case_types)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum F81C {
     LAHF_LM = 0,
     CMP_LEGACY = 1,
@@ -927,7 +927,7 @@ impl PrivilegeLevel {
     }
 }
 
-impl From<usize> for PrivilegeLevel {
+impl const From<usize> for PrivilegeLevel {
     #[inline]
     fn from(value: usize) -> Self {
         Self::from_usize(value)
@@ -1064,7 +1064,7 @@ impl ExceptionType {
     }
 }
 
-impl From<ExceptionType> for InterruptVector {
+impl const From<ExceptionType> for InterruptVector {
     #[inline]
     fn from(ex: ExceptionType) -> Self {
         InterruptVector(ex as u8)

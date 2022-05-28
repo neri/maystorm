@@ -44,17 +44,17 @@ impl Uuid {
     }
 
     #[inline]
-    pub fn from_raw(data: [u8; 16]) -> Self {
+    pub const fn from_raw(data: [u8; 16]) -> Self {
         unsafe { transmute(data) }
     }
 
     #[inline]
-    pub fn from_slice(slice: &[u8; 16]) -> &Self {
+    pub const fn from_slice(slice: &[u8; 16]) -> &Self {
         unsafe { transmute(slice) }
     }
 
     #[inline]
-    pub fn as_slice(&self) -> &[u8; 16] {
+    pub const fn as_slice(&self) -> &[u8; 16] {
         unsafe { transmute(self) }
     }
 

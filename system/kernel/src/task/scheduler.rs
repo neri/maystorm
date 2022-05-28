@@ -5,8 +5,11 @@ use crate::{
     arch::cpu::*,
     rt::Personality,
     sync::{
-        atomic::AtomicBitflags, fifo::*, semaphore::*, spinlock::*, LockResult, Mutex, RwLock,
-        RwLockReadGuard,
+        atomic::{AtomicBitflags, AtomicEnum},
+        fifo::*,
+        semaphore::*,
+        spinlock::*,
+        LockResult, Mutex, RwLock, RwLockReadGuard,
     },
     system::*,
     ui::window::{WindowHandle, WindowMessage},
@@ -30,7 +33,8 @@ const THRESHOLD_LEAVE_SAVING: usize = 50;
 const THRESHOLD_ENTER_FULL: usize = 950;
 const THRESHOLD_LEAVE_FULL: usize = 666;
 
-static SCHEDULER_STATE: AtomicUsize = AtomicUsize::new(SchedulerState::Disabled.as_raw());
+static SCHEDULER_STATE: AtomicEnum<SchedulerState> =
+    unsafe { AtomicEnum::from_raw_unchecked(SchedulerState::Disabled.as_raw()) };
 static mut SCHEDULER: Option<Box<Scheduler>> = None;
 static mut THREAD_POOL: ThreadPool = ThreadPool::new();
 static PROCESS_POOL: ProcessPool = ProcessPool::new();
@@ -80,14 +84,14 @@ impl SchedulerState {
     }
 }
 
-impl From<SchedulerState> for usize {
+impl const From<SchedulerState> for usize {
     #[inline]
     fn from(val: SchedulerState) -> Self {
         val.as_raw()
     }
 }
 
-impl From<usize> for SchedulerState {
+impl const From<usize> for SchedulerState {
     #[inline]
     fn from(val: usize) -> Self {
         Self::from_raw(val)
@@ -132,7 +136,7 @@ impl Scheduler {
             }));
         }
         fence(Ordering::SeqCst);
-        SCHEDULER_STATE.store(SchedulerState::Running.into(), Ordering::SeqCst);
+        SCHEDULER_STATE.set(SchedulerState::Running);
 
         SpawnOption::with_priority(Priority::Realtime).start_process(
             Self::_scheduler_thread,
@@ -166,12 +170,12 @@ impl Scheduler {
     /// Returns the current state of the scheduler.
     #[inline]
     pub fn current_state() -> SchedulerState {
-        SCHEDULER_STATE.load(Ordering::Relaxed).into()
+        SCHEDULER_STATE.value()
     }
 
     #[inline]
     fn set_current_state(val: SchedulerState) {
-        SCHEDULER_STATE.store(val.into(), Ordering::SeqCst);
+        SCHEDULER_STATE.set(val)
     }
 
     /// All threads will stop.
@@ -1194,7 +1198,7 @@ impl Quantum {
     }
 }
 
-impl From<Priority> for Quantum {
+impl const From<Priority> for Quantum {
     fn from(priority: Priority) -> Self {
         match priority {
             Priority::High => Quantum::new(25),
@@ -1342,7 +1346,7 @@ impl ProcessId {
     }
 }
 
-impl From<ProcessId> for usize {
+impl const From<ProcessId> for usize {
     #[inline]
     fn from(val: ProcessId) -> Self {
         val.0

@@ -564,7 +564,7 @@ impl PciCapabilityId {
     pub const MSI_X: Self = Self(0x11);
 }
 
-impl From<u8> for PciCapabilityId {
+impl const From<u8> for PciCapabilityId {
     fn from(raw: u8) -> Self {
         Self(raw)
     }

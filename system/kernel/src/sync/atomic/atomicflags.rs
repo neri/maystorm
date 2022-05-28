@@ -1,8 +1,7 @@
 // Atomic Bit Flags
 
 use crate::arch::cpu::Cpu;
-use core::marker::PhantomData;
-use core::sync::atomic::*;
+use core::{marker::PhantomData, sync::atomic::*};
 
 pub struct AtomicBitflags<T> {
     bits: AtomicUsize,

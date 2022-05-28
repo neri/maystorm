@@ -1014,7 +1014,7 @@ struct RawWindow {
 
     // Properties
     attributes: AtomicBitflags<WindowAttributes>,
-    style: WindowStyle,
+    style: AtomicBitflags<WindowStyle>,
     level: WindowLevel,
 
     // Placement and Size
@@ -1069,6 +1069,18 @@ impl Default for WindowStyle {
     #[inline]
     fn default() -> Self {
         Self::BORDER | Self::TITLE | Self::CLOSE_BUTTON
+    }
+}
+
+impl const From<WindowStyle> for usize {
+    fn from(val: WindowStyle) -> Self {
+        val.bits()
+    }
+}
+
+impl const From<usize> for WindowStyle {
+    fn from(val: usize) -> Self {
+        Self::from_bits_truncate(val)
     }
 }
 
@@ -1889,7 +1901,7 @@ impl WindowBuilder {
     pub fn build(self, title: &str) -> WindowHandle {
         let window = self.build_inner(title);
         let handle = window.handle;
-        let style = window.style;
+        let style = window.style.value();
         WindowManager::add(window);
         if !style.contains(WindowStyle::SUSPENDED) {
             handle.make_active();
@@ -2018,7 +2030,7 @@ impl WindowBuilder {
             handle,
             frame,
             content_insets,
-            style: self.style,
+            style: AtomicBitflags::new(self.style),
             level: self.level,
             bg_color,
             accent_color,

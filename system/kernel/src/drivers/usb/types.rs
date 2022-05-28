@@ -26,7 +26,7 @@ impl UsbWord {
     }
 }
 
-impl From<UsbWord> for u16 {
+impl const From<UsbWord> for u16 {
     #[inline]
     fn from(v: UsbWord) -> Self {
         v.as_u16()

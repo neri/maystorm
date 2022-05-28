@@ -1,14 +1,13 @@
 use super::*;
-use alloc::borrow::ToOwned;
-use alloc::boxed::Box;
-use alloc::vec::Vec;
-use core::borrow::Borrow;
-use core::cell::UnsafeCell;
-use core::convert::TryFrom;
-use core::intrinsics::copy_nonoverlapping;
-use core::mem::swap;
-use core::mem::transmute;
-use core::num::NonZeroUsize;
+use alloc::{borrow::ToOwned, boxed::Box, vec::Vec};
+use core::{
+    borrow::Borrow,
+    cell::UnsafeCell,
+    convert::TryFrom,
+    intrinsics::copy_nonoverlapping,
+    mem::{swap, transmute},
+    num::NonZeroUsize,
+};
 use num_derive::FromPrimitive;
 
 pub trait Blt<T: Drawable>: Drawable {
@@ -316,7 +315,7 @@ pub trait RasterFontWriter: SetPixel {
     }
 }
 
-pub trait BltConverter<T: ColorTrait>: MutableRasterImage {
+pub trait BltConvert<T: ColorTrait>: MutableRasterImage {
     fn blt_convert<U, F>(&mut self, src: &U, origin: Point, rect: Rect, mut f: F)
     where
         U: RasterImage<ColorType = T>,
@@ -518,7 +517,7 @@ impl<'a> ConstBitmap8<'a> {
     }
 }
 
-impl<'a> AsRef<ConstBitmap8<'a>> for ConstBitmap8<'a> {
+impl<'a> const AsRef<ConstBitmap8<'a>> for ConstBitmap8<'a> {
     #[inline]
     fn as_ref(&self) -> &ConstBitmap8<'a> {
         self
@@ -568,7 +567,7 @@ impl MutableRasterImage for Bitmap8<'_> {
 
 impl<'a> Bitmap8<'a> {
     #[inline]
-    pub fn from_slice(slice: &'a mut [IndexedColor], size: Size, stride: usize) -> Self {
+    pub const fn from_slice(slice: &'a mut [IndexedColor], size: Size, stride: usize) -> Self {
         Self {
             width: size.width() as usize,
             height: size.height() as usize,
@@ -578,7 +577,7 @@ impl<'a> Bitmap8<'a> {
     }
 
     #[inline]
-    pub fn from_bytes(bytes: &'a mut [u8], size: Size) -> Self {
+    pub const fn from_bytes(bytes: &'a mut [u8], size: Size) -> Self {
         Self {
             width: size.width() as usize,
             height: size.height() as usize,
@@ -614,8 +613,8 @@ impl Bitmap8<'static> {
     }
 }
 
-impl BltConverter<TrueColor> for Bitmap8<'_> {}
-impl BltConverter<IndexedColor> for Bitmap8<'_> {}
+impl BltConvert<TrueColor> for Bitmap8<'_> {}
+impl BltConvert<IndexedColor> for Bitmap8<'_> {}
 
 impl<'a> Bitmap8<'a> {
     #[inline]
@@ -838,14 +837,14 @@ impl BasicDrawing for Bitmap8<'_> {
 
 impl RasterFontWriter for Bitmap8<'_> {}
 
-impl<'a> AsRef<ConstBitmap8<'a>> for Bitmap8<'a> {
+impl<'a> const AsRef<ConstBitmap8<'a>> for Bitmap8<'a> {
     #[inline]
     fn as_ref(&self) -> &ConstBitmap8<'a> {
         self.as_const()
     }
 }
 
-impl<'a> AsMut<Bitmap8<'a>> for Bitmap8<'a> {
+impl<'a> const AsMut<Bitmap8<'a>> for Bitmap8<'a> {
     #[inline]
     fn as_mut(&mut self) -> &mut Bitmap8<'a> {
         self
@@ -931,14 +930,14 @@ impl OwnedBitmap8 {
     }
 }
 
-impl<'a> AsRef<ConstBitmap8<'a>> for OwnedBitmap8 {
+impl<'a> const AsRef<ConstBitmap8<'a>> for OwnedBitmap8 {
     #[inline]
     fn as_ref(&self) -> &ConstBitmap8<'a> {
         unsafe { transmute(self) }
     }
 }
 
-impl<'a> AsMut<Bitmap8<'a>> for OwnedBitmap8 {
+impl<'a> const AsMut<Bitmap8<'a>> for OwnedBitmap8 {
     #[inline]
     fn as_mut(&mut self) -> &mut Bitmap8<'a> {
         unsafe { transmute(self) }
@@ -1018,7 +1017,7 @@ impl<'a> ConstBitmap32<'a> {
     }
 }
 
-impl<'a> AsRef<ConstBitmap32<'a>> for ConstBitmap32<'a> {
+impl<'a> const AsRef<ConstBitmap32<'a>> for ConstBitmap32<'a> {
     #[inline]
     fn as_ref(&self) -> &ConstBitmap32<'a> {
         self
@@ -1087,7 +1086,6 @@ impl<'a> Bitmap32<'a> {
         }
     }
 
-    /// Clone a bitmap
     #[inline]
     pub fn clone(&self) -> Bitmap32<'a> {
         let slice = unsafe { self.slice.get().as_mut().unwrap() };
@@ -1097,6 +1095,11 @@ impl<'a> Bitmap32<'a> {
             stride: self.stride(),
             slice: UnsafeCell::new(slice),
         }
+    }
+
+    #[inline]
+    pub const fn as_const(&self) -> &'a ConstBitmap32<'a> {
+        unsafe { transmute(self) }
     }
 }
 
@@ -1274,20 +1277,16 @@ impl BasicDrawing for Bitmap32<'_> {
 impl RasterFontWriter for Bitmap32<'_> {}
 
 impl<'a> From<&'a Bitmap32<'a>> for ConstBitmap32<'a> {
+    #[inline]
     fn from(src: &'a Bitmap32<'a>) -> Self {
         Self::from_slice(src.slice(), src.size(), src.stride())
     }
 }
 
-impl BltConverter<TrueColor> for Bitmap32<'_> {}
-impl BltConverter<IndexedColor> for Bitmap32<'_> {}
+impl BltConvert<TrueColor> for Bitmap32<'_> {}
+impl BltConvert<IndexedColor> for Bitmap32<'_> {}
 
 impl<'a> Bitmap32<'a> {
-    #[inline]
-    pub const fn as_const(&self) -> &'a ConstBitmap32<'a> {
-        unsafe { transmute(self) }
-    }
-
     pub fn blt<'b, T: AsRef<ConstBitmap32<'b>>>(&mut self, src: &'b T, origin: Point, rect: Rect) {
         let src = src.as_ref();
 
@@ -1447,14 +1446,14 @@ impl Bitmap32<'_> {
     }
 }
 
-impl<'a> AsRef<ConstBitmap32<'a>> for Bitmap32<'a> {
+impl<'a> const AsRef<ConstBitmap32<'a>> for Bitmap32<'a> {
     #[inline]
     fn as_ref(&self) -> &ConstBitmap32<'a> {
         self.as_const()
     }
 }
 
-impl<'a> AsMut<Bitmap32<'a>> for Bitmap32<'a> {
+impl<'a> const AsMut<Bitmap32<'a>> for Bitmap32<'a> {
     #[inline]
     fn as_mut(&mut self) -> &mut Bitmap32<'a> {
         self
@@ -1540,14 +1539,14 @@ impl OwnedBitmap32 {
     }
 }
 
-impl<'a> AsRef<ConstBitmap32<'a>> for OwnedBitmap32 {
+impl<'a> const AsRef<ConstBitmap32<'a>> for OwnedBitmap32 {
     #[inline]
     fn as_ref(&self) -> &ConstBitmap32<'a> {
         unsafe { transmute(self) }
     }
 }
 
-impl<'a> AsMut<Bitmap32<'a>> for OwnedBitmap32 {
+impl<'a> const AsMut<Bitmap32<'a>> for OwnedBitmap32 {
     #[inline]
     fn as_mut(&mut self) -> &mut Bitmap32<'a> {
         unsafe { transmute(self) }
@@ -1604,35 +1603,35 @@ impl GetPixel for ConstBitmap<'_> {
     }
 }
 
-impl<'a> From<&'a ConstBitmap8<'a>> for ConstBitmap<'a> {
+impl<'a> const From<&'a ConstBitmap8<'a>> for ConstBitmap<'a> {
     #[inline]
     fn from(val: &'a ConstBitmap8<'a>) -> ConstBitmap<'a> {
         ConstBitmap::Indexed(val)
     }
 }
 
-impl<'a> From<&'a Bitmap8<'a>> for ConstBitmap<'a> {
+impl<'a> const From<&'a Bitmap8<'a>> for ConstBitmap<'a> {
     #[inline]
     fn from(val: &'a Bitmap8<'a>) -> Self {
         ConstBitmap::Indexed(val.as_ref())
     }
 }
 
-impl<'a> From<&'a ConstBitmap32<'a>> for ConstBitmap<'a> {
+impl<'a> const From<&'a ConstBitmap32<'a>> for ConstBitmap<'a> {
     #[inline]
     fn from(val: &'a ConstBitmap32<'a>) -> ConstBitmap {
         ConstBitmap::Argb32(val)
     }
 }
 
-impl<'a> From<&'a Bitmap32<'a>> for ConstBitmap<'a> {
+impl<'a> const From<&'a Bitmap32<'a>> for ConstBitmap<'a> {
     #[inline]
     fn from(val: &'a Bitmap32<'a>) -> Self {
         ConstBitmap::Argb32(val.as_ref())
     }
 }
 
-impl<'a> AsRef<ConstBitmap<'a>> for ConstBitmap<'a> {
+impl<'a> const AsRef<ConstBitmap<'a>> for ConstBitmap<'a> {
     fn as_ref(&self) -> &ConstBitmap<'a> {
         self
     }
@@ -1673,7 +1672,7 @@ impl Drawable for Bitmap<'_> {
 
 impl<'a> Bitmap<'a> {
     #[inline]
-    pub fn as_const(&self) -> &'a ConstBitmap<'a> {
+    pub const fn as_const(&self) -> &'a ConstBitmap<'a> {
         unsafe { transmute(self) }
     }
 }
@@ -1860,28 +1859,28 @@ impl<'a, 'b> Blt<ConstBitmap32<'b>> for Bitmap<'a> {
     }
 }
 
-impl<'a> From<&'a mut Bitmap8<'a>> for Bitmap<'a> {
+impl<'a> const From<&'a mut Bitmap8<'a>> for Bitmap<'a> {
     #[inline]
     fn from(val: &'a mut Bitmap8<'a>) -> Bitmap<'a> {
         Self::Indexed(val)
     }
 }
 
-impl<'a> From<&'a mut Bitmap32<'a>> for Bitmap<'a> {
+impl<'a> const From<&'a mut Bitmap32<'a>> for Bitmap<'a> {
     #[inline]
     fn from(val: &'a mut Bitmap32<'a>) -> Bitmap<'a> {
         Self::Argb32(val)
     }
 }
 
-impl<'a> AsRef<ConstBitmap<'a>> for Bitmap<'a> {
+impl<'a> const AsRef<ConstBitmap<'a>> for Bitmap<'a> {
     #[inline]
     fn as_ref(&self) -> &ConstBitmap<'a> {
         self.as_const()
     }
 }
 
-impl<'a> AsMut<Bitmap<'a>> for Bitmap<'a> {
+impl<'a> const AsMut<Bitmap<'a>> for Bitmap<'a> {
     #[inline]
     fn as_mut(&mut self) -> &mut Bitmap<'a> {
         self
@@ -1963,14 +1962,14 @@ impl OwnedBitmap {
     }
 }
 
-impl From<OwnedBitmap8> for OwnedBitmap {
+impl const From<OwnedBitmap8> for OwnedBitmap {
     #[inline]
     fn from(val: OwnedBitmap8) -> Self {
         Self::Indexed(val)
     }
 }
 
-impl From<OwnedBitmap32> for OwnedBitmap {
+impl const From<OwnedBitmap32> for OwnedBitmap {
     #[inline]
     fn from(val: OwnedBitmap32) -> Self {
         Self::Argb32(val)
@@ -2588,7 +2587,7 @@ impl GetPixel for ConstBitmap1<'_> {
     }
 }
 
-impl<'a> AsRef<ConstBitmap1<'a>> for ConstBitmap1<'a> {
+impl<'a> const AsRef<ConstBitmap1<'a>> for ConstBitmap1<'a> {
     #[inline]
     fn as_ref(&self) -> &ConstBitmap1<'a> {
         self
@@ -2676,14 +2675,14 @@ impl SetPixel for Bitmap1<'_> {
     }
 }
 
-impl<'a> AsRef<ConstBitmap1<'a>> for Bitmap1<'a> {
+impl<'a> const AsRef<ConstBitmap1<'a>> for Bitmap1<'a> {
     #[inline]
     fn as_ref(&self) -> &ConstBitmap1<'a> {
         self.as_const()
     }
 }
 
-impl<'a> AsMut<Bitmap1<'a>> for Bitmap1<'a> {
+impl<'a> const AsMut<Bitmap1<'a>> for Bitmap1<'a> {
     #[inline]
     fn as_mut(&mut self) -> &mut Bitmap1<'a> {
         self

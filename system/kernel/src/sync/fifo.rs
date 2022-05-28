@@ -2,7 +2,10 @@
 
 use crate::{
     arch::cpu::Cpu,
-    sync::{semaphore::Semaphore, spinlock::SpinLoopWait},
+    sync::{
+        semaphore::{AsyncSemaphore, Semaphore},
+        spinlock::SpinLoopWait,
+    },
 };
 use alloc::{boxed::Box, sync::Arc};
 use core::{
@@ -10,8 +13,6 @@ use core::{
     pin::Pin,
     {cell::UnsafeCell, sync::atomic::*},
 };
-
-use super::semaphore::AsyncSemaphore;
 
 pub struct EventQueue<T> {
     fifo: ConcurrentFifo<T>,

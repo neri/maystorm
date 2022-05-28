@@ -146,7 +146,7 @@ pub enum JoyPad {
     Start,
     Select,
     ThumbL,
-    RhumbR,
+    ThumbR,
     LButton,
     RButton,
     Menu,
@@ -448,7 +448,7 @@ impl Sprite {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Control {
-    pub control: u32,
+    pub control: ControlWord,
     pub scroll_x: u8,
     pub scroll_y: u8,
     pub sprite_min: u8,
@@ -459,7 +459,7 @@ impl Control {
     #[inline]
     pub const fn new() -> Self {
         Self {
-            control: 0,
+            control: ControlWord::empty(),
             scroll_x: 0,
             scroll_y: 0,
             sprite_min: 0,
@@ -469,7 +469,7 @@ impl Control {
 
     #[inline]
     pub fn reset(&mut self) {
-        self.control = 0; // TBD
+        self.control = ControlWord::empty();
         self.scroll_x = 0;
         self.scroll_y = 0;
         self.sprite_min = 0x00;
@@ -485,5 +485,22 @@ impl Control {
     pub fn set_scroll(&mut self, point: Point) {
         self.scroll_x = point.x as u8;
         self.scroll_y = point.y as u8;
+    }
+}
+
+/// Screen control flags (TBD)
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy)]
+pub struct ControlWord(u32);
+
+impl ControlWord {
+    #[inline]
+    pub const fn empty() -> Self {
+        Self(0)
+    }
+
+    #[inline]
+    pub const fn reset(&mut self) {
+        *self = Self::empty();
     }
 }

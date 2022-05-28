@@ -248,7 +248,7 @@ impl ops::Deref for PathBuf {
     }
 }
 
-impl From<OsString> for PathBuf {
+impl const From<OsString> for PathBuf {
     #[inline]
     fn from(s: OsString) -> PathBuf {
         PathBuf { inner: s }

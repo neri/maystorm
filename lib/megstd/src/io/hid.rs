@@ -418,21 +418,21 @@ impl Modifier {
     }
 }
 
-impl From<Modifier> for usize {
+impl const From<Modifier> for usize {
     #[inline]
     fn from(v: Modifier) -> Self {
         v.bits() as Self
     }
 }
 
-impl From<usize> for Modifier {
+impl const From<usize> for Modifier {
     #[inline]
     fn from(v: usize) -> Self {
         Self::from_bits_truncate(v as u8)
     }
 }
 
-impl Default for Modifier {
+impl const Default for Modifier {
     #[inline]
     fn default() -> Self {
         Self::empty()
@@ -489,7 +489,7 @@ bitflags! {
     }
 }
 
-impl Default for MouseButton {
+impl const Default for MouseButton {
     fn default() -> Self {
         Self::empty()
     }
@@ -774,77 +774,77 @@ impl HidReportAmbiguousSignedValue {
     }
 }
 
-impl From<u8> for HidReportAmbiguousSignedValue {
+impl const From<u8> for HidReportAmbiguousSignedValue {
     #[inline]
     fn from(val: u8) -> Self {
         Self::U8(val)
     }
 }
 
-impl From<u16> for HidReportAmbiguousSignedValue {
+impl const From<u16> for HidReportAmbiguousSignedValue {
     #[inline]
     fn from(val: u16) -> Self {
         Self::U16(val)
     }
 }
 
-impl From<u32> for HidReportAmbiguousSignedValue {
+impl const From<u32> for HidReportAmbiguousSignedValue {
     #[inline]
     fn from(val: u32) -> Self {
         Self::U32(val)
     }
 }
 
-impl From<HidReportAmbiguousSignedValue> for usize {
+impl const From<HidReportAmbiguousSignedValue> for usize {
     #[inline]
     fn from(val: HidReportAmbiguousSignedValue) -> Self {
         val.as_usize()
     }
 }
 
-impl From<HidReportAmbiguousSignedValue> for isize {
+impl const From<HidReportAmbiguousSignedValue> for isize {
     #[inline]
     fn from(val: HidReportAmbiguousSignedValue) -> Self {
         val.as_isize()
     }
 }
 
-impl From<HidReportAmbiguousSignedValue> for u8 {
+impl const From<HidReportAmbiguousSignedValue> for u8 {
     #[inline]
     fn from(val: HidReportAmbiguousSignedValue) -> Self {
         val.as_usize() as u8
     }
 }
 
-impl From<HidReportAmbiguousSignedValue> for u16 {
+impl const From<HidReportAmbiguousSignedValue> for u16 {
     #[inline]
     fn from(val: HidReportAmbiguousSignedValue) -> Self {
         val.as_usize() as u16
     }
 }
 
-impl From<HidReportAmbiguousSignedValue> for u32 {
+impl const From<HidReportAmbiguousSignedValue> for u32 {
     #[inline]
     fn from(val: HidReportAmbiguousSignedValue) -> Self {
         val.as_usize() as u32
     }
 }
 
-impl From<HidReportAmbiguousSignedValue> for i8 {
+impl const From<HidReportAmbiguousSignedValue> for i8 {
     #[inline]
     fn from(val: HidReportAmbiguousSignedValue) -> Self {
         val.as_isize() as i8
     }
 }
 
-impl From<HidReportAmbiguousSignedValue> for i16 {
+impl const From<HidReportAmbiguousSignedValue> for i16 {
     #[inline]
     fn from(val: HidReportAmbiguousSignedValue) -> Self {
         val.as_isize() as i16
     }
 }
 
-impl From<HidReportAmbiguousSignedValue> for i32 {
+impl const From<HidReportAmbiguousSignedValue> for i32 {
     #[inline]
     fn from(val: HidReportAmbiguousSignedValue) -> Self {
         val.as_isize() as i32

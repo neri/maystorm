@@ -97,13 +97,15 @@ impl IndexedColor {
     }
 }
 
-impl From<u8> for IndexedColor {
+impl const From<u8> for IndexedColor {
+    #[inline]
     fn from(val: u8) -> Self {
         Self(val)
     }
 }
 
-impl From<IndexedColor> for TrueColor {
+impl const From<IndexedColor> for TrueColor {
+    #[inline]
     fn from(val: IndexedColor) -> Self {
         val.as_true_color()
     }
@@ -231,13 +233,15 @@ impl TrueColor {
     }
 }
 
-impl From<u32> for TrueColor {
+impl const From<u32> for TrueColor {
+    #[inline]
     fn from(argb: u32) -> Self {
         Self::from_argb(argb)
     }
 }
 
-impl From<TrueColor> for IndexedColor {
+impl const From<TrueColor> for IndexedColor {
+    #[inline]
     fn from(color: TrueColor) -> Self {
         Self::from_rgb(color.rgb())
     }
@@ -317,19 +321,22 @@ impl ColorComponents {
     }
 }
 
-impl From<TrueColor> for ColorComponents {
+impl const From<TrueColor> for ColorComponents {
+    #[inline]
     fn from(color: TrueColor) -> Self {
         unsafe { transmute(color) }
     }
 }
 
-impl From<ColorComponents> for TrueColor {
+impl const From<ColorComponents> for TrueColor {
+    #[inline]
     fn from(components: ColorComponents) -> Self {
         unsafe { transmute(components) }
     }
 }
 
-impl Into<u32> for ColorComponents {
+impl const Into<u32> for ColorComponents {
+    #[inline]
     fn into(self) -> u32 {
         unsafe { transmute(self) }
     }
@@ -389,13 +396,15 @@ impl DeepColor30 {
     }
 }
 
-impl From<TrueColor> for DeepColor30 {
+impl const From<TrueColor> for DeepColor30 {
+    #[inline]
     fn from(val: TrueColor) -> Self {
         Self::from_true_color(val)
     }
 }
 
-impl From<DeepColor30> for TrueColor {
+impl const From<DeepColor30> for TrueColor {
+    #[inline]
     fn from(val: DeepColor30) -> Self {
         val.into_true_color()
     }
@@ -484,35 +493,35 @@ impl Color {
     }
 }
 
-impl Default for Color {
+impl const Default for Color {
     #[inline]
     fn default() -> Self {
         Self::TRANSPARENT
     }
 }
 
-impl Into<IndexedColor> for Color {
+impl const Into<IndexedColor> for Color {
     #[inline]
     fn into(self) -> IndexedColor {
         self.into_indexed()
     }
 }
 
-impl Into<TrueColor> for Color {
+impl const Into<TrueColor> for Color {
     #[inline]
     fn into(self) -> TrueColor {
         self.into_true_color()
     }
 }
 
-impl From<IndexedColor> for Color {
+impl const From<IndexedColor> for Color {
     #[inline]
     fn from(val: IndexedColor) -> Self {
         Self::Indexed(val)
     }
 }
 
-impl From<TrueColor> for Color {
+impl const From<TrueColor> for Color {
     #[inline]
     fn from(val: TrueColor) -> Self {
         Self::Argb32(val)
@@ -607,28 +616,28 @@ impl PackedColor {
     }
 }
 
-impl From<TrueColor> for PackedColor {
+impl const From<TrueColor> for PackedColor {
     #[inline]
     fn from(color: TrueColor) -> Self {
         Self::from_true_color(color)
     }
 }
 
-impl From<IndexedColor> for PackedColor {
+impl const From<IndexedColor> for PackedColor {
     #[inline]
     fn from(index: IndexedColor) -> Self {
         Self::from_indexed(index)
     }
 }
 
-impl From<Color> for PackedColor {
+impl const From<Color> for PackedColor {
     #[inline]
     fn from(color: Color) -> Self {
         Self::from_color(color)
     }
 }
 
-impl From<PackedColor> for Color {
+impl const From<PackedColor> for Color {
     #[inline]
     fn from(color: PackedColor) -> Self {
         color.as_color()
@@ -682,28 +691,28 @@ impl RGB555 {
     }
 }
 
-impl From<TrueColor> for RGB555 {
+impl const From<TrueColor> for RGB555 {
     #[inline]
     fn from(color: TrueColor) -> Self {
         Self::from_true_color(color)
     }
 }
 
-impl From<RGB555> for TrueColor {
+impl const From<RGB555> for TrueColor {
     #[inline]
     fn from(color: RGB555) -> Self {
         color.as_true_color()
     }
 }
 
-impl From<Color> for RGB555 {
+impl const From<Color> for RGB555 {
     #[inline]
     fn from(color: Color) -> Self {
         Self::from_true_color(color.into_true_color())
     }
 }
 
-impl From<RGB555> for Color {
+impl const From<RGB555> for Color {
     #[inline]
     fn from(color: RGB555) -> Self {
         Color::Argb32(color.as_true_color())
