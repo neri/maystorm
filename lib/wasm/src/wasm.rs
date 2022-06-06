@@ -14,61 +14,12 @@ use core::{
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
-/// WebAssembly loader
-pub struct WasmLoader {
-    module: WasmModule,
-}
-
 pub type WasmDynFunc =
     fn(&WasmModule, &[WasmUnsafeValue]) -> Result<WasmValue, WasmRuntimeErrorKind>;
 
-struct WasmEndian;
-
-#[cfg(target_endian = "little")]
-impl WasmEndian {
-    // TODO: unaligned memory access
-
-    #[inline]
-    unsafe fn read_u16(slice: &[u8], offset: usize) -> u16 {
-        let p = slice.as_ptr().add(offset);
-        let p: *const u16 = transmute(p);
-        p.read()
-    }
-
-    #[inline]
-    unsafe fn read_u32(slice: &[u8], offset: usize) -> u32 {
-        let p = slice.as_ptr().add(offset);
-        let p: *const u32 = transmute(p);
-        p.read()
-    }
-
-    #[inline]
-    unsafe fn read_u64(slice: &[u8], offset: usize) -> u64 {
-        let p = slice.as_ptr().add(offset);
-        let p: *const u64 = transmute(p);
-        p.read()
-    }
-
-    #[inline]
-    unsafe fn write_u16(slice: &mut [u8], offset: usize, val: u16) {
-        let p = slice.as_mut_ptr().add(offset);
-        let p: *mut u16 = transmute(p);
-        p.write(val);
-    }
-
-    #[inline]
-    unsafe fn write_u32(slice: &mut [u8], offset: usize, val: u32) {
-        let p = slice.as_mut_ptr().add(offset);
-        let p: *mut u32 = transmute(p);
-        p.write(val);
-    }
-
-    #[inline]
-    unsafe fn write_u64(slice: &mut [u8], offset: usize, val: u64) {
-        let p = slice.as_mut_ptr().add(offset);
-        let p: *mut u64 = transmute(p);
-        p.write(val);
-    }
+/// WebAssembly loader
+pub struct WasmLoader {
+    module: WasmModule,
 }
 
 impl WasmLoader {
@@ -550,6 +501,55 @@ impl WasmModule {
     #[inline]
     pub fn names(&self) -> Option<&WasmName> {
         self.names.as_ref()
+    }
+}
+
+struct WasmEndian;
+
+#[cfg(target_endian = "little")]
+impl WasmEndian {
+    // TODO: unaligned memory access
+
+    #[inline]
+    unsafe fn read_u16(slice: &[u8], offset: usize) -> u16 {
+        let p = slice.as_ptr().add(offset);
+        let p: *const u16 = transmute(p);
+        p.read()
+    }
+
+    #[inline]
+    unsafe fn read_u32(slice: &[u8], offset: usize) -> u32 {
+        let p = slice.as_ptr().add(offset);
+        let p: *const u32 = transmute(p);
+        p.read()
+    }
+
+    #[inline]
+    unsafe fn read_u64(slice: &[u8], offset: usize) -> u64 {
+        let p = slice.as_ptr().add(offset);
+        let p: *const u64 = transmute(p);
+        p.read()
+    }
+
+    #[inline]
+    unsafe fn write_u16(slice: &mut [u8], offset: usize, val: u16) {
+        let p = slice.as_mut_ptr().add(offset);
+        let p: *mut u16 = transmute(p);
+        p.write(val);
+    }
+
+    #[inline]
+    unsafe fn write_u32(slice: &mut [u8], offset: usize, val: u32) {
+        let p = slice.as_mut_ptr().add(offset);
+        let p: *mut u32 = transmute(p);
+        p.write(val);
+    }
+
+    #[inline]
+    unsafe fn write_u64(slice: &mut [u8], offset: usize, val: u64) {
+        let p = slice.as_mut_ptr().add(offset);
+        let p: *mut u64 = transmute(p);
+        p.write(val);
     }
 }
 
@@ -1365,6 +1365,9 @@ impl fmt::Display for WasmType {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct WasmTypeIndex(pub usize);
+
 /// WebAssembly import object
 ///
 /// It appears as the second section (`0x02`) in the WebAssembly binary.
@@ -1672,7 +1675,7 @@ impl const From<f64> for WasmValue {
 impl const From<bool> for WasmValue {
     #[inline]
     fn from(v: bool) -> Self {
-        Self::I32(if v { 1 } else { 0 })
+        Self::I32(v as i32)
     }
 }
 
@@ -1884,6 +1887,13 @@ impl WasmUnsafeValue {
         } else {
             *self = *other;
         }
+    }
+}
+
+impl const Default for WasmUnsafeValue {
+    #[inline]
+    fn default() -> Self {
+        Self::zero()
     }
 }
 
@@ -2133,7 +2143,7 @@ impl WasmCodeBlock {
 
     /// Returns whether or not this function block does not call any other functions.
     #[inline]
-    pub fn is_leaf(&self) -> bool {
+    pub const fn is_leaf(&self) -> bool {
         self.flags.contains(WasmBlockFlag::LEAF_FUNCTION)
     }
 

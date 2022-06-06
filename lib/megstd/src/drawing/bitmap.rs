@@ -35,10 +35,10 @@ pub trait BasicDrawing: SetPixel {
         let width = rect.width();
         let height = rect.height();
         self.draw_hline(coords.left_top(), width, color);
-        self.draw_hline(coords.left_bottom() - Point::new(0, 1), width, color);
+        self.draw_hline(coords.left_bottom() - Movement::new(0, 1), width, color);
         if height > 2 {
-            self.draw_vline(coords.left_top() + Point::new(0, 1), height - 2, color);
-            self.draw_vline(coords.right_top() + Point::new(-1, 1), height - 2, color);
+            self.draw_vline(coords.left_top() + Movement::new(0, 1), height - 2, color);
+            self.draw_vline(coords.right_top() + Movement::new(-1, 1), height - 2, color);
         }
     }
 
@@ -1583,14 +1583,6 @@ impl Drawable for ConstBitmap<'_> {
             Self::Argb32(ref v) => v.height(),
         }
     }
-
-    #[inline]
-    fn bpp(&self) -> usize {
-        match self {
-            Self::Indexed(ref v) => v.bpp(),
-            Self::Argb32(ref v) => v.bpp(),
-        }
-    }
 }
 
 impl GetPixel for ConstBitmap<'_> {
@@ -1658,14 +1650,6 @@ impl Drawable for Bitmap<'_> {
         match self {
             Self::Indexed(ref v) => v.height(),
             Self::Argb32(ref v) => v.height(),
-        }
-    }
-
-    #[inline]
-    fn bpp(&self) -> usize {
-        match self {
-            Self::Indexed(ref v) => v.bpp(),
-            Self::Argb32(ref v) => v.bpp(),
         }
     }
 }
@@ -1920,14 +1904,6 @@ impl Drawable for OwnedBitmap {
         match self {
             Self::Indexed(ref v) => v.height(),
             Self::Argb32(ref v) => v.height(),
-        }
-    }
-
-    #[inline]
-    fn bpp(&self) -> usize {
-        match self {
-            Self::Indexed(ref v) => v.bpp(),
-            Self::Argb32(ref v) => v.bpp(),
         }
     }
 }
@@ -2551,10 +2527,6 @@ impl Drawable for ConstBitmap1<'_> {
     fn height(&self) -> usize {
         self.height
     }
-
-    fn bpp(&self) -> usize {
-        1
-    }
 }
 
 impl<'a> ConstBitmap1<'a> {
@@ -2613,10 +2585,6 @@ impl Drawable for Bitmap1<'_> {
     #[inline]
     fn height(&self) -> usize {
         self.height
-    }
-
-    fn bpp(&self) -> usize {
-        1
     }
 }
 

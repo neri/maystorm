@@ -1,13 +1,16 @@
 use core::mem::transmute;
 
 /// Common color trait
-pub trait ColorTrait: Sized + Copy + Clone + PartialEq + Eq + Default {}
+pub trait ColorTrait: Sized + Copy + Clone + PartialEq + Eq + Default {
+    // fn bits_per_pixel() -> usize;
+    // fn bits_per_channel() -> usize;
+}
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct IndexedColor(pub u8);
 
-impl ColorTrait for IndexedColor {}
+impl const ColorTrait for IndexedColor {}
 
 impl IndexedColor {
     pub const MIN: Self = Self(u8::MIN);
@@ -30,6 +33,15 @@ impl IndexedColor {
     pub const LIGHT_MAGENTA: Self = Self(13);
     pub const YELLOW: Self = Self(14);
     pub const WHITE: Self = Self(15);
+
+    pub const PRIMARY_BLACK: Self = Self::from_rgb(0x00_00_00);
+    pub const PRIMARY_BLUE: Self = Self::from_rgb(0x00_00_FF);
+    pub const PRIMARY_GREEN: Self = Self::from_rgb(0x00_FF_00);
+    pub const PRIMARY_CYAN: Self = Self::from_rgb(0x00_FF_FF);
+    pub const PRIMARY_RED: Self = Self::from_rgb(0xFF_00_00);
+    pub const PRIMARY_MAGENTA: Self = Self::from_rgb(0xFF_00_FF);
+    pub const PRIMARY_YELLOW: Self = Self::from_rgb(0xFF_FF_00);
+    pub const PRIMARY_WHITE: Self = Self::from_rgb(0xFF_FF_FF);
 
     pub const COLOR_PALETTE: [u32; 256] = [
         0xFF212121, 0xFF0D47A1, 0xFF1B5E20, 0xFF006064, 0xFFB71C1C, 0xFF4A148C, 0xFF795548,
@@ -119,7 +131,15 @@ impl ColorTrait for TrueColor {}
 
 impl TrueColor {
     pub const TRANSPARENT: Self = Self::from_argb(0);
-    pub const WHITE: Self = Self::from_rgb(0xFFFFFF);
+
+    pub const PRIMARY_BLACK: Self = Self::from_rgb(0x00_00_00);
+    pub const PRIMARY_BLUE: Self = Self::from_rgb(0x00_00_FF);
+    pub const PRIMARY_GREEN: Self = Self::from_rgb(0x00_FF_00);
+    pub const PRIMARY_CYAN: Self = Self::from_rgb(0x00_FF_FF);
+    pub const PRIMARY_RED: Self = Self::from_rgb(0xFF_00_00);
+    pub const PRIMARY_MAGENTA: Self = Self::from_rgb(0xFF_00_FF);
+    pub const PRIMARY_YELLOW: Self = Self::from_rgb(0xFF_FF_00);
+    pub const PRIMARY_WHITE: Self = Self::from_rgb(0xFF_FF_FF);
 
     #[inline]
     pub const fn from_rgb(rgb: u32) -> Self {
@@ -441,6 +461,16 @@ impl Color {
     pub const LIGHT_MAGENTA: Self = Self::Indexed(IndexedColor::LIGHT_MAGENTA);
     pub const YELLOW: Self = Self::Indexed(IndexedColor::YELLOW);
     pub const WHITE: Self = Self::Indexed(IndexedColor::WHITE);
+
+    pub const PRIMARY_BLACK: Self = Self::from_rgb(0x00_00_00);
+    pub const PRIMARY_BLUE: Self = Self::from_rgb(0x00_00_FF);
+    pub const PRIMARY_GREEN: Self = Self::from_rgb(0x00_FF_00);
+    pub const PRIMARY_CYAN: Self = Self::from_rgb(0x00_FF_FF);
+    pub const PRIMARY_RED: Self = Self::from_rgb(0xFF_00_00);
+    pub const PRIMARY_MAGENTA: Self = Self::from_rgb(0xFF_00_FF);
+    pub const PRIMARY_YELLOW: Self = Self::from_rgb(0xFF_FF_00);
+    pub const PRIMARY_WHITE: Self = Self::from_rgb(0xFF_FF_FF);
+
     pub const DEFAULT_KEY: Self = Self::Indexed(IndexedColor::DEFAULT_KEY);
 
     #[inline]

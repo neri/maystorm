@@ -83,30 +83,6 @@ impl Point {
     }
 }
 
-impl const Add<Self> for Point {
-    type Output = Self;
-
-    #[inline]
-    fn add(self, rhs: Self) -> Self {
-        Point {
-            x: self.x + rhs.x,
-            y: self.y + rhs.y,
-        }
-    }
-}
-
-impl const Add<Size> for Point {
-    type Output = Self;
-
-    #[inline]
-    fn add(self, rhs: Size) -> Self {
-        Point {
-            x: self.x + rhs.width,
-            y: self.y + rhs.height,
-        }
-    }
-}
-
 impl const Add<isize> for Point {
     type Output = Self;
 
@@ -115,39 +91,6 @@ impl const Add<isize> for Point {
         Point {
             x: self.x + rhs,
             y: self.y + rhs,
-        }
-    }
-}
-
-impl const AddAssign for Point {
-    #[inline]
-    fn add_assign(&mut self, rhs: Self) {
-        *self = Self {
-            x: self.x + rhs.x,
-            y: self.y + rhs.y,
-        }
-    }
-}
-
-impl const Sub<Self> for Point {
-    type Output = Self;
-    #[inline]
-    fn sub(self, rhs: Self) -> Self {
-        Point {
-            x: self.x - rhs.x,
-            y: self.y - rhs.y,
-        }
-    }
-}
-
-impl const Sub<Size> for Point {
-    type Output = Self;
-
-    #[inline]
-    fn sub(self, rhs: Size) -> Self {
-        Point {
-            x: self.x - rhs.width,
-            y: self.y - rhs.height,
         }
     }
 }
@@ -164,13 +107,191 @@ impl const Sub<isize> for Point {
     }
 }
 
-impl const SubAssign for Point {
+impl const Sub<Self> for Point {
+    type Output = Movement;
+
     #[inline]
-    fn sub_assign(&mut self, rhs: Self) {
-        *self = Self {
+    fn sub(self, rhs: Self) -> Movement {
+        Movement {
             x: self.x - rhs.x,
             y: self.y - rhs.y,
         }
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
+pub struct Movement {
+    pub x: isize,
+    pub y: isize,
+}
+
+impl Movement {
+    #[inline]
+    pub const fn new(x: isize, y: isize) -> Self {
+        Self { x, y }
+    }
+
+    #[inline]
+    pub const fn x(&self) -> isize {
+        self.x
+    }
+
+    #[inline]
+    pub const fn y(&self) -> isize {
+        self.y
+    }
+
+    #[inline]
+    pub const fn swap(&mut self) {
+        swap(&mut self.x, &mut self.y);
+    }
+
+    #[inline]
+    pub const fn swapped(&self) -> Self {
+        Self {
+            x: self.y,
+            y: self.x,
+        }
+    }
+
+    #[inline]
+    pub const fn is_zero(&self) -> bool {
+        self.x == 0 && self.y == 0
+    }
+}
+
+impl const From<Point> for Movement {
+    #[inline]
+    fn from(v: Point) -> Self {
+        Self { x: v.x, y: v.y }
+    }
+}
+
+impl const From<Movement> for Point {
+    #[inline]
+    fn from(v: Movement) -> Self {
+        Self { x: v.x, y: v.y }
+    }
+}
+
+impl const Add<Self> for Movement {
+    type Output = Self;
+    #[inline]
+    fn add(self, rhs: Movement) -> Self {
+        Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
+}
+
+impl const AddAssign<Self> for Movement {
+    #[inline]
+    fn add_assign(&mut self, rhs: Self) {
+        self.x += rhs.x;
+        self.y += rhs.y;
+    }
+}
+
+impl const Add<Movement> for Point {
+    type Output = Point;
+    #[inline]
+    fn add(self, rhs: Movement) -> Self::Output {
+        Point {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
+}
+
+impl const AddAssign<Movement> for Point {
+    #[inline]
+    fn add_assign(&mut self, rhs: Movement) {
+        self.x += rhs.x;
+        self.y += rhs.y;
+    }
+}
+
+impl const Add<Movement> for Rect {
+    type Output = Rect;
+    #[inline]
+    fn add(self, rhs: Movement) -> Self::Output {
+        Rect {
+            origin: Point {
+                x: self.origin.x + rhs.x,
+                y: self.origin.y + rhs.y,
+            },
+            size: self.size,
+        }
+    }
+}
+
+impl const AddAssign<Movement> for Rect {
+    #[inline]
+    fn add_assign(&mut self, rhs: Movement) {
+        self.origin.x += rhs.x;
+        self.origin.y += rhs.y;
+    }
+}
+
+impl const Sub<Self> for Movement {
+    type Output = Self;
+    #[inline]
+    fn sub(self, rhs: Self) -> Self {
+        Self {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
+    }
+}
+
+impl const SubAssign<Self> for Movement {
+    #[inline]
+    fn sub_assign(&mut self, rhs: Self) {
+        self.x -= rhs.x;
+        self.y -= rhs.y;
+    }
+}
+
+impl const Sub<Movement> for Point {
+    type Output = Point;
+    #[inline]
+    fn sub(self, rhs: Movement) -> Self::Output {
+        Point {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
+    }
+}
+
+impl const SubAssign<Movement> for Point {
+    #[inline]
+    fn sub_assign(&mut self, rhs: Movement) {
+        self.x -= rhs.x;
+        self.y -= rhs.y;
+    }
+}
+
+impl const Sub<Movement> for Rect {
+    type Output = Rect;
+    #[inline]
+    fn sub(self, rhs: Movement) -> Self::Output {
+        Rect {
+            origin: Point {
+                x: self.origin.x - rhs.x,
+                y: self.origin.y - rhs.y,
+            },
+            size: self.size,
+        }
+    }
+}
+
+impl const SubAssign<Movement> for Rect {
+    #[inline]
+    fn sub_assign(&mut self, rhs: Movement) {
+        self.origin.x -= rhs.x;
+        self.origin.y -= rhs.y;
     }
 }
 
@@ -543,44 +664,6 @@ impl const From<Size> for Rect {
     #[inline]
     fn from(size: Size) -> Self {
         size.bounds()
-    }
-}
-
-impl const Add<Point> for Rect {
-    type Output = Self;
-
-    #[inline]
-    fn add(self, rhs: Point) -> Self::Output {
-        Self {
-            origin: self.origin + rhs,
-            size: self.size,
-        }
-    }
-}
-
-impl const Sub<Point> for Rect {
-    type Output = Self;
-
-    #[inline]
-    fn sub(self, rhs: Point) -> Self::Output {
-        Self {
-            origin: self.origin - rhs,
-            size: self.size,
-        }
-    }
-}
-
-impl const AddAssign<Point> for Rect {
-    #[inline]
-    fn add_assign(&mut self, rhs: Point) {
-        self.origin += rhs;
-    }
-}
-
-impl const SubAssign<Point> for Rect {
-    #[inline]
-    fn sub_assign(&mut self, rhs: Point) {
-        self.origin -= rhs;
     }
 }
 

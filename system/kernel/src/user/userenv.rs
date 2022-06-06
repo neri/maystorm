@@ -29,6 +29,8 @@ impl UserEnv {
 }
 
 async fn slpash_task(f: fn()) {
+    let is_gui_boot = false;
+
     if false {
         let width = 320;
         let height = 200;
@@ -61,37 +63,60 @@ async fn slpash_task(f: fn()) {
 
     WindowManager::set_pointer_visible(true);
 
+    if is_gui_boot {
+        if let Ok(mut file) = FileManager::open("wall.qoi") {
+            let mut vec = Vec::new();
+            file.read_to_end(&mut vec).unwrap();
+            if let Some(mut dib) = ImageLoader::from_qoi(vec.as_slice()) {
+                WindowManager::set_desktop_bitmap(&dib.into_bitmap());
+            }
+        }
+    }
+    Timer::sleep_async(Duration::from_millis(500)).await;
+
     Scheduler::spawn_async(Task::new(status_bar_main()));
     Scheduler::spawn_async(Task::new(_notification_task()));
     // Scheduler::spawn_async(Task::new(activity_monitor_main()));
-    Scheduler::spawn_async(Task::new(shell_launcher(f)));
+
+    Scheduler::spawn_async(Task::new(shell_launcher(is_gui_boot, f)));
 
     // Scheduler::spawn_async(Task::new(test_window_main()));
 }
 
 #[allow(dead_code)]
-async fn shell_launcher(f: fn()) {
-    if true {
-        if true {
-            if let Ok(mut file) = FileManager::open("wall.qoi") {
-                let mut vec = Vec::new();
-                file.read_to_end(&mut vec).unwrap();
-                if let Some(mut dib) = ImageLoader::from_qoi(vec.as_slice()) {
-                    WindowManager::set_desktop_bitmap(&dib.into_bitmap());
-                }
-            } else {
-                WindowManager::set_desktop_color(Theme::shared().desktop_color());
-            }
-        }
+async fn shell_launcher(is_gui_boot: bool, f: fn()) {
+    if is_gui_boot {
+        Timer::sleep_async(Duration::from_millis(500)).await;
 
         // Main Terminal
-        let terminal = Terminal::new(80, 24, FontManager::monospace_font());
+        let size = WindowManager::main_screen_bounds();
+        let point = if size.height() > 600 { 16 } else { 14 };
+        let font = FontDescriptor::new(FontFamily::Monospace, point)
+            .unwrap_or(FontManager::monospace_font());
+        let terminal = Terminal::new(80, 24, font);
         System::set_stdout(Box::new(terminal));
     } else {
         let size = WindowManager::main_screen_bounds();
-        let point = if size.width() >= 1200 { 24 } else { 16 };
+        let max_point = isize::min(size.width() / 40, size.height() / 25);
+        let min_point = max_point / 2;
+        let point = {
+            let mut point = max_point;
+            while point > min_point {
+                let font = match FontDescriptor::new(FontFamily::Monospace, point) {
+                    Some(v) => v,
+                    None => break,
+                };
+                if font.em_width() * 80 <= size.width() && font.line_height() * 25 <= size.height()
+                {
+                    break;
+                }
+                point -= 1;
+            }
+            point
+        };
         let font = FontDescriptor::new(FontFamily::Monospace, point)
             .unwrap_or(FontManager::monospace_font());
+
         let window = WindowBuilder::new()
             .style(WindowStyle::NO_SHADOW)
             .fullscreen()
@@ -102,6 +127,7 @@ async fn shell_launcher(f: fn()) {
         let mut terminal = Terminal::with_window(window, None, font, u8::MAX, 0);
         terminal.reset().unwrap();
         System::set_stdout(Box::new(terminal));
+        // println!("Screen {} x {} Font {}", size.width(), size.height(), point);
     }
     SpawnOption::new().start_process(unsafe { core::mem::transmute(f) }, 0, "shell");
 }
@@ -407,28 +433,36 @@ async fn activity_monitor_main() {
 
 /// Simple Notification Task
 async fn _notification_task() {
-    let margin_top = 8;
-    let padding = 8;
-    let radius = 8;
-    let bg_color = Color::from_argb(0xC0000000);
-    //Color::from_argb(0xE0FFF9C4);
-    let fg_color = Color::WHITE;
-    //Color::BLACK;
-    let border_color = Color::DARK_GRAY;
-    //Color::from_rgb(0xCBC693);
     let window_width = 280;
     let window_height = 90;
-    let screen_bounds = WindowManager::user_screen_bounds();
+    let margin = EdgeInsets::padding_each(8);
+    let padding = EdgeInsets::padding_each(8);
+    let item_spacing = 8;
+    let radius = 8;
 
+    let (bg_color, fg_color, border_color) = if true {
+        (Color::from_argb(0xC0000000), Color::WHITE, Color::DARK_GRAY)
+    } else {
+        (
+            Color::from_argb(0xE0FFF9C4),
+            Color::BLACK,
+            Color::from_rgb(0xCBC693),
+        )
+    };
+
+    let screen_bounds = WindowManager::user_screen_bounds();
     let window = WindowBuilder::new()
         .style(WindowStyle::FLOATING | WindowStyle::SUSPENDED)
         .level(WindowLevel::POPUP)
-        .frame(Rect::new(
-            screen_bounds.max_x() - window_width,
-            screen_bounds.min_y() + margin_top,
-            window_width,
-            window_height,
-        ))
+        .frame(
+            Rect::new(
+                screen_bounds.max_x() - window_width,
+                screen_bounds.min_y(),
+                window_width,
+                window_height,
+            )
+            .insets_by(margin),
+        )
         .bg_color(Color::TRANSPARENT)
         .build("Notification Center");
 
@@ -451,43 +485,37 @@ async fn _notification_task() {
             WindowMessage::User(_) => {
                 if let Some(payload) = message_buffer.dequeue() {
                     window
-                        .draw_in_rect(
-                            Rect::from(window.content_size() - EdgeInsets::padding_each(padding)),
-                            |bitmap| {
-                                bitmap.clear();
-                                let mut insets = EdgeInsets::default();
+                        .draw_in_rect(Rect::from(window.content_size()), |bitmap| {
+                            bitmap.clear();
+                            let rect = bitmap.bounds();
+                            bitmap.fill_round_rect(rect, radius, bg_color);
+                            bitmap.draw_round_rect(rect, radius, border_color);
 
-                                let rect = bitmap.bounds().insets_by(insets);
-                                bitmap.fill_round_rect(rect, radius, bg_color);
-                                bitmap.draw_round_rect(rect, radius, border_color);
+                            let mut left_margin = 0;
+                            let rect = bitmap.bounds().insets_by(padding);
 
-                                if let Some(ref icon) = IconManager::mask(payload.icon()) {
-                                    let long_side =
-                                        usize::max(icon.width(), icon.height()) as isize;
-                                    let origin = Point::new(
-                                        rect.min_x()
-                                            + padding
-                                            + (icon.width() as isize - long_side) / 2,
-                                        rect.min_y()
-                                            + isize::max(0, (rect.height() - long_side) / 2),
-                                    );
-                                    icon.draw_to(bitmap, origin, rect, fg_color);
+                            if let Some(ref icon) = IconManager::mask(payload.icon()) {
+                                let long_side = usize::max(icon.width(), icon.height()) as isize;
+                                let origin = Point::new(
+                                    rect.min_x() + (long_side - icon.width() as isize) / 2,
+                                    rect.min_y() + (rect.height() - long_side) / 2,
+                                );
+                                icon.draw_to(bitmap, origin, icon.bounds(), fg_color);
 
-                                    insets.left += padding + long_side;
-                                }
+                                left_margin += item_spacing + long_side;
+                            }
 
-                                let rect2 = rect.insets_by(insets);
-                                let ats = AttributedString::new()
-                                    .font(
-                                        FontDescriptor::new(FontFamily::SansSerif, 14)
-                                            .unwrap_or(FontManager::ui_font()),
-                                    )
-                                    .color(fg_color)
-                                    .center()
-                                    .text(payload.message());
-                                ats.draw_text(bitmap, rect2, 0);
-                            },
-                        )
+                            let rect2 = rect.insets_by(EdgeInsets::new(0, left_margin, 0, 0));
+                            let ats = AttributedString::new()
+                                .font(
+                                    FontDescriptor::new(FontFamily::SansSerif, 14)
+                                        .unwrap_or(FontManager::ui_font()),
+                                )
+                                .color(fg_color)
+                                .center()
+                                .text(payload.message());
+                            ats.draw_text(bitmap, rect2, 0);
+                        })
                         .unwrap();
                     window.show();
                     last_timer = Timer::new(dismiss_time);

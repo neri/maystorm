@@ -1,5 +1,7 @@
 # MEG-OS
 
+![GitHub](https://img.shields.io/github/license/meg-os/maystorm) ![GitHub top language](https://img.shields.io/github/languages/top/meg-os/maystorm)
+
 A hobby operating system written in Rust that supports WebAssembly.
 
 * [Documentation](https://meg-os.github.io/maystorm/kernel/)
@@ -12,9 +14,9 @@ A hobby operating system written in Rust that supports WebAssembly.
 
 ## Requirements
 
-### UEFI PC Platform
+### IBM PC Compatibles in the 2020s
 
-* 64bit UEFI v2.X+
+* UEFI v2.X+
 * ACPI v2.X+
 * SMBIOS v2.X+ (optional)
 * x64 processor with up to 64 cores

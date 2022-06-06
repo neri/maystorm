@@ -333,8 +333,9 @@ impl ArleRuntime {
                 let c2 = params.get_point()?;
                 let color = params.get_color()?;
                 let rect = Rect::from(Coordinates::from_diagonal(c1, c2)) + Size::new(1, 1);
+                let offset = Movement::from(rect.origin);
                 window.draw_in_rect(rect, |bitmap| {
-                    bitmap.draw_line(c1 - rect.origin, c2 - rect.origin, color);
+                    bitmap.draw_line(c1 - offset, c2 - offset, color);
                 });
             }
             Function::DrawShape => {
@@ -1432,7 +1433,7 @@ impl OsGamePresenter {
                     bitmap,
                     oam_attr,
                     pattern,
-                    oam_rect.origin() + Point::new(base_x, base_y),
+                    oam_rect.origin() + Movement::new(base_x, base_y),
                     screen.palettes(),
                 );
                 if (oam_attr & v1::OAM_ATTR_W16) != 0 {
@@ -1441,7 +1442,7 @@ impl OsGamePresenter {
                         bitmap,
                         oam_attr,
                         pattern,
-                        oam_rect.origin() + Point::new(base_x ^ v1::TILE_SIZE, base_y),
+                        oam_rect.origin() + Movement::new(base_x ^ v1::TILE_SIZE, base_y),
                         screen.palettes(),
                     );
                 }
@@ -1451,7 +1452,7 @@ impl OsGamePresenter {
                         bitmap,
                         oam_attr,
                         pattern,
-                        oam_rect.origin() + Point::new(base_x, base_y ^ v1::TILE_SIZE),
+                        oam_rect.origin() + Movement::new(base_x, base_y ^ v1::TILE_SIZE),
                         screen.palettes(),
                     );
                     if oam_attr & (v1::OAM_ATTR_W16) != 0 {
@@ -1461,7 +1462,7 @@ impl OsGamePresenter {
                             oam_attr,
                             pattern,
                             oam_rect.origin()
-                                + Point::new(base_x ^ v1::TILE_SIZE, base_y ^ v1::TILE_SIZE),
+                                + Movement::new(base_x ^ v1::TILE_SIZE, base_y ^ v1::TILE_SIZE),
                             screen.palettes(),
                         );
                     }
@@ -1489,7 +1490,7 @@ impl OsGamePresenter {
                         for y in 0..bitmap.height() / 2 {
                             for x in 0..bitmap.width() / 2 {
                                 unsafe {
-                                    let sp = origin + Point::new(x as isize, y as isize);
+                                    let sp = origin + Movement::new(x as isize, y as isize);
                                     let dp = Point::new(x as isize * 2, y as isize * 2);
                                     let pixel = self.buffer.get_pixel_unchecked(sp);
                                     bitmap.set_pixel_unchecked(dp, pixel);
@@ -1508,13 +1509,13 @@ impl OsGamePresenter {
                         for y in 0..bitmap.height() / 2 {
                             for x in 0..bitmap.width() / 2 {
                                 unsafe {
-                                    let sp = origin + Point::new(x as isize, y as isize);
+                                    let sp = origin + Movement::new(x as isize, y as isize);
                                     let dp = Point::new(x as isize * 2, y as isize * 2);
                                     let pixel = self.buffer.get_pixel_unchecked(sp);
                                     bitmap.set_pixel_unchecked(dp, pixel);
-                                    bitmap.set_pixel_unchecked(dp + Point::new(1, 0), pixel);
-                                    bitmap.set_pixel_unchecked(dp + Point::new(0, 1), back);
-                                    bitmap.set_pixel_unchecked(dp + Point::new(1, 1), back);
+                                    bitmap.set_pixel_unchecked(dp + Movement::new(1, 0), pixel);
+                                    bitmap.set_pixel_unchecked(dp + Movement::new(0, 1), back);
+                                    bitmap.set_pixel_unchecked(dp + Movement::new(1, 1), back);
                                 }
                             }
                         }
@@ -1529,13 +1530,13 @@ impl OsGamePresenter {
                         for y in 0..bitmap.height() / 2 {
                             for x in 0..bitmap.width() / 2 {
                                 unsafe {
-                                    let sp = origin + Point::new(x as isize, y as isize);
+                                    let sp = origin + Movement::new(x as isize, y as isize);
                                     let dp = Point::new(x as isize * 2, y as isize * 2);
                                     let pixel = self.buffer.get_pixel_unchecked(sp);
                                     bitmap.set_pixel_unchecked(dp, pixel);
-                                    bitmap.set_pixel_unchecked(dp + Point::new(1, 0), pixel);
-                                    bitmap.set_pixel_unchecked(dp + Point::new(0, 1), pixel);
-                                    bitmap.set_pixel_unchecked(dp + Point::new(1, 1), pixel);
+                                    bitmap.set_pixel_unchecked(dp + Movement::new(1, 0), pixel);
+                                    bitmap.set_pixel_unchecked(dp + Movement::new(0, 1), pixel);
+                                    bitmap.set_pixel_unchecked(dp + Movement::new(1, 1), pixel);
                                 }
                             }
                         }

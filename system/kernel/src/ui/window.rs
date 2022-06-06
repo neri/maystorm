@@ -37,7 +37,7 @@ const WINDOW_TITLE_HEIGHT: isize = 28;
 const WINDOW_TITLE_LENGTH: usize = 32;
 const WINDOW_SHADOW_PADDING: isize = 16;
 const SHADOW_RADIUS: isize = 8;
-const SHADOW_OFFSET: Point = Point::new(2, 2);
+const SHADOW_OFFSET: Movement = Movement::new(2, 2);
 const SHADOW_LEVEL: usize = 128;
 
 // Mouse Pointer
@@ -95,7 +95,7 @@ pub struct WindowManager<'a> {
     barrier: WindowHandle,
     active: Option<WindowHandle>,
     captured: Option<WindowHandle>,
-    captured_origin: Point,
+    captured_offset: Movement,
     entered: Option<WindowHandle>,
 }
 
@@ -210,7 +210,7 @@ impl WindowManager<'static> {
                 barrier,
                 active: None,
                 captured: None,
-                captured_origin: Point::default(),
+                captured_offset: Movement::default(),
                 entered: None,
                 system_event: ConcurrentFifo::with_capacity(WINDOW_SYSTEM_EVENT_QUEUE_SIZE),
                 update_coords: Mutex::new(Coordinates::VOID),
@@ -372,9 +372,9 @@ impl WindowManager<'_> {
                                     } else {
                                         0
                                     };
-                                let x = position.x - shared.captured_origin.x;
+                                let x = position.x - shared.captured_offset.x;
                                 let y = cmp::min(
-                                    cmp::max(position.y - shared.captured_origin.y, top),
+                                    cmp::max(position.y - shared.captured_offset.y, top),
                                     bottom,
                                 );
                                 captured.move_to(Point::new(x, y));
@@ -488,7 +488,7 @@ impl WindowManager<'_> {
                                 }
                             }
                             shared.captured = Some(target);
-                            shared.captured_origin =
+                            shared.captured_offset =
                                 position - target_window.visible_frame().origin;
                         } else {
                             let _ = Self::make_mouse_events(
@@ -853,27 +853,17 @@ impl WindowManager<'_> {
         Self::shared().root
     }
 
-    pub fn set_desktop_color(color: Color) {
-        let desktop = Self::shared().root;
-        desktop.update(|window| {
-            window.bitmap = None;
-            window.set_bg_color(color);
-        });
+    pub fn set_desktop_color(_color: Color) {
+        // let desktop = Self::shared().root;
+        // desktop.update(|window| {
+        //     window.set_bg_color(color);
+        // });
     }
 
     pub fn set_desktop_bitmap<'a, T: AsRef<ConstBitmap<'a>>>(bitmap: &T) {
         let bitmap = bitmap.as_ref();
         let shared = Self::shared();
         let _ = shared.root.update_opt(|root| {
-            if root.bitmap.is_none() {
-                let bitmap = ConstBitmap::from(unsafe { &*shared.main_screen.get() });
-                root.bitmap = Some(UnsafeCell::new(OwnedBitmap::new(
-                    &bitmap,
-                    root.frame.size(),
-                    root.bg_color,
-                )));
-            }
-
             let (mut r, mut g, mut b, mut a) = (0, 0, 0, 0);
             for pixel in bitmap.all_pixels() {
                 let c = pixel.into_true_color().components();
@@ -891,13 +881,13 @@ impl WindowManager<'_> {
             )));
 
             root.set_bg_color(tint_color);
-            root.bitmap().map(|mut v| {
-                let origin = Point::new(
-                    (v.bounds().width() - bitmap.bounds().width()) / 2,
-                    (v.bounds().height() - bitmap.bounds().height()) / 2,
-                );
-                v.blt_transparent(bitmap, origin, bitmap.bounds(), IndexedColor::DEFAULT_KEY);
-            });
+            let mut target = Bitmap::from(root.bitmap());
+            let origin = Point::new(
+                (target.bounds().width() - bitmap.bounds().width()) / 2,
+                (target.bounds().height() - bitmap.bounds().height()) / 2,
+            );
+            target.blt_transparent(bitmap, origin, bitmap.bounds(), IndexedColor::DEFAULT_KEY);
+
             root.set_needs_display();
         });
     }
@@ -1026,7 +1016,7 @@ struct RawWindow {
     accent_color: Color,
     active_title_color: Color,
     inactive_title_color: Color,
-    bitmap: Option<UnsafeCell<OwnedBitmap>>,
+    bitmap: UnsafeCell<OwnedBitmap32>,
     shadow_bitmap: Option<UnsafeCell<OperationalBitmap>>,
     back_buffer: UnsafeCell<OwnedBitmap32>,
 
@@ -1161,7 +1151,7 @@ impl RawWindow {
         WindowManager::add_hierarchy(self.handle);
 
         let frame = self.shadow_frame();
-        self.draw_outer_to_screen(frame.origin(), frame.bounds(), false);
+        self.draw_outer_to_screen(frame.origin().into(), frame.bounds(), false);
     }
 
     fn hide(&self) {
@@ -1208,20 +1198,14 @@ impl RawWindow {
                     Ok(v) => v,
                     Err(_) => return,
                 };
-                let new_coords = Coordinates::new(
-                    isize::min(coords1.left, coords2.left),
-                    isize::min(coords1.top, coords2.top),
-                    isize::max(coords1.right, coords2.right),
-                    isize::max(coords1.bottom, coords2.bottom),
-                );
-                WindowManager::invalidate_screen(new_coords.into());
+                WindowManager::invalidate_screen(Rect::from(coords1.merged(coords2)));
             }
         }
     }
 
     fn test_frame(&self, position: Point, frame: Rect) -> bool {
         let mut frame = frame;
-        frame.origin += self.frame.origin;
+        frame.origin += Movement::from(self.frame.origin);
         frame.contains(position)
     }
 
@@ -1237,16 +1221,14 @@ impl RawWindow {
                 && bounds.insets_by(self.content_insets).contains(rect);
 
         let shared = WindowManager::shared();
-        let is_direct = if is_opaque
-            && !shared.attributes.contains(WindowManagerAttributes::ROTATE)
-            && self.bitmap().is_some()
+        let is_direct = if is_opaque && !shared.attributes.contains(WindowManagerAttributes::ROTATE)
         {
             let window_orders = shared.window_orders.read().unwrap();
             let first_index = 1 + window_orders
                 .iter()
                 .position(|&v| v == self.handle)
                 .unwrap_or(0);
-            let screen_rect = rect + self.frame.origin;
+            let screen_rect = rect + Movement::from(self.frame.origin);
 
             let mut is_direct = true;
             for handle in window_orders[first_index..].iter() {
@@ -1265,21 +1247,13 @@ impl RawWindow {
         };
         if is_direct {
             let offset = self.frame.origin;
-            let bitmap = self.bitmap().unwrap();
+            let bitmap = self.bitmap();
             let main_screen = unsafe { &mut *shared.main_screen.get() };
-            match bitmap {
-                Bitmap::Indexed(bitmap) => {
-                    main_screen.blt8(
-                        bitmap,
-                        offset + coords.left_top(),
-                        coords.into(),
-                        &IndexedColor::COLOR_PALETTE,
-                    );
-                }
-                Bitmap::Argb32(bitmap) => {
-                    main_screen.blt(bitmap, offset + coords.left_top(), coords.into());
-                }
-            }
+            main_screen.blt(
+                bitmap,
+                offset + Movement::from(coords.left_top()),
+                coords.into(),
+            );
             // main_screen.draw_rect(rect + offset, Color::YELLOW.into());
         } else {
             drop(shared);
@@ -1291,11 +1265,11 @@ impl RawWindow {
             let frame_origin = self.frame.origin;
             let offset = self.shadow_frame().origin;
             let rect = Rect::from(coords.trimmed(inner_coords)) + (frame_origin - offset);
-            self.draw_outer_to_screen(offset, rect, is_opaque);
+            self.draw_outer_to_screen(Movement::from(offset), rect, is_opaque);
         }
     }
 
-    fn draw_outer_to_screen(&self, offset: Point, rect: Rect, is_opaque: bool) {
+    fn draw_outer_to_screen(&self, offset: Movement, rect: Rect, is_opaque: bool) {
         let screen_rect = rect + offset;
         let shared = WindowManager::shared_mut();
         let main_screen = unsafe { &mut *shared.main_screen.get() };
@@ -1319,7 +1293,7 @@ impl RawWindow {
     fn draw_into(
         &self,
         target_bitmap: &mut Bitmap32,
-        offset: Point,
+        offset: Movement,
         frame: Rect,
         is_opaque: bool,
     ) -> bool {
@@ -1349,17 +1323,9 @@ impl RawWindow {
                         cmp::max(coords1.left, coords2.left),
                         cmp::max(coords1.top, coords2.top),
                     ) - offset;
-                    let x = if coords1.left > coords2.left {
-                        coords1.left - coords2.left
-                    } else {
-                        0
-                    };
-                    let y = if coords1.top > coords2.top {
-                        coords1.top - coords2.top
-                    } else {
-                        0
-                    };
-                    let blt_rect = Rect::new(
+                    let x = isize::max(coords1.left - coords2.left, 0);
+                    let y = isize::max(coords1.top - coords2.top, 0);
+                    let target_rect = Rect::new(
                         x,
                         y,
                         cmp::min(coords1.right, coords2.right)
@@ -1369,38 +1335,19 @@ impl RawWindow {
                     );
 
                     if let Some(shadow) = window.shadow_bitmap() {
-                        shadow.blt_to(target_bitmap, blt_origin, blt_rect, |a, b| {
+                        shadow.blt_to(target_bitmap, blt_origin, target_rect, |a, b| {
                             b.blend(TrueColor::from_argb(0).with_opacity(a))
                         });
                     }
 
-                    if let Some(bitmap) = window.bitmap() {
-                        let blt_rect = blt_rect - adjust_point;
-                        match bitmap {
-                            Bitmap::Indexed(bitmap) => {
-                                target_bitmap.blt8(
-                                    bitmap,
-                                    blt_origin,
-                                    blt_rect,
-                                    &IndexedColor::COLOR_PALETTE,
-                                );
-                            }
-                            Bitmap::Argb32(bitmap) => {
-                                if window.style.contains(WindowStyle::OPAQUE)
-                                    || self.handle == window.handle && is_opaque
-                                {
-                                    target_bitmap.blt(bitmap, blt_origin, blt_rect);
-                                } else {
-                                    target_bitmap.blt_blend(bitmap, blt_origin, blt_rect);
-                                }
-                            }
-                        }
+                    let bitmap = window.bitmap();
+                    let blt_rect = target_rect - adjust_point;
+                    if window.style.contains(WindowStyle::OPAQUE)
+                        || self.handle == window.handle && is_opaque
+                    {
+                        target_bitmap.blt(bitmap, blt_origin, blt_rect);
                     } else {
-                        if window.style.contains(WindowStyle::OPAQUE) {
-                            target_bitmap.fill_rect(blt_rect - offset, window.bg_color.into());
-                        } else {
-                            target_bitmap.blend_rect(blt_rect - offset, window.bg_color.into());
-                        }
+                        target_bitmap.blt_blend(bitmap, blt_origin, blt_rect);
                     }
                 }
             }
@@ -1415,10 +1362,9 @@ impl RawWindow {
             WindowStyle::DARK_BORDER,
             color.brightness().unwrap_or(255) < 128,
         );
-        if let Some(mut bitmap) = self.bitmap() {
-            bitmap.fill_rect(bitmap.bounds(), color.into());
-            self.draw_frame();
-        }
+        let bitmap = self.bitmap();
+        bitmap.fill_rect(bitmap.bounds(), color.into());
+        self.draw_frame();
         self.set_needs_display();
     }
 
@@ -1473,10 +1419,7 @@ impl RawWindow {
     }
 
     fn draw_frame(&mut self) {
-        let mut bitmap = match self.bitmap() {
-            Some(v) => v,
-            None => return,
-        };
+        let mut bitmap = Bitmap::from(self.bitmap());
         let is_active = self.is_active();
         let is_thin = self.style.contains(WindowStyle::THIN_FRAME);
         let is_dark = self.style.contains(WindowStyle::DARK_BORDER);
@@ -1512,7 +1455,7 @@ impl RawWindow {
                         let rect = rect.insets_by(EdgeInsets::new(0, left, 0, right));
 
                         if is_active {
-                            let rect2 = rect + Point::new(1, 1);
+                            let rect2 = rect + Movement::new(1, 1);
                             AttributedString::new()
                                 .font(font)
                                 .color(if self.style.contains(WindowStyle::DARK_ACTIVE) {
@@ -1598,10 +1541,7 @@ impl RawWindow {
         if !self.style.contains(WindowStyle::TITLE) {
             return;
         }
-        let mut bitmap = match self.bitmap() {
-            Some(v) => v,
-            None => return,
-        };
+        let mut bitmap = Bitmap::from(self.bitmap());
         let shared = WindowManager::shared();
         let state = self.close_button_state;
         let button_frame = self.close_button_frame();
@@ -1645,10 +1585,7 @@ impl RawWindow {
         if !self.style.contains(WindowStyle::TITLE) {
             return;
         }
-        let mut bitmap = match self.bitmap() {
-            Some(v) => v,
-            None => return,
-        };
+        let mut bitmap = Bitmap::from(self.bitmap());
         let state = match self.back_button_state {
             ViewActionState::Disabled => return,
             other => other,
@@ -1763,10 +1700,7 @@ impl RawWindow {
     }
 
     fn update_shadow(&self) {
-        let bitmap = match self.bitmap() {
-            Some(v) => v,
-            None => return,
-        };
+        let bitmap = Bitmap::from(self.bitmap());
         let shadow = match self.shadow_bitmap() {
             Some(v) => v,
             None => return,
@@ -1801,11 +1735,8 @@ impl RawWindow {
     }
 
     #[inline]
-    fn bitmap<'a>(&self) -> Option<Bitmap<'a>> {
-        self.bitmap
-            .as_ref()
-            .map(|v| unsafe { &mut *v.get() })
-            .map(|v| v.into_bitmap())
+    fn bitmap<'a>(&self) -> &'a mut Bitmap32<'a> {
+        unsafe { &mut *self.bitmap.get() }.as_mut()
     }
 
     #[inline]
@@ -1822,10 +1753,7 @@ impl RawWindow {
     where
         F: FnOnce(&mut Bitmap) -> (),
     {
-        let mut bitmap = match self.bitmap() {
-            Some(bitmap) => bitmap,
-            None => return Err(WindowDrawingError::NoBitmap),
-        };
+        let mut bitmap = Bitmap::from(self.bitmap());
         let bounds = self.frame.bounds().insets_by(self.content_insets);
         let origin = Point::new(isize::max(0, rect.x()), isize::max(0, rect.y()));
         let coords = match Coordinates::from_rect(Rect::new(
@@ -1968,7 +1896,7 @@ impl WindowBuilder {
             WindowStyle::DARK_BORDER,
             bg_color.brightness().unwrap_or(255) < 128,
         );
-        let is_dark_mode = self.style.contains(WindowStyle::DARK_BORDER);
+        let is_dark_mode = false; //self.style.contains(WindowStyle::DARK_BORDER);
 
         let accent_color = Theme::shared().window_default_accent();
         let active_title_color = self.active_title_color.unwrap_or(if is_dark_mode {
@@ -1994,6 +1922,8 @@ impl WindowBuilder {
             0 => None,
             _ => Some(ConcurrentFifo::with_capacity(self.queue_size)),
         };
+
+        let bitmap = UnsafeCell::new(OwnedBitmap32::new(frame.size(), bg_color.into()));
 
         let shadow_bitmap = if self.style.contains(WindowStyle::NO_SHADOW) {
             None
@@ -2026,7 +1956,7 @@ impl WindowBuilder {
 
         let handle = WindowManager::next_window_handle();
 
-        let mut window = Box::new(RawWindow {
+        Box::new(RawWindow {
             handle,
             frame,
             content_insets,
@@ -2036,7 +1966,7 @@ impl WindowBuilder {
             accent_color,
             active_title_color,
             inactive_title_color,
-            bitmap: None,
+            bitmap,
             shadow_bitmap,
             back_buffer,
             title: title_array,
@@ -2047,18 +1977,7 @@ impl WindowBuilder {
             sem: Semaphore::new(0),
             queue,
             pid: Scheduler::current_pid(),
-        });
-
-        match self.bitmap_strategy {
-            BitmapStrategy::NonBitmap => (),
-            BitmapStrategy::Native | BitmapStrategy::Compact | BitmapStrategy::Expressive => {
-                window.bitmap = Some(UnsafeCell::new(
-                    OwnedBitmap32::new(frame.size(), self.bg_color.into()).into(),
-                ));
-            }
-        }
-
-        window
+        })
     }
 
     #[inline]
@@ -2306,10 +2225,8 @@ impl WindowHandle {
     }
 
     #[inline]
-    pub fn move_by(&self, delta: Point) {
-        let mut new_rect = self.frame();
-        new_rect.origin += delta;
-        self.set_frame(new_rect);
+    pub fn move_by(&self, movement: Movement) {
+        self.set_frame(self.frame() + movement);
     }
 
     #[inline]
@@ -2416,8 +2333,8 @@ impl WindowHandle {
         let window = self.as_ref();
         window.draw_into(
             target_bitmap,
-            Point::default(),
-            rect + window.frame.origin,
+            Movement::default(),
+            rect + Movement::from(window.frame.origin),
             false,
         );
     }

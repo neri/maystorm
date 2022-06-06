@@ -66,7 +66,7 @@ impl FontManager {
 
         let font = Box::new(HersheyFont::new(
             4,
-            include_bytes!("../../../../../ext/hershey/cursive.jhf"),
+            include_bytes!("../../../../../assets/hershey/cursive.jhf"),
         ));
         shared.fonts.insert(FontFamily::Cursive, font);
 
@@ -85,7 +85,7 @@ impl FontManager {
         } else {
             let font = Box::new(HersheyFont::new(
                 0,
-                include_bytes!("../../../../../ext/hershey/futuram.jhf"),
+                include_bytes!("../../../../../assets/hershey/futuram.jhf"),
             ));
             shared.fonts.insert(FontFamily::SansSerif, font);
         }
@@ -98,7 +98,7 @@ impl FontManager {
         } else {
             let font = Box::new(HersheyFont::new(
                 0,
-                include_bytes!("../../../../../ext/hershey/timesrb.jhf"),
+                include_bytes!("../../../../../assets/hershey/timesrb.jhf"),
             ));
             shared.fonts.insert(FontFamily::Serif, font);
         }
@@ -363,8 +363,8 @@ impl<'a> HersheyFont<'a> {
     const DESCENT: isize = 4;
     const POINT: isize = 32;
 
-    fn new(extra_height: isize, font_data: &'a [u8]) -> Self {
-        let descent = Self::DESCENT + extra_height;
+    fn new(assetsra_height: isize, font_data: &'a [u8]) -> Self {
+        let descent = Self::DESCENT + assetsra_height;
         let fix_y = descent / 2;
         let mut font = Self {
             data: font_data,
@@ -402,12 +402,12 @@ impl<'a> HersheyFont<'a> {
         color: Color,
     ) {
         if data.len() >= 12 {
-            let origin = origin + Point::new(0, self.fix_y * height / Self::POINT);
+            let origin = origin + Movement::new(0, self.fix_y * height / Self::POINT);
             let mut buffer = FontManager::shared().buffer.lock().unwrap();
             buffer.reset();
 
             let master_scale = if height < Self::POINT / 2 { 2 } else { 1 };
-            let extra_weight = if height / master_scale <= Self::POINT / 2 {
+            let assetsra_weight = if height / master_scale <= Self::POINT / 2 {
                 0
             } else {
                 usize::min(
@@ -440,7 +440,7 @@ impl<'a> HersheyFont<'a> {
                     let d1 = p1 - Self::MAGIC_52;
                     let d2 = p2 - Self::MAGIC_52;
                     let c2 = center2
-                        + Point::new(
+                        + Movement::new(
                             d1 * quality * height * master_scale / Self::POINT,
                             d2 * quality * height * master_scale / Self::POINT,
                         );
@@ -450,7 +450,7 @@ impl<'a> HersheyFont<'a> {
                         min_y = isize::min(min_y, isize::min(c1.y(), c2.y()));
                         max_y = isize::max(max_y, isize::max(c1.y(), c2.y()));
 
-                        if extra_weight > 0 {
+                        if assetsra_weight > 0 {
                             buffer.draw_line_anti_aliasing(
                                 c1,
                                 c2,
@@ -462,34 +462,38 @@ impl<'a> HersheyFont<'a> {
                                                 v.saturating_add(value)
                                             });
                                             bitmap.process_pixel_unchecked(
-                                                point + Point::new(0, -1),
+                                                point + Movement::new(0, -1),
                                                 |v| {
                                                     v.saturating_add(
-                                                        (value as usize * extra_weight / 256) as u8,
+                                                        (value as usize * assetsra_weight / 256)
+                                                            as u8,
                                                     )
                                                 },
                                             );
                                             bitmap.process_pixel_unchecked(
-                                                point + Point::new(-1, 0),
+                                                point + Movement::new(-1, 0),
                                                 |v| {
                                                     v.saturating_add(
-                                                        (value as usize * extra_weight / 256) as u8,
+                                                        (value as usize * assetsra_weight / 256)
+                                                            as u8,
                                                     )
                                                 },
                                             );
                                             bitmap.process_pixel_unchecked(
-                                                point + Point::new(1, 0),
+                                                point + Movement::new(1, 0),
                                                 |v| {
                                                     v.saturating_add(
-                                                        (value as usize * extra_weight / 256) as u8,
+                                                        (value as usize * assetsra_weight / 256)
+                                                            as u8,
                                                     )
                                                 },
                                             );
                                             bitmap.process_pixel_unchecked(
-                                                point + Point::new(0, 1),
+                                                point + Movement::new(0, 1),
                                                 |v| {
                                                     v.saturating_add(
-                                                        (value as usize * extra_weight / 256) as u8,
+                                                        (value as usize * assetsra_weight / 256)
+                                                            as u8,
                                                     )
                                                 },
                                             );
@@ -518,7 +522,7 @@ impl<'a> HersheyFont<'a> {
                 }
             }
 
-            let extra_offset = if extra_weight > 0 {
+            let assetsra_offset = if assetsra_weight > 0 {
                 min_x -= quality;
                 max_x += quality;
                 1
@@ -531,7 +535,7 @@ impl<'a> HersheyFont<'a> {
             let offset_x = min_x / quality;
             let offset_y = center1.y - (height / 2) * master_scale;
             let offset_box_x =
-                center1.x - (-left * height) * master_scale / Self::POINT + extra_offset;
+                center1.x - (-left * height) * master_scale / Self::POINT + assetsra_offset;
             let offset_act_x = offset_x - offset_box_x;
 
             if master_scale > 1 {
@@ -584,7 +588,7 @@ impl<'a> HersheyFont<'a> {
             }
 
             {
-                let origin = origin + Point::new(offset_act_x, 0);
+                let origin = origin + Movement::new(offset_act_x, 0);
                 let rect = Rect::new(offset_x, offset_y, act_w, act_h);
                 buffer.draw_to(bitmap, origin, rect, color);
             }
@@ -754,10 +758,11 @@ impl FontDriver for TrueTypeFont {
             //     );
             // }
 
-            let origin = origin + Point::new(bounds.min.x as isize, ascent + bounds.min.y as isize);
+            let origin =
+                origin + Movement::new(bounds.min.x as isize, ascent + bounds.min.y as isize);
             let color = color.into_true_color();
             glyph.draw(|x, y, a| {
-                let point = origin + Point::new(x as isize, y as isize);
+                let point = origin + Movement::new(x as isize, y as isize);
                 if let Some(b) = bitmap.get_pixel(point) {
                     let b = b.into_true_color();
                     let mut c = color.components();

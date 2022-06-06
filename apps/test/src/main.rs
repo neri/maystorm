@@ -166,7 +166,7 @@ impl App {
                 }
                 v1::JoyPad::Fire1 => {
                     if player.dir != Direction::Neutral && !missile.is_alive() {
-                        missile.point = player.point + Point::new(4, 4);
+                        missile.point = player.point + Movement::new(4, 4);
                         missile.dir = player.dir;
                     }
                 }

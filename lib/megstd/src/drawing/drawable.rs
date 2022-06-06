@@ -1,5 +1,4 @@
 use super::*;
-use core::mem::size_of;
 
 pub trait Drawable
 where
@@ -10,11 +9,6 @@ where
     fn width(&self) -> usize;
 
     fn height(&self) -> usize;
-
-    #[inline]
-    fn bpp(&self) -> usize {
-        8 * size_of::<Self::ColorType>()
-    }
 
     #[inline]
     fn size(&self) -> Size {
@@ -41,15 +35,15 @@ pub trait GetPixel: Drawable {
 
     /// Returns an iterator that enumerates all pixels in the bitmap in no particular order.
     #[inline]
-    fn all_pixels(&self) -> GetPixelIter<Self>
+    fn all_pixels(&self) -> AllPixels<Self>
     where
         Self: Sized,
     {
-        GetPixelIter::new(self)
+        AllPixels::new(self)
     }
 }
 
-pub struct GetPixelIter<'a, T>
+pub struct AllPixels<'a, T>
 where
     T: GetPixel,
 {
@@ -58,7 +52,7 @@ where
     y: usize,
 }
 
-impl<'a, T> GetPixelIter<'a, T>
+impl<'a, T> AllPixels<'a, T>
 where
     T: GetPixel,
 {
@@ -68,7 +62,7 @@ where
     }
 }
 
-impl<T> Iterator for GetPixelIter<'_, T>
+impl<T> Iterator for AllPixels<'_, T>
 where
     T: GetPixel,
 {

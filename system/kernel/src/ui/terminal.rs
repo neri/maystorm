@@ -183,6 +183,10 @@ impl Terminal {
             '\n' => {
                 self.x = 0;
                 self.y += 1;
+                while self.y >= self.rows {
+                    self.scroll_up();
+                    self.y -= 1;
+                }
                 None
             }
             _ => {

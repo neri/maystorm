@@ -119,7 +119,7 @@ impl App<'_> {
     #[inline]
     fn draw_bg(&mut self) {
         self.bitmap
-            .fill_rect(self.bitmap.bounds(), TrueColor::WHITE);
+            .fill_rect(self.bitmap.bounds(), TrueColor::PRIMARY_WHITE);
 
         let osx = (0 - self.board_repx) * (self.board_rep_xn / 2);
         let osy = (0 - self.board_repy) * (self.board_rep_yn / 2);
