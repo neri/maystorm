@@ -1,4 +1,4 @@
-.PHONY: love default all clean install iso run runs test apps doc kernel boot
+.PHONY: love default all clean install iso run runs test apps doc kernel boot refresh
 .SUFFIXED: .wasm
 
 
@@ -34,6 +34,9 @@ all: $(ALL_TARGETS)
 
 clean:
 	-rm -rf system/target apps/target boot/target tools/target
+
+refresh:
+	-rm system/Cargo.lock apps/Cargo.lock boot/Cargo.lock tools/Cargo.lock
 
 # $(RUST_ARCH).json:
 # 	rustc +nightly -Z unstable-options --print target-spec-json --target $(RUST_ARCH) | sed -e 's/-sse,+/+sse,-/' > $@

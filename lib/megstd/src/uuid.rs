@@ -2,8 +2,8 @@ use core::{fmt::*, mem::transmute};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
-/// Universally Unique Identifier
-#[derive(Copy, Clone, Eq, PartialEq)]
+/// Universally Unique Identifier (RFC 4122)
+#[derive(Copy, Clone, Eq)]
 pub struct Uuid {
     a: u32,
     b: u16,
@@ -15,12 +15,12 @@ impl Uuid {
     #[inline]
     pub const fn from_parts(a: u32, b: u16, c: u16, d: u16, e: [u8; 6]) -> Uuid {
         Uuid {
-            a,
-            b,
-            c,
+            a: u32::from_be(a),
+            b: u16::from_be(b),
+            c: u16::from_be(c),
             d: [
-                (d / 0x100) as u8,
                 (d % 0x100) as u8,
+                (d / 0x100) as u8,
                 e[0],
                 e[1],
                 e[2],
@@ -44,8 +44,18 @@ impl Uuid {
     }
 
     #[inline]
+    pub const fn is_null(&self) -> bool {
+        self.eq(&Self::NULL)
+    }
+
+    #[inline]
     pub const fn from_raw(data: [u8; 16]) -> Self {
         unsafe { transmute(data) }
+    }
+
+    #[inline]
+    pub const fn into_raw(self) -> [u8; 16] {
+        unsafe { transmute(self) }
     }
 
     #[inline]
@@ -59,14 +69,26 @@ impl Uuid {
     }
 
     #[inline]
+    pub const unsafe fn as_u128(&self) -> &u128 {
+        transmute(self)
+    }
+
+    #[inline]
     pub fn version(&self) -> Option<UuidVersion> {
         FromPrimitive::from_u16(self.c >> 12)
     }
 }
 
-impl Display for Uuid {
+impl const PartialEq for Uuid {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        unsafe { *self.as_u128() == *other.as_u128() }
+    }
+}
+
+impl Debug for Uuid {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        let d = ((self.d[0] as u16) << 8) + (self.d[1] as u16);
+        let d = ((self.d[1] as u16) << 8) + (self.d[0] as u16);
 
         let e = self.d[2..8]
             .iter()
@@ -75,7 +97,11 @@ impl Display for Uuid {
         write!(
             f,
             "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
-            self.a, self.b, self.c, d, e,
+            u32::from_be(self.a),
+            u16::from_be(self.b),
+            u16::from_be(self.c),
+            d,
+            e,
         )
     }
 }
@@ -91,4 +117,8 @@ pub enum UuidVersion {
     V6,
     V7,
     V8,
+}
+
+pub unsafe trait Identify {
+    const UUID: Uuid;
 }

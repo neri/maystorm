@@ -10,15 +10,8 @@ use alloc::{format, string::*, vec::*};
 use bootprot::*;
 use core::{fmt, fmt::Write, num::NonZeroU8};
 use kernel::{
-    drivers::pci,
-    drivers::usb,
-    fs::*,
-    mem::*,
-    rt::*,
-    system::*,
-    task::{scheduler::*, Task},
-    ui::window::WindowManager,
-    *,
+    drivers::pci, drivers::usb, fs::*, mem::*, rt::*, system::*, task::scheduler::*,
+    ui::window::WindowManager, *,
 };
 use megstd::{io::Read, string::*};
 
@@ -57,7 +50,7 @@ impl Shell {
             shared.path_ext.push(ext.to_string());
         }
 
-        Scheduler::spawn_async(Task::new(Self::repl_main()));
+        Scheduler::spawn_async(Self::repl_main());
         Scheduler::perform_tasks();
     }
 

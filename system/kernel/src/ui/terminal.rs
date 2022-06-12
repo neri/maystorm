@@ -68,10 +68,11 @@ pub struct Terminal {
     fg_color: Color,
     bg_color: Color,
     is_cursor_enabled: bool,
+    font_cache: Option<OwnedBitmap32>,
 }
 
 impl Terminal {
-    pub fn with_window(
+    pub fn from_window(
         window: WindowHandle,
         insets: Option<EdgeInsets>,
         font: FontDescriptor,
@@ -104,6 +105,7 @@ impl Terminal {
             fg_color,
             bg_color,
             is_cursor_enabled: true,
+            font_cache: Self::_fill_cache(&font),
         }
     }
 
@@ -143,7 +145,27 @@ impl Terminal {
             fg_color,
             bg_color,
             is_cursor_enabled: true,
+            font_cache: Self::_fill_cache(&font),
         }
+    }
+
+    fn _fill_cache(_font: &FontDescriptor) -> Option<OwnedBitmap32> {
+        return None;
+        // if font.is_scalable() {
+        //     let font_size = Size::new(font.em_width(), font.line_height());
+        //     let mut bitmap =
+        //         OwnedBitmap32::new(font_size * Size::new(256, 1), TrueColor::TRANSPARENT);
+        //     {
+        //         let mut bitmap = Bitmap::from(bitmap.as_mut());
+        //         for i in 32..128 {
+        //             let origin = Point::new(font_size.width * i, 0);
+        //             font.draw_char(i as u8 as char, &mut bitmap, origin, Color::LIGHT_BLUE);
+        //         }
+        //     }
+        //     Some(bitmap)
+        // } else {
+        //     None
+        // }
     }
 
     fn split_attr(val: u8, alpha: u8) -> (Color, Color) {
@@ -211,8 +233,20 @@ impl Terminal {
                 self.window
                     .draw_in_rect(rect, |bitmap| {
                         bitmap.fill_rect(bitmap.bounds(), self.bg_color);
-                        self.font
-                            .draw_char(c, bitmap, Point::default(), self.fg_color);
+
+                        if let Some(font_cache) = self.font_cache.as_ref() {
+                            let font_cache = ConstBitmap::from(font_cache.as_ref());
+                            let rect = Rect::new(w * c as isize, 0, w, h);
+                            bitmap.blt_transparent(
+                                &font_cache,
+                                Point::default(),
+                                rect,
+                                IndexedColor::DEFAULT_KEY,
+                            );
+                        } else {
+                            self.font
+                                .draw_char(c, bitmap, Point::default(), self.fg_color);
+                        }
                     })
                     .unwrap();
 

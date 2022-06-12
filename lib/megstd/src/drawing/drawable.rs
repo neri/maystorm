@@ -26,7 +26,7 @@ pub trait GetPixel: Drawable {
     unsafe fn get_pixel_unchecked(&self, point: Point) -> Self::ColorType;
 
     fn get_pixel(&self, point: Point) -> Option<Self::ColorType> {
-        if Rect::from(self.size()).contains(point) {
+        if self.bounds().contains(point) {
             Some(unsafe { self.get_pixel_unchecked(point) })
         } else {
             None
@@ -91,7 +91,7 @@ pub trait SetPixel: Drawable {
     unsafe fn set_pixel_unchecked(&mut self, point: Point, pixel: Self::ColorType);
 
     fn set_pixel(&mut self, point: Point, pixel: Self::ColorType) {
-        if Rect::from(self.size()).contains(point) {
+        if self.bounds().contains(point) {
             unsafe {
                 self.set_pixel_unchecked(point, pixel);
             }

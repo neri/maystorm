@@ -1,9 +1,8 @@
-use crate::{fs::FileManager, sync::Mutex, *};
+use crate::{fs::FileManager, *};
+use ab_glyph::{self, Font as AbFont};
 use alloc::{boxed::Box, collections::BTreeMap, vec::*};
 use core::{cell::UnsafeCell, mem::MaybeUninit};
 use megstd::{drawing::*, io::Read};
-
-use ab_glyph::{self, Font as AbFont};
 
 #[allow(dead_code)]
 mod embedded {
@@ -23,8 +22,6 @@ static mut FONT_MANAGER: UnsafeCell<FontManager> = UnsafeCell::new(FontManager::
 
 pub struct FontManager {
     fonts: BTreeMap<FontFamily, Box<dyn FontDriver>>,
-    buffer: Mutex<OperationalBitmap>,
-
     monospace_font: MaybeUninit<FontDescriptor>,
     title_font: MaybeUninit<FontDescriptor>,
     ui_font: MaybeUninit<FontDescriptor>,
@@ -34,7 +31,6 @@ impl FontManager {
     const fn new() -> Self {
         Self {
             fonts: BTreeMap::new(),
-            buffer: Mutex::new(OperationalBitmap::new(Size::new(96, 96))),
             monospace_font: MaybeUninit::uninit(),
             title_font: MaybeUninit::uninit(),
             ui_font: MaybeUninit::uninit(),
@@ -64,12 +60,6 @@ impl FontManager {
             .fonts
             .insert(FontFamily::Terminal, Box::new(TERMINAL_FONT));
 
-        let font = Box::new(HersheyFont::new(
-            4,
-            include_bytes!("../../../../../assets/hershey/cursive.jhf"),
-        ));
-        shared.fonts.insert(FontFamily::Cursive, font);
-
         if let Ok(mut file) = FileManager::open("/megos/fonts/mono.ttf") {
             let mut data = Vec::new();
             file.read_to_end(&mut data).unwrap();
@@ -82,24 +72,12 @@ impl FontManager {
             file.read_to_end(&mut data).unwrap();
             let font = Box::new(TrueTypeFont::new(data));
             shared.fonts.insert(FontFamily::SansSerif, font);
-        } else {
-            let font = Box::new(HersheyFont::new(
-                0,
-                include_bytes!("../../../../../assets/hershey/futuram.jhf"),
-            ));
-            shared.fonts.insert(FontFamily::SansSerif, font);
         }
 
         if let Ok(mut file) = FileManager::open("/megos/fonts/serif.ttf") {
             let mut data = Vec::new();
             file.read_to_end(&mut data).unwrap();
             let font = Box::new(TrueTypeFont::new(data));
-            shared.fonts.insert(FontFamily::Serif, font);
-        } else {
-            let font = Box::new(HersheyFont::new(
-                0,
-                include_bytes!("../../../../../assets/hershey/timesrb.jhf"),
-            ));
             shared.fonts.insert(FontFamily::Serif, font);
         }
 
@@ -346,330 +324,6 @@ impl FontDriver for FixedFontDriver<'_> {
             let size = Size::new(self.width_of(character), self.size.height());
             bitmap.draw_font(font, size, origin, color);
         }
-    }
-}
-
-#[allow(dead_code)]
-struct HersheyFont<'a> {
-    data: &'a [u8],
-    fix_y: isize,
-    line_height: isize,
-    glyph_info: Vec<(usize, usize, isize)>,
-}
-
-impl<'a> HersheyFont<'a> {
-    const MAGIC_20: isize = 0x20;
-    const MAGIC_52: isize = 0x52;
-    const DESCENT: isize = 4;
-    const POINT: isize = 32;
-
-    fn new(assetsra_height: isize, font_data: &'a [u8]) -> Self {
-        let descent = Self::DESCENT + assetsra_height;
-        let fix_y = descent / 2;
-        let mut font = Self {
-            data: font_data,
-            fix_y,
-            line_height: Self::POINT + descent,
-            glyph_info: Vec::with_capacity(96),
-        };
-
-        for c in 0x20..0x80 {
-            let character = c as u8 as char;
-
-            let (base, last) = match font.search_for_glyph(character) {
-                Some(tuple) => tuple,
-                None => break,
-            };
-
-            let data = &font_data[base..last];
-
-            let w1 = data[8] as isize;
-            let w2 = data[9] as isize;
-
-            font.glyph_info.push((base, last, w2 - w1));
-        }
-
-        font
-    }
-
-    fn draw_data(
-        &self,
-        data: &[u8],
-        bitmap: &mut Bitmap,
-        origin: Point,
-        width: isize,
-        height: isize,
-        color: Color,
-    ) {
-        if data.len() >= 12 {
-            let origin = origin + Movement::new(0, self.fix_y * height / Self::POINT);
-            let mut buffer = FontManager::shared().buffer.lock().unwrap();
-            buffer.reset();
-
-            let master_scale = if height < Self::POINT / 2 { 2 } else { 1 };
-            let assetsra_weight = if height / master_scale <= Self::POINT / 2 {
-                0
-            } else {
-                usize::min(
-                    255,
-                    ((master_scale * height - Self::POINT / 2) * 256 / Self::POINT) as usize,
-                )
-            };
-            let n_pairs = (data[6] & 0x0F) * 10 + (data[7] & 0x0F);
-            let left = data[8] as isize - Self::MAGIC_52;
-
-            let border_bounds = buffer.bounds().insets_by(EdgeInsets::padding_each(1));
-            let quality = 64;
-            let center1 = Point::new(buffer.size().width() / 2, buffer.size().height() / 2);
-            let mut cursor = 10;
-            let mut c1: Option<Point> = None;
-            let center2 = Point::new(center1.x * quality, center1.y * quality);
-            let mut min_x = center2.x();
-            let mut max_x = center2.x();
-            let mut min_y = center2.y();
-            let mut max_y = center2.y();
-
-            for _ in 1..n_pairs {
-                let p1 = unsafe { *data.get_unchecked(cursor) as isize };
-                let p2 = unsafe { *data.get_unchecked(cursor + 1) as isize };
-                cursor += 2;
-
-                if p1 == Self::MAGIC_20 && p2 == Self::MAGIC_52 {
-                    c1 = None;
-                } else {
-                    let d1 = p1 - Self::MAGIC_52;
-                    let d2 = p2 - Self::MAGIC_52;
-                    let c2 = center2
-                        + Movement::new(
-                            d1 * quality * height * master_scale / Self::POINT,
-                            d2 * quality * height * master_scale / Self::POINT,
-                        );
-                    if let Some(c1) = c1 {
-                        min_x = isize::min(min_x, isize::min(c1.x(), c2.x()));
-                        max_x = isize::max(max_x, isize::max(c1.x(), c2.x()));
-                        min_y = isize::min(min_y, isize::min(c1.y(), c2.y()));
-                        max_y = isize::max(max_y, isize::max(c1.y(), c2.y()));
-
-                        if assetsra_weight > 0 {
-                            buffer.draw_line_anti_aliasing(
-                                c1,
-                                c2,
-                                quality,
-                                |bitmap, point, value| {
-                                    if border_bounds.contains(point) {
-                                        unsafe {
-                                            bitmap.process_pixel_unchecked(point, |v| {
-                                                v.saturating_add(value)
-                                            });
-                                            bitmap.process_pixel_unchecked(
-                                                point + Movement::new(0, -1),
-                                                |v| {
-                                                    v.saturating_add(
-                                                        (value as usize * assetsra_weight / 256)
-                                                            as u8,
-                                                    )
-                                                },
-                                            );
-                                            bitmap.process_pixel_unchecked(
-                                                point + Movement::new(-1, 0),
-                                                |v| {
-                                                    v.saturating_add(
-                                                        (value as usize * assetsra_weight / 256)
-                                                            as u8,
-                                                    )
-                                                },
-                                            );
-                                            bitmap.process_pixel_unchecked(
-                                                point + Movement::new(1, 0),
-                                                |v| {
-                                                    v.saturating_add(
-                                                        (value as usize * assetsra_weight / 256)
-                                                            as u8,
-                                                    )
-                                                },
-                                            );
-                                            bitmap.process_pixel_unchecked(
-                                                point + Movement::new(0, 1),
-                                                |v| {
-                                                    v.saturating_add(
-                                                        (value as usize * assetsra_weight / 256)
-                                                            as u8,
-                                                    )
-                                                },
-                                            );
-                                        }
-                                    }
-                                },
-                            );
-                        } else {
-                            buffer.draw_line_anti_aliasing(
-                                c1,
-                                c2,
-                                quality,
-                                |bitmap, point, value| {
-                                    if border_bounds.contains(point) {
-                                        unsafe {
-                                            bitmap.process_pixel_unchecked(point, |v| {
-                                                v.saturating_add(value)
-                                            });
-                                        }
-                                    }
-                                },
-                            );
-                        }
-                    }
-                    c1 = Some(c2);
-                }
-            }
-
-            let assetsra_offset = if assetsra_weight > 0 {
-                min_x -= quality;
-                max_x += quality;
-                1
-            } else {
-                0
-            };
-            let box_w = width * height / Self::POINT;
-            let act_w = ((max_x - min_x + quality) / quality + master_scale) / master_scale;
-            let act_h = self.line_height * height / Self::POINT;
-            let offset_x = min_x / quality;
-            let offset_y = center1.y - (height / 2) * master_scale;
-            let offset_box_x =
-                center1.x - (-left * height) * master_scale / Self::POINT + assetsra_offset;
-            let offset_act_x = offset_x - offset_box_x;
-
-            if master_scale > 1 {
-                let buf_w = (max_x - min_x + quality) / quality;
-                // let buf_w = width * height * master_scale / Self::POINT;
-                let buf_h = self.line_height * height * master_scale / Self::POINT;
-
-                for y in (0..buf_h + master_scale - 1).step_by(master_scale as usize) {
-                    for x in (0..buf_w + master_scale - 1).step_by(master_scale as usize) {
-                        let mut acc = 0;
-                        for y0 in 0..master_scale {
-                            for x0 in 0..master_scale {
-                                acc += unsafe {
-                                    buffer.get_pixel_unchecked(Point::new(
-                                        offset_x + x + x0,
-                                        offset_y + y + y0,
-                                    )) as isize
-                                };
-                            }
-                        }
-                        unsafe {
-                            buffer.set_pixel_unchecked(
-                                Point::new(
-                                    offset_x + x / master_scale,
-                                    offset_y + y / master_scale,
-                                ),
-                                (acc / (master_scale * master_scale)) as u8,
-                            );
-                        }
-                    }
-                }
-            }
-
-            // DEBUG
-            if false {
-                let rect = Rect::new(origin.x, origin.y, box_w, act_h);
-                bitmap.draw_rect(rect, Color::from_argb(0x80FF8888));
-                let rect = Rect::new(origin.x + offset_act_x, origin.y, act_w, act_h);
-                bitmap.draw_rect(rect, Color::from_argb(0xC08888FF));
-                bitmap.draw_hline(
-                    Point::new(origin.x, origin.y + height - 1),
-                    box_w,
-                    Color::from_rgb(0xFFFF33),
-                );
-                bitmap.draw_hline(
-                    Point::new(origin.x, origin.y + height * 3 / 4),
-                    box_w,
-                    Color::from_rgb(0xFF3333),
-                );
-            }
-
-            {
-                let origin = origin + Movement::new(offset_act_x, 0);
-                let rect = Rect::new(offset_x, offset_y, act_w, act_h);
-                buffer.draw_to(bitmap, origin, rect, color);
-            }
-        }
-    }
-
-    fn search_for_glyph(&self, character: char) -> Option<(usize, usize)> {
-        let c = character as usize;
-        if c >= 0x20 && c < 0x80 {
-            let c = c - 0x20;
-            let mut cursor = 0;
-            for current in 0..96 {
-                if self.data.len() <= cursor {
-                    return None;
-                }
-                if current == c {
-                    let base = cursor;
-                    while self.data[cursor] >= 0x20 {
-                        cursor += 1;
-                    }
-                    return Some((base, cursor));
-                }
-                while self.data[cursor] >= 0x20 {
-                    cursor += 1;
-                }
-                cursor += 1;
-            }
-        }
-        None
-    }
-
-    fn glyph_for(&self, character: char) -> Option<(usize, usize, isize)> {
-        let i = (character as usize) - 0x20;
-        if i < (0x80 - 0x20) && i < self.glyph_info.len() {
-            return Some(self.glyph_info[i]);
-        }
-        None
-    }
-}
-
-impl FontDriver for HersheyFont<'_> {
-    #[inline]
-    fn is_scalable(&self) -> bool {
-        true
-    }
-
-    #[inline]
-    fn base_height(&self) -> isize {
-        Self::POINT
-    }
-
-    #[inline]
-    fn preferred_line_height(&self) -> isize {
-        self.line_height
-    }
-
-    fn width_of(&self, character: char) -> isize {
-        match self.glyph_for(character) {
-            Some(info) => info.2,
-            None => 0,
-        }
-    }
-
-    fn kern(&self, _first: char, _second: char) -> isize {
-        0
-    }
-
-    fn draw_char(
-        &self,
-        character: char,
-        bitmap: &mut Bitmap,
-        origin: Point,
-        height: isize,
-        color: Color,
-    ) {
-        let (base, last, width) = match self.glyph_for(character) {
-            Some(info) => info,
-            None => return,
-        };
-        let data = &self.data[base..last];
-        self.draw_data(data, bitmap, origin, width, height, color);
     }
 }
 

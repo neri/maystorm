@@ -5,14 +5,12 @@ use megstd::drawing::Color;
 static THEME: Theme = Theme::new();
 
 /// Theme Manager
-pub struct Theme {
-    _phantom: (),
-}
+pub struct Theme;
 
 impl Theme {
     #[inline]
     const fn new() -> Self {
-        Self { _phantom: () }
+        Self {}
     }
 
     #[inline]
@@ -84,7 +82,7 @@ impl Theme {
 
     #[inline]
     pub const fn window_title_active_background(&self) -> Color {
-        Color::from_argb(0xC0ECEFF1)
+        Color::from_argb(0xE0ECEFF1)
     }
 
     #[inline]

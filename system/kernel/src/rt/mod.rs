@@ -3,11 +3,12 @@
 pub mod haribote;
 pub mod megos;
 
-use core::cell::UnsafeCell;
+use core::{cell::UnsafeCell, ffi::c_void};
 
 use crate::arch::cpu::*;
 use crate::task::scheduler::*;
 use alloc::{boxed::Box, string::String, string::*, vec::Vec};
+use megstd::uuid::{Identify, Uuid};
 
 static mut RE: UnsafeCell<RuntimeEnvironment> = UnsafeCell::new(RuntimeEnvironment::new());
 
@@ -71,22 +72,45 @@ impl RuntimeEnvironment {
     }
 }
 
-pub trait Personality {
-    /// Gets the current personality context
-    fn context(&mut self) -> PersonalityContext;
-    /// Called to clean up resources before the process ends.
-    fn on_exit(&mut self);
+/// Contains a reference to the context of the current personality
+pub struct PersonalityContext {
+    uuid: Uuid,
+    payload: Box<dyn Personality>,
 }
 
-#[non_exhaustive]
-/// Contains a reference to the context of the current personality
-pub enum PersonalityContext<'a> {
-    /// Kernel native process
-    Native,
-    /// MEG-OS Arlequin subsystem
-    Arlequin(&'a mut megos::ArleRuntime),
-    /// Haribote OS Emulation subsystem
-    Hoe(&'a mut haribote::Hoe),
+pub trait Personality {
+    /// Returns its own context
+    fn context(&mut self) -> *mut c_void;
+
+    /// Called to clean up resources before the process ends.
+    fn on_exit(self: Box<Self>);
+}
+
+impl PersonalityContext {
+    #[inline]
+    pub fn new<T: Personality + Identify + 'static>(payload: T) -> Self {
+        Self {
+            uuid: T::UUID,
+            payload: Box::new(payload),
+        }
+    }
+
+    #[inline]
+    pub fn get<'a, T: Identify>(&'a mut self) -> Result<&'a mut T, Uuid> {
+        (T::UUID == self.uuid())
+            .then(|| unsafe { &mut *(self.payload.context() as *mut T) })
+            .ok_or(self.uuid())
+    }
+
+    #[inline]
+    pub const fn uuid(&self) -> Uuid {
+        self.uuid
+    }
+
+    #[inline]
+    pub fn on_exit(self) {
+        self.payload.on_exit();
+    }
 }
 
 pub trait BinaryRecognizer {

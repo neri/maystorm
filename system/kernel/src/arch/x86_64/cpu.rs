@@ -2,7 +2,7 @@ use super::apic::*;
 use crate::{
     drivers::pci::*,
     io::tty::Tty,
-    rt::*,
+    rt::{haribote::Hoe, *},
     sync::spinlock::Spinlock,
     system::{ProcessorCoreType, ProcessorIndex},
     task::scheduler::Scheduler,
@@ -1512,7 +1512,7 @@ static mut GLOBAL_EXCEPTION_LOCK: Spinlock = Spinlock::new();
 #[no_mangle]
 pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext) {
     let is_user = GLOBAL_EXCEPTION_LOCK.synchronized(|| {
-        let is_user = Scheduler::current_personality(|_| ()).is_some();
+        let is_user = Scheduler::current_personality().is_some();
         let stdout = if is_user {
             System::stdout()
         } else {
@@ -1675,13 +1675,6 @@ rbp {:016x} r10 {:016x} r15 {:016x} gs {:04x}",
 }
 
 #[no_mangle]
-pub(super) unsafe extern "C" fn cpu_int40_handler(ctx: *mut haribote::HoeSyscallRegs) {
-    let regs = ctx.as_mut().unwrap();
-    Scheduler::current_personality(|personality| {
-        let hoe = match personality.context() {
-            PersonalityContext::Hoe(hoe) => hoe,
-            _ => unreachable!(),
-        };
-        hoe.syscall(regs);
-    });
+unsafe fn cpu_int40_handler(ctx: &mut haribote::HoeSyscallRegs) {
+    Hoe::syscall(ctx);
 }

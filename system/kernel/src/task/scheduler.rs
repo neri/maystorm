@@ -3,7 +3,7 @@
 use super::{executor::Executor, *};
 use crate::{
     arch::cpu::*,
-    rt::Personality,
+    rt::PersonalityContext,
     sync::{
         atomic::{AtomicBitflags, AtomicEnum},
         fifo::*,
@@ -210,14 +210,10 @@ impl Scheduler {
 
     /// Get the personality instance associated with the current thread
     #[inline]
-    pub fn current_personality<F, R>(f: F) -> Option<R>
-    where
-        F: FnOnce(&mut Box<dyn Personality>) -> R,
-    {
+    pub fn current_personality<'a>() -> Option<&'a mut PersonalityContext> {
         Self::current_thread()
             .and_then(|thread| unsafe { thread.unsafe_weak() })
             .and_then(|thread| thread.personality.as_mut())
-            .map(|v| f(v))
     }
 
     /// Perform the preemption
@@ -536,7 +532,12 @@ impl Scheduler {
     }
 
     /// Spawning asynchronous tasks
-    pub fn spawn_async(task: Task) {
+    pub fn spawn_async(task: impl Future<Output = ()> + 'static) {
+        let task = Task::new(task);
+        Self::spawn_task(task);
+    }
+
+    pub fn spawn_task(task: Task) {
         let thread = unsafe { Self::current_thread().unwrap().unsafe_weak().unwrap() };
         if thread.executor.is_none() {
             thread.executor = Some(Executor::new());
@@ -788,7 +789,7 @@ pub unsafe extern "C" fn sch_setup_new_thread() {
 pub struct SpawnOption {
     priority: Option<Priority>,
     new_process: bool,
-    personality: Option<Box<dyn Personality>>,
+    personality: Option<PersonalityContext>,
 }
 
 impl SpawnOption {
@@ -811,7 +812,7 @@ impl SpawnOption {
     }
 
     #[inline]
-    pub fn personality(mut self, personality: Box<dyn Personality>) -> Self {
+    pub fn personality(mut self, personality: PersonalityContext) -> Self {
         self.personality = Some(personality);
         self
     }
@@ -1532,7 +1533,7 @@ struct ThreadContextData {
 
     // Properties
     sem: Semaphore,
-    personality: Option<Box<dyn Personality>>,
+    personality: Option<PersonalityContext>,
     attribute: AtomicBitflags<ThreadAttribute>,
     sleep_counter: AtomicIsize,
     priority: Priority,
@@ -1591,7 +1592,7 @@ impl ThreadContextData {
         name: &str,
         start: Option<ThreadStart>,
         arg: usize,
-        personality: Option<Box<dyn Personality>>,
+        personality: Option<PersonalityContext>,
     ) -> ThreadHandle {
         let handle = ThreadHandle::next();
 
@@ -1637,8 +1638,9 @@ impl ThreadContextData {
         Scheduler::yield_thread();
 
         self.sem.signal();
-        self.personality.as_mut().map(|v| v.on_exit());
-        self.personality = None;
+        if let Some(context) = self.personality.take() {
+            context.on_exit();
+        }
 
         let process = self.pid.get().unwrap();
         if process.n_threads.fetch_sub(1, Ordering::SeqCst) == 1 {

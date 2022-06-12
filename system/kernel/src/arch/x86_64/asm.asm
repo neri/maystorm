@@ -196,13 +196,16 @@ _iretq:
 
 _asm_int_40: ; INT40 Haribote OS SVC
     push rbp
-    push rsi
-    push rdx
-    push rax
+    sub rsp, byte 24
     mov rbp, rsp
+    mov [rbp], eax
     mov [rbp + 4], ecx
+    mov [rbp + 8], edx
     mov [rbp + 12], ebx
+    mov [rbp + 16], esi
     mov [rbp + 20], edi
+    mov eax, [rbp + 32]
+    mov [rbp + 28], eax
     and rsp, byte 0xF0
     cld
 
@@ -215,12 +218,10 @@ _asm_int_40: ; INT40 Haribote OS SVC
     mov ebx, [rbp + 12]
     mov esi, [rbp + 16]
     mov edi, [rbp + 20]
-    mov r8, [rbp + 24]
+    mov r8d, [rbp + 24]
     lea rsp, [rbp + 8 * 4]
-    mov rbp, r8
+    mov ebp, r8d
     iretq
-
-
 
 
 ;   fn asm_sch_switch_context(current: *mut u8, next: *mut u8);

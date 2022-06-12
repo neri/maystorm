@@ -95,6 +95,13 @@ impl const Add<isize> for Point {
     }
 }
 
+impl const AddAssign<isize> for Point {
+    #[inline]
+    fn add_assign(&mut self, rhs: isize) {
+        *self = self.add(rhs);
+    }
+}
+
 impl const Sub<isize> for Point {
     type Output = Self;
 
@@ -104,6 +111,13 @@ impl const Sub<isize> for Point {
             x: self.x - rhs,
             y: self.y - rhs,
         }
+    }
+}
+
+impl const SubAssign<isize> for Point {
+    #[inline]
+    fn sub_assign(&mut self, rhs: isize) {
+        *self = self.sub(rhs);
     }
 }
 
@@ -189,13 +203,12 @@ impl const Add<Self> for Movement {
 impl const AddAssign<Self> for Movement {
     #[inline]
     fn add_assign(&mut self, rhs: Self) {
-        self.x += rhs.x;
-        self.y += rhs.y;
+        *self = self.add(rhs);
     }
 }
 
 impl const Add<Movement> for Point {
-    type Output = Point;
+    type Output = Self;
     #[inline]
     fn add(self, rhs: Movement) -> Self::Output {
         Point {
@@ -208,13 +221,12 @@ impl const Add<Movement> for Point {
 impl const AddAssign<Movement> for Point {
     #[inline]
     fn add_assign(&mut self, rhs: Movement) {
-        self.x += rhs.x;
-        self.y += rhs.y;
+        *self = self.add(rhs);
     }
 }
 
 impl const Add<Movement> for Rect {
-    type Output = Rect;
+    type Output = Self;
     #[inline]
     fn add(self, rhs: Movement) -> Self::Output {
         Rect {
@@ -230,8 +242,7 @@ impl const Add<Movement> for Rect {
 impl const AddAssign<Movement> for Rect {
     #[inline]
     fn add_assign(&mut self, rhs: Movement) {
-        self.origin.x += rhs.x;
-        self.origin.y += rhs.y;
+        *self = self.add(rhs);
     }
 }
 
@@ -249,13 +260,12 @@ impl const Sub<Self> for Movement {
 impl const SubAssign<Self> for Movement {
     #[inline]
     fn sub_assign(&mut self, rhs: Self) {
-        self.x -= rhs.x;
-        self.y -= rhs.y;
+        *self = self.sub(rhs);
     }
 }
 
 impl const Sub<Movement> for Point {
-    type Output = Point;
+    type Output = Self;
     #[inline]
     fn sub(self, rhs: Movement) -> Self::Output {
         Point {
@@ -268,13 +278,12 @@ impl const Sub<Movement> for Point {
 impl const SubAssign<Movement> for Point {
     #[inline]
     fn sub_assign(&mut self, rhs: Movement) {
-        self.x -= rhs.x;
-        self.y -= rhs.y;
+        *self = self.sub(rhs);
     }
 }
 
 impl const Sub<Movement> for Rect {
-    type Output = Rect;
+    type Output = Self;
     #[inline]
     fn sub(self, rhs: Movement) -> Self::Output {
         Rect {
@@ -290,8 +299,7 @@ impl const Sub<Movement> for Rect {
 impl const SubAssign<Movement> for Rect {
     #[inline]
     fn sub_assign(&mut self, rhs: Movement) {
-        self.origin.x -= rhs.x;
-        self.origin.y -= rhs.y;
+        *self = self.sub(rhs);
     }
 }
 
@@ -371,20 +379,14 @@ impl const Add<EdgeInsets> for Size {
 impl const AddAssign<Self> for Size {
     #[inline]
     fn add_assign(&mut self, rhs: Self) {
-        *self = Self {
-            width: self.width + rhs.width,
-            height: self.height + rhs.height,
-        }
+        *self = self.add(rhs);
     }
 }
 
 impl const AddAssign<EdgeInsets> for Size {
     #[inline]
     fn add_assign(&mut self, rhs: EdgeInsets) {
-        *self = Self {
-            width: self.width + rhs.left + rhs.right,
-            height: self.height + rhs.top + rhs.bottom,
-        }
+        *self = self.add(rhs);
     }
 }
 
@@ -412,13 +414,36 @@ impl const Sub<EdgeInsets> for Size {
     }
 }
 
-impl const SubAssign for Size {
+impl const SubAssign<Self> for Size {
     #[inline]
     fn sub_assign(&mut self, rhs: Self) {
-        *self = Self {
-            width: self.width - rhs.width,
-            height: self.height - rhs.height,
+        *self = self.sub(rhs);
+    }
+}
+
+impl const SubAssign<EdgeInsets> for Size {
+    #[inline]
+    fn sub_assign(&mut self, rhs: EdgeInsets) {
+        *self = self.sub(rhs);
+    }
+}
+
+impl const Mul<Self> for Size {
+    type Output = Self;
+
+    #[inline]
+    fn mul(self, rhs: Self) -> Self::Output {
+        Self {
+            width: self.width * rhs.width,
+            height: self.height * rhs.height,
         }
+    }
+}
+
+impl const MulAssign<Self> for Size {
+    #[inline]
+    fn mul_assign(&mut self, rhs: Self) {
+        *self = self.mul(rhs);
     }
 }
 
@@ -434,6 +459,13 @@ impl const Mul<isize> for Size {
     }
 }
 
+impl const MulAssign<isize> for Size {
+    #[inline]
+    fn mul_assign(&mut self, rhs: isize) {
+        *self = self.mul(rhs);
+    }
+}
+
 impl const Mul<usize> for Size {
     type Output = Self;
 
@@ -446,9 +478,9 @@ impl const Mul<usize> for Size {
     }
 }
 
-impl const MulAssign<isize> for Size {
+impl const MulAssign<usize> for Size {
     #[inline]
-    fn mul_assign(&mut self, rhs: isize) {
+    fn mul_assign(&mut self, rhs: usize) {
         *self = self.mul(rhs);
     }
 }
@@ -465,6 +497,13 @@ impl const Div<isize> for Size {
     }
 }
 
+impl const DivAssign<isize> for Size {
+    #[inline]
+    fn div_assign(&mut self, rhs: isize) {
+        *self = self.div(rhs);
+    }
+}
+
 impl const Div<usize> for Size {
     type Output = Self;
 
@@ -474,6 +513,13 @@ impl const Div<usize> for Size {
             width: self.width / rhs as isize,
             height: self.height / rhs as isize,
         }
+    }
+}
+
+impl const DivAssign<usize> for Size {
+    #[inline]
+    fn div_assign(&mut self, rhs: usize) {
+        *self = self.div(rhs);
     }
 }
 
@@ -545,16 +591,12 @@ impl Rect {
 
     #[inline]
     pub const fn min_x(&self) -> isize {
-        let a = self.x();
-        let b = self.x() + self.width();
-        min(a, b)
+        min(self.x(), self.x() + self.width())
     }
 
     #[inline]
     pub const fn max_x(&self) -> isize {
-        let a = self.x();
-        let b = self.x() + self.width();
-        max(a, b)
+        max(self.x(), self.x() + self.width())
     }
 
     #[inline]
@@ -564,16 +606,12 @@ impl Rect {
 
     #[inline]
     pub const fn min_y(&self) -> isize {
-        let a = self.y();
-        let b = self.y() + self.height();
-        min(a, b)
+        min(self.y(), self.y() + self.height())
     }
 
     #[inline]
     pub const fn max_y(&self) -> isize {
-        let a = self.y();
-        let b = self.y() + self.height();
-        max(a, b)
+        max(self.y(), self.y() + self.height())
     }
 
     #[inline]
@@ -583,7 +621,7 @@ impl Rect {
 
     #[inline]
     pub const fn insets_by(self, insets: EdgeInsets) -> Self {
-        Rect {
+        Self {
             origin: Point {
                 x: self.origin.x + insets.left,
                 y: self.origin.y + insets.top,
@@ -611,10 +649,7 @@ impl Rect {
 
     #[inline]
     pub const fn center(&self) -> Point {
-        Point::new(
-            self.origin.x + self.size.width / 2,
-            self.origin.y + self.size.height / 2,
-        )
+        Point::new(self.mid_x(), self.mid_y())
     }
 
     #[inline]
@@ -679,6 +714,13 @@ impl const Add<Size> for Rect {
     }
 }
 
+impl const AddAssign<Size> for Rect {
+    #[inline]
+    fn add_assign(&mut self, rhs: Size) {
+        self.size += rhs;
+    }
+}
+
 impl const Sub<Size> for Rect {
     type Output = Self;
 
@@ -688,13 +730,6 @@ impl const Sub<Size> for Rect {
             origin: self.origin,
             size: self.size - rhs,
         }
-    }
-}
-
-impl const AddAssign<Size> for Rect {
-    #[inline]
-    fn add_assign(&mut self, rhs: Size) {
-        self.size += rhs;
     }
 }
 
@@ -723,12 +758,26 @@ impl const Add<EdgeInsets> for Rect {
     }
 }
 
+impl const AddAssign<EdgeInsets> for Rect {
+    #[inline]
+    fn add_assign(&mut self, rhs: EdgeInsets) {
+        *self = self.add(rhs);
+    }
+}
+
 impl const Sub<EdgeInsets> for Rect {
     type Output = Self;
 
     #[inline]
     fn sub(self, rhs: EdgeInsets) -> Self::Output {
         self.insets_by(rhs)
+    }
+}
+
+impl const SubAssign<EdgeInsets> for Rect {
+    #[inline]
+    fn sub_assign(&mut self, rhs: EdgeInsets) {
+        *self = self.sub(rhs);
     }
 }
 
@@ -746,6 +795,13 @@ impl const Mul<isize> for Rect {
     }
 }
 
+impl const MulAssign<isize> for Rect {
+    #[inline]
+    fn mul_assign(&mut self, rhs: isize) {
+        *self = self.mul(rhs);
+    }
+}
+
 impl const Mul<usize> for Rect {
     type Output = Self;
 
@@ -757,6 +813,13 @@ impl const Mul<usize> for Rect {
             self.width() * rhs as isize,
             self.height() * rhs as isize,
         )
+    }
+}
+
+impl const MulAssign<usize> for Rect {
+    #[inline]
+    fn mul_assign(&mut self, rhs: usize) {
+        *self = self.mul(rhs);
     }
 }
 
@@ -919,7 +982,7 @@ impl Coordinates {
     }
 }
 
-impl const Add for Coordinates {
+impl const Add<Self> for Coordinates {
     type Output = Self;
 
     #[inline]
@@ -928,7 +991,7 @@ impl const Add for Coordinates {
     }
 }
 
-impl const AddAssign for Coordinates {
+impl const AddAssign<Self> for Coordinates {
     #[inline]
     fn add_assign(&mut self, rhs: Self) {
         self.merge(rhs)
@@ -992,7 +1055,7 @@ impl EdgeInsets {
     }
 }
 
-impl const Add for EdgeInsets {
+impl const Add<Self> for EdgeInsets {
     type Output = Self;
 
     #[inline]
@@ -1006,19 +1069,14 @@ impl const Add for EdgeInsets {
     }
 }
 
-impl const AddAssign for EdgeInsets {
+impl const AddAssign<Self> for EdgeInsets {
     #[inline]
     fn add_assign(&mut self, rhs: Self) {
-        *self = Self {
-            top: self.top + rhs.top,
-            left: self.left + rhs.left,
-            bottom: self.bottom + rhs.bottom,
-            right: self.right + rhs.right,
-        }
+        *self = self.add(rhs);
     }
 }
 
-impl const Sub for EdgeInsets {
+impl const Sub<Self> for EdgeInsets {
     type Output = Self;
 
     #[inline]
@@ -1032,15 +1090,10 @@ impl const Sub for EdgeInsets {
     }
 }
 
-impl const SubAssign for EdgeInsets {
+impl const SubAssign<Self> for EdgeInsets {
     #[inline]
     fn sub_assign(&mut self, rhs: Self) {
-        *self = Self {
-            top: self.top - rhs.top,
-            left: self.left - rhs.left,
-            bottom: self.bottom - rhs.bottom,
-            right: self.right - rhs.right,
-        }
+        *self = self.sub(rhs);
     }
 }
 

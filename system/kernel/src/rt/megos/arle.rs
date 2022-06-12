@@ -38,10 +38,11 @@ impl ArleBinaryLoader {
     }
 
     fn start(_: usize) {
-        Scheduler::current_personality(|personality| match personality.context() {
-            PersonalityContext::Arlequin(rt) => rt.start(),
-            _ => unreachable!(),
-        });
+        Scheduler::current_personality()
+            .unwrap()
+            .get::<ArleRuntime>()
+            .unwrap()
+            .start();
     }
 }
 
@@ -93,7 +94,6 @@ impl BinaryLoader for ArleBinaryLoader {
 /// Contextual structure of the MEG-OS Arlequin subsystem
 #[allow(dead_code)]
 pub struct ArleRuntime {
-    // uuid: Uuid,
     module: WasmModule,
     next_handle: AtomicUsize,
     windows: Mutex<BTreeMap<usize, UnsafeCell<OsWindow>>>,
@@ -105,6 +105,22 @@ pub struct ArleRuntime {
     has_to_exit: AtomicBool,
 }
 
+unsafe impl Identify for ArleRuntime {
+    #[rustfmt::skip]
+    /// 57392D77-D199-486E-9A2C-47D15BA6DFCA
+    const UUID: Uuid = Uuid::from_parts(0x57392D77, 0xD199, 0x486E, 0x9A2C, [0x47, 0xD1, 0x5B, 0xA6, 0xDF, 0xCA]);
+}
+
+impl Personality for ArleRuntime {
+    fn context(&mut self) -> *mut c_void {
+        self as *const _ as *mut c_void
+    }
+
+    fn on_exit(self: Box<Self>) {
+        self.windows.lock().unwrap().clear();
+    }
+}
+
 impl ArleRuntime {
     const MAX_FILES: usize = 20;
     const MOD_NAME: &'static str = "megos-canary";
@@ -112,9 +128,8 @@ impl ArleRuntime {
 
     const SIZE_KEYBUFFER: usize = 32;
 
-    fn new(module: WasmModule) -> Box<Self> {
-        Box::new(Self {
-            // uuid: Uuid::generate().unwrap(),
+    fn new(module: WasmModule) -> PersonalityContext {
+        PersonalityContext::new(Self {
             module,
             next_handle: AtomicUsize::new(1),
             windows: Mutex::new(BTreeMap::new()),
@@ -156,11 +171,11 @@ impl ArleRuntime {
         _: &WasmModule,
         params: &[WasmUnsafeValue],
     ) -> Result<WasmValue, WasmRuntimeErrorKind> {
-        Scheduler::current_personality(|personality| match personality.context() {
-            PersonalityContext::Arlequin(rt) => rt.dispatch_syscall(&params),
-            _ => unreachable!(),
-        })
-        .unwrap()
+        Scheduler::current_personality()
+            .unwrap()
+            .get::<Self>()
+            .unwrap()
+            .dispatch_syscall(&params)
     }
 
     fn dispatch_syscall(
@@ -671,16 +686,6 @@ impl ArleRuntime {
             }
             _ => window.handle_default_message(message),
         }
-    }
-}
-
-impl Personality for ArleRuntime {
-    fn context(&mut self) -> PersonalityContext {
-        PersonalityContext::Arlequin(self)
-    }
-
-    fn on_exit(&mut self) {
-        self.windows.lock().unwrap().clear();
     }
 }
 

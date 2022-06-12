@@ -275,14 +275,14 @@ impl UsbManager {
     }
 
     fn _usb_xfer_task_thread() {
-        Scheduler::spawn_async(Task::new(Self::_usb_xfer_observer()));
+        Scheduler::spawn_async(Self::_usb_xfer_observer());
         Scheduler::perform_tasks();
     }
 
     async fn _usb_xfer_observer() {
         let shared = Self::shared();
         while let Some(new_task) = shared.request_queue.wait_event().await {
-            Scheduler::spawn_async(new_task);
+            Scheduler::spawn_task(new_task);
         }
     }
 }

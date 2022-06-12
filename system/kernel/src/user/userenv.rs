@@ -7,7 +7,6 @@ use crate::{
     sync::fifo::ConcurrentFifo,
     system::*,
     task::scheduler::*,
-    task::*,
     ui::font::*,
     ui::terminal::Terminal,
     ui::text::*,
@@ -23,13 +22,13 @@ pub struct UserEnv;
 
 impl UserEnv {
     pub fn start(f: fn()) {
-        Scheduler::spawn_async(Task::new(slpash_task(f)));
+        Scheduler::spawn_async(slpash_task(f));
         Scheduler::perform_tasks();
     }
 }
 
 async fn slpash_task(f: fn()) {
-    let is_gui_boot = false;
+    let is_gui_boot = true;
 
     if false {
         let width = 320;
@@ -74,13 +73,13 @@ async fn slpash_task(f: fn()) {
     }
     Timer::sleep_async(Duration::from_millis(500)).await;
 
-    Scheduler::spawn_async(Task::new(status_bar_main()));
-    Scheduler::spawn_async(Task::new(_notification_task()));
-    // Scheduler::spawn_async(Task::new(activity_monitor_main()));
+    Scheduler::spawn_async(status_bar_main());
+    Scheduler::spawn_async(_notification_task());
+    // Scheduler::spawn_task(activity_monitor_main());
 
-    Scheduler::spawn_async(Task::new(shell_launcher(is_gui_boot, f)));
+    Scheduler::spawn_async(shell_launcher(is_gui_boot, f));
 
-    // Scheduler::spawn_async(Task::new(test_window_main()));
+    // Scheduler::spawn_task(test_window_main());
 }
 
 #[allow(dead_code)]
@@ -124,7 +123,7 @@ async fn shell_launcher(is_gui_boot: bool, f: fn()) {
             .bg_color(TrueColor::from_gray(0, 0).into())
             .build("Terminal");
 
-        let mut terminal = Terminal::with_window(window, None, font, u8::MAX, 0);
+        let mut terminal = Terminal::from_window(window, None, font, u8::MAX, 0);
         terminal.reset().unwrap();
         System::set_stdout(Box::new(terminal));
         // println!("Screen {} x {} Font {}", size.width(), size.height(), point);
@@ -440,13 +439,13 @@ async fn _notification_task() {
     let item_spacing = 8;
     let radius = 8;
 
-    let (bg_color, fg_color, border_color) = if true {
+    let (bg_color, fg_color, border_color) = if false {
         (Color::from_argb(0xC0000000), Color::WHITE, Color::DARK_GRAY)
     } else {
         (
-            Color::from_argb(0xE0FFF9C4),
-            Color::BLACK,
-            Color::from_rgb(0xCBC693),
+            Theme::shared().window_title_active_background(),
+            Theme::shared().window_title_active_foreground(),
+            Theme::shared().window_default_border_light(),
         )
     };
 
@@ -467,10 +466,7 @@ async fn _notification_task() {
         .build("Notification Center");
 
     let message_buffer = Arc::new(ConcurrentFifo::with_capacity(100));
-    Scheduler::spawn_async(Task::new(_notification_observer(
-        window,
-        message_buffer.clone(),
-    )));
+    Scheduler::spawn_async(_notification_observer(window, message_buffer.clone()));
 
     let dismiss_time = Duration::from_millis(5000);
     let mut last_timer = Timer::new(dismiss_time);

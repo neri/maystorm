@@ -9,7 +9,7 @@ use crate::{
     *,
 };
 use alloc::{boxed::Box, sync::Arc};
-use core::{alloc::Layout, ptr::*, slice, str, time::Duration};
+use core::{alloc::Layout, slice, str, time::Duration};
 use megstd::{
     drawing::*,
     io::{hid::Usage, Read},
@@ -78,8 +78,26 @@ pub struct Hoe {
     malloc_free: u32,
 }
 
+unsafe impl Identify for Hoe {
+    #[rustfmt::skip]
+    /// 012EEE73-5E9A-4701-A214-D36AB5E14B8F
+    const UUID: Uuid = Uuid::from_parts(0x012EEE73, 0x5E9A, 0x4701, 0xA214, [0xD3, 0x6A, 0xB5, 0xE1, 0x4B, 0x8F]);
+}
+
+impl Personality for Hoe {
+    fn context(&mut self) -> *mut c_void {
+        self as *const _ as *mut c_void
+    }
+
+    /// Called to clean up resources before the process ends.
+    fn on_exit(self: Box<Self>) {
+        for window in &self.windows {
+            window.handle.close();
+        }
+    }
+}
+
 #[repr(C)]
-#[derive(Debug, Default)]
 pub struct HoeSyscallRegs {
     pub eax: u32,
     pub ecx: u32,
@@ -88,7 +106,7 @@ pub struct HoeSyscallRegs {
     pub esi: u32,
     pub edi: u32,
     pub ebp: u32,
-    _padding7: u32,
+    pub eip: u32,
 }
 
 impl Hoe {
@@ -131,8 +149,8 @@ impl Hoe {
         0xFFFFFFFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
 
-    fn new(context: LegacyAppContext, cmdline: String) -> Box<Self> {
-        Box::new(Self {
+    fn new(context: LegacyAppContext, cmdline: String) -> PersonalityContext {
+        PersonalityContext::new(Self {
             context,
             cmdline,
             windows: Vec::new(),
@@ -154,13 +172,22 @@ impl Hoe {
         RuntimeEnvironment::exit(0);
     }
 
-    fn raise_segv(&self) -> ! {
-        println!("Segmentation Violation");
+    fn raise_segv(&self, regs: &HoeSyscallRegs) -> ! {
+        println!("Segmentation Violation at {:08x}", regs.eip);
         self.abort();
     }
 
     /// Perform Haribote-OS System Call
-    pub fn syscall(&mut self, regs: &mut HoeSyscallRegs) {
+    pub fn syscall(regs: &mut HoeSyscallRegs) {
+        match Scheduler::current_personality().and_then(|v| v.get::<Self>().ok()) {
+            Some(hoe) => {
+                hoe._syscall(regs);
+            }
+            None => todo!(),
+        }
+    }
+
+    fn _syscall(&mut self, regs: &mut HoeSyscallRegs) {
         match regs.edx {
             1 => {
                 // putchar(eax)
@@ -363,14 +390,14 @@ impl Hoe {
                             regs.eax = file.read(ptr, size);
                         });
                     }
-                    None => self.raise_segv(),
+                    None => self.raise_segv(&regs),
                 }
             }
             26 => {
                 // command line
                 match self.store_string(regs.ebx, regs.ecx, self.cmdline.as_ref()) {
                     Ok(v) => regs.eax = v,
-                    Err(_) => self.raise_segv(),
+                    Err(_) => self.raise_segv(&regs),
                 }
             }
             27 => {
@@ -538,18 +565,6 @@ impl Hoe {
     }
 }
 
-impl Personality for Hoe {
-    fn context(&mut self) -> PersonalityContext {
-        PersonalityContext::Hoe(self)
-    }
-
-    fn on_exit(&mut self) {
-        for window in &self.windows {
-            window.handle.close();
-        }
-    }
-}
-
 #[repr(C)]
 #[derive(Debug)]
 struct HrbExecutable {
@@ -604,15 +619,12 @@ impl HrbBinaryLoader {
     }
 
     fn start(_: usize) {
-        let context = Scheduler::current_personality(|personality| {
-            let hoe = match personality.context() {
-                PersonalityContext::Hoe(hoe) => hoe,
-                _ => unreachable!(),
-            };
-            hoe.context
-        });
+        let hoe = Scheduler::current_personality()
+            .unwrap()
+            .get::<Hoe>()
+            .unwrap();
         unsafe {
-            RuntimeEnvironment::invoke_legacy(&context.unwrap());
+            RuntimeEnvironment::invoke_legacy(&hoe.context);
         }
     }
 }
@@ -749,12 +761,10 @@ impl HoeWindow {
     fn buffer<'a>(&self, hoe: &Hoe) -> &'a mut [u8] {
         let len = self.width as usize * self.height as usize;
         unsafe {
-            slice_from_raw_parts_mut(
+            slice::from_raw_parts_mut(
                 (hoe.context.base_of_data as *mut u8).add(self.buffer as usize),
                 len,
             )
-            .as_mut()
-            .unwrap()
         }
     }
 

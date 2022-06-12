@@ -4,6 +4,7 @@ use ::alloc::vec::Vec;
 use core::{fmt, slice, str};
 
 /// Small String Buffer
+#[repr(transparent)]
 #[derive(Clone, Copy, Eq, Ord)]
 pub struct Sb255([u8; 256]);
 
