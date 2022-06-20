@@ -58,7 +58,7 @@ impl TimerSource for Hpet {
         TimeSpec(val.as_micros() as usize)
     }
 
-    fn to_duration(&self, val: TimeSpec) -> Duration {
+    fn into_duration(&self, val: TimeSpec) -> Duration {
         Duration::from_micros(val.0 as u64)
     }
 }

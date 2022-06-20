@@ -1438,6 +1438,11 @@ impl UsbEndpoint {
     }
 
     #[inline]
+    pub const fn is_dir_in(&self) -> bool {
+        self.address().is_dir_in()
+    }
+
+    #[inline]
     pub const fn ep_type(&self) -> UsbEndpointType {
         self.ep_type
     }

@@ -139,6 +139,14 @@ impl AsyncSemaphore {
     }
 
     #[inline]
+    pub fn with_capacity(value: usize, capacity: usize) -> Pin<Arc<Self>> {
+        Arc::pin(Self {
+            value: AtomicUsize::new(value),
+            fifo: ConcurrentFifo::with_capacity(capacity),
+        })
+    }
+
+    #[inline]
     pub fn estimated_value(&self) -> usize {
         self.value.load(Ordering::Relaxed)
     }

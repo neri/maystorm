@@ -69,15 +69,36 @@ pub struct Terminal {
     bg_color: Color,
     is_cursor_enabled: bool,
     font_cache: Option<OwnedBitmap32>,
+    palette: [TrueColor; 16],
 }
 
 impl Terminal {
+    pub const DEFAULT_PALETTE: [TrueColor; 16] = [
+        TrueColor::PRIMARY_BLACK,
+        TrueColor::from_rgb(0x00_00_80),
+        TrueColor::from_rgb(0x00_80_00),
+        TrueColor::from_rgb(0x00_80_80),
+        TrueColor::from_rgb(0x80_00_00),
+        TrueColor::from_rgb(0x80_00_80),
+        TrueColor::from_rgb(0x80_80_00),
+        TrueColor::from_rgb(0xC0_C0_C0),
+        TrueColor::from_rgb(0x80_80_80),
+        TrueColor::PRIMARY_BLUE,
+        TrueColor::PRIMARY_GREEN,
+        TrueColor::PRIMARY_CYAN,
+        TrueColor::PRIMARY_RED,
+        TrueColor::PRIMARY_MAGENTA,
+        TrueColor::PRIMARY_YELLOW,
+        TrueColor::PRIMARY_WHITE,
+    ];
+
     pub fn from_window(
         window: WindowHandle,
         insets: Option<EdgeInsets>,
         font: FontDescriptor,
         alpha: u8,
         attribute: u8,
+        palette: Option<[TrueColor; 16]>,
     ) -> Self {
         let insets = insets.unwrap_or(DEFAULT_INSETS);
         let attribute = if attribute > 0 {
@@ -86,7 +107,8 @@ impl Terminal {
             DEFAULT_ATTRIBUTE
         };
         let alpha = if alpha > 0 { alpha } else { BG_ALPHA };
-        let (fg_color, bg_color) = Self::split_attr(attribute, alpha);
+        let palette = palette.unwrap_or(Self::DEFAULT_PALETTE);
+        let (fg_color, bg_color) = Self::_split_attr(&palette, attribute, alpha);
 
         let rect = window.content_size().bounds().insets_by(insets);
         let cols = (rect.width() / font.em_width()) as usize;
@@ -106,14 +128,21 @@ impl Terminal {
             bg_color,
             is_cursor_enabled: true,
             font_cache: Self::_fill_cache(&font),
+            palette,
         }
     }
 
-    pub fn new(cols: usize, rows: usize, font: FontDescriptor) -> Self {
+    pub fn new(
+        cols: usize,
+        rows: usize,
+        font: FontDescriptor,
+        palette: Option<[TrueColor; 16]>,
+    ) -> Self {
         let insets = DEFAULT_INSETS;
         let attribute = DEFAULT_ATTRIBUTE;
         let alpha = BG_ALPHA;
-        let (fg_color, bg_color) = Self::split_attr(attribute, alpha);
+        let palette = palette.unwrap_or(Self::DEFAULT_PALETTE);
+        let (fg_color, bg_color) = Self::_split_attr(&palette, attribute, alpha);
 
         let n_instances = TerminalAgent::next_instance();
         let screen_insets = WindowManager::screen_insets();
@@ -146,6 +175,7 @@ impl Terminal {
             bg_color,
             is_cursor_enabled: true,
             font_cache: Self::_fill_cache(&font),
+            palette,
         }
     }
 
@@ -168,10 +198,14 @@ impl Terminal {
         // }
     }
 
-    fn split_attr(val: u8, alpha: u8) -> (Color, Color) {
+    fn split_attr(&self, val: u8, alpha: u8) -> (Color, Color) {
+        Self::_split_attr(&self.palette, val, alpha)
+    }
+
+    fn _split_attr(palette: &[TrueColor; 16], val: u8, alpha: u8) -> (Color, Color) {
         (
-            Color::Indexed(IndexedColor(val & 0x0F)),
-            Color::from(TrueColor::from(IndexedColor(val >> 4)).with_opacity(alpha)),
+            Color::from(palette[(val & 0x0F) as usize]),
+            Color::from(palette[(val >> 4) as usize].with_opacity(alpha)),
         )
     }
 
@@ -369,7 +403,7 @@ impl TtyWrite for Terminal {
             DEFAULT_ATTRIBUTE
         };
         self.attribute = attribute;
-        let (fg_color, bg_color) = Self::split_attr(attribute, self.alpha);
+        let (fg_color, bg_color) = self.split_attr(attribute, self.alpha);
         self.fg_color = fg_color;
         self.bg_color = bg_color;
     }

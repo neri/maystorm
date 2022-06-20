@@ -395,7 +395,11 @@ impl Scheduler {
                 events.sort_by_key(|a| a.timer.deadline);
             }
 
-            while let Some(event) = events.first() {
+            loop {
+                let event = match events.first() {
+                    Some(v) => v,
+                    None => break,
+                };
                 if event.until() {
                     break;
                 } else {
@@ -639,7 +643,7 @@ impl Scheduler {
             )
             .unwrap();
 
-            let cts = thread.context.get_context_status();
+            let cts = unsafe { &*thread.context.get() }.get_context_status();
             let load = thread.load.load(Ordering::Relaxed);
             let load0 = load % 10;
             let load1 = load / 10;
@@ -662,9 +666,7 @@ impl Scheduler {
 
             write!(sb, " {:016x}", cts.0).unwrap();
 
-            if let Some(name) = thread.name() {
-                writeln!(sb, " {}", name).unwrap();
-            }
+            writeln!(sb, " {}", thread.name()).unwrap();
         }
     }
 }
@@ -703,13 +705,14 @@ impl LocalScheduler {
         let old_irql = self.raise_irql(Irql::Dispatch);
         let current = self.current_thread();
         if current.as_ref().handle != next.as_ref().handle {
-            self.swap_retired(Some(current));
+            self.set_retired(current);
             self.current.store(next.as_usize(), Ordering::SeqCst);
+            drop(self);
 
             {
                 let current = current.unsafe_weak().unwrap();
                 let next = next.unsafe_weak().unwrap();
-                current.context.switch(&next.context);
+                current.context.get_mut().switch(next.context.get_mut());
             }
 
             Scheduler::local_scheduler()
@@ -727,13 +730,25 @@ impl LocalScheduler {
         current.update(|thread| {
             thread.measure.store(Timer::measure().0, Ordering::SeqCst);
         });
-        let retired = self.swap_retired(None).unwrap();
+        let retired = self.take_retired().unwrap();
         Scheduler::retire(retired);
         self.lower_irql(irql);
     }
 
     #[inline]
-    fn swap_retired(&self, val: Option<ThreadHandle>) -> Option<ThreadHandle> {
+    fn take_retired(&self) -> Option<ThreadHandle> {
+        self._swap_retired(None)
+    }
+
+    #[inline]
+    #[track_caller]
+    fn set_retired(&self, val: ThreadHandle) {
+        let old = self._swap_retired(Some(val));
+        assert_eq!(old, None);
+    }
+
+    #[inline]
+    fn _swap_retired(&self, val: Option<ThreadHandle>) -> Option<ThreadHandle> {
         ThreadHandle::new(
             self.retired
                 .swap(val.map(|v| v.as_usize()).unwrap_or(0), Ordering::SeqCst),
@@ -780,7 +795,7 @@ pub unsafe extern "C" fn sch_setup_new_thread() {
     current.update(|thread| {
         thread.measure.store(Timer::measure().0, Ordering::SeqCst);
     });
-    let retired = lsch.swap_retired(None).unwrap();
+    let retired = lsch.take_retired().unwrap();
     Scheduler::retire(retired);
     lsch.lower_irql(Irql::Passive);
 }
@@ -913,7 +928,7 @@ pub trait TimerSource {
 
     fn from_duration(&self, val: Duration) -> TimeSpec;
 
-    fn to_duration(&self, val: TimeSpec) -> Duration;
+    fn into_duration(&self, val: TimeSpec) -> Duration;
 }
 
 #[derive(Debug, Copy, Clone, Default)]
@@ -934,7 +949,7 @@ impl Timer {
     }
 
     #[inline]
-    pub const fn into_usize(&self) -> usize {
+    pub const fn into_usize(self) -> usize {
         self.deadline.0
     }
 
@@ -993,7 +1008,7 @@ impl Timer {
         unsafe { TIMER_SOURCE.as_ref().unwrap() }
     }
 
-    #[track_caller]
+    // #[track_caller]
     pub fn sleep(duration: Duration) {
         if Scheduler::is_enabled() {
             let timer = Timer::new(duration);
@@ -1017,7 +1032,7 @@ impl Timer {
 
     pub async fn sleep_async(duration: Duration) {
         let timer = Timer::new(duration);
-        let sem = AsyncSemaphore::new(0);
+        let sem = AsyncSemaphore::with_capacity(0, 1);
         let mut event = TimerEvent::async_timer(timer, sem.clone());
         while timer.until() {
             match Scheduler::schedule_timer(event) {
@@ -1051,8 +1066,8 @@ impl TimeSpec {
     pub const EPSILON: Self = Self(1);
 
     #[inline]
-    fn into_duration(&self) -> Duration {
-        Timer::timer_source().to_duration(*self)
+    fn into_duration(self) -> Duration {
+        Timer::timer_source().into_duration(self)
     }
 
     #[inline]
@@ -1061,10 +1076,10 @@ impl TimeSpec {
     }
 }
 
-impl Add<TimeSpec> for TimeSpec {
+impl const Add<Self> for TimeSpec {
     type Output = Self;
     #[inline]
-    fn add(self, rhs: TimeSpec) -> Self::Output {
+    fn add(self, rhs: Self) -> Self::Output {
         TimeSpec(self.0 + rhs.0)
     }
 }
@@ -1136,7 +1151,6 @@ impl TimerEvent {
 }
 
 /// Thread Priority
-#[repr(u8)]
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Ord, PartialOrd, Eq)]
 pub enum Priority {
@@ -1169,32 +1183,43 @@ impl Default for Priority {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-struct Quantum {
-    current: u8,
+pub struct Quantum {
+    current: AtomicU8,
     default: u8,
 }
 
 impl Quantum {
-    const fn new(value: u8) -> Self {
-        Quantum {
-            current: value,
+    #[inline]
+    pub const fn new(value: u8) -> Self {
+        Self {
+            current: AtomicU8::new(value),
             default: value,
         }
     }
 
-    #[allow(dead_code)]
-    fn reset(&mut self) {
-        self.current = self.default;
+    #[inline]
+    pub fn reset(&self) {
+        self.current.store(self.default, Ordering::Release);
     }
 
-    fn consume(&mut self) -> bool {
-        if self.current > 1 {
-            self.current -= 1;
-            false
-        } else {
-            self.current = self.default;
-            true
+    #[inline]
+    pub fn consume(&self) -> bool {
+        loop {
+            let current = self.current.load(Ordering::Relaxed);
+            let (new, result) = if current > 1 {
+                (current - 1, false)
+            } else {
+                (self.default, true)
+            };
+            match self.current.compare_exchange_weak(
+                current,
+                new,
+                Ordering::Release,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return result,
+                Err(_) => (),
+            }
         }
     }
 }
@@ -1491,7 +1516,7 @@ impl ThreadHandle {
 
     #[inline]
     pub fn name(&self) -> Option<&str> {
-        self.get().and_then(|v| v.name())
+        self.get().map(|v| v.name())
     }
 
     #[inline]
@@ -1524,7 +1549,8 @@ type ThreadStart = fn(usize) -> ();
 #[allow(dead_code)]
 struct ThreadContextData {
     /// Architectural context data
-    context: CpuContextData,
+    context: UnsafeCell<CpuContextData>,
+
     stack: Option<Box<[u8]>>,
 
     // IDs
@@ -1549,7 +1575,7 @@ struct ThreadContextData {
     executor: Option<Executor>,
 
     // Thread Name
-    name: [u8; CONTEXT_LABEL_LENGTH],
+    name: Sb255,
 }
 
 bitflags! {
@@ -1596,11 +1622,14 @@ impl ThreadContextData {
     ) -> ThreadHandle {
         let handle = ThreadHandle::next();
 
-        let mut name_array = [0; CONTEXT_LABEL_LENGTH];
-        set_name_array(&mut name_array, name);
+        let name = {
+            let mut sb = Sb255::new();
+            sb.write_str(name).unwrap();
+            sb
+        };
 
         let mut thread = Self {
-            context: CpuContextData::new(),
+            context: UnsafeCell::new(CpuContextData::new()),
             stack: None,
             pid,
             handle,
@@ -1615,7 +1644,7 @@ impl ThreadContextData {
             load: AtomicU32::new(0),
             executor: None,
             personality,
-            name: name_array,
+            name,
         };
         if let Some(start) = start {
             unsafe {
@@ -1627,6 +1656,7 @@ impl ThreadContextData {
                 let stack = thread.stack.as_mut().unwrap().as_mut_ptr() as *mut c_void;
                 thread
                     .context
+                    .get_mut()
                     .init(stack.add(size_of_stack), start as usize, arg);
             }
         }
@@ -1657,31 +1687,10 @@ impl ThreadContextData {
         self.sleep_counter.load(Ordering::Relaxed) > 0
     }
 
-    fn set_name(&mut self, name: &str) {
-        set_name_array(&mut self.name, name);
-    }
-
-    fn name<'a>(&self) -> Option<&'a str> {
-        let len = self.name[0] as usize;
-        match len {
-            0 => None,
-            _ => core::str::from_utf8(unsafe { core::slice::from_raw_parts(&self.name[1], len) })
-                .ok(),
-        }
+    fn name(&self) -> &str {
+        self.name.as_str()
     }
 }
-
-// impl Drop for ProcessContextData {
-//     fn drop(&mut self) {
-//         println!("drop_process {}", self.pid.0);
-//     }
-// }
-
-// impl Drop for ThreadContextData {
-//     fn drop(&mut self) {
-//         println!("drop_thread {}@{}", self.handle.0.get(), self.pid.0);
-//     }
-// }
 
 #[repr(transparent)]
 struct ThreadQueue(ConcurrentFifo<ThreadHandle>);

@@ -28,7 +28,7 @@ impl UserEnv {
 }
 
 async fn slpash_task(f: fn()) {
-    let is_gui_boot = true;
+    let is_gui_boot = false;
 
     if false {
         let width = 320;
@@ -60,7 +60,7 @@ async fn slpash_task(f: fn()) {
         }
     }
 
-    WindowManager::set_pointer_visible(true);
+    // WindowManager::set_pointer_visible(true);
 
     if is_gui_boot {
         if let Ok(mut file) = FileManager::open("wall.qoi") {
@@ -73,13 +73,13 @@ async fn slpash_task(f: fn()) {
     }
     Timer::sleep_async(Duration::from_millis(500)).await;
 
-    Scheduler::spawn_async(status_bar_main());
+    // Scheduler::spawn_async(status_bar_main());
     Scheduler::spawn_async(_notification_task());
-    // Scheduler::spawn_task(activity_monitor_main());
+    // Scheduler::spawn_async(activity_monitor_main());
 
     Scheduler::spawn_async(shell_launcher(is_gui_boot, f));
 
-    // Scheduler::spawn_task(test_window_main());
+    // Scheduler::spawn_async(test_window_main());
 }
 
 #[allow(dead_code)]
@@ -92,7 +92,7 @@ async fn shell_launcher(is_gui_boot: bool, f: fn()) {
         let point = if size.height() > 600 { 16 } else { 14 };
         let font = FontDescriptor::new(FontFamily::Monospace, point)
             .unwrap_or(FontManager::monospace_font());
-        let terminal = Terminal::new(80, 24, font);
+        let terminal = Terminal::new(80, 24, font, None);
         System::set_stdout(Box::new(terminal));
     } else {
         let size = WindowManager::main_screen_bounds();
@@ -123,7 +123,7 @@ async fn shell_launcher(is_gui_boot: bool, f: fn()) {
             .bg_color(TrueColor::from_gray(0, 0).into())
             .build("Terminal");
 
-        let mut terminal = Terminal::from_window(window, None, font, u8::MAX, 0);
+        let mut terminal = Terminal::from_window(window, None, font, u8::MAX, 0, None);
         terminal.reset().unwrap();
         System::set_stdout(Box::new(terminal));
         // println!("Screen {} x {} Font {}", size.width(), size.height(), point);

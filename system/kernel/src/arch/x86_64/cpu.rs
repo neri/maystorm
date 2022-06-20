@@ -17,7 +17,7 @@ use core::{
 
 extern "C" {
     fn asm_handle_exception(_: InterruptVector) -> usize;
-    fn asm_sch_switch_context(current: *mut u8, next: *const u8);
+    fn asm_sch_switch_context(current: *mut CpuContextData, next: *mut CpuContextData);
     fn asm_sch_make_new_thread(context: *mut u8, new_sp: *mut c_void, start: usize, arg: usize);
     fn asm_sch_get_context_status(context: *const u8, result: *mut [usize; 2]);
     fn _asm_int_40() -> !;
@@ -498,10 +498,8 @@ impl CpuContextData {
     }
 
     #[inline]
-    pub unsafe fn switch(&mut self, other: &Self) {
-        let current = self as *const _ as *mut u8;
-        let other = other as *const _ as *const u8;
-        asm_sch_switch_context(current, other);
+    pub unsafe fn switch(&mut self, other: &mut Self) {
+        asm_sch_switch_context(self as *mut _, other as *mut _);
     }
 
     #[inline]

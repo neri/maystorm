@@ -152,9 +152,25 @@ impl HidUsage {
     pub const HEADPHONE: Self = Self::consumer(0x0005);
     pub const GRAPHIC_EQUALIZER: Self = Self::consumer(0x0006);
     pub const FUNCTION_BUTTONS: Self = Self::consumer(0x0036);
+    pub const DISPLAY_BRIGHTNESS_INCREMENT: Self = Self::consumer(0x006F);
+    pub const DISPLAY_BRIGHTNESS_DECREMENT: Self = Self::consumer(0x0070);
     pub const SELECTION: Self = Self::consumer(0x0080);
     pub const MEDIA_SELECTION: Self = Self::consumer(0x0087);
+    pub const PLAY: Self = Self::consumer(0x00B0);
+    pub const PAUSE: Self = Self::consumer(0x00B1);
+    pub const RECORD: Self = Self::consumer(0x00B2);
+    pub const FAST_FORWARD: Self = Self::consumer(0x00B3);
+    pub const REWIND: Self = Self::consumer(0x00B4);
+    pub const SCAN_NEXT_TRACK: Self = Self::consumer(0x00B5);
+    pub const SCAN_PREVIOUS_TRACK: Self = Self::consumer(0x00B6);
+    pub const STOP: Self = Self::consumer(0x00B7);
+    pub const EJECT: Self = Self::consumer(0x00B8);
+    pub const RANDOM_PLAY: Self = Self::consumer(0x00B9);
     pub const SELECT_DISC: Self = Self::consumer(0x00BA);
+    pub const PLAY_PAUSE: Self = Self::consumer(0x00CD);
+    pub const MUTE: Self = Self::consumer(0x00E2);
+    pub const VOLUME_INCREMENT: Self = Self::consumer(0x00E9);
+    pub const VOLUME_DECREMENT: Self = Self::consumer(0x00EA);
     pub const PLAYBACK_SPEED: Self = Self::consumer(0x00F1);
     pub const SPEAKER_SYSTEM: Self = Self::consumer(0x0160);
     pub const CHANNEL_LEFT: Self = Self::consumer(0x0161);
@@ -209,7 +225,7 @@ impl HidUsage {
     pub const POWER: Self = Self::led(0x0006);
     pub const SHIFT: Self = Self::led(0x0007);
     pub const DO_NOT_DISTURB: Self = Self::led(0x0008);
-    pub const MUTE: Self = Self::led(0x0009);
+    // pub const MUTE: Self = Self::led(0x0009);
 
     #[inline]
     pub const fn new(page: UsagePage, usage: u16) -> Self {
@@ -249,6 +265,12 @@ impl HidUsage {
     #[inline]
     pub const fn led(usage: u16) -> Self {
         Self::new(UsagePage::LED, usage)
+    }
+}
+
+impl core::fmt::Debug for HidUsage {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{:04x}_{:04x}", self.usage_page().0, self.usage())
     }
 }
 
@@ -384,6 +406,13 @@ impl Usage {
     #[inline]
     pub const fn full_qualified_usage(&self) -> HidUsage {
         HidUsage::new(UsagePage::KEYBOARD, self.0 as u16)
+    }
+}
+
+impl const From<Usage> for HidUsage {
+    #[inline]
+    fn from(v: Usage) -> Self {
+        v.full_qualified_usage()
     }
 }
 
@@ -754,6 +783,16 @@ pub enum HidReportAmbiguousSignedValue {
 
 impl HidReportAmbiguousSignedValue {
     #[inline]
+    pub const fn as_u32(&self) -> u32 {
+        self.as_usize() as u32
+    }
+
+    #[inline]
+    pub const fn as_i32(&self) -> i32 {
+        self.as_isize() as i32
+    }
+
+    #[inline]
     pub const fn as_usize(&self) -> usize {
         match *self {
             Self::Zero => 0,
@@ -826,7 +865,7 @@ impl const From<HidReportAmbiguousSignedValue> for u16 {
 impl const From<HidReportAmbiguousSignedValue> for u32 {
     #[inline]
     fn from(val: HidReportAmbiguousSignedValue) -> Self {
-        val.as_usize() as u32
+        val.as_u32()
     }
 }
 
@@ -847,7 +886,7 @@ impl const From<HidReportAmbiguousSignedValue> for i16 {
 impl const From<HidReportAmbiguousSignedValue> for i32 {
     #[inline]
     fn from(val: HidReportAmbiguousSignedValue) -> Self {
-        val.as_isize() as i32
+        val.as_i32()
     }
 }
 

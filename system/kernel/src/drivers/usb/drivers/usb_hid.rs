@@ -62,6 +62,9 @@ impl UsbHidDriver {
             Some(v) => v,
             None => return Err(UsbError::InvalidDescriptor),
         };
+        if !endpoint.is_dir_in() {
+            return Err(UsbError::InvalidDescriptor);
+        }
         let ep = endpoint.address();
         let ps = endpoint.descriptor().max_packet_size() as usize;
         if ps > Self::BUFFER_LEN {
@@ -213,9 +216,10 @@ impl UsbHidDriver {
                                 };
                                 if item.flag.is_variable()
                                     && item.report_size == 1
-                                    && item.usage_min() == Usage::MOD_MIN.full_qualified_usage()
-                                    && item.usage_max() == Usage::MOD_MAX.full_qualified_usage()
+                                    && item.usage_min() == HidUsage::from(Usage::MOD_MIN)
+                                    && item.usage_max() == HidUsage::from(Usage::MOD_MAX)
                                 {
+                                    // Modifier bit array
                                     report.modifier =
                                         Self::read_bits(&buffer, bit_position, item.report_count())
                                             .map(|v| Modifier::from_bits_truncate(v as u8))
@@ -224,6 +228,7 @@ impl UsbHidDriver {
                                     && item.flag.is_array()
                                     && item.usage_min().usage_page() == UsagePage::KEYBOARD
                                 {
+                                    // Keyboard usage array
                                     let limit =
                                         usize::min(report.keydata.len(), item.report_count());
                                     for i in 0..limit {
@@ -233,7 +238,7 @@ impl UsbHidDriver {
 
                                 bit_position += item.bit_count();
                             }
-                            key_state.process_key_report(report);
+                            key_state.process_report(report);
                         }
                         HidUsage::MOUSE => {
                             let mut is_absolute = false;
@@ -330,12 +335,52 @@ impl UsbHidDriver {
                                 mouse_state.process_relative_report(report);
                             }
                         }
+                        HidUsage::CONSUMER_CONTROL => {
+                            let mut bitmap = Vec::new();
+                            for entry in &app.entries {
+                                let item = match entry {
+                                    ParsedReportEntry::Input(item) => {
+                                        if item.flag.is_const() {
+                                            bit_position += item.bit_count();
+                                            continue;
+                                        } else {
+                                            item
+                                        }
+                                    }
+                                    _ => continue,
+                                };
+
+                                if item.flag.is_variable() && item.report_size() == 1 {
+                                    Self::read_bits(&buffer, bit_position, item.report_size()).map(
+                                        |data| {
+                                            if data != 0 {
+                                                bitmap.push(item.usage_min());
+                                            }
+                                        },
+                                    );
+                                }
+
+                                bit_position += item.bit_count();
+                            }
+                            if bitmap.len() > 0 {
+                                log!("CONSUME {:?}", bitmap);
+                            }
+                        }
                         _ => {
                             // TODO: Other app
                         }
                     }
                 }
                 Err(UsbError::Aborted) => break,
+                // Err(UsbError::InvalidParameter) => {
+                //     log!(
+                //         "USB HID error {}:{} {:?}",
+                //         addr.0,
+                //         if_no.0,
+                //         UsbError::InvalidParameter
+                //     );
+                //     break;
+                // }
                 Err(err) => {
                     // TODO: error
                     log!("USB HID error {}:{} {:?}", addr.0, if_no.0, err);
@@ -885,22 +930,22 @@ impl ParsedReportMainItem {
         let logical_min = if flag.contains(HidReportMainFlag::RELATIVE) {
             global.logical_minimum.as_isize() as u32
         } else {
-            global.logical_minimum.as_usize() as u32
+            global.logical_minimum.as_u32()
         };
         let logical_max = if flag.contains(HidReportMainFlag::RELATIVE) {
             global.logical_maximum.as_isize() as u32
         } else {
-            global.logical_maximum.as_usize() as u32
+            global.logical_maximum.as_u32()
         };
         let physical_min = if flag.contains(HidReportMainFlag::RELATIVE) {
             global.physical_minimum.as_isize() as u32
         } else {
-            global.physical_minimum.as_usize() as u32
+            global.physical_minimum.as_u32()
         };
         let physical_max = if flag.contains(HidReportMainFlag::RELATIVE) {
             global.physical_maximum.as_isize() as u32
         } else {
-            global.physical_maximum.as_usize() as u32
+            global.physical_maximum.as_u32()
         };
         Self {
             flag,

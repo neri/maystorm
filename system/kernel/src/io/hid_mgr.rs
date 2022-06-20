@@ -52,7 +52,7 @@ impl KeyboardState {
         }
     }
 
-    pub fn process_key_report(&mut self, report: KeyReportRaw) {
+    pub fn process_report(&mut self, report: KeyReportRaw) {
         self.prev = self.current;
         self.current = report;
         for modifier in Usage::MOD_MIN.0..Usage::MOD_MAX.0 {
