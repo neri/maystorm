@@ -339,12 +339,12 @@ impl UsbDeviceControl {
                 let mut packet = [0; 8];
                 match Self::_control_slice(
                     &host,
-                    UsbControlSetupData::request(
+                    UsbControlSetupData::get_descriptor(
                         UsbControlRequestBitmap::GET_DEVICE,
-                        UsbControlRequest::GET_DESCRIPTOR,
-                    )
-                    .value((UsbDescriptorType::Device as u16) << 8)
-                    .length(8),
+                        UsbDescriptorType::Device,
+                        0,
+                        8,
+                    ),
                     &mut packet,
                 )
                 .await
@@ -357,7 +357,7 @@ impl UsbDeviceControl {
                 }
                 Timer::sleep(Duration::from_millis(10));
             }
-            match Self::_get_device_descriptor(&host, UsbDescriptorType::Device, 0).await {
+            match Self::_get_device_descriptor(&host, 0).await {
                 Ok(v) => {
                     device_desc = Some(v);
                     break;
@@ -373,14 +373,7 @@ impl UsbDeviceControl {
             }
         };
 
-        let lang_id = match Self::_get_descriptor::<UsbStringDescriptor>(
-            &host,
-            UsbControlRequestBitmap::GET_DEVICE,
-            UsbDescriptorType::String,
-            0,
-        )
-        .await
-        {
+        let lang_id = match Self::_get_device_descriptor::<UsbStringDescriptor>(&host, 0).await {
             Ok(v) => v.lang_id(),
             Err(_) => UsbLangId(0),
         };
@@ -394,38 +387,23 @@ impl UsbDeviceControl {
         // Binary Device Object Storage
         let mut bos = UsbBinaryObjectStore::empty();
         let mut uuid = [0u8; 16];
-        if let Some(bos_desc) = if device_desc.usb_version() >= UsbVersion::BOS_MIN {
-            Self::_get_device_descriptor::<UsbBinaryObjectStoreDescriptor>(
+        if let Some(bos_blob) = if device_desc.usb_version() >= UsbVersion::BOS_MIN {
+            match Self::_get_variable_length_device_descriptor(
                 &host,
-                UsbDescriptorType::Bos,
                 0,
-            )
-            .await
-            .ok()
-        } else {
-            None
-        } {
-            let mut bos_blob = Vec::new();
-            match Self::_control_var(
-                &host,
-                UsbControlSetupData::request(
-                    UsbControlRequestBitmap::GET_DEVICE,
-                    UsbControlRequest::GET_DESCRIPTOR,
-                )
-                .value((UsbDescriptorType::Bos as u16) << 8),
-                &mut bos_blob,
-                bos_desc.total_length(),
-                bos_desc.total_length(),
+                |v: UsbBinaryObjectStoreDescriptor| v.total_length(),
             )
             .await
             {
-                Ok(_) => (),
+                Ok(v) => Some(v),
                 Err(err) => {
                     log!("BOS DESCRIPTOR FAILED {}", addr.0);
                     return Err(err);
                 }
             }
-
+        } else {
+            None
+        } {
             let mut cursor = 0;
             while cursor < bos_blob.len() {
                 let len = bos_blob[cursor] as usize;
@@ -470,32 +448,19 @@ impl UsbDeviceControl {
             bos.raw = bos_blob;
         }
 
-        let prot_config_desc: UsbConfigurationDescriptor =
-            match Self::_get_device_descriptor(&host, UsbDescriptorType::Configuration, 0).await {
-                Ok(v) => v,
-                Err(err) => return Err(err),
-            };
-
-        let mut config = Vec::with_capacity(prot_config_desc.total_length());
-        match Self::_control_var(
+        let config = match Self::_get_variable_length_device_descriptor(
             &host,
-            UsbControlSetupData::request(
-                UsbControlRequestBitmap::GET_DEVICE,
-                UsbControlRequest::GET_DESCRIPTOR,
-            )
-            .value((UsbDescriptorType::Configuration as u16) << 8),
-            &mut config,
-            prot_config_desc.total_length(),
-            prot_config_desc.total_length(),
+            0,
+            |v: UsbConfigurationDescriptor| v.total_length(),
         )
         .await
         {
-            Ok(_) => (),
+            Ok(v) => v,
             Err(err) => {
                 log!("CONFIG DESCRIPTOR FAILED {}", addr.0);
                 return Err(err);
             }
-        }
+        };
 
         let mut cursor = 0;
         let mut configurations = Vec::new();
@@ -590,13 +555,14 @@ impl UsbDeviceControl {
                         }
                     };
                     for (report_type, len) in descriptor.children() {
-                        let mut vec = Vec::new();
+                        let mut vec = Vec::with_capacity(len);
+                        vec.resize(len, 0);
                         match Self::_get_hid_descriptor(
                             &host,
                             current_interface.if_no(),
                             report_type,
                             0,
-                            len as usize,
+                            len,
                             &mut vec,
                         )
                         .await
@@ -832,14 +798,14 @@ impl UsbDeviceControl {
         Self::_control_nodata(&self.host_clone(), setup).await
     }
 
-    pub async fn control_var(
+    pub async fn control_vec(
         &self,
         setup: UsbControlSetupData,
         vec: &mut Vec<u8>,
         min_len: usize,
         max_len: usize,
     ) -> Result<(), UsbError> {
-        Self::_control_var(&self.host_clone(), setup, vec, min_len, max_len).await
+        Self::_control_vec(&self.host_clone(), setup, vec, min_len, max_len).await
     }
 
     pub async fn control_slice(
@@ -878,7 +844,7 @@ impl UsbDeviceControl {
             .map(|_| ())
     }
 
-    async fn _control_var(
+    async fn _control_vec(
         host: &Arc<dyn UsbHostInterface>,
         mut setup: UsbControlSetupData,
         vec: &mut Vec<u8>,
@@ -917,28 +883,55 @@ impl UsbDeviceControl {
     }
 
     #[inline]
+    async fn _get_variable_length_device_descriptor<F, T: UsbDescriptor>(
+        host: &Arc<dyn UsbHostInterface>,
+        index: u8,
+        get_length: F,
+    ) -> Result<Vec<u8>, UsbError>
+    where
+        F: FnOnce(T) -> usize,
+    {
+        let prot_desc: T = Self::_get_device_descriptor(host, index).await?;
+        let total_length = get_length(prot_desc);
+
+        let mut vec = Vec::with_capacity(total_length);
+        vec.resize(total_length, 0);
+
+        Self::_control_slice(
+            host,
+            UsbControlSetupData::get_descriptor(
+                UsbControlRequestBitmap::GET_DEVICE,
+                T::DESCRIPTOR_TYPE,
+                index,
+                total_length,
+            ),
+            vec.as_mut_slice(),
+        )
+        .await?;
+
+        Ok(vec)
+    }
+
+    #[inline]
     async fn _get_device_descriptor<T: UsbDescriptor>(
         host: &Arc<dyn UsbHostInterface>,
-        desc_type: UsbDescriptorType,
         index: u8,
     ) -> Result<T, UsbError> {
-        Self::_get_descriptor(host, UsbControlRequestBitmap::GET_DEVICE, desc_type, index).await
+        Self::_get_descriptor(host, UsbControlRequestBitmap::GET_DEVICE, index).await
     }
 
     /// Get the descriptor associated with a device
     pub async fn get_descriptor<T: UsbDescriptor>(
         &self,
         request_type: UsbControlRequestBitmap,
-        desc_type: UsbDescriptorType,
         index: u8,
     ) -> Result<T, UsbError> {
-        Self::_get_descriptor(&self.host_clone(), request_type, desc_type, index).await
+        Self::_get_descriptor(&self.host_clone(), request_type, index).await
     }
 
     async fn _get_descriptor<T: UsbDescriptor>(
         host: &Arc<dyn UsbHostInterface>,
         request_type: UsbControlRequestBitmap,
-        desc_type: UsbDescriptorType,
         index: u8,
     ) -> Result<T, UsbError> {
         let size_of_t = size_of::<T>();
@@ -946,9 +939,12 @@ impl UsbDeviceControl {
         match unsafe {
             host.clone()
                 .control_recv(
-                    UsbControlSetupData::request(request_type, UsbControlRequest::GET_DESCRIPTOR)
-                        .value((desc_type as u16) << 8 | index as u16)
-                        .length(size_of_t as u16),
+                    UsbControlSetupData::get_descriptor(
+                        request_type,
+                        T::DESCRIPTOR_TYPE,
+                        index,
+                        size_of_t,
+                    ),
                     result.as_mut_ptr() as *mut u8,
                 )
                 .await
@@ -958,7 +954,7 @@ impl UsbDeviceControl {
                     return Err(UsbError::InvalidDescriptor);
                 }
                 let result = unsafe { result.assume_init() };
-                if result.descriptor_type() == desc_type {
+                if result.descriptor_type() == T::DESCRIPTOR_TYPE {
                     Ok(result)
                 } else {
                     Err(UsbError::InvalidDescriptor)
@@ -982,15 +978,16 @@ impl UsbDeviceControl {
             Some(v) => v.get(),
             None => return None,
         };
-        let setup = UsbControlSetupData::request(
+        let setup = UsbControlSetupData::get_descriptor(
             UsbControlRequestBitmap::GET_DEVICE,
-            UsbControlRequest::GET_DESCRIPTOR,
+            UsbDescriptorType::String,
+            index,
+            0,
         )
-        .value((UsbDescriptorType::String as u16) << 8 | index as u16)
         .index(lang_id.0);
 
         let mut vec = Vec::new();
-        match Self::_control_var(host, setup, &mut vec, 4, 255).await {
+        match Self::_control_vec(host, setup, &mut vec, 4, 255).await {
             Ok(_) => (),
             Err(_) => return None,
         }
@@ -1082,33 +1079,26 @@ impl UsbDeviceControl {
         .map(|_| ())
     }
 
-    #[inline]
-    pub async fn get_hid_descriptor(
-        &self,
-        if_no: UsbInterfaceNumber,
-        report_type: UsbDescriptorType,
-        report_id: u8,
-        len: usize,
-        vec: &mut Vec<u8>,
-    ) -> Result<(), UsbError> {
-        Self::_get_hid_descriptor(&self.host_clone(), if_no, report_type, report_id, len, vec).await
-    }
-
     async fn _get_hid_descriptor(
         host: &Arc<dyn UsbHostInterface>,
         if_no: UsbInterfaceNumber,
         report_type: UsbDescriptorType,
         report_id: u8,
         len: usize,
-        vec: &mut Vec<u8>,
+        slice: &mut [u8],
     ) -> Result<(), UsbError> {
-        let setup = UsbControlSetupData::request(
-            UsbControlRequestBitmap::GET_INTERFACE,
-            UsbControlRequest::GET_DESCRIPTOR,
+        Self::_control_slice(
+            host,
+            UsbControlSetupData::get_descriptor(
+                UsbControlRequestBitmap::GET_INTERFACE,
+                report_type,
+                report_id,
+                len,
+            )
+            .index_if(if_no),
+            slice,
         )
-        .value((report_type as u16) << 8 | report_id as u16)
-        .index_if(if_no);
-        Self::_control_var(host, setup, vec, len, len).await
+        .await
     }
 
     /// Focuses on packets from the specified hub and delays tasks on other devices.

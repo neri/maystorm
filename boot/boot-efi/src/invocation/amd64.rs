@@ -24,6 +24,11 @@ impl Invocation {
 
 impl Invoke for Invocation {
     fn is_compatible(&self) -> bool {
+        let cpuid = unsafe { __cpuid(0x8000_0001) };
+        // RDTSCP
+        if cpuid.edx & (1 << 27) == 0 {
+            return false;
+        }
         return true;
     }
 

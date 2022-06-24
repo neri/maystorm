@@ -1,6 +1,6 @@
 //! USB Types & Descriptors
 
-use core::{fmt, num::NonZeroU8, time::Duration};
+use core::{fmt, mem::transmute_copy, num::NonZeroU8, time::Duration};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
@@ -9,10 +9,15 @@ use num_traits::FromPrimitive;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UsbAddress(pub NonZeroU8);
 
+impl UsbAddress {
+    pub const MIN: Self = Self(unsafe { NonZeroU8::new_unchecked(1) });
+    pub const MAX: Self = Self(unsafe { NonZeroU8::new_unchecked(127) });
+}
+
 /// 16-bit word type used in the USB descriptor.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct UsbWord(pub [u8; 2]);
+pub struct UsbWord([u8; 2]);
 
 impl UsbWord {
     #[inline]
@@ -240,6 +245,7 @@ pub struct UsbAlternateSettingNumber(pub u8);
 
 /// USB Descriptor type
 #[repr(u8)]
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
 pub enum UsbDescriptorType {
     Device = 1,
@@ -249,7 +255,7 @@ pub enum UsbDescriptorType {
     Endpoint,
     DeviceQualifier,
     InterfaceAssociation = 11,
-    Bos = 15,
+    BinaryObjectStore = 15,
     DeviceCapability,
     HidClass = 0x21,
     HidReport,
@@ -262,6 +268,7 @@ pub enum UsbDescriptorType {
 
 /// USB Device Capability type
 #[repr(u8)]
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
 pub enum UsbDeviceCapabilityType {
     WirelessUsb = 1,
@@ -282,12 +289,44 @@ pub enum UsbDeviceCapabilityType {
     ConfigurationSummary,
 }
 
+/// A trait compatible with standard USB descriptors
+pub unsafe trait UsbDescriptor: Sized {
+    const DESCRIPTOR_TYPE: UsbDescriptorType;
+
+    #[inline]
+    fn len(&self) -> usize {
+        let stub: &UsbStandardDescriptorStub = unsafe { transmute_copy(&self) };
+        stub.length as usize
+    }
+
+    #[inline]
+    fn descriptor_type(&self) -> UsbDescriptorType {
+        let stub: &UsbStandardDescriptorStub = unsafe { transmute_copy(&self) };
+        stub.descriptor_type
+    }
+}
+
+/// A type compatible with standard USB device capabilities
+pub unsafe trait UsbDeviceCapabilityDescriptor: UsbDescriptor {
+    const CAPABILITY_TYPE: UsbDeviceCapabilityType;
+
+    #[inline]
+    fn capability_type(&self) -> UsbDeviceCapabilityType {
+        let stub: &UsbStandardDescriptorStub = unsafe { transmute_copy(&self) };
+        stub.dev_capability_type
+    }
+}
+
+unsafe impl<T: UsbDeviceCapabilityDescriptor> UsbDescriptor for T {
+    const DESCRIPTOR_TYPE: UsbDescriptorType = UsbDescriptorType::DeviceCapability;
+}
+
+#[repr(C, packed)]
 /// A type compatible with standard USB descriptors
-pub trait UsbDescriptor {
-    /// bLength
-    fn len(&self) -> usize;
-    /// bDescriptorType
-    fn descriptor_type(&self) -> UsbDescriptorType;
+struct UsbStandardDescriptorStub {
+    length: u8,
+    descriptor_type: UsbDescriptorType,
+    dev_capability_type: UsbDeviceCapabilityType,
 }
 
 /// USB Device Descriptor
@@ -309,6 +348,10 @@ pub struct UsbDeviceDescriptor {
     pub iProduct: u8,
     pub iSerialNumber: u8,
     pub bNumConfigurations: u8,
+}
+
+unsafe impl UsbDescriptor for UsbDeviceDescriptor {
+    const DESCRIPTOR_TYPE: UsbDescriptorType = UsbDescriptorType::Device;
 }
 
 impl UsbDeviceDescriptor {
@@ -357,18 +400,6 @@ impl UsbDeviceDescriptor {
     }
 }
 
-impl UsbDescriptor for UsbDeviceDescriptor {
-    #[inline]
-    fn len(&self) -> usize {
-        self.bLength as usize
-    }
-
-    #[inline]
-    fn descriptor_type(&self) -> UsbDescriptorType {
-        self.bDescriptorType
-    }
-}
-
 /// USB Configuration Descriptor
 #[repr(C, packed)]
 #[allow(non_snake_case)]
@@ -382,6 +413,10 @@ pub struct UsbConfigurationDescriptor {
     pub iConfiguration: u8,
     pub bmAttributes: u8,
     pub bMaxPower: u8,
+}
+
+unsafe impl UsbDescriptor for UsbConfigurationDescriptor {
+    const DESCRIPTOR_TYPE: UsbDescriptorType = UsbDescriptorType::Configuration;
 }
 
 impl UsbConfigurationDescriptor {
@@ -411,18 +446,6 @@ impl UsbConfigurationDescriptor {
     }
 }
 
-impl UsbDescriptor for UsbConfigurationDescriptor {
-    #[inline]
-    fn len(&self) -> usize {
-        self.bLength as usize
-    }
-
-    #[inline]
-    fn descriptor_type(&self) -> UsbDescriptorType {
-        self.bDescriptorType
-    }
-}
-
 #[repr(C, packed)]
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
@@ -432,22 +455,14 @@ pub struct UsbStringDescriptor {
     pub wLangId: UsbWord,
 }
 
+unsafe impl UsbDescriptor for UsbStringDescriptor {
+    const DESCRIPTOR_TYPE: UsbDescriptorType = UsbDescriptorType::String;
+}
+
 impl UsbStringDescriptor {
     #[inline]
     pub const fn lang_id(&self) -> UsbLangId {
         UsbLangId(self.wLangId.as_u16())
-    }
-}
-
-impl UsbDescriptor for UsbStringDescriptor {
-    #[inline]
-    fn len(&self) -> usize {
-        self.bLength as usize
-    }
-
-    #[inline]
-    fn descriptor_type(&self) -> UsbDescriptorType {
-        self.bDescriptorType
     }
 }
 
@@ -469,6 +484,10 @@ pub struct UsbInterfaceDescriptor {
     pub bInterfaceSubClass: UsbSubClass,
     pub bInterfaceProtocol: UsbProtocolCode,
     pub iInterface: u8,
+}
+
+unsafe impl UsbDescriptor for UsbInterfaceDescriptor {
+    const DESCRIPTOR_TYPE: UsbDescriptorType = UsbDescriptorType::Interface;
 }
 
 impl UsbInterfaceDescriptor {
@@ -502,18 +521,6 @@ impl UsbInterfaceDescriptor {
     }
 }
 
-impl UsbDescriptor for UsbInterfaceDescriptor {
-    #[inline]
-    fn len(&self) -> usize {
-        self.bLength as usize
-    }
-
-    #[inline]
-    fn descriptor_type(&self) -> UsbDescriptorType {
-        self.bDescriptorType
-    }
-}
-
 /// USB Endpoint Descriptor
 #[repr(C, packed)]
 #[allow(non_snake_case)]
@@ -525,6 +532,10 @@ pub struct UsbEndpointDescriptor {
     pub bmAttributes: u8,
     pub wMaxPacketSize: UsbWord,
     pub bInterval: u8,
+}
+
+unsafe impl UsbDescriptor for UsbEndpointDescriptor {
+    const DESCRIPTOR_TYPE: UsbDescriptorType = UsbDescriptorType::Endpoint;
 }
 
 impl UsbEndpointDescriptor {
@@ -549,18 +560,6 @@ impl UsbEndpointDescriptor {
     }
 }
 
-impl UsbDescriptor for UsbEndpointDescriptor {
-    #[inline]
-    fn len(&self) -> usize {
-        self.bLength as usize
-    }
-
-    #[inline]
-    fn descriptor_type(&self) -> UsbDescriptorType {
-        self.bDescriptorType
-    }
-}
-
 /// USB Decive Qualifier Descriptor
 #[repr(C, packed)]
 #[allow(non_snake_case)]
@@ -577,6 +576,10 @@ pub struct UsbDeviceQualifierDescriptor {
     pub bReserved: u8,
 }
 
+unsafe impl UsbDescriptor for UsbDeviceQualifierDescriptor {
+    const DESCRIPTOR_TYPE: UsbDescriptorType = UsbDescriptorType::DeviceQualifier;
+}
+
 impl UsbDeviceQualifierDescriptor {
     #[inline]
     pub const fn class(&self) -> UsbClass {
@@ -585,18 +588,6 @@ impl UsbDeviceQualifierDescriptor {
             self.bDeviceSubClass,
             self.bDeviceProtocol,
         )
-    }
-}
-
-impl UsbDescriptor for UsbDeviceQualifierDescriptor {
-    #[inline]
-    fn len(&self) -> usize {
-        self.bLength as usize
-    }
-
-    #[inline]
-    fn descriptor_type(&self) -> UsbDescriptorType {
-        self.bDescriptorType
     }
 }
 
@@ -611,6 +602,10 @@ pub struct UsbBinaryObjectStoreDescriptor {
     pub bNumDeviceCaps: u8,
 }
 
+unsafe impl UsbDescriptor for UsbBinaryObjectStoreDescriptor {
+    const DESCRIPTOR_TYPE: UsbDescriptorType = UsbDescriptorType::BinaryObjectStore;
+}
+
 impl UsbBinaryObjectStoreDescriptor {
     #[inline]
     pub const fn total_length(&self) -> usize {
@@ -621,23 +616,6 @@ impl UsbBinaryObjectStoreDescriptor {
     pub const fn num_children(&self) -> usize {
         self.bNumDeviceCaps as usize
     }
-}
-
-impl UsbDescriptor for UsbBinaryObjectStoreDescriptor {
-    #[inline]
-    fn len(&self) -> usize {
-        self.bLength as usize
-    }
-
-    #[inline]
-    fn descriptor_type(&self) -> UsbDescriptorType {
-        self.bDescriptorType
-    }
-}
-
-/// A type compatible with standard USB device capabilities
-pub trait UsbDeviceCapabilityDescriptor: UsbDescriptor {
-    fn capability_type(&self) -> UsbDeviceCapabilityType;
 }
 
 /// USB Superspeed USB Device Capability
@@ -655,6 +633,10 @@ pub struct UsbSsDeviceCapability {
     pub wU2DevExitLat: UsbWord,
 }
 
+unsafe impl UsbDeviceCapabilityDescriptor for UsbSsDeviceCapability {
+    const CAPABILITY_TYPE: UsbDeviceCapabilityType = UsbDeviceCapabilityType::SuperspeedUsb;
+}
+
 impl UsbSsDeviceCapability {
     #[inline]
     pub const fn u1_dev_exit_lat(&self) -> usize {
@@ -664,25 +646,6 @@ impl UsbSsDeviceCapability {
     #[inline]
     pub const fn u2_dev_exit_lat(&self) -> usize {
         self.wU2DevExitLat.as_u16() as usize
-    }
-}
-
-impl UsbDescriptor for UsbSsDeviceCapability {
-    #[inline]
-    fn len(&self) -> usize {
-        self.bLength as usize
-    }
-
-    #[inline]
-    fn descriptor_type(&self) -> UsbDescriptorType {
-        self.bDescriptorType
-    }
-}
-
-impl UsbDeviceCapabilityDescriptor for UsbSsDeviceCapability {
-    #[inline]
-    fn capability_type(&self) -> UsbDeviceCapabilityType {
-        self.bDevCapabilityType
     }
 }
 
@@ -698,29 +661,14 @@ pub struct UsbContainerIdCapability {
     pub ContainerID: [u8; 16],
 }
 
+unsafe impl UsbDeviceCapabilityDescriptor for UsbContainerIdCapability {
+    const CAPABILITY_TYPE: UsbDeviceCapabilityType = UsbDeviceCapabilityType::ContainerId;
+}
+
 impl UsbContainerIdCapability {
     #[inline]
     pub const fn uuid(&self) -> &[u8; 16] {
         &self.ContainerID
-    }
-}
-
-impl UsbDescriptor for UsbContainerIdCapability {
-    #[inline]
-    fn len(&self) -> usize {
-        self.bLength as usize
-    }
-
-    #[inline]
-    fn descriptor_type(&self) -> UsbDescriptorType {
-        self.bDescriptorType
-    }
-}
-
-impl UsbDeviceCapabilityDescriptor for UsbContainerIdCapability {
-    #[inline]
-    fn capability_type(&self) -> UsbDeviceCapabilityType {
-        self.bDevCapabilityType
     }
 }
 
@@ -730,18 +678,6 @@ impl UsbDeviceCapabilityDescriptor for UsbContainerIdCapability {
 pub struct UsbHidReportDescriptor {
     pub bDescriptorType: UsbDescriptorType,
     pub wDescriptorLength: UsbWord,
-}
-
-impl UsbDescriptor for UsbHidReportDescriptor {
-    #[inline]
-    fn len(&self) -> usize {
-        0
-    }
-
-    #[inline]
-    fn descriptor_type(&self) -> UsbDescriptorType {
-        self.bDescriptorType
-    }
 }
 
 /// USB HID Class Descriptor
@@ -758,6 +694,10 @@ pub struct UsbHidClassDescriptor {
     pub wDescriptorLength_: UsbWord,
 }
 
+unsafe impl UsbDescriptor for UsbHidClassDescriptor {
+    const DESCRIPTOR_TYPE: UsbDescriptorType = UsbDescriptorType::HidClass;
+}
+
 impl UsbHidClassDescriptor {
     #[inline]
     pub const fn num_descriptors(&self) -> usize {
@@ -770,23 +710,11 @@ impl UsbHidClassDescriptor {
     }
 
     #[inline]
-    pub fn children<'a>(&'a self) -> impl Iterator<Item = (UsbDescriptorType, u16)> + 'a {
+    pub fn children<'a>(&'a self) -> impl Iterator<Item = (UsbDescriptorType, usize)> + 'a {
         UsbHidClassDescriptorIter {
             base: self,
             index: 0,
         }
-    }
-}
-
-impl UsbDescriptor for UsbHidClassDescriptor {
-    #[inline]
-    fn len(&self) -> usize {
-        self.bLength as usize
-    }
-
-    #[inline]
-    fn descriptor_type(&self) -> UsbDescriptorType {
-        self.bDescriptorType
     }
 }
 
@@ -796,7 +724,7 @@ struct UsbHidClassDescriptorIter<'a> {
 }
 
 impl Iterator for UsbHidClassDescriptorIter<'_> {
-    type Item = (UsbDescriptorType, u16);
+    type Item = (UsbDescriptorType, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
         unsafe {
@@ -810,7 +738,7 @@ impl Iterator for UsbHidClassDescriptorIter<'_> {
                 };
                 let len = (p.add(1).read() as u16) + (p.add(2).read() as u16 * 256);
                 self.index += 1;
-                Some((ty, len))
+                Some((ty, len as usize))
             } else {
                 None
             }
@@ -833,7 +761,11 @@ pub struct Usb2HubDescriptor {
     pub wHubCharacteristics: UsbWord,
     pub bPwrOn2PwrGood: u8,
     pub bHubContrCurrent: u8,
-    pub DeviceRemovable: u8,
+    pub DeviceRemovable: [u8; 1],
+}
+
+unsafe impl UsbDescriptor for Usb2HubDescriptor {
+    const DESCRIPTOR_TYPE: UsbDescriptorType = UsbDescriptorType::Hub;
 }
 
 impl Usb2HubDescriptor {
@@ -855,19 +787,7 @@ impl Usb2HubDescriptor {
 
     #[inline]
     pub const fn device_removable(&self) -> u8 {
-        self.DeviceRemovable
-    }
-}
-
-impl UsbDescriptor for Usb2HubDescriptor {
-    #[inline]
-    fn len(&self) -> usize {
-        self.bLength as usize
-    }
-
-    #[inline]
-    fn descriptor_type(&self) -> UsbDescriptorType {
-        self.bDescriptorType
+        self.DeviceRemovable[0]
     }
 }
 
@@ -908,6 +828,10 @@ pub struct Usb3HubDescriptor {
     pub DeviceRemovable: UsbWord,
 }
 
+unsafe impl UsbDescriptor for Usb3HubDescriptor {
+    const DESCRIPTOR_TYPE: UsbDescriptorType = UsbDescriptorType::Hub3;
+}
+
 impl Usb3HubDescriptor {
     #[inline]
     pub const fn num_ports(&self) -> usize {
@@ -928,18 +852,6 @@ impl Usb3HubDescriptor {
     #[inline]
     pub const fn device_removable(&self) -> u16 {
         self.DeviceRemovable.as_u16()
-    }
-}
-
-impl UsbDescriptor for Usb3HubDescriptor {
-    #[inline]
-    fn len(&self) -> usize {
-        self.bLength as usize
-    }
-
-    #[inline]
-    fn descriptor_type(&self) -> UsbDescriptorType {
-        self.bDescriptorType
     }
 }
 
@@ -1047,11 +959,6 @@ impl UsbControlSetupData {
     }
 
     #[inline]
-    pub const fn empty() -> Self {
-        Self::request(UsbControlRequestBitmap(0), UsbControlRequest(0))
-    }
-
-    #[inline]
     pub const fn value(mut self, value: u16) -> Self {
         self.wValue = value;
         self
@@ -1072,6 +979,18 @@ impl UsbControlSetupData {
     pub const fn length(mut self, length: u16) -> Self {
         self.wLength = length;
         self
+    }
+
+    #[inline]
+    pub const fn get_descriptor(
+        request_type: UsbControlRequestBitmap,
+        desc_type: UsbDescriptorType,
+        index: u8,
+        size: usize,
+    ) -> Self {
+        Self::request(request_type, UsbControlRequest::GET_DESCRIPTOR)
+            .value((desc_type as u16) << 8 | index as u16)
+            .length(size as u16)
     }
 }
 

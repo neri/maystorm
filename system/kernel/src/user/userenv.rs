@@ -28,7 +28,7 @@ impl UserEnv {
 }
 
 async fn slpash_task(f: fn()) {
-    let is_gui_boot = false;
+    let is_gui_boot = true;
 
     if false {
         let width = 320;
@@ -60,7 +60,7 @@ async fn slpash_task(f: fn()) {
         }
     }
 
-    // WindowManager::set_pointer_visible(true);
+    WindowManager::set_pointer_visible(true);
 
     if is_gui_boot {
         if let Ok(mut file) = FileManager::open("wall.qoi") {
@@ -73,9 +73,9 @@ async fn slpash_task(f: fn()) {
     }
     Timer::sleep_async(Duration::from_millis(500)).await;
 
-    // Scheduler::spawn_async(status_bar_main());
+    Scheduler::spawn_async(status_bar_main());
     Scheduler::spawn_async(_notification_task());
-    // Scheduler::spawn_async(activity_monitor_main());
+    Scheduler::spawn_async(activity_monitor_main());
 
     Scheduler::spawn_async(shell_launcher(is_gui_boot, f));
 
@@ -143,11 +143,15 @@ async fn status_bar_main() {
     let screen_bounds = WindowManager::main_screen_bounds();
     let window = WindowBuilder::new()
         .style(WindowStyle::NO_SHADOW | WindowStyle::FLOATING)
-        // .style(WindowStyle::FLOATING)
-        .frame(Rect::new(0, 0, screen_bounds.width(), STATUS_BAR_HEIGHT))
+        .frame(Rect::new(
+            0,
+            -STATUS_BAR_HEIGHT,
+            screen_bounds.width(),
+            STATUS_BAR_HEIGHT,
+        ))
         .bg_color(bg_color)
         .build("Status Bar");
-    WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT, 0, 0, 0));
+    WindowManager::add_screen_insets(EdgeInsets::new(0, 0, STATUS_BAR_HEIGHT, 0));
 
     let font = FontManager::monospace_font();
     let mut sb0 = Sb255::new();

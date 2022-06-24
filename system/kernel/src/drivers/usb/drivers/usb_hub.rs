@@ -85,15 +85,14 @@ impl Usb2HubDriver {
         let addr = device.device().addr();
         let is_mtt = device.device().class() == UsbClass::HUB_HS_MTT;
 
-        let hub_desc: Usb2HubDescriptor =
-            match UsbHubCommon::get_hub_descriptor(&device, UsbDescriptorType::Hub, 0).await {
-                Ok(v) => v,
-                Err(_err) => {
-                    // TODO:
-                    log!("USB2 GET HUB DESCRIPTOR {:?}", _err);
-                    return;
-                }
-            };
+        let hub_desc: Usb2HubDescriptor = match UsbHubCommon::get_hub_descriptor(&device, 0).await {
+            Ok(v) => v,
+            Err(_err) => {
+                // TODO:
+                log!("USB2 GET HUB DESCRIPTOR {:?}", _err);
+                return;
+            }
+        };
         match device.configure_hub2(&hub_desc, is_mtt) {
             Ok(_) => (),
             Err(_err) => {
@@ -309,15 +308,14 @@ pub struct Usb3HubDriver {
 impl Usb3HubDriver {
     async fn _usb_hub_task(device: Arc<UsbDeviceControl>, ep: UsbEndpointAddress, ps: u16) {
         let addr = device.device().addr();
-        let hub_desc: Usb3HubDescriptor =
-            match UsbHubCommon::get_hub_descriptor(&device, UsbDescriptorType::Hub3, 0).await {
-                Ok(v) => v,
-                Err(_err) => {
-                    // TODO:
-                    log!("USB3 GET HUB DESCRIPTOR {:?}", _err);
-                    return;
-                }
-            };
+        let hub_desc: Usb3HubDescriptor = match UsbHubCommon::get_hub_descriptor(&device, 0).await {
+            Ok(v) => v,
+            Err(_err) => {
+                // TODO:
+                log!("USB3 GET HUB DESCRIPTOR {:?}", _err);
+                return;
+            }
+        };
         Self::set_depth(&device).await.unwrap();
 
         let hub = Arc::new(Usb3HubDriver {
@@ -565,11 +563,10 @@ impl UsbHubCommon {
     #[inline]
     pub async fn get_hub_descriptor<T: UsbDescriptor>(
         device: &UsbDeviceControl,
-        desc_type: UsbDescriptorType,
         index: u8,
     ) -> Result<T, UsbError> {
         device
-            .get_descriptor(UsbControlRequestBitmap::GET_CLASS, desc_type, index)
+            .get_descriptor(UsbControlRequestBitmap::GET_CLASS, index)
             .await
     }
 

@@ -10,6 +10,7 @@
     "dynamic-linking": false,
     "env": "",
     "executables": true,
+    "exe-suffix": ".bin",
     "has-rpath": false,
     "llvm-target": "x86_64-unknown-none",
     "max-atomic-width": 64,

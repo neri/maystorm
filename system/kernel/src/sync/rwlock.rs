@@ -118,7 +118,7 @@ impl<T: ?Sized> Drop for RwLock<T> {
     }
 }
 
-impl<T> From<T> for RwLock<T> {
+impl<T> const From<T> for RwLock<T> {
     #[inline]
     fn from(t: T) -> Self {
         Self::new(t)
@@ -212,7 +212,7 @@ impl RwLockInner {
     const fn new() -> Self {
         Self {
             data: AtomicUsize::new(0),
-            signal: SignallingObject::new(None),
+            signal: SignallingObject::default(),
         }
     }
 

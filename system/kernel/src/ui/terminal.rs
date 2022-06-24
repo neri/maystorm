@@ -73,7 +73,7 @@ pub struct Terminal {
 }
 
 impl Terminal {
-    pub const DEFAULT_PALETTE: [TrueColor; 16] = [
+    pub const PRIMARY_PALETTE: [TrueColor; 16] = [
         TrueColor::PRIMARY_BLACK,
         TrueColor::from_rgb(0x00_00_80),
         TrueColor::from_rgb(0x00_80_00),
@@ -92,6 +92,25 @@ impl Terminal {
         TrueColor::PRIMARY_WHITE,
     ];
 
+    pub const DEFAULT_PALETTE: [TrueColor; 16] = [
+        IndexedColor::BLACK.as_true_color(),
+        IndexedColor::BLUE.as_true_color(),
+        IndexedColor::GREEN.as_true_color(),
+        IndexedColor::CYAN.as_true_color(),
+        IndexedColor::RED.as_true_color(),
+        IndexedColor::MAGENTA.as_true_color(),
+        IndexedColor::BROWN.as_true_color(),
+        IndexedColor::LIGHT_GRAY.as_true_color(),
+        IndexedColor::DARK_GRAY.as_true_color(),
+        IndexedColor::LIGHT_BLUE.as_true_color(),
+        IndexedColor::LIGHT_GREEN.as_true_color(),
+        IndexedColor::LIGHT_CYAN.as_true_color(),
+        IndexedColor::LIGHT_RED.as_true_color(),
+        IndexedColor::LIGHT_MAGENTA.as_true_color(),
+        IndexedColor::YELLOW.as_true_color(),
+        IndexedColor::WHITE.as_true_color(),
+    ];
+
     pub fn from_window(
         window: WindowHandle,
         insets: Option<EdgeInsets>,
@@ -107,7 +126,7 @@ impl Terminal {
             DEFAULT_ATTRIBUTE
         };
         let alpha = if alpha > 0 { alpha } else { BG_ALPHA };
-        let palette = palette.unwrap_or(Self::DEFAULT_PALETTE);
+        let palette = palette.unwrap_or(Self::PRIMARY_PALETTE);
         let (fg_color, bg_color) = Self::_split_attr(&palette, attribute, alpha);
 
         let rect = window.content_size().bounds().insets_by(insets);

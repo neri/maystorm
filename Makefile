@@ -12,12 +12,13 @@ KERNEL_BIN	= $(EFI_VENDOR)/kernel.bin
 INITRD_IMG	= $(EFI_VENDOR)/initrd.img
 
 KRNL_ARCH	= x86_64-unknown-none
-TARGET_KERNEL	= system/target/$(KRNL_ARCH)/release/kernel
+TARGET_KERNEL	= system/target/$(KRNL_ARCH)/release/kernel.bin
 TARGET_ISO	= var/megos.iso
 TARGETS		= boot kernel
 ALL_TARGETS	= $(TARGETS) apps
 INITRD_FILES	= LICENSE $(ASSETS)initrd/* apps/target/wasm32-unknown-unknown/release/*.wasm
 
+QEMU_X64		= qemu-system-x86_64
 OVMF_X64		= var/ovmfx64.fd
 BOOT_EFI_BOOT1	= $(EFI_BOOT)/bootx64.efi
 BOOT_EFI_VENDOR1	= $(EFI_VENDOR)/bootx64.efi
@@ -48,41 +49,38 @@ $(EFI_VENDOR):
 	mkdir -p $(EFI_VENDOR)
 
 run:
-	qemu-system-x86_64 -machine q35 \
-		-cpu Haswell -smp 4,cores=2,threads=2 \
-		-bios $(OVMF_X64) \
-		-rtc base=localtime,clock=host \
-		-device nec-usb-xhci,id=xhci -device usb-tablet \
-		-drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
-		-device intel-hda -device hda-duplex \
-		-monitor stdio
+	$(QEMU_X64) -machine q35 -cpu SandyBridge -smp 4,cores=2,threads=2 \
+-bios $(OVMF_X64) \
+-rtc base=localtime,clock=host \
+-device nec-usb-xhci,id=xhci -device usb-tablet \
+-drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
+-device intel-hda -device hda-duplex \
+-monitor stdio
 
 run_up:
-	qemu-system-x86_64 -machine q35 \
-		-cpu IvyBridge \
-		-bios $(OVMF_X64) \
-		-rtc base=localtime,clock=host \
-		-device nec-usb-xhci,id=xhci -device usb-tablet \
-		-drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
-		-device intel-hda -device hda-duplex \
-		-monitor stdio
+	$(QEMU_X64) -machine q35 -cpu IvyBridge \
+-bios $(OVMF_X64) \
+-rtc base=localtime,clock=host \
+-device nec-usb-xhci,id=xhci -device usb-tablet \
+-drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
+-device intel-hda -device hda-duplex \
+-monitor stdio
 
 run_x86:
-	qemu-system-i386 -machine q35 \
-		-cpu Haswell -smp 4,cores=2,threads=2 \
-		-bios $(OVMF_X86) \
-		-rtc base=localtime,clock=host \
-		-device nec-usb-xhci,id=xhci -device usb-tablet \
-		-drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
-		-device intel-hda -device hda-duplex \
-		-monitor stdio
+	$(QEMU_X64) -machine q35 -cpu IvyBridge -smp 4,cores=2,threads=2 \
+-bios $(OVMF_X86) \
+-rtc base=localtime,clock=host \
+-device nec-usb-xhci,id=xhci -device usb-tablet \
+-drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
+-device intel-hda -device hda-duplex \
+-monitor stdio
 
 boot:
-	(cd boot; cargo build -Zbuild-std --release --target x86_64-unknown-uefi)
-	(cd boot; cargo build -Zbuild-std --release --target i686-unknown-uefi)
+	(cd boot; cargo build --release --target x86_64-unknown-uefi)
+	(cd boot; cargo build --release --target i686-unknown-uefi)
 
 kernel:
-	(cd system; cargo build -Zbuild-std --release --target $(KRNL_ARCH).json)
+	(cd system; cargo build --release --target $(KRNL_ARCH).json)
 
 install: test $(EFI_VENDOR) $(EFI_BOOT) $(ALL_TARGETS) tools/mkinitrd/src/*.rs
 	cp $(TARGET_BOOT_EFI1) $(BOOT_EFI_BOOT1)

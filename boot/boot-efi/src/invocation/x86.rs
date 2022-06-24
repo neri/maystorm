@@ -29,7 +29,12 @@ impl Invoke for Invocation {
             return false;
         }
         let cpuid = unsafe { __cpuid(0x8000_0001) };
+        // LM
         if cpuid.edx & (1 << 29) == 0 {
+            return false;
+        }
+        // RDTSCP
+        if cpuid.edx & (1 << 27) == 0 {
             return false;
         }
         return true;

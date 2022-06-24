@@ -180,11 +180,10 @@ impl UsbHidDriver {
 
         let mut key_state = KeyboardState::new();
         let mut mouse_state = MouseState::empty();
-        let mut buffer = [0; Self::BUFFER_LEN];
+        let mut buffer = Vec::new();
         loop {
-            buffer.fill(0);
-            match device.read_slice(ep, &mut buffer, 1, ps).await {
-                Ok(size) => {
+            match device.read_vec(ep, &mut buffer, 1, ps).await {
+                Ok(_) => {
                     let app = match if report_desc.has_report_id() {
                         report_desc.app_by_report_id(buffer[0])
                     } else {
@@ -193,8 +192,12 @@ impl UsbHidDriver {
                         Some(v) => v,
                         None => continue,
                     };
-                    if size * 8 < app.bit_count_input() {
-                        log!("HID DATA SIZE {} < {}", size * 8, app.bit_count_input());
+                    if buffer.len() * 8 < app.bit_count_input() {
+                        log!(
+                            "HID DATA SIZE {} < {}",
+                            buffer.len() * 8,
+                            app.bit_count_input()
+                        );
                         continue;
                     }
 
@@ -417,7 +420,7 @@ impl UsbHidDriver {
         vec: &mut Vec<u8>,
     ) -> Result<(), UsbError> {
         device
-            .control_var(
+            .control_vec(
                 UsbControlSetupData::request(
                     UsbControlRequestBitmap(0xA1),
                     UsbControlRequest(0x01),

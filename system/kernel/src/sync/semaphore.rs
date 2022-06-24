@@ -22,7 +22,7 @@ impl Semaphore {
     pub const fn new(value: usize) -> Self {
         Self {
             value: AtomicUsize::new(value),
-            signal: SignallingObject::new(None),
+            signal: SignallingObject::default(),
         }
     }
 
@@ -82,7 +82,7 @@ impl BinarySemaphore {
     pub const fn new() -> Self {
         Self {
             value: AtomicBool::new(false),
-            signal: SignallingObject::new(None),
+            signal: SignallingObject::default(),
         }
     }
 
