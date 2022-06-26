@@ -8,5 +8,5 @@ pub trait ImageLoader {
 
     fn image_bounds(&self) -> (crate::page::VirtualAddress, usize);
 
-    fn locate(&self, base: crate::page::VirtualAddress) -> crate::page::VirtualAddress;
+    unsafe fn locate(&self, base: crate::page::VirtualAddress) -> crate::page::VirtualAddress;
 }

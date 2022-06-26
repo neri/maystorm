@@ -244,6 +244,7 @@ impl PageManager {
         }
     }
 
+    #[inline]
     fn shared() -> &'static mut Self {
         unsafe { &mut PM }
     }
@@ -308,11 +309,13 @@ impl PageManager {
         }
     }
 
-    fn ceil(base: PhysicalAddress, page: PhysicalAddress) -> PhysicalAddress {
+    #[inline]
+    const fn ceil(base: PhysicalAddress, page: PhysicalAddress) -> PhysicalAddress {
         (base + page - 1) & !(page - 1)
     }
 
-    fn pages(base: PhysicalAddress, page_size: PhysicalAddress) -> usize {
+    #[inline]
+    const fn pages(base: PhysicalAddress, page_size: PhysicalAddress) -> usize {
         (Self::ceil(base, page_size) / page_size) as usize
     }
 }

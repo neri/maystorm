@@ -3,71 +3,6 @@
 pub type ElfHalf = u16;
 pub type ElfWord = u32;
 pub type ElfXWord = u64;
-pub type Elf32Addr = u32;
-pub type Elf32Off = u32;
-pub type Elf64Addr = u64;
-pub type Elf64Off = u64;
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct Elf32Hdr {
-    pub e_ident: [u8; Self::EI_NIDENT],
-    pub e_type: ElfType,
-    pub e_machine: Machine,
-    pub e_version: ElfWord,
-    pub e_entry: Elf32Addr,
-    pub e_phoff: Elf32Off,
-    pub e_shoff: Elf32Off,
-    pub e_flags: ElfWord,
-    pub e_ehsize: ElfHalf,
-    pub e_phentsize: ElfHalf,
-    pub e_phnum: ElfHalf,
-    pub e_shentsize: ElfHalf,
-    pub e_shnum: ElfHalf,
-    pub e_shstrndx: ElfHalf,
-}
-
-impl Elf32Hdr {
-    pub const EI_NIDENT: usize = 16;
-    pub const MAGIC: [u8; 4] = *b"\x7FELF";
-
-    pub fn is_valid(&self) -> bool {
-        (self.e_ident[..4] == Self::MAGIC)
-            && (self.e_ident[4] == 1)
-            && (self.e_ident[5] == 1)
-            && (self.e_ident[6] == 1)
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct Elf64Hdr {
-    pub n_ident: [u8; 16],
-    pub e_type: ElfType,
-    pub e_machine: Machine,
-    pub e_version: ElfWord,
-    pub e_entry: Elf64Addr,
-    pub e_phoff: Elf64Off,
-    pub e_shoff: Elf64Off,
-    pub e_flags: ElfWord,
-    pub e_ehsize: ElfHalf,
-    pub e_phentsize: ElfHalf,
-    pub e_phnum: ElfHalf,
-    pub e_shentsize: ElfHalf,
-    pub e_shnum: ElfHalf,
-    pub e_shstrndx: ElfHalf,
-}
-
-impl Elf64Hdr {
-    pub const MAGIC: [u8; 4] = *b"\x7FELF";
-
-    pub fn is_valid(&self) -> bool {
-        (self.n_ident[..4] == Self::MAGIC)
-            && (self.n_ident[4] == 2)
-            && (self.n_ident[5] == 1)
-            && (self.n_ident[6] == 1)
-    }
-}
 
 #[repr(u16)]
 #[non_exhaustive]
@@ -95,43 +30,17 @@ pub enum Machine {
     Arm = 0x28,
     IA64 = 0x32,
     X86_64 = 0x3E,
-    Arch64 = 0xB7,
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct Elf32Phdr {
-    pub p_type: ElfSegmentType,
-    pub p_offset: Elf32Off,
-    pub p_vaddr: Elf32Addr,
-    pub p_paddr: Elf32Addr,
-    pub p_filesz: ElfWord,
-    pub p_memsz: ElfWord,
-    pub p_flags: ElfWord,
-    pub p_align: ElfWord,
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct Elf64Phdr {
-    pub p_type: ElfSegmentType,
-    pub p_flags: ElfWord,
-    pub p_offset: Elf64Off,
-    pub p_vaddr: Elf64Addr,
-    pub p_paddr: Elf64Addr,
-    pub p_filesz: ElfXWord,
-    pub p_memsz: ElfXWord,
-    pub p_align: ElfXWord,
+    AArch64 = 0xB7,
 }
 
 #[repr(u32)]
 #[non_exhaustive]
 #[allow(non_camel_case_types)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ElfSegmentType {
+pub enum SegmentType {
     NULL = 0,
     LOAD = 1,
-    DYBAMIC = 2,
+    DYNAMIC = 2,
     INTERP = 3,
     NOTE = 4,
     SHLIB = 5,
@@ -144,4 +53,105 @@ pub enum ElfSegmentType {
     PT_HIOS = 0x6FFF_FFFF,
     PT_LOPROC = 0x7000_0000,
     PT_HIPROC = 0x7FFF_FFFF,
+}
+
+pub mod elf32 {
+    use super::*;
+
+    pub type ElfAddr = u32;
+    pub type ElfOff = u32;
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy)]
+    pub struct Header {
+        pub e_ident: [u8; Self::EI_NIDENT],
+        pub e_type: ElfType,
+        pub e_machine: Machine,
+        pub e_version: ElfWord,
+        pub e_entry: ElfAddr,
+        pub e_phoff: ElfOff,
+        pub e_shoff: ElfOff,
+        pub e_flags: ElfWord,
+        pub e_ehsize: ElfHalf,
+        pub e_phentsize: ElfHalf,
+        pub e_phnum: ElfHalf,
+        pub e_shentsize: ElfHalf,
+        pub e_shnum: ElfHalf,
+        pub e_shstrndx: ElfHalf,
+    }
+
+    impl Header {
+        pub const EI_NIDENT: usize = 16;
+        pub const MAGIC: [u8; 4] = *b"\x7FELF";
+
+        pub fn is_valid(&self) -> bool {
+            (self.e_ident[..4] == Self::MAGIC)
+                && (self.e_ident[4] == 1)
+                && (self.e_ident[5] == 1)
+                && (self.e_ident[6] == 1)
+        }
+    }
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy)]
+    pub struct ProgramHeader {
+        pub p_type: SegmentType,
+        pub p_offset: ElfOff,
+        pub p_vaddr: ElfAddr,
+        pub p_paddr: ElfAddr,
+        pub p_filesz: ElfWord,
+        pub p_memsz: ElfWord,
+        pub p_flags: ElfWord,
+        pub p_align: ElfWord,
+    }
+}
+
+pub mod elf64 {
+    use super::*;
+
+    pub type ElfAddr = u64;
+    pub type ElfOff = u64;
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy)]
+    pub struct Header {
+        pub e_ident: [u8; 16],
+        pub e_type: ElfType,
+        pub e_machine: Machine,
+        pub e_version: ElfWord,
+        pub e_entry: ElfAddr,
+        pub e_phoff: ElfOff,
+        pub e_shoff: ElfOff,
+        pub e_flags: ElfWord,
+        pub e_ehsize: ElfHalf,
+        pub e_phentsize: ElfHalf,
+        pub e_phnum: ElfHalf,
+        pub e_shentsize: ElfHalf,
+        pub e_shnum: ElfHalf,
+        pub e_shstrndx: ElfHalf,
+    }
+
+    impl Header {
+        pub const MAGIC: [u8; 4] = *b"\x7FELF";
+
+        pub fn is_valid(&self) -> bool {
+            (self.e_ident[..4] == Self::MAGIC)
+                && (self.e_ident[4] == 2)
+                && (self.e_ident[5] == 1)
+                && (self.e_ident[6] == 1)
+        }
+    }
+
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy)]
+    pub struct ProgramHeader {
+        pub p_type: SegmentType,
+        pub p_flags: ElfWord,
+        pub p_offset: ElfOff,
+        pub p_vaddr: ElfAddr,
+        pub p_paddr: ElfAddr,
+        pub p_filesz: ElfXWord,
+        pub p_memsz: ElfXWord,
+        pub p_align: ElfXWord,
+    }
 }

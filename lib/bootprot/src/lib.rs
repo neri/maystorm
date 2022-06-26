@@ -39,7 +39,7 @@ pub enum Platform {
     PcCompatible = 2,
     /// Fujitsu FM TOWNS
     FmTowns = 3,
-    /// UEFI
+    /// UEFI based Computer
     UEFI = 4,
 }
 

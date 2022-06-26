@@ -24,7 +24,7 @@ BOOT_EFI_BOOT1	= $(EFI_BOOT)/bootx64.efi
 BOOT_EFI_VENDOR1	= $(EFI_VENDOR)/bootx64.efi
 TARGET_BOOT_EFI1	= boot/target/x86_64-unknown-uefi/release/boot-efi.efi
 
-OVMF_X86		= var/ovmfx86.fd
+OVMF_X86		= var/ovmfia32.fd
 BOOT_EFI_BOOT2	= $(EFI_BOOT)/bootia32.efi
 BOOT_EFI_VENDOR2	= $(EFI_VENDOR)/bootia32.efi
 TARGET_BOOT_EFI2	= boot/target/i686-unknown-uefi/release/boot-efi.efi

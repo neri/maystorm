@@ -21,10 +21,12 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
         uefi::alloc::init(st.boot_services());
     }
 
-    let mut info = BootInfo::default();
+    let mut info = BootInfo {
+        platform: Platform::UEFI,
+        color_mode: ColorMode::Argb32,
+        ..Default::default()
+    };
     let bs = st.boot_services();
-    info.platform = Platform::UEFI;
-    info.color_mode = ColorMode::Argb32;
 
     // Find the ACPI Table
     info.acpi_rsdptr = match st.find_config_table(::uefi::table::cfg::ACPI2_GUID) {
@@ -86,11 +88,13 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
             return status;
         }
     };
-    let mut kernel = ElfLoader::new(&blob);
-    if kernel.recognize().is_err() {
-        writeln!(st.stdout(), "Error: BAD KERNEL SIGNATURE FOUND").unwrap();
-        return Status::LOAD_ERROR;
-    }
+    let kernel = match ElfLoader::parse(&blob) {
+        Some(v) => v,
+        None => {
+            writeln!(st.stdout(), "Error: BAD KERNEL SIGNATURE FOUND").unwrap();
+            return Status::LOAD_ERROR;
+        }
+    };
     let bounds = kernel.image_bounds();
     info.kernel_base = bounds.0.as_u64();
 
@@ -136,16 +140,13 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
 
     unsafe {
         PageManager::init_late(&mut info, mm);
-    }
+        let entry = kernel.locate(VirtualAddress(info.kernel_base));
 
-    let entry = kernel.locate(VirtualAddress(info.kernel_base));
+        let stack_size: usize = 0x4000;
+        let new_sp = VirtualAddress(info.kernel_base + 0x3FFFF000);
+        PageManager::valloc(new_sp - stack_size, stack_size);
 
-    let stack_size: usize = 0x4000;
-    let new_sp = VirtualAddress(info.kernel_base + 0x3FFFF000);
-    PageManager::valloc(new_sp - stack_size, stack_size);
-
-    // println!("hello, world");
-    unsafe {
+        // println!("hello, world");
         invocation.invoke_kernel(&info, entry, new_sp);
     }
 }
