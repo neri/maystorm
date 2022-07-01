@@ -1,4 +1,4 @@
-// Minimal ELF File Loader
+//! Minimal ELF File Loader
 
 use super::{elf::*, *};
 use crate::page::*;
@@ -20,32 +20,21 @@ impl<'a> ElfLoader<'a> {
             image_base: VirtualAddress(0),
             image_size: 0,
         };
-        result.recognize().map(|_| result).ok()
+        result._recognize().then_some(result)
     }
 
-    #[inline]
-    fn program_header(&self) -> ElfProgramHeaderIter {
-        unsafe {
-            ElfProgramHeaderIter::new(
-                self.blob.as_ptr().add(self.elf_hdr.e_phoff as usize),
-                self.elf_hdr.e_phentsize as usize,
-                self.elf_hdr.e_phnum as usize,
-            )
-        }
-    }
-}
-
-impl ImageLoader for ElfLoader<'_> {
-    fn recognize(&mut self) -> Result<(), ()> {
+    fn _recognize(&mut self) -> bool {
         #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
         let preferred_machine = Machine::X86_64;
+        #[cfg(target_arch = "aarch64")]
+        let preferred_machine = Machine::AArch64;
 
         let elf_hdr = self.elf_hdr;
         if elf_hdr.is_valid()
             && elf_hdr.e_type == ElfType::EXEC
             && elf_hdr.e_machine == preferred_machine
         {
-            let page_mask = PageConfig::UEFI_PAGE_SIZE - 1;
+            let page_mask = UEFI_PAGE_SIZE - 1;
             let image_base = VirtualAddress(
                 self.program_header()
                     .filter(|v| v.p_type == SegmentType::LOAD)
@@ -63,12 +52,25 @@ impl ImageLoader for ElfLoader<'_> {
             self.image_base = image_base;
             self.image_size = image_size;
 
-            Ok(())
+            true
         } else {
-            Err(())
+            false
         }
     }
 
+    #[inline]
+    fn program_header(&self) -> impl Iterator<Item = elf64::ProgramHeader> {
+        unsafe {
+            ElfProgramHeaderIter::new(
+                self.blob.as_ptr().add(self.elf_hdr.e_phoff as usize),
+                self.elf_hdr.e_phentsize as usize,
+                self.elf_hdr.e_phnum as usize,
+            )
+        }
+    }
+}
+
+impl ImageLoader for ElfLoader<'_> {
     #[inline]
     fn image_bounds(&self) -> (VirtualAddress, usize) {
         (self.image_base, self.image_size)
@@ -80,8 +82,8 @@ impl ImageLoader for ElfLoader<'_> {
         let image_size = self.image_size;
 
         // Step 1 - allocate memory
-        let page_mask = PageConfig::UEFI_PAGE_SIZE - 1;
-        let vmem = PageManager::valloc(image_base, image_size) as *mut u8;
+        let page_mask = UEFI_PAGE_SIZE - 1;
+        let vmem = PageManager::valloc(image_base, image_size);
         vmem.write_bytes(0, image_size);
 
         // Step 2 - locate segments

@@ -1,73 +1,30 @@
 //! Minimal Page Manager
 
+use super::*;
 use crate::*;
 use bitflags::*;
-use bootprot::*;
-use core::{intrinsics::*, ops::*, ptr, slice};
-use uefi::table::boot::*;
+use core::{
+    intrinsics::*,
+    ptr, slice,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
-pub struct PageConfig();
-
-impl PageConfig {
-    /// UEFI virtual page size (not the actual page size)
-    pub const UEFI_PAGE_SIZE: u64 = 0x0000_1000;
-    const N_DIRECT_MAP_GIGA: usize = 4;
-    const MAX_REAL_MEMORY: u64 = 0x0000A_0000;
-}
-
-type IntPtr = u64;
-
-#[repr(transparent)]
-#[derive(Debug, Copy, Clone, Default, PartialEq, PartialOrd)]
-pub struct VirtualAddress(pub IntPtr);
+const N_DIRECT_MAP_GIGA: usize = 4;
+const MAX_REAL_MEMORY: u64 = 0x0000A_0000;
 
 impl VirtualAddress {
-    pub const fn as_u64(&self) -> u64 {
-        self.0 as u64
-    }
-
     pub const fn index_of(&self, level: usize) -> usize {
         (self.0 >> (level * PageTableEntry::SHIFT_PER_LEVEL + PageTableEntry::SHIFT_PTE)) as usize
             & PageTableEntry::INDEX_MASK
     }
 }
 
-impl Add<u32> for VirtualAddress {
-    type Output = Self;
-    fn add(self, rhs: u32) -> Self {
-        VirtualAddress(self.0 + rhs as IntPtr)
-    }
-}
-
-impl Add<u64> for VirtualAddress {
-    type Output = Self;
-    fn add(self, rhs: u64) -> Self {
-        VirtualAddress(self.0 + rhs as IntPtr)
-    }
-}
-
-impl Add<usize> for VirtualAddress {
-    type Output = Self;
-    fn add(self, rhs: usize) -> Self {
-        VirtualAddress(self.0 + rhs as IntPtr)
-    }
-}
-
-impl Sub<usize> for VirtualAddress {
-    type Output = Self;
-    fn sub(self, rhs: usize) -> Self {
-        VirtualAddress(self.0 - rhs as IntPtr)
-    }
-}
-
-pub type PhysicalAddress = u64;
-
 static mut PM: PageManager = PageManager::new();
 
 pub struct PageManager {
     pub master_cr3: PhysicalAddress,
-    pub static_start: PhysicalAddress,
-    pub static_free: PhysicalAddress,
+    pub static_start: AtomicU64,
+    pub static_free: AtomicU64,
     pml2k: PageTableEntry,
 }
 
@@ -75,8 +32,8 @@ impl PageManager {
     const fn new() -> Self {
         Self {
             master_cr3: 0,
-            static_start: 0,
-            static_free: 0,
+            static_start: AtomicU64::new(0),
+            static_free: AtomicU64::new(0),
             pml2k: PageTableEntry::empty(),
         }
     }
@@ -85,7 +42,7 @@ impl PageManager {
     pub unsafe fn init_first(bs: &BootServices) -> Result<(), Status> {
         let max_address = 0xFFFF_0000;
         let page_size = 0x0020_0000;
-        let count = page_size / PageConfig::UEFI_PAGE_SIZE;
+        let count = page_size / UEFI_PAGE_SIZE;
         let page_base = match bs.allocate_pages(
             AllocateType::MaxAddress(max_address),
             MemoryType::LOADER_DATA,
@@ -95,8 +52,8 @@ impl PageManager {
             Err(err) => return Err(err.status()),
         };
         let shared = Self::shared();
-        shared.static_start = page_base;
-        shared.static_free = page_size;
+        shared.static_start.store(page_base, Ordering::Release);
+        shared.static_free.store(page_size, Ordering::Release);
         Ok(())
     }
 
@@ -109,9 +66,8 @@ impl PageManager {
 
         let mm_len = mm.len();
         let buffer = Self::alloc_pages(
-            (size_of::<BootMemoryMapDescriptor>() * mm_len + PageConfig::UEFI_PAGE_SIZE as usize
-                - 1)
-                / PageConfig::UEFI_PAGE_SIZE as usize,
+            (size_of::<BootMemoryMapDescriptor>() * mm_len + UEFI_PAGE_SIZE as usize - 1)
+                / UEFI_PAGE_SIZE as usize,
         ) as usize as *const BootMemoryMapDescriptor
             as *mut BootMemoryMapDescriptor;
         info.mmap_base = buffer as usize as u32;
@@ -124,7 +80,7 @@ impl PageManager {
         for mem_desc in mm {
             let mut has_to_copy = true;
             let page_base = mem_desc.phys_start;
-            let page_size = mem_desc.page_count * PageConfig::UEFI_PAGE_SIZE;
+            let page_size = mem_desc.page_count * UEFI_PAGE_SIZE;
             let last_pa = page_base + page_size;
             if mem_desc.ty.is_countable() {
                 total_memory_size += page_size;
@@ -133,7 +89,7 @@ impl PageManager {
                 }
             }
             if mem_desc.ty.is_conventional_at_runtime() {
-                if last_pa <= PageConfig::MAX_REAL_MEMORY {
+                if last_pa <= MAX_REAL_MEMORY {
                     let base = page_base / 0x1000;
                     let count = page_size / 0x1000;
                     let limit = core::cmp::min(base + count, 256);
@@ -157,8 +113,8 @@ impl PageManager {
                     write_cursor += 1;
                 } else {
                     let prev_mem_desc = &buffer[read_cursor];
-                    let prev_last_pa = prev_mem_desc.base
-                        + prev_mem_desc.page_count as u64 * PageConfig::UEFI_PAGE_SIZE;
+                    let prev_last_pa =
+                        prev_mem_desc.base + prev_mem_desc.page_count as u64 * UEFI_PAGE_SIZE;
 
                     if prev_mem_desc.mem_type == BootMemoryType::Available
                         && boot_mem_desc.mem_type == BootMemoryType::Available
@@ -189,7 +145,7 @@ impl PageManager {
         let pml3 = PageTableEntry::from(pml3p).table(1);
         pml4[0] = PageTableEntry::new(pml3p, common_attributes);
 
-        let n_pages = PageConfig::N_DIRECT_MAP_GIGA;
+        let n_pages = N_DIRECT_MAP_GIGA;
         let pml2p = Self::alloc_pages(n_pages);
         let pml2 = PageTableEntry::from(pml2p).table(n_pages);
         for i in 0..n_pages {
@@ -253,11 +209,17 @@ impl PageManager {
         let shared = Self::shared();
         let size = pages as u64 * PageTableEntry::NATIVE_PAGE_SIZE;
         unsafe {
-            let result = atomic_xadd(&mut shared.static_start, size) as PhysicalAddress;
-            if shared.static_free <= size {
-                panic!("Out of memory");
-            }
-            atomic_xsub(&mut shared.static_free, size);
+            let result = shared.static_start.fetch_add(size, Ordering::SeqCst);
+            shared
+                .static_free
+                .fetch_update(Ordering::AcqRel, Ordering::Relaxed, |free| {
+                    if free > size {
+                        Some(free - size)
+                    } else {
+                        panic!("Out of memory");
+                    }
+                })
+                .unwrap();
             let ptr = result as *const u8 as *mut u8;
             ptr::write_bytes(ptr, 0, size as usize);
             result
@@ -282,7 +244,7 @@ impl PageManager {
         &mut pml1[offset]
     }
 
-    pub fn valloc(base: VirtualAddress, size: usize) -> usize {
+    pub fn valloc(base: VirtualAddress, size: usize) -> *mut u8 {
         let common_attributes = PageAttributes::from(MProtect::READ | MProtect::WRITE);
 
         let size = Self::pages(size as u64, PageTableEntry::NATIVE_PAGE_SIZE) as u64;
@@ -296,7 +258,7 @@ impl PageManager {
             );
         }
 
-        blob as usize
+        blob as usize as *mut u8
     }
 
     pub fn vprotect(base: VirtualAddress, size: usize, prot: MProtect) {
@@ -317,60 +279,6 @@ impl PageManager {
     #[inline]
     const fn pages(base: PhysicalAddress, page_size: PhysicalAddress) -> usize {
         (Self::ceil(base, page_size) / page_size) as usize
-    }
-}
-
-use uefi::table::boot::MemoryType;
-pub trait MemoryTypeHelper {
-    fn is_conventional_at_runtime(&self) -> bool;
-    fn is_countable(&self) -> bool;
-    fn as_boot_memory_type(&self) -> BootMemoryType;
-}
-impl MemoryTypeHelper for MemoryType {
-    #[inline]
-    fn is_conventional_at_runtime(&self) -> bool {
-        match *self {
-            MemoryType::CONVENTIONAL
-            | MemoryType::BOOT_SERVICES_CODE
-            | MemoryType::BOOT_SERVICES_DATA => true,
-            _ => false,
-        }
-    }
-
-    #[inline]
-    fn is_countable(&self) -> bool {
-        match *self {
-            MemoryType::CONVENTIONAL
-            | MemoryType::LOADER_CODE
-            | MemoryType::LOADER_DATA
-            | MemoryType::BOOT_SERVICES_CODE
-            | MemoryType::BOOT_SERVICES_DATA
-            | MemoryType::RUNTIME_SERVICES_CODE
-            | MemoryType::RUNTIME_SERVICES_DATA
-            | MemoryType::ACPI_RECLAIM => true,
-            _ => false,
-        }
-    }
-
-    #[inline]
-    fn as_boot_memory_type(&self) -> BootMemoryType {
-        match *self {
-            MemoryType::CONVENTIONAL
-            | MemoryType::BOOT_SERVICES_CODE
-            | MemoryType::BOOT_SERVICES_DATA => BootMemoryType::Available,
-            MemoryType::LOADER_CODE => BootMemoryType::OsLoaderCode,
-            MemoryType::LOADER_DATA => BootMemoryType::OsLoaderData,
-            MemoryType::ACPI_RECLAIM => BootMemoryType::AcpiReclaim,
-            MemoryType::ACPI_NON_VOLATILE => BootMemoryType::AcpiNonVolatile,
-            MemoryType::MMIO => BootMemoryType::Mmio,
-            MemoryType::MMIO_PORT_SPACE => BootMemoryType::MmioPortSpace,
-            MemoryType::RESERVED => BootMemoryType::Reserved,
-            MemoryType::UNUSABLE => BootMemoryType::Unavailable,
-            MemoryType::RUNTIME_SERVICES_CODE | MemoryType::PAL_CODE => {
-                BootMemoryType::FirmwareCode
-            }
-            _ => BootMemoryType::FirmwareData,
-        }
     }
 }
 
@@ -485,7 +393,7 @@ impl PageTableEntry {
     }
 }
 
-impl From<PhysicalAddress> for PageTableEntry {
+impl const From<PhysicalAddress> for PageTableEntry {
     #[inline]
     fn from(value: PhysicalAddress) -> Self {
         Self { repr: value }

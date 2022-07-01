@@ -3,44 +3,76 @@ use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
 /// Universally Unique Identifier (RFC 4122)
+#[repr(transparent)]
 #[derive(Copy, Clone, Eq)]
-pub struct Uuid {
-    a: u32,
-    b: u16,
-    c: u16,
-    d: [u8; 8],
-}
+pub struct Uuid([u8; 16]);
 
 impl Uuid {
-    #[inline]
-    pub const fn from_parts(a: u32, b: u16, c: u16, d: u16, e: [u8; 6]) -> Uuid {
-        Uuid {
-            a: u32::from_be(a),
-            b: u16::from_be(b),
-            c: u16::from_be(c),
-            d: [
-                (d % 0x100) as u8,
-                (d / 0x100) as u8,
-                e[0],
-                e[1],
-                e[2],
-                e[3],
-                e[4],
-                e[5],
-            ],
-        }
-    }
-
     pub const NULL: Self = Self::null();
 
     #[inline]
-    pub const fn null() -> Uuid {
-        Uuid {
-            a: 0,
-            b: 0,
-            c: 0,
-            d: [0; 8],
-        }
+    pub const fn from_parts(a: u32, b: u16, c: u16, d: u16, e: [u8; 6]) -> Self {
+        Self([
+            ((a >> 24) & 0xFF) as u8,
+            ((a >> 16) & 0xFF) as u8,
+            ((a >> 8) & 0xFF) as u8,
+            (a & 0xFF) as u8,
+            ((b >> 8) & 0xFF) as u8,
+            (b & 0xFF) as u8,
+            ((c >> 8) & 0xFF) as u8,
+            (c & 0xFF) as u8,
+            ((d >> 8) & 0xFF) as u8,
+            (d & 0xFF) as u8,
+            e[0],
+            e[1],
+            e[2],
+            e[3],
+            e[4],
+            e[5],
+        ])
+    }
+
+    #[inline]
+    pub const fn from_raw(data: [u8; 16]) -> Self {
+        Self(data)
+    }
+
+    #[inline]
+    pub const fn a(&self) -> u32 {
+        ((self.0[0] as u32) << 24)
+            + ((self.0[1] as u32) << 16)
+            + ((self.0[2] as u32) << 8)
+            + (self.0[3] as u32)
+    }
+
+    #[inline]
+    pub const fn b(&self) -> u16 {
+        ((self.0[4] as u16) << 8) + (self.0[5] as u16)
+    }
+
+    #[inline]
+    pub const fn c(&self) -> u16 {
+        ((self.0[6] as u16) << 8) + (self.0[7] as u16)
+    }
+
+    #[inline]
+    pub const fn d(&self) -> u16 {
+        ((self.0[8] as u16) << 8) + (self.0[9] as u16)
+    }
+
+    #[inline]
+    pub fn e(&self) -> &[u8] {
+        &self.0[10..]
+    }
+
+    #[inline]
+    pub fn e_u48(&self) -> u64 {
+        self.e().iter().fold(0, |acc, v| (acc << 8) + (*v as u64))
+    }
+
+    #[inline]
+    pub const fn null() -> Self {
+        Self([0; 16])
     }
 
     #[inline]
@@ -49,23 +81,18 @@ impl Uuid {
     }
 
     #[inline]
-    pub const fn from_raw(data: [u8; 16]) -> Self {
-        unsafe { transmute(data) }
-    }
-
-    #[inline]
     pub const fn into_raw(self) -> [u8; 16] {
-        unsafe { transmute(self) }
+        self.0
     }
 
     #[inline]
-    pub const fn from_slice(slice: &[u8; 16]) -> &Self {
-        unsafe { transmute(slice) }
+    pub const fn from_slice(slice: &[u8; 16]) -> Self {
+        Self(*slice)
     }
 
     #[inline]
     pub const fn as_slice(&self) -> &[u8; 16] {
-        unsafe { transmute(self) }
+        &self.0
     }
 
     #[inline]
@@ -75,7 +102,7 @@ impl Uuid {
 
     #[inline]
     pub fn version(&self) -> Option<UuidVersion> {
-        FromPrimitive::from_u16(self.c >> 12)
+        FromPrimitive::from_u8(self.0[6] >> 4)
     }
 }
 
@@ -86,22 +113,30 @@ impl const PartialEq for Uuid {
     }
 }
 
+impl PartialOrd for Uuid {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        self.as_slice().partial_cmp(other.as_slice())
+    }
+}
+
+impl Ord for Uuid {
+    #[inline]
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.as_slice().cmp(other.as_slice())
+    }
+}
+
 impl Debug for Uuid {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        let d = ((self.d[1] as u16) << 8) + (self.d[0] as u16);
-
-        let e = self.d[2..8]
-            .iter()
-            .fold(0, |acc, v| (acc << 8) + (*v as u64));
-
         write!(
             f,
             "{:08x}-{:04x}-{:04x}-{:04x}-{:012x}",
-            u32::from_be(self.a),
-            u16::from_be(self.b),
-            u16::from_be(self.c),
-            d,
-            e,
+            self.a(),
+            self.b(),
+            self.c(),
+            self.d(),
+            self.e_u48(),
         )
     }
 }
@@ -121,4 +156,45 @@ pub enum UuidVersion {
 
 pub unsafe trait Identify {
     const UUID: Uuid;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uuid1() {
+        let uuid1_raw = Uuid::from_raw([
+            0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, 0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54,
+            0x32, 0x10,
+        ]);
+        let uuid1 = Uuid::from_parts(
+            0x1234_5678,
+            0x9ABC,
+            0xDEF0,
+            0xFEDC,
+            [0xBA, 0x98, 0x76, 0x54, 0x32, 0x10],
+        );
+        let uuid2_raw = Uuid::from_raw([
+            0x11, 0xFF, 0x22, 0xEE, 0x33, 0xDD, 0x44, 0xCC, 0x55, 0xBB, 0x66, 0xAA, 0x77, 0x99,
+            0x88, 0x00,
+        ]);
+        let uuid2 = Uuid::from_parts(
+            0x11FF_22EE,
+            0x33DD,
+            0x44CC,
+            0x55BB,
+            [0x66, 0xAA, 0x77, 0x99, 0x88, 0x00],
+        );
+
+        assert_eq!(uuid1, uuid1_raw);
+        assert_eq!(uuid2, uuid2_raw);
+        assert_ne!(uuid1, uuid2);
+
+        assert_eq!(uuid1.a(), 0x1234_5678);
+        assert_eq!(uuid1.b(), 0x9ABC);
+        assert_eq!(uuid1.c(), 0xDEF0);
+        assert_eq!(uuid1.d(), 0xFEDC);
+        assert_eq!(uuid1.e_u48(), 0xBA98_7654_3210);
+    }
 }

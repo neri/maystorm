@@ -99,6 +99,7 @@ apps:
 	cargo run --manifest-path ./tools/wasm-strip/Cargo.toml -- -preserve name $$name $$name; done
 
 test:
+	cargo test --manifest-path lib/megstd/Cargo.toml
 	cargo test --manifest-path lib/wasm/Cargo.toml
 
 doc:

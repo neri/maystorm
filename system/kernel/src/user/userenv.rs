@@ -30,7 +30,7 @@ impl UserEnv {
 async fn slpash_task(f: fn()) {
     let is_gui_boot = true;
 
-    if false {
+    if true {
         let width = 320;
         let height = 200;
 

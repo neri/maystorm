@@ -4,15 +4,7 @@
 
 use alloc::{boxed::Box, vec::Vec};
 use core::{alloc::Layout, fmt::Write, panic::PanicInfo};
-use uefi::CStr16;
-use uefi::{
-    prelude::*,
-    proto::{
-        loaded_image::LoadedImage,
-        media::{file::*, fs::*},
-    },
-    table::boot::OpenProtocolParams,
-};
+use uefi::{prelude::*, proto::media::file::*, CStr16};
 extern crate alloc;
 
 pub mod debug;
@@ -46,25 +38,7 @@ macro_rules! println {
 }
 
 pub fn get_file(handle: Handle, bs: &BootServices, path: &str) -> Result<Box<[u8]>, Status> {
-    let li: &LoadedImage = match bs.open_protocol(
-        OpenProtocolParams {
-            handle,
-            agent: handle,
-            controller: None,
-        },
-        uefi::table::boot::OpenProtocolAttributes::GetProtocol,
-    ) {
-        Ok(val) => unsafe { &*val.interface.get() },
-        Err(_) => return Err(Status::LOAD_ERROR),
-    };
-    let fs: &mut SimpleFileSystem = match bs.open_protocol(
-        OpenProtocolParams {
-            handle: li.device(),
-            agent: handle,
-            controller: None,
-        },
-        uefi::table::boot::OpenProtocolAttributes::GetProtocol,
-    ) {
+    let fs = match bs.get_image_file_system(handle) {
         Ok(val) => unsafe { &mut *val.interface.get() },
         Err(_) => return Err(Status::LOAD_ERROR),
     };

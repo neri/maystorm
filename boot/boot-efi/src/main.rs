@@ -7,10 +7,9 @@
 use boot_efi::{invocation::*, loader::*, page::*};
 use bootprot::*;
 use core::{ffi::c_void, fmt::Write, mem::*};
-use uefi::prelude::*;
-
-extern crate lib_efi;
 use lib_efi::*;
+use uefi::prelude::*;
+extern crate lib_efi;
 
 static KERNEL_PATH: &str = "/EFI/MEGOS/kernel.bin";
 static INITRD_PATH: &str = "/EFI/MEGOS/initrd.img";

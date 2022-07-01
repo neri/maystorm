@@ -1,4 +1,6 @@
 #![no_std]
+#![feature(const_mut_refs)]
+#![feature(const_trait_impl)]
 #![feature(core_intrinsics)]
 #![feature(generic_arg_infer)]
 

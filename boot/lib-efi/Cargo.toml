@@ -8,4 +8,4 @@ version = "0.1.0"
 
 [dependencies]
 bitflags = {}
-uefi = {features = ['alloc']}
+uefi = {features = ['exts', 'alloc']}
