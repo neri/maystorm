@@ -34,11 +34,9 @@ A hobby operating system written in Rust that supports WebAssembly.
 
 ### build
 
-1. Install llvm
-2. Install rust (nightly)
-3. `make install`
+1. `make install`
 
-If you get an error that the linker cannot be found, configure your linker in `~/.cargo/config.toml` or something similar.
+If you get a linker error, configure your linker in `~/.cargo/config.toml` or similar.
 
 ```
 [target.x86_64-unknown-none]

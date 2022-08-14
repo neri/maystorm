@@ -16,6 +16,7 @@ pub struct BootInfo {
     pub vram_base: u64,
     pub master_cr3: u64,
     pub acpi_rsdptr: u64,
+    pub dtb: u64,
     pub smbios: u64,
     pub kernel_base: u64,
     pub total_memory_size: u64,

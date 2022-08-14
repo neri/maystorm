@@ -8,11 +8,18 @@ use boot_efi::{invocation::*, loader::*, page::*};
 use bootprot::*;
 use core::{ffi::c_void, fmt::Write, mem::*};
 use lib_efi::*;
-use uefi::prelude::*;
-extern crate lib_efi;
+use uefi::{
+    data_types::Guid,
+    prelude::*,
+    table::cfg::{ACPI2_GUID, SMBIOS_GUID},
+};
 
 static KERNEL_PATH: &str = "/EFI/MEGOS/kernel.bin";
 static INITRD_PATH: &str = "/EFI/MEGOS/initrd.img";
+
+//#define EFI_DTB_TABLE_GUID  {0xb1b621d5, 0xf19c, 0x41a5, {0x83, 0x0b, 0xd9, 0x15, 0x2c, 0x69, 0xaa, 0xe0}}
+const EFI_DTB_TABLE_GUID: Guid =
+    Guid::from_values(0xb1b621d5, 0xf19c, 0x41a5, 0x830b, 0xd9152c69aae0);
 
 #[entry]
 fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
@@ -28,7 +35,7 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
     let bs = st.boot_services();
 
     // Find the ACPI Table
-    info.acpi_rsdptr = match st.find_config_table(::uefi::table::cfg::ACPI2_GUID) {
+    info.acpi_rsdptr = match st.find_config_table(ACPI2_GUID) {
         Some(val) => val as u64,
         None => {
             writeln!(st.stdout(), "Error: ACPI Table Not Found").unwrap();
@@ -36,8 +43,14 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
         }
     };
 
+    // Find DeviceTree
+    info.dtb = match st.find_config_table(EFI_DTB_TABLE_GUID) {
+        Some(val) => val as u64,
+        None => 0,
+    };
+
     // Find the SMBIOS Table
-    info.smbios = match st.find_config_table(::uefi::table::cfg::SMBIOS_GUID) {
+    info.smbios = match st.find_config_table(SMBIOS_GUID) {
         Some(val) => val as u64,
         None => 0,
     };
@@ -81,7 +94,7 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
 
     // Load the KERNEL
     let blob = match get_file(handle, &bs, KERNEL_PATH) {
-        Ok(blob) => (blob),
+        Ok(blob) => blob,
         Err(status) => {
             writeln!(st.stdout(), "Error: Load failed {}", KERNEL_PATH).unwrap();
             return status;
