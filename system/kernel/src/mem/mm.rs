@@ -20,7 +20,6 @@ use core::{
     slice,
     sync::atomic::*,
 };
-use megstd::string::*;
 
 pub use crate::arch::page::{NonNullPhysicalAddress, PhysicalAddress};
 
@@ -295,9 +294,8 @@ impl MemoryManager {
         None
     }
 
-    pub fn statistics(sb: &mut StringBuffer) {
+    pub fn statistics(sb: &mut impl Write) {
         let shared = Self::shared();
-        sb.clear();
 
         let lost_size = shared.lost_size.load(Ordering::Relaxed);
         let n_fragments = shared.n_fragments.load(Ordering::Relaxed);

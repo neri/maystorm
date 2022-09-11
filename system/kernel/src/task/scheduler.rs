@@ -575,7 +575,7 @@ impl Scheduler {
         }
     }
 
-    pub fn print_statistics(sb: &mut StringBuffer) {
+    pub fn print_statistics(sb: &mut impl Write) {
         let max_load = 1000 * System::current_device().num_of_active_cpus() as u32;
         writeln!(sb, "PID P #TH %CPU TIME     NAME").unwrap();
         for process in ProcessPool::shared().read().unwrap().values() {
@@ -620,7 +620,7 @@ impl Scheduler {
         }
     }
 
-    pub fn get_thread_statistics(sb: &mut StringBuffer) {
+    pub fn get_thread_statistics(sb: &mut impl Write) {
         writeln!(sb, " ID PID P ST %CPU TIME     stack            NAME").unwrap();
         for thread in ThreadPool::shared().data.lock().values() {
             let thread = thread.clone();

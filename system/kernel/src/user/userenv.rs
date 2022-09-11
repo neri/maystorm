@@ -14,7 +14,7 @@ use crate::{
     ui::window::*,
     *,
 };
-use ::alloc::{sync::Arc, vec::*};
+use ::alloc::{string::String, sync::Arc, vec::*};
 use core::{fmt::Write, time::Duration};
 use megstd::{drawing::image::ImageLoader, drawing::*, io::Read, string::*};
 
@@ -274,7 +274,7 @@ async fn activity_monitor_main() {
         vec
     };
 
-    let mut sb = StringBuffer::with_capacity(0x1000);
+    let mut sb = String::new();
 
     let interval = Duration::from_secs(1);
     window.create_timer(0, Duration::from_secs(0));
@@ -370,10 +370,6 @@ async fn activity_monitor_main() {
                             let device = System::current_device();
 
                             write!(sb, "Memory ").unwrap();
-                            format_bytes(&mut sb, MemoryManager::free_memory_size()).unwrap();
-                            write!(sb, "B /").unwrap();
-                            format_bytes(&mut sb, device.total_memory_size()).unwrap();
-                            write!(sb, "B Free, ").unwrap();
                             format_bytes(
                                 &mut sb,
                                 device.total_memory_size()
@@ -381,7 +377,11 @@ async fn activity_monitor_main() {
                                     - MemoryManager::reserved_memory_size(),
                             )
                             .unwrap();
-                            writeln!(sb, "B Used").unwrap();
+                            write!(sb, "B /").unwrap();
+                            format_bytes(&mut sb, device.total_memory_size()).unwrap();
+                            write!(sb, "B, ").unwrap();
+                            format_bytes(&mut sb, MemoryManager::free_memory_size()).unwrap();
+                            writeln!(sb, "B Free").unwrap();
 
                             let usage = Scheduler::usage_per_cpu();
                             let usage0 = usage % 10;

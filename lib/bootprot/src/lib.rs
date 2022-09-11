@@ -1,6 +1,7 @@
 //! MEG-OS Boot Procotol
 
 #![no_std]
+#![feature(const_trait_impl)]
 
 use bitflags::*;
 use core::fmt;
@@ -8,7 +9,7 @@ use core::fmt;
 #[repr(C)]
 #[derive(Default)]
 pub struct BootInfo {
-    pub platform: Platform,
+    pub platform: PlatformType,
     pub color_mode: ColorMode,
     pub screen_width: u16,
     pub screen_height: u16,
@@ -32,26 +33,26 @@ pub struct BootInfo {
 #[non_exhaustive]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
-pub enum Platform {
+pub enum PlatformType {
     Unknown = 0,
-    /// NEC PC-98 Series Computer
+    /// IA32-Legacy NEC PC-98 Series Computer
     Nec98 = 1,
-    /// IBM PC Compatible
+    /// IA32-Legacy IBM PC Compatible
     PcCompatible = 2,
-    /// Fujitsu FM TOWNS
+    /// IA32-Legacy Fujitsu FM TOWNS
     FmTowns = 3,
-    /// UEFI based Computer
+    /// UEFI based
     UEFI = 4,
 }
 
-impl Default for Platform {
+impl const Default for PlatformType {
     #[inline]
     fn default() -> Self {
         Self::Unknown
     }
 }
 
-impl fmt::Display for Platform {
+impl fmt::Display for PlatformType {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -71,11 +72,12 @@ pub enum ColorMode {
     Unspecified = 0,
     /// 8bit Indexed Color Mode
     Indexed8 = 8,
-    /// 32bit ARGB Color Mode
+    /// 32bit Color (Little Endian B-G-R-A, VESA, UEFI)
     Argb32 = 32,
+    // R-G-B-A
 }
 
-impl Default for ColorMode {
+impl const Default for ColorMode {
     #[inline]
     fn default() -> Self {
         Self::Unspecified
@@ -90,7 +92,7 @@ bitflags! {
     }
 }
 
-impl Default for BootFlags {
+impl const Default for BootFlags {
     #[inline]
     fn default() -> Self {
         Self::empty()

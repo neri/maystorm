@@ -1,5 +1,4 @@
-// MEG-OS Boot loader for UEFI
-
+//! MEG-OS Boot loader for UEFI
 #![no_std]
 #![no_main]
 #![feature(abi_efiapi)]
@@ -11,15 +10,18 @@ use lib_efi::*;
 use uefi::{
     data_types::Guid,
     prelude::*,
-    table::cfg::{ACPI2_GUID, SMBIOS_GUID},
+    proto::console::gop,
+    table::{
+        boot::MemoryType,
+        cfg::{ACPI2_GUID, SMBIOS_GUID},
+    },
 };
+
+//#define EFI_DTB_TABLE_GUID  {0xb1b621d5, 0xf19c, 0x41a5, {0x83, 0x0b, 0xd9, 0x15, 0x2c, 0x69, 0xaa, 0xe0}}
+const DTB_GUID: Guid = Guid::from_values(0xb1b621d5, 0xf19c, 0x41a5, 0x830b, 0xd9152c69aae0);
 
 static KERNEL_PATH: &str = "/EFI/MEGOS/kernel.bin";
 static INITRD_PATH: &str = "/EFI/MEGOS/initrd.img";
-
-//#define EFI_DTB_TABLE_GUID  {0xb1b621d5, 0xf19c, 0x41a5, {0x83, 0x0b, 0xd9, 0x15, 0x2c, 0x69, 0xaa, 0xe0}}
-const EFI_DTB_TABLE_GUID: Guid =
-    Guid::from_values(0xb1b621d5, 0xf19c, 0x41a5, 0x830b, 0xd9152c69aae0);
 
 #[entry]
 fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
@@ -28,7 +30,7 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
     }
 
     let mut info = BootInfo {
-        platform: Platform::UEFI,
+        platform: PlatformType::UEFI,
         color_mode: ColorMode::Argb32,
         ..Default::default()
     };
@@ -44,7 +46,7 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
     };
 
     // Find DeviceTree
-    info.dtb = match st.find_config_table(EFI_DTB_TABLE_GUID) {
+    info.dtb = match st.find_config_table(DTB_GUID) {
         Some(val) => val as u64,
         None => 0,
     };
@@ -67,9 +69,9 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
     }
 
     // Init graphics
-    if let Ok(gop) = bs.locate_protocol::<::uefi::proto::console::gop::GraphicsOutput>() {
+    let mut graphics_ok = false;
+    if let Ok(gop) = unsafe { bs.locate_protocol::<gop::GraphicsOutput>() } {
         let gop = unsafe { &mut *gop.get() };
-
         let gop_info = gop.current_mode_info();
         let mut fb = gop.frame_buffer();
         info.vram_base = fb.as_mut_ptr() as usize as u64;
@@ -87,10 +89,17 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
         info.screen_height = height as u16;
 
         debug::Console::init(info.vram_base as usize, width, height, stride);
-    } else if !info.flags.contains(BootFlags::HEADLESS) {
+        graphics_ok = true;
+    }
+    if !graphics_ok && !info.flags.contains(BootFlags::HEADLESS) {
         writeln!(st.stdout(), "Error: GOP Not Found").unwrap();
         return Status::LOAD_ERROR;
     }
+
+    // println!("ACPI: {:012x}", info.acpi_rsdptr);
+    // println!("SMBIOS: {:012x}", info.smbios);
+    // println!("DTB: {:012x}", info.dtb);
+    // todo!();
 
     // Load the KERNEL
     let blob = match get_file(handle, &bs, KERNEL_PATH) {
@@ -142,7 +151,7 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
     let buf_size = mmap_size.map_size * 2;
     let buf_ptr = st
         .boot_services()
-        .allocate_pool(::uefi::table::boot::MemoryType::LOADER_DATA, buf_size)
+        .allocate_pool(MemoryType::LOADER_DATA, buf_size)
         .unwrap();
     let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr, buf_size) };
     let (_st, mm) = st.exit_boot_services(handle, buf).unwrap();

@@ -28,16 +28,19 @@ fn main() {
     let mut will_overwrite = false;
     let mut preserved_names = Vec::new();
     let mut path_input = None;
+    let mut strip_export = false;
 
     while let Some(arg) = args.next() {
-        let arg = arg.as_str();
-        if arg.chars().next().unwrap_or_default() == '-' {
-            match arg {
+        if arg.starts_with("-") {
+            match arg.as_str() {
                 "-overwrite" => {
                     will_overwrite = true;
                 }
                 "-strip-all" => {
                     strip_all = true;
+                }
+                "-strip-export" => {
+                    strip_export = true;
                 }
                 "-preserve" => match args.next() {
                     Some(v) => preserved_names.push(v),
@@ -50,7 +53,7 @@ fn main() {
                 _ => panic!("unknown option: {}", arg),
             }
         } else {
-            path_input = Some(arg.to_owned());
+            path_input = Some(arg);
             break;
         }
     }
@@ -84,6 +87,7 @@ fn main() {
 
         for (index, section) in sections.iter().enumerate() {
             let preserved = match section.section_type() {
+                WasmSectionType::Export => !strip_export,
                 WasmSectionType::Custom => match section.custom_section_name() {
                     Some(name) => {
                         preserved_names.binary_search(&name).is_ok()

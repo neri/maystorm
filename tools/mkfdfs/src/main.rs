@@ -2,10 +2,17 @@
 // Copyright(c) 2021 The MEG-OS Project
 
 use mkfdfs::fat::*;
-use std::{env, num::NonZeroU32, ptr::addr_of, usize};
-use std::{fs::File, process};
-use std::{io::Read, path::Path};
-use std::{io::Write, mem::size_of};
+use std::{
+    env,
+    fs::File,
+    io::{Read, Write},
+    mem::size_of,
+    num::NonZeroU32,
+    path::Path,
+    process,
+    ptr::addr_of,
+    usize,
+};
 
 fn usage() -> ! {
     let mut args = env::args_os();

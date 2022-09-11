@@ -23,4 +23,4 @@ num-derive = {default-features = false}
 num-traits = {default-features = false}
 seq-macro = {}
 
-ab_glyph = {default-features = false, features = ["libm"]}
+ab_glyph = {version = "^0.2.15", default-features = false, features = ["libm"]}

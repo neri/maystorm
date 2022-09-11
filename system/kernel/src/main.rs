@@ -6,14 +6,14 @@
 #![no_main]
 
 extern crate alloc;
-use alloc::{format, string::*, vec::*};
+use alloc::{borrow::ToOwned, format, string::*, vec::*};
 use bootprot::*;
 use core::{fmt, fmt::Write, num::NonZeroU8};
 use kernel::{
     drivers::pci, drivers::usb, fs::*, mem::*, rt::*, system::*, task::scheduler::*,
     ui::window::WindowManager, *,
 };
-use megstd::{io::Read, string::*};
+use megstd::io::Read;
 
 /// Kernel entry point
 #[no_mangle]
@@ -67,82 +67,85 @@ impl Shell {
     }
 
     fn exec_cmd(cmdline: &str) {
-        match Self::parse_cmd(&cmdline, |name, args| match name {
-            "clear" | "cls" => System::stdout().reset().unwrap(),
-            "exit" => println!("Feature not available"),
-            "echo" => {
-                let stdout = System::stdout();
-                for (index, word) in args.iter().skip(1).enumerate() {
-                    if index > 0 {
-                        stdout.write_char(' ').unwrap();
+        match Self::parse_cmd(cmdline) {
+            Ok((cmd, args)) => {
+                let name = cmd.as_str();
+                let mut args = args.iter().map(|v| v.as_str()).collect::<Vec<&str>>();
+                match name {
+                    "clear" | "cls" => System::stdout().reset().unwrap(),
+                    "exit" => println!("Feature not available"),
+                    "echo" => {
+                        let stdout = System::stdout();
+                        for (index, word) in args.iter().skip(1).enumerate() {
+                            if index > 0 {
+                                stdout.write_char(' ').unwrap();
+                            }
+                            stdout.write_str(word).unwrap();
+                        }
+                        stdout.write_str("\r\n").unwrap();
                     }
-                    stdout.write_str(word).unwrap();
-                }
-                stdout.write_str("\r\n").unwrap();
-            }
-            "ver" => {
-                println!(
-                    "{} v{} [codename {}]",
-                    System::name(),
-                    System::version(),
-                    System::codename()
-                )
-            }
-            "reboot" => {
-                System::reset();
-            }
-            "uptime" => {
-                let systime = System::system_time();
-                let sec = systime.secs;
-                // let time_s = sec % 60;
-                let time_m = (sec / 60) % 60;
-                let time_h = (sec / 3600) % 24;
-
-                let uptime = Timer::monotonic();
-                let sec = uptime.as_secs();
-                let upt_s = sec % 60;
-                let upt_m = (sec / 60) % 60;
-                let upt_h = (sec / 3600) % 24;
-                let upt_d = sec / 86400;
-
-                if upt_d > 0 {
-                    println!(
-                        "{:02}:{:02} up {} days, {:02}:{:02}",
-                        time_h, time_m, upt_d, upt_h, upt_m
-                    );
-                } else {
-                    println!(
-                        "{:02}:{:02} up {:02}:{:02}:{:02}",
-                        time_h, time_m, upt_h, upt_m, upt_s
-                    );
-                }
-            }
-            "ts" => {
-                let mut sb = StringBuffer::with_capacity(1024);
-                Scheduler::get_thread_statistics(&mut sb);
-                print!("{}", sb.as_str());
-            }
-            "open" => {
-                let args = &args[1..];
-                let name = args[0];
-                Self::spawn(name, args, false);
-            }
-            _ => match Self::command(name) {
-                Some(exec) => {
-                    exec(args);
-                }
-                None => {
-                    if args.len() > 1 && args.last() == Some(&"&") {
-                        let mut args = Vec::from(args);
-                        args.remove(args.len() - 1);
-                        Self::spawn(name, &args, false);
-                    } else {
-                        Self::spawn(name, args, true);
+                    "ver" => {
+                        println!(
+                            "{} v{} [codename {}]",
+                            System::name(),
+                            System::version(),
+                            System::codename()
+                        )
                     }
+                    "reboot" => {
+                        System::reset();
+                    }
+                    "uptime" => {
+                        let systime = System::system_time();
+                        let sec = systime.secs;
+                        // let time_s = sec % 60;
+                        let time_m = (sec / 60) % 60;
+                        let time_h = (sec / 3600) % 24;
+
+                        let uptime = Timer::monotonic();
+                        let sec = uptime.as_secs();
+                        let upt_s = sec % 60;
+                        let upt_m = (sec / 60) % 60;
+                        let upt_h = (sec / 3600) % 24;
+                        let upt_d = sec / 86400;
+
+                        if upt_d > 0 {
+                            println!(
+                                "{:02}:{:02} up {} days, {:02}:{:02}",
+                                time_h, time_m, upt_d, upt_h, upt_m
+                            );
+                        } else {
+                            println!(
+                                "{:02}:{:02} up {:02}:{:02}:{:02}",
+                                time_h, time_m, upt_h, upt_m, upt_s
+                            );
+                        }
+                    }
+                    "ts" => {
+                        let mut sb = String::new();
+                        Scheduler::get_thread_statistics(&mut sb);
+                        print!("{}", sb.as_str());
+                    }
+                    "open" => {
+                        let args = &args[1..];
+                        let name = args[0];
+                        Self::spawn(name, args, false);
+                    }
+                    _ => match Self::command(name) {
+                        Some(exec) => {
+                            exec(args.as_slice());
+                        }
+                        None => {
+                            if args.len() > 1 && args.last() == Some(&"&") {
+                                args.remove(args.len() - 1);
+                                Self::spawn(name, args.as_slice(), false);
+                            } else {
+                                Self::spawn(name, args.as_slice(), true);
+                            }
+                        }
+                    },
                 }
-            },
-        }) {
-            Ok(_) => {}
+            }
             Err(ParsedCmdLine::Empty) => (),
             Err(ParsedCmdLine::InvalidQuote) => {
                 println!("Error: Invalid quote");
@@ -150,12 +153,9 @@ impl Shell {
         }
     }
 
-    fn parse_cmd<F, R>(cmdline: &str, f: F) -> Result<R, ParsedCmdLine>
-    where
-        F: FnOnce(&str, &[&str]) -> R,
-    {
+    fn parse_cmd(cmdline: &str) -> Result<(String, Vec<String>), ParsedCmdLine> {
         enum CmdLinePhase {
-            LeadingSpace,
+            SkippingSpace,
             Token,
             SingleQuote,
             DoubleQuote,
@@ -164,14 +164,14 @@ impl Shell {
         if cmdline.len() == 0 {
             return Err(ParsedCmdLine::Empty);
         }
-        let mut sb = StringBuffer::with_capacity(cmdline.len());
+
+        let mut sb = String::new();
         let mut args = Vec::new();
-        let mut phase = CmdLinePhase::LeadingSpace;
-        sb.clear();
+        let mut phase = CmdLinePhase::SkippingSpace;
         for c in cmdline.chars() {
             match phase {
-                CmdLinePhase::LeadingSpace => match c {
-                    ' ' => (),
+                CmdLinePhase::SkippingSpace => match c {
+                    ' ' | '\t' | '\r' | '\n' => (),
                     '\'' => {
                         phase = CmdLinePhase::SingleQuote;
                     }
@@ -184,10 +184,10 @@ impl Shell {
                     }
                 },
                 CmdLinePhase::Token => match c {
-                    ' ' => {
-                        args.push(sb.as_str());
-                        phase = CmdLinePhase::LeadingSpace;
-                        sb.split();
+                    ' ' | '\t' | '\r' | '\n' => {
+                        args.push(sb);
+                        phase = CmdLinePhase::SkippingSpace;
+                        sb = String::new();
                     }
                     _ => {
                         sb.write_char(c).unwrap();
@@ -195,9 +195,9 @@ impl Shell {
                 },
                 CmdLinePhase::SingleQuote => match c {
                     '\'' => {
-                        args.push(sb.as_str());
-                        phase = CmdLinePhase::LeadingSpace;
-                        sb.split();
+                        args.push(sb);
+                        phase = CmdLinePhase::SkippingSpace;
+                        sb = String::new();
                     }
                     _ => {
                         sb.write_char(c).unwrap();
@@ -205,9 +205,9 @@ impl Shell {
                 },
                 CmdLinePhase::DoubleQuote => match c {
                     '\"' => {
-                        args.push(sb.as_str());
-                        phase = CmdLinePhase::LeadingSpace;
-                        sb.split();
+                        args.push(sb);
+                        phase = CmdLinePhase::SkippingSpace;
+                        sb = String::new();
                     }
                     _ => {
                         sb.write_char(c).unwrap();
@@ -216,16 +216,16 @@ impl Shell {
             }
         }
         match phase {
-            CmdLinePhase::LeadingSpace | CmdLinePhase::Token => (),
+            CmdLinePhase::SkippingSpace | CmdLinePhase::Token => (),
             CmdLinePhase::SingleQuote | CmdLinePhase::DoubleQuote => {
                 return Err(ParsedCmdLine::InvalidQuote)
             }
         }
         if sb.len() > 0 {
-            args.push(sb.as_str());
+            args.push(sb);
         }
-        if args.len() > 0 {
-            Ok(f(args[0], args.as_slice()))
+        if let Some(cmd) = args.get(0) {
+            Ok((cmd.to_owned(), args))
         } else {
             Err(ParsedCmdLine::Empty)
         }
@@ -233,7 +233,7 @@ impl Shell {
 
     fn spawn(name: &str, argv: &[&str], wait_until: bool) -> usize {
         Self::spawn_main(name, argv, wait_until).unwrap_or_else(|| {
-            let mut sb = StringBuffer::new();
+            let mut sb = String::new();
             let shared = Self::shared();
             for ext in &shared.path_ext {
                 sb.clear();
@@ -407,12 +407,12 @@ impl Shell {
                 }
             }
             "memory" => {
-                let mut sb = StringBuffer::with_capacity(256);
+                let mut sb = String::new();
                 MemoryManager::statistics(&mut sb);
                 print!("{}", sb.as_str());
             }
             "windows" => {
-                let mut sb = StringBuffer::with_capacity(4096);
+                let mut sb = String::new();
                 WindowManager::get_statistics(&mut sb);
                 print!("{}", sb.as_str());
             }
@@ -509,7 +509,7 @@ impl Shell {
     }
 
     fn cmd_ps(_argv: &[&str]) -> isize {
-        let mut sb = StringBuffer::with_capacity(1024);
+        let mut sb = String::new();
         Scheduler::print_statistics(&mut sb);
         print!("{}", sb.as_str());
         0

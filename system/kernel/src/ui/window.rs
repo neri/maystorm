@@ -24,7 +24,7 @@ use core::{
     time::Duration,
 };
 use futures_util::task::AtomicWaker;
-use megstd::{drawing::*, io::hid::*, string::StringBuffer, sys::megos};
+use megstd::{drawing::*, io::hid::*, sys::megos};
 
 const MAX_WINDOWS: usize = 255;
 const WINDOW_SYSTEM_EVENT_QUEUE_SIZE: usize = 100;
@@ -923,9 +923,8 @@ impl WindowManager<'_> {
         Self::while_hiding_pointer(|| shared.root.draw_into(bitmap, rect));
     }
 
-    pub fn get_statistics(sb: &mut StringBuffer) {
+    pub fn get_statistics(sb: &mut impl Write) {
         let shared = Self::shared();
-        sb.clear();
 
         writeln!(sb, "  # PID Lv Frame",).unwrap();
         for window in shared.window_pool.read().unwrap().values() {
