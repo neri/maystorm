@@ -2456,7 +2456,7 @@ impl WindowHandle {
     pub fn create_timer(&self, timer_id: usize, duration: Duration) {
         let mut event = TimerEvent::window(*self, timer_id, Timer::new(duration));
         loop {
-            if event.until() {
+            if event.is_alive() {
                 match Scheduler::schedule_timer(event) {
                     Ok(()) => break,
                     Err(e) => event = e,

@@ -1,6 +1,7 @@
 use core::mem::transmute;
 
 /// Common color trait
+#[const_trait]
 pub trait ColorTrait: Sized + Copy + Clone + PartialEq + Eq + Default {
     // fn bits_per_pixel() -> usize;
     // fn bits_per_channel() -> usize;

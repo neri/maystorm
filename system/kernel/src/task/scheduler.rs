@@ -51,7 +51,7 @@ pub struct Scheduler {
     usage_total: AtomicUsize,
     is_frozen: AtomicBool,
 
-    next_timer: AtomicUsize,
+    next_timer: AtomicIsize,
     sem_timer: Semaphore,
 
     timer_queue: ConcurrentFifo<TimerEvent>,
@@ -130,7 +130,7 @@ impl Scheduler {
                 usage: AtomicUsize::new(0),
                 usage_total: AtomicUsize::new(0),
                 is_frozen: AtomicBool::new(false),
-                next_timer: AtomicUsize::new(0),
+                next_timer: AtomicIsize::new(0),
                 sem_timer: Semaphore::new(0),
                 timer_queue: ConcurrentFifo::with_capacity(100),
             }));
@@ -226,7 +226,7 @@ impl Scheduler {
         current.update_statistics();
         let priority = { current.as_ref().priority };
         let shared = Self::shared();
-        if !Timer::from_usize(shared.next_timer.load(Ordering::SeqCst)).until() {
+        if Timer::from_isize(shared.next_timer.load(Ordering::SeqCst)).is_expired() {
             shared.sem_timer.signal();
         }
         if shared.is_frozen.load(Ordering::SeqCst) {
@@ -380,7 +380,7 @@ impl Scheduler {
         let shared = Self::shared();
 
         SpawnOption::with_priority(Priority::Realtime).start(
-            Self::statistics_thread,
+            Self::_statistics_thread,
             0,
             "Statistics",
         );
@@ -400,7 +400,7 @@ impl Scheduler {
                     Some(v) => v,
                     None => break,
                 };
-                if event.until() {
+                if event.is_alive() {
                     break;
                 } else {
                     events.remove(0).fire();
@@ -410,14 +410,14 @@ impl Scheduler {
             if let Some(event) = events.first() {
                 shared
                     .next_timer
-                    .store(event.timer.into_usize(), Ordering::SeqCst);
+                    .store(event.timer.into_isize(), Ordering::SeqCst);
             }
             shared.sem_timer.wait();
         }
     }
 
     /// Measuring Statistics
-    fn statistics_thread(_: usize) {
+    fn _statistics_thread(_args: usize) {
         let shared = Self::shared();
 
         let expect = 1_000_000;
@@ -728,7 +728,10 @@ impl LocalScheduler {
         let current = self.current_thread();
 
         current.update(|thread| {
-            thread.measure.store(Timer::measure().0, Ordering::SeqCst);
+            // TODO: usize?
+            thread
+                .measure
+                .store(Timer::measure().0 as usize, Ordering::SeqCst);
         });
         let retired = self.take_retired().unwrap();
         Scheduler::retire(retired);
@@ -793,7 +796,10 @@ pub unsafe extern "C" fn sch_setup_new_thread() {
     let lsch = Scheduler::local_scheduler().unwrap();
     let current = lsch.current_thread();
     current.update(|thread| {
-        thread.measure.store(Timer::measure().0, Ordering::SeqCst);
+        // TODO: usize?
+        thread
+            .measure
+            .store(Timer::measure().0 as usize, Ordering::SeqCst);
     });
     let retired = lsch.take_retired().unwrap();
     Scheduler::retire(retired);
@@ -942,14 +948,14 @@ impl Timer {
     };
 
     #[inline]
-    pub const fn from_usize(val: usize) -> Self {
+    pub const fn from_isize(val: isize) -> Self {
         Self {
             deadline: TimeSpec(val),
         }
     }
 
     #[inline]
-    pub const fn into_usize(self) -> usize {
+    pub const fn into_isize(self) -> isize {
         self.deadline.0
     }
 
@@ -975,7 +981,7 @@ impl Timer {
     }
 
     #[inline]
-    pub fn until(&self) -> bool {
+    pub fn is_alive(&self) -> bool {
         if self.is_just() {
             false
         } else {
@@ -986,7 +992,7 @@ impl Timer {
 
     #[inline]
     pub fn is_expired(&self) -> bool {
-        !self.until()
+        !self.is_alive()
     }
 
     #[inline]
@@ -994,7 +1000,7 @@ impl Timer {
     where
         F: FnMut(),
     {
-        while self.until() {
+        while self.is_alive() {
             f()
         }
     }
@@ -1013,7 +1019,7 @@ impl Timer {
         if Scheduler::is_enabled() {
             let timer = Timer::new(duration);
             let mut event = TimerEvent::one_shot(timer);
-            while timer.until() {
+            while timer.is_alive() {
                 match Scheduler::schedule_timer(event) {
                     Ok(()) => {
                         Scheduler::sleep();
@@ -1034,7 +1040,7 @@ impl Timer {
         let timer = Timer::new(duration);
         let sem = AsyncSemaphore::with_capacity(0, 1);
         let mut event = TimerEvent::async_timer(timer, sem.clone());
-        while timer.until() {
+        while timer.is_alive() {
             match Scheduler::schedule_timer(event) {
                 Ok(()) => {
                     sem.wait().await;
@@ -1060,7 +1066,7 @@ impl Timer {
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TimeSpec(pub usize);
+pub struct TimeSpec(pub isize);
 
 impl TimeSpec {
     pub const EPSILON: Self = Self(1);
@@ -1112,6 +1118,7 @@ pub enum TimerType {
 
 #[allow(dead_code)]
 impl TimerEvent {
+    #[inline]
     pub fn one_shot(timer: Timer) -> Self {
         Self {
             timer,
@@ -1119,6 +1126,7 @@ impl TimerEvent {
         }
     }
 
+    #[inline]
     pub fn async_timer(timer: Timer, sem: Pin<Arc<AsyncSemaphore>>) -> Self {
         Self {
             timer,
@@ -1126,6 +1134,7 @@ impl TimerEvent {
         }
     }
 
+    #[inline]
     pub fn window(window: WindowHandle, timer_id: usize, timer: Timer) -> Self {
         Self {
             timer,
@@ -1133,8 +1142,9 @@ impl TimerEvent {
         }
     }
 
-    pub fn until(&self) -> bool {
-        self.timer.until()
+    #[inline]
+    pub fn is_alive(&self) -> bool {
+        self.timer.is_alive()
     }
 
     pub fn fire(self) {
@@ -1535,7 +1545,7 @@ impl ThreadHandle {
 
     fn update_statistics(&self) {
         self.update(|thread| {
-            let now = Timer::measure().0;
+            let now = Timer::measure().0 as usize;
             let then = thread.measure.swap(now, Ordering::SeqCst);
             let diff = now - then;
             thread.cpu_time.fetch_add(diff, Ordering::SeqCst);

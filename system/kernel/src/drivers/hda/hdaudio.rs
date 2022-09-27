@@ -173,7 +173,10 @@ impl HdAudioController {
             sem_event_thread: Semaphore::new(0),
         };
 
-        driver.enumerate().unwrap();
+        match driver.enumerate() {
+            Ok(_) => (),
+            Err(_) => return None,
+        }
 
         if let Some(addr) = driver.find_best_output_pin() {
             let path = driver.path_to_dac(addr);
@@ -225,6 +228,8 @@ impl HdAudioController {
             driver.global.ssync.store(1, Ordering::SeqCst);
 
             sd.run();
+        } else {
+            return None;
         }
 
         if false {
@@ -407,11 +412,11 @@ impl HdAudioController {
     }
 }
 
-impl Drop for HdAudioController {
-    fn drop(&mut self) {
-        todo!()
-    }
-}
+// impl Drop for HdAudioController {
+//     fn drop(&mut self) {
+//         todo!()
+//     }
+// }
 
 impl PciDriver for HdAudioController {
     fn address(&self) -> PciConfigAddress {
@@ -740,7 +745,7 @@ impl Corb {
     pub fn issue_command(&mut self, cmd: Command) -> Result<()> {
         let deadline = Timer::new(Duration::from_millis(HdAudioController::WAIT_DELAY_MS));
         let mut wait = SpinLoopWait::new();
-        while deadline.until() && !self.can_write() {
+        while deadline.is_alive() && !self.can_write() {
             wait.wait();
         }
         if !self.can_write() {
@@ -793,7 +798,7 @@ impl Rirb {
     pub fn read_response(&mut self) -> Result<Response> {
         let deadline = Timer::new(Duration::from_millis(HdAudioController::WAIT_DELAY_MS));
         let mut wait = SpinLoopWait::new();
-        while deadline.until() && !self.has_response() {
+        while deadline.is_alive() && !self.has_response() {
             wait.wait();
         }
         if !self.has_response() {
@@ -1399,7 +1404,7 @@ impl ImmediateCommandRegisterSet {
     pub fn command(&self, cmd: Command) -> Result<Response> {
         let deadline = Timer::new(Duration::from_millis(HdAudioController::WAIT_DELAY_MS));
         let mut wait = SpinLoopWait::new();
-        while deadline.until() && self.get_status().contains(ImmediateCommandStatus::ICB) {
+        while deadline.is_alive() && self.get_status().contains(ImmediateCommandStatus::ICB) {
             wait.wait();
         }
         if self.get_status().contains(ImmediateCommandStatus::ICB) {
@@ -1412,7 +1417,7 @@ impl ImmediateCommandRegisterSet {
 
         let deadline = Timer::new(Duration::from_millis(HdAudioController::WAIT_DELAY_MS));
         let mut wait = SpinLoopWait::new();
-        while deadline.until() && !self.get_status().contains(ImmediateCommandStatus::IRV) {
+        while deadline.is_alive() && !self.get_status().contains(ImmediateCommandStatus::IRV) {
             wait.wait();
         }
         if !self.get_status().contains(ImmediateCommandStatus::IRV) {

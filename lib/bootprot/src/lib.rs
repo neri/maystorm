@@ -74,7 +74,8 @@ pub enum ColorMode {
     Indexed8 = 8,
     /// 32bit Color (Little Endian B-G-R-A, VESA, UEFI)
     Argb32 = 32,
-    // R-G-B-A
+    // 32bit Color (Big Endian R-G-B-A)
+    Abgr32 = 33,
 }
 
 impl const Default for ColorMode {

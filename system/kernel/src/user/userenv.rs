@@ -41,8 +41,12 @@ async fn slpash_task(f: fn()) {
             .build("");
 
         window.draw(|bitmap| {
+            let font = match FontDescriptor::new(FontFamily::SansSerif, 96) {
+                Some(v) => v,
+                None => return,
+            };
             AttributedString::new()
-                .font(FontDescriptor::new(FontFamily::SansSerif, 96).unwrap())
+                .font(font)
                 .color(Color::LIGHT_GRAY)
                 .middle_center()
                 .text("Hello")
@@ -252,9 +256,15 @@ async fn activity_monitor_main() {
 
     let width = 260;
     let height = 180;
+    let screen_bounds = WindowManager::user_screen_bounds();
     let window = WindowBuilder::new()
         .style_sub(WindowStyle::CLOSE_BUTTON)
-        .frame(Rect::new(-width - 16, -height - 16, width, height))
+        .frame(Rect::new(
+            -width - 16,
+            screen_bounds.min_y() + 16,
+            width,
+            height,
+        ))
         .bg_color(bg_color)
         .build("Activity Monitor");
 

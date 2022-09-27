@@ -1610,7 +1610,7 @@ impl CommandRequestBlock {
 
     #[inline]
     pub fn try_to_acquire(&self) -> bool {
-        if self.reuse_delay.until() {
+        if self.reuse_delay.is_alive() {
             return false;
         }
         self.compare_exchange_state(RequestState::Available, RequestState::Acquired)

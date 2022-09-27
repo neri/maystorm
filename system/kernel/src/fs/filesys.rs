@@ -55,7 +55,7 @@ impl FileManager {
         let path = if path.starts_with("/") {
             path.to_owned()
         } else {
-            format!("{base}{}{path}", Self::PATH_SEPARATOR)
+            format!("{}{}{}", base, Self::PATH_SEPARATOR, path)
         };
 
         let mut path_components = Vec::new();

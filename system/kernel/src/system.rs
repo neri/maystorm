@@ -3,7 +3,7 @@ use crate::{
 };
 use alloc::{boxed::Box, string::*, vec::Vec};
 use bootprot::BootInfo;
-use core::{cell::UnsafeCell, fmt, mem::transmute, ptr::*, sync::atomic::*};
+use core::{cell::UnsafeCell, ffi::c_void, fmt, mem::transmute, sync::atomic::*};
 use megstd::{drawing::*, time::SystemTime};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -108,7 +108,7 @@ pub struct System {
     cpus: Vec<Box<Cpu>>,
 
     /// An instance of ACPI tables
-    acpi: Option<Box<acpi::AcpiTables<MyAcpiHandler>>>,
+    myacpi: Option<&'static myacpi::RsdPtr>,
 
     /// An instance of SMBIOS
     smbios: Option<Box<fw::smbios::SmBios>>,
@@ -138,7 +138,7 @@ impl System {
         System {
             current_device: DeviceInfo::new(),
             cpus: Vec::new(),
-            acpi: None,
+            myacpi: None,
             smbios: None,
             boot_flags: BootFlags::empty(),
             main_screen: None,
@@ -167,23 +167,10 @@ impl System {
 
         mem::MemoryManager::init_first(info);
 
-        let acpi = Box::new(
-            ::acpi::AcpiTables::from_rsdp(MyAcpiHandler::new(), info.acpi_rsdptr as usize).unwrap(),
-        );
-        let pi = acpi.platform_info().unwrap();
-        shared.current_device.power_profile = match pi.power_profile {
-            acpi::PowerProfile::Unspecified => 0,
-            acpi::PowerProfile::Desktop => 1,
-            acpi::PowerProfile::Mobile => 2,
-            acpi::PowerProfile::Workstation => 3,
-            acpi::PowerProfile::EnterpriseServer => 4,
-            acpi::PowerProfile::SohoServer => 5,
-            acpi::PowerProfile::AppliancePc => 6,
-            acpi::PowerProfile::PerformanceServer => 7,
-            acpi::PowerProfile::Tablet => 8,
-            acpi::PowerProfile::Reserved(v) => v,
-        };
-        shared.acpi = Some(acpi);
+        shared.myacpi =
+            unsafe { myacpi::RsdPtr::parse(info.acpi_rsdptr as usize as *const c_void) };
+
+        // shared.current_device.power_profile = 0;
 
         if info.smbios != 0 {
             let device = &mut shared.current_device;
@@ -354,12 +341,6 @@ impl System {
     }
 
     #[inline]
-    #[track_caller]
-    pub(crate) fn acpi() -> &'static acpi::AcpiTables<MyAcpiHandler> {
-        Self::shared().acpi.as_ref().unwrap()
-    }
-
-    #[inline]
     pub fn smbios<'a>() -> Option<&'a fw::smbios::SmBios> {
         Self::shared().smbios.as_ref().map(|v| v.as_ref())
     }
@@ -372,8 +353,8 @@ impl System {
 
     #[inline]
     #[track_caller]
-    pub fn acpi_platform() -> acpi::PlatformInfo {
-        Self::acpi().platform_info().unwrap()
+    pub fn myacpi<'a>() -> &'a myacpi::Xsdt {
+        Self::shared().myacpi.unwrap().xsdt()
     }
 
     #[track_caller]
@@ -468,34 +449,4 @@ impl DeviceInfo {
     pub fn power_profile(&self) -> u8 {
         self.power_profile
     }
-}
-
-//-//-//-//-//
-
-#[doc(hidden)]
-#[derive(Clone)]
-pub(crate) struct MyAcpiHandler {}
-
-impl MyAcpiHandler {
-    const fn new() -> Self {
-        MyAcpiHandler {}
-    }
-}
-
-use ::acpi::PhysicalMapping;
-impl ::acpi::AcpiHandler for MyAcpiHandler {
-    unsafe fn map_physical_region<T>(
-        &self,
-        physical_address: usize,
-        size: usize,
-    ) -> PhysicalMapping<Self, T> {
-        PhysicalMapping::new(
-            physical_address,
-            NonNull::new_unchecked(PhysicalAddress::from_usize(physical_address).direct_map()),
-            size,
-            size,
-            Self::new(),
-        )
-    }
-    fn unmap_physical_region<T>(_region: &PhysicalMapping<Self, T>) {}
 }

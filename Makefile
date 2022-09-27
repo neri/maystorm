@@ -55,7 +55,7 @@ run:
 -device nec-usb-xhci,id=xhci -device usb-tablet \
 -drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
 -device intel-hda -device hda-duplex \
--monitor stdio
+-serial mon:stdio
 
 run_up:
 	$(QEMU_X64) -machine q35 -cpu IvyBridge \
@@ -76,8 +76,7 @@ run_x86:
 -monitor stdio
 
 boot:
-	(cd boot; cargo build --release --target x86_64-unknown-uefi)
-	(cd boot; cargo build --release --target i686-unknown-uefi)
+	(cd boot; cargo build --release --target x86_64-unknown-uefi --target i686-unknown-uefi)
 
 kernel:
 	(cd system; cargo build --release --target $(KRNL_ARCH).json)

@@ -13,11 +13,11 @@ use crate::{
     *,
 };
 use ::alloc::vec::*;
-use acpi::platform::{Processor, ProcessorState};
 use bootprot::BootFlags;
 use core::{
     alloc::Layout, cell::UnsafeCell, ffi::c_void, mem::transmute, sync::atomic::*, time::Duration,
 };
+use myacpi::madt;
 use seq_macro::seq;
 
 /// Maximum number of supported cpu cores
@@ -104,8 +104,8 @@ impl Apic {
         }
     }
 
-    pub unsafe fn init(acpi_apic: &acpi::platform::interrupt::Apic) {
-        if acpi_apic.also_has_legacy_pics {
+    pub unsafe fn init(madt: &madt::Madt) {
+        if madt.has_8259() {
             // disable legacy PICs
             Cpu::out8(0xA1, 0xFF);
             Cpu::out8(0x21, 0xFF);
@@ -116,14 +116,11 @@ impl Apic {
         let shared = Self::shared_mut();
 
         // init Local Apic
-        shared.master_apic_id = System::acpi_platform()
-            .processor_info
-            .unwrap()
-            .boot_processor
-            .local_apic_id
-            .into();
+        let mut lapics = madt.local_apics();
+        let bsp = lapics.next().unwrap();
+        shared.master_apic_id = bsp.apic_id().into();
         CURRENT_PROCESSOR_INDEXES[shared.master_apic_id.0 as usize] = 0;
-        LocalApic::init(acpi_apic.local_apic_address.into());
+        LocalApic::init(PhysicalAddress::new(madt.local_apic_address() as u64));
 
         Msr::TscAux.write(0);
 
@@ -136,19 +133,16 @@ impl Apic {
         }
 
         // import GSI table from ACPI
-        for source in &acpi_apic.interrupt_source_overrides {
+        for source in madt.entries::<madt::InterruptSourceOverride>() {
             let props = GsiProps {
-                global_irq: Irq(source.global_system_interrupt as u8),
-                trigger: PackedTriggerMode::new(
-                    ApicTriggerMode::from(&source.trigger_mode),
-                    ApicPolarity::from(&source.polarity),
-                ),
+                global_irq: Irq(source.global_system_interrupt() as u8),
+                trigger: PackedTriggerMode(source.flags()),
             };
-            shared.gsi_table[source.isa_source as usize] = props;
+            shared.gsi_table[source.source() as usize] = props;
         }
 
         // Init IO Apics
-        for acpi_ioapic in &acpi_apic.io_apics {
+        for acpi_ioapic in madt.entries::<madt::IoApic>() {
             shared
                 .ioapics
                 .push(SpinMutex::new(IoApic::new(acpi_ioapic)));
@@ -169,9 +163,9 @@ impl Apic {
         let vec_latimer = Irq(0).as_vec();
         LocalApic::clear_timer();
         LocalApic::set_timer_div(LocalApicTimerDivide::By1);
-        if let Ok(hpet_info) = acpi::HpetInfo::new(System::acpi()) {
+        if let Some(hpet_info) = System::myacpi().find_first::<myacpi::hpet::Hpet>() {
             // Use HPET
-            Timer::set_timer(Hpet::new(&hpet_info));
+            Timer::set_timer(Box::new(Hpet::new(hpet_info)));
 
             let magic_number = 100;
             Timer::epsilon().repeat_until(|| Cpu::spin_loop_hint());
@@ -209,12 +203,7 @@ impl Apic {
         // preparing SMP
         if !System::boot_flags().contains(BootFlags::FORCE_SINGLE) {
             let sipi_vec = InterruptVector(MemoryManager::static_alloc_real().unwrap().get());
-            let pi = System::acpi_platform().processor_info.unwrap();
-            let cpus: Vec<Processor> = pi
-                .application_processors
-                .into_iter()
-                .filter(|v| v.state == ProcessorState::WaitingForSipi)
-                .collect();
+            let cpus = lapics.collect::<Vec<_>>();
             let max_cpu = usize::min(1 + cpus.len(), MAX_CPU);
             let stack_chunk_size = STACK_CHUNK_SIZE;
             let stack_base = MemoryManager::zalloc(Layout::from_size_align_unchecked(
@@ -229,13 +218,13 @@ impl Apic {
             for (_index, cpu) in cpus.iter().enumerate() {
                 // log!(
                 //     "CPU #{} {:02x} {:02x} {:?}",
-                //     index,
-                //     cpu.processor_uid,
-                //     cpu.local_apic_id,
-                //     cpu.state
+                //     _index,
+                //     cpu.uid(),
+                //     cpu.apic_id(),
+                //     cpu.status(),
                 // );
 
-                let apic_id = ApicId(cpu.local_apic_id as u8);
+                let apic_id = ApicId(cpu.apic_id());
                 LocalApic::send_init_ipi(apic_id);
                 Timer::new(Duration::from_millis(10)).repeat_until(|| Cpu::halt());
 
@@ -243,7 +232,7 @@ impl Apic {
                 LocalApic::send_startup_ipi(apic_id, sipi_vec);
                 let deadline = Timer::new(Duration::from_millis(100));
                 let mut wait = SpinLoopWait::new();
-                while deadline.until() {
+                while deadline.is_alive() {
                     if AP_BOOTED.load(Ordering::SeqCst) {
                         break;
                     }
@@ -255,11 +244,6 @@ impl Apic {
 
                 // log!("CPU #{} OK", index,);
             }
-
-            // // Since each processor that receives an IPI starts initializing asynchronously,
-            // // the physical processor ID and the logical ID assigned by the OS will not match.
-            // // Therefore, sorting is required here.
-            // System::sort_cpus_by(|a| a.cpu_id().0 as usize);
 
             for index in 0..System::current_device().num_of_active_cpus() {
                 let cpu = System::cpu(ProcessorIndex(index));
@@ -400,7 +384,7 @@ impl Apic {
 
                 let mut hint = SpinLoopWait::new();
                 let deadline = Timer::new(Duration::from_millis(200));
-                while deadline.until() {
+                while deadline.is_alive() {
                     if shared.tlb_flush_bitmap.load(Ordering::Relaxed) == 0 {
                         break;
                     }
@@ -588,14 +572,9 @@ impl GsiProps {
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, Default)]
-struct PackedTriggerMode(pub u8);
+struct PackedTriggerMode(pub u16);
 
 impl PackedTriggerMode {
-    #[inline]
-    const fn new(trigger: ApicTriggerMode, polarity: ApicPolarity) -> Self {
-        Self(trigger.as_packed() | polarity.as_packed())
-    }
-
     #[inline]
     const fn as_redir(self) -> u32 {
         (self.0 as u32) << 12
@@ -603,55 +582,21 @@ impl PackedTriggerMode {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum ApicPolarity {
+pub enum ApicPolarity {
     ActiveHigh = 0,
     ActiveLow = 1,
 }
 
-impl ApicPolarity {
-    #[inline]
-    pub const fn as_packed(self) -> u8 {
-        (self as u8) << 1
-    }
-}
-
-impl const From<&acpi::platform::interrupt::Polarity> for ApicPolarity {
-    #[inline]
-    fn from(src: &acpi::platform::interrupt::Polarity) -> Self {
-        match *src {
-            acpi::platform::interrupt::Polarity::SameAsBus => ApicPolarity::ActiveHigh,
-            acpi::platform::interrupt::Polarity::ActiveHigh => ApicPolarity::ActiveHigh,
-            acpi::platform::interrupt::Polarity::ActiveLow => ApicPolarity::ActiveLow,
-        }
-    }
-}
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum ApicTriggerMode {
+pub enum ApicTriggerMode {
     Edge = 0,
     Level = 1,
 }
 
 impl ApicTriggerMode {
     #[inline]
-    pub const fn as_packed(self) -> u8 {
-        (self as u8) << 3
-    }
-
-    #[inline]
     pub const fn as_redir(&self) -> u32 {
         (*self as u32) << 15
-    }
-}
-
-impl const From<&acpi::platform::interrupt::TriggerMode> for ApicTriggerMode {
-    #[inline]
-    fn from(src: &acpi::platform::interrupt::TriggerMode) -> Self {
-        match *src {
-            acpi::platform::interrupt::TriggerMode::SameAsBus => ApicTriggerMode::Edge,
-            acpi::platform::interrupt::TriggerMode::Edge => ApicTriggerMode::Edge,
-            acpi::platform::interrupt::TriggerMode::Level => ApicTriggerMode::Level,
-        }
     }
 }
 
@@ -899,16 +844,16 @@ struct IoApic {
 }
 
 impl IoApic {
-    unsafe fn new(acpi_ioapic: &acpi::platform::interrupt::IoApic) -> Self {
+    unsafe fn new(acpi_ioapic: &madt::IoApic) -> Self {
         let mut ioapic = IoApic {
             mmio: MmioSlice::from_phys(
-                PhysicalAddress::from_usize(acpi_ioapic.address as usize),
+                PhysicalAddress::new(acpi_ioapic.io_apic_address() as u64),
                 0x14,
             )
             .unwrap(),
-            global_int: Irq(acpi_ioapic.global_system_interrupt_base as u8),
+            global_int: Irq(acpi_ioapic.gsi_base() as u8),
             entries: 0,
-            id: acpi_ioapic.id,
+            id: acpi_ioapic.apic_id(),
         };
         let ver = ioapic.read(IoApicIndex::VER);
         ioapic.entries = 1 + (ver >> 16) as u8;

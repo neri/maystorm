@@ -1,6 +1,5 @@
 use super::{apic::*, page::PhysicalAddress};
-use crate::{mem::mmio::*, task::scheduler::*, *};
-use alloc::boxed::Box;
+use crate::{mem::mmio::*, task::scheduler::*};
 use core::time::Duration;
 
 /// High Precision Event Timer
@@ -11,10 +10,9 @@ pub(super) struct Hpet {
 }
 
 impl Hpet {
-    pub unsafe fn new(info: &acpi::HpetInfo) -> Box<Self> {
+    pub unsafe fn new(info: &myacpi::hpet::Hpet) -> Self {
         let mut hpet = Hpet {
-            mmio: MmioSlice::from_phys(PhysicalAddress::from_usize(info.base_address), 0x1000)
-                .unwrap(),
+            mmio: MmioSlice::from_phys(PhysicalAddress::new(info.base_address()), 0x1000).unwrap(),
             main_cnt_period: 0,
             measure_div: 0,
         };
@@ -31,13 +29,15 @@ impl Hpet {
         hpet.write(0x100, 0x0000_004C); // Tn_INT_ENB_CNF | Tn_TYPE_CNF | Tn_VAL_SET_CNF
         hpet.write(0x108, 1000_000_000_000 / hpet.main_cnt_period);
 
-        Box::new(hpet)
+        hpet
     }
 
+    #[inline]
     unsafe fn read(&self, index: usize) -> u64 {
         self.mmio.read_u64(index)
     }
 
+    #[inline]
     unsafe fn write(&self, index: usize, value: u64) {
         self.mmio.write_u64(index, value);
     }
@@ -51,11 +51,11 @@ impl Hpet {
 
 impl TimerSource for Hpet {
     fn measure(&self) -> TimeSpec {
-        TimeSpec((unsafe { self.read(0xF0) } / self.measure_div) as usize)
+        TimeSpec((unsafe { self.read(0xF0) } / self.measure_div) as isize)
     }
 
     fn from_duration(&self, val: Duration) -> TimeSpec {
-        TimeSpec(val.as_micros() as usize)
+        TimeSpec(val.as_micros() as isize)
     }
 
     fn into_duration(&self, val: TimeSpec) -> Duration {

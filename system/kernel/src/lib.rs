@@ -4,7 +4,6 @@
 #![feature(async_closure)]
 #![feature(box_into_inner)]
 #![feature(cfg_target_has_atomic)]
-#![feature(const_btree_new)]
 #![feature(const_mut_refs)]
 #![feature(const_trait_impl)]
 #![feature(control_flow_enum)]

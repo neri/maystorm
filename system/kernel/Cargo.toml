@@ -11,10 +11,11 @@ version = "0.1.0"
 [dependencies]
 bootprot = {path = "../../lib/bootprot"}
 megstd = {path = "../../lib/megstd", default-features = false, features = ["kernel"]}
+myacpi = {path = "../../lib/myacpi"}
 wasm = {path = "../../lib/wasm"}
 
-acpi = {}
 # aml = {git = "https://github.com/rust-osdev/acpi"}
+ab_glyph = {default-features = false, features = ["libm"]}
 bitflags = {}
 byteorder = {default-features = false}
 futures-util = {default-features = false, features = ["alloc"]}
@@ -22,5 +23,3 @@ libm = {}
 num-derive = {default-features = false}
 num-traits = {default-features = false}
 seq-macro = {}
-
-ab_glyph = {version = "^0.2.15", default-features = false, features = ["libm"]}
