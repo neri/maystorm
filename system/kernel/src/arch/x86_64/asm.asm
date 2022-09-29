@@ -1,41 +1,9 @@
 ;;
 
-%define KERNEL_CS64         0x08
-%define KERNEL_SS           0x10
-
-%define IA32_MISC           0x000001A0
-%define IA32_EFER           0xC0000080
-
-%define CR0_PE              0
-%define CR0_TS              3
-%define CR0_PG              31
-%define CR4_PAE             5
-%define EFER_LME            8
-%define EFER_LMA            10
-%define EFER_NXE            11
-%define MISC_XD_DISABLE     2
-
-%define TSS64_RSP0          0x04
-
-%define SMPINFO             0x0800
-%define SMPINFO_MAX_CPU     0x04
-%define SMPINFO_EFER        0x08
-%define SMPINFO_STACK_SIZE  0x0C
-%define SMPINFO_STACK_BASE  0x10
-%define SMPINFO_CR3         0x18
-%define SMPINFO_IDT         0x22
-%define SMPINFO_CR4         0x2C
-%define SMPINFO_START64     0x30
-%define SMPINFO_AP_STARTUP  0x38
-%define SMPINFO_MSR_MISC    0x40
-%define SMPINFO_GDTR        0x50
-
 [bits 64]
 [section .text]
 _base:
 
-    ; pub unsafe extern "C" fn apic_start_ap(_cpuid: u8)
-    extern apic_start_ap
     ; pub unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext)
     extern cpu_default_exception
     ; pub unsafe extern "C" fn sch_setup_new_thread()
@@ -350,83 +318,7 @@ _new_thread:
     ud2
 
 
-;   fn asm_apic_setup_sipi(vec_sipi: u8, max_cpu: usize, stack_chunk_size: usize, stack_base: *mut u8);
-    global asm_apic_setup_sipi
-asm_apic_setup_sipi:
-    mov r8, rdx
-    mov r9, rcx
-    mov edx, esi
-
-    movzx r11d, dil
-    shl r11d, 12
-    mov edi, r11d
-    lea rsi, [rel _smp_rm_payload]
-    mov ecx, _end_smp_rm_payload - _smp_rm_payload
-    rep movsb
-
-    mov r10d, SMPINFO
-    mov [r10 + SMPINFO_MAX_CPU], edx
-    mov [r10 + SMPINFO_STACK_SIZE], r8d
-    mov [r10 + SMPINFO_STACK_BASE], r9
-    lea edx, [r10 + SMPINFO_GDTR]
-    lea rsi, [rel _minimal_GDT]
-    lea edi, [rdx + 8]
-    mov ecx, (_end_GDT - _minimal_GDT) / 4
-    rep movsd
-    mov [rdx + 2], edx
-    mov word [rdx], (_end_GDT - _minimal_GDT) + 7
-
-    mov ecx, 1
-    mov [r10], ecx
-    mov rdx, cr4
-    mov [r10 + SMPINFO_CR4], edx
-    mov rdx, cr3
-    mov [r10 + SMPINFO_CR3], rdx
-    sidt [r10 + SMPINFO_IDT]
-    mov ecx, IA32_EFER
-    rdmsr
-    btr eax, EFER_LMA
-    mov [r10 + SMPINFO_EFER], eax
-
-    lea ecx, [r11 + _startup64 - _smp_rm_payload]
-    mov edx, KERNEL_CS64
-    mov [r10 + SMPINFO_START64], ecx
-    mov [r10 + SMPINFO_START64 + 4], edx
-    lea rax, [rel _ap_startup]
-    mov [r10 + SMPINFO_AP_STARTUP], rax
-
-    mov eax, r10d
-    ret
-
-
-_ap_startup:
-    lidt [rdi + SMPINFO_IDT]
-
-    ; init stack pointer
-    mov eax, ebp
-    imul eax, [rdi + SMPINFO_STACK_SIZE]
-    mov rcx, [rdi + SMPINFO_STACK_BASE]
-    lea rsp, [rcx + rax]
-
-    ; init APIC
-    mov edi, ebp
-    call apic_start_ap
-
-    ; idle thread
-    sti
-.loop:
-    hlt
-    jmp .loop
-
-
-
-
 [section .rodata]
-    ; Boot time minimal GDT
-_minimal_GDT:
-    dw 0xFFFF, 0x0000, 0x9A00, 0x00AF   ; 08 DPL0 CODE64 FLAT
-    dw 0xFFFF, 0x0000, 0x9200, 0x00CF   ; 10 DPL0 DATA FLAT MANDATORY
-_end_GDT:
 
 _mxcsr:
     dd 0x00001F80
@@ -452,82 +344,4 @@ _exception_table:
     dd 0 ; int_11
     dd 0 ; int_12
     dd _asm_int_13 - _base
-
-
-
-    ; SMP initialization payload
-[bits 16]
-_smp_rm_payload:
-    cli
-    xor ax, ax
-    mov ds, ax
-    mov edi, SMPINFO
-
-    ; acquire a temporary core-id
-    mov ax, 1
-    lock xadd [di], ax
-    cmp ax, [di + SMPINFO_MAX_CPU]
-    jae .fail
-    jmp .core_ok
-.fail:
-.forever:
-    hlt
-    jmp short .forever
-
-.core_ok:
-    movzx ebp, ax
-
-    lgdt [di + SMPINFO_GDTR]
-
-    ; enter to minimal PM
-    mov eax, cr0
-    bts eax, CR0_PE
-    mov cr0, eax
-
-    mov ax, KERNEL_SS
-    mov ss, ax
-    mov ds, ax
-    mov es, ax
-    mov fs, ax
-    mov gs, ax
-
-    xor eax, eax
-    cpuid
-    cmp ebx, 0x756e6547
-    jnz .nointel
-    cmp edx, 0x49656e69
-    jnz .nointel
-    cmp ecx, 0x6c65746e
-    jnz .nointel
-    mov ecx, IA32_MISC
-    rdmsr
-    btr edx, MISC_XD_DISABLE
-    wrmsr
-.nointel:
-
-    ; restore BSP's system registers
-    mov eax, [di + SMPINFO_CR4]
-    mov cr4, eax
-    mov eax, [di + SMPINFO_CR3]
-    mov cr3 ,eax
-
-    mov ecx, IA32_EFER
-    xor edx, edx
-    mov eax, [di+ SMPINFO_EFER]
-    wrmsr
-
-    ; enter to LM
-    mov eax, cr0
-    bts eax, CR0_PG
-    mov cr0, eax
-
-    jmp far dword [di + SMPINFO_START64]
-
-[BITS 64]
-    ;; This is a buffer zone for jumping from a 16-bit segment to a 4GB
-    ;; or larger address in a 64-bit segment.
-_startup64:
-    jmp [rdi + SMPINFO_AP_STARTUP]
-
-_end_smp_rm_payload:
 

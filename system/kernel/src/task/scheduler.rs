@@ -67,7 +67,7 @@ pub enum SchedulerState {
     /// The scheduler is running on minimal power.
     Minimal,
     /// The scheduler is running.
-    Running,
+    Normal,
     /// The scheduler is running on maximum power.
     Maximum,
 }
@@ -136,7 +136,7 @@ impl Scheduler {
             }));
         }
         fence(Ordering::SeqCst);
-        SCHEDULER_STATE.set(SchedulerState::Running);
+        SCHEDULER_STATE.set(SchedulerState::Normal);
 
         SpawnOption::with_priority(Priority::Realtime).start_process(
             Self::_scheduler_thread,
@@ -464,10 +464,10 @@ impl Scheduler {
                 SchedulerState::Disabled => (),
                 SchedulerState::Minimal => {
                     if usage_total > THRESHOLD_LEAVE_SAVING {
-                        Self::set_current_state(SchedulerState::Running);
+                        Self::set_current_state(SchedulerState::Normal);
                     }
                 }
-                SchedulerState::Running => {
+                SchedulerState::Normal => {
                     if usage_total < THRESHOLD_ENTER_SAVING {
                         Self::set_current_state(SchedulerState::Minimal);
                     } else if usage_total
@@ -481,7 +481,7 @@ impl Scheduler {
                     if usage_total
                         < System::current_device().num_of_performance_cpus() * THRESHOLD_LEAVE_FULL
                     {
-                        Self::set_current_state(SchedulerState::Running);
+                        Self::set_current_state(SchedulerState::Normal);
                     }
                 }
             }

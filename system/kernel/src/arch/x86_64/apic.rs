@@ -15,7 +15,11 @@ use crate::{
 use ::alloc::vec::*;
 use bootprot::BootFlags;
 use core::{
-    alloc::Layout, cell::UnsafeCell, ffi::c_void, mem::transmute, sync::atomic::*, time::Duration,
+    cell::UnsafeCell,
+    mem::{transmute, ManuallyDrop},
+    ptr::{copy_nonoverlapping, null_mut},
+    sync::atomic::*,
+    time::Duration,
 };
 use myacpi::madt;
 use seq_macro::seq;
@@ -39,20 +43,14 @@ static mut APIC: UnsafeCell<Apic> = UnsafeCell::new(Apic::new());
 const INVALID_PROCESSOR_INDEX: u8 = 0xFF;
 static mut CURRENT_PROCESSOR_INDEXES: [u8; 256] = [INVALID_PROCESSOR_INDEX; 256];
 
-extern "C" {
-    fn asm_apic_setup_sipi(
-        vec_sipi: InterruptVector,
-        max_cpu: usize,
-        stack_chunk_size: usize,
-        stack_base: *mut c_void,
-    );
-}
+type FnPrepareSipi =
+    extern "C" fn(max_cpu: usize, stacks: *const *mut u8, start_ap: unsafe extern "C" fn());
 
 static AP_STALLED: AtomicBool = AtomicBool::new(true);
 static AP_BOOTED: AtomicBool = AtomicBool::new(false);
 
 #[no_mangle]
-pub unsafe extern "C" fn apic_start_ap() {
+unsafe extern "C" fn apic_start_ap() {
     let apic_id = LocalApic::init_ap();
     System::activate_cpu(Cpu::new(apic_id));
 
@@ -71,6 +69,11 @@ pub unsafe extern "C" fn apic_start_ap() {
             Msr::TscAux.write(index as u64);
             break;
         }
+    }
+
+    Cpu::enable_interrupt();
+    loop {
+        Cpu::halt();
     }
 }
 
@@ -163,7 +166,7 @@ impl Apic {
         let vec_latimer = Irq(0).as_vec();
         LocalApic::clear_timer();
         LocalApic::set_timer_div(LocalApicTimerDivide::By1);
-        if let Some(hpet_info) = System::myacpi().find_first::<myacpi::hpet::Hpet>() {
+        if let Some(hpet_info) = System::acpi().unwrap().find_first::<myacpi::hpet::Hpet>() {
             // Use HPET
             Timer::set_timer(Box::new(Hpet::new(hpet_info)));
 
@@ -205,14 +208,20 @@ impl Apic {
             let sipi_vec = InterruptVector(MemoryManager::static_alloc_real().unwrap().get());
             let cpus = lapics.collect::<Vec<_>>();
             let max_cpu = usize::min(1 + cpus.len(), MAX_CPU);
-            let stack_chunk_size = STACK_CHUNK_SIZE;
-            let stack_base = MemoryManager::zalloc(Layout::from_size_align_unchecked(
-                max_cpu * stack_chunk_size,
-                1,
-            ))
-            .unwrap()
-            .get() as *mut c_void;
-            asm_apic_setup_sipi(sipi_vec, max_cpu, stack_chunk_size, stack_base);
+
+            let mut idle_stacks = Vec::with_capacity(max_cpu);
+            idle_stacks.push(null_mut());
+            for _ in 0..max_cpu {
+                let mut stack = ManuallyDrop::new(Vec::<u8>::with_capacity(STACK_CHUNK_SIZE));
+                idle_stacks.push(stack.as_mut_ptr().add(STACK_CHUNK_SIZE));
+            }
+
+            // Prepare the payload to receive the startup IPI.
+            let smpinit_src = include_bytes!("./smpinit.bin");
+            let smpinit_dst = ((sipi_vec.0 as usize) << 12) as *mut u8;
+            copy_nonoverlapping(smpinit_src.as_ptr(), smpinit_dst, smpinit_src.len());
+            let prepare_sipi = transmute::<_, FnPrepareSipi>(smpinit_dst.add(8));
+            prepare_sipi(max_cpu, idle_stacks.as_ptr(), apic_start_ap);
 
             // start SMP
             for (_index, cpu) in cpus.iter().enumerate() {
@@ -244,6 +253,8 @@ impl Apic {
 
                 // log!("CPU #{} OK", index,);
             }
+
+            drop(idle_stacks);
 
             for index in 0..System::current_device().num_of_active_cpus() {
                 let cpu = System::cpu(ProcessorIndex(index));

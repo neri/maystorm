@@ -18,6 +18,10 @@ TARGETS		= boot kernel
 ALL_TARGETS	= $(TARGETS) apps
 INITRD_FILES	= LICENSE $(ASSETS)initrd/* apps/target/wasm32-unknown-unknown/release/*.wasm
 
+X64_SMP			= system/kernel/src/arch/x86_64/smpinit
+X64_SMP_ASM		= $(X64_SMP).asm
+X64_SMP_BIN		= $(X64_SMP).bin
+
 QEMU_X64		= qemu-system-x86_64
 OVMF_X64		= var/ovmfx64.fd
 BOOT_EFI_BOOT1	= $(EFI_BOOT)/bootx64.efi
@@ -78,8 +82,11 @@ run_x86:
 boot:
 	(cd boot; cargo build --release --target x86_64-unknown-uefi --target i686-unknown-uefi)
 
-kernel:
+kernel: $(X64_SMP_BIN)
 	(cd system; cargo build --release --target $(KRNL_ARCH).json)
+
+$(X64_SMP_BIN): $(X64_SMP_ASM)
+	nasm -f bin $< -o $@
 
 install: test $(EFI_VENDOR) $(EFI_BOOT) $(ALL_TARGETS) tools/mkinitrd/src/*.rs
 	cp $(TARGET_BOOT_EFI1) $(BOOT_EFI_BOOT1)

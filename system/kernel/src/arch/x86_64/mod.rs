@@ -21,7 +21,7 @@ impl Arch {
     pub unsafe fn init() {
         cpu::Cpu::init();
 
-        if let Some(madt) = System::myacpi().find_first::<myacpi::madt::Madt>() {
+        if let Some(madt) = System::acpi().unwrap().find_first::<myacpi::madt::Madt>() {
             apic::Apic::init(madt);
         } else {
             panic!("NO APIC");

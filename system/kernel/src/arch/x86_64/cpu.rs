@@ -59,8 +59,13 @@ impl SharedCpu {
 
 impl Cpu {
     pub unsafe fn init() {
-        let bsp = System::myacpi().local_apics().next().unwrap();
-        System::activate_cpu(Cpu::new(bsp.apic_id().into()));
+        let apic_id = System::acpi()
+            .unwrap()
+            .local_apics()
+            .next()
+            .map(|v| v.apic_id())
+            .unwrap_or(0);
+        System::activate_cpu(Cpu::new(apic_id.into()));
 
         let shared = Self::shared();
         shared.max_cpuid_level_0 = __cpuid_count(0, 0).eax;

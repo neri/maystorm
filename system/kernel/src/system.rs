@@ -352,9 +352,8 @@ impl System {
     }
 
     #[inline]
-    #[track_caller]
-    pub fn myacpi<'a>() -> &'a myacpi::Xsdt {
-        Self::shared().myacpi.unwrap().xsdt()
+    pub fn acpi<'a>() -> Option<&'a myacpi::Xsdt> {
+        Self::shared().myacpi.as_ref().map(|v| v.xsdt())
     }
 
     #[track_caller]
