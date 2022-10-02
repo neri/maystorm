@@ -55,8 +55,8 @@ impl Shell {
     }
 
     async fn repl_main() {
-        Self::exec_cmd("ver");
-        Self::exec_cmd("sysctl device");
+        // Self::exec_cmd("ver");
+        // Self::exec_cmd("sysctl device");
 
         loop {
             print!("# ");
@@ -126,7 +126,7 @@ impl Shell {
                         Scheduler::get_thread_statistics(&mut sb);
                         print!("{}", sb.as_str());
                     }
-                    "open" => {
+                    "open" | "ncst" => {
                         let args = &args[1..];
                         let name = args[0];
                         Self::spawn(name, args, false);

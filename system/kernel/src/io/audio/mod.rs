@@ -124,7 +124,7 @@ impl AudioManager {
                 None => (),
             }
         };
-        driver.set_master_volume(16);
+        driver.set_master_volume(10);
 
         let buffer_len = driver.size_of_buffer();
         let mut buffer = Vec::with_capacity(buffer_len);

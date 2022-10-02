@@ -102,6 +102,9 @@ pub struct UsbManager {
 }
 
 impl UsbManager {
+    /// USB notification does not appear for a certain period of time after startup
+    const NOTIFICATION_BLOCK_TIME: Duration = Duration::from_millis(3000);
+
     pub unsafe fn init() {
         USB_MANAGER.write(Self {
             devices: RwLock::new(Vec::new()),
@@ -225,16 +228,20 @@ impl UsbManager {
                         .into_iter()
                         .for_each(|task| UsbManager::register_xfer_task(task));
 
-                    if let Some(device_name) = device.device().preferred_device_name() {
-                        notify!(r::Icons::Usb, "\"{}\"\nhas been configured.", device_name);
-                    } else {
-                        notify!(r::Icons::Usb, "A USB Device has been configured.");
+                    if Timer::monotonic() > Self::NOTIFICATION_BLOCK_TIME {
+                        if let Some(device_name) = device.device().preferred_device_name() {
+                            notify!(r::Icons::Usb, "\"{}\"\nhas been configured.", device_name);
+                        } else {
+                            notify!(r::Icons::Usb, "A USB Device has been configured.");
+                        }
                     }
                 } else {
-                    if let Some(device_name) = device.device().preferred_device_name() {
-                        notify!(r::Icons::Usb, "\"{}\" was found.", device_name);
-                    } else {
-                        notify!(r::Icons::Usb, "A USB Device was found.");
+                    if Timer::monotonic() > Self::NOTIFICATION_BLOCK_TIME {
+                        if let Some(device_name) = device.device().preferred_device_name() {
+                            notify!(r::Icons::Usb, "\"{}\" was found.", device_name);
+                        } else {
+                            notify!(r::Icons::Usb, "A USB Device was found.");
+                        }
                     }
                 }
 

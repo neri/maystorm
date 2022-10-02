@@ -13,16 +13,16 @@ pub struct App {
 }
 
 impl App {
-    const WINDOW_WIDTH: isize = 256;
-    const WINDOW_HEIGHT: isize = 240;
+    const WINDOW_WIDTH: isize = 240;
+    const WINDOW_HEIGHT: isize = 160;
 
     #[inline]
     fn new() -> Self {
         let presenter = GameWindow::with_options(
             "GAME BENCH",
             Size::new(Self::WINDOW_WIDTH, Self::WINDOW_HEIGHT),
-            ScaleMode::DotByDot,
-            500,
+            ScaleMode::NearestNeighbor2X,
+            1000,
         );
         Self { presenter }
     }

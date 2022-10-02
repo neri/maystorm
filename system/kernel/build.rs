@@ -1,41 +1,21 @@
-use std::env;
-use std::path::Path;
-use std::process::Command;
+// use std::env;
+// use std::path::Path;
+// use std::process::Command;
 
 fn main() {
-    let out_dir = env::var("OUT_DIR").unwrap();
+    // let out_dir = env::var("OUT_DIR").unwrap();
 
-    match env::var("PROFILE").unwrap().as_str() {
-        "debug" => {
-            // TODO:
-        }
-        "release" => {
-            let target_arch: String = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    // match env::var("PROFILE").unwrap().as_str() {
+    //     "debug" => {
+    //         //
+    //     }
+    //     "release" => {
+    //         //
+    //     }
+    //     _ => unreachable!(),
+    // }
 
-            match &*target_arch {
-                "x86_64" => {
-                    Command::new("nasm")
-                        .args(&["-f", "elf64", "src/arch/x86_64/asm.asm", "-o"])
-                        .arg(&format!("{}/asm.o", out_dir))
-                        .status()
-                        .unwrap();
-
-                    Command::new("ar")
-                        .args(&["crus", "libkernel.a", "asm.o"])
-                        .current_dir(&Path::new(&out_dir))
-                        .status()
-                        .unwrap();
-                }
-                _ => {
-                    println!("cargo:warning=TARGET_ARCH {} IS NOT SUPPORTED", target_arch);
-                    std::process::exit(1);
-                }
-            }
-        }
-        _ => unreachable!(),
-    }
-
-    println!("cargo:rustc-link-search=native={}", out_dir);
-    println!("cargo:rustc-link-lib=static=kernel");
-    println!("cargo:rerun-if-changed=src/arch/**/*.asm");
+    // println!("cargo:rustc-link-search=native={}", out_dir);
+    // println!("cargo:rustc-link-lib=static=kernel");
+    // println!("cargo:rerun-if-changed=src/arch/**/*.asm");
 }

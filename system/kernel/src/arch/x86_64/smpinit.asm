@@ -15,8 +15,6 @@
 %define EFER_NXE            11
 %define MISC_XD_DISABLE     2
 
-%define TSS64_RSP0          0x04
-
 %define SMPINFO             0x0800
 %define SMPINFO_MAX_CPU     0x04
 %define SMPINFO_EFER        0x08

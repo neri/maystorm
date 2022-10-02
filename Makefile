@@ -58,7 +58,7 @@ run:
 -rtc base=localtime,clock=host \
 -device nec-usb-xhci,id=xhci -device usb-tablet \
 -drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
--device intel-hda -device hda-duplex \
+-device usb-audio -device intel-hda -device hda-duplex \
 -serial mon:stdio
 
 run_up:

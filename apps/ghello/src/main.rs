@@ -5,7 +5,12 @@ use megstd::game::v1::prelude::*;
 
 #[no_mangle]
 fn _start() {
-    let presenter = GameWindow::new("hello", Size::new(192, 64));
+    let presenter = GameWindow::with_options(
+        "GAME BENCH",
+        Size::new(128, 64),
+        ScaleMode::NearestNeighbor2X,
+        0,
+    );
 
     let chars = b"Hello, world!";
     for (index, char) in chars.iter().enumerate() {
@@ -21,7 +26,7 @@ fn _start() {
             let value = position * position / 8;
             presenter.move_sprite(
                 index as v1::SpriteIndex,
-                Point::new(32 + index as isize * 10, 16 + value),
+                Point::new(8 + index as isize * 9, 16 + value),
             );
         }
 

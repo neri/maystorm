@@ -441,8 +441,8 @@ async fn activity_monitor_main() {
 
 /// Simple Notification Task
 async fn _notification_task() {
-    let window_width = 280;
-    let window_height = 90;
+    let window_width = 288;
+    let window_height = 96;
     let margin = EdgeInsets::padding_each(8);
     let padding = EdgeInsets::padding_each(8);
     let item_spacing = 8;

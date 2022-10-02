@@ -97,6 +97,7 @@ dependencies = [
  "myacpi",
  "num-derive 0.3.3",
  "num-traits",
+ "paste",
  "seq-macro",
  "wasm",
 ]
@@ -162,6 +163,12 @@ checksum = "05e6affeb1632d6ff6a23d2cd40ffed138e82f1532571a26f527c8a284bb2fbb"
 dependencies = [
  "ttf-parser",
 ]
+
+[[package]]
+name = "paste"
+version = "1.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1de2e551fb905ac83f73f7aedf2f0cb4a0da7e35efa24a202a936269f1f18e1"
 
 [[package]]
 name = "pin-project-lite"

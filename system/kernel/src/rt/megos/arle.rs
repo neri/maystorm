@@ -1211,7 +1211,7 @@ impl OsGamePresenter {
         scale: ScaleMode,
         fps: usize,
     ) -> Result<Self, WasmRuntimeErrorKind> {
-        let fps = if fps > 0 && fps <= 500 { fps } else { 60 };
+        let fps = if fps > 0 && fps <= 1000 { fps } else { 60 };
         let timer_div = (1000_000 / fps) as u64;
         let scale_factor = scale.scale_factor();
         let size = window.content_rect().size() / scale_factor;

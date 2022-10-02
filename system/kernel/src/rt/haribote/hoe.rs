@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::{
+    arch::cpu::LegacySyscallContext,
     fs::*,
     io::audio::{AudioContext, FreqType, NoteControl, OscType},
     mem::MemoryManager,
@@ -21,6 +22,17 @@ mod fonts {
 }
 
 static mut HOE_MANAGER: UnsafeCell<HoeManager> = UnsafeCell::new(HoeManager::new());
+
+/// Perform Haribote-OS System Call
+#[no_mangle]
+pub fn hoe_syscall(regs: &mut LegacySyscallContext) {
+    match Scheduler::current_personality().and_then(|v| v.get::<Hoe>().ok()) {
+        Some(hoe) => {
+            hoe._syscall(regs);
+        }
+        None => todo!(),
+    }
+}
 
 pub(super) struct HoeManager {
     japanese_font: Vec<u8>,
@@ -97,18 +109,6 @@ impl Personality for Hoe {
     }
 }
 
-#[repr(C)]
-pub struct HoeSyscallRegs {
-    pub eax: u32,
-    pub ecx: u32,
-    pub edx: u32,
-    pub ebx: u32,
-    pub esi: u32,
-    pub edi: u32,
-    pub ebp: u32,
-    pub eip: u32,
-}
-
 impl Hoe {
     const OS_ID: u32 = 0x534F594D;
     const OS_VER: u32 = 0;
@@ -172,22 +172,12 @@ impl Hoe {
         RuntimeEnvironment::exit(0);
     }
 
-    fn raise_segv(&self, regs: &HoeSyscallRegs) -> ! {
+    fn raise_segv(&self, regs: &LegacySyscallContext) -> ! {
         println!("Segmentation Violation at {:08x}", regs.eip);
         self.abort();
     }
 
-    /// Perform Haribote-OS System Call
-    pub fn syscall(regs: &mut HoeSyscallRegs) {
-        match Scheduler::current_personality().and_then(|v| v.get::<Self>().ok()) {
-            Some(hoe) => {
-                hoe._syscall(regs);
-            }
-            None => todo!(),
-        }
-    }
-
-    fn _syscall(&mut self, regs: &mut HoeSyscallRegs) {
+    fn _syscall(&mut self, regs: &mut LegacySyscallContext) {
         match regs.edx {
             1 => {
                 // putchar(eax)

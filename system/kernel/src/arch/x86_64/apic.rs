@@ -261,14 +261,15 @@ impl Apic {
                 CURRENT_PROCESSOR_INDEXES[cpu.apic_id().0 as usize] = cpu.cpu_index.0 as u8;
             }
 
-            let processor_system_type = if System::current_device().num_of_active_cpus() == 1 {
-                ProcessorSystemType::UP
-            } else if Cpu::shared().has_smt() {
-                ProcessorSystemType::SMT
-            } else {
-                ProcessorSystemType::SMP
-            };
-            System::set_processor_systsm_type(processor_system_type);
+            System::set_processor_system_type(
+                if System::current_device().num_of_active_cpus() == 1 {
+                    ProcessorSystemType::UP
+                } else if Cpu::shared().has_smt() {
+                    ProcessorSystemType::SMT
+                } else {
+                    ProcessorSystemType::SMP
+                },
+            );
 
             AP_STALLED.store(false, Ordering::SeqCst);
             System::cpu_mut(ProcessorIndex(0)).set_tsc_base(Cpu::rdtsc());

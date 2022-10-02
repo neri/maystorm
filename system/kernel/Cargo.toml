@@ -22,4 +22,5 @@ futures-util = {default-features = false, features = ["alloc"]}
 libm = {}
 num-derive = {default-features = false}
 num-traits = {default-features = false}
+paste = {}
 seq-macro = {}

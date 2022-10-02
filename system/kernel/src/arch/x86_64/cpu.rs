@@ -2,7 +2,7 @@ use super::apic::*;
 use crate::{
     drivers::pci::*,
     io::tty::Tty,
-    rt::{haribote::Hoe, *},
+    rt::{LegacyAppContext, RuntimeEnvironment},
     sync::spinlock::Spinlock,
     system::{ProcessorCoreType, ProcessorIndex},
     task::scheduler::Scheduler,
@@ -11,17 +11,15 @@ use crate::{
 use alloc::boxed::Box;
 use bitflags::*;
 use core::{
-    arch::asm, arch::x86_64::__cpuid_count, cell::UnsafeCell, convert::TryFrom, ffi::c_void,
-    mem::transmute, sync::atomic::*,
+    arch::asm,
+    arch::x86_64::__cpuid_count,
+    cell::UnsafeCell,
+    convert::TryFrom,
+    ffi::c_void,
+    mem::{size_of, transmute},
+    sync::atomic::*,
 };
-
-extern "C" {
-    fn asm_handle_exception(_: InterruptVector) -> usize;
-    fn asm_sch_switch_context(current: *mut CpuContextData, next: *mut CpuContextData);
-    fn asm_sch_make_new_thread(context: *mut u8, new_sp: *mut c_void, start: usize, arg: usize);
-    fn asm_sch_get_context_status(context: *const u8, result: *mut [usize; 2]);
-    fn _asm_int_40() -> !;
-}
+use paste::paste;
 
 static mut SHARED_CPU: UnsafeCell<SharedCpu> = UnsafeCell::new(SharedCpu::new());
 
@@ -377,23 +375,32 @@ impl Cpu {
     pub unsafe fn invoke_legacy(ctx: &LegacyAppContext) -> ! {
         Cpu::disable_interrupt();
 
-        let cpu = System::cpu_mut(Cpu::current_processor_index());
-        *cpu.gdt.item_mut(Selector::LEGACY_CODE).unwrap() = DescriptorEntry::code_legacy(
-            ctx.base_of_code,
-            ctx.size_of_code - 1,
-            PrivilegeLevel::User,
-            DefaultSize::Use32,
-        );
-        *cpu.gdt.item_mut(Selector::LEGACY_DATA).unwrap() = DescriptorEntry::data_legacy(
-            ctx.base_of_data,
-            ctx.size_of_data - 1,
-            PrivilegeLevel::User,
-        );
-        cpu.gdt.reload();
+        let gdt = GlobalDescriptorTable::current();
+        gdt.set_item(
+            Selector::LEGACY_CODE,
+            DescriptorEntry::code_legacy(
+                ctx.base_of_code,
+                ctx.size_of_code - 1,
+                PrivilegeLevel::User,
+                DefaultSize::Use32,
+            ),
+        )
+        .unwrap();
+        gdt.set_item(
+            Selector::LEGACY_DATA,
+            DescriptorEntry::data_legacy(
+                ctx.base_of_data,
+                ctx.size_of_data - 1,
+                PrivilegeLevel::User,
+            ),
+        )
+        .unwrap();
 
         let rsp: u64;
         asm!("mov {0}, rsp", out(reg) rsp);
-        cpu.gdt.tss.stack_pointer[0] = rsp;
+        gdt.tss.stack_pointer[0] = rsp;
+
+        gdt.reload();
 
         let rflags = Rflags::IF;
 
@@ -485,43 +492,220 @@ impl Into<u32> for PciConfigAddress {
     }
 }
 
-/// Architecture-specific context data
+/// CPU specific context data
 #[repr(C, align(64))]
 pub struct CpuContextData {
-    _repr: [u8; Self::SIZE_OF_CONTEXT],
+    _regs: [u64; ContextIndex::Max as usize],
+    _fpu: [u8; 512],
+}
+
+macro_rules! context_index {
+    ($name:ident) => {
+        paste! {
+            pub const [<CTX_ $name>] : usize = ContextIndex::$name.to_offset();
+        }
+    };
+    ($name:ident, $($name2:ident),+) => {
+        context_index!{ $name }
+        context_index!{ $($name2),+ }
+    };
 }
 
 impl CpuContextData {
     pub const SIZE_OF_CONTEXT: usize = 1024;
     pub const SIZE_OF_STACK: usize = 0x10000;
 
+    context_index! { RSP, RBP, RBX, R12, R13, R14, R15, USER_CS_DESC, USER_DS_DESC, TSS_RSP0 }
+    pub const CTX_DS: usize = ContextIndex::Segs.to_offset() + 0;
+    pub const CTX_ES: usize = ContextIndex::Segs.to_offset() + 2;
+    pub const CTX_FS: usize = ContextIndex::Segs.to_offset() + 4;
+    pub const CTX_GS: usize = ContextIndex::Segs.to_offset() + 6;
+    pub const CTX_FPU: usize = ContextIndex::Max.to_offset();
+
     #[inline]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
-            _repr: [0; Self::SIZE_OF_CONTEXT],
+            _regs: [0; ContextIndex::Max as usize],
+            _fpu: [0; 512],
         }
     }
 
-    #[inline]
     pub unsafe fn switch(&mut self, other: &mut Self) {
-        asm_sch_switch_context(self as *mut _, other as *mut _);
+        let gdt = GlobalDescriptorTable::current();
+        Self::_switch(self, other, gdt);
+    }
+
+    #[naked]
+    unsafe extern "C" fn _switch(
+        current: *mut Self,
+        other: *const Self,
+        gdt: *mut GlobalDescriptorTable,
+    ) {
+        asm!(
+            "
+            mov [rdi + {CTX_RSP}], rsp
+            mov [rdi + {CTX_RBP}], rbp
+            mov [rdi + {CTX_RBX}], rbx
+            mov [rdi + {CTX_R12}], r12
+            mov [rdi + {CTX_R13}], r13
+            mov [rdi + {CTX_R14}], r14
+            mov [rdi + {CTX_R15}], r15
+            mov [rdi + {CTX_DS}], ds
+            mov [rdi + {CTX_ES}], es
+            mov [rdi + {CTX_FS}], fs
+            mov [rdi + {CTX_GS}], gs
+            fxsave [rdi + {CTX_FPU}]
+
+            mov rax, [rsi + {CTX_USER_CS}]
+            xchg rax, [rdx + {USER_CS} * 8]
+            mov [rdi + {CTX_USER_CS}], rax
+        
+            mov rax, [rsi + {CTX_USER_DS}]
+            xchg rax, [rdx + {USER_DS} * 8]
+            mov [rdi + {CTX_USER_DS}], rax
+        
+            mov rax, [rsi + {CTX_TSS_RSP0}]
+            xchg rax, [rdx + {OFFSET_TSS} + {TSS_OFF_RSP0}]
+            mov [rdi + {CTX_TSS_RSP0}], rax
+        
+            fxrstor [rdi + {CTX_FPU}]
+            mov rsp, [rsi + {CTX_RSP}]
+            mov rbp, [rsi + {CTX_RBP}]
+            mov rbx, [rsi + {CTX_RBX}]
+            mov r12, [rsi + {CTX_R12}]
+            mov r13, [rsi + {CTX_R13}]
+            mov r14, [rsi + {CTX_R14}]
+            mov r15, [rsi + {CTX_R15}]
+            mov ds, [rsi + {CTX_DS}]
+            mov es, [rsi + {CTX_ES}]
+            mov fs, [rsi + {CTX_FS}]
+            mov gs, [rsi + {CTX_GS}]
+        
+            xor eax, eax
+            xor ecx, ecx
+            xor edx, edx
+            xor esi, esi
+            xor edi, edi
+            xor r8, r8
+            xor r9, r9
+            xor r10, r10
+            xor r11, r11
+            ret
+            ",
+            CTX_RSP = const Self::CTX_RSP,
+            CTX_RBP = const Self::CTX_RBP,
+            CTX_RBX = const Self::CTX_RBX,
+            CTX_R12 = const Self::CTX_R12,
+            CTX_R13 = const Self::CTX_R13,
+            CTX_R14 = const Self::CTX_R14,
+            CTX_R15 = const Self::CTX_R15,
+            CTX_FPU = const Self::CTX_FPU,
+            CTX_TSS_RSP0 = const Self::CTX_TSS_RSP0,
+            OFFSET_TSS = const GlobalDescriptorTable::OFFSET_TSS,
+            TSS_OFF_RSP0 = const TaskStateSegment::OFFSET_RSP0,
+            CTX_DS = const Self::CTX_DS,
+            CTX_ES = const Self::CTX_ES,
+            CTX_FS = const Self::CTX_FS,
+            CTX_GS = const Self::CTX_GS,
+            CTX_USER_CS = const Self::CTX_USER_CS_DESC,
+            CTX_USER_DS = const Self::CTX_USER_DS_DESC,
+            USER_CS = const Selector::LEGACY_CODE.index(),
+            USER_DS = const Selector::LEGACY_DATA.index(),
+            options(noreturn)
+        );
     }
 
     #[inline]
     pub unsafe fn init(&mut self, new_sp: *mut c_void, start: usize, arg: usize) {
-        let context = self as *const _ as *mut u8;
-        asm_sch_make_new_thread(context, new_sp, start, arg);
+        asm!("
+            sub {new_sp}, 0x18
+            mov [{new_sp}], {new_thread}
+            mov [{new_sp} + 0x08], {start}
+            mov [{new_sp} + 0x10], {arg}
+            mov [{0} + {CTX_RSP}], {new_sp}
+            xor {temp:e}, {temp:e}
+            mov [{0} + {CTX_USER_CS}], {temp}
+            mov [{0} + {CTX_USER_DS}], {temp}
+            ",
+            in(reg) self,
+            new_sp = in(reg) new_sp,
+            start = in(reg) start,
+            arg = in(reg) arg,
+            new_thread = in(reg) Self::_new_thread,
+            temp = out(reg) _,
+            CTX_RSP = const Self::CTX_RSP,
+            CTX_USER_CS = const Self::CTX_USER_CS_DESC,
+            CTX_USER_DS = const Self::CTX_USER_DS_DESC,
+        );
+    }
+
+    #[naked]
+    unsafe extern "C" fn _new_thread() {
+        asm!(
+            "
+            fninit
+            mov eax, 0x00001F80
+            push rax
+            ldmxcsr [rsp]
+            pop rax
+            pxor xmm0, xmm0
+            pxor xmm1, xmm1
+            pxor xmm2, xmm2
+            pxor xmm3, xmm3
+            pxor xmm4, xmm4
+            pxor xmm5, xmm5
+            pxor xmm6, xmm6
+            pxor xmm7, xmm7
+            pxor xmm8, xmm8
+            pxor xmm9, xmm9
+            pxor xmm10, xmm10
+            pxor xmm11, xmm11
+            pxor xmm12, xmm12
+            pxor xmm13, xmm13
+            pxor xmm14, xmm14
+            pxor xmm15, xmm15
+
+            call {setup_new_thread}
+
+            sti
+            pop rax
+            pop rdi
+            call rax
+            ",
+            setup_new_thread = sym task::scheduler::sch_setup_new_thread,
+            options(noreturn)
+        );
     }
 
     #[inline]
     pub fn get_context_status(&self) -> (usize, usize) {
-        let context = self as *const _ as *const u8;
-        let mut result = [0usize; 2];
-        unsafe {
-            let rp = &mut result as *mut _;
-            asm_sch_get_context_status(context, rp);
-        }
-        (result[0], 0)
+        // TODO:
+        (0, 0)
+    }
+}
+
+#[allow(dead_code)]
+#[allow(non_camel_case_types)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum ContextIndex {
+    USER_CS_DESC = 2,
+    USER_DS_DESC,
+    RSP,
+    RBP,
+    RBX,
+    R12,
+    R13,
+    R14,
+    R15,
+    TSS_RSP0,
+    Segs,
+    Max = 32,
+}
+
+impl ContextIndex {
+    #[inline]
+    pub const fn to_offset(&self) -> usize {
+        size_of::<usize>() * (*self as usize)
     }
 }
 
@@ -531,8 +715,11 @@ pub struct GlobalDescriptorTable {
     tss: TaskStateSegment,
 }
 
+impl !Send for GlobalDescriptorTable {}
+
 impl GlobalDescriptorTable {
-    const NUM_ITEMS: usize = 8;
+    pub const NUM_ITEMS: usize = 8;
+    pub const OFFSET_TSS: usize = 8 * Self::NUM_ITEMS;
 
     unsafe fn new() -> Box<Self> {
         let mut gdt = Box::new(GlobalDescriptorTable {
@@ -540,13 +727,19 @@ impl GlobalDescriptorTable {
             table: [DescriptorEntry::null(); Self::NUM_ITEMS],
         });
 
+        gdt.set_item(
+            Selector::KERNEL_CODE,
+            DescriptorEntry::code_segment(PrivilegeLevel::Kernel, DefaultSize::Use64),
+        )
+        .unwrap();
+        gdt.set_item(
+            Selector::KERNEL_DATA,
+            DescriptorEntry::data_segment(PrivilegeLevel::Kernel),
+        )
+        .unwrap();
+
         let tss_pair =
             DescriptorEntry::tss_descriptor(&gdt.tss as *const _ as usize, gdt.tss.limit());
-
-        gdt.table[Selector::KERNEL_CODE.index()] =
-            DescriptorEntry::code_segment(PrivilegeLevel::Kernel, DefaultSize::Use64);
-        gdt.table[Selector::KERNEL_DATA.index()] =
-            DescriptorEntry::data_segment(PrivilegeLevel::Kernel);
         let tss_index = Selector::SYSTEM_TSS.index();
         gdt.table[tss_index] = tss_pair.low;
         gdt.table[tss_index + 1] = tss_pair.high;
@@ -563,7 +756,8 @@ impl GlobalDescriptorTable {
             mov es, {1:e}
             mov fs, {1:e}
             mov gs, {1:e}
-            ", out(reg) _, in(reg) Selector::KERNEL_DATA.0, in(reg) Selector::KERNEL_CODE.0);
+            ", out(reg) _, in(reg) Selector::KERNEL_DATA.0, in(reg) Selector::KERNEL_CODE.0
+        );
 
         asm!("ltr {0:x}", in(reg) Selector::SYSTEM_TSS.0);
 
@@ -580,6 +774,25 @@ impl GlobalDescriptorTable {
     pub unsafe fn item_mut(&mut self, selector: Selector) -> Option<&mut DescriptorEntry> {
         let index = selector.index();
         self.table.get_mut(index)
+    }
+
+    #[inline]
+    pub unsafe fn set_item(&mut self, selector: Selector, desc: DescriptorEntry) -> Option<()> {
+        let index = selector.index();
+        self.table.get_mut(index).map(|v| *v = desc)
+    }
+
+    #[inline]
+    pub unsafe fn current<'a>() -> &'a mut GlobalDescriptorTable {
+        let gdt: usize;
+        asm!("
+            sub rsp, 16
+            sgdt [rsp + 6]
+            mov {0}, [rsp + 8]
+            add rsp, 16
+            ", out(reg) gdt
+        );
+        &mut *(gdt as *mut GlobalDescriptorTable)
     }
 
     /// Reload GDT
@@ -925,7 +1138,8 @@ impl PrivilegeLevel {
             0 => PrivilegeLevel::Kernel,
             1 => PrivilegeLevel::Ring1,
             2 => PrivilegeLevel::Ring2,
-            _ => PrivilegeLevel::User,
+            3 => PrivilegeLevel::User,
+            _ => unreachable!(),
         }
     }
 }
@@ -1062,7 +1276,7 @@ impl ExceptionType {
             ExceptionType::SimdException => "#XM",
             ExceptionType::Virtualization => "#VE",
             ExceptionType::Security => "#SX",
-            ExceptionType::MAX => "",
+            _ => "",
         }
     }
 }
@@ -1085,7 +1299,11 @@ struct TaskStateSegment {
     iomap_base: u16,
 }
 
+impl !Send for TaskStateSegment {}
+
 impl TaskStateSegment {
+    pub const OFFSET_RSP0: usize = 0x04;
+
     #[inline]
     const fn new() -> Self {
         Self {
@@ -1121,8 +1339,8 @@ impl DefaultSize {
     #[inline]
     pub const fn from_descriptor(value: DescriptorEntry) -> Option<Self> {
         if value.is_code_segment() {
-            let is_32 = (value.0 & Self::Use32 as u64) != 0;
-            let is_64 = (value.0 & Self::Use64 as u64) != 0;
+            let is_32 = (value.0 & Self::Use32.as_descriptor_entry()) != 0;
+            let is_64 = (value.0 & Self::Use64.as_descriptor_entry()) != 0;
             match (is_32, is_64) {
                 (false, false) => Some(Self::Use16),
                 (false, true) => Some(Self::Use64),
@@ -1304,6 +1522,20 @@ pub struct InterruptDescriptorTable {
     table: [DescriptorEntry; Self::MAX * 2],
 }
 
+impl !Send for InterruptDescriptorTable {}
+
+macro_rules! register_exception {
+    ($mnemonic:ident) => {
+        paste! {
+            Self::register(
+                ExceptionType::$mnemonic.as_vec(),
+                [<exc_ $mnemonic>] as usize,
+                PrivilegeLevel::Kernel,
+            );
+        }
+    };
+}
+
 impl InterruptDescriptorTable {
     const MAX: usize = 256;
 
@@ -1315,21 +1547,20 @@ impl InterruptDescriptorTable {
 
     unsafe fn init() {
         Self::load();
-        for vec in 0..(ExceptionType::MAX as u8) {
-            let vec = InterruptVector(vec);
-            let offset = asm_handle_exception(vec);
-            if offset != 0 {
-                Self::register(vec, offset, PrivilegeLevel::Kernel);
-            }
-        }
 
-        // Haribote OS Supports
+        register_exception!(DivideError);
+        register_exception!(Breakpoint);
+        register_exception!(InvalidOpcode);
+        register_exception!(DeviceNotAvailable);
+        register_exception!(DoubleFault);
+        register_exception!(GeneralProtection);
+        register_exception!(PageFault);
+        register_exception!(SimdException);
+
         {
+            // Haribote OS Supports
             let vec = InterruptVector(0x40);
-            let offset = asm_handle_exception(vec);
-            if offset != 0 {
-                Self::register(vec, offset, PrivilegeLevel::User);
-            }
+            Self::register(vec, cpu_int40_handler as usize, PrivilegeLevel::User);
         }
     }
 
@@ -1408,7 +1639,6 @@ impl Msr {
             in("eax") value.pair.eax,
             in("edx") value.pair.edx,
             in("ecx") self as u32,
-            options(nomem, nostack),
         );
     }
 
@@ -1421,7 +1651,6 @@ impl Msr {
             lateout("eax") eax,
             lateout("edx") edx,
             in("ecx") self as u32,
-            options(nomem, nostack),
         );
         MsrResult {
             pair: AccumulatorPair { eax, edx },
@@ -1513,7 +1742,7 @@ impl X64StackContext {
 static mut GLOBAL_EXCEPTION_LOCK: Spinlock = Spinlock::new();
 
 #[no_mangle]
-pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext) {
+pub(super) unsafe extern "C" fn cpu_default_exception(ctx: &X64StackContext) {
     let is_user = GLOBAL_EXCEPTION_LOCK.synchronized(|| {
         let is_user = Scheduler::current_personality().is_some();
         let stdout = if is_user {
@@ -1522,7 +1751,7 @@ pub(super) unsafe extern "C" fn cpu_default_exception(ctx: *mut X64StackContext)
             System::em_console() as &mut dyn Tty
         };
         stdout.set_attribute(0x0F);
-        let ctx = ctx.as_ref().unwrap();
+
         let cpu = System::current_processor();
         let cs_desc = cpu.gdt.item(ctx.cs()).unwrap();
         let ex = ExceptionType::from_vec(ctx.vector());
@@ -1677,7 +1906,197 @@ rbp {:016x} r10 {:016x} r15 {:016x} gs {:04x}",
     }
 }
 
-#[no_mangle]
-unsafe fn cpu_int40_handler(ctx: &mut haribote::HoeSyscallRegs) {
-    Hoe::syscall(ctx);
+macro_rules! exception_handler {
+    ($mnemonic:ident, $handler:ident) => {
+        paste! {
+            #[naked]
+            #[allow(non_snake_case)]
+            unsafe extern "C" fn [<exc_ $mnemonic>]() {
+                asm!("
+                push ${exno}
+                push rax
+                push rcx
+                push rdx
+                push rbx
+                push rbp
+                push rsi
+                push rdi
+                push r8
+                push r9
+                push r10
+                push r11
+                push r12
+                push r13
+                push r14
+                push r15
+                mov eax, ds
+                push rax
+                mov ecx, es
+                push rcx
+                push fs
+                push gs
+                mov rax, cr2
+                push rax
+                xor eax, eax
+                push rax
+                stmxcsr [rsp]
+                mov rbp, rsp
+                and rsp, 0xfffffffffffffff0
+                cld
+            
+                mov rdi, rbp
+                call {handler}
+
+                lea rsp, [rbp + 8 * 6]
+                pop r15
+                pop r14
+                pop r13
+                pop r12
+                pop r11
+                pop r10
+                pop r9
+                pop r8
+                pop rdi
+                pop rsi
+                pop rbp
+                pop rbx
+                pop rdx
+                pop rcx
+                pop rax
+                add rsp, 16
+                iretq
+                ",
+                exno = const ExceptionType::$mnemonic.as_vec().0 as usize,
+                handler = sym $handler,
+                options(noreturn));
+            }
+        }
+    };
+}
+
+macro_rules! exception_handler_noerr {
+    ($mnemonic:ident, $handler:ident) => {
+        paste! {
+            #[naked]
+            #[allow(non_snake_case)]
+            unsafe extern "C" fn [<exc_ $mnemonic>]() {
+                asm!("
+                push 0
+                push ${exno}
+                push rax
+                push rcx
+                push rdx
+                push rbx
+                push rbp
+                push rsi
+                push rdi
+                push r8
+                push r9
+                push r10
+                push r11
+                push r12
+                push r13
+                push r14
+                push r15
+                mov eax, ds
+                push rax
+                mov ecx, es
+                push rcx
+                push fs
+                push gs
+                mov rax, cr2
+                push rax
+                xor eax, eax
+                push rax
+                stmxcsr [rsp]
+                mov rbp, rsp
+                and rsp, 0xfffffffffffffff0
+                cld
+            
+                mov rdi, rbp
+                call {handler}
+
+                lea rsp, [rbp + 8 * 6]
+                pop r15
+                pop r14
+                pop r13
+                pop r12
+                pop r11
+                pop r10
+                pop r9
+                pop r8
+                pop rdi
+                pop rsi
+                pop rbp
+                pop rbx
+                pop rdx
+                pop rcx
+                pop rax
+                add rsp, 16
+                iretq
+                ",
+                exno = const ExceptionType::$mnemonic.as_vec().0 as usize,
+                handler = sym $handler,
+                options(noreturn));
+            }
+        }
+    };
+}
+
+exception_handler_noerr!(DivideError, cpu_default_exception);
+exception_handler_noerr!(Breakpoint, cpu_default_exception);
+exception_handler_noerr!(InvalidOpcode, cpu_default_exception);
+exception_handler_noerr!(DeviceNotAvailable, cpu_default_exception);
+exception_handler!(DoubleFault, cpu_default_exception);
+exception_handler!(GeneralProtection, cpu_default_exception);
+exception_handler!(PageFault, cpu_default_exception);
+exception_handler_noerr!(SimdException, cpu_default_exception);
+
+/// Haribote OS System call Emulation
+#[naked]
+unsafe extern "C" fn cpu_int40_handler() {
+    asm!(
+        "
+    push rbp
+    sub rsp, 24
+    mov rbp, rsp
+    mov [rbp], eax
+    mov [rbp + 4], ecx
+    mov [rbp + 8], edx
+    mov [rbp + 12], ebx
+    mov [rbp + 16], esi
+    mov [rbp + 20], edi
+    mov eax, [rbp + 32]
+    mov [rbp + 28], eax
+    and rsp, 0xfffffffffffffff0
+    cld
+
+    mov rdi, rbp
+    call hoe_syscall
+
+    mov eax, [rbp]
+    mov ecx, [rbp + 4]
+    mov edx, [rbp + 8]
+    mov ebx, [rbp + 12]
+    mov esi, [rbp + 16]
+    mov edi, [rbp + 20]
+    mov r8d, [rbp + 24]
+    lea rsp, [rbp + 8 * 4]
+    mov ebp, r8d
+    iretq
+    ",
+        options(noreturn)
+    );
+}
+
+#[repr(C)]
+pub struct LegacySyscallContext {
+    pub eax: u32,
+    pub ecx: u32,
+    pub edx: u32,
+    pub ebx: u32,
+    pub esi: u32,
+    pub edi: u32,
+    pub ebp: u32,
+    pub eip: u32,
 }

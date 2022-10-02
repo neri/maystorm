@@ -108,7 +108,7 @@ pub struct System {
     cpus: Vec<Box<Cpu>>,
 
     /// An instance of ACPI tables
-    myacpi: Option<&'static myacpi::RsdPtr>,
+    acpi: Option<&'static myacpi::RsdPtr>,
 
     /// An instance of SMBIOS
     smbios: Option<Box<fw::smbios::SmBios>>,
@@ -138,7 +138,7 @@ impl System {
         System {
             current_device: DeviceInfo::new(),
             cpus: Vec::new(),
-            myacpi: None,
+            acpi: None,
             smbios: None,
             boot_flags: BootFlags::empty(),
             main_screen: None,
@@ -167,8 +167,7 @@ impl System {
 
         mem::MemoryManager::init_first(info);
 
-        shared.myacpi =
-            unsafe { myacpi::RsdPtr::parse(info.acpi_rsdptr as usize as *const c_void) };
+        shared.acpi = unsafe { myacpi::RsdPtr::parse(info.acpi_rsdptr as usize as *const c_void) };
 
         // shared.current_device.power_profile = 0;
 
@@ -336,7 +335,7 @@ impl System {
     }
 
     #[inline]
-    pub unsafe fn set_processor_systsm_type(value: ProcessorSystemType) {
+    pub unsafe fn set_processor_system_type(value: ProcessorSystemType) {
         Self::shared_mut().current_device.processor_system_type = value;
     }
 
@@ -353,7 +352,7 @@ impl System {
 
     #[inline]
     pub fn acpi<'a>() -> Option<&'a myacpi::Xsdt> {
-        Self::shared().myacpi.as_ref().map(|v| v.xsdt())
+        Self::shared().acpi.as_ref().map(|v| v.xsdt())
     }
 
     #[track_caller]
