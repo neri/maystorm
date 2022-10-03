@@ -557,18 +557,18 @@ impl CpuContextData {
             fxsave [rdi + {CTX_FPU}]
 
             mov rax, [rsi + {CTX_USER_CS}]
-            xchg rax, [rdx + {USER_CS} * 8]
+            xchg rax, [rdx + {USER_CS_IDX} * 8]
             mov [rdi + {CTX_USER_CS}], rax
         
             mov rax, [rsi + {CTX_USER_DS}]
-            xchg rax, [rdx + {USER_DS} * 8]
+            xchg rax, [rdx + {USER_DS_IDX} * 8]
             mov [rdi + {CTX_USER_DS}], rax
-        
+
             mov rax, [rsi + {CTX_TSS_RSP0}]
             xchg rax, [rdx + {OFFSET_TSS} + {TSS_OFF_RSP0}]
             mov [rdi + {CTX_TSS_RSP0}], rax
-        
-            fxrstor [rdi + {CTX_FPU}]
+
+            fxrstor [rsi + {CTX_FPU}]
             mov rsp, [rsi + {CTX_RSP}]
             mov rbp, [rsi + {CTX_RBP}]
             mov rbx, [rsi + {CTX_RBX}]
@@ -580,7 +580,7 @@ impl CpuContextData {
             mov es, [rsi + {CTX_ES}]
             mov fs, [rsi + {CTX_FS}]
             mov gs, [rsi + {CTX_GS}]
-        
+
             xor eax, eax
             xor ecx, ecx
             xor edx, edx
@@ -609,8 +609,8 @@ impl CpuContextData {
             CTX_GS = const Self::CTX_GS,
             CTX_USER_CS = const Self::CTX_USER_CS_DESC,
             CTX_USER_DS = const Self::CTX_USER_DS_DESC,
-            USER_CS = const Selector::LEGACY_CODE.index(),
-            USER_DS = const Selector::LEGACY_DATA.index(),
+            USER_CS_IDX = const Selector::LEGACY_CODE.index(),
+            USER_DS_IDX = const Selector::LEGACY_DATA.index(),
             options(noreturn)
         );
     }
