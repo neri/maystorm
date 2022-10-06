@@ -224,6 +224,16 @@ impl TrueColor {
     }
 
     #[inline]
+    pub fn shadowed(&self, shadow: u8) -> Self {
+        let shadow = 256 - shadow as u32;
+        let r = (((self.0 & 0x00FF0000) * shadow) / 256) & 0x00FF0000;
+        let g = (((self.0 & 0x0000FF00) * shadow) / 256) & 0x0000FF00;
+        let b = (((self.0 & 0x000000FF) * shadow) / 256) & 0x000000FF;
+        let argb = (self.0 & 0xFF000000) | r | g | b;
+        Self(argb)
+    }
+
+    #[inline]
     pub fn blend(&self, rhs: Self) -> Self {
         let c = rhs.components();
         let alpha_l = c.a as usize;

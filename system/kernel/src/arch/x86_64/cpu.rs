@@ -1661,7 +1661,7 @@ impl Msr {
 
 #[allow(dead_code)]
 #[repr(C)]
-pub(super) struct X64StackContext {
+pub(super) struct X64ExceptionContext {
     _mxcsr: u64,
     cr2: u64,
     _gs: u64,
@@ -1692,7 +1692,7 @@ pub(super) struct X64StackContext {
     _ss: u64,
 }
 
-impl X64StackContext {
+impl X64ExceptionContext {
     #[inline]
     pub const fn cs(&self) -> Selector {
         Selector(self._cs as u16)
@@ -1741,8 +1741,7 @@ impl X64StackContext {
 
 static mut GLOBAL_EXCEPTION_LOCK: Spinlock = Spinlock::new();
 
-#[no_mangle]
-pub(super) unsafe extern "C" fn cpu_default_exception(ctx: &X64StackContext) {
+unsafe extern "C" fn handle_default_exception(ctx: &X64ExceptionContext) {
     let is_user = GLOBAL_EXCEPTION_LOCK.synchronized(|| {
         let is_user = Scheduler::current_personality().is_some();
         let stdout = if is_user {
@@ -2043,14 +2042,14 @@ macro_rules! exception_handler_noerr {
     };
 }
 
-exception_handler_noerr!(DivideError, cpu_default_exception);
-exception_handler_noerr!(Breakpoint, cpu_default_exception);
-exception_handler_noerr!(InvalidOpcode, cpu_default_exception);
-exception_handler_noerr!(DeviceNotAvailable, cpu_default_exception);
-exception_handler!(DoubleFault, cpu_default_exception);
-exception_handler!(GeneralProtection, cpu_default_exception);
-exception_handler!(PageFault, cpu_default_exception);
-exception_handler_noerr!(SimdException, cpu_default_exception);
+exception_handler_noerr!(DivideError, handle_default_exception);
+exception_handler_noerr!(Breakpoint, handle_default_exception);
+exception_handler_noerr!(InvalidOpcode, handle_default_exception);
+exception_handler_noerr!(DeviceNotAvailable, handle_default_exception);
+exception_handler!(DoubleFault, handle_default_exception);
+exception_handler!(GeneralProtection, handle_default_exception);
+exception_handler!(PageFault, handle_default_exception);
+exception_handler_noerr!(SimdException, handle_default_exception);
 
 /// Haribote OS System call Emulation
 #[naked]

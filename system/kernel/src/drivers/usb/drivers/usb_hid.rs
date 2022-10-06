@@ -192,11 +192,11 @@ impl UsbHidDriver {
                         Some(v) => v,
                         None => continue,
                     };
-                    if buffer.len() * 8 < app.bit_count_input() {
+                    if buffer.len() * 8 < app.bit_count_for_input() {
                         log!(
                             "HID DATA SIZE {} < {}",
                             buffer.len() * 8,
-                            app.bit_count_input()
+                            app.bit_count_for_input()
                         );
                         continue;
                     }
@@ -793,14 +793,14 @@ impl ParsedReportApplication {
         self.clear_stream();
     }
 
-    pub fn bit_count_input(&self) -> usize {
+    pub fn bit_count_for_input(&self) -> usize {
         self.bit_count(|v| match v {
             ParsedReportEntry::Input(_) => true,
             _ => false,
         })
     }
 
-    pub fn bit_count_output(&self) -> usize {
+    pub fn bit_count_for_output(&self) -> usize {
         self.bit_count(|v| match v {
             ParsedReportEntry::Output(_) => true,
             _ => false,
@@ -809,14 +809,15 @@ impl ParsedReportApplication {
 
     pub fn bit_count<F>(&self, predicate: F) -> usize
     where
-        F: Fn(&ParsedReportEntry) -> bool,
+        F: FnMut(&&ParsedReportEntry) -> bool,
     {
-        let mut acc = if self.report_id > 0 { 8 } else { 0 };
-        for entry in self.entries.iter() {
-            if predicate(entry) {
-                acc += entry.bit_count()
-            }
-        }
+        let acc = self
+            .entries
+            .iter()
+            .filter(predicate)
+            .fold(if self.report_id > 0 { 8 } else { 0 }, |acc, v| {
+                acc + v.bit_count()
+            });
         acc
     }
 }

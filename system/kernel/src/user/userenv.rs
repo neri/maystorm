@@ -35,10 +35,10 @@ async fn slpash_task(f: fn()) {
         let height = 200;
 
         let window = WindowBuilder::new()
-            .style(WindowStyle::SUSPENDED)
+            // .style(WindowStyle::SUSPENDED)
             .bg_color(Color::Transparent)
             .size(Size::new(width, height))
-            .build("");
+            .build("Starting up...");
 
         window.draw(|bitmap| {
             let font = match FontDescriptor::new(FontFamily::SansSerif, 96) {

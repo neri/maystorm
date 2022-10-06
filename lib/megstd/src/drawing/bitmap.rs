@@ -2243,6 +2243,11 @@ impl OperationalBitmap {
         }
     }
 
+    #[inline]
+    pub fn blt_shadow(&self, dest: &mut Bitmap32, origin: Point, rect: Rect) {
+        self.blt_to(dest, origin, rect, |a, b| b.shadowed(a))
+    }
+
     pub fn blt_from<T, F>(&mut self, src: &T, origin: Point, rect: Rect, mut f: F)
     where
         T: GetPixel,

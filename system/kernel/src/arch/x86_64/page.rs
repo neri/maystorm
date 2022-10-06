@@ -244,7 +244,7 @@ impl PageManager {
 
     #[inline]
     pub unsafe fn init_late() {
-        // let base = Self::read_pdbr() as usize & !(Self::PAGE_SIZE_MIN - 1);
+        // let base = Self::read_pdbr().as_usize() & !(Self::PAGE_SIZE_MIN - 1);
         // let p = base as *const u64 as *mut PageTableEntry;
         // p.write_volatile(PageTableEntry::empty());
         // Self::invalidate_all_pages();

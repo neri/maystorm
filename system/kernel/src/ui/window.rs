@@ -1220,8 +1220,7 @@ impl RawWindow {
                 && bounds.insets_by(self.content_insets).contains(rect);
 
         let shared = WindowManager::shared();
-        let is_direct = if is_opaque && !shared.attributes.contains(WindowManagerAttributes::ROTATE)
-        {
+        let is_direct = if is_opaque {
             let window_orders = shared.window_orders.read().unwrap();
             let first_index = 1 + window_orders
                 .iter()
@@ -1248,12 +1247,21 @@ impl RawWindow {
             let offset = self.frame.origin;
             let bitmap = self.bitmap();
             let main_screen = unsafe { &mut *shared.main_screen.get() };
-            main_screen.blt(
-                bitmap,
-                offset + Movement::from(coords.left_top()),
-                coords.into(),
-            );
-            // main_screen.draw_rect(rect + offset, Color::YELLOW.into());
+            if shared.attributes.contains(WindowManagerAttributes::ROTATE) {
+                main_screen.blt_rotate(
+                    bitmap,
+                    offset + Movement::from(coords.left_top()),
+                    coords.into(),
+                );
+            } else {
+                main_screen.blt(
+                    bitmap,
+                    offset + Movement::from(coords.left_top()),
+                    coords.into(),
+                );
+
+                // main_screen.draw_rect(rect + Movement::from(offset), Color::YELLOW.into());
+            }
         } else {
             drop(shared);
 
@@ -1293,10 +1301,10 @@ impl RawWindow {
         &self,
         target_bitmap: &mut Bitmap32,
         offset: Movement,
-        frame: Rect,
+        frame1: Rect,
         is_opaque: bool,
     ) -> bool {
-        let coords1 = match Coordinates::from_rect(frame) {
+        let coords1 = match Coordinates::from_rect(frame1) {
             Ok(coords) => coords,
             Err(_) => return false,
         };
@@ -1314,40 +1322,38 @@ impl RawWindow {
 
         for handle in window_orders[first_index..].iter() {
             let window = handle.as_ref();
-            let frame = window.shadow_frame();
-            if let Ok(coords2) = Coordinates::from_rect(frame) {
-                if frame.overlaps(frame) {
-                    let adjust_point = window.frame.origin() - coords2.left_top();
-                    let blt_origin = Point::new(
-                        cmp::max(coords1.left, coords2.left),
-                        cmp::max(coords1.top, coords2.top),
-                    ) - offset;
-                    let x = isize::max(coords1.left - coords2.left, 0);
-                    let y = isize::max(coords1.top - coords2.top, 0);
-                    let target_rect = Rect::new(
-                        x,
-                        y,
-                        cmp::min(coords1.right, coords2.right)
-                            - cmp::max(coords1.left, coords2.left),
-                        cmp::min(coords1.bottom, coords2.bottom)
-                            - cmp::max(coords1.top, coords2.top),
-                    );
+            let frame2 = window.shadow_frame();
+            let coords2 = match Coordinates::from_rect(frame2) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            if frame2.overlaps(frame1) {
+                let adjust_point = window.frame.origin() - coords2.left_top();
+                let blt_origin = Point::new(
+                    cmp::max(coords1.left, coords2.left),
+                    cmp::max(coords1.top, coords2.top),
+                ) - offset;
+                let target_rect = Rect::new(
+                    isize::max(coords1.left - coords2.left, 0),
+                    isize::max(coords1.top - coords2.top, 0),
+                    cmp::min(coords1.right, coords2.right) - cmp::max(coords1.left, coords2.left),
+                    cmp::min(coords1.bottom, coords2.bottom) - cmp::max(coords1.top, coords2.top),
+                );
 
+                if !window.frame.contains(frame1) {
                     if let Some(shadow) = window.shadow_bitmap() {
-                        shadow.blt_to(target_bitmap, blt_origin, target_rect, |a, b| {
-                            b.blend(TrueColor::from_argb(0).with_opacity(a))
-                        });
+                        shadow.blt_shadow(target_bitmap, blt_origin, target_rect);
                     }
+                }
 
-                    let bitmap = window.bitmap();
-                    let blt_rect = target_rect - adjust_point;
-                    if window.style.contains(WindowStyle::OPAQUE)
-                        || self.handle == window.handle && is_opaque
-                    {
-                        target_bitmap.blt(bitmap, blt_origin, blt_rect);
-                    } else {
-                        target_bitmap.blt_blend(bitmap, blt_origin, blt_rect);
-                    }
+                let bitmap = window.bitmap();
+                let blt_rect = target_rect - adjust_point;
+                if window.style.contains(WindowStyle::OPAQUE)
+                    || self.handle == window.handle && is_opaque
+                {
+                    target_bitmap.blt(bitmap, blt_origin, blt_rect);
+                } else {
+                    target_bitmap.blt_blend(bitmap, blt_origin, blt_rect);
                 }
             }
         }

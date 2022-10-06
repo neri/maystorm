@@ -81,6 +81,11 @@ impl Point {
             }
         }
     }
+
+    #[inline]
+    pub const fn distance2(&self, other: Point) -> Distance2 {
+        self.sub(other).distance2()
+    }
 }
 
 impl const Add<isize> for Point {
@@ -172,6 +177,11 @@ impl Movement {
     #[inline]
     pub const fn is_zero(&self) -> bool {
         self.x == 0 && self.y == 0
+    }
+
+    #[inline]
+    pub const fn distance2(&self) -> Distance2 {
+        Distance2(self.x * self.x + self.y * self.y)
     }
 }
 
@@ -300,6 +310,17 @@ impl const SubAssign<Movement> for Rect {
     #[inline]
     fn sub_assign(&mut self, rhs: Movement) {
         *self = self.sub(rhs);
+    }
+}
+
+/// Type of Squared Distance
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Distance2(pub isize);
+
+impl Distance2 {
+    #[inline]
+    pub const fn from_scalar(v: isize) -> Self {
+        Self(v * v)
     }
 }
 

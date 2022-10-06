@@ -503,7 +503,7 @@ impl Scheduler {
     }
 
     #[track_caller]
-    fn spawn(
+    fn spawn_thread(
         start: ThreadStart,
         args: usize,
         name: &str,
@@ -841,14 +841,14 @@ impl SpawnOption {
     /// Start the specified function in a new thread.
     #[inline]
     pub fn start(self, start: fn(usize), args: usize, name: &str) -> Option<ThreadHandle> {
-        Scheduler::spawn(start, args, name, self)
+        Scheduler::spawn_thread(start, args, name, self)
     }
 
     /// Start the specified function in a new process.
     #[inline]
     pub fn start_process(mut self, start: fn(usize), args: usize, name: &str) -> Option<ProcessId> {
         self.new_process = true;
-        Scheduler::spawn(start, args, name, self)
+        Scheduler::spawn_thread(start, args, name, self)
             .and_then(|v| v.get())
             .map(|v| v.pid)
     }
@@ -891,7 +891,8 @@ where
             mutex: Arc::clone(&mutex),
         });
         let ptr = Box::into_raw(boxed);
-        let thread = Scheduler::spawn(Self::_start_thread, ptr as usize, name, options).unwrap();
+        let thread =
+            Scheduler::spawn_thread(Self::_start_thread, ptr as usize, name, options).unwrap();
 
         JoinHandle { thread, mutex }
     }
