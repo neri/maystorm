@@ -62,7 +62,7 @@ impl CapabilityRegisters {
 
     #[inline]
     pub fn hcc_params1(&self) -> HccParams1 {
-        HccParams1::from_bits_truncate(self.hccparams1.load(Ordering::Relaxed))
+        HccParams1::from_bits_retain(self.hccparams1.load(Ordering::Relaxed))
     }
 
     #[inline]
@@ -217,7 +217,7 @@ impl OperationalRegisters {
 
     #[inline]
     pub fn read_cmd(&self) -> UsbCmd {
-        UsbCmd::from_bits_truncate(self.usbcmd.load(Ordering::SeqCst))
+        UsbCmd::from_bits_retain(self.usbcmd.load(Ordering::SeqCst))
     }
 
     #[inline]
@@ -232,7 +232,7 @@ impl OperationalRegisters {
 
     #[inline]
     pub fn status(&self) -> UsbSts {
-        UsbSts::from_bits_truncate(self.usbsts.load(Ordering::SeqCst))
+        UsbSts::from_bits_retain(self.usbsts.load(Ordering::SeqCst))
     }
 
     #[inline]
@@ -265,7 +265,7 @@ impl OperationalRegisters {
 
     #[inline]
     pub fn device_notification_bitmap(&self) -> DeviceNotificationBitmap {
-        DeviceNotificationBitmap::from_bits_truncate(self.dnctrl.load(Ordering::SeqCst))
+        DeviceNotificationBitmap::from_bits_retain(self.dnctrl.load(Ordering::SeqCst))
     }
 
     #[inline]
@@ -323,7 +323,7 @@ pub struct PortRegisters {
 impl PortRegisters {
     #[inline]
     pub fn status(&self) -> PortSc {
-        PortSc::from_bits_truncate(self.portsc.load(Ordering::SeqCst))
+        PortSc::from_bits_retain(self.portsc.load(Ordering::SeqCst))
     }
 
     #[inline]

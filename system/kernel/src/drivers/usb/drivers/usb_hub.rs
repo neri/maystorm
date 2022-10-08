@@ -783,6 +783,7 @@ impl const From<UsbHub3PortFeatureSel> for u16 {
 
 bitflags! {
     /// USB2 Hub Port Status Bits
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub struct UsbHub2PortStatusBit: u16 {
         const PORT_CONNECTION   = 0b0000_0000_0000_0001;
         const PORT_ENABLE       = 0b0000_0000_0000_0010;
@@ -813,6 +814,7 @@ impl UsbHub2PortStatusBit {
 
 bitflags! {
     /// USB2 Hub Port Status Change Bits
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub struct UsbHub2PortChangeBit: u16 {
         const C_PORT_CONNECTION     = 0b0000_0000_0000_0001;
         const C_PORT_ENABLE         = 0b0000_0000_0000_0010;
@@ -824,6 +826,7 @@ bitflags! {
 
 bitflags! {
     /// USB3 Hub Port Status Bits
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub struct UsbHub3PortStatusBit: u16 {
         const PORT_CONNECTION   = 0b0000_0000_0000_0001;
         const PORT_ENABLE       = 0b0000_0000_0000_0010;
@@ -849,6 +852,7 @@ impl UsbHub3PortStatusBit {
 
 bitflags! {
     /// USB3 Hub Port Status Change Bits
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub struct UsbHub3PortChangeBit: u16 {
         const C_PORT_CONNECTION     = 0b0000_0000_0000_0001;
         const C_PORT_OVER_CURRENT   = 0b0000_0000_0000_1000;

@@ -411,7 +411,8 @@ impl PageManager {
 }
 
 bitflags! {
-    pub(super) struct PageAttributes: PageTableRepr {
+    #[derive(Debug, Clone, Copy)]
+    pub struct PageAttributes: PageTableRepr {
         const PRESENT       = 0x0000_0000_0000_0001;
         const WRITE         = 0x0000_0000_0000_0002;
         const USER          = 0x0000_0000_0000_0004;
@@ -431,6 +432,7 @@ bitflags! {
 #[repr(u64)]
 #[allow(dead_code)]
 #[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum PageTableAvl {
     None = 0,
     Reserved = 1,
@@ -438,17 +440,18 @@ pub(super) enum PageTableAvl {
 
 #[allow(dead_code)]
 impl PageAttributes {
-    const AVL_SHIFT: usize = 9;
+    pub const AVL_SHIFT: usize = 9;
 
     #[inline]
-    pub const fn avl(self) -> PageTableAvl {
+    const fn avl(self) -> PageTableAvl {
         unsafe { transmute((self.bits() & Self::AVL_MASK.bits()) >> Self::AVL_SHIFT) }
     }
 
     #[inline]
-    pub fn set_avl(mut self, avl: PageTableAvl) {
-        self.bits =
-            (self.bits() & !Self::AVL_MASK.bits()) | ((avl as PageTableRepr) << Self::AVL_SHIFT)
+    fn set_avl(&mut self, avl: PageTableAvl) {
+        *self = Self::from_bits_retain(
+            (self.bits() & !Self::AVL_MASK.bits()) | ((avl as PageTableRepr) << Self::AVL_SHIFT),
+        );
     }
 }
 
@@ -524,7 +527,7 @@ impl PageTableEntry {
 
     #[inline]
     pub const fn attributes(&self) -> PageAttributes {
-        PageAttributes::from_bits_truncate(self.0 & Self::NORMAL_ATTRIBUTE_BITS)
+        PageAttributes::from_bits_retain(self.0 & Self::NORMAL_ATTRIBUTE_BITS)
     }
 
     #[inline]

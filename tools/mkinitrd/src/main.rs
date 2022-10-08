@@ -177,11 +177,6 @@ impl InitRamfs {
 
     pub fn append_file(&mut self, path: &Path) {
         let lpc = path.file_name().unwrap().to_str().unwrap();
-        println!(
-            "APPENDING... {} <= {}",
-            self.appending_path(lpc),
-            path.to_str().unwrap()
-        );
         if path.is_dir() {
             self.child_dir(lpc, |child| {
                 for entry in read_dir(path).unwrap() {
@@ -192,12 +187,23 @@ impl InitRamfs {
                     }
                 }
             });
-        } else {
+        } else if path.is_file() {
+            println!(
+                "APPEND FILE {} <= {}",
+                self.appending_path(lpc),
+                path.to_str().unwrap()
+            );
             let dir_ent = DirEnt::file(lpc).expect("file name");
             let mut buf = Vec::new();
             let mut is = File::open(path).expect("cannot open file");
             is.read_to_end(&mut buf).expect("read file error");
             self._append_data(&dir_ent, buf.as_slice());
+        } else {
+            if path.ends_with("*") {
+                //
+            } else {
+                todo!();
+            }
         }
     }
 

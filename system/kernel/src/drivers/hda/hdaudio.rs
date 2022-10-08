@@ -684,7 +684,7 @@ impl CommandBuffer {
         addr: WidgetAddress,
     ) -> Result<SupportedPCMFormat> {
         self.get_parameter(addr, ParameterId::SampleSizeRateCaps)
-            .map(|v| SupportedPCMFormat::from_bits_truncate(v.as_u32()))
+            .map(|v| SupportedPCMFormat::from_bits_retain(v.as_u32()))
     }
 
     #[inline]
@@ -1057,7 +1057,7 @@ impl GlobalRegisterSet {
 
     #[inline]
     pub fn get_control(&self) -> GlobalControl {
-        GlobalControl::from_bits_truncate(self.gctl.load(Ordering::SeqCst))
+        GlobalControl::from_bits_retain(self.gctl.load(Ordering::SeqCst))
     }
 
     #[inline]
@@ -1087,7 +1087,7 @@ impl GlobalRegisterSet {
 
     #[inline]
     pub fn get_status(&self) -> GlobalStatus {
-        GlobalStatus::from_bits_truncate(self.gsts.load(Ordering::SeqCst))
+        GlobalStatus::from_bits_retain(self.gsts.load(Ordering::SeqCst))
     }
 
     #[inline]
@@ -1186,6 +1186,7 @@ pub struct CorbRegisterSet {
 }
 
 bitflags! {
+    #[derive(Debug, Clone, Copy)]
     pub struct CorbControl: u8 {
         /// DMA Run
         const RUN   = 0b0000_0010;
@@ -1195,6 +1196,7 @@ bitflags! {
 }
 
 bitflags! {
+    #[derive(Debug, Clone, Copy)]
     pub struct CorbStatus: u8 {
         /// Memory Error Indication
         const MEI   = 0b0000_0001;
@@ -1252,7 +1254,7 @@ impl CorbRegisterSet {
 
     #[inline]
     pub fn get_control(&self) -> CorbControl {
-        unsafe { CorbControl::from_bits_unchecked(self.ctl.load(Ordering::SeqCst)) }
+        CorbControl::from_bits_retain(self.ctl.load(Ordering::SeqCst))
     }
 
     #[inline]
@@ -1262,7 +1264,7 @@ impl CorbRegisterSet {
 
     #[inline]
     pub fn get_status(&self) -> CorbStatus {
-        unsafe { CorbStatus::from_bits_unchecked(self.sts.load(Ordering::SeqCst)) }
+        CorbStatus::from_bits_retain(self.sts.load(Ordering::SeqCst))
     }
 
     #[inline]
@@ -1362,7 +1364,7 @@ impl RirbRegisterSet {
 
     #[inline]
     pub fn get_control(&self) -> RirbControl {
-        unsafe { RirbControl::from_bits_unchecked(self.ctl.load(Ordering::SeqCst)) }
+        RirbControl::from_bits_retain(self.ctl.load(Ordering::SeqCst))
     }
 
     #[inline]
@@ -1372,7 +1374,7 @@ impl RirbRegisterSet {
 
     #[inline]
     pub fn get_status(&self) -> RirbStatus {
-        unsafe { RirbStatus::from_bits_unchecked(self.sts.load(Ordering::SeqCst)) }
+        RirbStatus::from_bits_retain(self.sts.load(Ordering::SeqCst))
     }
 
     #[inline]
@@ -1478,7 +1480,7 @@ pub struct StreamDescriptorRegisterSet {
 impl StreamDescriptorRegisterSet {
     #[inline]
     pub fn get_control(&self) -> StreamDescriptorControl {
-        StreamDescriptorControl::from_bits_truncate(
+        StreamDescriptorControl::from_bits_retain(
             self.ctl_lo.load(Ordering::SeqCst) as u32
                 | ((self.ctl_hi.load(Ordering::SeqCst) as u32) << 16),
         )
@@ -1500,7 +1502,7 @@ impl StreamDescriptorRegisterSet {
 
     #[inline]
     pub fn get_status(&self) -> StreamDescriptorStatus {
-        unsafe { StreamDescriptorStatus::from_bits_unchecked(self.sts.load(Ordering::SeqCst)) }
+        StreamDescriptorStatus::from_bits_retain(self.sts.load(Ordering::SeqCst))
     }
 
     #[inline]
@@ -1589,7 +1591,7 @@ impl StreamDescriptorControl {
     #[inline]
     pub fn set_stream_id(&mut self, id: Option<StreamId>) {
         let val = id.map(|v| v.0.get()).unwrap_or(0);
-        self.bits = ((val as u32 & 0x0F) << 20) | (self.bits & !0xF0_0000);
+        *self = Self::from_bits_retain(((val as u32 & 0x0F) << 20) | (self.bits() & !0xF0_0000));
     }
 
     #[inline]
@@ -1602,6 +1604,7 @@ impl StreamDescriptorControl {
 }
 
 bitflags! {
+    #[derive(Debug, Clone, Copy)]
     pub struct StreamDescriptorStatus: u8 {
         /// Buffer Completion Interrupt Status
         const BCIS      = 0x04;
@@ -1612,7 +1615,7 @@ bitflags! {
         /// FIFO Ready
         const FIFORDY   = 0x20;
 
-        const CLEAR_INTERRUPTS = Self::BCIS.bits | Self::FIFOE.bits | Self::DESE.bits;
+        const CLEAR_INTERRUPTS = Self::BCIS.bits() | Self::FIFOE.bits() | Self::DESE.bits();
     }
 }
 
@@ -1807,6 +1810,7 @@ pub enum ParameterId {
 }
 
 bitflags! {
+    #[derive(Debug, Clone, Copy)]
     pub struct AudioWidgetCapabilities: u32 {
         const STEREO            = 0x0000_0001;
         const IN_AMP            = 0x0000_0002;

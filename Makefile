@@ -1,7 +1,6 @@
 .PHONY: love default all clean install iso run runs test apps doc kernel boot refresh
 .SUFFIXED: .wasm
 
-
 MNT			= ./mnt/
 MISC		= ./misc/
 ASSETS		= ./assets/
@@ -16,7 +15,8 @@ TARGET_KERNEL	= system/target/$(KRNL_ARCH)/release/kernel.bin
 TARGET_ISO	= var/megos.iso
 TARGETS		= boot kernel
 ALL_TARGETS	= $(TARGETS) apps
-INITRD_FILES	= LICENSE $(ASSETS)initrd/* apps/target/wasm32-unknown-unknown/release/*.wasm
+VAR_INITRD	= var/initrd/
+INITRD_FILES	= LICENSE $(ASSETS)initrd/* $(VAR_INITRD)* apps/target/wasm32-unknown-unknown/release/*.wasm
 
 X64_SMP			= system/kernel/src/arch/x86_64/smpinit
 X64_SMP_ASM		= $(X64_SMP).asm
@@ -41,7 +41,7 @@ clean:
 	-rm -rf system/target apps/target boot/target tools/target
 
 refresh:
-	-rm system/Cargo.lock apps/Cargo.lock boot/Cargo.lock tools/Cargo.lock
+	-rm system/Cargo.lock apps/Cargo.lock boot/Cargo.lock tools/Cargo.lock lib/**/Cargp.lock
 
 # $(RUST_ARCH).json:
 # 	rustc +nightly -Z unstable-options --print target-spec-json --target $(RUST_ARCH) | sed -e 's/-sse,+/+sse,-/' > $@
@@ -58,7 +58,7 @@ run:
 -rtc base=localtime,clock=host \
 -device nec-usb-xhci,id=xhci -device usb-tablet \
 -drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
--device usb-audio -device intel-hda -device hda-duplex \
+-device intel-hda -device hda-duplex \
 -serial mon:stdio
 
 run_up:
@@ -67,7 +67,7 @@ run_up:
 -rtc base=localtime,clock=host \
 -device nec-usb-xhci,id=xhci -device usb-tablet \
 -drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
--device intel-hda -device hda-duplex \
+-device usb-audio -device intel-hda -device hda-duplex \
 -monitor stdio
 
 run_x86:
@@ -88,7 +88,10 @@ kernel: $(X64_SMP_BIN)
 $(X64_SMP_BIN): $(X64_SMP_ASM)
 	nasm -f bin $< -o $@
 
-install: test $(EFI_VENDOR) $(EFI_BOOT) $(ALL_TARGETS) tools/mkinitrd/src/*.rs
+$(VAR_INITRD):
+	mkdir -p $(VAR_INITRD)
+
+install: test $(EFI_VENDOR) $(EFI_BOOT) $(ALL_TARGETS) tools/mkinitrd/src/*.rs $(VAR_INITRD)
 	cp $(TARGET_BOOT_EFI1) $(BOOT_EFI_BOOT1)
 	cp $(TARGET_BOOT_EFI1) $(BOOT_EFI_VENDOR1)
 	cp $(TARGET_BOOT_EFI2) $(BOOT_EFI_BOOT2)

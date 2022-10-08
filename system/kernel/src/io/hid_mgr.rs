@@ -12,6 +12,7 @@ use megstd::{drawing::*, io::hid::*};
 const INVALID_UNICHAR: char = '\u{FEFF}';
 
 bitflags! {
+    #[derive(Debug, Clone, Copy)]
     pub struct KeyEventFlags: u8 {
         const BREAK = 0b1000_0000;
     }
@@ -114,12 +115,12 @@ impl KeyEvent {
 
     #[inline]
     pub const fn modifier(self) -> Modifier {
-        Modifier::from_bits_truncate(((self.0.get() >> 16) & 0xFF) as u8)
+        Modifier::from_bits_retain(((self.0.get() >> 16) & 0xFF) as u8)
     }
 
     #[inline]
     pub const fn flags(self) -> KeyEventFlags {
-        unsafe { KeyEventFlags::from_bits_unchecked(((self.0.get() >> 24) & 0xFF) as u8) }
+        KeyEventFlags::from_bits_retain(((self.0.get() >> 24) & 0xFF) as u8)
     }
 
     #[inline]
@@ -283,7 +284,7 @@ impl HidManager {
         let shared = Self::shared();
         let usage = event.usage();
         if usage >= Usage::MOD_MIN && usage <= Usage::MOD_MAX {
-            let bit_position = Modifier::from_bits_truncate(1 << (usage.0 - Usage::MOD_MIN.0));
+            let bit_position = Modifier::from_bits_retain(1 << (usage.0 - Usage::MOD_MIN.0));
             shared.key_modifier.set(bit_position, !event.is_break());
         }
         let event = KeyEvent::new(usage, shared.key_modifier.value(), event.flags());

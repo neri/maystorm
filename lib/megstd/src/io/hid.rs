@@ -418,6 +418,7 @@ impl const From<Usage> for HidUsage {
 
 bitflags! {
     /// Modifier keys as defined by the HID specification.
+    #[derive(Debug, Clone, Copy)]
     pub struct Modifier: u8 {
         const LEFT_CTRL     = 0b0000_0001;
         const LEFT_SHIFT    = 0b0000_0010;
@@ -457,7 +458,7 @@ impl const From<Modifier> for usize {
 impl const From<usize> for Modifier {
     #[inline]
     fn from(v: usize) -> Self {
-        Self::from_bits_truncate(v as u8)
+        Self::from_bits_retain(v as u8)
     }
 }
 
@@ -503,6 +504,7 @@ impl<T: Into<isize> + Copy> MouseReport<T> {
 
 bitflags! {
     /// Mouse buttons as defined by the HID specification.
+    #[derive(Debug, Clone, Copy)]
     pub struct MouseButton: u8 {
         /// Primary/Trigger Button
         const PRIMARY   = 0b0000_0001;
@@ -718,7 +720,8 @@ pub enum HidReportItemTag {
 }
 
 bitflags! {
-    pub struct HidReportMainFlag: usize {
+    #[derive(Debug, Clone, Copy)]
+    pub struct HidReportMainFlag: u32 {
         /// Data / Constant
         const CONSTANT          = 0x0001;
         /// Array / Variable
@@ -891,7 +894,7 @@ impl const From<HidReportAmbiguousSignedValue> for i32 {
 }
 
 impl core::fmt::Debug for HidReportAmbiguousSignedValue {
-    fn fmt(&self, f: &mut _core::fmt::Formatter<'_>) -> _core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Zero => write!(f, "Zero"),
             Self::U8(arg0) => write!(f, "{:02x}", arg0),

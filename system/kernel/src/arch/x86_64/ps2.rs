@@ -82,7 +82,7 @@ impl Ps2 {
         let mut al: u8;
         unsafe {
             asm!("in al, 0x64", lateout("al") al);
-            Ps2Status::from_bits_unchecked(al)
+            Ps2Status::from_bits_retain(al)
         }
     }
 
@@ -238,6 +238,7 @@ impl Default for Ps2KeyState {
 }
 
 bitflags! {
+    #[derive(Debug, Clone, Copy)]
     struct MouseLeadByte: u8 {
         const LEFT_BUTTON = 0b0000_0001;
         const RIGHT_BUTTON = 0b0000_0010;
@@ -248,7 +249,7 @@ bitflags! {
         const X_OVERFLOW = 0b0100_0000;
         const Y_OVERFLOW = 0b1000_0000;
 
-        const BUTTONS = Self::LEFT_BUTTON.bits | Self::RIGHT_BUTTON.bits | Self::MIDDLE_BUTTON.bits;
+        const BUTTONS = Self::LEFT_BUTTON.bits() | Self::RIGHT_BUTTON.bits() | Self::MIDDLE_BUTTON.bits();
     }
 }
 
@@ -262,13 +263,13 @@ impl MouseLeadByte {
 
 impl const From<Ps2Data> for MouseLeadByte {
     fn from(data: Ps2Data) -> Self {
-        unsafe { MouseLeadByte::from_bits_unchecked(data.0) }
+        MouseLeadByte::from_bits_retain(data.0)
     }
 }
 
 impl const Into<MouseButton> for MouseLeadByte {
     fn into(self) -> MouseButton {
-        unsafe { MouseButton::from_bits_unchecked(self.bits() & MouseLeadByte::BUTTONS.bits()) }
+        MouseButton::from_bits_retain(self.bits() & MouseLeadByte::BUTTONS.bits())
     }
 }
 
@@ -341,6 +342,7 @@ impl Ps2Command {
 }
 
 bitflags! {
+    #[derive(Debug, Clone, Copy)]
     struct Ps2Status: u8 {
         const OUTPUT_FULL = 0b0000_0001;
         const INPUT_FULL = 0b0000_0010;

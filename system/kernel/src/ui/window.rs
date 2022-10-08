@@ -38,7 +38,7 @@ const WINDOW_TITLE_LENGTH: usize = 32;
 const WINDOW_SHADOW_PADDING: isize = 16;
 const SHADOW_RADIUS: isize = 8;
 const SHADOW_OFFSET: Movement = Movement::new(2, 2);
-const SHADOW_LEVEL: usize = 128;
+const SHADOW_LEVEL: usize = 96;
 
 // Mouse Pointer
 const MOUSE_POINTER_WIDTH: usize = 12;
@@ -324,13 +324,12 @@ impl WindowManager<'_> {
             {
                 if shared.pointer.is_visible() {
                     let position = shared.pointer();
-                    let current_buttons = MouseButton::from_bits_truncate(
-                        shared.buttons.load(Ordering::Acquire) as u8,
-                    );
-                    let buttons_down = MouseButton::from_bits_truncate(
+                    let current_buttons =
+                        MouseButton::from_bits_retain(shared.buttons.load(Ordering::Acquire) as u8);
+                    let buttons_down = MouseButton::from_bits_retain(
                         shared.buttons_down.swap(0, Ordering::SeqCst) as u8,
                     );
-                    let buttons_up = MouseButton::from_bits_truncate(
+                    let buttons_up = MouseButton::from_bits_retain(
                         shared.buttons_up.swap(0, Ordering::SeqCst) as u8,
                     );
 
@@ -962,7 +961,8 @@ impl WindowManager<'_> {
 }
 
 bitflags! {
-    struct WindowManagerAttributes: usize {
+    #[derive(Debug, Clone, Copy)]
+    struct WindowManagerAttributes: u64 {
         const ROTATE        = 0b0000_0001;
         const EVENT         = 0b0000_0010;
         const MOUSE_MOVE    = 0b0000_0100;
@@ -975,7 +975,7 @@ bitflags! {
 
 impl Into<usize> for WindowManagerAttributes {
     fn into(self) -> usize {
-        self.bits()
+        self.bits() as usize
     }
 }
 
@@ -1031,7 +1031,8 @@ struct RawWindow {
 }
 
 bitflags! {
-    pub struct WindowStyle: usize {
+    #[derive(Debug, Clone, Copy)]
+    pub struct WindowStyle: u64 {
         const BORDER            = 0b0000_0000_0000_0001;
         const THIN_FRAME        = 0b0000_0000_0000_0010;
         const TITLE             = 0b0000_0000_0000_0100;
@@ -1063,13 +1064,13 @@ impl Default for WindowStyle {
 
 impl const From<WindowStyle> for usize {
     fn from(val: WindowStyle) -> Self {
-        val.bits()
+        val.bits() as usize
     }
 }
 
 impl const From<usize> for WindowStyle {
     fn from(val: usize) -> Self {
-        Self::from_bits_truncate(val)
+        Self::from_bits_retain(val as u64)
     }
 }
 
@@ -1112,7 +1113,8 @@ impl WindowStyle {
 }
 
 bitflags! {
-    struct WindowAttributes: usize {
+    #[derive(Debug, Clone, Copy)]
+    struct WindowAttributes: u64 {
         const NEEDS_REDRAW  = 0b0000_0001;
         const VISIBLE       = 0b0000_0010;
     }
@@ -1120,7 +1122,7 @@ bitflags! {
 
 impl Into<usize> for WindowAttributes {
     fn into(self) -> usize {
-        self.bits()
+        self.bits() as usize
     }
 }
 
@@ -1993,13 +1995,13 @@ impl WindowBuilder {
 
     #[inline]
     pub const fn style_add(mut self, style: WindowStyle) -> Self {
-        self.style.bits |= style.bits();
+        self.style = WindowStyle::from_bits_retain(self.style.bits() | style.bits());
         self
     }
 
     #[inline]
     pub const fn style_sub(mut self, style: WindowStyle) -> Self {
-        self.style.bits &= !style.bits();
+        self.style = WindowStyle::from_bits_retain(self.style.bits() & !style.bits());
         self
     }
 

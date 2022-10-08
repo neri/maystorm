@@ -225,7 +225,7 @@ impl UsbHidDriver {
                                     // Modifier bit array
                                     report.modifier =
                                         Self::read_bits(&buffer, bit_position, item.report_count())
-                                            .map(|v| Modifier::from_bits_truncate(v as u8))
+                                            .map(|v| Modifier::from_bits_retain(v as u8))
                                             .unwrap();
                                 } else if item.report_size() == 8
                                     && item.flag.is_array()
@@ -266,7 +266,7 @@ impl UsbHidDriver {
                                                 bit_position,
                                                 item.report_count(),
                                             )
-                                            .map(|v| MouseButton::from_bits_truncate(v as u8))
+                                            .map(|v| MouseButton::from_bits_retain(v as u8))
                                             .unwrap();
                                         }
                                     }
@@ -581,7 +581,7 @@ impl UsbHidDriver {
 
             match tag {
                 HidReportItemTag::Input => {
-                    let flag = HidReportMainFlag::from_bits_truncate(param.into());
+                    let flag = HidReportMainFlag::from_bits_retain(param.into());
                     ParsedReportMainItem::parse(
                         &mut current_app.entries,
                         tag,
@@ -592,7 +592,7 @@ impl UsbHidDriver {
                     local.reset();
                 }
                 HidReportItemTag::Output => {
-                    let flag = HidReportMainFlag::from_bits_truncate(param.into());
+                    let flag = HidReportMainFlag::from_bits_retain(param.into());
                     ParsedReportMainItem::parse(
                         &mut current_app.entries,
                         tag,
@@ -603,7 +603,7 @@ impl UsbHidDriver {
                     local.reset();
                 }
                 HidReportItemTag::Feature => {
-                    let flag = HidReportMainFlag::from_bits_truncate(param.into());
+                    let flag = HidReportMainFlag::from_bits_retain(param.into());
                     ParsedReportMainItem::parse(
                         &mut current_app.entries,
                         tag,

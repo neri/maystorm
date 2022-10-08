@@ -9,9 +9,9 @@ pub struct File {
 }
 
 impl File {
-    pub fn open<P: AsRef<Path>>(_path: P, _options: OpenOptions) -> Result<File> {
+    pub fn open<P: AsRef<Path>>(_path: P, options: OpenOptions) -> Result<File> {
         let path = _path.as_ref();
-        let _ = os_open(path.as_os_str().to_str().unwrap(), _options.bits());
+        let _ = os_open(path.as_os_str().to_str().unwrap(), options.bits() as usize);
         todo!()
     }
 
@@ -29,7 +29,8 @@ impl File {
 }
 
 bitflags! {
-    pub struct OpenOptions: usize {
+    #[derive(Debug, Clone, Copy)]
+    pub struct OpenOptions: u32 {
         const READ      = 0b0000_0001;
         const WRITE     = 0b0000_0010;
         const APPEND    = 0b0001_0000;

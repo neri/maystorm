@@ -23,6 +23,7 @@ use paste::paste;
 
 static mut SHARED_CPU: UnsafeCell<SharedCpu> = UnsafeCell::new(SharedCpu::new());
 
+#[allow(dead_code)]
 pub struct Cpu {
     pub cpu_index: ProcessorIndex,
     apic_id: ApicId,
@@ -426,7 +427,7 @@ impl Cpu {
 
     #[inline]
     pub unsafe fn interrupt_guard() -> InterruptGuard {
-        let mut rax: usize;
+        let mut rax: u64;
         asm!("
             pushfq
             cli
@@ -437,7 +438,7 @@ impl Cpu {
 }
 
 #[must_use]
-pub struct InterruptGuard(usize);
+pub struct InterruptGuard(u64);
 
 impl !Send for InterruptGuard {}
 
@@ -445,7 +446,7 @@ impl !Sync for InterruptGuard {}
 
 impl Drop for InterruptGuard {
     fn drop(&mut self) {
-        if Rflags::from_bits_truncate(self.0).contains(Rflags::IF) {
+        if Rflags::from_bits_retain(self.0).contains(Rflags::IF) {
             unsafe {
                 Cpu::enable_interrupt();
             }
@@ -1040,7 +1041,8 @@ pub enum F81C {
 }
 
 bitflags! {
-    pub struct Rflags: usize {
+    #[derive(Debug, Clone, Copy)]
+    pub struct Rflags: u64 {
         const CF    = 0x0000_0001;
         const PF    = 0x0000_0004;
         const AF    = 0x0000_0010;
@@ -1069,8 +1071,7 @@ impl Rflags {
 
     #[inline]
     pub const fn set_iopl(&mut self, iopl: PrivilegeLevel) {
-        *self =
-            Self::from_bits_truncate((self.bits() & !Self::IOPL3.bits()) | ((iopl as usize) << 12));
+        *self = Self::from_bits_retain((self.bits() & !Self::IOPL3.bits()) | ((iopl as u64) << 12));
     }
 }
 
@@ -1751,13 +1752,12 @@ unsafe extern "C" fn handle_default_exception(ctx: &X64ExceptionContext) {
         };
         stdout.set_attribute(0x0F);
 
-        let cpu = System::current_processor();
-        let cs_desc = cpu.gdt.item(ctx.cs()).unwrap();
+        let cs_desc = GlobalDescriptorTable::current().item(ctx.cs()).unwrap();
         let ex = ExceptionType::from_vec(ctx.vector());
 
         match cs_desc.default_operand_size().unwrap() {
             DefaultSize::Use16 | DefaultSize::Use32 => {
-                let mask32 = 0xFFFF_FFFF;
+                let mask32 = u32::MAX as u64;
                 match ex {
                     ExceptionType::PageFault => {
                         writeln!(

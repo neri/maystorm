@@ -1590,7 +1590,8 @@ struct ThreadContextData {
 }
 
 bitflags! {
-    struct ThreadAttribute: usize {
+    #[derive(Debug, Clone, Copy)]
+    struct ThreadAttribute: u64 {
         const QUEUED    = 0b0000_0000_0000_0001;
         const ZOMBIE    = 0b0000_0000_0000_1000;
     }
@@ -1598,7 +1599,7 @@ bitflags! {
 
 impl Into<usize> for ThreadAttribute {
     fn into(self) -> usize {
-        self.bits()
+        self.bits() as usize
     }
 }
 

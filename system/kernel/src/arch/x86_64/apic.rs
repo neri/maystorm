@@ -203,7 +203,7 @@ impl Apic {
             PrivilegeLevel::Kernel,
         );
 
-        // preparing SMP
+        // Start SMP
         if !System::boot_flags().contains(BootFlags::FORCE_SINGLE) {
             let sipi_vec = InterruptVector(MemoryManager::static_alloc_real().unwrap().get());
             let cpus = lapics.collect::<Vec<_>>();
@@ -223,7 +223,7 @@ impl Apic {
             let prepare_sipi = transmute::<_, FnPrepareSipi>(smpinit_dst.add(8));
             prepare_sipi(max_cpu, idle_stacks.as_ptr(), apic_start_ap);
 
-            // start SMP
+            // start Application Processors
             for (_index, cpu) in cpus.iter().enumerate() {
                 // log!(
                 //     "CPU #{} {:02x} {:02x} {:?}",

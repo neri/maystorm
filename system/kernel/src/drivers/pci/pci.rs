@@ -380,7 +380,7 @@ impl PciDevice {
 
     pub unsafe fn read_pci_command(&self) -> PciCommand {
         let cpu = System::current_processor();
-        PciCommand::from_bits_unchecked(cpu.read_pci(self.addr.register(1)))
+        PciCommand::from_bits_retain(cpu.read_pci(self.addr.register(1)))
     }
 
     pub unsafe fn write_pci_command(&self, val: PciCommand) {
@@ -402,6 +402,7 @@ impl PciDevice {
 }
 
 bitflags! {
+    #[derive(Debug, Clone, Copy)]
     pub struct PciCommand: u32 {
         const IO_SPACE      = 0b0000_0000_0000_0001;
         const MEM_SPACE     = 0b0000_0000_0000_0010;

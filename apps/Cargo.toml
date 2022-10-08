@@ -8,7 +8,6 @@ members = [
   "hello2",
   "life",
   "noiz2bg",
-  "test",
 ]
 
 [profile.release]

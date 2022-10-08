@@ -35,7 +35,7 @@ async fn slpash_task(f: fn()) {
         let height = 200;
 
         let window = WindowBuilder::new()
-            // .style(WindowStyle::SUSPENDED)
+            .style(WindowStyle::SUSPENDED)
             .bg_color(Color::Transparent)
             .size(Size::new(width, height))
             .build("Starting up...");

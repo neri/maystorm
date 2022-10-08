@@ -26,7 +26,8 @@ impl File {
 }
 
 bitflags! {
-    pub struct OpenOptions: usize {
+    #[derive(Debug, Clone, Copy)]
+    pub struct OpenOptions: u32 {
         const READ      = 0b0000_0001;
         const WRITE     = 0b0000_0010;
         const APPEND    = 0b0001_0000;
