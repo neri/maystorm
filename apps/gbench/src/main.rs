@@ -21,7 +21,6 @@ impl App {
         let presenter = GameWindow::with_options(
             "GAME BENCH",
             Size::new(Self::WINDOW_WIDTH, Self::WINDOW_HEIGHT),
-            ScaleMode::NearestNeighbor2X,
             1000,
         );
         Self { presenter }

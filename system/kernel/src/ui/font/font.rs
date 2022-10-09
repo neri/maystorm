@@ -50,35 +50,31 @@ impl FontManager {
     pub unsafe fn init() {
         let shared = Self::shared_mut();
 
-        shared
-            .fonts
-            .insert(FontFamily::FixedSystem, Box::new(SYSTEM_FONT));
-        shared
-            .fonts
-            .insert(FontFamily::SmallFixed, Box::new(SMALL_FONT));
-        shared
-            .fonts
-            .insert(FontFamily::Terminal, Box::new(TERMINAL_FONT));
+        let fonts = &mut shared.fonts;
+
+        fonts.insert(FontFamily::FixedSystem, Box::new(SYSTEM_FONT));
+        fonts.insert(FontFamily::SmallFixed, Box::new(SMALL_FONT));
+        fonts.insert(FontFamily::Terminal, Box::new(TERMINAL_FONT));
 
         if let Ok(mut file) = FileManager::open("/megos/fonts/mono.ttf") {
             let mut data = Vec::new();
             file.read_to_end(&mut data).unwrap();
             let font = Box::new(TrueTypeFont::new(data));
-            shared.fonts.insert(FontFamily::Monospace, font);
+            fonts.insert(FontFamily::Monospace, font);
         }
 
         if let Ok(mut file) = FileManager::open("/megos/fonts/sans.ttf") {
             let mut data = Vec::new();
             file.read_to_end(&mut data).unwrap();
             let font = Box::new(TrueTypeFont::new(data));
-            shared.fonts.insert(FontFamily::SansSerif, font);
+            fonts.insert(FontFamily::SansSerif, font);
         }
 
         if let Ok(mut file) = FileManager::open("/megos/fonts/serif.ttf") {
             let mut data = Vec::new();
             file.read_to_end(&mut data).unwrap();
             let font = Box::new(TrueTypeFont::new(data));
-            shared.fonts.insert(FontFamily::Serif, font);
+            fonts.insert(FontFamily::Serif, font);
         }
 
         shared.monospace_font.write(

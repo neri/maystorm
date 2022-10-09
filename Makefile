@@ -56,9 +56,12 @@ run:
 	$(QEMU_X64) -machine q35 -cpu SandyBridge -smp 4,cores=2,threads=2 \
 -bios $(OVMF_X64) \
 -rtc base=localtime,clock=host \
--device nec-usb-xhci,id=xhci -device usb-tablet \
--drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
+-device nec-usb-xhci,id=xhci \
 -device intel-hda -device hda-duplex \
+-device usb-hub,bus=xhci.0,port=1,id=usb-hub \
+-drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,bus=xhci.0,port=2,drive=stick \
+-device usb-tablet \
+-device usb-audio,id=usb-audio \
 -serial mon:stdio
 
 run_up:
@@ -67,7 +70,7 @@ run_up:
 -rtc base=localtime,clock=host \
 -device nec-usb-xhci,id=xhci -device usb-tablet \
 -drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
--device usb-audio -device intel-hda -device hda-duplex \
+-device intel-hda -device hda-duplex \
 -monitor stdio
 
 run_x86:
@@ -109,6 +112,7 @@ apps:
 
 test:
 	cargo test --manifest-path lib/megstd/Cargo.toml
+	cargo test --manifest-path lib/meggl/Cargo.toml
 	cargo test --manifest-path lib/wasm/Cargo.toml
 
 doc:

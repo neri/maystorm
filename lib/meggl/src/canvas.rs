@@ -1,10 +1,10 @@
 use super::*;
 use alloc::{borrow::ToOwned, boxed::Box, vec::Vec};
-use core::{borrow::Borrow, cell::UnsafeCell, mem::transmute};
+use core::{borrow::Borrow, cell::UnsafeCell, mem::transmute, num::NonZeroUsize};
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
-pub struct HtmlCanvasColor(u32);
+pub struct HtmlCanvasColor(pub(super) u32);
 
 impl ColorTrait for HtmlCanvasColor {}
 
@@ -38,7 +38,7 @@ impl const From<HtmlCanvasColor> for TrueColor {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg(target_endian = "little")]
 pub struct HtmlCanvasColorComponents {
     pub r: u8,
@@ -139,23 +139,25 @@ impl RasterImage for ConstHtmlCanvas<'_> {
 
 impl<'a> ConstHtmlCanvas<'a> {
     #[inline]
-    pub const fn from_slice(slice: &'a [HtmlCanvasColor], size: Size, stride: usize) -> Self {
+    pub const fn from_slice(
+        slice: &'a [HtmlCanvasColor],
+        size: Size,
+        stride: Option<NonZeroUsize>,
+    ) -> Self {
         Self {
             width: size.width() as usize,
             height: size.height() as usize,
-            stride,
+            stride: match stride {
+                Some(v) => v.get(),
+                None => size.width() as usize,
+            },
             slice,
         }
     }
 
     #[inline]
-    pub const fn from_bytes(bytes: &'a [u32], size: Size) -> Self {
-        Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
-            stride: size.width() as usize,
-            slice: unsafe { transmute(bytes) },
-        }
+    pub const fn from_bytes(bytes: &'a [u32], size: Size, stride: Option<NonZeroUsize>) -> Self {
+        Self::from_slice(unsafe { transmute(bytes) }, size, stride)
     }
 
     #[inline]
@@ -220,23 +222,25 @@ impl MutableRasterImage for HtmlCanvas<'_> {
 
 impl<'a> HtmlCanvas<'a> {
     #[inline]
-    pub fn from_slice(slice: &'a mut [HtmlCanvasColor], size: Size, stride: usize) -> Self {
+    pub fn from_slice(
+        slice: &'a mut [HtmlCanvasColor],
+        size: Size,
+        stride: Option<NonZeroUsize>,
+    ) -> Self {
         Self {
             width: size.width() as usize,
             height: size.height() as usize,
-            stride,
+            stride: match stride {
+                Some(v) => v.get(),
+                None => size.width() as usize,
+            },
             slice: UnsafeCell::new(slice),
         }
     }
 
     #[inline]
-    pub fn from_bytes(bytes: &'a mut [u32], size: Size) -> Self {
-        Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
-            stride: size.width() as usize,
-            slice: unsafe { transmute(bytes) },
-        }
+    pub fn from_bytes(bytes: &'a mut [u32], size: Size, stride: Option<NonZeroUsize>) -> Self {
+        Self::from_slice(unsafe { transmute(bytes) }, size, stride)
     }
 
     #[inline]
@@ -257,7 +261,8 @@ impl<'a> HtmlCanvas<'a> {
 }
 
 impl HtmlCanvas<'static> {
-    /// SAFETY: Must guarantee the existence of the `ptr`.
+    /// # SAFETY
+    /// Must guarantee the existence of the `ptr`.
     #[inline]
     pub unsafe fn from_static(ptr: *mut HtmlCanvasColor, size: Size, stride: usize) -> Self {
         let slice = core::slice::from_raw_parts_mut(ptr, size.height() as usize * stride);

@@ -8,7 +8,7 @@ pub trait ColorTrait: Sized + Copy + Clone + PartialEq + Eq + Default {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct IndexedColor(pub u8);
 
 impl const ColorTrait for IndexedColor {}
@@ -124,9 +124,10 @@ impl const From<IndexedColor> for TrueColor {
     }
 }
 
+/// 32bit TrueColor (A8 R8 G8 B8)
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
-pub struct TrueColor(u32);
+pub struct TrueColor(pub u32);
 
 impl ColorTrait for TrueColor {}
 
@@ -279,7 +280,7 @@ impl const From<TrueColor> for IndexedColor {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg(target_endian = "little")]
 pub struct ColorComponents {
     pub b: u8,
@@ -579,7 +580,7 @@ pub struct PackedColor(pub u32);
 impl ColorTrait for PackedColor {}
 
 impl PackedColor {
-    pub const TRANSPARENT: Self = Self(0x100);
+    pub const TRANSPARENT: Self = Self(Self::INDEX_COLOR_MAX + 1);
     const INDEX_COLOR_MIN: u32 = 0;
     const INDEX_COLOR_MAX: u32 = Self::INDEX_COLOR_MIN + 0xFF;
 
@@ -647,12 +648,12 @@ impl PackedColor {
     }
 
     #[inline]
-    pub const fn into_true_color(&self) -> TrueColor {
+    pub const fn into_true_color(self) -> TrueColor {
         self.as_color().into_true_color()
     }
 
     #[inline]
-    pub const fn into_indexed(&self) -> IndexedColor {
+    pub const fn into_indexed(self) -> IndexedColor {
         self.as_color().into_indexed()
     }
 }
@@ -685,6 +686,7 @@ impl const From<PackedColor> for Color {
     }
 }
 
+/// 15bit High Color (R5 G5 B5)
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct RGB555(pub u16);
@@ -710,13 +712,14 @@ impl RGB555 {
         let components = self.components();
         let components = ColorComponents {
             a: u8::MAX,
-            r: Self::c5c8(components.2),
+            r: Self::c5c8(components.0),
             g: Self::c5c8(components.1),
-            b: Self::c5c8(components.0),
+            b: Self::c5c8(components.2),
         };
         components.into_true_color()
     }
 
+    #[inline]
     const fn c5c8(c: u8) -> u8 {
         (c << 3) | (c >> 2)
     }
@@ -756,6 +759,88 @@ impl const From<Color> for RGB555 {
 impl const From<RGB555> for Color {
     #[inline]
     fn from(color: RGB555) -> Self {
+        Color::Argb32(color.as_true_color())
+    }
+}
+
+/// 16bit High Color (R5 G6 B5)
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub struct RGB565(pub u16);
+
+impl ColorTrait for RGB565 {}
+
+impl RGB565 {
+    #[inline]
+    pub const fn components(&self) -> (u8, u8, u8) {
+        let b = (self.0 & 0x1F) as u8;
+        let g = ((self.0 >> 5) & 0x3F) as u8;
+        let r = ((self.0 >> 11) & 0x1F) as u8;
+        (r, g, b)
+    }
+
+    #[inline]
+    pub const fn from_components(r: u8, g: u8, b: u8) -> Self {
+        Self(((r as u16) << 11) | ((g as u16) << 5) | (b as u16))
+    }
+
+    #[inline]
+    pub const fn as_true_color(&self) -> TrueColor {
+        let components = self.components();
+        let components = ColorComponents {
+            a: u8::MAX,
+            r: Self::c5c8(components.0),
+            g: Self::c6c8(components.1),
+            b: Self::c5c8(components.2),
+        };
+        components.into_true_color()
+    }
+
+    #[inline]
+    const fn c5c8(c: u8) -> u8 {
+        (c << 3) | (c >> 2)
+    }
+
+    #[inline]
+    const fn c6c8(c: u8) -> u8 {
+        (c << 2) | (c >> 4)
+    }
+
+    #[inline]
+    pub const fn from_true_color(color: TrueColor) -> Self {
+        let components = color.components();
+        Self(
+            ((components.b >> 3) as u16)
+                | (((components.g >> 2) as u16) << 5)
+                | (((components.r >> 3) as u16) << 11),
+        )
+    }
+}
+
+impl const From<TrueColor> for RGB565 {
+    #[inline]
+    fn from(color: TrueColor) -> Self {
+        Self::from_true_color(color)
+    }
+}
+
+impl const From<RGB565> for TrueColor {
+    #[inline]
+    fn from(color: RGB565) -> Self {
+        color.as_true_color()
+    }
+}
+
+impl const From<Color> for RGB565 {
+    #[inline]
+    fn from(color: Color) -> Self {
+        Self::from_true_color(color.into_true_color())
+    }
+}
+
+impl const From<RGB565> for Color {
+    #[inline]
+    fn from(color: RGB565) -> Self {
         Color::Argb32(color.as_true_color())
     }
 }

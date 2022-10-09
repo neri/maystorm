@@ -14,23 +14,18 @@ impl GameWindow {
     pub fn new(title: &str, size: Size) -> GamePresenterImpl {
         let window = window::WindowBuilder::new()
             .opaque()
-            .size(size)
+            .size(size * 2isize)
             .build(title);
         GamePresenterImpl::new(window.handle())
     }
 
     #[inline]
-    pub fn with_options(
-        title: &str,
-        size: Size,
-        scale: ScaleMode,
-        fps: usize,
-    ) -> GamePresenterImpl {
+    pub fn with_options(title: &str, size: Size, fps: usize) -> GamePresenterImpl {
         let window = window::WindowBuilder::new()
             .opaque()
-            .size(size * scale.scale_factor() as isize)
+            .size(size * 2isize)
             .build(title);
-        GamePresenterImpl::new_long(window.handle(), scale, fps)
+        GamePresenterImpl::new_long(window.handle(), fps)
     }
 }
 
@@ -48,10 +43,9 @@ impl GamePresenterImpl {
     }
 
     #[inline]
-    fn new_long(window: WindowHandle, scale: ScaleMode, fps: usize) -> Self {
-        let game_handle = unsafe {
-            game_v1_init_long(window.0, SCREEN.get() as *const c_void, scale as usize, fps)
-        };
+    fn new_long(window: WindowHandle, fps: usize) -> Self {
+        let game_handle =
+            unsafe { game_v1_init_long(window.0, SCREEN.get() as *const c_void, fps) };
         Self { game_handle }
     }
 }

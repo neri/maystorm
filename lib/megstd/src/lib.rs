@@ -1,4 +1,4 @@
-//! MEG-OS standard library like std
+//! MEG-OS standard library like `std`
 #![no_std]
 #![feature(alloc_error_handler)]
 #![feature(asm_experimental_arch)]
@@ -9,7 +9,7 @@
 #[macro_use]
 pub mod sys;
 
-pub mod drawing;
+pub use meggl as drawing;
 pub mod error;
 pub mod fs;
 pub mod game;

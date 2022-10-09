@@ -21,8 +21,8 @@ use alloc::{
 };
 use bitflags::*;
 use core::{
-    cell::UnsafeCell, ffi::c_void, fmt::Write, intrinsics::transmute, num::*, ops::*,
-    sync::atomic::*, time::Duration,
+    cell::UnsafeCell, ffi::c_void, fmt, intrinsics::transmute, num::*, ops::*, sync::atomic::*,
+    time::Duration,
 };
 use megstd::string::*;
 use num_derive::FromPrimitive;
@@ -575,7 +575,7 @@ impl Scheduler {
         }
     }
 
-    pub fn print_statistics(sb: &mut impl Write) {
+    pub fn print_statistics(sb: &mut impl fmt::Write) {
         let max_load = 1000 * System::current_device().num_of_active_cpus() as u32;
         writeln!(sb, "PID P #TH %CPU TIME     NAME").unwrap();
         for process in ProcessPool::shared().read().unwrap().values() {
@@ -613,14 +613,11 @@ impl Scheduler {
                 write!(sb, " {:02}:{:02}.{:02}", min, sec, dsec,).unwrap();
             }
 
-            match process.name() {
-                Some(name) => writeln!(sb, " {}", name,).unwrap(),
-                None => (),
-            }
+            writeln!(sb, " {}", process.name(),).unwrap();
         }
     }
 
-    pub fn get_thread_statistics(sb: &mut impl Write) {
+    pub fn get_thread_statistics(sb: &mut impl fmt::Write) {
         writeln!(sb, " ID PID P ST %CPU TIME     stack            NAME").unwrap();
         for thread in ThreadPool::shared().data.lock().values() {
             let thread = thread.clone();
@@ -1366,11 +1363,6 @@ impl ProcessId {
         self.get().map(|t| t.sem.wait());
     }
 
-    #[inline]
-    pub fn name<'a>(&self) -> Option<&'a str> {
-        self.get().and_then(|v| v.name())
-    }
-
     pub fn cwd(&self) -> String {
         self.get()
             .map(|v| v.cwd.lock().unwrap().clone())
@@ -1392,6 +1384,8 @@ impl const From<ProcessId> for usize {
 
 #[allow(dead_code)]
 struct ProcessContextData {
+    name: String,
+
     parent: ProcessId,
     pid: ProcessId,
     n_threads: AtomicUsize,
@@ -1404,28 +1398,13 @@ struct ProcessContextData {
     load: AtomicU32,
 
     cwd: Mutex<String>,
-
-    name: [u8; CONTEXT_LABEL_LENGTH],
-}
-
-const CONTEXT_LABEL_LENGTH: usize = 32;
-
-fn set_name_array(array: &mut [u8; CONTEXT_LABEL_LENGTH], name: &str) {
-    let mut i = 1;
-    for c in name.bytes() {
-        if i >= CONTEXT_LABEL_LENGTH {
-            break;
-        }
-        array[i] = c;
-        i += 1;
-    }
-    array[0] = i as u8 - 1;
 }
 
 impl ProcessContextData {
     fn new(parent: ProcessId, priority: Priority, name: &str, cwd: &str) -> ProcessContextData {
         let pid = Self::next_pid();
-        let mut child = Self {
+        Self {
+            name: name.to_owned(),
             parent,
             pid,
             n_threads: AtomicUsize::new(0),
@@ -1436,12 +1415,7 @@ impl ProcessContextData {
             load0: AtomicU32::new(0),
             load: AtomicU32::new(0),
             cwd: Mutex::new(cwd.to_owned()),
-            name: [0u8; CONTEXT_LABEL_LENGTH],
-        };
-
-        child.set_name(name);
-
-        child
+        }
     }
 
     #[inline]
@@ -1450,17 +1424,8 @@ impl ProcessContextData {
         ProcessId(NEXT_PID.fetch_add(1, Ordering::SeqCst))
     }
 
-    fn set_name(&mut self, name: &str) {
-        set_name_array(&mut self.name, name);
-    }
-
-    fn name<'a>(&self) -> Option<&'a str> {
-        let len = self.name[0] as usize;
-        match len {
-            0 => None,
-            _ => core::str::from_utf8(unsafe { core::slice::from_raw_parts(&self.name[1], len) })
-                .ok(),
-        }
+    fn name(&self) -> &str {
+        self.name.as_str()
     }
 
     fn exit(&self) {
@@ -1615,7 +1580,6 @@ impl AtomicBitflags<ThreadAttribute> {
     }
 }
 
-use core::fmt;
 impl fmt::Display for AtomicBitflags<ThreadAttribute> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_char())

@@ -1052,13 +1052,14 @@ bitflags! {
 
         const SUSPENDED         = 0b1000_0000_0000_0000;
 
+        const DEFAULT           = Self::BORDER.bits() | Self::TITLE.bits() | Self::CLOSE_BUTTON.bits();
     }
 }
 
-impl Default for WindowStyle {
+impl const Default for WindowStyle {
     #[inline]
     fn default() -> Self {
-        Self::BORDER | Self::TITLE | Self::CLOSE_BUTTON
+        Self::DEFAULT
     }
 }
 
@@ -1251,13 +1252,13 @@ impl RawWindow {
             let main_screen = unsafe { &mut *shared.main_screen.get() };
             if shared.attributes.contains(WindowManagerAttributes::ROTATE) {
                 main_screen.blt_rotate(
-                    bitmap,
+                    bitmap.as_const(),
                     offset + Movement::from(coords.left_top()),
                     coords.into(),
                 );
             } else {
                 main_screen.blt(
-                    bitmap,
+                    bitmap.as_const(),
                     offset + Movement::from(coords.left_top()),
                     coords.into(),
                 );
@@ -1286,9 +1287,9 @@ impl RawWindow {
         let back_buffer = back_buffer.as_mut();
         if self.draw_into(back_buffer, offset, screen_rect, is_opaque) {
             if shared.attributes.contains(WindowManagerAttributes::ROTATE) {
-                main_screen.blt_rotate(back_buffer, rect.origin + offset, rect);
+                main_screen.blt_rotate(back_buffer.as_const(), rect.origin + offset, rect);
             } else {
-                main_screen.blt(back_buffer, rect.origin + offset, rect);
+                main_screen.blt(back_buffer.as_const(), rect.origin + offset, rect);
 
                 // if is_opaque {
                 //     main_screen.draw_rect(rect + offset, Color::BLUE.into());
@@ -1353,9 +1354,9 @@ impl RawWindow {
                 if window.style.contains(WindowStyle::OPAQUE)
                     || self.handle == window.handle && is_opaque
                 {
-                    target_bitmap.blt(bitmap, blt_origin, blt_rect);
+                    target_bitmap.blt(bitmap.as_const(), blt_origin, blt_rect);
                 } else {
-                    target_bitmap.blt_blend(bitmap, blt_origin, blt_rect);
+                    target_bitmap.blt_blend(bitmap.as_const(), blt_origin, blt_rect);
                 }
             }
         }

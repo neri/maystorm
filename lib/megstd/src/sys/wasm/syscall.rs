@@ -280,13 +280,8 @@ pub unsafe fn game_v1_init(window: usize, screen: *const c_void) -> usize {
 
 #[inline]
 #[must_use]
-pub unsafe fn game_v1_init_long(
-    window: usize,
-    screen: *const c_void,
-    scale: usize,
-    fps: usize,
-) -> usize {
-    syscall!(GameV1Init, window, screen, scale, fps)
+pub unsafe fn game_v1_init_long(window: usize, screen: *const c_void, fps: usize) -> usize {
+    syscall!(GameV1Init, window, screen, fps)
 }
 
 #[inline]

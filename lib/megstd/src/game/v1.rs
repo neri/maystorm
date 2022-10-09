@@ -2,31 +2,6 @@
 //!
 //! This framework provides functionality similar to the screen display of retro games.
 //!
-//! ## Restrictions
-//!
-//! This version of the game framework has a number of tight restrictions, much like a real retro game console.
-//!
-//! * The screen size is within 256x240 pixels.
-//! * The number of tile data is up to 256.
-//! * Each tile data can be used for up to four colors for BGs and up to three colors for sprites.
-//!
-//! ## Tiles, BGs, and Sprites
-//!
-//! The tile specified in the name table is displayed on the BG screen. It can also display sprites on top of each other.
-//! The tile data can be defined by the application, and the system font data is set in tile data 0x20 to 0x7F by default.
-//!
-//! ## Palettes
-//!
-//! There are 64 palettes in total, 32 for BGs in the first half and 32 for sprites in the second half. The default setting is a gameboy-like black-and-white gradient.
-//!
-//! The 0th color in each palette set for sprites is set to transparent by default.
-//! The behavior when a color other than transparent is set is undefined.
-//! Similarly, the behavior when a non-zero color is set to transparent is undefined.
-//!
-//! BG colors are drawn by selecting from a total of 32 colors: 4 types of indexes specified in the tile data and 8 types of palette sets specified in the attributes.
-//!
-//! Sprite colors are drawn by selecting from a total of 24 colors: three indexes specified in the tile data and eight palette sets specified in the attributes.
-//!
 
 use crate::drawing::*;
 

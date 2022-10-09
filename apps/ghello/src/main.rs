@@ -5,12 +5,7 @@ use megstd::game::v1::prelude::*;
 
 #[no_mangle]
 fn _start() {
-    let presenter = GameWindow::with_options(
-        "Hello world",
-        Size::new(128, 64),
-        ScaleMode::NearestNeighbor2X,
-        0,
-    );
+    let presenter = GameWindow::new("Hello world", Size::new(128, 64));
 
     let chars = b"Hello, world!";
     for (index, char) in chars.iter().enumerate() {

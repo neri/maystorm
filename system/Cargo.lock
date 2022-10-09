@@ -115,15 +115,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "292a948cd991e376cf75541fe5b97a1081d713c618b4f1b9500f8844e49eb565"
 
 [[package]]
+name = "meggl"
+version = "0.1.0"
+dependencies = [
+ "byteorder",
+ "num-derive 0.3.3",
+ "num-traits",
+ "rapid-qoi",
+]
+
+[[package]]
 name = "megstd"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.0.0-rc.1",
- "byteorder",
  "cfg-if",
+ "meggl",
  "num-derive 0.3.3",
  "num-traits",
- "rapid-qoi",
 ]
 
 [[package]]
@@ -269,9 +278,9 @@ checksum = "7b3e06c9b9d80ed6b745c7159c40b311ad2916abb34a49e9be2653b90db0d8dd"
 
 [[package]]
 name = "unicode-ident"
-version = "1.0.4"
+version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcc811dc4066ac62f84f11307873c4850cb653bfa9b1719cee2bd2204a4bc5dd"
+checksum = "6ceab39d59e4c9499d4e5a8ee0e2735b891bb7308ac83dfb4e80cad195c9f6f3"
 
 [[package]]
 name = "unicode-xid"

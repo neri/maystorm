@@ -19,7 +19,6 @@ use megstd::{
     io::{Read, Write},
     rand::*,
 };
-use num_traits::FromPrimitive;
 use wasm::{intr::*, *};
 
 include!("megg0808.rs");
@@ -393,13 +392,10 @@ impl ArleRuntime {
             Function::GameV1Init => {
                 let window = params.get_window(self)?;
                 let screen = params.get_usize()?;
-                let scale = params.get_usize().unwrap_or(0);
                 let fps = params.get_usize().unwrap_or(0);
 
-                let scale = FromPrimitive::from_usize(scale)
-                    .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
                 self.game_presenter =
-                    match OsGamePresenter::new(memory, window.native(), screen, scale, fps) {
+                    match OsGamePresenter::new(memory, window.native(), screen, fps) {
                         Ok(v) => Some(UnsafeCell::new(Box::new(v))),
                         Err(err) => return Err(err),
                     };
@@ -1194,7 +1190,6 @@ impl SimpleFreePair {
 struct OsGamePresenter {
     window: WindowHandle,
     screen: usize,
-    scale: ScaleMode,
     size: Size,
     buffer: OwnedBitmap32,
     draw_region: Coordinates,
@@ -1203,24 +1198,23 @@ struct OsGamePresenter {
 }
 
 impl OsGamePresenter {
+    const SCALE_FACTOR: isize = 2;
+
     #[inline]
     fn new(
         memory: &WasmMemory,
         window: WindowHandle,
         screen: usize,
-        scale: ScaleMode,
         fps: usize,
     ) -> Result<Self, WasmRuntimeErrorKind> {
         let fps = if fps > 0 && fps <= 1000 { fps } else { 60 };
         let timer_div = (1000_000 / fps) as u64;
-        let scale_factor = scale.scale_factor();
-        let size = window.content_rect().size() / scale_factor;
+        let size = window.content_rect().size() / Self::SCALE_FACTOR;
         let buffer = OwnedBitmap32::new(size, TrueColor::TRANSPARENT);
 
         let result = Self {
             window,
             screen,
-            scale,
             size,
             buffer,
             draw_region: unsafe { Coordinates::from_rect_unchecked(Rect::from(size)) },
@@ -1341,8 +1335,7 @@ impl OsGamePresenter {
         if coords.left <= coords.right && coords.top <= coords.bottom {
             let rect = Rect::from(coords);
             self.redraw_rect(memory, rect);
-            self.window
-                .invalidate_rect(rect * self.scale.scale_factor());
+            self.window.invalidate_rect(rect * Self::SCALE_FACTOR);
         }
         self.draw_region = Coordinates::void();
     }
@@ -1480,75 +1473,31 @@ impl OsGamePresenter {
             //
         }
 
-        let rect = rect * self.scale.scale_factor();
-        match self.scale {
-            ScaleMode::DotByDot => {
-                let _ = self.window.draw_in_rect(rect, |bitmap| {
-                    bitmap.blt(self.buffer.as_ref(), Point::new(0, 0), rect);
-                });
-            }
-            ScaleMode::Sparse2X => {
-                let _ = self.window.draw_in_rect(rect, |bitmap| match bitmap {
-                    Bitmap::Indexed(_) => todo!(),
-                    Bitmap::Argb32(bitmap) => {
-                        let origin = Point::new(rect.x() / 2, rect.y() / 2);
-                        for y in 0..bitmap.height() / 2 {
-                            for x in 0..bitmap.width() / 2 {
-                                unsafe {
-                                    let sp = origin + Movement::new(x as isize, y as isize);
-                                    let dp = Point::new(x as isize * 2, y as isize * 2);
-                                    let pixel = self.buffer.get_pixel_unchecked(sp);
-                                    bitmap.set_pixel_unchecked(dp, pixel);
-                                }
-                            }
+        let rect = rect * Self::SCALE_FACTOR;
+        // ScaleMode::DotByDot => {
+        //     let _ = self.window.draw_in_rect(rect, |bitmap| {
+        //         bitmap.blt(self.buffer.as_ref(), Point::new(0, 0), rect);
+        //     });
+        // }
+        let _ = self.window.draw_in_rect(rect, |bitmap| match bitmap {
+            Bitmap::Indexed(_) => todo!(),
+            Bitmap::Argb32(bitmap) => {
+                let origin = Point::new(rect.x() / 2, rect.y() / 2);
+                for y in 0..bitmap.height() / 2 {
+                    for x in 0..bitmap.width() / 2 {
+                        unsafe {
+                            let sp = origin + Movement::new(x as isize, y as isize);
+                            let dp = Point::new(x as isize * 2, y as isize * 2);
+                            let pixel = self.buffer.get_pixel_unchecked(sp);
+                            bitmap.set_pixel_unchecked(dp, pixel);
+                            bitmap.set_pixel_unchecked(dp + Movement::new(1, 0), pixel);
+                            bitmap.set_pixel_unchecked(dp + Movement::new(0, 1), pixel);
+                            bitmap.set_pixel_unchecked(dp + Movement::new(1, 1), pixel);
                         }
                     }
-                });
+                }
             }
-            ScaleMode::Interlace2X => {
-                let _ = self.window.draw_in_rect(rect, |bitmap| match bitmap {
-                    Bitmap::Indexed(_) => todo!(),
-                    Bitmap::Argb32(bitmap) => {
-                        let back = screen.get_palette(0).as_color().into_true_color();
-                        let origin = Point::new(rect.x() / 2, rect.y() / 2);
-                        for y in 0..bitmap.height() / 2 {
-                            for x in 0..bitmap.width() / 2 {
-                                unsafe {
-                                    let sp = origin + Movement::new(x as isize, y as isize);
-                                    let dp = Point::new(x as isize * 2, y as isize * 2);
-                                    let pixel = self.buffer.get_pixel_unchecked(sp);
-                                    bitmap.set_pixel_unchecked(dp, pixel);
-                                    bitmap.set_pixel_unchecked(dp + Movement::new(1, 0), pixel);
-                                    bitmap.set_pixel_unchecked(dp + Movement::new(0, 1), back);
-                                    bitmap.set_pixel_unchecked(dp + Movement::new(1, 1), back);
-                                }
-                            }
-                        }
-                    }
-                });
-            }
-            ScaleMode::NearestNeighbor2X => {
-                let _ = self.window.draw_in_rect(rect, |bitmap| match bitmap {
-                    Bitmap::Indexed(_) => todo!(),
-                    Bitmap::Argb32(bitmap) => {
-                        let origin = Point::new(rect.x() / 2, rect.y() / 2);
-                        for y in 0..bitmap.height() / 2 {
-                            for x in 0..bitmap.width() / 2 {
-                                unsafe {
-                                    let sp = origin + Movement::new(x as isize, y as isize);
-                                    let dp = Point::new(x as isize * 2, y as isize * 2);
-                                    let pixel = self.buffer.get_pixel_unchecked(sp);
-                                    bitmap.set_pixel_unchecked(dp, pixel);
-                                    bitmap.set_pixel_unchecked(dp + Movement::new(1, 0), pixel);
-                                    bitmap.set_pixel_unchecked(dp + Movement::new(0, 1), pixel);
-                                    bitmap.set_pixel_unchecked(dp + Movement::new(1, 1), pixel);
-                                }
-                            }
-                        }
-                    }
-                });
-            }
-        }
+        });
     }
 
     #[inline]

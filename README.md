@@ -4,7 +4,7 @@
 
 A hobby operating system written in Rust that supports WebAssembly.
 
-* [Documentation](https://meg-os.github.io/maystorm/kernel/)
+* [Documentation for megstd](https://meg-os.github.io/maystorm/megstd/)
 
 ## Feature
 

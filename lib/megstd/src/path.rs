@@ -61,6 +61,7 @@ impl Path {
     }
 
     #[inline]
+    #[track_caller]
     pub fn file_name(&self) -> Option<&OsStr> {
         todo!()
     }
@@ -69,18 +70,26 @@ impl Path {
     //     todo!()
     // }
 
+    #[inline]
+    #[track_caller]
     pub fn starts_with<P: AsRef<Path>>(&self, _base: P) -> bool {
         todo!()
     }
 
+    #[inline]
+    #[track_caller]
     pub fn ends_with<P: AsRef<Path>>(&self, _child: P) -> bool {
         todo!()
     }
 
+    #[inline]
+    #[track_caller]
     pub fn file_stem(&self) -> Option<&OsStr> {
         todo!()
     }
 
+    #[inline]
+    #[track_caller]
     pub fn extension(&self) -> Option<&OsStr> {
         todo!()
     }
@@ -104,9 +113,9 @@ impl Path {
         buf
     }
 
-    // pub fn components(&self) -> Components<'_> {
-    //     todo!()
-    // }
+    pub fn components(&self) -> Components<'_> {
+        Components::new(self)
+    }
 
     // #[inline]
     // pub fn canonicalize(&self) -> io::Result<PathBuf> {
@@ -280,6 +289,47 @@ impl<'a> Iterator for Ancestors<'a> {
 
 impl FusedIterator for Ancestors<'_> {}
 
+#[allow(dead_code)]
+pub struct Components<'a> {
+    path: &'a [u8],
+    prefix: Option<Prefix<'a>>,
+    cursor: usize,
+}
+
+impl<'a> Components<'a> {
+    fn new(path: &'a Path) -> Self {
+        Self {
+            path: path.inner.bytes(),
+            prefix: None,
+            cursor: 0,
+        }
+    }
+
+    pub fn as_path(&self) -> &'a Path {
+        todo!()
+    }
+}
+
+impl<'a> Iterator for Components<'a> {
+    type Item = Component<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        todo!()
+    }
+}
+
+impl AsRef<OsStr> for Components<'_> {
+    fn as_ref(&self) -> &OsStr {
+        todo!()
+    }
+}
+
+impl AsRef<Path> for Components<'_> {
+    fn as_ref(&self) -> &Path {
+        todo!()
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Component<'a> {
     Prefix(PrefixComponent<'a>),
@@ -354,13 +404,22 @@ impl Hash for PrefixComponent<'_> {
     }
 }
 
+/// Unusable in meg-os
 #[derive(Copy, Clone, Debug, Hash, PartialOrd, Ord, PartialEq, Eq)]
 pub enum Prefix<'a> {
+    /// Verbatim prefix, e.g., `\\?\cat_pics`.
     Verbatim(&'a OsStr),
+    /// Verbatim prefix using Windows' _**U**niform **N**aming **C**onvention_,
+    /// e.g., `\\?\UNC\server\share`.
     VerbatimUNC(&'a OsStr, &'a OsStr),
+    /// Verbatim disk prefix, e.g., `\\?\C:`.
     VerbatimDisk(u8),
+    /// Device namespace prefix, e.g., `\\.\COM42`.
     DeviceNS(&'a OsStr),
+    /// Prefix using Windows' _**U**niform **N**aming **C**onvention_, e.g.
+    /// `\\server\share`.
     UNC(&'a OsStr, &'a OsStr),
+    /// Prefix `C:` for the given disk drive.
     Disk(u8),
 }
 
@@ -381,4 +440,43 @@ impl Prefix<'_> {
     fn has_implicit_root(&self) -> bool {
         !self.is_drive()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    // use super::*;
+
+    // #[test]
+    // fn path_file_name() {
+    //     assert_eq!(Some(OsStr::new("bin")), Path::new("/usr/bin/").file_name());
+    //     assert_eq!(
+    //         Some(OsStr::new("foo.txt")),
+    //         Path::new("tmp/foo.txt").file_name()
+    //     );
+    //     assert_eq!(
+    //         Some(OsStr::new("foo.txt")),
+    //         Path::new("foo.txt/.").file_name()
+    //     );
+    //     assert_eq!(
+    //         Some(OsStr::new("foo.txt")),
+    //         Path::new("foo.txt/.//").file_name()
+    //     );
+    //     assert_eq!(None, Path::new("foo.txt/..").file_name());
+    //     assert_eq!(None, Path::new("/").file_name());
+    // }
+
+    // #[test]
+    // fn components() {
+    //     let path = Path::new("/tmp/foo/bar.txt");
+    //     let components = path.components().collect::<Vec<_>>();
+    //     assert_eq!(
+    //         &components,
+    //         &[
+    //             Component::RootDir,
+    //             Component::Normal("tmp".as_ref()),
+    //             Component::Normal("foo".as_ref()),
+    //             Component::Normal("bar.txt".as_ref()),
+    //         ]
+    //     );
+    // }
 }

@@ -255,9 +255,14 @@ impl Shell {
                 let file_size = stat.len() as usize;
                 if file_size > 0 {
                     let mut vec = Vec::with_capacity(file_size);
-                    vec.resize(file_size, 0);
-                    let act_size = fcb.read(vec.as_mut_slice()).unwrap();
-                    let blob = &vec[..act_size];
+                    match fcb.read_to_end(&mut vec) {
+                        Ok(_v) => (),
+                        Err(err) => {
+                            println!("{}: File read error {:?}", name, err);
+                            return 1;
+                        }
+                    };
+                    let blob = vec.as_slice();
                     if let Some(mut loader) = RuntimeEnvironment::recognize(blob) {
                         loader.option().name = name.to_string();
                         loader.option().argv = argv.iter().map(|v| v.to_string()).collect();

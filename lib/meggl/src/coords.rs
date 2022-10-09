@@ -181,7 +181,7 @@ impl Movement {
 
     #[inline]
     pub const fn distance2(&self) -> Distance2 {
-        Distance2(self.x * self.x + self.y * self.y)
+        Distance2((self.x * self.x + self.y * self.y) as usize)
     }
 }
 
@@ -314,13 +314,21 @@ impl const SubAssign<Movement> for Rect {
 }
 
 /// Type of Squared Distance
+#[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Distance2(pub isize);
+pub struct Distance2(pub usize);
 
 impl Distance2 {
     #[inline]
     pub const fn from_scalar(v: isize) -> Self {
-        Self(v * v)
+        Self((v * v) as usize)
+    }
+}
+
+impl const From<Movement> for Distance2 {
+    #[inline]
+    fn from(v: Movement) -> Self {
+        v.distance2()
     }
 }
 

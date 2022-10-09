@@ -286,6 +286,17 @@ async fn activity_monitor_main() {
 
     let mut sb = String::new();
 
+    let spacing = 4;
+    let graph_rect = Rect::new(spacing, spacing, n_items as isize, 32);
+    let graph_size = graph_rect.size();
+    let meter_rect = Rect::new(
+        graph_rect.max_x() + spacing,
+        spacing,
+        width - graph_rect.width() - 12,
+        32,
+    );
+    let mut opr_bitmap = OperationalBitmap::new(graph_size);
+
     let interval = Duration::from_secs(1);
     window.create_timer(0, Duration::from_secs(0));
     while let Some(message) = window.await_message().await {
@@ -304,36 +315,28 @@ async fn activity_monitor_main() {
                         |bitmap| {
                             bitmap.fill_rect(bitmap.bounds(), bg_color);
 
-                            let spacing = 4;
-                            let mut cursor;
-
                             {
-                                let spacing = 4;
-                                let item_size = Size::new(n_items as isize, 32);
-                                let rect =
-                                    Rect::new(spacing, spacing, item_size.width, item_size.height);
-                                cursor = rect.x() + rect.width() + spacing;
-
                                 let h_lines = 4;
                                 let v_lines = 4;
                                 for i in 1..h_lines {
                                     let point = Point::new(
-                                        rect.x(),
-                                        rect.y() + i * item_size.height / h_lines,
+                                        graph_rect.x(),
+                                        graph_rect.y() + i * graph_size.height / h_lines,
                                     );
-                                    bitmap.draw_hline(point, item_size.width, graph_sub_color);
+                                    bitmap.draw_hline(point, graph_size.width, graph_sub_color);
                                 }
                                 for i in 1..v_lines {
                                     let point = Point::new(
-                                        rect.x() + i * item_size.width / v_lines,
-                                        rect.y(),
+                                        graph_rect.x() + i * graph_size.width / v_lines,
+                                        graph_rect.y(),
                                     );
-                                    bitmap.draw_vline(point, item_size.height, graph_sub_color);
+                                    bitmap.draw_vline(point, graph_size.height, graph_sub_color);
                                 }
 
-                                let limit = item_size.width as usize - 2;
+                                let limit = graph_rect.width() as usize - 2;
+                                opr_bitmap.reset();
                                 for i in 0..limit {
-                                    let scale = item_size.height - 2;
+                                    let scale = graph_size.height - 2;
                                     let value1 = usage_history
                                         [((usage_cursor + i - limit) % n_items)]
                                         as isize
@@ -344,20 +347,40 @@ async fn activity_monitor_main() {
                                         as isize
                                         * scale
                                         / 255;
-                                    let c0 = Point::new(
-                                        rect.x() + i as isize + 1,
-                                        rect.y() + 1 + value1,
+                                    let c0 = Point::new(i as isize + 1, 1 + value1);
+                                    let c1 = Point::new(i as isize, 1 + value2);
+                                    opr_bitmap.draw_line_anti_aliasing(
+                                        c0,
+                                        c1,
+                                        1,
+                                        |bitmap, point, level| unsafe {
+                                            bitmap.set_pixel_unchecked(
+                                                point,
+                                                bitmap
+                                                    .get_pixel_unchecked(point)
+                                                    .saturating_add(level),
+                                            );
+                                        },
                                     );
-                                    let c1 =
-                                        Point::new(rect.x() + i as isize, rect.y() + 1 + value2);
-                                    bitmap.draw_line(c0, c1, graph_line_color);
                                 }
-                                bitmap.draw_rect(rect, graph_border_color);
+                                opr_bitmap.draw_to(
+                                    bitmap,
+                                    graph_rect.origin(),
+                                    graph_rect.bounds(),
+                                    graph_line_color,
+                                );
+                                bitmap.draw_rect(graph_rect, graph_border_color);
                             }
 
+                            // bitmap.draw_rect(meter_rect, graph_border_color);
+
                             for cpu_index in 0..num_of_cpus {
-                                let rect = Rect::new(cursor, 4, 6, 32);
-                                cursor += rect.width() + 2;
+                                let rect = Rect::new(
+                                    meter_rect.x() + cpu_index as isize * 8,
+                                    meter_rect.y(),
+                                    6,
+                                    meter_rect.height(),
+                                );
 
                                 let value = usage_temp[cpu_index];
                                 let graph_color = if value < 250 {
@@ -369,7 +392,7 @@ async fn activity_monitor_main() {
                                 };
 
                                 let mut coords = Coordinates::from_rect(rect).unwrap();
-                                coords.top += (rect.height() - 1) * value as isize / 1000;
+                                coords.top += ((rect.height() - 1) * value as isize + 500) / 1000;
 
                                 bitmap.fill_rect(coords.into(), graph_color);
                                 bitmap.draw_rect(rect, graph_border_color);
@@ -401,9 +424,9 @@ async fn activity_monitor_main() {
                             let n_cores = device.num_of_performance_cpus();
                             let n_threads = device.num_of_active_cpus();
                             if n_cores != n_threads {
-                                write!(sb, " {}C{}T", n_cores, n_threads,).unwrap();
+                                write!(sb, " {}Cores {}Threads", n_cores, n_threads,).unwrap();
                             } else {
-                                write!(sb, " {}CPU", n_cores,).unwrap();
+                                write!(sb, " {}Cores", n_cores,).unwrap();
                             }
 
                             writeln!(sb, " {:?}", Scheduler::current_state()).unwrap();
