@@ -4,7 +4,7 @@ use crate::{
     log::{EventManager, SimpleMessagePayload},
     mem::*,
     res::icon::IconManager,
-    sync::fifo::ConcurrentFifo,
+    sync::fifo::{ConcurrentFifo, EventQueue},
     system::*,
     task::scheduler::*,
     ui::font::*,
@@ -15,33 +15,45 @@ use crate::{
     *,
 };
 use ::alloc::{string::String, sync::Arc, vec::*};
-use core::{fmt::Write, time::Duration};
+use core::{
+    fmt::Write,
+    mem::{transmute, MaybeUninit},
+    time::Duration,
+};
 use megstd::{drawing::image::ImageLoader, drawing::*, io::Read, string::*};
+
+static mut SHUTDOWN_COMMAND: MaybeUninit<EventQueue<ShutdownCommand>> = MaybeUninit::uninit();
 
 pub struct UserEnv;
 
 impl UserEnv {
     pub fn start(f: fn()) {
-        Scheduler::spawn_async(slpash_task(f));
-        Scheduler::perform_tasks();
-    }
-}
+        unsafe {
+            SHUTDOWN_COMMAND.write(EventQueue::new(100));
+        }
 
-async fn slpash_task(f: fn()) {
-    let is_gui_boot = true;
+        SpawnOption::with_priority(Priority::Normal)
+            .start_process(Self::_main, f as usize, "init")
+            .unwrap();
 
-    if true {
-        let width = 320;
-        let height = 200;
+        Self::shutdown_command().wait_event().unwrap();
+
+        WindowManager::set_pointer_visible(false);
+        // WindowManager::set_barrier_opacity(0x80);
+
+        let width = 480;
+        let height = 240;
 
         let window = WindowBuilder::new()
-            .style(WindowStyle::SUSPENDED)
-            .bg_color(Color::Transparent)
+            .style(WindowStyle::SUSPENDED | WindowStyle::NO_SHADOW)
             .size(Size::new(width, height))
-            .build("Starting up...");
+            .bg_color(Color::TRANSPARENT)
+            .level(WindowLevel::POPUP)
+            .build("");
 
         window.draw(|bitmap| {
-            let font = match FontDescriptor::new(FontFamily::SansSerif, 96) {
+            bitmap.clear();
+            let font = match FontDescriptor::new(FontFamily::SansSerif, 36) {
                 Some(v) => v,
                 None => return,
             };
@@ -49,7 +61,97 @@ async fn slpash_task(f: fn()) {
                 .font(font)
                 .color(Color::LIGHT_GRAY)
                 .middle_center()
-                .text("Hello")
+                .text("Shutting down...")
+                .draw_text(bitmap, bitmap.bounds(), 0);
+        });
+        window.show();
+
+        let total = Duration::from_millis(750);
+        let base = Timer::monotonic();
+        let limit = base + total;
+        let total = total.as_millis() as usize;
+        window.create_timer(0, Duration::from_millis(1));
+        window.show();
+
+        while let Some(message) = window.wait_message() {
+            match message {
+                WindowMessage::Timer(timer_id) => match timer_id {
+                    0 => {
+                        let now = Timer::monotonic();
+                        let progress = if limit > now {
+                            (now - base).as_millis() as usize
+                        } else {
+                            total
+                        };
+
+                        WindowManager::set_barrier_opacity((255 * progress / total) as u8);
+
+                        if now < limit {
+                            window.create_timer(0, Duration::from_millis(50));
+                        } else {
+                            window.create_timer(1, Duration::from_millis(250));
+                        }
+                    }
+                    1 => {
+                        System::reset();
+                    }
+                    _ => unreachable!(),
+                },
+                _ => window.handle_default_message(message),
+            }
+        }
+        unreachable!()
+    }
+
+    fn _main(f: usize) {
+        let f: fn() = unsafe { transmute(f) };
+        Scheduler::spawn_async(slpash_task(f));
+        Scheduler::perform_tasks();
+    }
+
+    pub fn system_reset() {
+        Self::shutdown_command()
+            .post(ShutdownCommand::Reboot)
+            .unwrap();
+    }
+
+    fn shutdown_command<'a>() -> &'a EventQueue<ShutdownCommand> {
+        unsafe { SHUTDOWN_COMMAND.assume_init_ref() }
+    }
+}
+
+#[derive(Debug)]
+enum ShutdownCommand {
+    Reboot,
+    // Shutdown,
+}
+
+async fn slpash_task(f: fn()) {
+    let is_gui_boot = true;
+
+    WindowManager::set_desktop_color(Theme::shared().default_desktop_color());
+
+    if true {
+        let width = 320;
+        let height = 120;
+
+        let window = WindowBuilder::new()
+            .style_sub(WindowStyle::CLOSE_BUTTON)
+            // .style_add(WindowStyle::SUSPENDED)
+            // .bg_color(Color::Transparent)
+            .size(Size::new(width, height))
+            .build("");
+
+        window.draw(|bitmap| {
+            let font = match FontDescriptor::new(FontFamily::SansSerif, 36) {
+                Some(v) => v,
+                None => return,
+            };
+            AttributedString::new()
+                .font(font)
+                .color(Color::DARK_GRAY)
+                .middle_center()
+                .text("Starting up...")
                 .draw_text(bitmap, bitmap.bounds(), 0);
         });
         window.show();
@@ -75,7 +177,7 @@ async fn slpash_task(f: fn()) {
             }
         }
     }
-    Timer::sleep_async(Duration::from_millis(500)).await;
+    // Timer::sleep_async(Duration::from_millis(500)).await;
 
     Scheduler::spawn_async(status_bar_main());
     Scheduler::spawn_async(_notification_task());

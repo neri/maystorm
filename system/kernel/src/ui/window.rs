@@ -8,6 +8,7 @@ use crate::{
     sync::{fifo::*, semaphore::*},
     sync::{Mutex, RwLock},
     task::scheduler::*,
+    user::userenv::UserEnv,
     *,
 };
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
@@ -841,7 +842,7 @@ impl WindowManager<'_> {
             && event.modifier().has_alt()
         {
             // ctrl alt del
-            System::reset();
+            UserEnv::system_reset();
         } else if let Some(window) = shared.active {
             let _ = Self::post_system_event(WindowSystemEvent::Key(window, event));
         }
@@ -852,11 +853,11 @@ impl WindowManager<'_> {
         Self::shared().root
     }
 
-    pub fn set_desktop_color(_color: Color) {
-        // let desktop = Self::shared().root;
-        // desktop.update(|window| {
-        //     window.set_bg_color(color);
-        // });
+    pub fn set_desktop_color(color: Color) {
+        let desktop = Self::shared().root;
+        desktop.update(|window| {
+            window.set_bg_color(color);
+        });
     }
 
     pub fn set_desktop_bitmap<'a, T: AsRef<ConstBitmap<'a>>>(bitmap: &T) {
@@ -1043,13 +1044,13 @@ bitflags! {
         const NO_SHADOW         = 0b0000_0000_0100_0000;
         const FLOATING          = 0b0000_0000_1000_0000;
 
-        const DARK_BORDER       = 0b0000_0001_0000_0000;
-        const DARK_TITLE        = 0b0000_0010_0000_0000;
-        const DARK_ACTIVE       = 0b0000_0100_0000_0000;
-        const PINCHABLE         = 0b0000_1000_0000_0000;
+        const DARK_MODE         = 0b0000_0001_0000_0000;
+        const DARK_BORDER       = 0b0000_0010_0000_0000;
+        const DARK_TITLE        = 0b0000_0100_0000_0000;
+        const DARK_ACTIVE       = 0b0000_1000_0000_0000;
 
-        const FULLSCREEN        = 0b0001_0000_0000_0000;
-
+        const PINCHABLE         = 0b0001_0000_0000_0000;
+        const FULLSCREEN        = 0b0010_0000_0000_0000;
         const SUSPENDED         = 0b1000_0000_0000_0000;
 
         const DEFAULT           = Self::BORDER.bits() | Self::TITLE.bits() | Self::CLOSE_BUTTON.bits();
@@ -1900,11 +1901,14 @@ impl WindowBuilder {
 
         let bg_color = self.bg_color;
 
+        let is_dark_mode = self.style.contains(WindowStyle::DARK_MODE);
+        //self.style.contains(WindowStyle::DARK_BORDER);
+
         self.style.set(
             WindowStyle::DARK_BORDER,
-            bg_color.brightness().unwrap_or(255) < 128,
+            is_dark_mode,
+            // bg_color.brightness().unwrap_or(255) < 128,
         );
-        let is_dark_mode = false; //self.style.contains(WindowStyle::DARK_BORDER);
 
         let accent_color = Theme::shared().window_default_accent();
         let active_title_color = self.active_title_color.unwrap_or(if is_dark_mode {

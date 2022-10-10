@@ -16,7 +16,8 @@ TARGET_ISO	= var/megos.iso
 TARGETS		= boot kernel
 ALL_TARGETS	= $(TARGETS) apps
 VAR_INITRD	= var/initrd/
-INITRD_FILES	= LICENSE $(ASSETS)initrd/* $(VAR_INITRD)* apps/target/wasm32-unknown-unknown/release/*.wasm
+INITRD_DEV	= var/initrd/dev/
+INITRD_FILES	= LICENSE $(VAR_INITRD)* $(ASSETS)initrd/* apps/target/wasm32-unknown-unknown/release/*.wasm
 
 X64_SMP			= system/kernel/src/arch/x86_64/smpinit
 X64_SMP_ASM		= $(X64_SMP).asm
@@ -92,7 +93,7 @@ $(X64_SMP_BIN): $(X64_SMP_ASM)
 	nasm -f bin $< -o $@
 
 $(VAR_INITRD):
-	mkdir -p $(VAR_INITRD)
+	-mkdir -p $(INITRD_DEV)
 
 install: test $(EFI_VENDOR) $(EFI_BOOT) $(ALL_TARGETS) tools/mkinitrd/src/*.rs $(VAR_INITRD)
 	cp $(TARGET_BOOT_EFI1) $(BOOT_EFI_BOOT1)

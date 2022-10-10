@@ -1,7 +1,12 @@
-use super::initramfs::*;
-use crate::{task::scheduler::Scheduler, *};
+use super::{devfs::DevFs, initramfs::*};
+use crate::{
+    sync::{RwLock, RwLockReadGuard},
+    task::scheduler::Scheduler,
+    *,
+};
 use alloc::{
     borrow::ToOwned,
+    collections::BTreeMap,
     fmt, format,
     string::String,
     sync::{Arc, Weak},
@@ -21,7 +26,7 @@ static mut FS: UnsafeCell<FileManager> = UnsafeCell::new(FileManager::new());
 pub type OffsetType = i64;
 
 pub struct FileManager {
-    rootfs: Option<Arc<dyn FsDriver>>,
+    mount_points: RwLock<BTreeMap<String, Arc<dyn FsDriver>>>,
 }
 
 impl FileManager {
@@ -29,12 +34,20 @@ impl FileManager {
 
     #[inline]
     const fn new() -> Self {
-        Self { rootfs: None }
+        Self {
+            mount_points: RwLock::new(BTreeMap::new()),
+        }
     }
 
     pub unsafe fn init(initrd_base: *mut u8, initrd_size: usize) {
         let shared = FS.get_mut();
-        shared.rootfs = InitRamfs::from_static(initrd_base, initrd_size);
+
+        let mut mount_points = shared.mount_points.write().unwrap();
+        mount_points.insert(
+            "/".to_owned(),
+            InitRamfs::from_static(initrd_base, initrd_size).expect("Rootfs"),
+        );
+        mount_points.insert("/dev/".to_owned(), DevFs::new());
     }
 
     #[inline]
@@ -75,20 +88,33 @@ impl FileManager {
         Self::_canonical_path_components(Scheduler::current_pid().cwd().as_str(), path)
     }
 
-    pub fn canonical_path(path: &str) -> Result<String> {
+    pub fn canonical_path(path: &str) -> String {
         let path_components = Self::canonical_path_components(path);
         let path_components = path_components.iter().map(|v| v.as_str()).collect();
-        Ok(Self::_join_path(&path_components))
+        Self::_join_path(&path_components)
     }
 
-    fn resolv(path_components: &Vec<String>) -> Result<(Arc<dyn FsDriver>, INodeType)> {
+    fn resolv(path: &str) -> Result<(Arc<dyn FsDriver>, INodeType)> {
         let shared = FileManager::shared();
-        let fs = match shared.rootfs.as_ref() {
+        let mount_points = shared.mount_points.read().unwrap();
+
+        let fq_path = format!("{}/", Self::canonical_path(path));
+
+        let mut prefixes = mount_points.keys().collect::<Vec<_>>();
+        prefixes.sort();
+        let prefix = prefixes
+            .into_iter()
+            .rev()
+            .find(|&v| fq_path.starts_with(v))
+            .ok_or(megstd::io::Error::from(ErrorKind::NotFound))?;
+        let fs = match mount_points.get(prefix) {
             Some(v) => v.clone(),
             None => return Err(ErrorKind::NotConnected.into()),
         };
+
+        let resolved = &fq_path[prefix.len() - 1..];
         let mut dir = fs.root_dir();
-        for lpc in path_components {
+        for lpc in Self::_canonical_path_components("", resolved) {
             dir = fs.find_file(dir, lpc.as_str())?;
         }
         Ok((fs, dir))
@@ -104,7 +130,7 @@ impl FileManager {
 
     pub fn chdir(path: &str) -> Result<()> {
         let path_components = Self::canonical_path_components(path);
-        let (fs, inode) = Self::resolv(&path_components)?;
+        let (fs, inode) = Self::resolv(path)?;
         let stat = fs.stat(inode).ok_or(ErrorKind::NotFound)?;
         if !stat.file_type().is_dir() {
             return Err(ErrorKind::NotADirectory.into());
@@ -115,14 +141,12 @@ impl FileManager {
     }
 
     pub fn read_dir(path: &str) -> Result<FsRawReadDir> {
-        let path = Self::canonical_path_components(path);
         let (fs, dir) = Self::resolv(&path)?;
         Ok(FsRawReadDir::new(&fs, dir))
     }
 
     pub fn open(path: &str) -> Result<FsRawFileControlBlock> {
-        let path = Self::canonical_path_components(path);
-        let (fs, inode) = Self::resolv(&path)?;
+        let (fs, inode) = Self::resolv(path)?;
         let inode = fs.open(inode)?;
 
         let stat = match fs.stat(inode) {
@@ -143,10 +167,14 @@ impl FileManager {
     }
 
     pub fn stat(path: &str) -> Result<FsRawMetaData> {
-        let path = Self::canonical_path_components(path);
-        let (fs, inode) = Self::resolv(&path)?;
+        let (fs, inode) = Self::resolv(path)?;
         let stat = fs.stat(inode).ok_or(ErrorKind::NotFound)?;
         Ok(stat)
+    }
+
+    pub fn mount_points<'a>() -> RwLockReadGuard<'a, BTreeMap<String, Arc<dyn FsDriver>>> {
+        let shared = FileManager::shared();
+        shared.mount_points.read().unwrap()
     }
 }
 
@@ -175,6 +203,9 @@ impl INodeType {
 }
 
 pub trait FsDriver {
+    fn name(&self) -> String;
+    fn description(&self) -> String;
+
     /// Returns the inode of the root directory
     fn root_dir(&self) -> INodeType;
     /// Reads the specified directory

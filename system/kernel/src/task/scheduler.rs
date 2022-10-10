@@ -144,7 +144,7 @@ impl Scheduler {
             "Scheduler",
         );
 
-        SpawnOption::with_priority(Priority::Normal).start_process(f, args, "System");
+        SpawnOption::with_priority(Priority::High).start_process(f, args, "System");
 
         loop {
             unsafe {
@@ -618,10 +618,13 @@ impl Scheduler {
     }
 
     pub fn get_thread_statistics(sb: &mut impl fmt::Write) {
-        writeln!(sb, " ID PID P ST %CPU TIME     stack            NAME").unwrap();
+        writeln!(sb, " ID PID P ST %CPU TIME     NAME").unwrap();
         for thread in ThreadPool::shared().data.lock().values() {
             let thread = thread.clone();
             let thread = unsafe { &mut (*thread.get()) };
+            if thread.pid == ProcessId(0) {
+                continue;
+            }
 
             let status_char = if thread.is_asleep() {
                 'S'
@@ -640,7 +643,6 @@ impl Scheduler {
             )
             .unwrap();
 
-            let cts = unsafe { &*thread.context.get() }.get_context_status();
             let load = thread.load.load(Ordering::Relaxed);
             let load0 = load % 10;
             let load1 = load / 10;
@@ -660,8 +662,6 @@ impl Scheduler {
             } else {
                 write!(sb, " {:02}:{:02}.{:02}", min, sec, dsec,).unwrap();
             }
-
-            write!(sb, " {:016x}", cts.0).unwrap();
 
             writeln!(sb, " {}", thread.name()).unwrap();
         }

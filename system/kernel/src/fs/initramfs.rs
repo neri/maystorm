@@ -110,6 +110,14 @@ impl InitRamfs {
 }
 
 impl FsDriver for InitRamfs {
+    fn name(&self) -> String {
+        "initramfs".to_owned()
+    }
+
+    fn description(&self) -> String {
+        "".to_owned()
+    }
+
     fn root_dir(&self) -> INodeType {
         self.root
     }

@@ -251,6 +251,12 @@ impl Terminal {
                 }
                 None
             }
+            '\t' => {
+                for _ in 0..8 - (self.x & 7) {
+                    let _ = self.put_char(' ');
+                }
+                None
+            }
             '\r' => {
                 self.x = 0;
                 None
