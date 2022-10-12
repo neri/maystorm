@@ -2,7 +2,6 @@
 
 use crate::{sync::atomic::AtomicBitflags, sync::RwLock, ui::window::*, *};
 use alloc::{collections::BTreeMap, sync::Arc};
-use bitflags::*;
 use core::{
     num::*,
     sync::atomic::{AtomicUsize, Ordering},
@@ -11,10 +10,30 @@ use megstd::{drawing::*, io::hid::*};
 
 const INVALID_UNICHAR: char = '\u{FEFF}';
 
-bitflags! {
-    #[derive(Debug, Clone, Copy)]
-    pub struct KeyEventFlags: u8 {
-        const BREAK = 0b1000_0000;
+#[derive(Debug, Clone, Copy)]
+pub struct KeyEventFlags(u8);
+
+impl KeyEventFlags {
+    pub const BREAK: Self = Self(0b1000_0000);
+
+    #[inline]
+    pub const fn bits(&self) -> u8 {
+        self.0
+    }
+
+    #[inline]
+    pub const fn empty() -> Self {
+        Self(0)
+    }
+
+    #[inline]
+    pub const fn from_bits_retain(val: u8) -> Self {
+        Self(val)
+    }
+
+    #[inline]
+    pub const fn contains(&self, other: Self) -> bool {
+        (self.0 & other.0) == other.0
     }
 }
 

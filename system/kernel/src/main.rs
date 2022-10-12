@@ -249,6 +249,10 @@ impl Shell {
         FileManager::open(name)
             .map(|mut fcb| {
                 let stat = fcb.fstat().unwrap();
+                if !stat.file_type().is_file() {
+                    println!("permission denied: {}", name);
+                    return 1;
+                }
                 let file_size = stat.len() as usize;
                 if file_size > 0 {
                     let mut vec = Vec::with_capacity(file_size);
@@ -279,6 +283,8 @@ impl Shell {
                         println!("Bad executable");
                         return 1;
                     }
+                } else {
+                    unreachable!()
                 }
                 0
             })
@@ -476,7 +482,7 @@ impl Shell {
     }
 
     fn cmd_type(args: &[&str]) {
-        let len = 1024;
+        let len = 4096;
         let mut sb = Vec::with_capacity(len);
         sb.resize(len, 0);
         for path in args.iter().skip(1) {
@@ -514,7 +520,7 @@ impl Shell {
             let mount_point = mount_points.get(key).unwrap();
             println!(
                 "{} on {} {}",
-                mount_point.name(),
+                mount_point.device_name(),
                 key,
                 mount_point.description()
             );

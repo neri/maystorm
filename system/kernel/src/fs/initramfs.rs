@@ -10,8 +10,8 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 use megstd::{
+    fs::FileType,
     io::{ErrorKind, Result},
-    sys::fs_imp::FileType,
 };
 
 /// Minimal Initial Ram Filesystem
@@ -110,7 +110,7 @@ impl InitRamfs {
 }
 
 impl FsDriver for InitRamfs {
-    fn name(&self) -> String {
+    fn device_name(&self) -> String {
         "initramfs".to_owned()
     }
 
@@ -145,41 +145,15 @@ impl FsDriver for InitRamfs {
             .ok_or(ErrorKind::NotFound.into())
     }
 
-    fn open(&self, inode: INodeType) -> Result<INodeType> {
-        Ok(inode)
-    }
-
-    fn close(&self, _inode: INodeType) -> Result<()> {
-        Ok(())
+    fn open(self: Arc<Self>, inode: INodeType) -> Result<Arc<dyn FsAccessToken>> {
+        Ok(Arc::new(ThisFsAccessToken {
+            fs: self.clone(),
+            inode,
+        }))
     }
 
     fn stat(&self, inode: INodeType) -> Option<FsRawMetaData> {
         self.get_file(inode).map(|v| v.into())
-    }
-
-    fn read_data(&self, inode: INodeType, offset: OffsetType, buf: &mut [u8]) -> Result<usize> {
-        let dir_ent = self.get_file(inode).ok_or(ErrorKind::NotFound)?;
-        match dir_ent.file_type {
-            FileType::File => (),
-            FileType::Dir => return Err(ErrorKind::IsADirectory.into()),
-            _ => return Err(ErrorKind::InvalidData.into()),
-        }
-
-        let size_left = dir_ent.size as OffsetType - offset;
-        let count = OffsetType::min(size_left, buf.len() as OffsetType) as usize;
-        unsafe {
-            let src = (&self.blob[0] as *const _ as usize
-                + Self::OFFSET_DATA
-                + dir_ent.offset
-                + offset as usize) as *const u8;
-            let dst = &mut buf[0] as *mut _;
-            copy_nonoverlapping(src, dst, count);
-        }
-        Ok(count)
-    }
-
-    fn write_data(&self, _inode: INodeType, _offset: OffsetType, _buf: &[u8]) -> Result<usize> {
-        Err(ErrorKind::ReadOnlyFilesystem.into())
     }
 }
 
@@ -212,5 +186,36 @@ struct ThisFsInodeEntry {
 impl From<&ThisFsInodeEntry> for FsRawMetaData {
     fn from(src: &ThisFsInodeEntry) -> Self {
         Self::new(src.file_type, src.size as i64)
+    }
+}
+
+struct ThisFsAccessToken {
+    fs: Arc<InitRamfs>,
+    inode: INodeType,
+}
+
+impl FsAccessToken for ThisFsAccessToken {
+    fn stat(&self) -> Option<FsRawMetaData> {
+        self.fs.stat(self.inode)
+    }
+
+    fn read_data(&self, offset: OffsetType, buf: &mut [u8]) -> Result<usize> {
+        let fs = self.fs.as_ref();
+        let dir_ent = fs.get_file(self.inode).ok_or(ErrorKind::NotFound)?;
+        let size_left = dir_ent.size as OffsetType - offset;
+        let count = OffsetType::min(size_left, buf.len() as OffsetType) as usize;
+        unsafe {
+            let src = (&fs.blob[0] as *const _ as usize
+                + InitRamfs::OFFSET_DATA
+                + dir_ent.offset
+                + offset as usize) as *const u8;
+            let dst = &mut buf[0] as *mut _;
+            copy_nonoverlapping(src, dst, count);
+        }
+        Ok(count)
+    }
+
+    fn write_data(&self, _offset: OffsetType, _buf: &[u8]) -> Result<usize> {
+        Err(ErrorKind::ReadOnlyFilesystem.into())
     }
 }

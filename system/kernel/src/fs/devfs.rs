@@ -5,8 +5,8 @@ use crate::*;
 use alloc::{borrow::ToOwned, collections::BTreeMap, string::String, sync::Arc, vec::Vec};
 use core::sync::atomic::{AtomicUsize, Ordering};
 use megstd::{
+    fs::FileType,
     io::{ErrorKind, Result},
-    sys::fs_imp::FileType,
 };
 
 /// Device Filesystem
@@ -28,7 +28,6 @@ impl DevFs {
         let mut root_dir = ThisFsInodeEntry {
             file_type: FileType::Dir,
             inode: root,
-            offset: 0,
             size: 0,
             children: Vec::new(),
         };
@@ -59,7 +58,6 @@ impl DevFs {
         let inode_ent = ThisFsInodeEntry {
             file_type: FileType::CharDev,
             inode,
-            offset: 0,
             size: 0,
             children: Vec::new(),
         };
@@ -73,7 +71,7 @@ impl DevFs {
 }
 
 impl FsDriver for DevFs {
-    fn name(&self) -> String {
+    fn device_name(&self) -> String {
         "devfs".to_owned()
     }
 
@@ -108,38 +106,15 @@ impl FsDriver for DevFs {
             .ok_or(ErrorKind::NotFound.into())
     }
 
-    fn open(&self, inode: INodeType) -> Result<INodeType> {
-        Ok(inode)
-    }
-
-    fn close(&self, _inode: INodeType) -> Result<()> {
-        Ok(())
+    fn open(self: Arc<Self>, inode: INodeType) -> Result<Arc<dyn FsAccessToken>> {
+        Ok(Arc::new(ThisFsAccessToken {
+            fs: self.clone(),
+            inode,
+        }))
     }
 
     fn stat(&self, inode: INodeType) -> Option<FsRawMetaData> {
         self.get_file(inode).map(|v| v.into())
-    }
-
-    fn read_data(&self, inode: INodeType, _offset: OffsetType, _buf: &mut [u8]) -> Result<usize> {
-        let dir_ent = self.get_file(inode).ok_or(ErrorKind::NotFound)?;
-        match dir_ent.file_type {
-            FileType::CharDev => (),
-            FileType::Dir => return Err(ErrorKind::IsADirectory.into()),
-            _ => return Err(ErrorKind::InvalidData.into()),
-        }
-
-        Ok(dir_ent.size)
-    }
-
-    fn write_data(&self, inode: INodeType, _offset: OffsetType, _buf: &[u8]) -> Result<usize> {
-        let dir_ent = self.get_file(inode).ok_or(ErrorKind::NotFound)?;
-        match dir_ent.file_type {
-            FileType::CharDev => (),
-            FileType::Dir => return Err(ErrorKind::IsADirectory.into()),
-            _ => return Err(ErrorKind::InvalidData.into()),
-        }
-
-        Ok(dir_ent.size)
     }
 }
 
@@ -164,7 +139,6 @@ impl ThisFsDirEntry {
 struct ThisFsInodeEntry {
     file_type: FileType,
     inode: INodeType,
-    offset: usize,
     size: usize,
     children: Vec<ThisFsDirEntry>,
 }
@@ -172,5 +146,36 @@ struct ThisFsInodeEntry {
 impl From<&ThisFsInodeEntry> for FsRawMetaData {
     fn from(src: &ThisFsInodeEntry) -> Self {
         Self::new(src.file_type, src.size as i64)
+    }
+}
+
+struct ThisFsAccessToken {
+    fs: Arc<DevFs>,
+    inode: INodeType,
+}
+
+impl FsAccessToken for ThisFsAccessToken {
+    fn stat(&self) -> Option<FsRawMetaData> {
+        self.fs.stat(self.inode)
+    }
+
+    fn read_data(&self, _offset: OffsetType, _buf: &mut [u8]) -> Result<usize> {
+        let fs = self.fs.as_ref();
+        let dir_ent = fs.get_file(self.inode).ok_or(ErrorKind::NotFound)?;
+
+        Ok(dir_ent.size)
+    }
+
+    fn write_data(&self, _offset: OffsetType, _buf: &[u8]) -> Result<usize> {
+        let fs = self.fs.as_ref();
+        let dir_ent = fs.get_file(self.inode).ok_or(ErrorKind::NotFound)?;
+
+        Ok(dir_ent.size)
+    }
+}
+
+impl Drop for ThisFsAccessToken {
+    fn drop(&mut self) {
+        // TODO:
     }
 }
