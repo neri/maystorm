@@ -35,11 +35,11 @@ impl FileManager {
         let shared = FS.get_mut();
 
         let mut mount_points = shared.mount_points.write().unwrap();
-        mount_points.insert(
-            Self::PATH_SEPARATOR.to_owned(),
-            InitRamfs::from_static(initrd_base, initrd_size).expect("Rootfs"),
-        );
+        let bootfs =
+            InitRamfs::from_static(initrd_base, initrd_size).expect("Unable to access bootfs");
+        mount_points.insert(Self::PATH_SEPARATOR.to_owned(), bootfs.clone());
         mount_points.insert("/dev/".to_owned(), DevFs::new());
+        mount_points.insert("/boot/".to_owned(), bootfs.clone());
     }
 
     #[inline]
@@ -147,10 +147,9 @@ impl FileManager {
         if stat.file_type().is_dir() {
             return Err(ErrorKind::IsADirectory.into());
         }
-        let file_size = stat.len();
 
         let access_token = fs.open(inode)?;
-        let fcb = FsRawFileControlBlock::new(access_token, file_size);
+        let fcb = FsRawFileControlBlock::new(access_token);
 
         Ok(fcb)
     }
@@ -217,12 +216,13 @@ pub trait FsDriver {
 }
 
 pub trait FsAccessToken {
-    /// Obtains metadata
     fn stat(&self) -> Option<FsRawMetaData>;
-    /// Reads data from the specified inode
+
     fn read_data(&self, offset: OffsetType, buf: &mut [u8]) -> Result<usize>;
-    /// Writes data to the specified inode
+
     fn write_data(&self, offset: OffsetType, buf: &[u8]) -> Result<usize>;
+
+    //fn ioctl(&self, blob: &[u8]) -> Result<usize>;
 }
 
 pub struct FsRawReadDir {
@@ -305,16 +305,14 @@ impl FsRawMetaData {
 pub struct FsRawFileControlBlock {
     access_token: Arc<dyn FsAccessToken>,
     file_pos: OffsetType,
-    file_size: OffsetType,
 }
 
 impl FsRawFileControlBlock {
     #[inline]
-    fn new(access_token: Arc<dyn FsAccessToken>, file_size: OffsetType) -> Self {
+    fn new(access_token: Arc<dyn FsAccessToken>) -> Self {
         Self {
             access_token,
             file_pos: 0,
-            file_size,
         }
     }
 
@@ -322,7 +320,10 @@ impl FsRawFileControlBlock {
         match whence {
             Whence::SeekSet => self.file_pos = offset,
             Whence::SeekCur => self.file_pos = self.file_pos + offset,
-            Whence::SeekEnd => self.file_pos = self.file_size + offset,
+            Whence::SeekEnd => match self.access_token.stat() {
+                Some(stat) => self.file_pos = stat.len() + offset,
+                None => return -1,
+            },
         }
         self.file_pos
     }

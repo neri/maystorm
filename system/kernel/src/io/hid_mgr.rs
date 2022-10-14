@@ -1,12 +1,13 @@
 //! Human Interface Device Manager
 
 use crate::{sync::atomic::AtomicBitflags, sync::RwLock, ui::window::*, *};
-use alloc::{collections::BTreeMap, sync::Arc};
+use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
 use core::{
     num::*,
     sync::atomic::{AtomicUsize, Ordering},
 };
 use megstd::{drawing::*, io::hid::*};
+use num_traits::FromPrimitive;
 
 const INVALID_UNICHAR: char = '\u{FEFF}';
 
@@ -263,6 +264,595 @@ impl MouseEvent {
     #[inline]
     pub const fn event_buttons(&self) -> MouseButton {
         self.event_buttons
+    }
+}
+
+#[derive(Debug)]
+pub struct HidParsedReport {
+    pub report_ids: Vec<HidReportId>,
+    primary: Option<ParsedReportApplication>,
+    tagged: BTreeMap<HidReportId, ParsedReportApplication>,
+}
+
+impl HidParsedReport {
+    #[inline]
+    pub const fn new() -> Self {
+        Self {
+            report_ids: Vec::new(),
+            primary: None,
+            tagged: BTreeMap::new(),
+        }
+    }
+
+    #[inline]
+    pub fn has_report_id(&self) -> bool {
+        self.report_ids.len() > 0
+    }
+
+    #[inline]
+    pub fn primary_app(&self) -> Option<&ParsedReportApplication> {
+        self.primary.as_ref()
+    }
+
+    #[inline]
+    pub fn app_by_report_id(&self, report_id: HidReportId) -> Option<&ParsedReportApplication> {
+        self.tagged.get(&report_id)
+    }
+
+    #[inline]
+    pub fn applications(&self) -> impl Iterator<Item = &ParsedReportApplication> {
+        self.tagged.values()
+    }
+
+    pub fn parse(report_desc: &[u8]) -> Result<HidParsedReport, usize> {
+        let mut parsed_report = HidParsedReport::new();
+
+        let mut current_app = ParsedReportApplication::empty();
+        let mut collection_ctx = Vec::new();
+
+        let mut reader = HidReporteReader::new(report_desc);
+        let mut stack = Vec::new();
+        let mut global = HidReportGlobalState::new();
+        let mut local = HidReportLocalState::new();
+
+        while let Some(lead_byte) = reader.next() {
+            let lead_byte = HidReportLeadByte(lead_byte);
+            let (tag, param) = if lead_byte.is_long_item() {
+                let len = match reader.next() {
+                    Some(v) => v as usize,
+                    None => return Err(reader.position()),
+                };
+                let lead_byte = match reader.next() {
+                    Some(v) => v,
+                    None => return Err(reader.position()),
+                };
+                if reader.advance_by(len).is_err() {
+                    return Err(reader.position());
+                }
+                let lead_byte = HidReportLeadByte(lead_byte);
+                let tag = match lead_byte.item_tag() {
+                    Some(v) => v,
+                    None => {
+                        log!("UNKNOWN TAG {} {:02x}", reader.position(), lead_byte.0);
+                        return Err(reader.position());
+                    }
+                };
+                let param = HidReportAmbiguousSignedValue::Zero;
+                (tag, param)
+            } else {
+                let tag = match lead_byte.item_tag() {
+                    Some(v) => v,
+                    None => {
+                        log!("UNKNOWN TAG {} {:02x}", reader.position(), lead_byte.0);
+                        return Err(reader.position());
+                    }
+                };
+                let param = match reader.read_param(lead_byte) {
+                    Some(v) => v,
+                    None => return Err(reader.position()),
+                };
+                (tag, param)
+            };
+
+            match tag {
+                HidReportItemTag::Input => {
+                    let flag = HidReportMainFlag::from_bits_retain(param.into());
+                    ParsedReportMainItem::parse(
+                        &mut current_app.entries,
+                        tag,
+                        flag,
+                        &global,
+                        &local,
+                    );
+                    local.reset();
+                }
+                HidReportItemTag::Output => {
+                    let flag = HidReportMainFlag::from_bits_retain(param.into());
+                    ParsedReportMainItem::parse(
+                        &mut current_app.entries,
+                        tag,
+                        flag,
+                        &global,
+                        &local,
+                    );
+                    local.reset();
+                }
+                HidReportItemTag::Feature => {
+                    let flag = HidReportMainFlag::from_bits_retain(param.into());
+                    ParsedReportMainItem::parse(
+                        &mut current_app.entries,
+                        tag,
+                        flag,
+                        &global,
+                        &local,
+                    );
+                    local.reset();
+                }
+
+                HidReportItemTag::Collection => {
+                    let collection_type: HidReportCollectionType =
+                        match FromPrimitive::from_usize(param.into()) {
+                            Some(v) => v,
+                            None => todo!(),
+                        };
+                    collection_ctx.push(collection_type);
+
+                    match collection_type {
+                        HidReportCollectionType::Application => {
+                            if collection_ctx.contains(&HidReportCollectionType::Application) {
+                                match current_app.report_id {
+                                    Some(report_id) => {
+                                        parsed_report.tagged.insert(report_id, current_app.clone());
+                                    }
+                                    None => {
+                                        parsed_report.primary = Some(current_app.clone());
+                                    }
+                                }
+                            }
+                            current_app.clear_stream();
+                            let usage = local.usage.first().map(|v| *v).unwrap_or_default();
+                            current_app.usage = if usage < 0x10000 {
+                                HidUsage::new(global.usage_page, usage as u16)
+                            } else {
+                                HidUsage(usage)
+                            };
+                        }
+                        _ => {
+                            current_app
+                                .entries
+                                .push(ParsedReportEntry::Collection(collection_type));
+                        }
+                    }
+
+                    local.reset();
+                }
+
+                HidReportItemTag::EndCollection => {
+                    match collection_ctx.pop() {
+                        Some(collection_type) => match collection_type {
+                            HidReportCollectionType::Application => {
+                                match current_app.report_id {
+                                    Some(report_id) => {
+                                        parsed_report.tagged.insert(report_id, current_app.clone());
+                                    }
+                                    None => {
+                                        parsed_report.primary = Some(current_app.clone());
+                                    }
+                                }
+                                current_app.clear();
+                            }
+                            _ => {
+                                current_app
+                                    .entries
+                                    .push(ParsedReportEntry::EndCollection(collection_type));
+                            }
+                        },
+                        None => return Err(reader.position()),
+                    }
+                    local.reset();
+                }
+
+                HidReportItemTag::UsagePage => global.usage_page = UsagePage(param.into()),
+                HidReportItemTag::LogicalMinimum => global.logical_minimum = param,
+                HidReportItemTag::LogicalMaximum => global.logical_maximum = param,
+                HidReportItemTag::PhysicalMinimum => global.physical_minimum = param,
+                HidReportItemTag::PhysicalMaximum => global.physical_maximum = param,
+                HidReportItemTag::UnitExponent => global.unit_exponent = param.into(),
+                HidReportItemTag::Unit => global.unit = param.into(),
+                HidReportItemTag::ReportSize => global.report_size = param.into(),
+
+                HidReportItemTag::ReportId => {
+                    if let Some(report_id) = HidReportId::new(param.into()) {
+                        if !parsed_report.report_ids.contains(&report_id) {
+                            parsed_report.report_ids.push(report_id);
+                        }
+                        current_app.report_id = Some(report_id);
+                        global.report_id = Some(report_id);
+                    }
+                }
+
+                HidReportItemTag::ReportCount => global.report_count = param.into(),
+                HidReportItemTag::Push => stack.push(global),
+                HidReportItemTag::Pop => {
+                    global = match stack.pop() {
+                        Some(v) => v,
+                        None => return Err(reader.position()),
+                    }
+                }
+                HidReportItemTag::Usage => local.usage.push(param.into()),
+                HidReportItemTag::UsageMinimum => local.usage_minimum = param.into(),
+                HidReportItemTag::UsageMaximum => local.usage_maximum = param.into(),
+
+                // HidReportItemTag::DesignatorIndex => todo!(),
+                // HidReportItemTag::DesignatorMinimum => todo!(),
+                // HidReportItemTag::DesignatorMaximum => todo!(),
+                // HidReportItemTag::StringIndex => todo!(),
+                // HidReportItemTag::StringMinimum => todo!(),
+                // HidReportItemTag::StringMaximum => todo!(),
+                // HidReportItemTag::Delimiter => todo!(),
+                _ => todo!(),
+            }
+        }
+
+        Ok(parsed_report)
+    }
+
+    #[inline]
+    pub fn initial_bit_position(&self) -> usize {
+        if self.has_report_id() {
+            8
+        } else {
+            0
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ParsedReportApplication {
+    report_id: Option<HidReportId>,
+    usage: HidUsage,
+    entries: Vec<ParsedReportEntry>,
+}
+
+impl ParsedReportApplication {
+    #[inline]
+    pub const fn empty() -> Self {
+        Self {
+            report_id: None,
+            usage: HidUsage::NONE,
+            entries: Vec::new(),
+        }
+    }
+
+    #[inline]
+    pub const fn report_id(&self) -> Option<HidReportId> {
+        self.report_id
+    }
+
+    #[inline]
+    pub const fn usage(&self) -> HidUsage {
+        self.usage
+    }
+
+    #[inline]
+    pub fn entries(&self) -> impl Iterator<Item = &ParsedReportEntry> {
+        self.entries.iter()
+    }
+
+    #[inline]
+    pub fn input_items(&self) -> impl Iterator<Item = &ParsedReportMainItem> {
+        self.entries().flat_map(|v| match v {
+            ParsedReportEntry::Input(v) => Some(v),
+            _ => None,
+        })
+    }
+
+    #[inline]
+    pub fn features(&self) -> impl Iterator<Item = &ParsedReportMainItem> {
+        self.entries().flat_map(|v| match v {
+            ParsedReportEntry::Feature(v) => Some(v),
+            _ => None,
+        })
+    }
+
+    pub fn clear_stream(&mut self) {
+        self.entries = Vec::new();
+    }
+
+    pub fn clear(&mut self) {
+        self.report_id = None;
+        self.usage = HidUsage::NONE;
+        self.clear_stream();
+    }
+
+    pub fn bit_count_for_input(&self) -> usize {
+        let acc = self.bit_count(|v| matches!(v, ParsedReportEntry::Input(_)));
+        if acc > 0 && self.report_id.is_some() {
+            acc + 8
+        } else {
+            acc
+        }
+    }
+
+    pub fn bit_count_for_output(&self) -> usize {
+        self.bit_count(|v| matches!(v, ParsedReportEntry::Output(_)))
+    }
+
+    pub fn bit_count_for_feature(&self) -> usize {
+        self.bit_count(|v| matches!(v, ParsedReportEntry::Feature(_)))
+    }
+
+    pub fn bit_count<F>(&self, predicate: F) -> usize
+    where
+        F: FnMut(&&ParsedReportEntry) -> bool,
+    {
+        let acc = self
+            .entries
+            .iter()
+            .filter(predicate)
+            .fold(0, |acc, v| acc + v.bit_count());
+        acc
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ParsedReportEntry {
+    Input(ParsedReportMainItem),
+    Output(ParsedReportMainItem),
+    Feature(ParsedReportMainItem),
+    Collection(HidReportCollectionType),
+    EndCollection(HidReportCollectionType),
+}
+
+impl ParsedReportEntry {
+    pub fn from_item(item: ParsedReportMainItem, tag: HidReportItemTag) -> Option<Self> {
+        match tag {
+            HidReportItemTag::Input => Some(Self::Input(item)),
+            HidReportItemTag::Output => Some(Self::Output(item)),
+            HidReportItemTag::Feature => Some(Self::Feature(item)),
+            _ => None,
+        }
+    }
+
+    pub fn bit_count(&self) -> usize {
+        match self {
+            ParsedReportEntry::Input(ref v) => v.bit_count(),
+            ParsedReportEntry::Output(ref v) => v.bit_count(),
+            ParsedReportEntry::Feature(ref v) => v.bit_count(),
+            ParsedReportEntry::Collection(_) => 0,
+            ParsedReportEntry::EndCollection(_) => 0,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct ParsedReportMainItem {
+    flags: HidReportMainFlag,
+    report_size: u8,
+    report_count: u8,
+    usage_min: HidUsage,
+    usage_max: HidUsage,
+    logical_min: u32,
+    logical_max: u32,
+    physical_min: u32,
+    physical_max: u32,
+}
+
+impl ParsedReportMainItem {
+    #[inline]
+    pub const fn empty() -> Self {
+        Self {
+            flags: HidReportMainFlag::empty(),
+            report_size: 0,
+            report_count: 0,
+            usage_min: HidUsage::NONE,
+            usage_max: HidUsage::NONE,
+            logical_min: 0,
+            logical_max: 0,
+            physical_min: 0,
+            physical_max: 0,
+        }
+    }
+
+    pub fn parse(
+        vec: &mut Vec<ParsedReportEntry>,
+        tag: HidReportItemTag,
+        flag: HidReportMainFlag,
+        global: &HidReportGlobalState,
+        local: &HidReportLocalState,
+    ) {
+        if local.usage.len() > 0 {
+            let report_count = global.report_count / local.usage.len();
+            for usage in &local.usage {
+                ParsedReportEntry::from_item(
+                    Self::new(flag, global, local, Some(*usage), report_count),
+                    tag,
+                )
+                .map(|v| vec.push(v));
+            }
+        } else {
+            ParsedReportEntry::from_item(Self::new(flag, global, local, None, 0), tag)
+                .map(|v| vec.push(v));
+        }
+    }
+
+    #[inline]
+    pub fn new(
+        flag: HidReportMainFlag,
+        global: &HidReportGlobalState,
+        local: &HidReportLocalState,
+        usage: Option<u32>,
+        report_count: usize,
+    ) -> Self {
+        let (usage_min, usage_max) = if flag.is_const() {
+            (HidUsage(0), HidUsage(0))
+        } else {
+            let (usage_min, usage_max) = if let Some(usage) = usage {
+                (usage, 0)
+            } else {
+                (local.usage_minimum, local.usage_maximum)
+            };
+            let usage_max = if usage_min < 0x10000 {
+                HidUsage::new(global.usage_page, usage_max as u16)
+            } else {
+                HidUsage(usage_max)
+            };
+            let usage_min = if usage_min < 0x10000 {
+                HidUsage::new(global.usage_page, usage_min as u16)
+            } else {
+                HidUsage(usage_min)
+            };
+            (usage_min, usage_max)
+        };
+
+        let report_count = if report_count > 0 {
+            report_count
+        } else {
+            global.report_count
+        } as u8;
+        let logical_min = if flag.contains(HidReportMainFlag::RELATIVE) {
+            global.logical_minimum.as_isize() as u32
+        } else {
+            global.logical_minimum.as_u32()
+        };
+        let logical_max = if flag.contains(HidReportMainFlag::RELATIVE) {
+            global.logical_maximum.as_isize() as u32
+        } else {
+            global.logical_maximum.as_u32()
+        };
+        let physical_min = if flag.contains(HidReportMainFlag::RELATIVE) {
+            global.physical_minimum.as_isize() as u32
+        } else {
+            global.physical_minimum.as_u32()
+        };
+        let physical_max = if flag.contains(HidReportMainFlag::RELATIVE) {
+            global.physical_maximum.as_isize() as u32
+        } else {
+            global.physical_maximum.as_u32()
+        };
+        Self {
+            flags: flag,
+            report_size: global.report_size as u8,
+            report_count,
+            usage_min,
+            usage_max,
+            logical_min,
+            logical_max,
+            physical_min,
+            physical_max,
+        }
+    }
+
+    #[inline]
+    pub const fn flags(&self) -> HidReportMainFlag {
+        self.flags
+    }
+
+    #[inline]
+    pub fn is_const(&self) -> bool {
+        self.flags.is_const()
+    }
+
+    #[inline]
+    pub fn is_array(&self) -> bool {
+        self.flags.is_array()
+    }
+
+    #[inline]
+    pub fn is_variable(&self) -> bool {
+        self.flags.is_variable()
+    }
+
+    #[inline]
+    pub fn is_relative(&self) -> bool {
+        self.flags.is_relative()
+    }
+
+    #[inline]
+    pub const fn usage_min(&self) -> HidUsage {
+        self.usage_min
+    }
+
+    #[inline]
+    pub const fn usage_max(&self) -> HidUsage {
+        self.usage_max
+    }
+
+    #[inline]
+    pub const fn logical_min(&self) -> u32 {
+        self.logical_min
+    }
+
+    #[inline]
+    pub const fn logical_max(&self) -> u32 {
+        self.logical_max
+    }
+
+    #[inline]
+    pub const fn report_size(&self) -> usize {
+        self.report_size as usize
+    }
+
+    #[inline]
+    pub const fn report_count(&self) -> usize {
+        self.report_count as usize
+    }
+
+    #[inline]
+    pub const fn bit_count(&self) -> usize {
+        self.report_size() * self.report_count()
+    }
+}
+
+impl core::fmt::Debug for ParsedReportApplication {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let _ = writeln!(
+            f,
+            "application {:02x} usage {}",
+            self.report_id.map(|v| v.as_u8()).unwrap_or_default(),
+            self.usage,
+        );
+
+        for entry in &self.entries {
+            let _ = writeln!(f, "{:?}", entry);
+        }
+
+        Ok(())
+    }
+}
+
+impl core::fmt::Debug for ParsedReportMainItem {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let _ = write!(
+            f,
+            "{:?} size {} {}",
+            self.flags, self.report_size, self.report_count
+        );
+        if !self.flags.contains(HidReportMainFlag::CONSTANT) {
+            if self.usage_max > self.usage_min {
+                let _ = write!(f, " usage {}..{}", self.usage_min, self.usage_max);
+            } else {
+                let _ = write!(f, " usage {}", self.usage_min);
+            }
+            if self.flags.contains(HidReportMainFlag::RELATIVE) {
+                let _ = write!(
+                    f,
+                    " log {}..{} phy {}..{}",
+                    self.logical_min as i32,
+                    self.logical_max as i32,
+                    self.physical_min as i32,
+                    self.physical_max as i32,
+                );
+            } else {
+                let _ = write!(
+                    f,
+                    " log {}..{} phy {}..{}",
+                    self.logical_min, self.logical_max, self.physical_min, self.physical_max
+                );
+            }
+        }
+
+        Ok(())
     }
 }
 

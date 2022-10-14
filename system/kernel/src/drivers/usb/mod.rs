@@ -6,9 +6,9 @@
 //! ┗■
 //! ```
 
-mod types;
 mod usb;
-pub use types::*;
+mod usb_mgr;
 pub use usb::*;
+pub use usb_mgr::*;
 pub mod drivers;
 pub mod xhci;

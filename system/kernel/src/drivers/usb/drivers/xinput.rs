@@ -90,7 +90,7 @@ impl XInputDriver {
                 }
                 Err(UsbError::Aborted) => break,
                 Err(err) => {
-                    log!("XINPUT READ ERROR {:?} {:?}", addr.0.get(), err);
+                    log!("XINPUT READ ERROR {:?} {:?}", addr.as_u8(), err);
                 }
             }
         }

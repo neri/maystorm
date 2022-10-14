@@ -535,7 +535,7 @@ impl Shell {
 
     fn cmd_lsusb(argv: &[&str]) {
         if let Some(addr) = argv.get(1).and_then(|v| v.parse::<NonZeroU8>().ok()) {
-            let addr = usb::UsbAddress(addr);
+            let addr = usb::UsbAddress::from(addr);
             let device = match usb::UsbManager::device_by_addr(addr) {
                 Some(v) => v,
                 None => {
@@ -551,7 +551,7 @@ impl Shell {
                 .to_string();
             println!(
                 "{:02x} VID {} PID {} class {} USB {} {}",
-                device.addr().0.get(),
+                device.addr().as_u8(),
                 device.vid(),
                 device.pid(),
                 device.class(),
@@ -605,7 +605,7 @@ impl Shell {
             }
             println!(
                 "{:02x} VID {} PID {} class {} {}{}",
-                device.addr().0.get(),
+                device.addr().as_u8(),
                 device.vid(),
                 device.pid(),
                 device.class(),

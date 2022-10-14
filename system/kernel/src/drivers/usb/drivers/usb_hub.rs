@@ -142,7 +142,7 @@ impl Usb2HubDriver {
                                     // Attached
                                     hub.clone().attach_device(port).await;
                                 } else {
-                                    log!("ADDR {} HUB2 PORT {} DETACHED", addr.0, i);
+                                    log!("ADDR {} HUB2 PORT {} DETACHED", addr.as_u8(), i);
                                     // TODO: Detached
                                 }
                             } else {
@@ -359,7 +359,7 @@ impl Usb3HubDriver {
                                     // Attached
                                     hub.clone().attach_device(port).await;
                                 } else {
-                                    log!("ADDR {} HUB3 PORT {} DETACHED", addr.0, i);
+                                    log!("ADDR {} HUB3 PORT {} DETACHED", addr.as_u8(), i);
                                     // TODO: Detached
                                 }
                             } else {

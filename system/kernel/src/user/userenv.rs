@@ -39,13 +39,12 @@ impl UserEnv {
         Self::shutdown_command().wait_event().unwrap();
 
         WindowManager::set_pointer_visible(false);
-        // WindowManager::set_barrier_opacity(0x80);
 
         let width = 480;
         let height = 240;
 
         let window = WindowBuilder::new()
-            .style(WindowStyle::SUSPENDED | WindowStyle::NO_SHADOW)
+            .style(WindowStyle::NO_SHADOW)
             .size(Size::new(width, height))
             .bg_color(Color::TRANSPARENT)
             .level(WindowLevel::POPUP)
@@ -66,7 +65,7 @@ impl UserEnv {
         });
         window.show();
 
-        let total = Duration::from_millis(750);
+        let total = Duration::from_millis(500);
         let base = Timer::monotonic();
         let limit = base + total;
         let total = total.as_millis() as usize;
@@ -89,7 +88,7 @@ impl UserEnv {
                         if now < limit {
                             window.create_timer(0, Duration::from_millis(50));
                         } else {
-                            window.create_timer(1, Duration::from_millis(250));
+                            window.create_timer(1, Duration::from_millis(1000));
                         }
                     }
                     1 => {
@@ -126,62 +125,88 @@ enum ShutdownCommand {
     // Shutdown,
 }
 
+#[allow(dead_code)]
 async fn slpash_task(f: fn()) {
     let is_gui_boot = true;
 
-    WindowManager::set_desktop_color(Theme::shared().default_desktop_color());
+    let width = 480;
+    let height = 240;
 
-    if true {
-        let width = 320;
-        let height = 120;
+    let window = WindowBuilder::new()
+        .style(WindowStyle::NO_SHADOW)
+        .size(Size::new(width, height))
+        .bg_color(Color::TRANSPARENT)
+        .level(WindowLevel::POPUP)
+        .build("");
 
-        let window = WindowBuilder::new()
-            .style_sub(WindowStyle::CLOSE_BUTTON)
-            // .style_add(WindowStyle::SUSPENDED)
-            // .bg_color(Color::Transparent)
-            .size(Size::new(width, height))
-            .build("");
+    window.draw(|bitmap| {
+        bitmap.clear();
+        let font = match FontDescriptor::new(FontFamily::SansSerif, 36) {
+            Some(v) => v,
+            None => return,
+        };
+        AttributedString::new()
+            .font(font)
+            .color(Color::LIGHT_GRAY)
+            .middle_center()
+            .text("Starting up...")
+            .draw_text(bitmap, bitmap.bounds(), 0);
+    });
+    // window.show();
+    WindowManager::set_barrier_opacity(255);
 
-        window.draw(|bitmap| {
-            let font = match FontDescriptor::new(FontFamily::SansSerif, 36) {
-                Some(v) => v,
-                None => return,
-            };
-            AttributedString::new()
-                .font(font)
-                .color(Color::DARK_GRAY)
-                .middle_center()
-                .text("Starting up...")
-                .draw_text(bitmap, bitmap.bounds(), 0);
-        });
-        window.show();
-
-        window.create_timer(0, Duration::from_millis(2000));
-
-        while let Some(message) = window.await_message().await {
-            match message {
-                WindowMessage::Timer(_) => window.close(),
-                _ => window.handle_default_message(message),
-            }
-        }
-    }
-
-    WindowManager::set_pointer_visible(true);
-
-    if is_gui_boot {
-        if let Ok(mut file) = FileManager::open("wall.qoi") {
-            let mut vec = Vec::new();
-            file.read_to_end(&mut vec).unwrap();
-            if let Some(mut dib) = ImageLoader::from_qoi(vec.as_slice()) {
-                WindowManager::set_desktop_bitmap(&dib.into_bitmap());
-            }
-        }
-    }
-    // Timer::sleep_async(Duration::from_millis(500)).await;
+    Timer::sleep_async(Duration::from_millis(1000)).await;
 
     Scheduler::spawn_async(status_bar_main());
     Scheduler::spawn_async(_notification_task());
     Scheduler::spawn_async(activity_monitor_main());
+
+    if let Ok(mut file) = FileManager::open("wall.qoi") {
+        let mut vec = Vec::new();
+        file.read_to_end(&mut vec).unwrap();
+        if let Some(mut dib) = ImageLoader::from_qoi(vec.as_slice()) {
+            WindowManager::set_desktop_bitmap(&dib.into_bitmap());
+        }
+    } else {
+        WindowManager::set_desktop_color(Theme::shared().default_desktop_color());
+    }
+
+    Timer::sleep_async(Duration::from_millis(500)).await;
+
+    let total = Duration::from_millis(500);
+    let base = Timer::monotonic();
+    let limit = base + total;
+    let total = total.as_millis() as usize;
+    window.create_timer(0, Duration::from_millis(1));
+    window.show();
+
+    while let Some(message) = window.wait_message() {
+        match message {
+            WindowMessage::Timer(timer_id) => match timer_id {
+                0 => {
+                    let now = Timer::monotonic();
+                    let progress = if limit > now {
+                        (now - base).as_millis() as usize
+                    } else {
+                        total
+                    };
+
+                    WindowManager::set_barrier_opacity(255 - (255 * progress / total) as u8);
+
+                    if now < limit {
+                        window.create_timer(0, Duration::from_millis(50));
+                    } else {
+                        window.close();
+                    }
+                }
+                _ => unreachable!(),
+            },
+            _ => window.handle_default_message(message),
+        }
+    }
+
+    WindowManager::set_barrier_opacity(0);
+    WindowManager::set_pointer_visible(true);
 
     Scheduler::spawn_async(shell_launcher(is_gui_boot, f));
 

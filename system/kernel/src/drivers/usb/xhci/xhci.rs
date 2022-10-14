@@ -593,7 +593,7 @@ impl Xhci {
                     }
                     Some(TrbCompletionCode::STALL) => {
                         let _ = self.reset_endpoint(slot_id.unwrap(), dci.unwrap());
-                        Err(UsbError::General)
+                        Err(UsbError::Stall)
                     }
                     Some(err) => Err(UsbError::ControllerError(err as usize)),
                     None => Err(UsbError::General),
@@ -872,7 +872,7 @@ impl Xhci {
             psiv: speed,
         };
         let ctx = Arc::new(HciContext::new(Arc::downgrade(&self), device));
-        let addr = UsbAddress(slot_id.0);
+        let addr = UsbAddress::from(slot_id.0);
         UsbManager::instantiate(addr, ctx as Arc<dyn UsbHostInterface>)
             .await
             .map(|_| addr)
@@ -921,7 +921,12 @@ impl Xhci {
         match self.execute_command(&trb) {
             Ok(_result) => (),
             Err(err) => {
-                log!("ADDRESS_DEVICE ERROR {:?}", err.completion_code());
+                log!(
+                    "ROOT PORT {} ADDRESS_DEVICE ERROR {:?}",
+                    port_id.0.get(),
+                    err.completion_code()
+                );
+                return None;
             }
         }
 
@@ -934,7 +939,7 @@ impl Xhci {
             psiv,
         };
         let ctx = Arc::new(HciContext::new(Arc::downgrade(&self), device));
-        let addr = UsbAddress(slot_id.0);
+        let addr = UsbAddress::from(slot_id.0);
 
         match UsbManager::instantiate(addr, ctx as Arc<dyn UsbHostInterface>).await {
             Ok(_) => {
@@ -1195,7 +1200,7 @@ impl Xhci {
                 let status = port.status();
                 port.set(PortSc::ALL_CHANGE_BITS);
                 if status.is_connected() && status.is_enabled() {
-                    let _addr = self.clone().attach_root_device(port_id).await.unwrap();
+                    let _addr = self.clone().attach_root_device(port_id).await;
                 } else {
                     log!(
                         "ROOT PORT TIMED OUT {} {:08x} {:?} {:?}",
@@ -1282,7 +1287,7 @@ impl Xhci {
                 let mut slice = self.port2slot.write().unwrap();
                 let slot = slice.get_mut(port_id.0.get() as usize).unwrap();
                 if let Some(slot_id) = slot.take() {
-                    UsbManager::detach_device(UsbAddress(slot_id.0));
+                    UsbManager::detach_device(UsbAddress::from(slot_id.0));
                 }
             }
         }
@@ -1739,7 +1744,7 @@ impl HciContext {
 
 impl UsbHostInterface for HciContext {
     fn parent_device_address(&self) -> Option<UsbAddress> {
-        self.device().parent_slot_id.map(|v| UsbAddress(v.0))
+        self.device().parent_slot_id.map(|v| UsbAddress::from(v.0))
     }
 
     fn route_string(&self) -> UsbRouteString {

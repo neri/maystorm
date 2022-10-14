@@ -210,6 +210,12 @@ impl HidUsage {
     pub const CHARACTER_GESTURE: Self = Self::digitizers(0x0024);
     pub const TABLET_FUNCTION_KEYS: Self = Self::digitizers(0x0039);
     pub const PROGRAM_CHANGE_KEYS: Self = Self::digitizers(0x003A);
+    pub const DEVICE_MODE: Self = Self::digitizers(0x0052);
+    pub const CONTACT_COUNT: Self = Self::digitizers(0x0054);
+    pub const CONTACT_COUNT_MAXIMUM: Self = Self::digitizers(0x0055);
+    pub const SURFACE_SWITCH: Self = Self::digitizers(0x0057);
+    pub const BUTTON_SWITCH: Self = Self::digitizers(0x0058);
+    pub const PAD_TYPE: Self = Self::digitizers(0x0059);
     pub const GESTURE_CHARACTER_ENCODING: Self = Self::digitizers(0x0064);
     pub const PREFERRED_LINE_STYLE: Self = Self::digitizers(0x0070);
     pub const DIGITIZER_DIAGNOSTIC: Self = Self::digitizers(0x0080);
@@ -591,6 +597,25 @@ impl const BitXor<Self> for MouseButton {
     #[inline]
     fn bitxor(self, rhs: Self) -> Self::Output {
         Self(self.0 ^ rhs.0)
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct HidReportId(NonZeroU8);
+
+impl HidReportId {
+    #[inline]
+    pub const fn new(v: u8) -> Option<Self> {
+        match NonZeroU8::new(v) {
+            Some(v) => Some(Self(v)),
+            None => None,
+        }
+    }
+
+    #[inline]
+    pub const fn as_u8(&self) -> u8 {
+        self.0.get()
     }
 }
 
@@ -1001,7 +1026,7 @@ pub struct HidReportGlobalState {
     pub unit: usize,
     pub report_size: usize,
     pub report_count: usize,
-    pub report_id: Option<NonZeroU8>,
+    pub report_id: Option<HidReportId>,
 }
 
 impl HidReportGlobalState {
@@ -1048,4 +1073,13 @@ impl HidReportLocalState {
         self.usage_maximum = 0;
         self.delimiter = 0;
     }
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
+pub enum DeviceMode {
+    Mouse = 0,
+    SingleInputDevice,
+    MultiInputDevice,
 }
