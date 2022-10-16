@@ -21,14 +21,41 @@ impl Arch {
     pub unsafe fn init() {
         cpu::Cpu::init();
 
-        if let Some(madt) = System::acpi().unwrap().find_first::<myacpi::madt::Madt>() {
+        let acpi = System::acpi().unwrap();
+        // let fadt = acpi.find_first::<myacpi::fadt::Fadt>().unwrap();
+        // let (smi_cmd, enable, _disable) = fadt.acpi_enable();
+        // asm!("out dx, al", in("edx") smi_cmd, in("al") enable);
+
+        if let Some(madt) = acpi.find_first::<myacpi::madt::Madt>() {
             apic::Apic::init(madt);
         } else {
             panic!("NO APIC");
         }
 
+        // apic::Apic::register(Irq(fadt.sci_int() as u8), Self::_sci_int, 0).unwrap();
+
         rtc::Rtc::init();
     }
+
+    // fn _sci_int(_: usize) {
+    //     let acpi = System::acpi().unwrap();
+    //     let fadt = acpi.find_first::<myacpi::fadt::Fadt>().unwrap();
+
+    //     if let Some(gpe_blk) = fadt.gpe0_blk() {
+    //         let len = fadt.gpe0_blk_len() / 2;
+    //         let mut vec = Vec::with_capacity(len);
+    //         for i in 0..len {
+    //             let al: u8;
+    //             unsafe {
+    //                 asm!("in al, dx", out("al")al, in("edx")
+    //                     gpe_blk.address as u32 + i as u32
+    //                 );
+    //             }
+    //             vec.push(al);
+    //         }
+    //         log!(" SCI {} {:?}", vec.len(), HexDump(&vec));
+    //     }
+    // }
 
     pub unsafe fn late_init() {
         let _ = ps2::Ps2::init();

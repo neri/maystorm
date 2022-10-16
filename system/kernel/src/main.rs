@@ -482,7 +482,7 @@ impl Shell {
     }
 
     fn cmd_type(args: &[&str]) {
-        let len = 4096;
+        let len = 0x10000;
         let mut sb = Vec::with_capacity(len);
         sb.resize(len, 0);
         for path in args.iter().skip(1) {

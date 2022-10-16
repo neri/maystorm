@@ -29,6 +29,11 @@ impl Hpet {
         hpet.write(0x100, 0x0000_004C); // Tn_INT_ENB_CNF | Tn_TYPE_CNF | Tn_VAL_SET_CNF
         hpet.write(0x108, 1000_000_000_000 / hpet.main_cnt_period);
 
+        // Disable other timers
+        for i in 1..32 {
+            hpet.write(0x100 + i * 0x20, 0);
+        }
+
         hpet
     }
 

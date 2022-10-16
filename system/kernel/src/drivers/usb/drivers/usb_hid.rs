@@ -140,18 +140,11 @@ impl UsbHidDriver {
             match app.usage() {
                 HidUsage::KEYBOARD => {
                     // Flashing LED on the keyboard
-                    for entry in app.entries() {
-                        let item = match entry {
-                            ParsedReportEntry::Output(item) => {
-                                if item.flags().is_const() {
-                                    bit_position += item.bit_count();
-                                    continue;
-                                } else {
-                                    item
-                                }
-                            }
-                            _ => continue,
-                        };
+                    for item in app.output_items() {
+                        if item.is_const() {
+                            bit_position += item.bit_count();
+                            continue;
+                        }
                         if item.report_size() == 1
                             && item.usage_min().usage_page() == UsagePage::LED
                         {

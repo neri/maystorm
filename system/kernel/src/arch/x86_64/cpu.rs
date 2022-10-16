@@ -95,6 +95,10 @@ impl Cpu {
             ProcessorCoreType::Sub
         };
 
+        // if Feature::F81C(F81C::WDT).has_feature() {
+        //     MSR::CPU_WATCHDOG_TIMER.write(0);
+        // }
+
         Box::new(Cpu {
             cpu_index: ProcessorIndex(0),
             apic_id,
@@ -676,12 +680,6 @@ impl CpuContextData {
             setup_new_thread = sym task::scheduler::sch_setup_new_thread,
             options(noreturn)
         );
-    }
-
-    #[inline]
-    pub fn get_context_status(&self) -> (usize, usize) {
-        // TODO:
-        (0, 0)
     }
 }
 
@@ -1556,6 +1554,7 @@ impl InterruptDescriptorTable {
         register_exception!(DoubleFault);
         register_exception!(GeneralProtection);
         register_exception!(PageFault);
+        register_exception!(MachineCheck);
         register_exception!(SimdException);
 
         {
@@ -1600,21 +1599,23 @@ impl InterruptDescriptorTable {
 
 #[repr(u32)]
 #[non_exhaustive]
+#[allow(non_camel_case_types)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Msr {
-    Tsc = 0x0000_0010,
-    ApicBase = 0x0000_001b,
-    MiscEnable = 0x0000_01a0,
-    TscDeadline = 0x0000_06e0,
-    Efer = 0xc000_0080,
-    Star = 0xc000_0081,
-    LStar = 0xc000_0082,
-    CStr = 0xc000_0083,
-    Fmask = 0xc000_0084,
-    FsBase = 0xc000_0100,
-    GsBase = 0xc000_0101,
-    KernelGsBase = 0xc000_0102,
-    TscAux = 0xc000_0103,
+pub enum MSR {
+    TSC = 0x0000_0010,
+    APIC_BASE = 0x0000_001b,
+    MISC_ENABLE = 0x0000_01a0,
+    TSC_DEADLINE = 0x0000_06e0,
+    EFER = 0xC000_0080,
+    STAR = 0xC000_0081,
+    LSTAR = 0xC000_0082,
+    CSTAR = 0xC000_0083,
+    FMASK = 0xC000_0084,
+    FS_BASE = 0xC000_0100,
+    GS_BASE = 0xC000_0101,
+    KERNEL_GS_BASE = 0xC000_0102,
+    TSC_AUX = 0xC000_0103,
+    CPU_WATCHDOG_TIMER = 0xC001_0074,
 }
 
 #[repr(C)]
@@ -1631,7 +1632,7 @@ pub struct AccumulatorPair {
     edx: u32,
 }
 
-impl Msr {
+impl MSR {
     #[inline]
     pub unsafe fn write(self, value: u64) {
         let value = MsrResult { qword: value };
@@ -2050,6 +2051,7 @@ exception_handler!(DoubleFault, handle_default_exception);
 exception_handler!(GeneralProtection, handle_default_exception);
 exception_handler!(PageFault, handle_default_exception);
 exception_handler_noerr!(SimdException, handle_default_exception);
+exception_handler_noerr!(MachineCheck, handle_default_exception);
 
 /// Haribote OS System call Emulation
 #[naked]

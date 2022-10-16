@@ -548,6 +548,14 @@ impl ParsedReportApplication {
     }
 
     #[inline]
+    pub fn output_items(&self) -> impl Iterator<Item = &ParsedReportMainItem> {
+        self.entries().flat_map(|v| match v {
+            ParsedReportEntry::Output(v) => Some(v),
+            _ => None,
+        })
+    }
+
+    #[inline]
     pub fn features(&self) -> impl Iterator<Item = &ParsedReportMainItem> {
         self.entries().flat_map(|v| match v {
             ParsedReportEntry::Feature(v) => Some(v),

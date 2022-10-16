@@ -86,6 +86,28 @@ pub struct Gas {
     pub address: u64,
 }
 
+impl Gas {
+    #[inline]
+    pub const fn from_u64(address: u64) -> Self {
+        Self {
+            id: GasAddressSpaceId::SystemMemory,
+            bit_width: 0,
+            bit_offset: 0,
+            access_size: GasAccessSize::Undefined,
+            address,
+        }
+    }
+
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        matches!(self.id, GasAddressSpaceId::SystemMemory)
+            && self.bit_width == 0
+            && self.bit_offset == 0
+            && matches!(self.access_size, GasAccessSize::Undefined)
+            && self.address == 0
+    }
+}
+
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[non_exhaustive]

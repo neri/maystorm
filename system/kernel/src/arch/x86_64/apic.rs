@@ -66,7 +66,7 @@ unsafe extern "C" fn apic_start_ap() {
         let cpu = System::cpu(ProcessorIndex(index));
         if cpu.apic_id() == apic_id {
             System::cpu_mut(ProcessorIndex(index)).set_tsc_base(tsc);
-            Msr::TscAux.write(index as u64);
+            MSR::TSC_AUX.write(index as u64);
             break;
         }
     }
@@ -125,7 +125,7 @@ impl Apic {
         CURRENT_PROCESSOR_INDEXES[shared.master_apic_id.0 as usize] = 0;
         LocalApic::init(PhysicalAddress::new(madt.local_apic_address() as u64));
 
-        Msr::TscAux.write(0);
+        MSR::TSC_AUX.write(0);
 
         // Define Default GSI table for ISA devices
         for irq in &[1, 12] {
@@ -680,14 +680,14 @@ impl LocalApic {
         LOCAL_APIC_PA = base;
         LOCAL_APIC = MmioSlice::from_phys(base, 0x1000).map(|v| UnsafeCell::new(v));
 
-        Msr::ApicBase.write(
+        MSR::APIC_BASE.write(
             LOCAL_APIC_PA.as_u64() | Self::IA32_APIC_BASE_MSR_ENABLE | Self::IA32_APIC_BASE_MSR_BSP,
         );
     }
 
     unsafe fn init_ap() -> ApicId {
         let shared = Apic::shared();
-        Msr::ApicBase.write(LOCAL_APIC_PA.as_u64() | Self::IA32_APIC_BASE_MSR_ENABLE);
+        MSR::APIC_BASE.write(LOCAL_APIC_PA.as_u64() | Self::IA32_APIC_BASE_MSR_ENABLE);
 
         let apicid = LocalApic::current_processor_id();
 
