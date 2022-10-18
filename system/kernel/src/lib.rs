@@ -20,6 +20,9 @@
 #![feature(option_result_contains)]
 #![feature(panic_info_message)]
 #![feature(trait_alias)]
+//-//-//-//
+#![allow(incomplete_features)]
+#![feature(return_position_impl_trait_in_trait)]
 
 #[macro_use]
 pub mod arch;
@@ -109,6 +112,6 @@ impl core::fmt::Debug for HexDump<'_> {
         for c in self.0.iter() {
             write!(f, " {:02x}", *c)?;
         }
-        writeln!(f, "")
+        Ok(())
     }
 }

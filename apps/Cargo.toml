@@ -13,3 +13,6 @@ members = [
 [profile.release]
 lto = true
 opt-level = "z"
+
+[workspace.dependencies]
+megstd = {path = "../lib/megstd"}

@@ -1,5 +1,3 @@
-//! xHCI: Extensible Host Controller Interface
-
 use super::*;
 use crate::{
     arch::cpu::Cpu,
@@ -200,11 +198,11 @@ impl Xhci {
                         usb_leg_sup.write_volatile(xecp | USBLEGSUP_OS_OWNED);
 
                         if (usb_leg_sup.read_volatile() & USBLEGSUP_BIOS_OWNED) != 0 {
-                            for _ in 0..20 {
+                            for _ in 0..100 {
                                 if (usb_leg_sup.read_volatile() & USBLEGSUP_BIOS_OWNED) == 0 {
                                     break;
                                 }
-                                Timer::sleep(Duration::from_millis(50));
+                                Timer::sleep(Duration::from_millis(10));
                             }
                             // Force BIOS ownership to be disabled.
                             usb_leg_sup.write_volatile(
@@ -409,19 +407,6 @@ impl Xhci {
         None
     }
 
-    // pub fn schedule_ep_ring(
-    //     &self,
-    //     slot_id: Option<SlotId>,
-    //     dci: Option<DCI>,
-    // ) -> Option<Pin<Arc<AsyncSemaphore>>> {
-    //     if let Some(index) = self.ep_ring_index(slot_id, dci) {
-    //         let ctx = &mut self.ring_context.write().unwrap()[index];
-    //         let ctx = unsafe { &mut *ctx.as_mut_ptr() };
-    //         return ctx.semaphore().map(|v| v.clone());
-    //     }
-    //     return None;
-    // }
-
     pub fn allocate_crb<'a>(&'a self) -> Option<&'a mut CommandRequestBlock> {
         for crb in &self.crbs {
             let crb = unsafe { &mut *crb.get() };
@@ -454,14 +439,13 @@ impl Xhci {
         None
     }
 
-    pub fn issue_trb<T: TrbBase>(
+    pub fn issue_trb(
         &self,
         crb: Option<&mut CommandRequestBlock>,
-        trb: &T,
+        trb: &Trb,
         slot_id: Option<SlotId>,
         dci: Option<DCI>,
     ) {
-        let trb = trb.as_trb();
         let index = match self.ep_ring_index(slot_id, dci) {
             Some(index) => index,
             None => todo!(),
@@ -498,9 +482,9 @@ impl Xhci {
     }
 
     /// Issue trb command
-    pub fn execute_command<T: TrbBase>(
+    pub fn execute_command(
         &self,
-        trb: &T,
+        trb: &Trb,
     ) -> Result<TrbCommandCompletionEvent, TrbCommandCompletionEvent> {
         let mut crb = DisposableRef::new(self.allocate_crb().unwrap());
         self.issue_trb(Some(crb.as_mut()), trb, None, None);
@@ -559,15 +543,15 @@ impl Xhci {
         }
 
         let setup_trb = TrbSetupStage::new(trt, setup);
-        self.issue_trb(None, &setup_trb, slot_id, dci);
+        self.issue_trb(None, setup_trb.as_trb(), slot_id, dci);
 
         if len > 0 {
             let data_trb = TrbDataStage::new(*buffer, len, dir, false);
-            self.issue_trb(None, &data_trb, slot_id, dci);
+            self.issue_trb(None, data_trb.as_trb(), slot_id, dci);
         }
 
         let status_trb = TrbStatusStage::new(!dir);
-        self.issue_trb(None, &status_trb, slot_id, dci);
+        self.issue_trb(None, status_trb.as_trb(), slot_id, dci);
 
         self.ring_a_doorbell_async(device.parent_slot_id, slot_id, dci)
             .unwrap();
@@ -628,8 +612,7 @@ impl Xhci {
         }
 
         let trb = TrbNormal::new(*buffer, len, true, true);
-
-        self.issue_trb(None, &trb, slot_id, dci);
+        self.issue_trb(None, trb.as_trb(), slot_id, dci);
 
         self.ring_a_doorbell_async(device.parent_slot_id, slot_id, dci)
             .unwrap();
@@ -669,7 +652,7 @@ impl Xhci {
         dci: DCI,
     ) -> Result<TrbCommandCompletionEvent, TrbCommandCompletionEvent> {
         let trb = TrbResetEndpointCommand::new(slot_id, dci);
-        self.execute_command(&trb)
+        self.execute_command(trb.as_trb())
     }
 
     pub fn configure_endpoint(
@@ -755,7 +738,7 @@ impl Xhci {
         slot.set_ttt(hub_desc.characteristics().ttt());
 
         let trb = TrbEvaluateContextCommand::new(slot_id, input_context.raw_data());
-        match self.execute_command(&trb) {
+        match self.execute_command(trb.as_trb()) {
             Ok(_) => Ok(()),
             Err(_) => Err(UsbError::General),
         }
@@ -781,7 +764,7 @@ impl Xhci {
         // slot.set_max_exit_latency(max_exit_latency);
 
         let trb = TrbEvaluateContextCommand::new(slot_id, input_context.raw_data());
-        match self.execute_command(&trb) {
+        match self.execute_command(trb.as_trb()) {
             Ok(_) => Ok(()),
             Err(_) => Err(UsbError::General),
         }
@@ -848,7 +831,7 @@ impl Xhci {
         // );
 
         let trb = TrbAddressDeviceCommand::new(slot_id, input_context_pa);
-        match self.execute_command(&trb) {
+        match self.execute_command(trb.as_trb()) {
             Ok(_) => (),
             Err(err) => {
                 log!("ADDRESS_DEVICE ERROR {:?}", err.completion_code());
@@ -918,7 +901,7 @@ impl Xhci {
         Timer::sleep(Duration::from_millis(10));
 
         let trb = TrbAddressDeviceCommand::new(slot_id, input_context_pa);
-        match self.execute_command(&trb) {
+        match self.execute_command(trb.as_trb()) {
             Ok(_result) => (),
             Err(err) => {
                 log!(
@@ -969,7 +952,7 @@ impl Xhci {
         endpoint.set_max_packet_size(max_packet_size);
 
         let trb = TrbEvaluateContextCommand::new(slot_id, input_context.raw_data());
-        match self.execute_command(&trb) {
+        match self.execute_command(trb.as_trb()) {
             Ok(_) => Ok(()),
             Err(_) => todo!(),
         }
@@ -1830,10 +1813,7 @@ impl UsbHostInterface for HciContext {
             Some(v) => v,
             None => return Err(UsbError::InvalidParameter),
         };
-        let ep_type = match desc.ep_type() {
-            Some(v) => v,
-            None => return Err(UsbError::InvalidParameter),
-        };
+        let ep_type = desc.ep_type();
         let ep_type = EpType::from_usb_ep_type(ep_type, ep.is_dir_in());
         let dci = ep.into();
 
@@ -1847,7 +1827,7 @@ impl UsbHostInterface for HciContext {
         );
 
         let trb = TrbConfigureEndpointCommand::new(slot_id, host.input_context(slot_id).raw_data());
-        match host.execute_command(&trb) {
+        match host.execute_command(trb.as_trb()) {
             Ok(_) => Ok(()),
             Err(_err) => Err(UsbError::General),
         }

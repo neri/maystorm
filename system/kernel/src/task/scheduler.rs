@@ -28,8 +28,6 @@ use megstd::string::*;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
-const THRESHOLD_ENTER_SAVING: usize = 5;
-const THRESHOLD_LEAVE_SAVING: usize = 50;
 const THRESHOLD_ENTER_FULL: usize = 950;
 const THRESHOLD_LEAVE_FULL: usize = 666;
 
@@ -64,8 +62,6 @@ pub struct Scheduler {
 pub enum SchedulerState {
     /// The scheduler has not started yet.
     Disabled = 0,
-    /// The scheduler is running on minimal power.
-    Minimal,
     /// The scheduler is running.
     Normal,
     /// The scheduler is running on maximum power.
@@ -296,7 +292,6 @@ impl Scheduler {
         let shared = Self::shared();
         let state = Self::current_state();
         if shared.is_frozen.load(Ordering::SeqCst)
-            || (state == SchedulerState::Minimal && index != ProcessorIndex(0))
             || (state != SchedulerState::Maximum
                 && System::cpu(index).processor_type() == ProcessorCoreType::Sub)
         {
@@ -422,11 +417,11 @@ impl Scheduler {
 
         let expect = 1_000_000;
         let interval = Duration::from_micros(expect as u64);
-        let mut measure = Timer::measure();
+        let mut measure = Timer::measure_deprecated();
         loop {
             Timer::sleep(interval);
 
-            let now = Timer::measure();
+            let now = Timer::measure_deprecated();
             let actual = now.0 - measure.0;
             let actual1000 = actual as usize * 1000;
 
@@ -462,15 +457,8 @@ impl Scheduler {
 
             match Self::current_state() {
                 SchedulerState::Disabled => (),
-                SchedulerState::Minimal => {
-                    if usage_total > THRESHOLD_LEAVE_SAVING {
-                        Self::set_current_state(SchedulerState::Normal);
-                    }
-                }
                 SchedulerState::Normal => {
-                    if usage_total < THRESHOLD_ENTER_SAVING {
-                        Self::set_current_state(SchedulerState::Minimal);
-                    } else if usage_total
+                    if usage_total
                         > (System::current_device().num_of_performance_cpus() - 1) * 1000
                             + THRESHOLD_ENTER_FULL
                     {
@@ -728,7 +716,7 @@ impl LocalScheduler {
             // TODO: usize?
             thread
                 .measure
-                .store(Timer::measure().0 as usize, Ordering::SeqCst);
+                .store(Timer::measure_deprecated().0 as usize, Ordering::SeqCst);
         });
         let retired = self.take_retired().unwrap();
         Scheduler::retire(retired);
@@ -796,7 +784,7 @@ pub unsafe extern "C" fn sch_setup_new_thread() {
         // TODO: usize?
         thread
             .measure
-            .store(Timer::measure().0 as usize, Ordering::SeqCst);
+            .store(Timer::measure_deprecated().0 as usize, Ordering::SeqCst);
     });
     let retired = lsch.take_retired().unwrap();
     Scheduler::retire(retired);
@@ -928,6 +916,8 @@ impl<T> JoinHandle<T> {
 static mut TIMER_SOURCE: Option<Box<dyn TimerSource>> = None;
 
 pub trait TimerSource {
+    fn monotonic(&self) -> u64;
+
     fn measure(&self) -> TimeSpec;
 
     fn from_duration(&self, val: Duration) -> TimeSpec;
@@ -1052,13 +1042,13 @@ impl Timer {
     }
 
     #[inline]
-    pub fn measure() -> TimeSpec {
+    fn measure_deprecated() -> TimeSpec {
         Self::timer_source().measure()
     }
 
     #[inline]
     pub fn monotonic() -> Duration {
-        Self::measure().into_duration()
+        Duration::from_millis(Self::timer_source().monotonic())
     }
 }
 
@@ -1511,7 +1501,7 @@ impl ThreadHandle {
 
     fn update_statistics(&self) {
         self.update(|thread| {
-            let now = Timer::measure().0 as usize;
+            let now = Timer::measure_deprecated().0 as usize;
             let then = thread.measure.swap(now, Ordering::SeqCst);
             let diff = now - then;
             thread.cpu_time.fetch_add(diff, Ordering::SeqCst);

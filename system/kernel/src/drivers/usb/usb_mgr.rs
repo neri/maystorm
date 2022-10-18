@@ -19,7 +19,6 @@ use core::{
 };
 use futures_util::Future;
 use megstd::uuid::Uuid;
-use num_traits::FromPrimitive;
 
 /// USB Driver to Host interface
 pub trait UsbHostInterface {
@@ -416,8 +415,7 @@ impl UsbDeviceControl {
                 let len = bos_blob[cursor] as usize;
                 let cap_type: UsbDeviceCapabilityType = match (bos_blob[cursor + 1]
                     == UsbDescriptorType::DeviceCapability as u8)
-                    .then(|| FromPrimitive::from_u8(bos_blob[cursor + 2]))
-                    .flatten()
+                    .then(|| UsbDeviceCapabilityType::from_u8(bos_blob[cursor + 2]))
                 {
                     Some(v) => v,
                     None => {
@@ -477,13 +475,7 @@ impl UsbDeviceControl {
             let len = config[cursor] as usize;
             let desc_type_raw = config[cursor + 1];
 
-            let desc_type: UsbDescriptorType = match FromPrimitive::from_u8(desc_type_raw) {
-                Some(v) => v,
-                None => {
-                    cursor += len;
-                    continue;
-                }
-            };
+            let desc_type: UsbDescriptorType = UsbDescriptorType::from_u8(desc_type_raw);
 
             match desc_type {
                 UsbDescriptorType::Configuration => {
@@ -540,12 +532,7 @@ impl UsbDeviceControl {
                             return Err(UsbError::InvalidDescriptor);
                         }
                     };
-                    let ep_type = match descriptor.ep_type() {
-                        Some(v) => v,
-                        None => {
-                            return Err(UsbError::InvalidDescriptor);
-                        }
-                    };
+                    let ep_type = descriptor.ep_type();
                     current_interface.endpoints.push(UsbEndpoint {
                         descriptor: *descriptor,
                         address,

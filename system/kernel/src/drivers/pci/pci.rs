@@ -1,3 +1,4 @@
+use super::install_drivers;
 use crate::{arch::cpu::*, mem::PhysicalAddress, sync::RwLock, system::System, *};
 use alloc::{
     boxed::Box,
@@ -13,8 +14,6 @@ use core::{
     num::NonZeroU8,
     ops::{Add, ControlFlow},
 };
-
-use super::install_drivers;
 
 #[repr(transparent)]
 #[derive(Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]

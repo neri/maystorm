@@ -1,5 +1,3 @@
-//! A Window System
-
 use super::{font::*, text::*, theme::Theme};
 use crate::{
     io::hid_mgr::*,

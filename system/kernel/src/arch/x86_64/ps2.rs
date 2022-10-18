@@ -37,7 +37,7 @@ impl Ps2 {
         }
 
         Self::write_command(Ps2Command::DISABLE_FIRST_PORT);
-        Self::send_command(Ps2Command::DISABLE_SECOND_PORT, 1).unwrap();
+        Self::send_command(Ps2Command::DISABLE_SECOND_PORT, 10).unwrap();
 
         for _ in 0..16 {
             let _ = Self::read_data();
@@ -46,20 +46,20 @@ impl Ps2 {
         Irq::LPC_PS2K.register(Self::irq_01, 0).unwrap();
         Irq::LPC_PS2M.register(Self::irq_12, 0).unwrap();
 
-        Self::send_command(Ps2Command::WRITE_CONFIG, 1).unwrap();
-        Self::send_data(Ps2Data(0x47), 1).unwrap();
+        Self::send_command(Ps2Command::WRITE_CONFIG, 10).unwrap();
+        Self::send_data(Ps2Data(0x47), 10).unwrap();
 
-        Self::send_command(Ps2Command::ENABLE_FIRST_PORT, 1).unwrap();
-        Self::send_command(Ps2Command::ENABLE_SECOND_PORT, 1).unwrap();
+        Self::send_command(Ps2Command::ENABLE_FIRST_PORT, 10).unwrap();
+        Self::send_command(Ps2Command::ENABLE_SECOND_PORT, 10).unwrap();
 
-        Self::send_data(Ps2Data::RESET_COMMAND, 1).unwrap();
+        Self::send_data(Ps2Data::RESET_COMMAND, 10).unwrap();
         Timer::sleep(Duration::from_millis(100));
-        Self::send_data(Ps2Data::ENABLE_SEND, 1).unwrap();
+        Self::send_data(Ps2Data::ENABLE_SEND, 10).unwrap();
 
-        Self::send_second_data(Ps2Data::RESET_COMMAND, 1).unwrap();
+        Self::send_second_data(Ps2Data::RESET_COMMAND, 10).unwrap();
         Timer::sleep(Duration::from_millis(100));
         // Self::send_second_data(Ps2Data::SET_DEFAULT, 1).unwrap();
-        Self::send_second_data(Ps2Data::ENABLE_SEND, 1).unwrap();
+        Self::send_second_data(Ps2Data::ENABLE_SEND, 10).unwrap();
 
         Ok(())
     }

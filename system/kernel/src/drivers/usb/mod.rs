@@ -1,10 +1,4 @@
 //! Universal Serial Bus
-//!
-//! ```text
-//!   ┏━○
-//! ○┻┳━|＞
-//! ┗■
-//! ```
 
 mod usb;
 mod usb_mgr;

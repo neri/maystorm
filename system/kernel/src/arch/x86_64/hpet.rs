@@ -1,6 +1,9 @@
 use super::{apic::*, page::PhysicalAddress};
 use crate::{mem::mmio::*, task::scheduler::*};
-use core::time::Duration;
+use core::{
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
+    time::Duration,
+};
 
 /// High Precision Event Timer
 pub(super) struct Hpet {
@@ -19,7 +22,11 @@ impl Hpet {
 
         Irq::LPC_TIMER.register(Self::irq_handler, 0).unwrap();
 
-        hpet.main_cnt_period = hpet.read(0) >> 32;
+        let id_reg = hpet.read(0);
+        if (id_reg & 0x2000) == 0 {
+            COUNTER_32BIT.store(true, Ordering::SeqCst);
+        }
+        hpet.main_cnt_period = id_reg >> 32;
         hpet.write(0x10, 0);
         hpet.write(0x20, 0); // Clear all interrupts
         hpet.write(0xF0, 0); // Reset MAIN_COUNTER_VALUE
@@ -38,25 +45,40 @@ impl Hpet {
     }
 
     #[inline]
-    unsafe fn read(&self, index: usize) -> u64 {
-        self.mmio.read_u64(index)
+    unsafe fn read(&self, offset: usize) -> u64 {
+        self.mmio.read_u64(offset)
     }
 
     #[inline]
-    unsafe fn write(&self, index: usize, value: u64) {
-        self.mmio.write_u64(index, value);
+    unsafe fn write(&self, offset: usize, value: u64) {
+        self.mmio.write_u64(offset, value);
     }
 
     /// IRQ of HPET
-    /// Currently, this system does not require an IRQ for HPET, but it is receiving an interrupt just in case.
     fn irq_handler(_: usize) {
-        // TODO:
+        HPET_TICK.fetch_add(1, Ordering::SeqCst);
+    }
+
+    #[inline]
+    fn main_counter_value(&self) -> u64 {
+        unsafe { self.read(0xF0) }
     }
 }
 
+static HPET_TICK: AtomicU64 = AtomicU64::new(0);
+static COUNTER_32BIT: AtomicBool = AtomicBool::new(false);
+
 impl TimerSource for Hpet {
+    fn monotonic(&self) -> u64 {
+        HPET_TICK.load(Ordering::Relaxed)
+    }
+
     fn measure(&self) -> TimeSpec {
-        TimeSpec((unsafe { self.read(0xF0) } / self.measure_div) as isize)
+        if COUNTER_32BIT.load(Ordering::Relaxed) {
+            TimeSpec((1000 * HPET_TICK.load(Ordering::Relaxed)) as isize)
+        } else {
+            TimeSpec((self.main_counter_value() / self.measure_div) as isize)
+        }
     }
 
     fn from_duration(&self, val: Duration) -> TimeSpec {

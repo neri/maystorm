@@ -141,10 +141,6 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
     // Exit Boot Services
     //
 
-    // st.boot_services()
-    //     .set_watchdog_timer(0, 0x10000, None)
-    //     .unwrap();
-
     // because some UEFI implementations require an additional buffer during exit_boot_services
     let mmap_size = st.boot_services().memory_map_size();
     let buf_size = mmap_size.map_size * 2;

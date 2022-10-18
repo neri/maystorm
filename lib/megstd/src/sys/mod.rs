@@ -8,7 +8,7 @@ cfg_if::cfg_if! {
         #[macro_use]
         mod wasm;
         pub use wasm::*;
-    } else {
+    } else if #[cfg(feature = "kernel")] {
         #[macro_use]
         mod kernel;
         pub use kernel::*;

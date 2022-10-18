@@ -69,7 +69,7 @@ impl Shell {
                 let name = cmd.as_str();
                 let mut args = args.iter().map(|v| v.as_str()).collect::<Vec<&str>>();
                 match name {
-                    "clear" | "cls" => System::stdout().reset().unwrap(),
+                    "clear" | "cls" | "reset" => System::stdout().reset().unwrap(),
                     "exit" => println!("Feature not available"),
                     "echo" => {
                         let stdout = System::stdout();
@@ -300,10 +300,11 @@ impl Shell {
         None
     }
 
-    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> (), &'static str); 10] = [
+    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> (), &'static str); 11] = [
         ("cd", Self::cmd_cd, ""),
         ("pwd", Self::cmd_pwd, ""),
         ("dir", Self::cmd_dir, "Show directory"),
+        ("ls", Self::cmd_dir, ""),
         ("help", Self::cmd_help, "Show Help"),
         ("type", Self::cmd_type, "Show file"),
         //

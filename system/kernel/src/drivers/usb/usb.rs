@@ -1,8 +1,18 @@
 //! Universal Serial Bus
+//!
+//! ```text
+//!   ┏━○
+//! ○┻┳━|＞
+//! ┗■
+//! ```
 
-use core::{fmt, mem::transmute_copy, num::NonZeroU8, time::Duration};
+use core::{
+    fmt,
+    mem::{transmute, transmute_copy},
+    num::NonZeroU8,
+    time::Duration,
+};
 use num_derive::FromPrimitive;
-use num_traits::FromPrimitive;
 
 /// Valid USB bus addresses are 1 to 127.
 #[repr(transparent)]
@@ -188,10 +198,10 @@ impl UsbClass {
             (UsbClass::MSD_BULK_ONLY, "Mass Storage Device" ),
             (UsbClass::FLOPPY, "Floppy Drive"),
             (UsbClass::STILL_IMAGING, "Still Imaging Device"),
-            (UsbClass::HUB_FS, "FullSpeed Hub"),
-            (UsbClass::HUB_HS_STT, "HighSpeed Hub"),
-            (UsbClass::HUB_HS_MTT, "HighSpeed Hub with MTT"),
-            (UsbClass::HUB_SS, "SuperSpeed Hub"),
+            (UsbClass::HUB_FS, "USB1 Hub"),
+            (UsbClass::HUB_HS_STT, "USB2 Hub"),
+            (UsbClass::HUB_HS_MTT, "USB2 Hub with MTT"),
+            (UsbClass::HUB_SS, "USB3 Hub"),
             (UsbClass::BLUETOOTH, "Bluetooth Interface"),
             (UsbClass::XINPUT, "XInput Device"),
         ];
@@ -268,7 +278,7 @@ pub struct UsbAlternateSettingNumber(pub u8);
 /// USB Descriptor type
 #[repr(u8)]
 #[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum UsbDescriptorType {
     Device = 1,
     Configuration,
@@ -288,10 +298,17 @@ pub enum UsbDescriptorType {
     SuperspeedplusIsochronousEndpointCompanion = 49,
 }
 
+impl UsbDescriptorType {
+    #[inline]
+    pub fn from_u8(v: u8) -> Self {
+        unsafe { transmute(v) }
+    }
+}
+
 /// USB Device Capability type
 #[repr(u8)]
 #[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum UsbDeviceCapabilityType {
     WirelessUsb = 1,
     Usb2_0Extention,
@@ -309,6 +326,13 @@ pub enum UsbDeviceCapabilityType {
     Authentication,
     BillboardEx,
     ConfigurationSummary,
+}
+
+impl UsbDeviceCapabilityType {
+    #[inline]
+    pub fn from_u8(v: u8) -> Self {
+        unsafe { transmute(v) }
+    }
 }
 
 /// A trait compatible with standard USB descriptors
@@ -567,8 +591,8 @@ impl UsbEndpointDescriptor {
     }
 
     #[inline]
-    pub fn ep_type(&self) -> Option<UsbEndpointType> {
-        FromPrimitive::from_u8(self.bmAttributes as u8 & 3)
+    pub fn ep_type(&self) -> UsbEndpointType {
+        UsbEndpointType::from_u8(self.bmAttributes)
     }
 
     #[inline]
@@ -754,10 +778,7 @@ impl Iterator for UsbHidClassDescriptorIter<'_> {
                 let p = self.base as *const _ as *const u8;
                 let offset = self.index * 3 + 6;
                 let p = p.add(offset);
-                let ty = match FromPrimitive::from_u8(p.read()) {
-                    Some(v) => v,
-                    None => return None,
-                };
+                let ty = UsbDescriptorType::from_u8(p.read());
                 let len = (p.add(1).read() as u16) + (p.add(2).read() as u16 * 256);
                 self.index += 1;
                 Some((ty, len as usize))
@@ -956,7 +977,6 @@ impl UsbRouteString {
 #[repr(C)]
 #[allow(non_snake_case)]
 #[derive(Debug, Clone, Copy)]
-//, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UsbControlSetupData {
     pub bmRequestType: UsbControlRequestBitmap,
     pub bRequest: UsbControlRequest,
@@ -1213,13 +1233,25 @@ impl UsbEndpointAddress {
     }
 }
 
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum UsbEndpointType {
-    Control,
+    Control = 0,
     Isochronous,
     Bulk,
     Interrupt,
+}
+
+impl UsbEndpointType {
+    #[inline]
+    pub fn from_u8(v: u8) -> Self {
+        match v & 3 {
+            0b00 => Self::Control,
+            0b01 => Self::Isochronous,
+            0b10 => Self::Bulk,
+            0b11 => Self::Interrupt,
+            _ => unreachable!(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
