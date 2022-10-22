@@ -1,7 +1,7 @@
-//! MEG-OS Arlequin subsystem
+//! Maystorm2020 Subsystem
 
-mod arle;
-pub use arle::*;
+mod maystorm;
+pub use maystorm::*;
 
 use super::*;
 use alloc::boxed::Box;
@@ -21,7 +21,7 @@ impl WasmRecognizer {
 impl BinaryRecognizer for WasmRecognizer {
     fn recognize(&self, blob: &[u8]) -> Option<Box<dyn BinaryLoader>> {
         if WasmLoader::identity(blob) {
-            Some(Box::new(ArleBinaryLoader::new()) as Box<dyn BinaryLoader>)
+            Some(Box::new(MyosBinaryLoader::new()) as Box<dyn BinaryLoader>)
         } else {
             None
         }

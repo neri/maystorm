@@ -33,7 +33,7 @@ pub struct Cpu {
 }
 
 #[allow(dead_code)]
-pub(super) struct SharedCpu {
+struct SharedCpu {
     max_cpuid_level_0: u32,
     max_cpuid_level_8: u32,
     smt_topology: u32,
@@ -49,11 +49,6 @@ impl SharedCpu {
             has_smt: false,
         }
     }
-
-    #[inline]
-    pub const fn has_smt(&self) -> bool {
-        self.has_smt
-    }
 }
 
 impl Cpu {
@@ -66,7 +61,7 @@ impl Cpu {
             .unwrap_or(0);
         System::activate_cpu(Cpu::new(apic_id.into()));
 
-        let shared = Self::shared();
+        let shared = Self::shared_mut();
         shared.max_cpuid_level_0 = __cpuid_count(0, 0).eax;
         shared.max_cpuid_level_8 = __cpuid_count(0x8000_0000, 0).eax;
 
@@ -88,10 +83,10 @@ impl Cpu {
     pub(super) unsafe fn new(apic_id: ApicId) -> Box<Self> {
         let gdt = GlobalDescriptorTable::new();
 
-        let core_type = if (apic_id.as_u32() & Self::shared().smt_topology) == 0 {
+        let core_type = if (apic_id.as_u32() & Self::shared_mut().smt_topology) == 0 {
             ProcessorCoreType::Main
         } else {
-            Self::shared().has_smt = true;
+            Self::shared_mut().has_smt = true;
             ProcessorCoreType::Sub
         };
 
@@ -114,8 +109,18 @@ impl Cpu {
     }
 
     #[inline]
-    pub(super) unsafe fn shared<'a>() -> &'a mut SharedCpu {
+    unsafe fn shared_mut<'a>() -> &'a mut SharedCpu {
         SHARED_CPU.get_mut()
+    }
+
+    #[inline]
+    fn shared<'a>() -> &'a SharedCpu {
+        unsafe { &*SHARED_CPU.get() }
+    }
+
+    #[inline]
+    pub fn has_smt() -> bool {
+        Self::shared().has_smt
     }
 
     #[inline]
@@ -294,55 +299,6 @@ impl Cpu {
         Apic::register_msi(f, val)
     }
 
-    // #[inline]
-    // pub fn secure_rand() -> Result<u64, ()> {
-    //     if unsafe { Feature::F01C(F01C::RDRND).has_feature() } {
-    //         unsafe { Self::secure_rand_unsafe().ok_or(()) }
-    //     } else {
-    //         Err(())
-    //     }
-    // }
-
-    // /// SAFETY: Does not check the CPUID feature bit
-    // #[inline]
-    // pub unsafe fn secure_srand_unsafe() -> Option<u64> {
-    //     let mut status: usize;
-    //     let mut result: u64;
-
-    //     asm!("
-    //         rdseed {0}
-    //         sbb {1}, {1}
-    //         ",
-    //         out(reg) result,
-    //         out(reg) status,
-    //     );
-    //     if status != 0 {
-    //         Some(result)
-    //     } else {
-    //         None
-    //     }
-    // }
-
-    // /// SAFETY: Does not check the CPUID feature bit
-    // #[inline]
-    // pub unsafe fn secure_rand_unsafe() -> Option<u64> {
-    //     let mut status: usize;
-    //     let mut result: u64;
-
-    //     asm!("
-    //         rdrand {0}
-    //         sbb {1}, {1}
-    //         ",
-    //         out(reg) result,
-    //         out(reg) status,
-    //     );
-    //     if status != 0 {
-    //         Some(result)
-    //     } else {
-    //         None
-    //     }
-    // }
-
     #[inline]
     pub(super) fn rdtsc() -> u64 {
         let eax: u32;
@@ -353,7 +309,6 @@ impl Cpu {
         eax as u64 + edx as u64 * 0x10000_0000
     }
 
-    /// SAFETY: Does not check the CPUID feature bit
     #[inline]
     pub unsafe fn rdtscp() -> (u64, u32) {
         let eax: u32;
@@ -369,7 +324,6 @@ impl Cpu {
         (eax as u64 + edx as u64 * 0x10000_0000, ecx)
     }
 
-    /// SAFETY: Does not check the CPUID feature bit
     #[inline]
     pub unsafe fn read_tsc() -> u64 {
         let (tsc_raw, index) = Self::rdtscp();

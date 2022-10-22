@@ -1,9 +1,109 @@
-// Wasm Bytecode Table (AUTO GENERATED)
 use core::convert::TryFrom;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum WasmOpcode {
+    /// Single Byte Opcode
+    Single(WasmSingleOpcode),
+    /// Multi Byte Opcode FC proposals
+    PrefixFC(WasmOpcodeFC),
+    /// Multi Byte Opcode FD SIMD
+    PrefixFD(WasmOpcodeFD),
+}
+
+impl WasmOpcode {
+    pub const NOP: Self = Self::Single(WasmSingleOpcode::Nop);
+    pub const UNREACHABLE: Self = Self::Single(WasmSingleOpcode::Unreachable);
+    pub const END: Self = Self::Single(WasmSingleOpcode::End);
+
+    pub fn decode<E, F>(lead: u8, failure: E, trail: F) -> Result<Self, E>
+    where
+        F: FnOnce() -> Result<u32, E>,
+    {
+        match WasmSingleOpcode::new(lead) {
+            Some(WasmSingleOpcode::PrefixFC) => trail().and_then(|v| {
+                WasmOpcodeFC::new(v)
+                    .map(|opcode| Self::PrefixFC(opcode))
+                    .ok_or(failure)
+            }),
+            Some(WasmSingleOpcode::PrefixFD) => trail().and_then(|v| {
+                WasmOpcodeFD::new(v)
+                    .map(|opcode| Self::PrefixFD(opcode))
+                    .ok_or(failure)
+            }),
+            Some(opcode) => Ok(Self::Single(opcode)),
+            None => Err(failure),
+        }
+    }
+
+    pub const fn proposal_type(&self) -> WasmProposalType {
+        match self {
+            WasmOpcode::Single(v) => v.proposal_type(),
+            WasmOpcode::PrefixFC(v) => v.proposal_type(),
+            WasmOpcode::PrefixFD(_) => WasmProposalType::Simd,
+        }
+    }
+
+    pub const fn to_str(&self) -> &str {
+        match self {
+            WasmOpcode::Single(v) => v.to_str(),
+            WasmOpcode::PrefixFC(v) => v.to_str(),
+            WasmOpcode::PrefixFD(_) => "(todo)",
+        }
+    }
+
+    pub const fn lead_byte(&self) -> u8 {
+        match self {
+            WasmOpcode::Single(v) => *v as u8,
+            WasmOpcode::PrefixFC(_) => 0xFC,
+            WasmOpcode::PrefixFD(_) => 0xFD,
+        }
+    }
+
+    pub const fn trail_code(&self) -> Option<u32> {
+        match self {
+            WasmOpcode::Single(_) => None,
+            WasmOpcode::PrefixFC(v) => Some(*v as u32),
+            WasmOpcode::PrefixFD(_) => None,
+        }
+    }
+}
+
+impl core::fmt::Display for WasmOpcode {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.to_str())
+    }
+}
+
+impl core::fmt::Debug for WasmOpcode {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.to_str())
+    }
+}
+
+impl const From<WasmSingleOpcode> for WasmOpcode {
+    #[inline]
+    fn from(value: WasmSingleOpcode) -> Self {
+        Self::Single(value)
+    }
+}
+
+impl const From<WasmOpcodeFC> for WasmOpcode {
+    #[inline]
+    fn from(value: WasmOpcodeFC) -> Self {
+        Self::PrefixFC(value)
+    }
+}
+
+impl const From<WasmOpcodeFD> for WasmOpcode {
+    #[inline]
+    fn from(value: WasmOpcodeFD) -> Self {
+        Self::PrefixFD(value)
+    }
+}
 
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum WasmOpcode {
+pub enum WasmSingleOpcode {
     /// `00 unreachable` (mvp)
     Unreachable = 0x00,
     /// `01 nop` (mvp)
@@ -362,6 +462,10 @@ pub enum WasmOpcode {
     I64Extend16S = 0xC3,
     /// `C4 i64.extend32_s` (sign_extend)
     I64Extend32S = 0xC4,
+    /// `FC prefix_fc`
+    PrefixFC = 0xFC,
+    /// `FD prefix_fd`
+    PrefixFD = 0xFD,
 }
 
 #[non_exhaustive]
@@ -383,6 +487,8 @@ pub enum WasmOperandType {
     I64,
     F32,
     F64,
+    PrefixFC,
+    PrefixFD,
 }
 
 #[non_exhaustive]
@@ -394,9 +500,12 @@ pub enum WasmProposalType {
     MvpF32,
     MvpF64,
     SignExtend,
+    BulkMemoryOperations,
+    Simd,
+    Prefixed,
 }
 
-impl WasmOpcode {
+impl WasmSingleOpcode {
     pub const fn new(value: u8) -> Option<Self> {
         match value {
             0x00 => Some(Self::Unreachable),
@@ -578,7 +687,16 @@ impl WasmOpcode {
             0xC2 => Some(Self::I64Extend8S),
             0xC3 => Some(Self::I64Extend16S),
             0xC4 => Some(Self::I64Extend32S),
+            0xFC => Some(Self::PrefixFC),
+            0xFD => Some(Self::PrefixFD),
             _ => None,
+        }
+    }
+
+    pub const fn has_trail(&self) -> bool {
+        match *self {
+            Self::PrefixFC | Self::PrefixFD => true,
+            _ => false,
         }
     }
 
@@ -763,6 +881,8 @@ impl WasmOpcode {
             Self::I64Extend8S => "i64.extend8_s",
             Self::I64Extend16S => "i64.extend16_s",
             Self::I64Extend32S => "i64.extend32_s",
+            Self::PrefixFC => "(prefix_fc)",
+            Self::PrefixFD => "(prefix_fd)",
         }
     }
 
@@ -814,6 +934,8 @@ impl WasmOpcode {
             Self::I64Const => WasmOperandType::I64,
             Self::F32Const => WasmOperandType::F32,
             Self::F64Const => WasmOperandType::F64,
+            Self::PrefixFC => WasmOperandType::PrefixFC,
+            Self::PrefixFD => WasmOperandType::PrefixFD,
             _ => WasmOperandType::Implied,
         }
     }
@@ -939,15 +1061,89 @@ impl WasmOpcode {
             Self::I64Extend8S => WasmProposalType::SignExtend,
             Self::I64Extend16S => WasmProposalType::SignExtend,
             Self::I64Extend32S => WasmProposalType::SignExtend,
+            Self::PrefixFC => WasmProposalType::Prefixed,
+            Self::PrefixFD => WasmProposalType::Prefixed,
             _ => WasmProposalType::Mvp,
         }
     }
 }
 
-impl TryFrom<u8> for WasmOpcode {
+impl const TryFrom<u8> for WasmSingleOpcode {
     type Error = ();
     #[inline]
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Self::new(value).ok_or(())
+    }
+}
+
+/// Multi Bytes Opcodes (FC)
+#[non_exhaustive]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum WasmOpcodeFC {
+    /// `FC 08 memory.init segment memory` (bulk_memory_operations)
+    MemoryInit = 0x08,
+    /// `FC 09 data.drop segment` (bulk_memory_operations)
+    DataDrop = 0x09,
+    /// `FC 0A memory.copy memory_dst memory_src` (bulk_memory_operations)
+    MemoryCopy = 0x0A,
+    /// `FC 0B memory.fill memory` (bulk_memory_operations)
+    MemoryFill = 0x0B,
+    /// `FC 0C table.init segment table` (bulk_memory_operations)
+    TableInit = 0x0C,
+    /// `FC 0D elem.drop segment` (bulk_memory_operations)
+    ElemDrop = 0x0D,
+    /// `FC 0E table.copy table_dst table_src` (bulk_memory_operations)
+    TableCopy = 0x0E,
+}
+
+impl WasmOpcodeFC {
+    pub const fn new(value: u32) -> Option<Self> {
+        match value {
+            0x08 => Some(Self::MemoryInit),
+            0x09 => Some(Self::DataDrop),
+            0x0A => Some(Self::MemoryCopy),
+            0x0B => Some(Self::MemoryFill),
+            0x0C => Some(Self::TableInit),
+            0x0D => Some(Self::ElemDrop),
+            0x0E => Some(Self::TableCopy),
+            _ => None,
+        }
+    }
+
+    pub const fn to_str(&self) -> &str {
+        match *self {
+            Self::MemoryInit => "memory.init",
+            Self::DataDrop => "data.drop",
+            Self::MemoryCopy => "memory.copy",
+            Self::MemoryFill => "memory.fill",
+            Self::TableInit => "table.init",
+            Self::ElemDrop => "elem.drop",
+            Self::TableCopy => "table.copy",
+        }
+    }
+
+    pub const fn proposal_type(&self) -> WasmProposalType {
+        match *self {
+            Self::MemoryInit => WasmProposalType::BulkMemoryOperations,
+            Self::DataDrop => WasmProposalType::BulkMemoryOperations,
+            Self::MemoryCopy => WasmProposalType::BulkMemoryOperations,
+            Self::MemoryFill => WasmProposalType::BulkMemoryOperations,
+            Self::TableInit => WasmProposalType::BulkMemoryOperations,
+            Self::ElemDrop => WasmProposalType::BulkMemoryOperations,
+            Self::TableCopy => WasmProposalType::BulkMemoryOperations,
+        }
+    }
+}
+
+/// Multi Bytes Opcodes (FD-SIMD)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WasmOpcodeFD {
+    // TODO:
+}
+
+impl WasmOpcodeFD {
+    pub const fn new(_value: u32) -> Option<Self> {
+        // TODO:
+        None
     }
 }

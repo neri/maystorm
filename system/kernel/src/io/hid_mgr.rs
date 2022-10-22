@@ -889,7 +889,7 @@ impl HidManager {
 
     #[inline]
     pub unsafe fn init() {
-        //
+        check_once_call!();
     }
 
     #[inline]

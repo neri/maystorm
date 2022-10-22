@@ -2,7 +2,6 @@
 #![feature(abi_x86_interrupt)]
 #![feature(alloc_error_handler)]
 #![feature(asm_const)]
-#![feature(asm_sym)]
 #![feature(async_closure)]
 #![feature(box_into_inner)]
 #![feature(cfg_target_has_atomic)]
@@ -23,6 +22,7 @@
 //-//-//-//
 #![allow(incomplete_features)]
 #![feature(return_position_impl_trait_in_trait)]
+#![feature(more_qualified_paths)]
 
 #[macro_use]
 pub mod arch;

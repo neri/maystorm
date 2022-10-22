@@ -1,5 +1,3 @@
-//! MEG-OS Arlequin Subsystem
-
 use super::*;
 use crate::{
     fs::{FileManager, FsRawFileControlBlock, Whence},
@@ -23,12 +21,12 @@ use wasm::{intr::*, *};
 
 include!("megg0808.rs");
 
-pub struct ArleBinaryLoader {
+pub struct MyosBinaryLoader {
     loader: WasmLoader,
     lio: LoadedImageOption,
 }
 
-impl ArleBinaryLoader {
+impl MyosBinaryLoader {
     pub fn new() -> Self {
         Self {
             loader: WasmLoader::new(),
@@ -39,47 +37,48 @@ impl ArleBinaryLoader {
     fn start(_: usize) {
         Scheduler::current_personality()
             .unwrap()
-            .get::<ArleRuntime>()
+            .get::<MyosRuntime>()
             .unwrap()
             .start();
     }
 }
 
-impl BinaryLoader for ArleBinaryLoader {
+impl BinaryLoader for MyosBinaryLoader {
     fn option(&mut self) -> &mut LoadedImageOption {
         &mut self.lio
     }
 
     fn load(&mut self, blob: &[u8]) -> Result<(), ()> {
         self.loader
-            .load(blob, |mod_name, name, type_ref| {
-                let param_types = type_ref.param_types();
-                match mod_name {
-                    ArleRuntime::MOD_NAME => match (name, param_types) {
-                        ("svc0", [WasmValType::I32]) => Ok(ArleRuntime::syscall),
-                        ("svc1", [WasmValType::I32, WasmValType::I32]) => Ok(ArleRuntime::syscall),
-                        ("svc2", [WasmValType::I32,WasmValType::I32,WasmValType::I32]) => Ok(ArleRuntime::syscall),
-                        ("svc3", [WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32]) => Ok(ArleRuntime::syscall),
-                        ("svc4", [WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32]) => Ok(ArleRuntime::syscall),
-                        ("svc5", [WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32]) => Ok(ArleRuntime::syscall),
-                        ("svc6", [WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32,WasmValType::I32]) => Ok(ArleRuntime::syscall),
-                        _ => Err(WasmDecodeErrorKind::NoMethod(name.to_owned())),
-                    },
-                    _ => Err(WasmDecodeErrorKind::NoModule(mod_name.to_owned())),
-                }
-            })
-            .map_err(|v| {
-                println!("Load error: {:?}", v);
-                ()
-            })
+        .load(blob, |mod_name, name, type_ref| {
+            let param_types = type_ref.param_types();
+            match mod_name {
+                MyosRuntime::MOD_NAME => 
+                match (name, param_types) {
+                    ("svc0", [WasmValType::I32]) => TriState::Ok(MyosRuntime::syscall), 
+                    ("svc1", [WasmValType::I32, WasmValType::I32]) => TriState::Ok(MyosRuntime::syscall), 
+                    ("svc2", [WasmValType::I32, WasmValType::I32, WasmValType::I32]) => TriState::Ok(MyosRuntime::syscall), 
+                    ("svc3", [WasmValType::I32, WasmValType::I32, WasmValType::I32, WasmValType::I32]) => TriState::Ok(MyosRuntime::syscall), 
+                    ("svc4", [WasmValType::I32, WasmValType::I32, WasmValType::I32, WasmValType::I32, WasmValType::I32]) => TriState::Ok(MyosRuntime::syscall), 
+                    ("svc5", [WasmValType::I32, WasmValType::I32, WasmValType::I32, WasmValType::I32, WasmValType::I32, WasmValType::I32]) => TriState::Ok(MyosRuntime::syscall), 
+                    ("svc6", [WasmValType::I32, WasmValType::I32, WasmValType::I32, WasmValType::I32, WasmValType::I32, WasmValType::I32, WasmValType::I32]) => TriState::Ok(MyosRuntime::syscall), 
+                    _ => TriState::Err(WasmDecodeErrorKind::NoMethod(name.to_owned())), 
+                }, 
+                _ => TriState::Err(WasmDecodeErrorKind::NoModule(mod_name.to_owned())),
+            }
+        })
+        .map_err(|v| {
+            println!("Load error: {:?}", v);
+            ()
+        })
     }
 
     fn invoke_start(self: Box<Self>) -> Option<ProcessId> {
-        match self.loader.module().func(ArleRuntime::ENTRY_FUNC_NAME) {
+        match self.loader.module().func(MyosRuntime::ENTRY_FUNC_NAME) {
             Ok(_) => {
                 let module = self.loader.into_module();
                 SpawnOption::new()
-                    .personality(ArleRuntime::new(module))
+                    .personality(MyosRuntime::new(module))
                     .start_process(Self::start, 0, self.lio.name.as_ref())
             }
             Err(err) => {
@@ -90,9 +89,8 @@ impl BinaryLoader for ArleBinaryLoader {
     }
 }
 
-/// Contextual structure of the MEG-OS Arlequin subsystem
 #[allow(dead_code)]
-pub struct ArleRuntime {
+pub struct MyosRuntime {
     module: WasmModule,
     next_handle: AtomicUsize,
     windows: Mutex<BTreeMap<usize, UnsafeCell<OsWindow>>>,
@@ -104,13 +102,13 @@ pub struct ArleRuntime {
     has_to_exit: AtomicBool,
 }
 
-unsafe impl Identify for ArleRuntime {
+unsafe impl Identify for MyosRuntime {
     #[rustfmt::skip]
     /// 57392D77-D199-486E-9A2C-47D15BA6DFCA
     const UUID: Uuid = Uuid::from_parts(0x57392D77, 0xD199, 0x486E, 0x9A2C, [0x47, 0xD1, 0x5B, 0xA6, 0xDF, 0xCA]);
 }
 
-impl Personality for ArleRuntime {
+impl Personality for MyosRuntime {
     fn context(&mut self) -> *mut c_void {
         self as *const _ as *mut c_void
     }
@@ -120,7 +118,7 @@ impl Personality for ArleRuntime {
     }
 }
 
-impl ArleRuntime {
+impl MyosRuntime {
     const MAX_FILES: usize = 20;
     const MOD_NAME: &'static str = "megos-canary";
     const ENTRY_FUNC_NAME: &'static str = "_start";
@@ -836,7 +834,7 @@ impl ParamsDecoder<'_> {
 
     fn get_window<'a>(
         &mut self,
-        rt: &'a ArleRuntime,
+        rt: &'a MyosRuntime,
     ) -> Result<&'a mut OsWindow, WasmRuntimeErrorKind> {
         let handle = self.get_usize()?;
         rt.windows
@@ -849,7 +847,7 @@ impl ParamsDecoder<'_> {
 
     fn get_file(
         &mut self,
-        rt: &ArleRuntime,
+        rt: &MyosRuntime,
     ) -> Result<Arc<Mutex<FsRawFileControlBlock>>, WasmRuntimeErrorKind> {
         let handle = self.get_usize()?;
         rt.files

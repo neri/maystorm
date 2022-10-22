@@ -105,6 +105,8 @@ impl UsbManager {
     const NOTIFICATION_BLOCK_TIME: Duration = Duration::from_millis(3000);
 
     pub unsafe fn init() {
+        check_once_call!();
+
         USB_MANAGER.write(Self {
             devices: RwLock::new(Vec::new()),
             specific_driver_starters: RwLock::new(Vec::new()),

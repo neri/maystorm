@@ -26,6 +26,7 @@ fn main() {
 
     let mut strip_all = false;
     let mut will_overwrite = false;
+    let mut strip_names = Vec::new();
     let mut preserved_names = Vec::new();
     let mut path_input = None;
     let mut strip_export = false;
@@ -42,6 +43,10 @@ fn main() {
                 "-strip-export" => {
                     strip_export = true;
                 }
+                "-strip" => match args.next() {
+                    Some(v) => strip_names.push(v),
+                    None => usage(),
+                },
                 "-preserve" => match args.next() {
                     Some(v) => preserved_names.push(v),
                     None => usage(),
@@ -91,7 +96,9 @@ fn main() {
                 WasmSectionType::Custom => match section.custom_section_name() {
                     Some(name) => {
                         preserved_names.binary_search(&name).is_ok()
-                            || !strip_all && !name.starts_with(".")
+                            || !(strip_all
+                                || strip_names.binary_search(&name).is_ok()
+                                || name.starts_with("."))
                     }
                     None => false,
                 },

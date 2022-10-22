@@ -5,6 +5,7 @@ use crate::{
     sync::{fifo::EventQueue, semaphore::Semaphore, spinlock::SpinMutex},
     system::System,
     task::scheduler::*,
+    *,
 };
 use alloc::{boxed::Box, sync::Arc};
 use bitflags::*;
@@ -59,6 +60,8 @@ impl MemoryManager {
     }
 
     pub unsafe fn init_first(info: &BootInfo) {
+        check_once_call!();
+
         let shared = Self::shared_mut();
 
         let mm: &[BootMemoryMapDescriptor] =

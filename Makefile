@@ -42,7 +42,7 @@ clean:
 	-rm -rf system/target apps/target boot/target tools/target
 
 refresh:
-	-rm system/Cargo.lock apps/Cargo.lock boot/Cargo.lock tools/Cargo.lock lib/**/Cargp.lock
+	-rm system/Cargo.lock apps/Cargo.lock boot/Cargo.lock tools/Cargo.lock lib/**/Cargo.lock
 
 # $(RUST_ARCH).json:
 # 	rustc +nightly -Z unstable-options --print target-spec-json --target $(RUST_ARCH) | sed -e 's/-sse,+/+sse,-/' > $@
@@ -109,7 +109,7 @@ iso: install
 apps:
 	cd apps; cargo build --target wasm32-unknown-unknown --release
 	for name in ./apps/target/wasm32-unknown-unknown/release/*.wasm; do \
-	cargo run --manifest-path ./tools/wasm-strip/Cargo.toml -- -preserve name $$name $$name; done
+	cargo run --manifest-path ./tools/wasm-strip/Cargo.toml -- -preserve name -strip-all $$name $$name; done
 
 test:
 	cargo test --manifest-path lib/megstd/Cargo.toml

@@ -4,5 +4,7 @@ target = "wasm32-unknown-unknown"
 [target.wasm32-unknown-unknown]
 rustflags = [
   "-C",
-  "link-args=-z stack-size=32768",
+  "link-args=-z stack-size=32768 --no-check-features",
+  "-C",
+  "target-feature=+bulk-memory",
 ]

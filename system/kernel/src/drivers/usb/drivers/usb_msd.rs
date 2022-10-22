@@ -70,16 +70,16 @@ impl UsbMsdDriver {
     }
 
     async fn _usb_msd_task(
-        device: Arc<UsbDeviceControl>,
-        if_no: UsbInterfaceNumber,
+        _device: Arc<UsbDeviceControl>,
+        _if_no: UsbInterfaceNumber,
         _ep: UsbEndpointAddress,
         _ps: u16,
     ) {
-        let _max_lun = Self::get_max_lun(&device, if_no).await.unwrap();
+        // let _max_lun = Self::get_max_lun(&device, if_no).await.unwrap();
         // log!("MAX_LUN {}", max_lun);
     }
 
-    async fn get_max_lun(
+    pub async fn get_max_lun(
         device: &UsbDeviceControl,
         if_no: UsbInterfaceNumber,
     ) -> Result<u8, UsbError> {

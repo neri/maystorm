@@ -48,6 +48,8 @@ impl FontManager {
     }
 
     pub unsafe fn init() {
+        check_once_call!();
+
         let shared = Self::shared_mut();
 
         let fonts = &mut shared.fonts;

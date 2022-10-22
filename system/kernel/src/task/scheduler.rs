@@ -1,5 +1,3 @@
-//! MEG-OS Scheduler
-
 use super::{executor::Executor, *};
 use crate::{
     arch::cpu::*,
@@ -97,6 +95,8 @@ impl const From<usize> for SchedulerState {
 impl Scheduler {
     /// Start scheduler and sleep forever
     pub fn start(f: fn(usize) -> (), args: usize) -> ! {
+        check_once_call!();
+
         const SIZE_OF_SUB_QUEUE: usize = 63;
         const SIZE_OF_MAIN_QUEUE: usize = 255;
 
@@ -134,12 +134,6 @@ impl Scheduler {
         fence(Ordering::SeqCst);
         SCHEDULER_STATE.set(SchedulerState::Normal);
 
-        SpawnOption::with_priority(Priority::Realtime).start_process(
-            Self::_scheduler_thread,
-            0,
-            "Scheduler",
-        );
-
         SpawnOption::with_priority(Priority::High).start_process(f, args, "System");
 
         loop {
@@ -147,6 +141,22 @@ impl Scheduler {
                 Cpu::halt();
             }
         }
+    }
+
+    pub unsafe fn late_init() {
+        check_once_call!();
+
+        SpawnOption::with_priority(Priority::Realtime).start(
+            Self::_scheduler_thread,
+            0,
+            "scheduler",
+        );
+
+        SpawnOption::with_priority(Priority::Realtime).start(
+            Self::_statistics_thread,
+            0,
+            "statistics",
+        );
     }
 
     #[inline]
@@ -373,12 +383,6 @@ impl Scheduler {
     /// Scheduler
     fn _scheduler_thread(_args: usize) {
         let shared = Self::shared();
-
-        SpawnOption::with_priority(Priority::Realtime).start(
-            Self::_statistics_thread,
-            0,
-            "Statistics",
-        );
 
         let mut events: Vec<TimerEvent> = Vec::with_capacity(100);
         loop {

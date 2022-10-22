@@ -110,6 +110,8 @@ struct Resources<'a> {
 
 impl WindowManager<'static> {
     pub fn init(main_screen: Bitmap32<'static>) {
+        check_once_call!();
+
         let attributes = AtomicBitflags::EMPTY;
 
         let mut screen_size = main_screen.size();
@@ -216,11 +218,7 @@ impl WindowManager<'static> {
             }));
         }
 
-        SpawnOption::with_priority(Priority::High).start_process(
-            Self::window_thread,
-            0,
-            "Window Manager",
-        );
+        SpawnOption::with_priority(Priority::High).start(Self::window_thread, 0, "Window Manager");
     }
 
     #[track_caller]

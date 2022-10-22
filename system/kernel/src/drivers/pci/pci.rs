@@ -136,6 +136,8 @@ impl Pci {
     }
 
     pub unsafe fn init() {
+        check_once_call!();
+
         let shared = Self::shared_mut();
         install_drivers(&mut shared.registrars);
 

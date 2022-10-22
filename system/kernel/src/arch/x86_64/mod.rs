@@ -11,7 +11,7 @@ pub mod ps2;
 #[doc(hidden)]
 pub mod rtc;
 
-use crate::system::*;
+use crate::{system::*, *};
 use core::arch::asm;
 use megstd::time::SystemTime;
 
@@ -19,6 +19,8 @@ pub struct Arch;
 
 impl Arch {
     pub unsafe fn init() {
+        check_once_call!();
+
         cpu::Cpu::init();
 
         let acpi = System::acpi().unwrap();
@@ -58,6 +60,8 @@ impl Arch {
     // }
 
     pub unsafe fn late_init() {
+        check_once_call!();
+
         let _ = ps2::Ps2::init();
 
         let device = System::current_device();

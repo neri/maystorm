@@ -1,6 +1,6 @@
 //! Intermediate code for Webassembly runtime
 
-use crate::opcode::WasmOpcode;
+use crate::opcode::{WasmOpcode, WasmSingleOpcode};
 use alloc::{boxed::Box, vec::Vec};
 
 /// Intermediate code for Webassembly runtime
@@ -72,6 +72,8 @@ pub enum WasmIntMnemonic {
     I64Store32(u32),
     MemorySize,
     MemoryGrow,
+    MemoryCopy,
+    MemoryFill,
 
     I32Const(i32),
     I64Const(i64),
@@ -182,7 +184,8 @@ type StackType = usize;
 /// Wasm Intermediate Code
 #[derive(Debug)]
 pub struct WasmImc {
-    pub source: u32,
+    pub position: u32,
+    pub opcode: WasmOpcode,
     pub mnemonic: WasmIntMnemonic,
     pub stack_level: StackType,
 }
@@ -194,7 +197,8 @@ impl WasmImc {
     #[inline]
     pub const fn from_mnemonic(mnemonic: WasmIntMnemonic) -> Self {
         Self {
-            source: 0,
+            position: 0,
+            opcode: WasmOpcode::UNREACHABLE,
             mnemonic,
             stack_level: 0,
         }
@@ -207,9 +211,9 @@ impl WasmImc {
         mnemonic: WasmIntMnemonic,
         stack_level: usize,
     ) -> Self {
-        let source = ((source_position as u32) << 8) | (opcode as u32);
         Self {
-            source,
+            position: source_position as u32,
+            opcode,
             mnemonic,
             stack_level: stack_level as StackType,
         }
@@ -217,12 +221,12 @@ impl WasmImc {
 
     #[inline]
     pub const fn source_position(&self) -> usize {
-        (self.source >> 8) as usize
+        self.position as usize
     }
 
     #[inline]
-    pub const fn opcode(&self) -> Option<WasmOpcode> {
-        WasmOpcode::new(self.source as u8)
+    pub const fn opcode(&self) -> WasmOpcode {
+        self.opcode
     }
 
     #[inline]
@@ -247,60 +251,60 @@ impl WasmImc {
         use WasmIntMnemonic::*;
         match self.mnemonic_mut() {
             Br(target) => {
-                *target = f(WasmOpcode::Br, *target)?;
+                *target = f(WasmSingleOpcode::Br.into(), *target)?;
             }
             BrIf(target) => {
-                *target = f(WasmOpcode::BrIf, *target)?;
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
 
             FusedI32BrZ(target) => {
-                *target = f(WasmOpcode::BrIf, *target)?;
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
             FusedI32BrEq(target) => {
-                *target = f(WasmOpcode::BrIf, *target)?;
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
             FusedI32BrNe(target) => {
-                *target = f(WasmOpcode::BrIf, *target)?;
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
             FusedI32BrLtS(target) => {
-                *target = f(WasmOpcode::BrIf, *target)?;
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
             FusedI32BrLtU(target) => {
-                *target = f(WasmOpcode::BrIf, *target)?;
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
             FusedI32BrGtS(target) => {
-                *target = f(WasmOpcode::BrIf, *target)?;
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
             FusedI32BrGtU(target) => {
-                *target = f(WasmOpcode::BrIf, *target)?;
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
             FusedI32BrLeS(target) => {
-                *target = f(WasmOpcode::BrIf, *target)?;
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
             FusedI32BrLeU(target) => {
-                *target = f(WasmOpcode::BrIf, *target)?;
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
             FusedI32BrGeS(target) => {
-                *target = f(WasmOpcode::BrIf, *target)?;
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
             FusedI32BrGeU(target) => {
-                *target = f(WasmOpcode::BrIf, *target)?;
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
 
             FusedI64BrZ(target) => {
-                *target = f(WasmOpcode::BrIf, *target)?;
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
             FusedI64BrEq(target) => {
-                *target = f(WasmOpcode::BrIf, *target)?;
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
             FusedI64BrNe(target) => {
-                *target = f(WasmOpcode::BrIf, *target)?;
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
 
             BrTable(table) => {
                 let mut vec = Vec::with_capacity(table.len());
                 for target in table.iter() {
-                    vec.push(f(WasmOpcode::BrTable, *target)?);
+                    vec.push(f(WasmSingleOpcode::BrTable.into(), *target)?);
                 }
                 *table = vec.into_boxed_slice();
             }

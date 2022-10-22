@@ -1,13 +1,11 @@
 //! Runtime Environment and Personalities
 
 pub mod haribote;
-pub mod megos;
+pub mod myos;
 
-use core::{cell::UnsafeCell, ffi::c_void};
-
-use crate::arch::cpu::*;
-use crate::task::scheduler::*;
+use crate::{arch::cpu::*, task::scheduler::*, *};
 use alloc::{boxed::Box, string::String, string::*, vec::Vec};
+use core::{cell::UnsafeCell, ffi::c_void};
 use megstd::uuid::{Identify, Uuid};
 
 static mut RE: UnsafeCell<RuntimeEnvironment> = UnsafeCell::new(RuntimeEnvironment::new());
@@ -28,8 +26,10 @@ impl RuntimeEnvironment {
 
     #[inline]
     pub unsafe fn init() {
+        check_once_call!();
+
         let shared = &mut *RE.get();
-        shared.add_image("wasm", megos::WasmRecognizer::new());
+        shared.add_image("wasm", myos::WasmRecognizer::new());
         shared.add_image("hrb", haribote::HrbRecognizer::new());
     }
 

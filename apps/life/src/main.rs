@@ -3,6 +3,8 @@
 
 use megstd::{sys::syscall::*, window::*};
 
+const BG_COLOR: WindowColor = WindowColor::BLACK;
+const FG_COLOR: WindowColor = WindowColor::YELLOW;
 const DRAW_SCALE: isize = 2;
 const BITMAP_WIDTH: isize = 64;
 const BITMAP_HEIGHT: isize = 64;
@@ -12,10 +14,13 @@ const SIZE_BITMAP: usize = (BITMAP_HEIGHT * BITMAP_WIDTH / 8) as usize;
 fn _start() {
     os_srand(os_monotonic());
 
-    let window = Window::new(
-        "LIFE",
-        Size::new(BITMAP_WIDTH * DRAW_SCALE, BITMAP_HEIGHT * DRAW_SCALE),
-    );
+    let window = WindowBuilder::new()
+        .size(Size::new(
+            BITMAP_WIDTH * DRAW_SCALE,
+            BITMAP_HEIGHT * DRAW_SCALE,
+        ))
+        .bg_color(BG_COLOR)
+        .build("LIFE");
 
     let mut curr_data = [0u8; SIZE_BITMAP];
     let mut next_data = [0u8; SIZE_BITMAP];
@@ -32,14 +37,9 @@ fn _start() {
         window.draw(|ctx| {
             ctx.fill_rect(
                 Rect::new(0, 0, BITMAP_WIDTH * DRAW_SCALE, BITMAP_HEIGHT * DRAW_SCALE),
-                WindowColor::WHITE,
+                BG_COLOR,
             );
-            ctx.blt1(
-                &current,
-                Point::new(0, 0),
-                WindowColor::DARK_GRAY,
-                DRAW_SCALE as usize,
-            );
+            ctx.blt1(&current, Point::new(0, 0), FG_COLOR, DRAW_SCALE as usize);
         });
 
         let w = BITMAP_WIDTH - 1;

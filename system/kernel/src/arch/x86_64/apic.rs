@@ -264,7 +264,7 @@ impl Apic {
             System::set_processor_system_type(
                 if System::current_device().num_of_active_cpus() == 1 {
                     ProcessorSystemType::UP
-                } else if Cpu::shared().has_smt() {
+                } else if Cpu::has_smt() {
                     ProcessorSystemType::SMT
                 } else {
                     ProcessorSystemType::SMP

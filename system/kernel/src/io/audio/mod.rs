@@ -3,6 +3,7 @@
 use crate::{
     sync::Mutex,
     task::scheduler::{Priority, SpawnOption, Timer},
+    *,
 };
 use alloc::{
     boxed::Box,
@@ -41,13 +42,11 @@ impl AudioManager {
 
     #[inline]
     pub unsafe fn init() {
+        check_once_call!();
+
         AUDIO_MANAGER = MaybeUninit::new(UnsafeCell::new(AudioManager::new()));
 
-        SpawnOption::with_priority(Priority::High).start_process(
-            Self::_audio_thread,
-            0,
-            "Audio Manager",
-        );
+        SpawnOption::with_priority(Priority::High).start(Self::_audio_thread, 0, "Audio Manager");
     }
 
     #[inline]

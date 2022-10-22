@@ -186,6 +186,8 @@ impl System {
 
     /// The second half of the system initialization
     fn late_init(args: usize) {
+        check_once_call!();
+
         let shared = unsafe { Self::shared_mut() };
 
         if false {
@@ -208,6 +210,7 @@ impl System {
         }
 
         unsafe {
+            Scheduler::late_init();
             mem::MemoryManager::late_init();
 
             log::EventManager::init();
@@ -381,6 +384,24 @@ impl System {
             None => io::null::Null::null(),
         }
     }
+
+    #[track_caller]
+    pub fn check_once_call(mutex: &AtomicBool) {
+        if mutex
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
+            .is_err()
+        {
+            panic!("Multiple calls are not allowed");
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! check_once_call {
+    () => {
+        static MUTEX: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+        System::check_once_call(&MUTEX);
+    };
 }
 
 pub struct DeviceInfo {
