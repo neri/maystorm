@@ -970,19 +970,24 @@ impl WasmInterpreter<'_> {
                         codes.set_position(target);
                     }
                 }
+
                 WasmIntMnemonic::MemoryCopy => {
                     let stack_level = code.stack_level();
                     let dest = unsafe { value_stack.get_unchecked(stack_level).get_u32() };
                     let src = unsafe { value_stack.get_unchecked(stack_level + 1).get_u32() };
                     let count = unsafe { value_stack.get_unchecked(stack_level + 2).get_u32() };
-                    memory.copy(dest as usize, src as usize, count as usize)?;
+                    memory
+                        .copy(dest as usize, src as usize, count as usize)
+                        .map_err(|k| self.error(k, code))?;
                 }
                 WasmIntMnemonic::MemoryFill => {
                     let stack_level = code.stack_level();
                     let offset = unsafe { value_stack.get_unchecked(stack_level).get_u32() };
                     let val = unsafe { value_stack.get_unchecked(stack_level + 1).get_u32() };
                     let count = unsafe { value_stack.get_unchecked(stack_level + 2).get_u32() };
-                    memory.write_bytes(offset as usize, val as u8, count as usize)?;
+                    memory
+                        .write_bytes(offset as usize, val as u8, count as usize)
+                        .map_err(|k| self.error(k, code))?;
                 }
             }
         }
@@ -1211,31 +1216,19 @@ impl fmt::Debug for WasmRuntimeError {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let opcode = self.opcode();
-        write!(f, "{:?} (at 0x{:x}", self.kind(), self.file_position(),)?;
+        write!(f, "{:?} at", self.kind())?;
         if let Some(function_name) = self.function_name() {
             write!(
                 f,
-                " [{}({}):{}]",
+                " {}(${}):{}",
                 function_name,
                 self.function(),
                 self.position(),
             )?;
         } else {
-            write!(f, " [${}:{}]", self.function(), self.position(),)?;
+            write!(f, " ${}:{}", self.function(), self.position(),)?;
         }
 
-        if let Some(trail_code) = opcode.trail_code() {
-            write!(
-                f,
-                " opcode {:02x} {} {})",
-                opcode.lead_byte(),
-                trail_code,
-                opcode.to_str(),
-            )?;
-        } else {
-            write!(f, " opcode {:02x} {})", opcode.lead_byte(), opcode.to_str(),)?;
-        }
-
-        write!(f, "{:?} (at 0x{:x}", self.kind(), self.file_position(),)
+        write!(f, ", 0x{:x}: {:?}", self.file_position(), opcode)
     }
 }

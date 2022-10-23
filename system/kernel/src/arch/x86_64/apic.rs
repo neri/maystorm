@@ -204,76 +204,72 @@ impl Apic {
         );
 
         // Start SMP
-        if !System::boot_flags().contains(BootFlags::FORCE_SINGLE) {
-            let sipi_vec = InterruptVector(MemoryManager::static_alloc_real().unwrap().get());
-            let cpus = lapics.collect::<Vec<_>>();
-            let max_cpu = usize::min(1 + cpus.len(), MAX_CPU);
+        let sipi_vec = InterruptVector(MemoryManager::static_alloc_real().unwrap().get());
+        let cpus = lapics.collect::<Vec<_>>();
+        let max_cpu = usize::min(1 + cpus.len(), MAX_CPU);
 
-            let mut idle_stacks = Vec::with_capacity(max_cpu);
-            idle_stacks.push(null_mut());
-            for _ in 0..max_cpu {
-                let mut stack = ManuallyDrop::new(Vec::<u8>::with_capacity(STACK_CHUNK_SIZE));
-                idle_stacks.push(stack.as_mut_ptr().add(STACK_CHUNK_SIZE));
-            }
-
-            // Prepare the payload to receive the startup IPI.
-            let smpinit_src = include_bytes!("./smpinit.bin");
-            let smpinit_dst = ((sipi_vec.0 as usize) << 12) as *mut u8;
-            copy_nonoverlapping(smpinit_src.as_ptr(), smpinit_dst, smpinit_src.len());
-            let prepare_sipi = transmute::<_, FnPrepareSipi>(smpinit_dst.add(8));
-            prepare_sipi(max_cpu, idle_stacks.as_ptr(), apic_start_ap);
-
-            // start Application Processors
-            for (_index, cpu) in cpus.iter().enumerate() {
-                // log!(
-                //     "CPU #{} {:02x} {:02x} {:?}",
-                //     _index,
-                //     cpu.uid(),
-                //     cpu.apic_id(),
-                //     cpu.status(),
-                // );
-
-                let apic_id = ApicId(cpu.apic_id());
-                LocalApic::send_init_ipi(apic_id);
-                Timer::new(Duration::from_millis(10)).repeat_until(|| Cpu::halt());
-
-                AP_BOOTED.store(false, Ordering::SeqCst);
-                LocalApic::send_startup_ipi(apic_id, sipi_vec);
-                let deadline = Timer::new(Duration::from_millis(100));
-                let mut wait = SpinLoopWait::new();
-                while deadline.is_alive() {
-                    if AP_BOOTED.load(Ordering::SeqCst) {
-                        break;
-                    }
-                    wait.wait();
-                }
-                if !AP_BOOTED.load(Ordering::SeqCst) {
-                    panic!("SMP: Some application processors are not responding");
-                }
-
-                // log!("CPU #{} OK", index,);
-            }
-
-            drop(idle_stacks);
-
-            for index in 0..System::current_device().num_of_active_cpus() {
-                let cpu = System::cpu(ProcessorIndex(index));
-                CURRENT_PROCESSOR_INDEXES[cpu.apic_id().0 as usize] = cpu.cpu_index.0 as u8;
-            }
-
-            System::set_processor_system_type(
-                if System::current_device().num_of_active_cpus() == 1 {
-                    ProcessorSystemType::UP
-                } else if Cpu::has_smt() {
-                    ProcessorSystemType::SMT
-                } else {
-                    ProcessorSystemType::SMP
-                },
-            );
-
-            AP_STALLED.store(false, Ordering::SeqCst);
-            System::cpu_mut(ProcessorIndex(0)).set_tsc_base(Cpu::rdtsc());
+        let mut idle_stacks = Vec::with_capacity(max_cpu);
+        idle_stacks.push(null_mut());
+        for _ in 0..max_cpu {
+            let mut stack = ManuallyDrop::new(Vec::<u8>::with_capacity(STACK_CHUNK_SIZE));
+            idle_stacks.push(stack.as_mut_ptr().add(STACK_CHUNK_SIZE));
         }
+
+        // Prepare the payload to receive the startup IPI.
+        let smpinit_src = include_bytes!("./smpinit.bin");
+        let smpinit_dst = ((sipi_vec.0 as usize) << 12) as *mut u8;
+        copy_nonoverlapping(smpinit_src.as_ptr(), smpinit_dst, smpinit_src.len());
+        let prepare_sipi = transmute::<_, FnPrepareSipi>(smpinit_dst.add(8));
+        prepare_sipi(max_cpu, idle_stacks.as_ptr(), apic_start_ap);
+
+        // start Application Processors
+        for (_index, cpu) in cpus.iter().enumerate() {
+            // log!(
+            //     "CPU #{} {:02x} {:02x} {:?}",
+            //     _index,
+            //     cpu.uid(),
+            //     cpu.apic_id(),
+            //     cpu.status(),
+            // );
+
+            let apic_id = ApicId(cpu.apic_id());
+            LocalApic::send_init_ipi(apic_id);
+            Timer::new(Duration::from_millis(10)).repeat_until(|| Cpu::halt());
+
+            AP_BOOTED.store(false, Ordering::SeqCst);
+            LocalApic::send_startup_ipi(apic_id, sipi_vec);
+            let deadline = Timer::new(Duration::from_millis(100));
+            let mut wait = SpinLoopWait::new();
+            while deadline.is_alive() {
+                if AP_BOOTED.load(Ordering::SeqCst) {
+                    break;
+                }
+                wait.wait();
+            }
+            if !AP_BOOTED.load(Ordering::SeqCst) {
+                panic!("SMP: Some application processors are not responding");
+            }
+
+            // log!("CPU #{} OK", index,);
+        }
+
+        drop(idle_stacks);
+
+        for index in 0..System::current_device().num_of_active_cpus() {
+            let cpu = System::cpu(ProcessorIndex(index));
+            CURRENT_PROCESSOR_INDEXES[cpu.apic_id().0 as usize] = cpu.cpu_index.0 as u8;
+        }
+
+        System::set_processor_system_type(if System::current_device().num_of_active_cpus() == 1 {
+            ProcessorSystemType::UP
+        } else if Cpu::has_smt() {
+            ProcessorSystemType::SMT
+        } else {
+            ProcessorSystemType::SMP
+        });
+
+        AP_STALLED.store(false, Ordering::SeqCst);
+        System::cpu_mut(ProcessorIndex(0)).set_tsc_base(Cpu::rdtsc());
     }
 
     #[inline]

@@ -151,6 +151,8 @@ impl System {
 
     /// Initialize the system
     pub unsafe fn init(info: &BootInfo, f: fn() -> ()) -> ! {
+        check_once_call!();
+
         let shared = SYSTEM.get_mut();
         shared.boot_flags = info.flags;
         shared.initrd_base = PhysicalAddress::new(info.initrd_base as u64);
@@ -168,8 +170,6 @@ impl System {
         mem::MemoryManager::init_first(info);
 
         shared.acpi = unsafe { myacpi::RsdPtr::parse(info.acpi_rsdptr as usize as *const c_void) };
-
-        // shared.current_device.power_profile = 0;
 
         if info.smbios != 0 {
             let device = &mut shared.current_device;
@@ -411,7 +411,6 @@ pub struct DeviceInfo {
     num_of_active_cpus: AtomicUsize,
     num_of_main_cpus: AtomicUsize,
     total_memory_size: usize,
-    power_profile: u8,
 }
 
 impl DeviceInfo {
@@ -424,7 +423,6 @@ impl DeviceInfo {
             num_of_active_cpus: AtomicUsize::new(0),
             num_of_main_cpus: AtomicUsize::new(0),
             total_memory_size: 0,
-            power_profile: 0,
         }
     }
 
@@ -462,10 +460,5 @@ impl DeviceInfo {
     #[inline]
     pub fn num_of_performance_cpus(&self) -> usize {
         self.num_of_main_cpus.load(Ordering::SeqCst)
-    }
-
-    /// A power profile in ACPI FADT tables
-    pub fn power_profile(&self) -> u8 {
-        self.power_profile
     }
 }

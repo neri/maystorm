@@ -4,9 +4,9 @@ use core::convert::TryFrom;
 pub enum WasmOpcode {
     /// Single Byte Opcode
     Single(WasmSingleOpcode),
-    /// Multi Byte Opcode FC proposals
+    /// Multi Byte Opcode - FC proposals
     PrefixFC(WasmOpcodeFC),
-    /// Multi Byte Opcode FD SIMD
+    /// Multi Byte Opcode - FD SIMD
     PrefixFD(WasmOpcodeFD),
 }
 
@@ -51,7 +51,7 @@ impl WasmOpcode {
         }
     }
 
-    pub const fn lead_byte(&self) -> u8 {
+    pub const fn leading_byte(&self) -> u8 {
         match self {
             WasmOpcode::Single(v) => *v as u8,
             WasmOpcode::PrefixFC(_) => 0xFC,
@@ -76,7 +76,17 @@ impl core::fmt::Display for WasmOpcode {
 
 impl core::fmt::Debug for WasmOpcode {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(self.to_str())
+        if let Some(trail_code) = self.trail_code() {
+            write!(
+                f,
+                "{:02x} {:02x} {}",
+                self.leading_byte(),
+                trail_code,
+                self.to_str(),
+            )
+        } else {
+            write!(f, "{:02x} {}", self.leading_byte(), self.to_str())
+        }
     }
 }
 
