@@ -42,7 +42,8 @@ pub mod task;
 pub mod ui;
 pub mod user;
 
-use crate::arch::cpu::Cpu;
+pub use crate::drivers::hal::*;
+
 use crate::system::System;
 use alloc::boxed::Box;
 use bootprot::*;
@@ -76,13 +77,13 @@ macro_rules! log {
     };
 }
 
-static mut PANIC_GLOBAL_LOCK: sync::spinlock::Spinlock = sync::spinlock::Spinlock::new();
+static mut PANIC_GLOBAL_LOCK: Spinlock = Spinlock::new();
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     use io::tty::*;
     unsafe {
-        Cpu::disable_interrupt();
+        Hal::cpu().disable_interrupt();
         let _ = task::scheduler::Scheduler::freeze(true);
         PANIC_GLOBAL_LOCK.synchronized(|| {
             let stdout = System::em_console();
@@ -97,7 +98,7 @@ fn panic(info: &PanicInfo) -> ! {
             }
             let _ = writeln!(stdout, "{}", info);
         });
-        Cpu::stop();
+        Hal::cpu().stop();
     }
 }
 

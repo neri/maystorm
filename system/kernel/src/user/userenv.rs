@@ -65,43 +65,11 @@ impl UserEnv {
                 .text("Shutting down...")
                 .draw_text(bitmap, bitmap.bounds(), 0);
         });
+
+        WindowManager::set_barrier_opacity(0xCC);
         window.show();
 
-        let total = Duration::from_millis(500);
-        let base = Timer::monotonic();
-        let limit = base + total;
-        let total = total.as_millis() as usize;
-        window.create_timer(0, Duration::from_millis(1));
-        window.show();
-
-        while let Some(message) = window.wait_message() {
-            match message {
-                WindowMessage::Timer(timer_id) => match timer_id {
-                    0 => {
-                        let now = Timer::monotonic();
-                        let progress = if limit > now {
-                            (now - base).as_millis() as usize
-                        } else {
-                            total
-                        };
-
-                        WindowManager::set_barrier_opacity((255 * progress / total) as u8);
-
-                        if now < limit {
-                            window.create_timer(0, Duration::from_millis(50));
-                        } else {
-                            window.create_timer(1, Duration::from_millis(1000));
-                        }
-                    }
-                    1 => {
-                        System::reset();
-                    }
-                    _ => unreachable!(),
-                },
-                _ => window.handle_default_message(message),
-            }
-        }
-        unreachable!()
+        Hal::cpu().reset();
     }
 
     fn _main(f: usize) {

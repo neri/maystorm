@@ -1,5 +1,5 @@
 use super::install_drivers;
-use crate::{arch::cpu::*, mem::PhysicalAddress, sync::RwLock, system::System, *};
+use crate::{mem::PhysicalAddress, sync::RwLock, system::System, *};
 use alloc::{
     boxed::Box,
     collections::{btree_map::Values, BTreeMap},
@@ -86,12 +86,6 @@ impl fmt::Debug for PciConfigAddress {
     }
 }
 
-pub trait PciImpl {
-    unsafe fn read_pci(&self, addr: PciConfigAddress) -> u32;
-
-    unsafe fn write_pci(&self, addr: PciConfigAddress, value: u32);
-}
-
 pub trait PciDriverRegistrar {
     fn instantiate(&self, device: &PciDevice) -> Option<Arc<dyn PciDriver>>;
 }
@@ -141,10 +135,9 @@ impl Pci {
         let shared = Self::shared_mut();
         install_drivers(&mut shared.registrars);
 
-        let cpu = System::current_processor();
         let bus = 0;
         for dev in 0..32 {
-            PciDevice::instantiate(cpu, bus, dev, 0);
+            PciDevice::instantiate(bus, dev, 0);
         }
 
         for device in Self::devices() {
@@ -208,26 +201,26 @@ pub struct PciDevice {
 }
 
 impl PciDevice {
-    unsafe fn instantiate(cpu: &Cpu, bus: u8, dev: u8, fun: u8) -> bool {
+    unsafe fn instantiate(bus: u8, dev: u8, fun: u8) -> bool {
         let base = PciConfigAddress::bus(bus).dev(dev).fun(fun);
-        let dev_ven = cpu.read_pci(base);
+        let dev_ven = Hal::pci().read(base);
         let vendor_id = PciVendorId(dev_ven as u16);
         if vendor_id == PciVendorId::INVALID {
             return false;
         }
         let device_id = PciDeviceId((dev_ven >> 16) as u16);
-        let sta_cmd = cpu.read_pci(base.register(1));
-        let subsys = cpu.read_pci(base.register(0x0B));
+        let sta_cmd = Hal::pci().read(base.register(1));
+        let subsys = Hal::pci().read(base.register(0x0B));
         let subsys_vendor_id = PciVendorId(subsys as u16);
         let subsys_device_id = PciDeviceId((subsys >> 16) as u16);
-        let class_code = PciClass::from_pci(cpu.read_pci(base.register(0x02)));
-        let header_type = ((cpu.read_pci(base.register(3)) >> 16) & 0xFF) as u8;
+        let class_code = PciClass::from_pci(Hal::pci().read(base.register(0x02)));
+        let header_type = ((Hal::pci().read(base.register(3)) >> 16) & 0xFF) as u8;
         let has_multi_func = (header_type & 0x80) != 0;
         let header_type = header_type & 0x7F;
 
         let secondary_bus_number = if header_type == 0x01 {
             // PCI to PCI bridge
-            let val = cpu.read_pci(base.register(6));
+            let val = Hal::pci().read(base.register(6));
             let bus = (val >> 8) as u8;
             NonZeroU8::new(bus)
         } else {
@@ -242,7 +235,7 @@ impl PciDevice {
         let mut bars = Vec::with_capacity(bar_limit);
         let mut index = 0;
         while index < bar_limit {
-            if let Some(bar) = PciBar::parse(cpu, base, index + 4) {
+            if let Some(bar) = PciBar::parse(base, index + 4) {
                 bars.push(bar);
                 if bar.bar_type() == PciBarType::Mmio64 {
                     index += 1;
@@ -253,11 +246,11 @@ impl PciDevice {
 
         let mut capabilities = Vec::new();
         if (sta_cmd & 0x0010_0000) != 0 {
-            let mut cap_ptr = (cpu.read_pci(base.register(0x0D)) & 0xFF) as u8;
+            let mut cap_ptr = (Hal::pci().read(base.register(0x0D)) & 0xFF) as u8;
 
             loop {
                 let current_register = cap_ptr / 4;
-                let cap_head = cpu.read_pci(base.register(current_register));
+                let cap_head = Hal::pci().read(base.register(current_register));
                 let cap_id = PciCapabilityId((cap_head & 0xFF) as u8);
                 let next_ptr = ((cap_head >> 8) & 0xFF) as u8;
 
@@ -287,14 +280,14 @@ impl PciDevice {
 
         if fun == 0 && has_multi_func {
             for fun in 1..8 {
-                PciDevice::instantiate(cpu, bus, dev, fun);
+                PciDevice::instantiate(bus, dev, fun);
             }
         }
 
         secondary_bus_number.map(|bus| {
             let bus = bus.get();
             for dev in 0..32 {
-                PciDevice::instantiate(cpu, bus, dev, 0);
+                PciDevice::instantiate(bus, dev, 0);
             }
         });
 
@@ -364,41 +357,36 @@ impl PciDevice {
             ControlFlow::Continue(_) => return Err(()),
             ControlFlow::Break(v) => v,
         };
-        let (msi_addr, msi_data) = match Cpu::register_msi(f, val) {
+        let (msi_addr, msi_data) = match Hal::pci().register_msi(f, val) {
             Ok(v) => v,
             Err(_) => return Err(()),
         };
         let base = self.addr.register(msi_reg);
 
-        let cpu = System::current_processor();
-        cpu.write_pci(base + 1, msi_addr as u32);
-        cpu.write_pci(base + 2, (msi_addr >> 32) as u32);
-        cpu.write_pci(base + 3, msi_data as u32);
-        cpu.write_pci(base, (cpu.read_pci(base) & 0xFF8FFFFF) | 0x00010000);
+        Hal::pci().write(base + 1, msi_addr as u32);
+        Hal::pci().write(base + 2, (msi_addr >> 32) as u32);
+        Hal::pci().write(base + 3, msi_data as u32);
+        Hal::pci().write(base, (Hal::pci().read(base) & 0xFF8FFFFF) | 0x00010000);
 
         Ok(())
     }
 
     pub unsafe fn read_pci_command(&self) -> PciCommand {
-        let cpu = System::current_processor();
-        PciCommand::from_bits_retain(cpu.read_pci(self.addr.register(1)))
+        PciCommand::from_bits_retain(Hal::pci().read(self.addr.register(1)))
     }
 
     pub unsafe fn write_pci_command(&self, val: PciCommand) {
-        let cpu = System::current_processor();
-        cpu.write_pci(self.addr.register(1), val.bits());
+        Hal::pci().write(self.addr.register(1), val.bits());
     }
 
     pub unsafe fn set_pci_command(&self, val: PciCommand) {
-        let cpu = System::current_processor();
         let base = self.addr.register(1);
-        cpu.write_pci(base, cpu.read_pci(base) | val.bits());
+        Hal::pci().write(base, Hal::pci().read(base) | val.bits());
     }
 
     pub unsafe fn clear_pci_command(&self, val: PciCommand) {
-        let cpu = System::current_processor();
         let base = self.addr.register(1);
-        cpu.write_pci(base, cpu.read_pci(base) & !val.bits());
+        Hal::pci().write(base, Hal::pci().read(base) & !val.bits());
     }
 }
 
@@ -427,10 +415,10 @@ impl PciBar {
     }
 
     /// Parse bar
-    unsafe fn parse(cpu: &Cpu, base: PciConfigAddress, index: usize) -> Option<PciBar> {
+    unsafe fn parse(base: PciConfigAddress, index: usize) -> Option<PciBar> {
         without_interrupts!({
             let reg = base.register(index as u8);
-            let raw = cpu.read_pci(reg);
+            let raw = Hal::pci().read(reg);
             if raw == 0 {
                 return None;
             }
@@ -439,21 +427,22 @@ impl PciBar {
             let result = match org.bar_type() {
                 PciBarType::IsolatedIO | PciBarType::Mmio32 => {
                     let bias = org.bar_type().mask_bias() as u32;
-                    cpu.write_pci(reg, u32::MAX);
-                    let scale = (cpu.read_pci(reg) & bias).trailing_zeros() as usize;
-                    cpu.write_pci(reg, org.0 as u32);
+                    Hal::pci().write(reg, u32::MAX);
+                    let scale = (Hal::pci().read(reg) & bias).trailing_zeros() as usize;
+                    Hal::pci().write(reg, org.0 as u32);
                     Some(org.set_scale(scale))
                 }
                 PciBarType::Mmio64 => {
                     let reg_h = base.register(index as u8 + 1);
-                    let org_h = PciBar::from_raw(cpu.read_pci(reg_h) as u64);
+                    let org_h = PciBar::from_raw(Hal::pci().read(reg_h) as u64);
                     let bias = org.bar_type().mask_bias();
-                    cpu.write_pci(reg, u32::MAX);
-                    cpu.write_pci(reg_h, u32::MAX);
-                    let data = (cpu.read_pci(reg) as u64) | ((cpu.read_pci(reg_h) as u64) << 32);
+                    Hal::pci().write(reg, u32::MAX);
+                    Hal::pci().write(reg_h, u32::MAX);
+                    let data =
+                        (Hal::pci().read(reg) as u64) | ((Hal::pci().read(reg_h) as u64) << 32);
                     let scale = (data & bias).trailing_zeros() as usize;
-                    cpu.write_pci(reg, org.0 as u32);
-                    cpu.write_pci(reg_h, org_h.0 as u32);
+                    Hal::pci().write(reg, org.0 as u32);
+                    Hal::pci().write(reg_h, org_h.0 as u32);
                     Some(
                         PciBar::from_raw(((org_h.0 as u64) << 32) | (org.0 as u64))
                             .set_scale(scale),

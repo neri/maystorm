@@ -138,7 +138,7 @@ impl Scheduler {
 
         loop {
             unsafe {
-                Cpu::halt();
+                Hal::cpu().wait_for_interrupt();
             }
         }
     }

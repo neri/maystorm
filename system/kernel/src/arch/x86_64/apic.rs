@@ -4,19 +4,15 @@ use super::{cpu::*, hpet::*, page::PageManager, page::PhysicalAddress};
 use crate::{
     mem::mmio::*,
     mem::*,
-    sync::{
-        semaphore::BinarySemaphore,
-        spinlock::{SpinLoopWait, SpinMutex},
-    },
+    sync::{semaphore::BinarySemaphore, spinlock::SpinMutex},
     system::*,
     task::scheduler::*,
     *,
 };
 use ::alloc::vec::*;
-use bootprot::BootFlags;
 use core::{
     cell::UnsafeCell,
-    mem::{transmute, ManuallyDrop},
+    mem::{size_of, transmute, ManuallyDrop},
     ptr::{copy_nonoverlapping, null_mut},
     sync::atomic::*,
     time::Duration,
@@ -24,8 +20,11 @@ use core::{
 use myacpi::madt;
 use seq_macro::seq;
 
+pub type AffinityBits = usize;
+pub type AtomicAffinityBits = AtomicUsize;
+
 /// Maximum number of supported cpu cores
-const MAX_CPU: usize = 64;
+const MAX_CPU: usize = size_of::<AffinityBits>();
 
 const STACK_CHUNK_SIZE: usize = 0x4000;
 
@@ -58,7 +57,7 @@ unsafe extern "C" fn apic_start_ap() {
 
     // Waiting for TSC synchonization
     while AP_STALLED.load(Ordering::Relaxed) {
-        Cpu::spin_loop_hint();
+        Hal::cpu().spin_loop_hint();
     }
     let tsc = Cpu::rdtsc();
 
@@ -71,9 +70,9 @@ unsafe extern "C" fn apic_start_ap() {
         }
     }
 
-    Cpu::enable_interrupt();
+    Hal::cpu().enable_interrupt();
     loop {
-        Cpu::halt();
+        Hal::cpu().wait_for_interrupt();
     }
 }
 
@@ -85,7 +84,7 @@ pub(super) struct Apic {
     idt: [usize; Irq::MAX.0 as usize],
     idt_params: [usize; Irq::MAX.0 as usize],
     lapic_timer_value: u32,
-    tlb_flush_bitmap: AtomicUsize,
+    tlb_flush_bitmap: AtomicAffinityBits,
     ipi_mutex: BinarySemaphore,
 }
 
@@ -102,7 +101,7 @@ impl Apic {
             idt: [0; Irq::MAX.0 as usize],
             idt_params: [0; Irq::MAX.0 as usize],
             lapic_timer_value: 0,
-            tlb_flush_bitmap: AtomicUsize::new(0),
+            tlb_flush_bitmap: AtomicAffinityBits::new(0),
             ipi_mutex: BinarySemaphore::new(),
         }
     }
@@ -114,7 +113,7 @@ impl Apic {
             Cpu::out8(0x21, 0xFF);
         }
 
-        Cpu::disable_interrupt();
+        Hal::cpu().disable_interrupt();
 
         let shared = Self::shared_mut();
 
@@ -160,7 +159,7 @@ impl Apic {
         });
 
         // then enable irq
-        Cpu::enable_interrupt();
+        Hal::cpu().enable_interrupt();
 
         // Local APIC Timer
         let vec_latimer = Irq(0).as_vec();
@@ -171,10 +170,10 @@ impl Apic {
             Timer::set_timer(Box::new(Hpet::new(hpet_info)));
 
             let magic_number = 100;
-            Timer::epsilon().repeat_until(|| Cpu::spin_loop_hint());
+            Timer::epsilon().repeat_until(|| Hal::cpu().spin_loop_hint());
             let timer = Timer::new(Duration::from_micros(100_0000 / magic_number));
             LocalApic::TimerInitialCount.write(u32::MAX);
-            timer.repeat_until(|| Cpu::spin_loop_hint());
+            timer.repeat_until(|| Hal::cpu().spin_loop_hint());
             let count = LocalApic::TimerCurrentCount.read() as u64;
             shared.lapic_timer_value = ((u32::MAX as u64 - count) * magic_number / 1000) as u32;
         } else {
@@ -234,12 +233,12 @@ impl Apic {
 
             let apic_id = ApicId(cpu.apic_id());
             LocalApic::send_init_ipi(apic_id);
-            Timer::new(Duration::from_millis(10)).repeat_until(|| Cpu::halt());
+            Timer::new(Duration::from_millis(10)).repeat_until(|| Hal::cpu().wait_for_interrupt());
 
             AP_BOOTED.store(false, Ordering::SeqCst);
             LocalApic::send_startup_ipi(apic_id, sipi_vec);
             let deadline = Timer::new(Duration::from_millis(100));
-            let mut wait = SpinLoopWait::new();
+            let mut wait = Hal::spin_loop();
             while deadline.is_alive() {
                 if AP_BOOTED.load(Ordering::SeqCst) {
                     break;
@@ -384,13 +383,14 @@ impl Apic {
                     return true;
                 }
                 shared.tlb_flush_bitmap.store(
-                    ((1usize << max_cpu) - 1) & !(1usize << Cpu::current_processor_index().0),
+                    (((1 as AffinityBits) << max_cpu) - 1)
+                        & !((1 as AffinityBits) << Cpu::current_processor_index().0),
                     Ordering::SeqCst,
                 );
 
                 LocalApic::broadcast_ipi(InterruptVector::IPI_INVALIDATE_TLB);
 
-                let mut hint = SpinLoopWait::new();
+                let mut hint = Hal::spin_loop();
                 let deadline = Timer::new(Duration::from_millis(200));
                 while deadline.is_alive() {
                     if shared.tlb_flush_bitmap.load(Ordering::Relaxed) == 0 {
@@ -452,7 +452,8 @@ unsafe extern "x86-interrupt" fn ipi_schedule_handler() {
 unsafe extern "x86-interrupt" fn ipi_tlb_flush_handler() {
     let shared = Apic::shared();
     PageManager::invalidate_all_pages();
-    Cpu::interlocked_test_and_clear(&shared.tlb_flush_bitmap, Cpu::current_processor_index().0);
+    Hal::cpu()
+        .interlocked_test_and_clear(&shared.tlb_flush_bitmap, Cpu::current_processor_index().0);
     LocalApic::eoi();
 }
 

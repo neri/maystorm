@@ -53,8 +53,7 @@ impl BinaryLoader for MyosBinaryLoader {
         .load(blob, |mod_name, name, type_ref| {
             let param_types = type_ref.param_types();
             match mod_name {
-                MyosRuntime::MOD_NAME => 
-                match (name, param_types) {
+                MyosRuntime::MOD_NAME => match (name, param_types) {
                     ("svc0", [WasmValType::I32]) => TriState::Ok(MyosRuntime::syscall), 
                     ("svc1", [WasmValType::I32, WasmValType::I32]) => TriState::Ok(MyosRuntime::syscall), 
                     ("svc2", [WasmValType::I32, WasmValType::I32, WasmValType::I32]) => TriState::Ok(MyosRuntime::syscall), 

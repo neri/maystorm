@@ -2,7 +2,7 @@ use crate::{
     drivers::pci::*,
     io::audio::{AudioDriver, AudioManager},
     mem::{mmio::MmioSlice, MemoryManager, PhysicalAddress},
-    sync::{semaphore::Semaphore, spinlock::SpinLoopWait, Mutex},
+    sync::{semaphore::Semaphore, Mutex},
     task::scheduler::{Priority, SpawnOption, Timer},
     *,
 };
@@ -744,7 +744,7 @@ impl Corb {
 
     pub fn issue_command(&mut self, cmd: Command) -> Result<()> {
         let deadline = Timer::new(Duration::from_millis(HdAudioController::WAIT_DELAY_MS));
-        let mut wait = SpinLoopWait::new();
+        let mut wait = Hal::spin_loop();
         while deadline.is_alive() && !self.can_write() {
             wait.wait();
         }
@@ -797,7 +797,7 @@ impl Rirb {
 
     pub fn read_response(&mut self) -> Result<Response> {
         let deadline = Timer::new(Duration::from_millis(HdAudioController::WAIT_DELAY_MS));
-        let mut wait = SpinLoopWait::new();
+        let mut wait = Hal::spin_loop();
         while deadline.is_alive() && !self.has_response() {
             wait.wait();
         }
@@ -1405,7 +1405,7 @@ impl ImmediateCommandRegisterSet {
     #[inline]
     pub fn command(&self, cmd: Command) -> Result<Response> {
         let deadline = Timer::new(Duration::from_millis(HdAudioController::WAIT_DELAY_MS));
-        let mut wait = SpinLoopWait::new();
+        let mut wait = Hal::spin_loop();
         while deadline.is_alive() && self.get_status().contains(ImmediateCommandStatus::ICB) {
             wait.wait();
         }
@@ -1418,7 +1418,7 @@ impl ImmediateCommandRegisterSet {
         self.set_status(ImmediateCommandStatus::ICB);
 
         let deadline = Timer::new(Duration::from_millis(HdAudioController::WAIT_DELAY_MS));
-        let mut wait = SpinLoopWait::new();
+        let mut wait = Hal::spin_loop();
         while deadline.is_alive() && !self.get_status().contains(ImmediateCommandStatus::IRV) {
             wait.wait();
         }

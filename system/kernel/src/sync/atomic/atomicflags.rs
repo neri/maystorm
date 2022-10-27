@@ -1,6 +1,6 @@
 // Atomic Bit Flags
 
-use crate::arch::cpu::Cpu;
+use crate::*;
 use core::{marker::PhantomData, sync::atomic::*};
 
 pub struct AtomicBitflags<T> {
@@ -77,12 +77,12 @@ impl<T: Into<usize>> AtomicBitflags<T> {
 
     #[inline]
     pub fn test_and_set(&self, other: T) -> bool {
-        Cpu::interlocked_test_and_set(&self.bits, other.into().trailing_zeros() as usize)
+        Hal::cpu().interlocked_test_and_set(&self.bits, other.into().trailing_zeros() as usize)
     }
 
     #[inline]
     pub fn test_and_clear(&self, other: T) -> bool {
-        Cpu::interlocked_test_and_clear(&self.bits, other.into().trailing_zeros() as usize)
+        Hal::cpu().interlocked_test_and_clear(&self.bits, other.into().trailing_zeros() as usize)
     }
 }
 

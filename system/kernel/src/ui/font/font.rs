@@ -61,21 +61,21 @@ impl FontManager {
         if let Ok(mut file) = FileManager::open("/megos/fonts/mono.ttf") {
             let mut data = Vec::new();
             file.read_to_end(&mut data).unwrap();
-            let font = Box::new(TrueTypeFont::new(data));
+            let font = Box::new(TrueTypeFont::new(data).unwrap());
             fonts.insert(FontFamily::Monospace, font);
         }
 
         if let Ok(mut file) = FileManager::open("/megos/fonts/sans.ttf") {
             let mut data = Vec::new();
             file.read_to_end(&mut data).unwrap();
-            let font = Box::new(TrueTypeFont::new(data));
+            let font = Box::new(TrueTypeFont::new(data).unwrap());
             fonts.insert(FontFamily::SansSerif, font);
         }
 
         if let Ok(mut file) = FileManager::open("/megos/fonts/serif.ttf") {
             let mut data = Vec::new();
             file.read_to_end(&mut data).unwrap();
-            let font = Box::new(TrueTypeFont::new(data));
+            let font = Box::new(TrueTypeFont::new(data).unwrap());
             fonts.insert(FontFamily::Serif, font);
         }
 
@@ -335,18 +335,21 @@ impl TrueTypeFont {
     const BASE_HEIGHT: isize = 256;
 
     #[inline]
-    pub fn new(font_data: Vec<u8>) -> Self {
-        let font = ab_glyph::FontVec::try_from_vec(font_data).unwrap();
+    pub fn new(font_data: Vec<u8>) -> Option<Self> {
+        let font = match ab_glyph::FontVec::try_from_vec(font_data) {
+            Ok(v) => v,
+            Err(_) => return None,
+        };
         let units_per_em = font.units_per_em().unwrap();
         let line_height = (Self::BASE_HEIGHT as f32
             * (font.ascent_unscaled() - font.descent_unscaled() + font.line_gap_unscaled())
             / units_per_em) as isize;
 
-        Self {
+        Some(Self {
             font,
             units_per_em,
             line_height,
-        }
+        })
     }
 }
 
@@ -391,24 +394,6 @@ impl FontDriver for TrueTypeFont {
         let glyph = self.font.glyph_id(character).with_scale(scale);
         self.font.outline_glyph(glyph).map(|glyph| {
             let bounds = glyph.px_bounds();
-
-            // debug
-            // if false {
-            //     bitmap.draw_rect(
-            //         Rect::new(
-            //             origin.x + bounds.min.x as isize,
-            //             origin.y,
-            //             bounds.width() as isize,
-            //             ascent - descent,
-            //         ),
-            //         Color::LIGHT_RED,
-            //     );
-            //     bitmap.draw_hline(
-            //         origin + Point::new(bounds.min.x as isize, isize::min(ascent, ascent)),
-            //         bounds.width() as isize,
-            //         Color::BLUE,
-            //     );
-            // }
 
             let origin =
                 origin + Movement::new(bounds.min.x as isize, ascent + bounds.min.y as isize);

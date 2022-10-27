@@ -11,6 +11,10 @@ pub mod ps2;
 #[doc(hidden)]
 pub mod rtc;
 
+#[doc(hidden)]
+mod hal_x64;
+pub use hal_x64::*;
+
 use crate::{system::*, *};
 use core::arch::asm;
 use megstd::time::SystemTime;
@@ -65,18 +69,16 @@ impl Arch {
         let _ = ps2::Ps2::init();
 
         let device = System::current_device();
-        match device.manufacturer_name() {
-            Some("GPD") => {
-                match device.model_name() {
-                    Some("MicroPC") => {
-                        // WORKAROUND: Enable the GPD MicroPC's built-in keyboard
-                        // SBRG.H_EC.KBCD = 0x11
-                        Self::wr_ec(0x11, 0x00);
-                    }
-                    _ => (),
+
+        if let Some((manufacturer, model)) = device.manufacturer_name().zip(device.model_name()) {
+            match (manufacturer, model) {
+                ("GPD", "MicroPC") => {
+                    // WORKAROUND: Enable the GPD MicroPC's built-in keyboard
+                    // SBRG.H_EC.KBCD = 0x11
+                    Self::wr_ec(0x11, 0x00);
                 }
+                _ => (),
             }
-            _ => (),
         }
     }
 

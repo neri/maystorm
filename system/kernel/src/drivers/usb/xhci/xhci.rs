@@ -1,6 +1,5 @@
 use super::*;
 use crate::{
-    arch::cpu::Cpu,
     drivers::{pci::*, usb::*},
     mem::mmio::*,
     mem::{MemoryManager, NonNullPhysicalAddress, PhysicalAddress},
@@ -364,8 +363,9 @@ impl Xhci {
     /// wait for CNR (Controller Not Ready)
     #[inline]
     pub fn wait_cnr(&self, _: usize) {
+        let mut wait = Hal::spin_loop();
         while self.opr.status().contains(UsbSts::CNR) {
-            Cpu::spin_loop_hint();
+            wait.wait();
         }
     }
 

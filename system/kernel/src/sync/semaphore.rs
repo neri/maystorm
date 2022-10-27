@@ -1,7 +1,7 @@
 // Semaphore
 
 use super::{fifo::ConcurrentFifo, signal::SignallingObject};
-use crate::arch::cpu::Cpu;
+use crate::*;
 use alloc::{boxed::Box, sync::Arc};
 use core::{
     marker::PhantomData,
@@ -34,7 +34,8 @@ impl Semaphore {
     #[inline]
     #[must_use]
     pub fn try_lock(&self) -> bool {
-        Cpu::interlocked_fetch_update(&self.value, |v| if v >= 1 { Some(v - 1) } else { None })
+        Hal::cpu()
+            .interlocked_fetch_update(&self.value, |v| if v >= 1 { Some(v - 1) } else { None })
             .is_ok()
     }
 
@@ -55,7 +56,7 @@ impl Semaphore {
 
     #[inline]
     pub fn signal(&self) {
-        let _ = Cpu::interlocked_increment(&self.value);
+        let _ = Hal::cpu().interlocked_increment(&self.value);
         let _ = self.signal.signal();
     }
 
@@ -154,7 +155,8 @@ impl AsyncSemaphore {
     #[inline]
     #[must_use]
     pub fn try_lock(&self) -> bool {
-        Cpu::interlocked_fetch_update(&self.value, |v| if v >= 1 { Some(v - 1) } else { None })
+        Hal::cpu()
+            .interlocked_fetch_update(&self.value, |v| if v >= 1 { Some(v - 1) } else { None })
             .is_ok()
     }
 
@@ -184,7 +186,7 @@ impl AsyncSemaphore {
 
     #[inline]
     pub fn signal(&self) {
-        let _ = Cpu::interlocked_increment(&self.value);
+        let _ = Hal::cpu().interlocked_increment(&self.value);
         if let Some(waker) = self.fifo.dequeue() {
             waker.wake_by_ref();
         }

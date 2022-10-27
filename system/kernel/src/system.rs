@@ -358,11 +358,6 @@ impl System {
         Self::shared().acpi.as_ref().map(|v| v.xsdt())
     }
 
-    #[track_caller]
-    pub fn reset() -> ! {
-        Cpu::reset();
-    }
-
     /// Get main screen
     pub fn main_screen() -> Bitmap<'static> {
         unsafe { &mut *Self::shared_mut().main_screen.as_mut().unwrap().get() }.into()

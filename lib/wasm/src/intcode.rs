@@ -1,5 +1,3 @@
-//! Intermediate code for Webassembly runtime
-
 use crate::opcode::{WasmOpcode, WasmSingleOpcode};
 use alloc::{boxed::Box, vec::Vec};
 

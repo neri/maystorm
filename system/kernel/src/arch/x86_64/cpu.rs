@@ -1,9 +1,7 @@
 use super::apic::*;
 use crate::{
-    drivers::pci::*,
     io::tty::Tty,
     rt::{LegacyAppContext, RuntimeEnvironment},
-    sync::spinlock::Spinlock,
     system::{ProcessorCoreType, ProcessorIndex},
     task::scheduler::Scheduler,
     *,
@@ -124,62 +122,6 @@ impl Cpu {
     }
 
     #[inline]
-    pub fn interlocked_increment(p: &AtomicUsize) -> usize {
-        p.fetch_add(1, Ordering::SeqCst)
-    }
-
-    #[inline]
-    pub fn interlocked_compare_and_swap(
-        p: &AtomicUsize,
-        current: usize,
-        new: usize,
-    ) -> (bool, usize) {
-        match p.compare_exchange(current, new, Ordering::SeqCst, Ordering::Relaxed) {
-            Ok(v) => (true, v),
-            Err(v) => (false, v),
-        }
-    }
-
-    #[inline]
-    pub fn interlocked_fetch_update<F>(p: &AtomicUsize, f: F) -> Result<usize, usize>
-    where
-        F: FnMut(usize) -> Option<usize>,
-    {
-        p.fetch_update(Ordering::SeqCst, Ordering::Relaxed, f)
-    }
-
-    #[inline]
-    pub fn interlocked_swap(p: &AtomicUsize, val: usize) -> usize {
-        p.swap(val, Ordering::SeqCst)
-    }
-
-    #[inline]
-    pub fn interlocked_test_and_set(p: &AtomicUsize, position: usize) -> bool {
-        unsafe {
-            let p = p as *const _ as *mut usize;
-            let r: usize;
-            asm!("
-                lock bts [{0}], {1}
-                sbb {2}, {2}
-                ", in(reg) p, in(reg) position, lateout(reg) r);
-            r != 0
-        }
-    }
-
-    #[inline]
-    pub fn interlocked_test_and_clear(p: &AtomicUsize, position: usize) -> bool {
-        unsafe {
-            let p = p as *const _ as *mut usize;
-            let r: usize;
-            asm!("
-                lock btr [{0}], {1}
-                sbb {2}, {2}
-                ", in(reg) p, in(reg) position, lateout(reg) r);
-            r != 0
-        }
-    }
-
-    #[inline]
     pub(super) const fn apic_id(&self) -> ApicId {
         self.apic_id
     }
@@ -211,50 +153,6 @@ impl Cpu {
             true => Ok(()),
             false => Err(()),
         }
-    }
-
-    #[inline]
-    pub fn spin_loop_hint() {
-        unsafe {
-            asm!("pause", options(nomem, nostack));
-        }
-    }
-
-    #[inline]
-    pub unsafe fn halt() {
-        asm!("hlt", options(nomem, nostack));
-    }
-
-    #[inline]
-    pub unsafe fn enable_interrupt() {
-        asm!("sti", options(nomem, nostack));
-    }
-
-    #[inline]
-    pub unsafe fn disable_interrupt() {
-        asm!("cli", options(nomem, nostack));
-    }
-
-    #[inline]
-    pub fn stop() -> ! {
-        loop {
-            unsafe {
-                Self::disable_interrupt();
-                Self::halt();
-            }
-        }
-    }
-
-    pub fn reset() -> ! {
-        unsafe {
-            Cpu::disable_interrupt();
-            let _ = Scheduler::freeze(true);
-
-            Self::out8(0x0CF9, 0x06);
-            asm!("out 0x92, al", in("al") 0x01 as u8, options(nomem, nostack));
-        }
-
-        Cpu::stop();
     }
 
     #[inline]
@@ -294,12 +192,6 @@ impl Cpu {
     }
 
     #[inline]
-    #[allow(dead_code)]
-    pub unsafe fn register_msi(f: fn(usize) -> (), val: usize) -> Result<(u64, u16), ()> {
-        Apic::register_msi(f, val)
-    }
-
-    #[inline]
     pub(super) fn rdtsc() -> u64 {
         let eax: u32;
         let edx: u32;
@@ -332,7 +224,7 @@ impl Cpu {
 
     /// Launch the 32-bit legacy mode application.
     pub unsafe fn invoke_legacy(ctx: &LegacyAppContext) -> ! {
-        Cpu::disable_interrupt();
+        Hal::cpu().disable_interrupt();
 
         let gdt = GlobalDescriptorTable::current();
         gdt.set_item(
@@ -381,73 +273,6 @@ impl Cpu {
             in (reg) ctx.start as usize,
             in (reg) rflags.bits(),
             options(noreturn));
-    }
-
-    #[inline]
-    pub unsafe fn interrupt_guard() -> InterruptGuard {
-        let mut rax: u64;
-        asm!("
-            pushfq
-            cli
-            pop {0}
-            ", lateout(reg) rax);
-        InterruptGuard(rax)
-    }
-}
-
-#[must_use]
-pub struct InterruptGuard(u64);
-
-impl !Send for InterruptGuard {}
-
-impl !Sync for InterruptGuard {}
-
-impl Drop for InterruptGuard {
-    fn drop(&mut self) {
-        if Rflags::from_bits_retain(self.0).contains(Rflags::IF) {
-            unsafe {
-                Cpu::enable_interrupt();
-            }
-        }
-    }
-}
-
-#[macro_export]
-macro_rules! without_interrupts {
-    ( $f:expr ) => {{
-        let rflags = Cpu::interrupt_guard();
-        let r = { $f };
-        drop(rflags);
-        r
-    }};
-}
-
-impl PciImpl for Cpu {
-    #[inline]
-    unsafe fn read_pci(&self, addr: PciConfigAddress) -> u32 {
-        without_interrupts!({
-            Cpu::out32(0xCF8, addr.into());
-            Cpu::in32(0xCFC)
-        })
-    }
-
-    #[inline]
-    unsafe fn write_pci(&self, addr: PciConfigAddress, value: u32) {
-        without_interrupts!({
-            Cpu::out32(0xCF8, addr.into());
-            Cpu::out32(0xCFC, value);
-        })
-    }
-}
-
-impl Into<u32> for PciConfigAddress {
-    #[inline]
-    fn into(self) -> u32 {
-        0x8000_0000
-            | ((self.get_bus() as u32) << 16)
-            | ((self.get_dev() as u32) << 11)
-            | ((self.get_fun() as u32) << 8)
-            | ((self.get_register() as u32) << 2)
     }
 }
 
