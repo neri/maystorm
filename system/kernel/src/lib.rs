@@ -26,6 +26,10 @@
 
 #[macro_use]
 pub mod arch;
+
+#[macro_use]
+pub mod hal;
+
 pub mod dev;
 pub mod drivers;
 pub mod fs;
@@ -42,7 +46,7 @@ pub mod task;
 pub mod ui;
 pub mod user;
 
-pub use crate::drivers::hal::*;
+pub use crate::hal::*;
 
 use crate::system::System;
 use alloc::boxed::Box;

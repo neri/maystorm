@@ -5,7 +5,8 @@ pub mod hal {
             apic::Apic,
             cpu::{Cpu, Rflags},
         },
-        drivers::{hal::*, pci::PciConfigAddress},
+        drivers::pci::PciConfigAddress,
+        hal::*,
         task::scheduler::Scheduler,
         *,
     };
@@ -36,25 +37,10 @@ pub mod hal {
     struct CpuImpl;
 
     impl HalCpu for CpuImpl {
-        fn reset(&self) -> ! {
-            unsafe {
-                self.disable_interrupt();
-                let _ = Scheduler::freeze(true);
-
-                Cpu::out8(0x0CF9, 0x06);
-                asm!("out 0x92, al", in("al") 0x01 as u8, options(nomem, nostack));
-            }
-
-            self.stop();
-        }
-
         #[inline]
-        fn stop(&self) -> ! {
-            loop {
-                unsafe {
-                    self.disable_interrupt();
-                    self.wait_for_interrupt();
-                }
+        fn no_op(&self) {
+            unsafe {
+                asm!("nop", options(nomem, nostack));
             }
         }
 
@@ -80,35 +66,16 @@ pub mod hal {
             asm!("cli", options(nomem, nostack));
         }
 
-        #[inline]
-        fn interlocked_increment(&self, p: &AtomicUsize) -> usize {
-            p.fetch_add(1, Ordering::SeqCst)
-        }
+        fn reset(&self) -> ! {
+            unsafe {
+                self.disable_interrupt();
+                let _ = Scheduler::freeze(true);
 
-        #[inline]
-        fn interlocked_compare_and_swap(
-            &self,
-            p: &AtomicUsize,
-            current: usize,
-            new: usize,
-        ) -> (bool, usize) {
-            match p.compare_exchange(current, new, Ordering::SeqCst, Ordering::Relaxed) {
-                Ok(v) => (true, v),
-                Err(v) => (false, v),
+                Cpu::out8(0x0CF9, 0x06);
+                asm!("out 0x92, al", in("al") 0x01 as u8, options(nomem, nostack));
             }
-        }
 
-        #[inline]
-        fn interlocked_fetch_update<F>(&self, p: &AtomicUsize, f: F) -> Result<usize, usize>
-        where
-            F: FnMut(usize) -> Option<usize>,
-        {
-            p.fetch_update(Ordering::SeqCst, Ordering::Relaxed, f)
-        }
-
-        #[inline]
-        fn interlocked_swap(&self, p: &AtomicUsize, val: usize) -> usize {
-            p.swap(val, Ordering::SeqCst)
+            self.stop();
         }
 
         #[inline]

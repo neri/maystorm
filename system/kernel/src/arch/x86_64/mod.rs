@@ -15,7 +15,7 @@ pub mod rtc;
 mod hal_x64;
 pub use hal_x64::*;
 
-use crate::{system::*, *};
+use crate::{check_once_call, system::*};
 use core::arch::asm;
 use megstd::time::SystemTime;
 
