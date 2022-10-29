@@ -18,6 +18,7 @@ wasm = {path = "../../lib/wasm"}
 ab_glyph = {default-features = false, features = ["libm"]}
 bitflags = {}
 byteorder = {default-features = false}
+cfg-if = {}
 futures-util = {default-features = false, features = ["alloc"]}
 libm = {}
 num-derive = {default-features = false}

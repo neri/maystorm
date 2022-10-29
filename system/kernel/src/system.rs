@@ -1,6 +1,4 @@
-use crate::{
-    arch::cpu::*, arch::page::PhysicalAddress, io::emcon::*, io::tty::*, task::scheduler::*, *,
-};
+use crate::{arch::cpu::*, io::emcon::*, io::tty::*, task::scheduler::*, *};
 use alloc::{boxed::Box, string::*, vec::Vec};
 use bootprot::BootInfo;
 use core::{cell::UnsafeCell, ffi::c_void, fmt, mem::transmute, sync::atomic::*};
@@ -75,27 +73,6 @@ pub enum ProcessorCoreType {
     Sub,
     /// High-efficiency processor
     Efficient,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ProcessorSystemType {
-    /// The system is equipped with a uniprocessor. (deprecated)
-    UP,
-    /// The system is equipped with a symmetric multiprocessing processor.
-    SMP,
-    /// The system is equipped with one or more simultaneous multi-threading processors.
-    SMT,
-}
-
-impl ToString for ProcessorSystemType {
-    fn to_string(&self) -> String {
-        let s = match self {
-            ProcessorSystemType::UP => "UP",
-            ProcessorSystemType::SMP => "SMP",
-            ProcessorSystemType::SMT => "SMT",
-        };
-        s.to_string()
-    }
 }
 
 /// A Kernel of MEG-OS codename Maystorm
@@ -311,7 +288,7 @@ impl System {
     pub fn current_processor<'a>() -> &'a Cpu {
         Self::shared()
             .cpus
-            .get(Cpu::current_processor_index().0)
+            .get(Hal::cpu().current_processor_index().0)
             .unwrap()
     }
 
@@ -335,11 +312,6 @@ impl System {
     #[track_caller]
     pub unsafe fn cpu_mut<'a>(index: ProcessorIndex) -> &'a mut Cpu {
         Self::shared_mut().cpus.get_mut(index.0).unwrap()
-    }
-
-    #[inline]
-    pub unsafe fn set_processor_system_type(value: ProcessorSystemType) {
-        Self::shared_mut().current_device.processor_system_type = value;
     }
 
     #[inline]
@@ -402,7 +374,6 @@ macro_rules! check_once_call {
 pub struct DeviceInfo {
     manufacturer_name: Option<String>,
     model_name: Option<String>,
-    processor_system_type: ProcessorSystemType,
     num_of_active_cpus: AtomicUsize,
     num_of_main_cpus: AtomicUsize,
     total_memory_size: usize,
@@ -414,7 +385,6 @@ impl DeviceInfo {
         Self {
             manufacturer_name: None,
             model_name: None,
-            processor_system_type: ProcessorSystemType::UP,
             num_of_active_cpus: AtomicUsize::new(0),
             num_of_main_cpus: AtomicUsize::new(0),
             total_memory_size: 0,
@@ -437,11 +407,6 @@ impl DeviceInfo {
     #[inline]
     pub const fn total_memory_size(&self) -> usize {
         self.total_memory_size
-    }
-
-    #[inline]
-    pub const fn processor_system_type(&self) -> ProcessorSystemType {
-        self.processor_system_type
     }
 
     /// Returns the number of active logical CPU cores.

@@ -1,10 +1,7 @@
 //! xHCI MMIO Registers
 
 use super::*;
-use crate::{
-    drivers::usb::*,
-    mem::{MemoryManager, NonNullPhysicalAddress, PhysicalAddress},
-};
+use crate::{drivers::usb::*, mem::MemoryManager, *};
 use bitflags::*;
 use core::{
     ffi::c_void,

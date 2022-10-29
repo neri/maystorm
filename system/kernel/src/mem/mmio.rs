@@ -1,5 +1,5 @@
 use super::*;
-use crate::{arch::page::PhysicalAddress, drivers::pci::PciBar};
+use crate::{drivers::pci::PciBar, *};
 use core::{
     marker::PhantomData,
     mem::{size_of, transmute},

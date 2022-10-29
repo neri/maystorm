@@ -132,18 +132,13 @@ impl Cpu {
     }
 
     #[inline]
-    pub fn current_processor_index() -> ProcessorIndex {
-        ProcessorIndex(unsafe { Self::rdtscp().1 } as usize)
-    }
-
-    #[inline]
     pub const fn processor_type(&self) -> ProcessorCoreType {
         self.core_type
     }
 
     #[inline]
     pub fn current_processor_type() -> ProcessorCoreType {
-        let index = Self::current_processor_index();
+        let index = Hal::cpu().current_processor_index();
         System::cpu(index).processor_type()
     }
 
@@ -1382,9 +1377,9 @@ impl InterruptDescriptorTable {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MSR {
     TSC = 0x0000_0010,
-    APIC_BASE = 0x0000_001b,
-    MISC_ENABLE = 0x0000_01a0,
-    TSC_DEADLINE = 0x0000_06e0,
+    APIC_BASE = 0x0000_001B,
+    MISC_ENABLE = 0x0000_01A0,
+    TSC_DEADLINE = 0x0000_06E0,
     EFER = 0xC000_0080,
     STAR = 0xC000_0081,
     LSTAR = 0xC000_0082,
@@ -1401,12 +1396,12 @@ pub enum MSR {
 #[derive(Copy, Clone)]
 union MsrResult {
     qword: u64,
-    pair: AccumulatorPair,
+    pair: EaxAndEdx,
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
-pub struct AccumulatorPair {
+pub struct EaxAndEdx {
     eax: u32,
     edx: u32,
 }
@@ -1434,7 +1429,7 @@ impl MSR {
             in("ecx") self as u32,
         );
         MsrResult {
-            pair: AccumulatorPair { eax, edx },
+            pair: EaxAndEdx { eax, edx },
         }
         .qword
     }
@@ -1520,7 +1515,7 @@ impl X64ExceptionContext {
     }
 }
 
-static mut GLOBAL_EXCEPTION_LOCK: Spinlock = Spinlock::new();
+static GLOBAL_EXCEPTION_LOCK: Spinlock = Spinlock::new();
 
 unsafe extern "C" fn handle_default_exception(ctx: &X64ExceptionContext) {
     let is_user = GLOBAL_EXCEPTION_LOCK.synchronized(|| {

@@ -1,5 +1,5 @@
-use super::{apic::*, page::PhysicalAddress};
-use crate::{mem::mmio::*, task::scheduler::*};
+use super::apic::*;
+use crate::{mem::mmio::*, task::scheduler::*, *};
 use core::{
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
     time::Duration,

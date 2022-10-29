@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     drivers::{pci::*, usb::*},
     mem::mmio::*,
-    mem::{MemoryManager, NonNullPhysicalAddress, PhysicalAddress},
+    mem::MemoryManager,
     sync::{fifo::AsyncEventQueue, semaphore::*, RwLock},
     task::{scheduler::*, Task},
     *,
@@ -363,7 +363,7 @@ impl Xhci {
     /// wait for CNR (Controller Not Ready)
     #[inline]
     pub fn wait_cnr(&self, _: usize) {
-        let mut wait = Hal::spin_loop();
+        let mut wait = Hal::spin_wait();
         while self.opr.status().contains(UsbSts::CNR) {
             wait.wait();
         }

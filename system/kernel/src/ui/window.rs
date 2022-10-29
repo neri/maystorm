@@ -10,13 +10,13 @@ use crate::{
     *,
 };
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
-use bitflags::*;
 use core::{
     cell::UnsafeCell,
     cmp,
     future::Future,
     mem::swap,
     num::*,
+    ops::BitOr,
     pin::Pin,
     sync::atomic::*,
     task::{Context, Poll},
@@ -957,22 +957,31 @@ impl WindowManager<'_> {
     }
 }
 
-bitflags! {
-    #[derive(Debug, Clone, Copy)]
-    struct WindowManagerAttributes: u64 {
-        const ROTATE        = 0b0000_0001;
-        const EVENT         = 0b0000_0010;
-        const MOUSE_MOVE    = 0b0000_0100;
-        const NEEDS_REDRAW  = 0b0000_1000;
-        const MOVING        = 0b0001_0000;
-        const CLOSE_DOWN    = 0b0010_0000;
-        const BACK_DOWN     = 0b0100_0000;
+#[derive(Debug, Clone, Copy)]
+struct WindowManagerAttributes(usize);
+
+impl WindowManagerAttributes {
+    const ROTATE: Self = Self(0b0000_0001);
+    const EVENT: Self = Self(0b0000_0010);
+    const MOUSE_MOVE: Self = Self(0b0000_0100);
+    const NEEDS_REDRAW: Self = Self(0b0000_1000);
+    const MOVING: Self = Self(0b0001_0000);
+    const CLOSE_DOWN: Self = Self(0b0010_0000);
+    const BACK_DOWN: Self = Self(0b0100_0000);
+}
+
+impl const Into<usize> for WindowManagerAttributes {
+    fn into(self) -> usize {
+        self.0
     }
 }
 
-impl Into<usize> for WindowManagerAttributes {
-    fn into(self) -> usize {
-        self.bits() as usize
+impl const BitOr for WindowManagerAttributes {
+    type Output = Self;
+
+    #[inline]
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
     }
 }
 
@@ -984,7 +993,7 @@ pub enum ViewActionState {
     Disabled,
 }
 
-impl Default for ViewActionState {
+impl const Default for ViewActionState {
     #[inline]
     fn default() -> Self {
         Self::Normal
@@ -1027,29 +1036,73 @@ struct RawWindow {
     queue: Option<ConcurrentFifo<WindowMessage>>,
 }
 
-bitflags! {
-    #[derive(Debug, Clone, Copy)]
-    pub struct WindowStyle: u64 {
-        const BORDER            = 0b0000_0000_0000_0001;
-        const THIN_FRAME        = 0b0000_0000_0000_0010;
-        const TITLE             = 0b0000_0000_0000_0100;
-        const CLOSE_BUTTON      = 0b0000_0000_0000_1000;
+#[derive(Debug, Clone, Copy)]
+pub struct WindowStyle(usize);
 
-        const OPAQUE_CONTENT    = 0b0000_0000_0001_0000;
-        const OPAQUE            = 0b0000_0000_0010_0000;
-        const NO_SHADOW         = 0b0000_0000_0100_0000;
-        const FLOATING          = 0b0000_0000_1000_0000;
+impl WindowStyle {
+    pub const BORDER: Self = Self(0b0000_0000_0000_0001);
+    pub const THIN_FRAME: Self = Self(0b0000_0000_0000_0010);
+    pub const TITLE: Self = Self(0b0000_0000_0000_0100);
+    pub const CLOSE_BUTTON: Self = Self(0b0000_0000_0000_1000);
 
-        const DARK_MODE         = 0b0000_0001_0000_0000;
-        const DARK_BORDER       = 0b0000_0010_0000_0000;
-        const DARK_TITLE        = 0b0000_0100_0000_0000;
-        const DARK_ACTIVE       = 0b0000_1000_0000_0000;
+    pub const OPAQUE_CONTENT: Self = Self(0b0000_0000_0001_0000);
+    pub const OPAQUE: Self = Self(0b0000_0000_0010_0000);
+    pub const NO_SHADOW: Self = Self(0b0000_0000_0100_0000);
+    pub const FLOATING: Self = Self(0b0000_0000_1000_0000);
 
-        const PINCHABLE         = 0b0001_0000_0000_0000;
-        const FULLSCREEN        = 0b0010_0000_0000_0000;
-        const SUSPENDED         = 0b1000_0000_0000_0000;
+    pub const DARK_MODE: Self = Self(0b0000_0001_0000_0000);
+    pub const DARK_BORDER: Self = Self(0b0000_0010_0000_0000);
+    pub const DARK_TITLE: Self = Self(0b0000_0100_0000_0000);
+    pub const DARK_ACTIVE: Self = Self(0b0000_1000_0000_0000);
 
-        const DEFAULT           = Self::BORDER.bits() | Self::TITLE.bits() | Self::CLOSE_BUTTON.bits();
+    pub const PINCHABLE: Self = Self(0b0001_0000_0000_0000);
+    pub const FULLSCREEN: Self = Self(0b0010_0000_0000_0000);
+    pub const SUSPENDED: Self = Self(0b1000_0000_0000_0000);
+
+    pub const DEFAULT: Self = Self::BORDER | Self::TITLE | Self::CLOSE_BUTTON;
+
+    #[inline]
+    pub const fn bits(&self) -> usize {
+        self.0
+    }
+
+    #[inline]
+    pub const fn empty() -> Self {
+        Self(0)
+    }
+
+    #[inline]
+    pub const fn from_bits_retain(val: usize) -> Self {
+        Self(val)
+    }
+
+    // #[inline]
+    // pub const fn is_empty(&self) -> bool {
+    //     self.0 == 0
+    // }
+
+    #[inline]
+    pub const fn contains(&self, bits: Self) -> bool {
+        (self.0 & bits.0) == bits.0
+    }
+
+    #[inline]
+    pub const fn insert(&mut self, bits: Self) {
+        self.0 |= bits.bits();
+    }
+
+    #[inline]
+    pub const fn remove(&mut self, bits: Self) {
+        self.0 &= !bits.bits();
+    }
+
+    #[inline]
+    pub const fn set(&mut self, bits: Self, value: bool) {
+        if value {
+            self.insert(bits)
+        } else {
+            self.remove(bits)
+        }
     }
 }
 
@@ -1061,14 +1114,16 @@ impl const Default for WindowStyle {
 }
 
 impl const From<WindowStyle> for usize {
+    #[inline]
     fn from(val: WindowStyle) -> Self {
-        val.bits() as usize
+        val.bits()
     }
 }
 
 impl const From<usize> for WindowStyle {
+    #[inline]
     fn from(val: usize) -> Self {
-        Self::from_bits_retain(val as u64)
+        Self::from_bits_retain(val)
     }
 }
 
@@ -1110,17 +1165,27 @@ impl WindowStyle {
     }
 }
 
-bitflags! {
-    #[derive(Debug, Clone, Copy)]
-    struct WindowAttributes: u64 {
-        const NEEDS_REDRAW  = 0b0000_0001;
-        const VISIBLE       = 0b0000_0010;
+impl const BitOr for WindowStyle {
+    type Output = Self;
+
+    #[inline]
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.bits() | rhs.bits())
     }
 }
 
-impl Into<usize> for WindowAttributes {
+#[derive(Debug, Clone, Copy)]
+struct WindowAttributes(usize);
+
+impl WindowAttributes {
+    const NEEDS_REDRAW: Self = Self(0b0000_0001);
+    const VISIBLE: Self = Self(0b0000_0010);
+}
+
+impl const Into<usize> for WindowAttributes {
+    #[inline]
     fn into(self) -> usize {
-        self.bits() as usize
+        self.0
     }
 }
 
@@ -1415,7 +1480,6 @@ impl RawWindow {
         WindowManager::shared().active.contains(&self.handle)
     }
 
-    #[inline]
     fn refresh_title(&mut self) {
         self.draw_frame();
         if self.style.contains(WindowStyle::TITLE) {
@@ -1425,7 +1489,6 @@ impl RawWindow {
 
     fn draw_frame(&mut self) {
         let mut bitmap = Bitmap::from(self.bitmap());
-        let is_active = self.is_active();
         let is_thin = self.style.contains(WindowStyle::THIN_FRAME);
         let is_dark = self.style.contains(WindowStyle::DARK_BORDER);
 
@@ -1435,50 +1498,27 @@ impl RawWindow {
             let left = padding;
             let right = padding;
 
-            let rect = self.title_frame();
             bitmap
-                .view(rect, |bitmap| {
+                .view(self.title_frame(), |bitmap| {
                     let rect = bitmap.bounds();
 
-                    if is_thin {
-                        bitmap.fill_rect(rect, self.title_background());
-                    } else {
-                        // let rect = rect.insets_by(EdgeInsets::new(
-                        //     0,
-                        //     WINDOW_CORNER_RADIUS,
-                        //     0,
-                        //     WINDOW_CORNER_RADIUS,
-                        // ));
-                        bitmap.fill_rect(rect, self.title_background());
-                    }
+                    bitmap.fill_rect(rect, self.title_background());
 
                     self.draw_close_button();
                     self.draw_back_button();
 
                     if let Some(text) = self.title() {
-                        let font = shared.resources.title_font;
-                        let rect = rect.insets_by(EdgeInsets::new(0, left, 0, right));
-
-                        if is_active {
-                            let rect2 = rect + Movement::new(1, 1);
-                            AttributedString::new()
-                                .font(font)
-                                .color(if self.style.contains(WindowStyle::DARK_ACTIVE) {
-                                    Theme::shared().window_title_active_shadow_dark()
-                                } else {
-                                    Theme::shared().window_title_active_shadow()
-                                })
-                                .center()
-                                .text(text)
-                                .draw_text(bitmap, rect2, 1);
-                        }
-
                         AttributedString::new()
-                            .font(font)
+                            .font(&shared.resources.title_font)
                             .color(self.title_foreground())
                             .center()
+                            .shadow(self.title_shadow_color(), Movement::new(1, 1))
                             .text(text)
-                            .draw_text(bitmap, rect, 1);
+                            .draw_text(
+                                bitmap,
+                                rect.insets_by(EdgeInsets::new(0, left, 0, right)),
+                                1,
+                            );
                     }
                 })
                 .unwrap();
@@ -1486,7 +1526,6 @@ impl RawWindow {
 
         if self.style.contains(WindowStyle::BORDER) {
             if is_thin {
-                // Thin frame
                 if WINDOW_BORDER_WIDTH > 0 {
                     let rect = Rect::from(bitmap.size());
                     bitmap.draw_rect(
@@ -1499,7 +1538,6 @@ impl RawWindow {
                     );
                 }
             } else {
-                // Thick frame
                 let rect = Rect::from(bitmap.size());
                 bitmap.fill_round_rect_outside(rect, WINDOW_CORNER_RADIUS, Color::TRANSPARENT);
                 bitmap.draw_round_rect(
@@ -1517,8 +1555,7 @@ impl RawWindow {
 
     #[inline]
     fn title_background(&self) -> Color {
-        let is_active = self.is_active();
-        if is_active {
+        if self.is_active() {
             self.active_title_color
         } else {
             self.inactive_title_color
@@ -1539,6 +1576,19 @@ impl RawWindow {
             } else {
                 Theme::shared().window_title_inactive_foreground()
             }
+        }
+    }
+
+    #[inline]
+    fn title_shadow_color(&self) -> Color {
+        if self.is_active() {
+            if self.style.contains(WindowStyle::DARK_ACTIVE) {
+                Theme::shared().window_title_active_shadow_dark()
+            } else {
+                Theme::shared().window_title_active_shadow()
+            }
+        } else {
+            Color::TRANSPARENT
         }
     }
 
@@ -2466,7 +2516,7 @@ impl WindowHandle {
         let mut event = TimerEvent::window(*self, timer_id, Timer::new(duration));
         loop {
             if event.is_alive() {
-                match Scheduler::schedule_timer(event) {
+                match event.schedule() {
                     Ok(()) => break,
                     Err(e) => event = e,
                 }

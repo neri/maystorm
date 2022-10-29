@@ -13,21 +13,18 @@ use crate::{
     ui::window::{WindowHandle, WindowMessage},
     *,
 };
-use alloc::{
+use ::alloc::{
     borrow::ToOwned, boxed::Box, collections::btree_map::BTreeMap, string::String, sync::Arc,
     vec::*,
 };
-use bitflags::*;
 use core::{
     cell::UnsafeCell, ffi::c_void, fmt, intrinsics::transmute, num::*, ops::*, sync::atomic::*,
     time::Duration,
 };
 use megstd::string::*;
-use num_derive::FromPrimitive;
-use num_traits::FromPrimitive;
 
-const THRESHOLD_ENTER_FULL: usize = 950;
-const THRESHOLD_LEAVE_FULL: usize = 666;
+const THRESHOLD_ENTER_MAX: usize = 950;
+const THRESHOLD_LEAVE_MAX: usize = 666;
 
 static SCHEDULER_STATE: AtomicEnum<SchedulerState> =
     unsafe { AtomicEnum::from_raw_unchecked(SchedulerState::Disabled.as_raw()) };
@@ -38,7 +35,7 @@ static PROCESS_POOL: ProcessPool = ProcessPool::new();
 /// System Scheduler
 pub struct Scheduler {
     queue_realtime: ThreadQueue,
-    queue_higher: ThreadQueue,
+    queue_urgent: ThreadQueue,
     queue_normal: ThreadQueue,
 
     locals: Box<[Box<LocalScheduler>]>,
@@ -62,8 +59,8 @@ pub enum SchedulerState {
     Disabled = 0,
     /// The scheduler is running.
     Normal,
-    /// The scheduler is running on maximum power.
-    Maximum,
+    /// The scheduler is running at full throttle.
+    FullThrottle,
 }
 
 impl SchedulerState {
@@ -101,7 +98,7 @@ impl Scheduler {
         const SIZE_OF_MAIN_QUEUE: usize = 255;
 
         let queue_realtime = ThreadQueue::with_capacity(SIZE_OF_SUB_QUEUE);
-        let queue_higher = ThreadQueue::with_capacity(SIZE_OF_SUB_QUEUE);
+        let queue_urgent = ThreadQueue::with_capacity(SIZE_OF_SUB_QUEUE);
         let queue_normal = ThreadQueue::with_capacity(SIZE_OF_MAIN_QUEUE);
 
         ProcessPool::shared().add(ProcessContextData::new(
@@ -120,7 +117,7 @@ impl Scheduler {
         unsafe {
             SCHEDULER = Some(Box::new(Self {
                 queue_realtime,
-                queue_higher,
+                queue_urgent,
                 queue_normal,
                 locals: locals.into_boxed_slice(),
                 usage: AtomicUsize::new(0),
@@ -247,7 +244,7 @@ impl Scheduler {
         } else if let Some(next) = shared.queue_realtime.dequeue() {
             LocalScheduler::switch_context(local, next);
         } else if let Some(next) = (priority < Priority::High)
-            .then(|| shared.queue_higher.dequeue())
+            .then(|| shared.queue_urgent.dequeue())
             .flatten()
         {
             LocalScheduler::switch_context(local, next);
@@ -257,7 +254,7 @@ impl Scheduler {
         {
             LocalScheduler::switch_context(local, next);
         } else if current.update(|current| current.quantum.consume()) {
-            if let Some(next) = Scheduler::next(local) {
+            if let Some(next) = local.next_thread() {
                 LocalScheduler::switch_context(local, next);
             }
         }
@@ -273,7 +270,7 @@ impl Scheduler {
                     .as_ref()
                     .sleep_counter
                     .fetch_add(1, Ordering::SeqCst);
-                LocalScheduler::switch_context(local, Scheduler::next(local).unwrap_or(local.idle));
+                LocalScheduler::switch_context(local, local.next_thread().unwrap_or(local.idle));
             });
         }
     }
@@ -283,7 +280,7 @@ impl Scheduler {
             without_interrupts!({
                 let local = Self::local_scheduler().unwrap();
                 local.current_thread().update_statistics();
-                LocalScheduler::switch_context(local, Scheduler::next(local).unwrap_or(local.idle));
+                LocalScheduler::switch_context(local, local.next_thread().unwrap_or(local.idle));
             });
         }
     }
@@ -292,7 +289,7 @@ impl Scheduler {
     #[inline]
     unsafe fn local_scheduler() -> Option<&'static mut Box<LocalScheduler>> {
         match SCHEDULER.as_mut() {
-            Some(sch) => sch.locals.get_mut(Cpu::current_processor_index().0),
+            Some(sch) => sch.locals.get_mut(Hal::cpu().current_processor_index().0),
             None => None,
         }
     }
@@ -302,7 +299,7 @@ impl Scheduler {
         let shared = Self::shared();
         let state = Self::current_state();
         if shared.is_frozen.load(Ordering::SeqCst)
-            || (state != SchedulerState::Maximum
+            || (state != SchedulerState::FullThrottle
                 && System::cpu(index).processor_type() == ProcessorCoreType::Sub)
         {
             true
@@ -312,7 +309,8 @@ impl Scheduler {
     }
 
     /// Get the next executable thread from the thread queue
-    fn next(scheduler: &LocalScheduler) -> Option<ThreadHandle> {
+    #[must_use]
+    fn _next_thread(scheduler: &LocalScheduler) -> Option<ThreadHandle> {
         let shared = Self::shared();
         let index = scheduler.index;
 
@@ -320,7 +318,7 @@ impl Scheduler {
             Some(scheduler.idle)
         } else if let Some(next) = shared.queue_realtime.dequeue() {
             Some(next)
-        } else if let Some(next) = shared.queue_higher.dequeue() {
+        } else if let Some(next) = shared.queue_urgent.dequeue() {
             Some(next)
         } else if let Some(next) = shared.queue_normal.dequeue() {
             Some(next)
@@ -372,7 +370,7 @@ impl Scheduler {
     }
 
     /// Schedule a timer event
-    pub fn schedule_timer(event: TimerEvent) -> Result<(), TimerEvent> {
+    fn _schedule_timer(event: TimerEvent) -> Result<(), TimerEvent> {
         let shared = Self::shared();
         shared
             .timer_queue
@@ -464,14 +462,14 @@ impl Scheduler {
                 SchedulerState::Normal => {
                     if usage_total
                         > (System::current_device().num_of_performance_cpus() - 1) * 1000
-                            + THRESHOLD_ENTER_FULL
+                            + THRESHOLD_ENTER_MAX
                     {
-                        Self::set_current_state(SchedulerState::Maximum);
+                        Self::set_current_state(SchedulerState::FullThrottle);
                     }
                 }
-                SchedulerState::Maximum => {
+                SchedulerState::FullThrottle => {
                     if usage_total
-                        < System::current_device().num_of_performance_cpus() * THRESHOLD_LEAVE_FULL
+                        < System::current_device().num_of_performance_cpus() * THRESHOLD_LEAVE_MAX
                     {
                         Self::set_current_state(SchedulerState::Normal);
                     }
@@ -754,7 +752,13 @@ impl LocalScheduler {
 
     #[inline]
     fn current_irql(&self) -> Irql {
-        FromPrimitive::from_usize(self.irql.load(Ordering::SeqCst)).unwrap_or(Irql::Passive)
+        unsafe { transmute(self.irql.load(Ordering::SeqCst)) }
+    }
+
+    /// Get the next executable thread from the thread queue
+    #[must_use]
+    fn next_thread(&self) -> Option<ThreadHandle> {
+        Scheduler::_next_thread(self)
     }
 
     #[inline]
@@ -920,12 +924,16 @@ impl<T> JoinHandle<T> {
 static mut TIMER_SOURCE: Option<Box<dyn TimerSource>> = None;
 
 pub trait TimerSource {
+    /// Monotonic timer in ms.
     fn monotonic(&self) -> u64;
 
+    /// deprecated
     fn measure(&self) -> TimeSpec;
 
+    /// deprecated
     fn from_duration(&self, val: Duration) -> TimeSpec;
 
+    /// deprecated
     fn into_duration(&self, val: TimeSpec) -> Duration;
 }
 
@@ -1012,7 +1020,7 @@ impl Timer {
             let timer = Timer::new(duration);
             let mut event = TimerEvent::one_shot(timer);
             while timer.is_alive() {
-                match Scheduler::schedule_timer(event) {
+                match event.schedule() {
                     Ok(()) => {
                         Scheduler::sleep();
                         return;
@@ -1033,7 +1041,7 @@ impl Timer {
         let sem = AsyncSemaphore::with_capacity(0, 1);
         let mut event = TimerEvent::async_timer(timer, sem.clone());
         while timer.is_alive() {
-            match Scheduler::schedule_timer(event) {
+            match event.schedule() {
                 Ok(()) => {
                     sem.wait().await;
                     return;
@@ -1101,8 +1109,7 @@ pub struct TimerEvent {
     timer_type: TimerType,
 }
 
-// #[derive(Debug, Copy, Clone)]
-pub enum TimerType {
+enum TimerType {
     Async(Pin<Arc<AsyncSemaphore>>),
     OneShot(ThreadHandle),
     Window(WindowHandle, usize),
@@ -1137,6 +1144,11 @@ impl TimerEvent {
     #[inline]
     pub fn is_alive(&self) -> bool {
         self.timer.is_alive()
+    }
+
+    #[inline]
+    pub fn schedule(self) -> Result<(), Self> {
+        Scheduler::_schedule_timer(self)
     }
 
     pub fn fire(self) {
@@ -1548,17 +1560,17 @@ struct ThreadContextData {
     name: Sb255,
 }
 
-bitflags! {
-    #[derive(Debug, Clone, Copy)]
-    struct ThreadAttribute: u64 {
-        const QUEUED    = 0b0000_0000_0000_0001;
-        const ZOMBIE    = 0b0000_0000_0000_1000;
-    }
+#[derive(Debug, Clone, Copy)]
+struct ThreadAttribute(usize);
+
+impl ThreadAttribute {
+    const QUEUED: Self = Self(0b0000_0000_0000_0001);
+    const ZOMBIE: Self = Self(0b0000_0000_0000_1000);
 }
 
 impl Into<usize> for ThreadAttribute {
     fn into(self) -> usize {
-        self.bits() as usize
+        self.0
     }
 }
 
@@ -1683,8 +1695,9 @@ impl ThreadQueue {
 }
 
 /// Interrupt Request Level
+#[repr(usize)]
 #[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Irql {
     Passive = 0,
     Apc,

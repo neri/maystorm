@@ -48,6 +48,16 @@ impl AttributedString<'_> {
     }
 
     #[inline]
+    pub fn shadow_color(&self) -> Color {
+        self.attributes.shadow_color
+    }
+
+    #[inline]
+    pub fn shadow_offset(&self) -> Movement {
+        self.attributes.shadow_offset
+    }
+
+    #[inline]
     pub fn bounding_size(&self, size: Size, max_lines: usize) -> Size {
         TextProcessing::bounding_size(
             self.font(),
@@ -70,6 +80,8 @@ impl AttributedString<'_> {
             self.line_break_mode(),
             self.align(),
             self.valign(),
+            self.shadow_color(),
+            self.shadow_offset(),
         );
     }
 }
@@ -80,6 +92,8 @@ pub struct AttributeSet {
     line_break_mode: LineBreakMode,
     align: TextAlignment,
     valign: VerticalAlignment,
+    shadow_color: Color,
+    shadow_offset: Movement,
 }
 
 impl AttributeSet {
@@ -91,6 +105,8 @@ impl AttributeSet {
             line_break_mode: LineBreakMode::default(),
             align: TextAlignment::Leading,
             valign: VerticalAlignment::Center,
+            shadow_color: Color::TRANSPARENT,
+            shadow_offset: Movement::default(),
         }
     }
 
@@ -103,8 +119,8 @@ impl AttributeSet {
     }
 
     #[inline]
-    pub fn font(mut self, font: FontDescriptor) -> Self {
-        self.font = font;
+    pub fn font(mut self, font: &FontDescriptor) -> Self {
+        self.font = font.clone();
         self
     }
 
@@ -204,6 +220,13 @@ impl AttributeSet {
     pub fn bottom_right(mut self) -> Self {
         self.valign = VerticalAlignment::Bottom;
         self.align = TextAlignment::Right;
+        self
+    }
+
+    #[inline]
+    pub fn shadow(mut self, color: Color, offset: Movement) -> Self {
+        self.shadow_color = color;
+        self.shadow_offset = offset;
         self
     }
 }
@@ -369,6 +392,8 @@ impl TextProcessing {
         line_break: LineBreakMode,
         align: TextAlignment,
         valign: VerticalAlignment,
+        shadow_color: Color,
+        shadow_offset: Movement,
     ) {
         let coords = match Coordinates::from_rect(rect) {
             Ok(v) => v,
@@ -427,6 +452,10 @@ impl TextProcessing {
                     //     Color::LIGHT_BLUE,
                     // );
                     // bitmap.draw_vline(cursor, line.height, Color::LIGHT_RED);
+
+                    if !shadow_color.is_transparent() && !shadow_offset.is_zero() {
+                        font.draw_char(c, bitmap, cursor + shadow_offset, shadow_color);
+                    }
 
                     font.draw_char(c, bitmap, cursor, color);
                     cursor.x += font_width;

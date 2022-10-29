@@ -59,7 +59,7 @@ impl UserEnv {
                 None => return,
             };
             AttributedString::new()
-                .font(font)
+                .font(&font)
                 .color(Color::LIGHT_GRAY)
                 .middle_center()
                 .text("Shutting down...")
@@ -116,7 +116,7 @@ async fn slpash_task(f: fn()) {
             None => return,
         };
         AttributedString::new()
-            .font(font)
+            .font(&font)
             .color(Color::LIGHT_GRAY)
             .middle_center()
             .text("Starting up...")
@@ -266,7 +266,7 @@ async fn status_bar_main() {
 
                 if sb0 != sb1 {
                     let ats = AttributedString::new()
-                        .font(font)
+                        .font(&font)
                         .color(fg_color)
                         .middle_center()
                         .text(sb0.as_str());
@@ -534,7 +534,7 @@ async fn activity_monitor_main() {
                                 .bounds()
                                 .insets_by(EdgeInsets::new(38, spacing, 4, spacing));
                             AttributedString::new()
-                                .font(font)
+                                .font(&font)
                                 .color(fg_color)
                                 .valign(VerticalAlignment::Top)
                                 .text(sb.as_str())
@@ -633,7 +633,7 @@ async fn _notification_task() {
                             let rect2 = rect.insets_by(EdgeInsets::new(0, left_margin, 0, 0));
                             let ats = AttributedString::new()
                                 .font(
-                                    FontDescriptor::new(FontFamily::SansSerif, 14)
+                                    &FontDescriptor::new(FontFamily::SansSerif, 14)
                                         .unwrap_or(FontManager::ui_font()),
                                 )
                                 .color(fg_color)
@@ -707,7 +707,7 @@ async fn test_window_main() {
                     let rect = bitmap.bounds();
                     bitmap.fill_rect(rect, Color::LIGHT_BLUE);
                     AttributedString::new()
-                        .font(FontDescriptor::new(FontFamily::SansSerif, 32).unwrap())
+                        .font(&FontDescriptor::new(FontFamily::SansSerif, 32).unwrap())
                         .middle_center()
                         .color(Color::WHITE)
                         .text("ようこそ MYOS!")
@@ -759,7 +759,7 @@ async fn test_window_main() {
                     //     Theme::shared().button_default_border(),
                     // );
                     AttributedString::new()
-                        .font(font)
+                        .font(&font)
                         .middle_center()
                         .color(Theme::shared().button_default_foreground())
                         .text("Ok")
@@ -788,7 +788,7 @@ async fn test_window_main() {
                     //     Theme::shared().button_destructive_border(),
                     // );
                     AttributedString::new()
-                        .font(font)
+                        .font(&font)
                         .middle_center()
                         .color(Theme::shared().button_destructive_foreground())
                         .text("Cancel")
@@ -826,7 +826,7 @@ fn font_test(
     let rect = Rect::new(0, offset, bitmap.width() as isize, isize::MAX);
 
     let ats = AttributedString::new()
-        .font(font)
+        .font(&font)
         .top_left()
         .color(color)
         .line_break_mode(LineBreakMode::NoWrap)

@@ -1,6 +1,6 @@
 // System Management BIOS
 
-use crate::arch::page::PhysicalAddress;
+use crate::*;
 use alloc::{
     boxed::Box,
     string::{String, ToString},

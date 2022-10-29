@@ -1,8 +1,8 @@
 use crate::{fs::FileManager, *};
 use ab_glyph::{self, Font as AbFont};
-use alloc::{boxed::Box, collections::BTreeMap, vec::*};
+use alloc::collections::BTreeMap;
 use core::{cell::UnsafeCell, mem::MaybeUninit};
-use megstd::{drawing::*, io::Read};
+use megstd::{drawing::*, io::Read, Arc, Vec};
 
 #[allow(dead_code)]
 mod embedded {
@@ -21,7 +21,7 @@ const SMALL_FONT: FixedFontDriver = FixedFontDriver::new(6, 8, &embedded::FONT_M
 static mut FONT_MANAGER: UnsafeCell<FontManager> = UnsafeCell::new(FontManager::new());
 
 pub struct FontManager {
-    fonts: BTreeMap<FontFamily, Box<dyn FontDriver>>,
+    fonts: BTreeMap<FontFamily, Arc<dyn FontDriver>>,
     monospace_font: MaybeUninit<FontDescriptor>,
     title_font: MaybeUninit<FontDescriptor>,
     ui_font: MaybeUninit<FontDescriptor>,
@@ -54,28 +54,28 @@ impl FontManager {
 
         let fonts = &mut shared.fonts;
 
-        fonts.insert(FontFamily::FixedSystem, Box::new(SYSTEM_FONT));
-        fonts.insert(FontFamily::SmallFixed, Box::new(SMALL_FONT));
-        fonts.insert(FontFamily::Terminal, Box::new(TERMINAL_FONT));
+        fonts.insert(FontFamily::FixedSystem, Arc::new(SYSTEM_FONT));
+        fonts.insert(FontFamily::SmallFixed, Arc::new(SMALL_FONT));
+        fonts.insert(FontFamily::Terminal, Arc::new(TERMINAL_FONT));
 
         if let Ok(mut file) = FileManager::open("/megos/fonts/mono.ttf") {
             let mut data = Vec::new();
             file.read_to_end(&mut data).unwrap();
-            let font = Box::new(TrueTypeFont::new(data).unwrap());
+            let font = Arc::new(TrueTypeFont::new(data).unwrap());
             fonts.insert(FontFamily::Monospace, font);
         }
 
         if let Ok(mut file) = FileManager::open("/megos/fonts/sans.ttf") {
             let mut data = Vec::new();
             file.read_to_end(&mut data).unwrap();
-            let font = Box::new(TrueTypeFont::new(data).unwrap());
+            let font = Arc::new(TrueTypeFont::new(data).unwrap());
             fonts.insert(FontFamily::SansSerif, font);
         }
 
         if let Ok(mut file) = FileManager::open("/megos/fonts/serif.ttf") {
             let mut data = Vec::new();
             file.read_to_end(&mut data).unwrap();
-            let font = Box::new(TrueTypeFont::new(data).unwrap());
+            let font = Arc::new(TrueTypeFont::new(data).unwrap());
             fonts.insert(FontFamily::Serif, font);
         }
 
@@ -93,9 +93,9 @@ impl FontManager {
             .write(FontDescriptor::new(FontFamily::SansSerif, 16).unwrap_or(Self::ui_font()));
     }
 
-    fn driver_for(family: FontFamily) -> Option<&'static dyn FontDriver> {
+    fn driver_for(family: FontFamily) -> Option<Arc<dyn FontDriver>> {
         let shared = Self::shared();
-        shared.fonts.get(&family).map(|v| v.as_ref())
+        shared.fonts.get(&family).map(|v| v.clone())
     }
 
     #[inline]
@@ -110,19 +110,19 @@ impl FontManager {
 
     #[inline]
     pub fn monospace_font() -> FontDescriptor {
-        unsafe { Self::shared().monospace_font.assume_init() }
+        unsafe { Self::shared().monospace_font.assume_init_ref().clone() }
     }
 
     #[inline]
     #[track_caller]
     pub fn ui_font() -> FontDescriptor {
-        unsafe { Self::shared().ui_font.assume_init() }
+        unsafe { Self::shared().ui_font.assume_init_ref().clone() }
     }
 
     #[inline]
     #[track_caller]
     pub fn title_font() -> FontDescriptor {
-        unsafe { Self::shared().title_font.assume_init() }
+        unsafe { Self::shared().title_font.assume_init_ref().clone() }
     }
 }
 
@@ -138,9 +138,9 @@ pub enum FontFamily {
     SmallFixed,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct FontDescriptor {
-    driver: &'static dyn FontDriver,
+    driver: Arc<dyn FontDriver>,
     point: i32,
     line_height: i32,
     em_width: i32,
@@ -151,7 +151,7 @@ impl FontDescriptor {
         FontManager::driver_for(family).map(|driver| {
             if driver.is_scalable() {
                 Self {
-                    driver,
+                    driver: driver.clone(),
                     point: point as i32,
                     line_height: ((driver.preferred_line_height() * point
                         + driver.base_height() / 2)
@@ -161,7 +161,7 @@ impl FontDescriptor {
                 }
             } else {
                 Self {
-                    driver,
+                    driver: driver.clone(),
                     point: driver.base_height() as i32,
                     line_height: driver.preferred_line_height() as i32,
                     em_width: driver.width_of('M') as i32,

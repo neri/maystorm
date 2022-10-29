@@ -81,7 +81,7 @@ macro_rules! log {
     };
 }
 
-static mut PANIC_GLOBAL_LOCK: Spinlock = Spinlock::new();
+static PANIC_GLOBAL_LOCK: Spinlock = Spinlock::new();
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {

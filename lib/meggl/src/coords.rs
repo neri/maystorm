@@ -1,4 +1,5 @@
 use core::{convert::TryFrom, mem::swap, ops::*};
+pub use num_traits::Zero;
 
 pub type FloatType = f64;
 
@@ -175,13 +176,20 @@ impl Movement {
     }
 
     #[inline]
-    pub const fn is_zero(&self) -> bool {
-        self.x == 0 && self.y == 0
+    pub const fn distance2(&self) -> Distance2 {
+        Distance2((self.x * self.x + self.y * self.y) as usize)
+    }
+}
+
+impl Zero for Movement {
+    #[inline]
+    fn zero() -> Self {
+        Self { x: 0, y: 0 }
     }
 
     #[inline]
-    pub const fn distance2(&self) -> Distance2 {
-        Distance2((self.x * self.x + self.y * self.y) as usize)
+    fn is_zero(&self) -> bool {
+        self.x == 0 && self.y == 0
     }
 }
 
@@ -378,6 +386,21 @@ impl Size {
             width: self.height,
             height: self.width,
         }
+    }
+}
+
+impl Zero for Size {
+    #[inline]
+    fn zero() -> Self {
+        Self {
+            width: 0,
+            height: 0,
+        }
+    }
+
+    #[inline]
+    fn is_zero(&self) -> bool {
+        self.width == 0 && self.height == 0
     }
 }
 

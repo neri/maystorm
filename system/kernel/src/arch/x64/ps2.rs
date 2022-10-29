@@ -93,7 +93,7 @@ impl Ps2 {
     }
 
     fn wait_for_write(timeout: u64) -> Result<(), Ps2Error> {
-        let mut spin_loop = Hal::spin_loop();
+        let mut spin_loop = Hal::spin_wait();
         let deadline = Timer::new(Duration::from_micros(Self::WRITE_TIMEOUT * timeout));
         while deadline.is_alive() {
             if Self::read_status().contains(Ps2Status::INPUT_FULL) {
@@ -106,7 +106,7 @@ impl Ps2 {
     }
 
     fn wait_for_read(timeout: u64) -> Result<(), Ps2Error> {
-        let mut spin_loop = Hal::spin_loop();
+        let mut spin_loop = Hal::spin_wait();
         let deadline = Timer::new(Duration::from_micros(timeout * Self::READ_TIMEOUT));
         while deadline.is_alive() {
             if Self::read_status().contains(Ps2Status::OUTPUT_FULL) {

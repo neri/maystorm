@@ -7,7 +7,6 @@ use crate::{
     io::audio::{AudioContext, FreqType, NoteControl, OscType},
     mem::MemoryManager,
     ui::window::*,
-    *,
 };
 use alloc::{boxed::Box, sync::Arc};
 use core::{alloc::Layout, slice, str, time::Duration};
@@ -614,7 +613,7 @@ impl HrbBinaryLoader {
             .get::<Hoe>()
             .unwrap();
         unsafe {
-            RuntimeEnvironment::invoke_legacy(&hoe.context);
+            crate::arch::cpu::Cpu::invoke_legacy(&hoe.context);
         }
     }
 }

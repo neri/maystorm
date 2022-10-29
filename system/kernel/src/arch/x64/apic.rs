@@ -1,6 +1,6 @@
 //! Advanced Programmable Interrupt Controller
 
-use super::{cpu::*, hpet::*, page::PageManager, page::PhysicalAddress};
+use super::{cpu::*, hpet::*, page::PageManager};
 use crate::{
     mem::mmio::*,
     mem::*,
@@ -46,14 +46,14 @@ type FnPrepareSipi =
     extern "C" fn(max_cpu: usize, stacks: *const *mut u8, start_ap: unsafe extern "C" fn());
 
 static AP_STALLED: AtomicBool = AtomicBool::new(true);
-static AP_BOOTED: AtomicBool = AtomicBool::new(false);
+static AP_BOOT_OK: AtomicBool = AtomicBool::new(false);
 
 #[no_mangle]
 unsafe extern "C" fn apic_start_ap() {
     let apic_id = LocalApic::init_ap();
     System::activate_cpu(Cpu::new(apic_id));
 
-    AP_BOOTED.store(true, Ordering::SeqCst);
+    AP_BOOT_OK.store(true, Ordering::SeqCst);
 
     // Waiting for TSC synchonization
     while AP_STALLED.load(Ordering::Relaxed) {
@@ -204,8 +204,8 @@ impl Apic {
 
         // Start SMP
         let sipi_vec = InterruptVector(MemoryManager::static_alloc_real().unwrap().get());
-        let cpus = lapics.collect::<Vec<_>>();
-        let max_cpu = usize::min(1 + cpus.len(), MAX_CPU);
+        let lapics = lapics.collect::<Vec<_>>();
+        let max_cpu = usize::min(1 + lapics.len(), MAX_CPU);
 
         let mut idle_stacks = Vec::with_capacity(max_cpu);
         idle_stacks.push(null_mut());
@@ -222,7 +222,7 @@ impl Apic {
         prepare_sipi(max_cpu, idle_stacks.as_ptr(), apic_start_ap);
 
         // start Application Processors
-        for (_index, cpu) in cpus.iter().enumerate() {
+        for (_index, lapic) in lapics.iter().enumerate() {
             // log!(
             //     "CPU #{} {:02x} {:02x} {:?}",
             //     _index,
@@ -231,21 +231,21 @@ impl Apic {
             //     cpu.status(),
             // );
 
-            let apic_id = ApicId(cpu.apic_id());
+            let apic_id = ApicId(lapic.apic_id());
             LocalApic::send_init_ipi(apic_id);
             Timer::new(Duration::from_millis(10)).repeat_until(|| Hal::cpu().wait_for_interrupt());
 
-            AP_BOOTED.store(false, Ordering::SeqCst);
+            AP_BOOT_OK.store(false, Ordering::SeqCst);
             LocalApic::send_startup_ipi(apic_id, sipi_vec);
             let deadline = Timer::new(Duration::from_millis(100));
-            let mut wait = Hal::spin_loop();
+            let mut wait = Hal::spin_wait();
             while deadline.is_alive() {
-                if AP_BOOTED.load(Ordering::SeqCst) {
+                if AP_BOOT_OK.load(Ordering::SeqCst) {
                     break;
                 }
                 wait.wait();
             }
-            if !AP_BOOTED.load(Ordering::SeqCst) {
+            if !AP_BOOT_OK.load(Ordering::SeqCst) {
                 panic!("SMP: Some application processors are not responding");
             }
 
@@ -258,14 +258,6 @@ impl Apic {
             let cpu = System::cpu(ProcessorIndex(index));
             CURRENT_PROCESSOR_INDEXES[cpu.apic_id().0 as usize] = cpu.cpu_index.0 as u8;
         }
-
-        System::set_processor_system_type(if System::current_device().num_of_active_cpus() == 1 {
-            ProcessorSystemType::UP
-        } else if Cpu::has_smt() {
-            ProcessorSystemType::SMT
-        } else {
-            ProcessorSystemType::SMP
-        });
 
         AP_STALLED.store(false, Ordering::SeqCst);
         System::cpu_mut(ProcessorIndex(0)).set_tsc_base(Cpu::rdtsc());
@@ -384,13 +376,13 @@ impl Apic {
                 }
                 shared.tlb_flush_bitmap.store(
                     (((1 as AffinityBits) << max_cpu) - 1)
-                        & !((1 as AffinityBits) << Cpu::current_processor_index().0),
+                        & !((1 as AffinityBits) << Hal::cpu().current_processor_index().0),
                     Ordering::SeqCst,
                 );
 
                 LocalApic::broadcast_ipi(InterruptVector::IPI_INVALIDATE_TLB);
 
-                let mut hint = Hal::spin_loop();
+                let mut hint = Hal::spin_wait();
                 let deadline = Timer::new(Duration::from_millis(200));
                 while deadline.is_alive() {
                     if shared.tlb_flush_bitmap.load(Ordering::Relaxed) == 0 {
@@ -452,8 +444,10 @@ unsafe extern "x86-interrupt" fn ipi_schedule_handler() {
 unsafe extern "x86-interrupt" fn ipi_tlb_flush_handler() {
     let shared = Apic::shared();
     PageManager::invalidate_all_pages();
-    Hal::cpu()
-        .interlocked_test_and_clear(&shared.tlb_flush_bitmap, Cpu::current_processor_index().0);
+    Hal::cpu().interlocked_test_and_clear(
+        &shared.tlb_flush_bitmap,
+        Hal::cpu().current_processor_index().0,
+    );
     LocalApic::eoi();
 }
 
@@ -645,7 +639,7 @@ impl ApicDestinationShorthand {
     }
 }
 
-static mut LOCAL_APIC_PA: PhysicalAddress = PhysicalAddress::NULL;
+static LOCAL_APIC_PA: AtomicU64 = AtomicU64::new(0);
 static mut LOCAL_APIC: Option<UnsafeCell<MmioSlice>> = None;
 
 #[allow(dead_code)]
@@ -674,17 +668,19 @@ impl LocalApic {
 
     #[inline]
     unsafe fn init(base: PhysicalAddress) {
-        LOCAL_APIC_PA = base;
+        check_once_call!();
+
+        LOCAL_APIC_PA.store(base.as_u64(), Ordering::SeqCst);
         LOCAL_APIC = MmioSlice::from_phys(base, 0x1000).map(|v| UnsafeCell::new(v));
 
-        MSR::APIC_BASE.write(
-            LOCAL_APIC_PA.as_u64() | Self::IA32_APIC_BASE_MSR_ENABLE | Self::IA32_APIC_BASE_MSR_BSP,
-        );
+        MSR::APIC_BASE
+            .write(base.as_u64() | Self::IA32_APIC_BASE_MSR_ENABLE | Self::IA32_APIC_BASE_MSR_BSP);
     }
 
     unsafe fn init_ap() -> ApicId {
         let shared = Apic::shared();
-        MSR::APIC_BASE.write(LOCAL_APIC_PA.as_u64() | Self::IA32_APIC_BASE_MSR_ENABLE);
+        MSR::APIC_BASE
+            .write(LOCAL_APIC_PA.load(Ordering::Relaxed) | Self::IA32_APIC_BASE_MSR_ENABLE);
 
         let apicid = LocalApic::current_processor_id();
 

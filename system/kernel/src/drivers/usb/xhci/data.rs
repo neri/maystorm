@@ -1,6 +1,6 @@
 //! xHC Data Structures
 
-use crate::{drivers::usb::*, mem::PhysicalAddress};
+use crate::{drivers::usb::*, *};
 use core::{mem::transmute, num::NonZeroU8, sync::atomic::*};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;

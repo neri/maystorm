@@ -4,14 +4,17 @@ pub mod hal {
         arch::{
             apic::Apic,
             cpu::{Cpu, Rflags},
+            page::PageManager,
         },
         drivers::pci::PciConfigAddress,
         hal::*,
+        system::ProcessorIndex,
         task::scheduler::Scheduler,
         *,
     };
     use core::{
         arch::asm,
+        fmt,
         sync::atomic::{AtomicBool, AtomicUsize, Ordering},
     };
 
@@ -29,7 +32,7 @@ pub mod hal {
         }
 
         #[inline]
-        fn spin_loop() -> impl HalSpinLoopWait {
+        fn spin_wait() -> impl HalSpinLoopWait {
             SpinLoopWait::new()
         }
     }
@@ -37,6 +40,11 @@ pub mod hal {
     struct CpuImpl;
 
     impl HalCpu for CpuImpl {
+        #[inline]
+        fn current_processor_index(&self) -> ProcessorIndex {
+            ProcessorIndex(unsafe { Cpu::rdtscp().1 } as usize)
+        }
+
         #[inline]
         fn no_op(&self) {
             unsafe {
@@ -73,34 +81,36 @@ pub mod hal {
 
                 Cpu::out8(0x0CF9, 0x06);
                 asm!("out 0x92, al", in("al") 0x01 as u8, options(nomem, nostack));
-            }
 
-            self.stop();
+                loop {
+                    asm!("hlt", options(nomem, nostack));
+                }
+            }
         }
 
         #[inline]
-        fn interlocked_test_and_set(&self, p: &AtomicUsize, position: usize) -> bool {
+        fn interlocked_test_and_set(&self, ptr: &AtomicUsize, position: usize) -> bool {
             unsafe {
-                let p = p as *const _ as *mut usize;
-                let r: usize;
+                let ptr = ptr as *const _ as *mut usize;
+                let result: usize;
                 asm!("
                     lock bts [{0}], {1}
                     sbb {2}, {2}
-                    ", in(reg) p, in(reg) position, lateout(reg) r);
-                r != 0
+                    ", in(reg) ptr, in(reg) position, lateout(reg) result);
+                result != 0
             }
         }
 
         #[inline]
-        fn interlocked_test_and_clear(&self, p: &AtomicUsize, position: usize) -> bool {
+        fn interlocked_test_and_clear(&self, ptr: &AtomicUsize, position: usize) -> bool {
             unsafe {
-                let p = p as *const _ as *mut usize;
-                let r: usize;
+                let ptr = ptr as *const _ as *mut usize;
+                let result: usize;
                 asm!("
                     lock btr [{0}], {1}
                     sbb {2}, {2}
-                    ", in(reg) p, in(reg) position, lateout(reg) r);
-                r != 0
+                    ", in(reg) ptr, in(reg) position, lateout(reg) result);
+                result != 0
             }
         }
 
@@ -118,6 +128,10 @@ pub mod hal {
 
     #[must_use]
     pub struct InterruptGuard(u64);
+
+    impl !Send for InterruptGuard {}
+
+    impl !Sync for InterruptGuard {}
 
     impl Drop for InterruptGuard {
         fn drop(&mut self) {
@@ -165,7 +179,6 @@ pub mod hal {
         }
     }
 
-    #[derive(Default)]
     pub struct Spinlock {
         value: AtomicBool,
     }
@@ -180,10 +193,12 @@ pub mod hal {
                 value: AtomicBool::new(Self::UNLOCKED_VALUE),
             }
         }
+    }
 
+    impl HalSpinlock for Spinlock {
         #[inline]
         #[must_use]
-        pub fn try_lock(&self) -> bool {
+        fn try_lock(&self) -> bool {
             self.value
                 .compare_exchange(
                     Self::UNLOCKED_VALUE,
@@ -194,7 +209,7 @@ pub mod hal {
                 .is_ok()
         }
 
-        pub fn lock(&self) {
+        fn lock(&self) {
             while self
                 .value
                 .compare_exchange(
@@ -206,28 +221,15 @@ pub mod hal {
                 .is_err()
             {
                 let mut spin_loop = SpinLoopWait::new();
-                while self.value.load(Ordering::Relaxed) {
+                while self.value.load(Ordering::Acquire) {
                     spin_loop.wait();
                 }
             }
         }
 
         #[inline]
-        pub unsafe fn force_unlock(&self) {
+        unsafe fn force_unlock(&self) {
             self.value.store(Self::UNLOCKED_VALUE, Ordering::Release);
-        }
-
-        #[inline]
-        pub fn synchronized<F, R>(&self, f: F) -> R
-        where
-            F: FnOnce() -> R,
-        {
-            self.lock();
-            let result = f();
-            unsafe {
-                self.force_unlock();
-            }
-            result
         }
     }
 
@@ -254,6 +256,20 @@ pub mod hal {
             if count < 6 {
                 self.0 += 1;
             }
+        }
+    }
+
+    impl PhysicalAddress {
+        /// Gets the pointer corresponding to the specified physical address.
+        #[inline]
+        pub const fn direct_map<T>(&self) -> *mut T {
+            PageManager::direct_map(*self) as *mut T
+        }
+    }
+
+    impl fmt::Debug for PhysicalAddress {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "{:012x}", self.as_u64())
         }
     }
 }

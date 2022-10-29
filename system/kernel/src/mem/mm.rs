@@ -21,8 +21,6 @@ use core::{
     sync::atomic::*,
 };
 
-pub use crate::arch::page::{NonNullPhysicalAddress, PhysicalAddress};
-
 static mut MM: UnsafeCell<MemoryManager> = UnsafeCell::new(MemoryManager::new());
 
 static LAST_ALLOC_PTR: AtomicUsize = AtomicUsize::new(0);

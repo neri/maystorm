@@ -97,6 +97,7 @@ dependencies = [
  "bitflags 2.0.0-rc.1",
  "bootprot",
  "byteorder",
+ "cfg-if",
  "futures-util",
  "libm",
  "megstd",

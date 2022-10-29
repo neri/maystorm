@@ -1,5 +1,5 @@
 use super::install_drivers;
-use crate::{mem::PhysicalAddress, sync::RwLock, system::System, *};
+use crate::{sync::RwLock, system::System, *};
 use alloc::{
     boxed::Box,
     collections::{btree_map::Values, BTreeMap},
