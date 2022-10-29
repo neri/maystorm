@@ -283,7 +283,7 @@ impl MemoryManager {
         let max_real = 0xA0;
         let shared = Self::shared();
         for i in 1..max_real {
-            let result = Hal::cpu().interlocked_test_and_clear(
+            let result = Hal::sync().test_and_clear(
                 &*(&shared.real_bitmap[0] as *const _ as *const AtomicUsize),
                 i,
             );

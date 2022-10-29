@@ -1,6 +1,6 @@
-/// Retro Game Framework v1
+/// Retro Game Framework v0
 pub use crate::drawing::*;
-pub use crate::game::v1::{self, GamePresenter};
+pub use crate::game::v0::{self, GamePresenter};
 
 // use crate::window;
 use core::cell::UnsafeCell;
@@ -8,15 +8,15 @@ use core::marker::PhantomData;
 
 pub struct GameWindow;
 
-static mut SCREEN: UnsafeCell<v1::Screen> = UnsafeCell::new(v1::Screen::new());
+static mut SCREEN: UnsafeCell<v0::Screen> = UnsafeCell::new(v0::Screen::new());
 
 pub struct GamePresenterImpl {
     _phantom: PhantomData<()>,
 }
 
-impl v1::GamePresenter for GamePresenterImpl {
+impl v0::GamePresenter for GamePresenterImpl {
     #[inline]
-    fn screen<'a>(&'a self) -> &'a mut v1::Screen {
+    fn screen<'a>(&'a self) -> &'a mut v0::Screen {
         unsafe { &mut *SCREEN.get() }
     }
 
@@ -41,12 +41,12 @@ impl v1::GamePresenter for GamePresenterImpl {
     }
 
     #[inline]
-    fn move_sprite(&self, _index: v1::SpriteIndex, _origin: Point) {
+    fn move_sprite(&self, _index: v0::SpriteIndex, _origin: Point) {
         todo!()
     }
 
     #[inline]
-    fn load_font(&self, _start_index: v1::TileIndex, _start_char: u8, _end_char: u8) {
+    fn load_font(&self, _start_index: v0::TileIndex, _start_char: u8, _end_char: u8) {
         todo!()
     }
 }

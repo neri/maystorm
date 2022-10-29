@@ -11,6 +11,8 @@ pub use crate::arch::hal::{Hal, InterruptGuard, Spinlock};
 pub trait HalTrait {
     fn cpu() -> impl HalCpu;
 
+    fn sync() -> impl HalSync;
+
     fn pci() -> impl HalPci;
 
     fn spin_wait() -> impl HalSpinLoopWait;
@@ -41,40 +43,42 @@ pub trait HalCpu {
         }
     }
 
+    #[must_use]
+    unsafe fn interrupt_guard(&self) -> InterruptGuard;
+}
+
+pub trait HalSync {
     #[inline]
-    fn interlocked_increment(&self, ptr: &AtomicUsize) -> usize {
+    fn fetch_inc(&self, ptr: &AtomicUsize) -> usize {
         ptr.fetch_add(1, Ordering::SeqCst)
     }
 
     #[inline]
-    fn interlocked_compare_and_swap(
-        &self,
-        ptr: &AtomicUsize,
-        current: usize,
-        new: usize,
-    ) -> (bool, usize) {
+    fn compare_and_swap(&self, ptr: &AtomicUsize, current: usize, new: usize) -> (bool, usize) {
         match ptr.compare_exchange(current, new, Ordering::SeqCst, Ordering::Relaxed) {
             Ok(v) => (true, v),
             Err(v) => (false, v),
         }
     }
 
-    fn interlocked_fetch_update<F>(&self, ptr: &AtomicUsize, f: F) -> Result<usize, usize>
+    #[inline]
+    fn fetch_update<F>(&self, ptr: &AtomicUsize, f: F) -> Result<usize, usize>
     where
         F: FnMut(usize) -> Option<usize>,
     {
         ptr.fetch_update(Ordering::SeqCst, Ordering::Relaxed, f)
     }
 
-    fn interlocked_swap(&self, ptr: &AtomicUsize, val: usize) -> usize {
+    #[inline]
+    fn swap(&self, ptr: &AtomicUsize, val: usize) -> usize {
         ptr.swap(val, Ordering::SeqCst)
     }
 
     #[inline]
-    fn interlocked_test_and_set(&self, ptr: &AtomicUsize, position: usize) -> bool {
+    fn test_and_set(&self, ptr: &AtomicUsize, position: usize) -> bool {
         let bit = 1 << position;
         let mut result = false;
-        let _ = self.interlocked_fetch_update(ptr, |data| {
+        let _ = self.fetch_update(ptr, |data| {
             result = (data & bit) != 0;
             Some(data | bit)
         });
@@ -82,18 +86,15 @@ pub trait HalCpu {
     }
 
     #[inline]
-    fn interlocked_test_and_clear(&self, ptr: &AtomicUsize, position: usize) -> bool {
+    fn test_and_clear(&self, ptr: &AtomicUsize, position: usize) -> bool {
         let bit = 1 << position;
         let mut result = false;
-        let _ = self.interlocked_fetch_update(ptr, |data| {
+        let _ = self.fetch_update(ptr, |data| {
             result = (data & bit) != 0;
             Some(data & !bit)
         });
         result
     }
-
-    #[must_use]
-    unsafe fn interrupt_guard(&self) -> InterruptGuard;
 }
 
 pub trait HalPci {

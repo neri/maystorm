@@ -34,8 +34,8 @@ impl Semaphore {
     #[inline]
     #[must_use]
     pub fn try_lock(&self) -> bool {
-        Hal::cpu()
-            .interlocked_fetch_update(&self.value, |v| if v >= 1 { Some(v - 1) } else { None })
+        Hal::sync()
+            .fetch_update(&self.value, |v| if v >= 1 { Some(v - 1) } else { None })
             .is_ok()
     }
 
@@ -56,7 +56,7 @@ impl Semaphore {
 
     #[inline]
     pub fn signal(&self) {
-        let _ = Hal::cpu().interlocked_increment(&self.value);
+        let _ = Hal::sync().fetch_inc(&self.value);
         let _ = self.signal.signal();
     }
 
@@ -155,8 +155,8 @@ impl AsyncSemaphore {
     #[inline]
     #[must_use]
     pub fn try_lock(&self) -> bool {
-        Hal::cpu()
-            .interlocked_fetch_update(&self.value, |v| if v >= 1 { Some(v - 1) } else { None })
+        Hal::sync()
+            .fetch_update(&self.value, |v| if v >= 1 { Some(v - 1) } else { None })
             .is_ok()
     }
 
@@ -186,7 +186,7 @@ impl AsyncSemaphore {
 
     #[inline]
     pub fn signal(&self) {
-        let _ = Hal::cpu().interlocked_increment(&self.value);
+        let _ = Hal::sync().fetch_inc(&self.value);
         if let Some(waker) = self.fifo.dequeue() {
             waker.wake_by_ref();
         }

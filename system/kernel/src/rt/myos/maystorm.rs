@@ -13,7 +13,7 @@ use core::{
 };
 use megstd::{
     drawing::*,
-    game::v1,
+    game::v0,
     io::{Read, Write},
     rand::*,
 };
@@ -386,7 +386,7 @@ impl MyosRuntime {
                 ));
             }
 
-            Function::GameV1Init => {
+            Function::GameV0Init => {
                 let window = params.get_window(self)?;
                 let screen = params.get_usize()?;
                 let fps = params.get_usize().unwrap_or(0);
@@ -398,7 +398,7 @@ impl MyosRuntime {
                     };
                 return Ok(WasmValue::from(1i32));
             }
-            Function::GameV1Sync => {
+            Function::GameV0Sync => {
                 let _handle = params.get_usize()?;
                 let presenter = self
                     .game_presenter
@@ -408,7 +408,7 @@ impl MyosRuntime {
                 self.sense_message(presenter.window);
                 return Ok(WasmValue::from(presenter.sync(memory)));
             }
-            Function::GameV1Rect => {
+            Function::GameV0Rect => {
                 let _handle = params.get_usize()?;
                 let origin = params.get_point()?;
                 let size = params.get_size()?;
@@ -420,7 +420,7 @@ impl MyosRuntime {
                     .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
                 presenter.add_region(rect);
             }
-            Function::GameV1MoveSprite => {
+            Function::GameV0MoveSprite => {
                 let _handle = params.get_usize()?;
                 let index = params.get_usize()?;
                 let x = params.get_usize()?;
@@ -432,13 +432,13 @@ impl MyosRuntime {
                     .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
                 presenter.move_sprite(memory, index, x, y);
             }
-            Function::GameV1Button => {
+            Function::GameV0Button => {
                 let _handle = params.get_usize()?;
                 return Ok(WasmValue::from(
                     GameInputManager::current_input().buttons() as u32
                 ));
             }
-            Function::GameV1LoadFont => {
+            Function::GameV0LoadFont => {
                 let _handle = params.get_usize()?;
                 let start_index = params.get_u32()? as u8;
                 let start_char = params.get_u32()? as u8;
@@ -1221,8 +1221,8 @@ impl OsGamePresenter {
 
         let screen = unsafe { &mut *result.screen(memory).unwrap().get() };
         screen.control_mut().reset();
-        for i in 0..v1::MAX_PALETTES / 4 {
-            if i < v1::MAX_PALETTES / 8 {
+        for i in 0..v0::MAX_PALETTES / 4 {
+            if i < v0::MAX_PALETTES / 8 {
                 screen.set_palette(i * 4, PackedColor::WHITE);
             } else {
                 screen.set_palette(i * 4, PackedColor::TRANSPARENT);
@@ -1232,7 +1232,7 @@ impl OsGamePresenter {
             screen.set_palette(i * 4 + 3, PackedColor::BLACK);
         }
         result.load_font(memory, 0, 0, 0xFF);
-        for i in 0..v1::MAX_SPRITES {
+        for i in 0..v0::MAX_SPRITES {
             screen.set_sprite(i, 0, 0);
         }
 
@@ -1243,7 +1243,7 @@ impl OsGamePresenter {
     unsafe fn screen<'a>(
         &self,
         memory: &'a WasmMemory,
-    ) -> Result<&'a UnsafeCell<v1::Screen>, WasmRuntimeErrorKind> {
+    ) -> Result<&'a UnsafeCell<v0::Screen>, WasmRuntimeErrorKind> {
         memory.transmute(self.screen)
     }
 
@@ -1257,11 +1257,11 @@ impl OsGamePresenter {
         let char_max = 0x80;
         let start_char = u8::max(char_min, start_char);
         let end_char = u8::min(char_max, end_char);
-        let stride = v1::TILE_SIZE as usize;
+        let stride = v0::TILE_SIZE as usize;
         for index in start_char..=end_char {
             let base = (index - char_min) as usize * stride;
             let data8 = unsafe { FONT_MEGG0808_DATA.get_unchecked(base..base + stride) };
-            let mut data = [0u8; v1::TILE_DATA_LEN];
+            let mut data = [0u8; v0::TILE_DATA_LEN];
             for (index, byte) in data8.iter().enumerate() {
                 data[index] = *byte;
                 data[index + stride] = *byte;
@@ -1342,12 +1342,12 @@ impl OsGamePresenter {
             Ok(v) => unsafe { &*v.get() },
             Err(_) => return,
         };
-        let limit_x = self.size.width() / v1::TILE_SIZE;
-        let limit_y = self.size.height() / v1::TILE_SIZE;
-        let min_x = isize::max(0, rect.min_x() / v1::TILE_SIZE);
-        let max_x = isize::min(limit_x, (rect.max_x() + 7) / v1::TILE_SIZE);
-        let min_y = isize::max(0, rect.min_y() / v1::TILE_SIZE);
-        let max_y = isize::min(limit_y, (rect.max_y() + 7) / v1::TILE_SIZE);
+        let limit_x = self.size.width() / v0::TILE_SIZE;
+        let limit_y = self.size.height() / v0::TILE_SIZE;
+        let min_x = isize::max(0, rect.min_x() / v0::TILE_SIZE);
+        let max_x = isize::min(limit_x, (rect.max_x() + 7) / v0::TILE_SIZE);
+        let min_y = isize::max(0, rect.min_y() / v0::TILE_SIZE);
+        let max_y = isize::min(limit_y, (rect.max_y() + 7) / v0::TILE_SIZE);
         if max_x < 0 || min_y < 0 || min_x >= limit_x || min_y >= limit_y {
             return;
         }
@@ -1366,14 +1366,14 @@ impl OsGamePresenter {
             let sy8 = ((sy as u8) >> 3) as isize;
             let min_x = if sx7 != 0 { min_x - 1 } else { min_x };
             let min_y = if sy7 != 0 { min_y - 1 } else { min_y };
-            let hmask = v1::MAX_VWIDTH as isize / v1::TILE_SIZE - 1;
-            let vmask = v1::MAX_VHEIGHT as isize / v1::TILE_SIZE - 1;
+            let hmask = v0::MAX_VWIDTH as isize / v0::TILE_SIZE - 1;
+            let vmask = v0::MAX_VHEIGHT as isize / v0::TILE_SIZE - 1;
 
             for y in min_y..max_y {
                 for x in min_x..max_x {
                     let name = screen.get_name((x - sx8) & hmask, (y - sy8) & vmask);
                     let pattern = screen.get_tile_data(name.index());
-                    let origin = Point::new(x * v1::TILE_SIZE + sx7, y * v1::TILE_SIZE + sy7);
+                    let origin = Point::new(x * v0::TILE_SIZE + sx7, y * v0::TILE_SIZE + sy7);
                     Self::render_tile(bitmap, name.attr(), pattern, origin, screen.palettes());
                 }
             }
@@ -1408,17 +1408,17 @@ impl OsGamePresenter {
                 && (oam_min_y >= rect_min_y && oam_min_y < rect_max_y
                     || oam_max_y >= rect_min_y && oam_max_y < rect_max_y)
             {
-                let base_x = if oam_attr & (v1::OAM_ATTR_W16 | v1::OAM_ATTR_HFLIP)
-                    == (v1::OAM_ATTR_W16 | v1::OAM_ATTR_HFLIP)
+                let base_x = if oam_attr & (v0::OAM_ATTR_W16 | v0::OAM_ATTR_HFLIP)
+                    == (v0::OAM_ATTR_W16 | v0::OAM_ATTR_HFLIP)
                 {
-                    v1::TILE_SIZE
+                    v0::TILE_SIZE
                 } else {
                     0
                 };
-                let base_y = if oam_attr & (v1::OAM_ATTR_H16 | v1::OAM_ATTR_VFLIP)
-                    == (v1::OAM_ATTR_H16 | v1::OAM_ATTR_VFLIP)
+                let base_y = if oam_attr & (v0::OAM_ATTR_H16 | v0::OAM_ATTR_VFLIP)
+                    == (v0::OAM_ATTR_H16 | v0::OAM_ATTR_VFLIP)
                 {
-                    v1::TILE_SIZE
+                    v0::TILE_SIZE
                 } else {
                     0
                 };
@@ -1431,33 +1431,33 @@ impl OsGamePresenter {
                     oam_rect.origin() + Movement::new(base_x, base_y),
                     screen.palettes(),
                 );
-                if (oam_attr & v1::OAM_ATTR_W16) != 0 {
+                if (oam_attr & v0::OAM_ATTR_W16) != 0 {
                     let pattern = screen.get_tile_data(oam.index() | 0x01);
                     Self::render_sprite(
                         bitmap,
                         oam_attr,
                         pattern,
-                        oam_rect.origin() + Movement::new(base_x ^ v1::TILE_SIZE, base_y),
+                        oam_rect.origin() + Movement::new(base_x ^ v0::TILE_SIZE, base_y),
                         screen.palettes(),
                     );
                 }
-                if (oam_attr & v1::OAM_ATTR_H16) != 0 {
+                if (oam_attr & v0::OAM_ATTR_H16) != 0 {
                     let pattern = screen.get_tile_data(oam.index() | 0x10);
                     Self::render_sprite(
                         bitmap,
                         oam_attr,
                         pattern,
-                        oam_rect.origin() + Movement::new(base_x, base_y ^ v1::TILE_SIZE),
+                        oam_rect.origin() + Movement::new(base_x, base_y ^ v0::TILE_SIZE),
                         screen.palettes(),
                     );
-                    if oam_attr & (v1::OAM_ATTR_W16) != 0 {
+                    if oam_attr & (v0::OAM_ATTR_W16) != 0 {
                         let pattern = screen.get_tile_data(oam.index() | 0x11);
                         Self::render_sprite(
                             bitmap,
                             oam_attr,
                             pattern,
                             oam_rect.origin()
-                                + Movement::new(base_x ^ v1::TILE_SIZE, base_y ^ v1::TILE_SIZE),
+                                + Movement::new(base_x ^ v0::TILE_SIZE, base_y ^ v0::TILE_SIZE),
                             screen.palettes(),
                         );
                     }
@@ -1501,24 +1501,24 @@ impl OsGamePresenter {
     fn render_tile(
         bitmap: &mut Bitmap32,
         attr: u8,
-        pattern: &v1::TileData,
+        pattern: &v0::TileData,
         origin: Point,
-        palette: &[v1::PaletteEntry],
+        palette: &[v0::PaletteEntry],
     ) {
-        Self::render_tile_raw(bitmap, attr & v1::TILE_ATTR_MASK, pattern, origin, palette);
+        Self::render_tile_raw(bitmap, attr & v0::TILE_ATTR_MASK, pattern, origin, palette);
     }
 
     #[inline]
     fn render_sprite(
         bitmap: &mut Bitmap32,
         attr: u8,
-        pattern: &v1::TileData,
+        pattern: &v0::TileData,
         origin: Point,
-        palette: &[v1::PaletteEntry],
+        palette: &[v0::PaletteEntry],
     ) {
         Self::render_tile_raw(
             bitmap,
-            (attr & v1::OAM_DRAW_ATTR_MASK) | v1::OAM_PALETTE_BASE,
+            (attr & v0::OAM_DRAW_ATTR_MASK) | v0::OAM_PALETTE_BASE,
             pattern,
             origin,
             palette,
@@ -1528,16 +1528,16 @@ impl OsGamePresenter {
     fn render_tile_raw(
         bitmap: &mut Bitmap32,
         attr: u8,
-        pattern: &v1::TileData,
+        pattern: &v0::TileData,
         origin: Point,
-        palette: &[v1::PaletteEntry],
+        palette: &[v0::PaletteEntry],
     ) {
         let mut dx = origin.x();
         let mut dy = origin.y();
         let mut bx = 0;
         let mut by = 0;
-        let mut dw = v1::TILE_SIZE;
-        let mut dh = v1::TILE_SIZE;
+        let mut dw = v0::TILE_SIZE;
+        let mut dh = v0::TILE_SIZE;
         if dx + dw > bitmap.width() as isize {
             dw = bitmap.width() as isize - dx;
         }
@@ -1556,7 +1556,7 @@ impl OsGamePresenter {
             return;
         }
 
-        let palette_base = ((attr & v1::TILE_ATTR_PAL_MASK) / v1::PALETTE_1) as usize * 4;
+        let palette_base = ((attr & v0::TILE_ATTR_PAL_MASK) / v0::PALETTE_1) as usize * 4;
         let color0 = unsafe { palette.get_unchecked(palette_base + 0) }.into_true_color();
         let color1 = unsafe { palette.get_unchecked(palette_base + 1) }.into_true_color();
         let color2 = unsafe { palette.get_unchecked(palette_base + 2) }.into_true_color();
@@ -1565,13 +1565,13 @@ impl OsGamePresenter {
 
         let delta1 = 1;
         let delta2 = 8;
-        let bit_pattern = if (attr & v1::TILE_ATTR_HFLIP) == 0 {
+        let bit_pattern = if (attr & v0::TILE_ATTR_HFLIP) == 0 {
             0x0102040810204080u64
         } else {
             0x8040201008040201u64
         };
 
-        if (attr & v1::TILE_ATTR_VFLIP) == 0 {
+        if (attr & v0::TILE_ATTR_VFLIP) == 0 {
             let dy = dy - by;
             let dx = dx - bx;
             for y in by as usize..dh as usize {

@@ -1,6 +1,6 @@
-/// Retro Game Framework v1
+/// Retro Game Framework v0
 pub use crate::drawing::*;
-pub use crate::game::v1::{self, GamePresenter};
+pub use crate::game::v0::{self, GamePresenter};
 
 use crate::window;
 use crate::{sys::syscall::*, window::WindowHandle};
@@ -29,7 +29,7 @@ impl GameWindow {
     }
 }
 
-static mut SCREEN: UnsafeCell<v1::Screen> = UnsafeCell::new(v1::Screen::new());
+static mut SCREEN: UnsafeCell<v0::Screen> = UnsafeCell::new(v0::Screen::new());
 
 pub struct GamePresenterImpl {
     game_handle: usize,
@@ -38,48 +38,48 @@ pub struct GamePresenterImpl {
 impl GamePresenterImpl {
     #[inline]
     fn new(window: WindowHandle) -> Self {
-        let game_handle = unsafe { game_v1_init(window.0, SCREEN.get() as *const c_void) };
+        let game_handle = unsafe { game_v0_init(window.0, SCREEN.get() as *const c_void) };
         Self { game_handle }
     }
 
     #[inline]
     fn new_long(window: WindowHandle, fps: usize) -> Self {
         let game_handle =
-            unsafe { game_v1_init_long(window.0, SCREEN.get() as *const c_void, fps) };
+            unsafe { game_v0_init_long(window.0, SCREEN.get() as *const c_void, fps) };
         Self { game_handle }
     }
 }
 
-impl v1::GamePresenter for GamePresenterImpl {
+impl v0::GamePresenter for GamePresenterImpl {
     #[inline]
-    fn screen<'a>(&'a self) -> &'a mut v1::Screen {
+    fn screen<'a>(&'a self) -> &'a mut v0::Screen {
         unsafe { &mut *SCREEN.get() }
     }
 
     #[inline]
     fn buttons(&self) -> u32 {
-        game_v1_button(self.game_handle)
+        game_v0_button(self.game_handle)
     }
 
     #[inline]
     fn sync(&self) -> usize {
-        game_v1_sync(self.game_handle)
+        game_v0_sync(self.game_handle)
     }
 
     #[inline]
     fn set_needs_display(&self) {
-        game_v1_rect(
+        game_v0_rect(
             self.game_handle,
             0,
             0,
-            v1::MAX_WIDTH as usize,
-            v1::MAX_HEIGHT as usize,
+            v0::MAX_WIDTH as usize,
+            v0::MAX_HEIGHT as usize,
         );
     }
 
     #[inline]
     fn invalidate_rect(&self, rect: Rect) {
-        game_v1_rect(
+        game_v0_rect(
             self.game_handle,
             rect.x() as usize,
             rect.y() as usize,
@@ -89,8 +89,8 @@ impl v1::GamePresenter for GamePresenterImpl {
     }
 
     #[inline]
-    fn move_sprite(&self, index: v1::SpriteIndex, origin: Point) {
-        game_v1_move_sprite(
+    fn move_sprite(&self, index: v0::SpriteIndex, origin: Point) {
+        game_v0_move_sprite(
             self.game_handle,
             index as usize,
             origin.x as usize,
@@ -99,8 +99,8 @@ impl v1::GamePresenter for GamePresenterImpl {
     }
 
     #[inline]
-    fn load_font(&self, start_index: v1::TileIndex, start_char: u8, end_char: u8) {
-        game_v1_load_font(
+    fn load_font(&self, start_index: v0::TileIndex, start_char: u8, end_char: u8) {
+        game_v0_load_font(
             self.game_handle,
             start_index as usize,
             start_char as usize,

@@ -27,6 +27,11 @@ pub mod hal {
         }
 
         #[inline]
+        fn sync() -> impl HalSync {
+            SyncImpl
+        }
+
+        #[inline]
         fn pci() -> impl HalPci {
             PciImpl
         }
@@ -89,32 +94,6 @@ pub mod hal {
         }
 
         #[inline]
-        fn interlocked_test_and_set(&self, ptr: &AtomicUsize, position: usize) -> bool {
-            unsafe {
-                let ptr = ptr as *const _ as *mut usize;
-                let result: usize;
-                asm!("
-                    lock bts [{0}], {1}
-                    sbb {2}, {2}
-                    ", in(reg) ptr, in(reg) position, lateout(reg) result);
-                result != 0
-            }
-        }
-
-        #[inline]
-        fn interlocked_test_and_clear(&self, ptr: &AtomicUsize, position: usize) -> bool {
-            unsafe {
-                let ptr = ptr as *const _ as *mut usize;
-                let result: usize;
-                asm!("
-                    lock btr [{0}], {1}
-                    sbb {2}, {2}
-                    ", in(reg) ptr, in(reg) position, lateout(reg) result);
-                result != 0
-            }
-        }
-
-        #[inline]
         unsafe fn interrupt_guard(&self) -> InterruptGuard {
             let mut rax: u64;
             asm!("
@@ -139,6 +118,36 @@ pub mod hal {
                 unsafe {
                     Hal::cpu().enable_interrupt();
                 }
+            }
+        }
+    }
+
+    struct SyncImpl;
+
+    impl HalSync for SyncImpl {
+        #[inline]
+        fn test_and_set(&self, ptr: &AtomicUsize, position: usize) -> bool {
+            unsafe {
+                let ptr = ptr as *const _ as *mut usize;
+                let result: usize;
+                asm!("
+                    lock bts [{0}], {1}
+                    sbb {2}, {2}
+                    ", in(reg) ptr, in(reg) position, lateout(reg) result);
+                result != 0
+            }
+        }
+
+        #[inline]
+        fn test_and_clear(&self, ptr: &AtomicUsize, position: usize) -> bool {
+            unsafe {
+                let ptr = ptr as *const _ as *mut usize;
+                let result: usize;
+                asm!("
+                    lock btr [{0}], {1}
+                    sbb {2}, {2}
+                    ", in(reg) ptr, in(reg) position, lateout(reg) result);
+                result != 0
             }
         }
     }

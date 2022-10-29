@@ -274,37 +274,37 @@ pub fn os_lseek(handle: usize, offset: i32, whence: usize) -> isize {
 
 #[inline]
 #[must_use]
-pub unsafe fn game_v1_init(window: usize, screen: *const c_void) -> usize {
-    syscall!(GameV1Init, window, screen)
+pub unsafe fn game_v0_init(window: usize, screen: *const c_void) -> usize {
+    syscall!(GameV0Init, window, screen)
 }
 
 #[inline]
 #[must_use]
-pub unsafe fn game_v1_init_long(window: usize, screen: *const c_void, fps: usize) -> usize {
-    syscall!(GameV1Init, window, screen, fps)
+pub unsafe fn game_v0_init_long(window: usize, screen: *const c_void, fps: usize) -> usize {
+    syscall!(GameV0Init, window, screen, fps)
 }
 
 #[inline]
-pub fn game_v1_sync(handle: usize) -> usize {
-    unsafe { syscall!(GameV1Sync, handle) }
+pub fn game_v0_sync(handle: usize) -> usize {
+    unsafe { syscall!(GameV0Sync, handle) }
 }
 
 #[inline]
-pub fn game_v1_rect(handle: usize, x: usize, y: usize, width: usize, height: usize) {
-    unsafe { syscall!(GameV1Rect, handle, x, y, width, height) };
+pub fn game_v0_rect(handle: usize, x: usize, y: usize, width: usize, height: usize) {
+    unsafe { syscall!(GameV0Rect, handle, x, y, width, height) };
 }
 
 #[inline]
-pub fn game_v1_move_sprite(handle: usize, index: usize, x: usize, y: usize) {
-    unsafe { syscall!(GameV1MoveSprite, handle, index, x, y) };
+pub fn game_v0_move_sprite(handle: usize, index: usize, x: usize, y: usize) {
+    unsafe { syscall!(GameV0MoveSprite, handle, index, x, y) };
 }
 
 #[inline]
-pub fn game_v1_button(handle: usize) -> u32 {
-    unsafe { syscall!(GameV1Button, handle) as u32 }
+pub fn game_v0_button(handle: usize) -> u32 {
+    unsafe { syscall!(GameV0Button, handle) as u32 }
 }
 
 #[inline]
-pub fn game_v1_load_font(handle: usize, start_index: usize, start_char: usize, end_char: usize) {
-    unsafe { syscall!(GameV1LoadFont, handle, start_index, start_char, end_char) };
+pub fn game_v0_load_font(handle: usize, start_index: usize, start_char: usize, end_char: usize) {
+    unsafe { syscall!(GameV0LoadFont, handle, start_index, start_char, end_char) };
 }

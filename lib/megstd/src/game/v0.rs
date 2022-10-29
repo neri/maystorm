@@ -1,4 +1,4 @@
-//! MEG-OS Game Framework v1
+//! MEG-OS Game Framework v0
 //!
 //! This framework provides functionality similar to the screen display of retro games.
 //!
@@ -58,7 +58,7 @@ pub const PALETTE_7: u8 = 7;
 
 #[cfg(feature = "game")]
 pub mod prelude {
-    pub use crate::sys::game_v1_imp::*;
+    pub use crate::sys::game_v0_imp::*;
 }
 
 /// An object that mimics the screen of a retro game.

@@ -77,12 +77,12 @@ impl<T: Into<usize>> AtomicBitflags<T> {
 
     #[inline]
     pub fn test_and_set(&self, other: T) -> bool {
-        Hal::cpu().interlocked_test_and_set(&self.bits, other.into().trailing_zeros() as usize)
+        Hal::sync().test_and_set(&self.bits, other.into().trailing_zeros() as usize)
     }
 
     #[inline]
     pub fn test_and_clear(&self, other: T) -> bool {
-        Hal::cpu().interlocked_test_and_clear(&self.bits, other.into().trailing_zeros() as usize)
+        Hal::sync().test_and_clear(&self.bits, other.into().trailing_zeros() as usize)
     }
 }
 

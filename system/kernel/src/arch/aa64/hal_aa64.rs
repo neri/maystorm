@@ -18,6 +18,11 @@ pub mod hal {
         }
 
         #[inline]
+        fn sync() -> impl HalSync {
+            SyncImpl
+        }
+
+        #[inline]
         fn pci() -> impl HalPci {
             PciImpl
         }
@@ -102,6 +107,10 @@ pub mod hal {
             }
         }
     }
+
+    struct SyncImpl;
+
+    impl HalSync for SyncImpl {}
 
     struct PciImpl;
 

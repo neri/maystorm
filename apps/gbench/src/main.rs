@@ -1,7 +1,7 @@
 #![no_main]
 #![no_std]
 
-use megstd::{game::v1::prelude::*, sys::syscall::*};
+use megstd::{game::v0::prelude::*, sys::syscall::*};
 
 #[no_mangle]
 fn _start() {
@@ -27,7 +27,7 @@ impl App {
     }
 
     #[inline]
-    fn screen(&mut self) -> &mut v1::Screen {
+    fn screen(&mut self) -> &mut v0::Screen {
         self.presenter.screen()
     }
 
@@ -76,10 +76,10 @@ impl App {
         self.initialize();
         let screen = self.screen();
 
-        for y in 0..v1::MAX_VHEIGHT as isize / v1::TILE_SIZE {
-            for x in 0..v1::MAX_VWIDTH as isize / v1::TILE_SIZE {
+        for y in 0..v0::MAX_VHEIGHT as isize / v0::TILE_SIZE {
+            for x in 0..v0::MAX_VWIDTH as isize / v0::TILE_SIZE {
                 if ((x ^ y) & 1) != 0 {
-                    screen.set_name(x, y, v1::NameTableEntry::new(0, v1::PALETTE_1));
+                    screen.set_name(x, y, v0::NameTableEntry::new(0, v0::PALETTE_1));
                 }
             }
         }
@@ -98,7 +98,7 @@ impl App {
             screen.set_sprite(
                 index,
                 0x80,
-                v1::OAM_ATTR_W16 | v1::OAM_ATTR_H16 | (1 + (3 & index as u8)),
+                v0::OAM_ATTR_W16 | v0::OAM_ATTR_H16 | (1 + (3 & index as u8)),
             );
         }
 

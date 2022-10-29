@@ -444,7 +444,7 @@ unsafe extern "x86-interrupt" fn ipi_schedule_handler() {
 unsafe extern "x86-interrupt" fn ipi_tlb_flush_handler() {
     let shared = Apic::shared();
     PageManager::invalidate_all_pages();
-    Hal::cpu().interlocked_test_and_clear(
+    Hal::sync().test_and_clear(
         &shared.tlb_flush_bitmap,
         Hal::cpu().current_processor_index().0,
     );
