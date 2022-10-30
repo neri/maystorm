@@ -1,6 +1,6 @@
 //! Log Event Manager
 
-use crate::{r, sync::fifo::AsyncEventQueue, system::System};
+use crate::{r, sync::fifo::AsyncEventQueue, system::System, *};
 use alloc::{
     boxed::Box,
     string::{String, ToString},
@@ -48,6 +48,8 @@ impl EventManager {
     }
 
     pub(crate) fn init() {
+        assert_call_once!();
+
         unsafe {
             EVENT_MANAGER.write(Self::new());
         }

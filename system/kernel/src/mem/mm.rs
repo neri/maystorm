@@ -57,7 +57,7 @@ impl MemoryManager {
     }
 
     pub unsafe fn init_first(info: &BootInfo) {
-        check_once_call!();
+        assert_call_once!();
 
         let shared = Self::shared_mut();
 

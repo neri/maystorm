@@ -14,7 +14,7 @@ pub mod rtc;
 mod hal_x64;
 pub use hal_x64::*;
 
-use crate::{check_once_call, system::*};
+use crate::{assert_call_once, system::*};
 use core::arch::asm;
 use megstd::time::SystemTime;
 
@@ -22,7 +22,7 @@ pub struct Arch;
 
 impl Arch {
     pub unsafe fn init() {
-        check_once_call!();
+        assert_call_once!();
 
         cpu::Cpu::init();
 
@@ -63,7 +63,7 @@ impl Arch {
     // }
 
     pub unsafe fn late_init() {
-        check_once_call!();
+        assert_call_once!();
 
         let _ = ps2::Ps2::init();
 

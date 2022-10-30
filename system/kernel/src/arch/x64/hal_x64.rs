@@ -20,7 +20,7 @@ pub mod hal {
 
     pub struct Hal;
 
-    impl HalTrait for Hal {
+    impl const HalTrait for Hal {
         #[inline]
         fn cpu() -> impl HalCpu {
             CpuImpl
@@ -34,11 +34,6 @@ pub mod hal {
         #[inline]
         fn pci() -> impl HalPci {
             PciImpl
-        }
-
-        #[inline]
-        fn spin_wait() -> impl HalSpinLoopWait {
-            SpinLoopWait::new()
         }
     }
 
@@ -102,6 +97,11 @@ pub mod hal {
                 pop {0}
                 ", lateout(reg) rax);
             InterruptGuard(rax)
+        }
+
+        #[inline]
+        fn spin_wait(&self) -> impl HalSpinLoopWait {
+            SpinLoopWait::new()
         }
     }
 

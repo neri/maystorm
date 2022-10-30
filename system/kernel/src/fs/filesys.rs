@@ -32,6 +32,8 @@ impl FileManager {
     }
 
     pub unsafe fn init(initrd_base: *mut u8, initrd_size: usize) {
+        assert_call_once!();
+
         let shared = FS.get_mut();
 
         let mut mount_points = shared.mount_points.write().unwrap();

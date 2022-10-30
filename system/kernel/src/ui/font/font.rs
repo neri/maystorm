@@ -48,7 +48,7 @@ impl FontManager {
     }
 
     pub unsafe fn init() {
-        check_once_call!();
+        assert_call_once!();
 
         let shared = Self::shared_mut();
 

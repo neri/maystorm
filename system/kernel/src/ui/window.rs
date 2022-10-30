@@ -110,7 +110,7 @@ struct Resources<'a> {
 
 impl WindowManager<'static> {
     pub fn init(main_screen: Bitmap32<'static>) {
-        check_once_call!();
+        assert_call_once!();
 
         let attributes = AtomicBitflags::EMPTY;
 

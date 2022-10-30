@@ -28,7 +28,7 @@ pub struct UserEnv;
 
 impl UserEnv {
     pub fn start(f: fn()) {
-        check_once_call!();
+        assert_call_once!();
 
         unsafe {
             SHUTDOWN_COMMAND.write(EventQueue::new(100));

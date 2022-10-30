@@ -92,7 +92,7 @@ impl const From<usize> for SchedulerState {
 impl Scheduler {
     /// Start scheduler and sleep forever
     pub fn start(f: fn(usize) -> (), args: usize) -> ! {
-        check_once_call!();
+        assert_call_once!();
 
         const SIZE_OF_SUB_QUEUE: usize = 63;
         const SIZE_OF_MAIN_QUEUE: usize = 255;
@@ -141,7 +141,7 @@ impl Scheduler {
     }
 
     pub unsafe fn late_init() {
-        check_once_call!();
+        assert_call_once!();
 
         SpawnOption::with_priority(Priority::Realtime).start(
             Self::_scheduler_thread,

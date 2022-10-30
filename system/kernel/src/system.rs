@@ -128,7 +128,7 @@ impl System {
 
     /// Initialize the system
     pub unsafe fn init(info: &BootInfo, f: fn() -> ()) -> ! {
-        check_once_call!();
+        assert_call_once!();
 
         let shared = SYSTEM.get_mut();
         shared.boot_flags = info.flags;
@@ -163,7 +163,7 @@ impl System {
 
     /// The second half of the system initialization
     fn late_init(args: usize) {
-        check_once_call!();
+        assert_call_once!();
 
         let shared = unsafe { Self::shared_mut() };
 
@@ -353,7 +353,7 @@ impl System {
     }
 
     #[track_caller]
-    pub fn check_once_call(mutex: &AtomicBool) {
+    pub fn assert_call_once(mutex: &AtomicBool) {
         if mutex
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
             .is_err()
@@ -364,10 +364,10 @@ impl System {
 }
 
 #[macro_export]
-macro_rules! check_once_call {
+macro_rules! assert_call_once {
     () => {
         static MUTEX: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
-        System::check_once_call(&MUTEX);
+        System::assert_call_once(&MUTEX);
     };
 }
 

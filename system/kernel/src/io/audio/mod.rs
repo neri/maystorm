@@ -42,7 +42,7 @@ impl AudioManager {
 
     #[inline]
     pub unsafe fn init() {
-        check_once_call!();
+        assert_call_once!();
 
         AUDIO_MANAGER = MaybeUninit::new(UnsafeCell::new(AudioManager::new()));
 

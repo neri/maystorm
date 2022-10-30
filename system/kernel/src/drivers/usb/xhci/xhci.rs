@@ -363,7 +363,7 @@ impl Xhci {
     /// wait for CNR (Controller Not Ready)
     #[inline]
     pub fn wait_cnr(&self, _: usize) {
-        let mut wait = Hal::spin_wait();
+        let mut wait = Hal::cpu().spin_wait();
         while self.opr.status().contains(UsbSts::CNR) {
             wait.wait();
         }

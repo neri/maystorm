@@ -14,8 +14,6 @@ pub trait HalTrait {
     fn sync() -> impl HalSync;
 
     fn pci() -> impl HalPci;
-
-    fn spin_wait() -> impl HalSpinLoopWait;
 }
 
 pub trait HalCpu {
@@ -45,6 +43,8 @@ pub trait HalCpu {
 
     #[must_use]
     unsafe fn interrupt_guard(&self) -> InterruptGuard;
+
+    fn spin_wait(&self) -> impl HalSpinLoopWait;
 }
 
 pub trait HalSync {

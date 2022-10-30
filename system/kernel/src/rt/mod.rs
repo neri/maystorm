@@ -27,7 +27,7 @@ impl RuntimeEnvironment {
 
     #[inline]
     pub unsafe fn init() {
-        check_once_call!();
+        assert_call_once!();
 
         let shared = &mut *RE.get();
         shared.add_image("wasm", myos::WasmRecognizer::new());

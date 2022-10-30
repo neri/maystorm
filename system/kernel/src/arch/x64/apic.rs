@@ -238,7 +238,7 @@ impl Apic {
             AP_BOOT_OK.store(false, Ordering::SeqCst);
             LocalApic::send_startup_ipi(apic_id, sipi_vec);
             let deadline = Timer::new(Duration::from_millis(100));
-            let mut wait = Hal::spin_wait();
+            let mut wait = Hal::cpu().spin_wait();
             while deadline.is_alive() {
                 if AP_BOOT_OK.load(Ordering::SeqCst) {
                     break;
@@ -382,7 +382,7 @@ impl Apic {
 
                 LocalApic::broadcast_ipi(InterruptVector::IPI_INVALIDATE_TLB);
 
-                let mut hint = Hal::spin_wait();
+                let mut hint = Hal::cpu().spin_wait();
                 let deadline = Timer::new(Duration::from_millis(200));
                 while deadline.is_alive() {
                     if shared.tlb_flush_bitmap.load(Ordering::Relaxed) == 0 {
@@ -668,7 +668,7 @@ impl LocalApic {
 
     #[inline]
     unsafe fn init(base: PhysicalAddress) {
-        check_once_call!();
+        assert_call_once!();
 
         LOCAL_APIC_PA.store(base.as_u64(), Ordering::SeqCst);
         LOCAL_APIC = MmioSlice::from_phys(base, 0x1000).map(|v| UnsafeCell::new(v));
