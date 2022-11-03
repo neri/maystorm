@@ -1,5 +1,5 @@
 use crate::{intcode::*, opcode::*, *};
-use alloc::{boxed::Box, string::*, vec::Vec};
+use alloc::{borrow::ToOwned, boxed::Box, format, string::*, vec::Vec};
 use bitflags::*;
 use core::{
     cell::{RefCell, UnsafeCell},
@@ -727,9 +727,8 @@ impl Leb128Stream<'_> {
             return Ok(None);
         }
         let section_type = self.read_byte()?;
-        let section_type = match FromPrimitive::from_u8(section_type) {
-            Some(v) => v,
-            None => return Err(WasmDecodeErrorKind::UnexpectedToken),
+        let Some(section_type) = FromPrimitive::from_u8(section_type) else {
+            return Err(WasmDecodeErrorKind::UnexpectedToken)
         };
 
         let magic = 8;
@@ -859,6 +858,7 @@ pub enum WasmValType {
 }
 
 impl WasmValType {
+    #[inline]
     const fn from_u64(v: u64) -> Result<Self, WasmDecodeErrorKind> {
         match v {
             0x7F => Ok(WasmValType::I32),
@@ -866,6 +866,16 @@ impl WasmValType {
             0x7D => Ok(WasmValType::F32),
             0x7C => Ok(WasmValType::F64),
             _ => Err(WasmDecodeErrorKind::UnexpectedToken),
+        }
+    }
+
+    #[inline]
+    pub fn mnemonic(&self) -> char {
+        match *self {
+            WasmValType::I32 => 'i',
+            WasmValType::I64 => 'l',
+            WasmValType::F32 => 'f',
+            WasmValType::F64 => 'd',
         }
     }
 }
@@ -1405,6 +1415,22 @@ impl WasmType {
     #[inline]
     pub fn result_types(&self) -> &[WasmValType] {
         &self.result_types
+    }
+
+    #[inline]
+    pub fn signature(&self) -> String {
+        let result_types = if self.result_types.is_empty() {
+            "v".to_owned()
+        } else {
+            self.result_types.iter().map(|v| v.mnemonic()).collect()
+        };
+        let param_types = if self.param_types.is_empty() {
+            "v".to_owned()
+        } else {
+            self.param_types.iter().map(|v| v.mnemonic()).collect()
+        };
+
+        format!("{result_types}{param_types}")
     }
 }
 
@@ -2114,9 +2140,8 @@ impl WasmName {
         while !stream.is_eof() {
             let name_id = stream.read_byte()?;
             let blob = stream.read_bytes()?;
-            let name_id = match FromPrimitive::from_u8(name_id) {
-                Some(v) => v,
-                None => continue,
+            let Some(name_id) = FromPrimitive::from_u8(name_id) else {
+                continue
             };
             let mut stream = Leb128Stream::from_slice(blob);
             match name_id {

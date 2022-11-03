@@ -929,17 +929,25 @@ impl HoeFile {
     }
 
     fn seek(&mut self, offset: isize, whence: Whence) {
-        self.0.lseek(offset as OffsetType, whence);
+        let _ = self.0.lseek(offset as OffsetType, whence);
     }
 
     fn get_file_size(&mut self, whence: Whence) -> usize {
-        let file_pos = self.0.lseek(0, Whence::SeekCur);
-        let file_size = self.0.lseek(0, Whence::SeekEnd);
-        self.0.lseek(file_pos, Whence::SeekSet);
-        match whence {
-            Whence::SeekSet => file_size as usize,
-            Whence::SeekCur => file_pos as usize,
-            Whence::SeekEnd => (file_pos - file_size) as usize,
+        let file_pos = match self.0.lseek(0, Whence::SeekCur) {
+            Ok(v) => v,
+            Err(_) => return 0,
+        };
+        let file_size = match self.0.lseek(0, Whence::SeekEnd) {
+            Ok(v) => v,
+            Err(_) => return 0,
+        };
+        match self.0.lseek(file_pos, Whence::SeekSet) {
+            Ok(_) => match whence {
+                Whence::SeekSet => file_size as usize,
+                Whence::SeekCur => file_pos as usize,
+                Whence::SeekEnd => (file_pos - file_size) as usize,
+            },
+            Err(_) => return 0,
         }
     }
 

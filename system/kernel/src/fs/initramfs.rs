@@ -14,11 +14,12 @@ use megstd::{
     io::{ErrorKind, Result},
 };
 
+const ROOT_INODE: INodeType = unsafe { INodeType::new_unchecked(2) };
+
 /// Minimal Initial Ram Filesystem
 pub struct InitRamfs {
     blob: Box<[u8]>,
     inodes: BTreeMap<INodeType, ThisFsInodeEntry>,
-    root: INodeType,
     next_inode: AtomicUsize,
 }
 
@@ -37,25 +38,23 @@ impl InitRamfs {
             return None;
         }
 
-        let root = unsafe { INodeType::new_unchecked(2) };
         let mut fs = Self {
             blob,
             inodes: BTreeMap::new(),
-            root,
-            next_inode: AtomicUsize::new(root.get() as usize),
+            next_inode: AtomicUsize::new(ROOT_INODE.get() as usize),
         };
 
         let dir_off = LE::read_u32(&fs.blob[4..8]) as usize - Self::OFFSET_DATA;
         let dir_size = LE::read_u32(&fs.blob[8..12]) as usize * Self::SIZE_OF_RAW_DIR;
         let mut root_dir = ThisFsInodeEntry {
             file_type: FileType::Dir,
-            inode: root,
+            inode: ROOT_INODE,
             offset: dir_off,
             size: dir_size,
             children: Vec::new(),
         };
         fs.parse_dir(&mut root_dir);
-        fs.inodes.insert(root, root_dir);
+        fs.inodes.insert(ROOT_INODE, root_dir);
 
         Some(Arc::new(fs) as Arc<dyn FsDriver>)
     }
@@ -119,17 +118,15 @@ impl FsDriver for InitRamfs {
     }
 
     fn root_dir(&self) -> INodeType {
-        self.root
+        ROOT_INODE
     }
 
     fn read_dir(&self, dir: INodeType, index: usize) -> Option<FsRawDirEntry> {
-        let dir_ent = match self.get_file(dir).and_then(|v| v.children.get(index)) {
-            Some(v) => v,
-            None => return None,
+        let Some(dir_ent) = self.get_file(dir).and_then(|v| v.children.get(index)) else {
+            return None
         };
-        let file = match self.get_file(dir_ent.inode) {
-            Some(v) => v,
-            None => return None,
+        let Some(file) = self.get_file(dir_ent.inode) else {
+            return None
         };
         Some(FsRawDirEntry::new(
             dir_ent.inode(),
@@ -217,5 +214,9 @@ impl FsAccessToken for ThisFsAccessToken {
 
     fn write_data(&self, _offset: OffsetType, _buf: &[u8]) -> Result<usize> {
         Err(ErrorKind::ReadOnlyFilesystem.into())
+    }
+
+    fn lseek(&self, _offset: OffsetType, _whence: Whence) -> Result<OffsetType> {
+        Err(ErrorKind::Unsupported.into())
     }
 }

@@ -7,14 +7,7 @@ use crate::{
     task::{scheduler::*, Task},
     *,
 };
-use alloc::{
-    boxed::Box,
-    collections::VecDeque,
-    format,
-    string::String,
-    sync::{Arc, Weak},
-    vec::Vec,
-};
+use alloc::{boxed::Box, collections::VecDeque, format, string::String, sync::Arc, vec::Vec};
 use core::{
     cell::UnsafeCell,
     ffi::c_void,
@@ -668,7 +661,7 @@ impl Xhci {
         let control = input_context.control();
         let slot = input_context.slot();
         let endpoint = input_context.endpoint(dci);
-        let psiv: PSIV = FromPrimitive::from_usize(slot.speed_raw()).unwrap_or(PSIV::SS);
+        let psiv: PSIV = slot.speed();
 
         control.clear();
         control.set_add(1 | (1u32 << dci.0.get()));
@@ -682,7 +675,6 @@ impl Xhci {
         }
 
         slot.set_context_entries(usize::max(dci.0.get() as usize, slot.context_entries()));
-        // let psiv = FromPrimitive::from_usize(slot.speed_raw()).unwrap_or(PSIV::SS);
 
         endpoint.set_ep_type(ep_type);
 
@@ -854,7 +846,7 @@ impl Xhci {
             route_string: new_route,
             psiv: speed,
         };
-        let ctx = Arc::new(HciContext::new(Arc::downgrade(&self), device));
+        let ctx = Arc::new(HciContext::new(&self, device));
         let addr = UsbAddress::from(slot_id.0);
         UsbManager::instantiate(addr, ctx as Arc<dyn UsbHostInterface>)
             .await
@@ -921,7 +913,7 @@ impl Xhci {
             route_string: UsbRouteString::EMPTY,
             psiv,
         };
-        let ctx = Arc::new(HciContext::new(Arc::downgrade(&self), device));
+        let ctx = Arc::new(HciContext::new(&self, device));
         let addr = UsbAddress::from(slot_id.0);
 
         match UsbManager::instantiate(addr, ctx as Arc<dyn UsbHostInterface>).await {
@@ -1696,7 +1688,7 @@ impl InputContext {
 
 /// Host Controller Interface Device Context
 pub struct HciContext {
-    host: Weak<Xhci>,
+    host: Arc<Xhci>,
     device: UnsafeCell<HciDeviceContext>,
 }
 
@@ -1712,9 +1704,9 @@ pub struct HciDeviceContext {
 
 impl HciContext {
     #[inline]
-    pub const fn new(host: Weak<Xhci>, device: HciDeviceContext) -> Self {
+    pub fn new(host: &Arc<Xhci>, device: HciDeviceContext) -> Self {
         Self {
-            host,
+            host: host.clone(),
             device: UnsafeCell::new(device),
         }
     }
@@ -1722,6 +1714,11 @@ impl HciContext {
     #[inline]
     fn device<'a>(&self) -> &'a mut HciDeviceContext {
         unsafe { &mut *self.device.get() }
+    }
+
+    #[inline]
+    fn host(&self) -> Arc<Xhci> {
+        self.host.clone()
     }
 }
 
@@ -1739,53 +1736,34 @@ impl UsbHostInterface for HciContext {
     }
 
     fn set_max_packet_size(&self, max_packet_size: usize) -> Result<(), UsbError> {
-        let host = match self.host.upgrade() {
-            Some(v) => v.clone(),
-            None => return Err(UsbError::HostUnavailable),
-        };
         let device = self.device();
         let slot_id = device.slot_id;
-        host.set_max_packet_size(slot_id, max_packet_size)
+        self.host()
+            .set_max_packet_size(slot_id, max_packet_size)
             .map_err(|_| UsbError::General)
     }
 
     fn configure_hub2(&self, hub_desc: &Usb2HubDescriptor, is_mtt: bool) -> Result<(), UsbError> {
-        let host = match self.host.upgrade() {
-            Some(v) => v.clone(),
-            None => return Err(UsbError::HostUnavailable),
-        };
         let device = self.device();
         let slot_id = device.slot_id;
 
-        host.configure_hub2(slot_id, hub_desc, is_mtt)
+        self.host().configure_hub2(slot_id, hub_desc, is_mtt)
     }
 
     fn configure_hub3(&self, hub_desc: &Usb3HubDescriptor) -> Result<(), UsbError> {
-        let host = match self.host.upgrade() {
-            Some(v) => v.clone(),
-            None => return Err(UsbError::HostUnavailable),
-        };
         let device = self.device();
         let slot_id = device.slot_id;
 
-        host.configure_hub3(slot_id, hub_desc)
+        self.host().configure_hub3(slot_id, hub_desc)
     }
 
     fn focus_hub(&self) -> Result<(), UsbError> {
-        let host = match self.host.upgrade() {
-            Some(v) => v.clone(),
-            None => return Err(UsbError::HostUnavailable),
-        };
-        host.focus_hub(Some(self.device().slot_id));
+        self.host().focus_hub(Some(self.device().slot_id));
         Ok(())
     }
 
     fn unfocus_hub(&self) -> Result<(), UsbError> {
-        let host = match self.host.upgrade() {
-            Some(v) => v.clone(),
-            None => return Err(UsbError::HostUnavailable),
-        };
-        host.unfocus_hub(Some(self.device().slot_id));
+        self.host().unfocus_hub(Some(self.device().slot_id));
         Ok(())
     }
 
@@ -1794,18 +1772,14 @@ impl UsbHostInterface for HciContext {
         port_id: UsbHubPortNumber,
         speed: PSIV,
     ) -> Pin<Box<dyn Future<Output = Result<UsbAddress, UsbError>>>> {
-        let host = match self.host.upgrade() {
-            Some(v) => v.clone(),
-            None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
-        };
-        Box::pin(host.attach_child_device(self.clone(), port_id, speed))
+        Box::pin(
+            self.host()
+                .attach_child_device(self.clone(), port_id, speed),
+        )
     }
 
     fn configure_endpoint(&self, desc: &UsbEndpointDescriptor) -> Result<(), UsbError> {
-        let host = match self.host.upgrade() {
-            Some(v) => v.clone(),
-            None => return Err(UsbError::HostUnavailable),
-        };
+        let host = self.host();
         let device = self.device();
         let slot_id = device.slot_id;
 
@@ -1838,14 +1812,10 @@ impl UsbHostInterface for HciContext {
         setup: UsbControlSetupData,
         data: *mut u8,
     ) -> Pin<Box<dyn Future<Output = Result<usize, UsbError>>>> {
-        let host = match self.host.upgrade() {
-            Some(ref v) => v.clone(),
-            None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
-        };
         let device = self.device();
 
         Box::pin(
-            host.clone()
+            self.host()
                 .control_async(device, setup, TransferDirection::Read(data)),
         )
     }
@@ -1855,10 +1825,6 @@ impl UsbHostInterface for HciContext {
         setup: UsbControlSetupData,
         data: *const u8,
     ) -> Pin<Box<dyn Future<Output = Result<usize, UsbError>>>> {
-        let host = match self.host.upgrade() {
-            Some(ref v) => v.clone(),
-            None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
-        };
         let len = setup.wLength as usize;
         if len == 0 {
             return Box::pin(AsyncUsbError::new(UsbError::InvalidParameter));
@@ -1866,7 +1832,7 @@ impl UsbHostInterface for HciContext {
         let device = self.device();
 
         Box::pin(
-            host.clone()
+            self.host()
                 .control_async(device, setup, TransferDirection::Write(data)),
         )
     }
@@ -1877,16 +1843,17 @@ impl UsbHostInterface for HciContext {
         buffer: *mut u8,
         len: usize,
     ) -> Pin<Box<dyn Future<Output = Result<usize, UsbError>>>> {
-        let host = match self.host.upgrade() {
-            Some(ref v) => v.clone(),
-            None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
-        };
         let dci = DCI::from(ep);
         if len == 0 || !dci.can_read() {
             return Box::pin(AsyncUsbError::new(UsbError::InvalidParameter));
         }
 
-        Box::pin(host.transfer_async(self.device(), dci, TransferDirection::Read(buffer), len))
+        Box::pin(self.host().transfer_async(
+            self.device(),
+            dci,
+            TransferDirection::Read(buffer),
+            len,
+        ))
     }
 
     unsafe fn write(
@@ -1895,16 +1862,17 @@ impl UsbHostInterface for HciContext {
         buffer: *const u8,
         len: usize,
     ) -> Pin<Box<dyn Future<Output = Result<usize, UsbError>>>> {
-        let host = match self.host.upgrade() {
-            Some(ref v) => v.clone(),
-            None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
-        };
         let dci = DCI::from(ep);
         if len == 0 || !dci.can_write() {
             return Box::pin(AsyncUsbError::new(UsbError::InvalidParameter));
         }
 
-        Box::pin(host.transfer_async(self.device(), dci, TransferDirection::Write(buffer), len))
+        Box::pin(self.host().transfer_async(
+            self.device(),
+            dci,
+            TransferDirection::Write(buffer),
+            len,
+        ))
     }
 }
 

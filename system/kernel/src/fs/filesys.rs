@@ -40,7 +40,7 @@ impl FileManager {
         let bootfs =
             InitRamfs::from_static(initrd_base, initrd_size).expect("Unable to access bootfs");
         mount_points.insert(Self::PATH_SEPARATOR.to_owned(), bootfs.clone());
-        mount_points.insert("/dev/".to_owned(), DevFs::new());
+        mount_points.insert("/dev/".to_owned(), DevFs::init());
         mount_points.insert("/boot/".to_owned(), bootfs.clone());
     }
 
@@ -142,16 +142,18 @@ impl FileManager {
     pub fn open(path: &str) -> Result<FsRawFileControlBlock> {
         let (fs, inode) = Self::resolv(path)?;
 
-        let stat = match fs.stat(inode) {
-            Some(v) => v,
-            None => return Err(ErrorKind::NotFound.into()),
+        let Some(stat) = fs.stat(inode) else {
+            return Err(ErrorKind::NotFound.into())
         };
         if stat.file_type().is_dir() {
             return Err(ErrorKind::IsADirectory.into());
         }
 
         let access_token = fs.open(inode)?;
-        let fcb = FsRawFileControlBlock::new(access_token);
+        let fcb = FsRawFileControlBlock::new(
+            access_token,
+            stat.file_type().is_char_device() || stat.file_type().is_block_device(),
+        );
 
         Ok(fcb)
     }
@@ -223,6 +225,8 @@ pub trait FsAccessToken {
     fn read_data(&self, offset: OffsetType, buf: &mut [u8]) -> Result<usize>;
 
     fn write_data(&self, offset: OffsetType, buf: &[u8]) -> Result<usize>;
+
+    fn lseek(&self, offset: OffsetType, whence: Whence) -> Result<OffsetType>;
 
     //fn ioctl(&self, blob: &[u8]) -> Result<usize>;
 }
@@ -306,28 +310,34 @@ impl FsRawMetaData {
 
 pub struct FsRawFileControlBlock {
     access_token: Arc<dyn FsAccessToken>,
+    is_device: bool,
     file_pos: OffsetType,
 }
 
 impl FsRawFileControlBlock {
     #[inline]
-    fn new(access_token: Arc<dyn FsAccessToken>) -> Self {
+    fn new(access_token: Arc<dyn FsAccessToken>, is_device: bool) -> Self {
         Self {
             access_token,
+            is_device,
             file_pos: 0,
         }
     }
 
-    pub fn lseek(&mut self, offset: OffsetType, whence: Whence) -> OffsetType {
-        match whence {
-            Whence::SeekSet => self.file_pos = offset,
-            Whence::SeekCur => self.file_pos = self.file_pos + offset,
-            Whence::SeekEnd => match self.access_token.stat() {
-                Some(stat) => self.file_pos = stat.len() + offset,
-                None => return -1,
-            },
+    pub fn lseek(&mut self, offset: OffsetType, whence: Whence) -> Result<OffsetType> {
+        if self.is_device {
+            self.access_token.lseek(offset, whence)
+        } else {
+            match whence {
+                Whence::SeekSet => self.file_pos = offset,
+                Whence::SeekCur => self.file_pos = self.file_pos + offset,
+                Whence::SeekEnd => match self.access_token.stat() {
+                    Some(stat) => self.file_pos = stat.len() + offset,
+                    None => return Ok(0),
+                },
+            }
+            Ok(self.file_pos)
         }
-        self.file_pos
     }
 
     pub fn fstat(&self) -> Option<FsRawMetaData> {

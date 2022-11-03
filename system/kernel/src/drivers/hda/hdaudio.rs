@@ -77,14 +77,8 @@ impl HdAudioController {
     }
 
     pub unsafe fn new(device: &PciDevice) -> Option<Arc<dyn PciDriver>> {
-        let bar = match device.bars().first() {
-            Some(v) => v,
-            None => return None,
-        };
-        let mmio = match MmioSlice::from_bar(*bar) {
-            Some(v) => v,
-            None => return None,
-        };
+        let Some(bar) = device.bars().first() else { return None };
+        let Some(mmio) = MmioSlice::from_bar(*bar) else { return None };
 
         device.set_pci_command(PciCommand::MEM_SPACE | PciCommand::BUS_MASTER);
 

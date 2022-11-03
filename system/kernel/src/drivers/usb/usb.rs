@@ -1120,7 +1120,7 @@ pub enum UsbDeviceFeatureSel {
 }
 
 /// Protocol Speed Identifier
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PSIV {
     /// USB1 FullSpeed 12Mbps
     FS = 1,
@@ -1257,7 +1257,6 @@ impl UsbEndpointType {
 #[derive(Debug, Clone, Copy)]
 pub enum UsbError {
     General,
-    HostUnavailable,
     Unsupported,
     ControllerError(usize),
     InvalidParameter,

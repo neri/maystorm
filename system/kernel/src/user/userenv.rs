@@ -54,9 +54,8 @@ impl UserEnv {
 
         window.draw(|bitmap| {
             bitmap.clear();
-            let font = match FontDescriptor::new(FontFamily::SansSerif, 36) {
-                Some(v) => v,
-                None => return,
+            let Some(font) = FontDescriptor::new(FontFamily::SansSerif, 36) else {
+                return
             };
             AttributedString::new()
                 .font(&font)
@@ -111,9 +110,8 @@ async fn slpash_task(f: fn()) {
 
     window.draw(|bitmap| {
         bitmap.clear();
-        let font = match FontDescriptor::new(FontFamily::SansSerif, 36) {
-            Some(v) => v,
-            None => return,
+        let Some(font) = FontDescriptor::new(FontFamily::SansSerif, 36) else {
+            return
         };
         AttributedString::new()
             .font(&font)
@@ -202,9 +200,8 @@ async fn shell_launcher(is_gui_boot: bool, f: fn()) {
         let point = {
             let mut point = max_point;
             while point > min_point {
-                let font = match FontDescriptor::new(FontFamily::Monospace, point) {
-                    Some(v) => v,
-                    None => break,
+                let Some(font) = FontDescriptor::new(FontFamily::Monospace, point) else {
+                    break
                 };
                 if font.em_width() * 80 <= size.width() && font.line_height() * 25 <= size.height()
                 {

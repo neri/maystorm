@@ -395,9 +395,8 @@ impl TextProcessing {
         shadow_color: Color,
         shadow_offset: Movement,
     ) {
-        let coords = match Coordinates::from_rect(rect) {
-            Ok(v) => v,
-            Err(_) => return,
+        let Ok(coords) = Coordinates::from_rect(rect) else {
+            return
         };
 
         // bitmap.draw_rect(rect, Color::YELLOW);

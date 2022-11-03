@@ -982,8 +982,8 @@ impl SlotContext {
     }
 
     #[inline]
-    pub fn speed_raw(&self) -> usize {
-        (self.data[0] >> 20) as usize & 15
+    pub fn speed(&self) -> PSIV {
+        unsafe { transmute((self.data[0] >> 20) as u8 & 15) }
     }
 
     #[inline]

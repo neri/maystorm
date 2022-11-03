@@ -571,9 +571,8 @@ impl WindowManager<'_> {
     }
 
     fn add_hierarchy(window: WindowHandle) {
-        let window = match window.get() {
-            Some(v) => v,
-            None => return,
+        let Some(window) = window.get() else {
+            return
         };
 
         Self::remove_hierarchy(window.handle);
@@ -598,9 +597,8 @@ impl WindowManager<'_> {
     }
 
     fn remove_hierarchy(window: WindowHandle) {
-        let window = match window.get() {
-            Some(v) => v,
-            None => return,
+        let Some(window) = window.get() else {
+            return
         };
 
         window.attributes.remove(WindowAttributes::VISIBLE);
@@ -732,9 +730,8 @@ impl WindowManager<'_> {
     }
 
     pub fn post_relative_pointer(pointer_state: &mut MouseState) {
-        let shared = match Self::shared_opt() {
-            Some(v) => v,
-            None => return,
+        let Some(shared) = Self::shared_opt() else {
+            return
         };
         let screen_bounds: Rect = shared.screen_size.into();
 
@@ -781,9 +778,8 @@ impl WindowManager<'_> {
     }
 
     pub fn post_absolute_pointer(pointer_state: &mut MouseState) {
-        let shared = match Self::shared_opt() {
-            Some(v) => v,
-            None => return,
+        let Some(shared) = Self::shared_opt() else {
+            return
         };
         let screen_bounds: Rect = shared.screen_size.into();
         let button_changes = pointer_state.current_buttons ^ pointer_state.prev_buttons;
@@ -829,9 +825,8 @@ impl WindowManager<'_> {
     }
 
     pub fn post_key_event(event: KeyEvent) {
-        let shared = match Self::shared_opt() {
-            Some(v) => v,
-            None => return,
+        let Some(shared) = Self::shared_opt() else {
+            return
         };
         if event.usage() == Usage::DELETE
             && event.modifier().has_ctrl()
@@ -1254,13 +1249,11 @@ impl RawWindow {
             if self.attributes.contains(WindowAttributes::VISIBLE) {
                 self.draw_frame();
 
-                let coords1 = match Coordinates::from_rect(old_frame) {
-                    Ok(v) => v,
-                    Err(_) => return,
+                let Ok(coords1) = Coordinates::from_rect(old_frame) else {
+                    return
                 };
-                let coords2 = match Coordinates::from_rect(self.shadow_frame()) {
-                    Ok(v) => v,
-                    Err(_) => return,
+                let Ok(coords2) = Coordinates::from_rect(self.shadow_frame()) else {
+                    return
                 };
                 WindowManager::invalidate_screen(Rect::from(coords1.merged(coords2)));
             }
@@ -1274,9 +1267,8 @@ impl RawWindow {
     }
 
     fn draw_inner_to_screen(&self, rect: Rect) {
-        let coords = match Coordinates::from_rect(rect) {
-            Ok(v) => v,
-            Err(_) => return,
+        let Ok(coords) = Coordinates::from_rect(rect) else {
+            return
         };
         let bounds = self.frame.bounds();
 
@@ -1295,10 +1287,7 @@ impl RawWindow {
 
             let mut is_direct = true;
             for handle in window_orders[first_index..].iter() {
-                let window = match handle.get() {
-                    Some(v) => v,
-                    None => continue,
-                };
+                let Some(window) = handle.get() else { continue };
                 if screen_rect.overlaps(window.shadow_frame()) {
                     is_direct = false;
                     break;
@@ -1330,9 +1319,8 @@ impl RawWindow {
         } else {
             drop(shared);
 
-            let inner_coords = match Coordinates::from_rect(bounds) {
-                Ok(v) => v,
-                Err(_) => return,
+            let Ok(inner_coords) = Coordinates::from_rect(bounds) else {
+                return
             };
             let frame_origin = self.frame.origin;
             let offset = self.shadow_frame().origin;
@@ -1369,9 +1357,8 @@ impl RawWindow {
         frame1: Rect,
         is_opaque: bool,
     ) -> bool {
-        let coords1 = match Coordinates::from_rect(frame1) {
-            Ok(coords) => coords,
-            Err(_) => return false,
+        let Ok(coords1) = Coordinates::from_rect(frame1) else {
+            return false
         };
 
         let window_orders = WindowManager::shared().window_orders.read().unwrap();
@@ -1388,10 +1375,7 @@ impl RawWindow {
         for handle in window_orders[first_index..].iter() {
             let window = handle.as_ref();
             let frame2 = window.shadow_frame();
-            let coords2 = match Coordinates::from_rect(frame2) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
+            let Ok(coords2) = Coordinates::from_rect(frame2) else { continue };
             if frame2.overlaps(frame1) {
                 let adjust_point = window.frame.origin() - coords2.left_top();
                 let blt_origin = Point::new(
@@ -1756,9 +1740,8 @@ impl RawWindow {
 
     fn update_shadow(&self) {
         let bitmap = Bitmap::from(self.bitmap());
-        let shadow = match self.shadow_bitmap() {
-            Some(v) => v,
-            None => return,
+        let Some(shadow) = self.shadow_bitmap() else {
+            return
         };
 
         shadow.reset();
@@ -1811,14 +1794,13 @@ impl RawWindow {
         let mut bitmap = Bitmap::from(self.bitmap());
         let bounds = self.frame.bounds().insets_by(self.content_insets);
         let origin = Point::new(isize::max(0, rect.x()), isize::max(0, rect.y()));
-        let coords = match Coordinates::from_rect(Rect::new(
+        let Ok(coords) = Coordinates::from_rect(Rect::new(
             origin.x + bounds.x(),
             origin.y + bounds.y(),
             isize::min(rect.width(), bounds.width() - origin.x),
             isize::min(rect.height(), bounds.height() - origin.y),
-        )) {
-            Ok(coords) => coords,
-            Err(_) => return Err(WindowDrawingError::InconsistentCoordinates),
+        )) else {
+            return Err(WindowDrawingError::InconsistentCoordinates);
         };
         if coords.left > coords.right || coords.top > coords.bottom {
             return Err(WindowDrawingError::InconsistentCoordinates);
@@ -2399,9 +2381,8 @@ impl WindowHandle {
 
     /// Post a window message.
     pub fn post(&self, message: WindowMessage) -> Result<(), WindowPostError> {
-        let window = match self.get() {
-            Some(window) => window,
-            None => return Err(WindowPostError::NotFound),
+        let Some(window) = self.get() else {
+            return Err(WindowPostError::NotFound)
         };
         if let Some(queue) = window.queue.as_ref() {
             match message {
@@ -2426,9 +2407,8 @@ impl WindowHandle {
 
     /// Read a window message from the message queue.
     pub fn read_message(&self) -> Option<WindowMessage> {
-        let window = match self.get() {
-            Some(window) => window,
-            None => return None,
+        let Some(window) = self.get() else {
+            return None
         };
         if let Some(queue) = window.queue.as_ref() {
             match queue.dequeue() {
@@ -2452,9 +2432,8 @@ impl WindowHandle {
     /// Wait for window messages to be read.
     pub fn wait_message(&self) -> Option<WindowMessage> {
         loop {
-            let window = match self.get() {
-                Some(window) => window,
-                None => return None,
+            let Some(window) = self.get() else {
+                return None
             };
             match self.read_message() {
                 Some(message) => return Some(message),
@@ -2470,9 +2449,8 @@ impl WindowHandle {
 
     /// Supports asynchronous reading of window messages.
     pub fn poll_message(&self, cx: &mut Context<'_>) -> Poll<Option<WindowMessage>> {
-        let window = match self.get() {
-            Some(v) => v.as_ref(),
-            None => return Poll::Ready(None),
+        let Some(window) = self.get() else {
+            return Poll::Ready(None)
         };
         window.waker.register(cx.waker());
         match self.read_message().map(|message| {
@@ -2499,9 +2477,8 @@ impl WindowHandle {
 
     ///
     pub fn refresh_if_needed(&self) {
-        let window = match self.get() {
-            Some(v) => v,
-            None => return,
+        let Some(window) = self.get() else {
+            return
         };
         if window
             .attributes

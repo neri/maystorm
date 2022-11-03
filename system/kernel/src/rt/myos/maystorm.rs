@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    fs::{FileManager, FsRawFileControlBlock, Whence},
+    fs::{FileManager, FsRawFileControlBlock, OffsetType, Whence},
     sync::Mutex,
     ui::theme::Theme,
     *,
@@ -50,26 +50,26 @@ impl BinaryLoader for MyosBinaryLoader {
 
     fn load(&mut self, blob: &[u8]) -> Result<(), ()> {
         self.loader
-        .load(blob, |mod_name, name, type_ref| {
-            let param_types = type_ref.param_types();
-            match mod_name {
-                MyosRuntime::MOD_NAME => match (name, param_types) {
-                    ("svc0", [WasmValType::I32]) => TriState::Ok(MyosRuntime::syscall), 
-                    ("svc1", [WasmValType::I32, WasmValType::I32]) => TriState::Ok(MyosRuntime::syscall), 
-                    ("svc2", [WasmValType::I32, WasmValType::I32, WasmValType::I32]) => TriState::Ok(MyosRuntime::syscall), 
-                    ("svc3", [WasmValType::I32, WasmValType::I32, WasmValType::I32, WasmValType::I32]) => TriState::Ok(MyosRuntime::syscall), 
-                    ("svc4", [WasmValType::I32, WasmValType::I32, WasmValType::I32, WasmValType::I32, WasmValType::I32]) => TriState::Ok(MyosRuntime::syscall), 
-                    ("svc5", [WasmValType::I32, WasmValType::I32, WasmValType::I32, WasmValType::I32, WasmValType::I32, WasmValType::I32]) => TriState::Ok(MyosRuntime::syscall), 
-                    ("svc6", [WasmValType::I32, WasmValType::I32, WasmValType::I32, WasmValType::I32, WasmValType::I32, WasmValType::I32, WasmValType::I32]) => TriState::Ok(MyosRuntime::syscall), 
-                    _ => TriState::Err(WasmDecodeErrorKind::NoMethod(name.to_owned())), 
-                }, 
-                _ => TriState::Err(WasmDecodeErrorKind::NoModule(mod_name.to_owned())),
-            }
-        })
-        .map_err(|v| {
-            println!("Load error: {:?}", v);
-            ()
-        })
+            .load(blob, |mod_name, name, type_ref| {
+                let signature = type_ref.signature();
+                match mod_name {
+                    MyosRuntime::MOD_NAME => match (name, signature.as_ref()) {
+                        ("svc0", "ii") => TriState::Ok(MyosRuntime::syscall),
+                        ("svc1", "iii") => TriState::Ok(MyosRuntime::syscall),
+                        ("svc2", "iiii") => TriState::Ok(MyosRuntime::syscall),
+                        ("svc3", "iiiii") => TriState::Ok(MyosRuntime::syscall),
+                        ("svc4", "iiiiii") => TriState::Ok(MyosRuntime::syscall),
+                        ("svc5", "iiiiiii") => TriState::Ok(MyosRuntime::syscall),
+                        ("svc6", "iiiiiiii") => TriState::Ok(MyosRuntime::syscall),
+                        _ => TriState::Err(WasmDecodeErrorKind::NoMethod(name.to_owned())),
+                    },
+                    _ => TriState::Err(WasmDecodeErrorKind::NoModule(mod_name.to_owned())),
+                }
+            })
+            .map_err(|v| {
+                println!("Load error: {:?}", v);
+                ()
+            })
     }
 
     fn invoke_start(self: Box<Self>) -> Option<ProcessId> {
@@ -253,10 +253,15 @@ impl MyosRuntime {
             }
             Function::LSeek => {
                 let file = params.get_file(self)?;
-                let offset = params.get_i32()?;
+                let offset = params.get_i32()? as OffsetType;
                 let whence = Whence::try_from(params.get_usize()?)
                     .map_err(|_| WasmRuntimeErrorKind::InvalidParameter)?;
-                return Ok((file.lock().unwrap().lseek(offset as i64, whence) as i32).into());
+                return Self::encode_io_result(
+                    file.lock()
+                        .unwrap()
+                        .lseek(offset, whence)
+                        .map(|v| v as usize),
+                );
             }
 
             Function::NewWindow => {

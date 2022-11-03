@@ -27,10 +27,7 @@ pub trait BasicDrawing: SetPixel {
     }
 
     fn draw_rect(&mut self, rect: Rect, color: Self::ColorType) {
-        let coords = match Coordinates::from_rect(rect) {
-            Ok(v) => v,
-            Err(_) => return,
-        };
+        let Ok(coords) = Coordinates::from_rect(rect) else { return };
         let width = rect.width();
         let height = rect.height();
         self.draw_hline(coords.left_top(), width, color);
@@ -260,10 +257,7 @@ pub trait RasterFontWriter: SetPixel {
     fn draw_font(&mut self, src: &[u8], size: Size, origin: Point, color: Self::ColorType) {
         let stride = (size.width as usize + 7) / 8;
 
-        let mut coords = match Coordinates::from_rect(Rect { origin, size }) {
-            Ok(v) => v,
-            Err(_) => return,
-        };
+        let Ok(mut coords) = Coordinates::from_rect(Rect { origin, size }) else { return };
 
         let width = self.width() as isize;
         let height = self.height() as isize;
@@ -708,10 +702,7 @@ impl Bitmap8<'_> {
     where
         F: FnOnce(&mut Bitmap) -> R,
     {
-        let coords = match Coordinates::try_from(rect) {
-            Ok(v) => v,
-            Err(_) => return None,
-        };
+        let Ok(coords) = Coordinates::try_from(rect) else { return None };
         let width = self.width() as isize;
         let height = self.height() as isize;
         let stride = self.stride();
@@ -1400,10 +1391,7 @@ impl Bitmap32<'_> {
     where
         F: FnOnce(&mut Bitmap) -> R,
     {
-        let coords = match Coordinates::try_from(rect) {
-            Ok(v) => v,
-            Err(_) => return None,
-        };
+        let Ok(coords) = Coordinates::try_from(rect) else { return None };
         let width = self.width() as isize;
         let height = self.height() as isize;
         let stride = self.stride();

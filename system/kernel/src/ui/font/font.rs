@@ -336,9 +336,8 @@ impl TrueTypeFont {
 
     #[inline]
     pub fn new(font_data: Vec<u8>) -> Option<Self> {
-        let font = match ab_glyph::FontVec::try_from_vec(font_data) {
-            Ok(v) => v,
-            Err(_) => return None,
+        let Ok(font) = ab_glyph::FontVec::try_from_vec(font_data) else {
+            return None
         };
         let units_per_em = font.units_per_em().unwrap();
         let line_height = (Self::BASE_HEIGHT as f32

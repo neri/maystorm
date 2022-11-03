@@ -431,7 +431,7 @@ impl PortSc {
 
     #[inline]
     pub fn speed(&self) -> Option<PSIV> {
-        FromPrimitive::from_usize(self.speed_raw())
+        unsafe { transmute(self.speed_raw() as u8) }
     }
 
     #[inline]

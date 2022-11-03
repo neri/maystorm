@@ -393,10 +393,7 @@ impl Scheduler {
             }
 
             loop {
-                let event = match events.first() {
-                    Some(v) => v,
-                    None => break,
-                };
+                let Some(event) = events.first() else { break };
                 if event.is_alive() {
                     break;
                 } else {
