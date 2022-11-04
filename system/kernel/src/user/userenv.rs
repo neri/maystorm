@@ -61,6 +61,7 @@ impl UserEnv {
                 .font(&font)
                 .color(Color::LIGHT_GRAY)
                 .middle_center()
+                .shadow(Color::from_argb(0xFF333333), Movement::new(2, 2))
                 .text("Shutting down...")
                 .draw_text(bitmap, bitmap.bounds(), 0);
         });
@@ -827,6 +828,7 @@ fn font_test(
         .top_left()
         .color(color)
         .line_break_mode(LineBreakMode::NoWrap)
+        .shadow(TrueColor::from_argb(0x80CCCCCC).into(), Movement::new(2, 2))
         // .text("あのイーハトーヴォのすきとおった風、夏でも底に冷たさをもつ青いそら、うつくしい森で飾られたモリーオ市、郊外のぎらぎらひかる草の波。");
         // .text("The quick brown fox jumps over the lazy dog.");
         .text("WAVE AVATAR Lorem ipsum dolor sit amet, consectetur adipiscing elit,");

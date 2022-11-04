@@ -373,12 +373,9 @@ impl UsbDeviceControl {
                 Err(_err) => (),
             };
         }
-        let device_desc = match device_desc {
-            Some(v) => v,
-            None => {
-                log!("DEVICE DESCRIPTOR ERROR {}", addr.as_u8());
-                return Err(UsbError::InvalidDescriptor);
-            }
+        let Some(device_desc) = device_desc else {
+            log!("DEVICE DESCRIPTOR ERROR {}", addr.as_u8());
+            return Err(UsbError::InvalidDescriptor);
         };
 
         let lang_id = match Self::_get_device_descriptor::<UsbStringDescriptor>(&host, 0).await {
@@ -394,7 +391,7 @@ impl UsbDeviceControl {
 
         // Binary Device Object Storage
         let mut bos = UsbBinaryObjectStore::empty();
-        let mut uuid = [0u8; 16];
+        let mut uuid = Uuid::null();
         if let Some(bos_blob) = if device_desc.usb_version() >= UsbVersion::BOS_MIN {
             match Self::_get_variable_length_device_descriptor(
                 &host,
@@ -428,16 +425,20 @@ impl UsbDeviceControl {
 
                 match cap_type {
                     UsbDeviceCapabilityType::SuperspeedUsb => {
-                        let descriptor = unsafe {
-                            &*(&bos_blob[cursor] as *const _ as *const UsbSsDeviceCapability)
+                        let Some(descriptor) = UsbSsDeviceCapability::from_slice(
+                            &bos_blob[cursor..]
+                        ) else {
+                            break
                         };
                         bos.ss_dev_cap = Some(*descriptor);
                     }
                     UsbDeviceCapabilityType::ContainerId => {
-                        let descriptor = unsafe {
-                            &*(&bos_blob[cursor] as *const _ as *const UsbContainerIdCapability)
+                        let Some(descriptor) = UsbContainerIdCapability::from_slice(
+                            &bos_blob[cursor..]
+                        ) else {
+                            break
                         };
-                        uuid.copy_from_slice(descriptor.uuid());
+                        uuid = Uuid::from_slice(descriptor.uuid());
                         bos.container_id = Some(*descriptor);
                     }
                     _ => {
@@ -475,14 +476,19 @@ impl UsbDeviceControl {
         let mut current_interface = None;
         while cursor < config.len() {
             let len = config[cursor] as usize;
-            let desc_type_raw = config[cursor + 1];
+            if len < 2 || cursor + len > config.len() {
+                // broken data?
+                break;
+            }
 
-            let desc_type: UsbDescriptorType = UsbDescriptorType::from_u8(desc_type_raw);
+            let desc_type: UsbDescriptorType = UsbDescriptorType::from_u8(config[cursor + 1]);
 
             match desc_type {
                 UsbDescriptorType::Configuration => {
-                    let descriptor = unsafe {
-                        &*(&config[cursor] as *const _ as *const UsbConfigurationDescriptor)
+                    let Some(descriptor) = UsbConfigurationDescriptor::from_slice(
+                        &config[cursor..]
+                    ) else {
+                        break
                     };
                     if let Some(current_configuration) = current_configuration {
                         configurations.push(current_configuration);
@@ -498,8 +504,11 @@ impl UsbDeviceControl {
                     current_interface = None;
                 }
                 UsbDescriptorType::Interface => {
-                    let descriptor =
-                        unsafe { &*(&config[cursor] as *const _ as *const UsbInterfaceDescriptor) };
+                    let Some(descriptor) = UsbInterfaceDescriptor::from_slice(
+                        &config[cursor..]
+                    ) else {
+                        break
+                    };
                     let current_configuration = match current_configuration {
                         Some(ref mut v) => v,
                         None => {
@@ -520,8 +529,11 @@ impl UsbDeviceControl {
                     });
                 }
                 UsbDescriptorType::Endpoint => {
-                    let descriptor =
-                        unsafe { &*(&config[cursor] as *const _ as *const UsbEndpointDescriptor) };
+                    let Some(descriptor) = UsbEndpointDescriptor::from_slice(
+                        &config[cursor..]
+                    ) else {
+                        break
+                    };
                     let current_interface = match current_interface {
                         Some(ref mut v) => v,
                         None => {
@@ -542,8 +554,11 @@ impl UsbDeviceControl {
                     });
                 }
                 UsbDescriptorType::HidClass => {
-                    let descriptor =
-                        unsafe { &*(&config[cursor] as *const _ as *const UsbHidClassDescriptor) };
+                    let Some(descriptor) = UsbHidClassDescriptor::from_slice(
+                        &config[cursor..]
+                    ) else {
+                        break
+                    };
                     let current_interface = match current_interface {
                         Some(ref mut v) => v,
                         None => {
@@ -586,17 +601,11 @@ impl UsbDeviceControl {
             cursor += len;
         }
 
-        let mut current_configuration = match current_configuration {
-            Some(v) => v,
-            None => {
-                return Err(UsbError::InvalidDescriptor);
-            }
+        let Some(mut current_configuration) = current_configuration else {
+            return Err(UsbError::InvalidDescriptor);
         };
-        let current_interface = match current_interface {
-            Some(v) => v,
-            None => {
-                return Err(UsbError::InvalidDescriptor);
-            }
+        let Some(current_interface) = current_interface else {
+            return Err(UsbError::InvalidDescriptor);
         };
         current_configuration.interfaces.push(current_interface);
         configurations.push(current_configuration);
@@ -615,7 +624,7 @@ impl UsbDeviceControl {
         let device = UsbDevice {
             addr,
             route_string: host.route_string(),
-            uuid: Uuid::from_raw(uuid),
+            uuid,
             parent,
             children: Vec::new(),
             speed: host.speed(),

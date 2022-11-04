@@ -11,7 +11,6 @@ use core::{
     slice,
     sync::atomic::*,
 };
-use num_traits::FromPrimitive;
 
 /// xHC Capability Registers
 #[repr(C)]
@@ -436,7 +435,7 @@ impl PortSc {
 
     #[inline]
     pub fn link_state(&self) -> Option<Usb3LinkState> {
-        FromPrimitive::from_usize(self.link_state_raw())
+        unsafe { transmute(self.link_state_raw() as u8) }
     }
 
     #[inline]

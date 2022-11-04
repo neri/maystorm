@@ -9,7 +9,6 @@ use alloc::sync::Arc;
 use bitflags::*;
 use core::{mem::transmute, num::NonZeroU8, pin::Pin, time::Duration};
 use futures_util::Future;
-use num_traits::FromPrimitive;
 
 pub struct UsbHubStarter;
 
@@ -846,7 +845,7 @@ impl UsbHub3PortStatusBit {
 
     #[inline]
     pub fn link_state(&self) -> Option<Usb3LinkState> {
-        FromPrimitive::from_usize(self.link_state_raw())
+        unsafe { transmute(self.link_state_raw() as u8) }
     }
 }
 

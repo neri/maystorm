@@ -13,6 +13,7 @@
 #![feature(iter_advance_by)]
 #![feature(lang_items)]
 #![feature(maybe_uninit_uninit_array)]
+#![feature(more_qualified_paths)]
 #![feature(naked_functions)]
 #![feature(negative_impls)]
 #![feature(new_uninit)]
@@ -22,7 +23,6 @@
 //-//-//-//
 #![allow(incomplete_features)]
 #![feature(return_position_impl_trait_in_trait)]
-#![feature(more_qualified_paths)]
 
 #[macro_use]
 pub mod arch;
@@ -30,7 +30,6 @@ pub mod arch;
 #[macro_use]
 pub mod hal;
 
-pub mod dev;
 pub mod drivers;
 pub mod fs;
 pub mod fw;

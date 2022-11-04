@@ -49,17 +49,15 @@ impl UsbHidDriver {
         if_no: UsbInterfaceNumber,
         class: UsbClass,
     ) -> Result<Task, UsbError> {
-        let interface = match device
+        let Some(interface) = device
             .device()
             .current_configuration()
             .find_interface(if_no, None)
-        {
-            Some(v) => v,
-            None => return Err(UsbError::InvalidParameter),
+        else {
+            return Err(UsbError::InvalidParameter)
         };
-        let endpoint = match interface.endpoints().first() {
-            Some(v) => v,
-            None => return Err(UsbError::InvalidDescriptor),
+        let Some(endpoint) = interface.endpoints().first() else {
+            return Err(UsbError::InvalidDescriptor)
         };
         if !endpoint.is_dir_in() {
             return Err(UsbError::InvalidDescriptor);
@@ -237,18 +235,7 @@ impl UsbHidDriver {
                     //         HexDump(&buffer)
                     //     );
                     // }
-                    let app = match app {
-                        Some(v) => v,
-                        None => {
-                            // log!(
-                            //     "HID {:03}.{} UNKNOWN APP {}",
-                            //     addr.as_u8(),
-                            //     if_no.0,
-                            //     _report_id.map(|v| v.as_u8()).unwrap_or_default(),
-                            // );
-                            continue;
-                        }
-                    };
+                    let Some(app) = app else { continue };
                     if buffer.len() * 8 < app.bit_count_for_input() {
                         // Some devices send smaller garbage data
                         continue;

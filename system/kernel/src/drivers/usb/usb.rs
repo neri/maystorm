@@ -12,7 +12,6 @@ use core::{
     num::NonZeroU8,
     time::Duration,
 };
-use num_derive::FromPrimitive;
 
 /// Valid USB bus addresses are 1 to 127.
 #[repr(transparent)]
@@ -349,6 +348,12 @@ pub unsafe trait UsbDescriptor: Sized {
     fn descriptor_type(&self) -> UsbDescriptorType {
         let stub: &UsbStandardDescriptorStub = unsafe { transmute_copy(&self) };
         stub.descriptor_type
+    }
+
+    #[inline]
+    fn from_slice(slice: &[u8]) -> Option<&Self> {
+        let temp = unsafe { &*(slice.as_ptr() as *const Self) };
+        (temp.len() <= slice.len() && temp.descriptor_type() == Self::DESCRIPTOR_TYPE).then(|| temp)
     }
 }
 
@@ -1165,7 +1170,8 @@ impl PSIV {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Usb3LinkState {
     U0 = 0,
     U1,

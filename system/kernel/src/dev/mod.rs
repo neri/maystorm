@@ -1,2 +1,0 @@
-// Device
-pub mod uart;

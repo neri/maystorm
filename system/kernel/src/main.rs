@@ -300,7 +300,7 @@ impl Shell {
         None
     }
 
-    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> (), &'static str); 11] = [
+    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> (), &'static str); 12] = [
         ("cd", Self::cmd_cd, ""),
         ("pwd", Self::cmd_pwd, ""),
         ("dir", Self::cmd_dir, "Show directory"),
@@ -308,6 +308,7 @@ impl Shell {
         ("help", Self::cmd_help, "Show Help"),
         ("type", Self::cmd_type, "Show file"),
         //
+        ("stat", Self::cmd_stat, ""),
         ("mount", Self::cmd_mount, ""),
         ("ps", Self::cmd_ps, ""),
         ("lspci", Self::cmd_lspci, "Show List of PCI Devices"),
@@ -490,8 +491,24 @@ impl Shell {
                     }
                 }
             }
-            System::stdout().write_str("\r\n").unwrap();
+            // System::stdout().write_str("\r\n").unwrap();
         }
+    }
+
+    fn cmd_stat(args: &[&str]) {
+        let Some(path) = args.get(1) else {
+            println!("stat PATH");
+            return;
+        };
+        let stat = match FileManager::stat(path) {
+            Ok(v) => v,
+            Err(err) => {
+                println!("stat: {}: {:?}", path, err.kind());
+                return;
+            }
+        };
+        println!("path {}", FileManager::canonical_path(path));
+        println!("type {:?} size {}", stat.file_type(), stat.len())
     }
 
     fn cmd_mount(_argv: &[&str]) {

@@ -2,5 +2,6 @@
 
 mod filesys;
 pub use filesys::*;
-mod devfs;
+mod dev;
+pub mod devfs;
 mod initramfs;
