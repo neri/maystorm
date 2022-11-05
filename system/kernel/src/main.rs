@@ -496,19 +496,26 @@ impl Shell {
     }
 
     fn cmd_stat(args: &[&str]) {
-        let Some(path) = args.get(1) else {
-            println!("stat PATH");
+        if args.len() < 2 {
+            println!("stat PATH...");
             return;
         };
-        let stat = match FileManager::stat(path) {
-            Ok(v) => v,
-            Err(err) => {
-                println!("stat: {}: {:?}", path, err.kind());
-                return;
-            }
-        };
-        println!("path {}", FileManager::canonical_path(path));
-        println!("type {:?} size {}", stat.file_type(), stat.len())
+        for path in args.iter().skip(1) {
+            let stat = match FileManager::stat(path) {
+                Ok(v) => v,
+                Err(err) => {
+                    println!("stat: {}: {:?}", path, err.kind());
+                    return;
+                }
+            };
+            println!(
+                "{} {:?} {} {}",
+                stat.inode(),
+                stat.file_type(),
+                stat.len(),
+                FileManager::canonical_path(path),
+            )
+        }
     }
 
     fn cmd_mount(_argv: &[&str]) {

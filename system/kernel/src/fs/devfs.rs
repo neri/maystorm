@@ -1,5 +1,5 @@
 use super::*;
-use crate::{sync::Mutex, *};
+use crate::{sync::RwLock, *};
 use alloc::{borrow::ToOwned, collections::BTreeMap, string::String, sync::Arc};
 use core::{
     mem::MaybeUninit,
@@ -17,7 +17,7 @@ static mut SHARED: MaybeUninit<DevFs> = MaybeUninit::uninit();
 
 /// Device Filesystem
 pub struct DevFs {
-    minor_devices: Mutex<BTreeMap<MinorDevNo, Arc<ThisFsInodeEntry>>>,
+    minor_devices: RwLock<BTreeMap<MinorDevNo, Arc<ThisFsInodeEntry>>>,
     // next_major_device: AtomicUsize,
     next_minor_device: AtomicUsize,
 }
@@ -30,7 +30,7 @@ impl DevFs {
         assert_call_once!();
 
         SHARED.write(Self {
-            minor_devices: Mutex::new(BTreeMap::new()),
+            minor_devices: RwLock::new(BTreeMap::new()),
             // next_major_device: AtomicUsize::new(0),
             next_minor_device: AtomicUsize::new(1 + ROOT_INODE.get() as usize),
         });
@@ -77,7 +77,7 @@ impl DevFs {
         };
         shared
             .minor_devices
-            .lock()
+            .write()
             .unwrap()
             .insert(dev_no, Arc::new(entry));
         Some(dev_no)
@@ -87,16 +87,11 @@ impl DevFs {
     fn get_file(dev_no: MinorDevNo) -> Option<Arc<ThisFsInodeEntry>> {
         DevFs::shared()
             .minor_devices
-            .lock()
+            .read()
             .unwrap()
             .get(&dev_no)
             .map(|v| v.clone())
     }
-
-    // #[inline]
-    // fn stat(dev_no: MinorDevNo) -> Option<FsRawMetaData> {
-    //     Self::get_file(dev_no).map(|v| v.as_ref().into())
-    // }
 }
 
 struct DevFsDriver;
@@ -119,7 +114,7 @@ impl FsDriver for DevFsDriver {
             let shared = DevFs::shared();
             shared
                 .minor_devices
-                .lock()
+                .read()
                 .unwrap()
                 .values()
                 .nth(index)
@@ -136,7 +131,7 @@ impl FsDriver for DevFsDriver {
             let shared = DevFs::shared();
             shared
                 .minor_devices
-                .lock()
+                .read()
                 .unwrap()
                 .values()
                 .find(|v| v.name() == lpc)
@@ -154,11 +149,16 @@ impl FsDriver for DevFsDriver {
         DevFs::get_file(dev_no)
             .ok_or(ErrorKind::NotFound.into())
             .and_then(|v| v.driver.open())
+            .map(|v| Arc::new(DevFsAccessToken::new(v, inode)) as Arc<dyn FsAccessToken>)
     }
 
     fn stat(&self, inode: INodeType) -> Option<FsRawMetaData> {
         if inode == ROOT_INODE {
-            Some(FsRawMetaData::new(FileType::Dir, 0))
+            Some(FsRawMetaData::new(
+                ROOT_INODE,
+                FileType::Dir,
+                DevFs::shared().minor_devices.read().unwrap().len() as OffsetType,
+            ))
         } else {
             inode
                 .try_into()
@@ -190,7 +190,11 @@ impl ThisFsInodeEntry {
 
 impl From<&ThisFsInodeEntry> for FsRawMetaData {
     fn from(src: &ThisFsInodeEntry) -> Self {
-        Self::new(src.file_type, src.driver.info().size as i64)
+        Self::new(
+            src.dev_no.into(),
+            src.file_type,
+            src.driver.info().size as i64,
+        )
     }
 }
 
@@ -242,9 +246,11 @@ impl TryFrom<INodeType> for MinorDevNo {
 pub trait DeviceFileDriver {
     fn name(&self) -> String;
 
-    fn info(&self) -> &DeviceCharacteristics;
+    fn info(&self) -> &DeviceCharacteristics {
+        &DEFAULT_DEV_INFO
+    }
 
-    fn open(&self) -> Result<Arc<dyn FsAccessToken>>;
+    fn open(&self) -> Result<Arc<dyn DeviceAccessToken>>;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -253,11 +259,66 @@ pub struct DeviceCharacteristics {
     pub size: usize,
 }
 
-// impl DeviceCharacteristics {}
-
-impl From<DeviceCharacteristics> for FsRawMetaData {
+impl const Default for DeviceCharacteristics {
     #[inline]
-    fn from(value: DeviceCharacteristics) -> Self {
-        Self::new(value.file_type, value.size as OffsetType)
+    fn default() -> Self {
+        Self {
+            file_type: FileType::CharDev,
+            size: 0,
+        }
+    }
+}
+
+static DEFAULT_DEV_INFO: DeviceCharacteristics = Default::default();
+
+pub trait DeviceAccessToken {
+    fn info(&self) -> &DeviceCharacteristics {
+        &DEFAULT_DEV_INFO
+    }
+
+    fn read_data(&self, _offset: OffsetType, _buf: &mut [u8]) -> Result<usize> {
+        Ok(0)
+    }
+
+    fn write_data(&self, _offset: OffsetType, _buf: &[u8]) -> Result<usize> {
+        Ok(0)
+    }
+
+    fn lseek(&self, _offset: OffsetType, _whence: Whence) -> Result<OffsetType> {
+        Err(ErrorKind::NotSeekable.into())
+    }
+}
+
+struct DevFsAccessToken {
+    device: Arc<dyn DeviceAccessToken>,
+    inode: INodeType,
+}
+
+impl DevFsAccessToken {
+    fn new(device: Arc<dyn DeviceAccessToken>, inode: INodeType) -> Self {
+        Self { device, inode }
+    }
+}
+
+impl FsAccessToken for DevFsAccessToken {
+    fn stat(&self) -> Option<FsRawMetaData> {
+        let info = self.device.info();
+        Some(FsRawMetaData::new(
+            self.inode,
+            info.file_type,
+            info.size as OffsetType,
+        ))
+    }
+
+    fn read_data(&self, offset: OffsetType, buf: &mut [u8]) -> Result<usize> {
+        self.device.read_data(offset, buf)
+    }
+
+    fn write_data(&self, offset: OffsetType, buf: &[u8]) -> Result<usize> {
+        self.device.write_data(offset, buf)
+    }
+
+    fn lseek(&self, offset: OffsetType, whence: Whence) -> Result<OffsetType> {
+        self.device.lseek(offset, whence)
     }
 }

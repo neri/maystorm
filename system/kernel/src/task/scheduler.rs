@@ -1368,13 +1368,14 @@ impl ProcessId {
 
     pub fn cwd(&self) -> String {
         self.get()
-            .map(|v| v.cwd.lock().unwrap().clone())
+            .map(|v| v.cwd.read().unwrap().clone())
             .unwrap_or("".to_owned())
     }
 
     #[inline]
-    pub unsafe fn set_cwd(&self, path: &str) {
-        self.get().map(|v| *v.cwd.lock().unwrap() = path.to_owned());
+    pub fn set_cwd(&self, path: &str) {
+        self.get()
+            .map(|v| *v.cwd.write().unwrap() = path.to_owned());
     }
 }
 
@@ -1400,7 +1401,7 @@ struct ProcessContextData {
     load0: AtomicU32,
     load: AtomicU32,
 
-    cwd: Mutex<String>,
+    cwd: RwLock<String>,
 }
 
 impl ProcessContextData {
@@ -1417,7 +1418,7 @@ impl ProcessContextData {
             cpu_time: AtomicUsize::new(0),
             load0: AtomicU32::new(0),
             load: AtomicU32::new(0),
-            cwd: Mutex::new(cwd.to_owned()),
+            cwd: RwLock::new(cwd.to_owned()),
         }
     }
 

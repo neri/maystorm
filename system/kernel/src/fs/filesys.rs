@@ -7,7 +7,12 @@ use crate::{
 use alloc::{
     borrow::ToOwned, collections::BTreeMap, fmt, format, string::String, sync::Arc, vec::Vec,
 };
-use core::{cell::UnsafeCell, num::NonZeroU64};
+use core::{
+    cell::UnsafeCell,
+    fmt::Display,
+    num::NonZeroU64,
+    sync::atomic::{AtomicU64, Ordering},
+};
 use megstd::{
     fs::*,
     io::{ErrorKind, Read, Result, Write},
@@ -108,8 +113,8 @@ impl FileManager {
 
         let resolved = &fq_path[prefix.len() - 1..];
         let mut dir = fs.root_dir();
-        for lpc in Self::_canonical_path_components(Self::PATH_SEPARATOR, resolved) {
-            dir = fs.find_file(dir, lpc.as_str())?;
+        for pc in Self::_canonical_path_components(Self::PATH_SEPARATOR, resolved) {
+            dir = fs.find_file(dir, pc.as_str())?;
         }
         Ok((fs, dir))
     }
@@ -130,7 +135,7 @@ impl FileManager {
             return Err(ErrorKind::NotADirectory.into());
         }
         let path_components = path_components.iter().map(|v| v.as_str()).collect();
-        unsafe { Scheduler::current_pid().set_cwd(Self::_join_path(&path_components).as_str()) };
+        Scheduler::current_pid().set_cwd(Self::_join_path(&path_components).as_str());
         Ok(())
     }
 
@@ -198,6 +203,40 @@ impl INodeType {
     }
 }
 
+impl Display for INodeType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0.get())
+    }
+}
+
+// #[repr(transparent)]
+// pub struct AtomicINodeType(AtomicU64);
+
+// impl AtomicINodeType {
+//     #[inline]
+//     pub fn load(&self, order: Ordering) -> Option<INodeType> {
+//         INodeType::new(self.0.load(order))
+//     }
+
+//     #[inline]
+//     pub fn store(&self, val: Option<INodeType>, order: Ordering) {
+//         let val = match val {
+//             Some(v) => v.get(),
+//             None => 0,
+//         };
+//         self.0.store(val, order);
+//     }
+
+//     #[inline]
+//     pub fn swap(&self, val: Option<INodeType>, order: Ordering) -> Option<INodeType> {
+//         let val = match val {
+//             Some(v) => v.get(),
+//             None => 0,
+//         };
+//         INodeType::new(self.0.swap(val, order))
+//     }
+// }
+
 pub trait FsDriver {
     /// Device name if mounted on physical device, otherwise name of file system driver
     fn device_name(&self) -> String;
@@ -217,6 +256,18 @@ pub trait FsDriver {
     fn open(self: Arc<Self>, inode: INodeType) -> Result<Arc<dyn FsAccessToken>>;
     /// Obtains metadata for the specified inode
     fn stat(&self, inode: INodeType) -> Option<FsRawMetaData>;
+
+    fn unlink(&self, _dir: INodeType, _name: &str) -> Result<()> {
+        Err(ErrorKind::ReadOnlyFilesystem.into())
+    }
+
+    fn mkdir(&self, _dir: INodeType, _name: &str) -> Result<INodeType> {
+        Err(ErrorKind::Unsupported.into())
+    }
+
+    fn rmdir(&self, _dir: INodeType, _name: &str) -> Result<()> {
+        Err(ErrorKind::Unsupported.into())
+    }
 }
 
 pub trait FsAccessToken {
@@ -227,8 +278,6 @@ pub trait FsAccessToken {
     fn write_data(&self, offset: OffsetType, buf: &[u8]) -> Result<usize>;
 
     fn lseek(&self, offset: OffsetType, whence: Whence) -> Result<OffsetType>;
-
-    //fn ioctl(&self, blob: &[u8]) -> Result<usize>;
 }
 
 pub struct FsRawReadDir {
@@ -287,24 +336,34 @@ impl FsRawDirEntry {
 }
 
 pub struct FsRawMetaData {
+    inode: INodeType,
     file_type: FileType,
     len: OffsetType,
 }
 
 impl FsRawMetaData {
     #[inline]
-    pub const fn new(file_type: FileType, len: OffsetType) -> Self {
-        Self { file_type, len }
+    pub const fn new(inode: INodeType, file_type: FileType, len: OffsetType) -> Self {
+        Self {
+            inode,
+            file_type,
+            len,
+        }
     }
 
     #[inline]
-    pub const fn len(&self) -> OffsetType {
-        self.len
+    pub const fn inode(&self) -> INodeType {
+        self.inode
     }
 
     #[inline]
     pub const fn file_type(&self) -> FileType {
         self.file_type
+    }
+
+    #[inline]
+    pub const fn len(&self) -> OffsetType {
+        self.len
     }
 }
 

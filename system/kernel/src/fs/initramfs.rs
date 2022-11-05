@@ -182,7 +182,7 @@ struct ThisFsInodeEntry {
 
 impl From<&ThisFsInodeEntry> for FsRawMetaData {
     fn from(src: &ThisFsInodeEntry) -> Self {
-        Self::new(src.file_type, src.size as i64)
+        Self::new(src.inode, src.file_type, src.size as i64)
     }
 }
 
