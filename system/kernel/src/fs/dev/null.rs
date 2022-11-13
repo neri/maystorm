@@ -7,7 +7,7 @@ pub struct Null;
 
 impl Null {
     pub fn init() {
-        DevFs::install_minor_device(Arc::new(Self));
+        DevFs::install_minor_device(Arc::new(Self)).unwrap();
     }
 }
 

@@ -105,7 +105,7 @@ static mut SYSTEM: UnsafeCell<System> = UnsafeCell::new(System::new());
 
 impl System {
     const SYSTEM_NAME: &'static str = "MEG-OS";
-    const SYSTEMN_CODENAME: &'static str = "Cherry";
+    const SYSTEM_CODENAME: &'static str = "Cherry";
     const SYSTEM_SHORT_NAME: &'static str = "myos";
     const RELEASE: &'static str = "alpha";
     const VERSION: Version<'static> = Version::new(0, 12, 0, Self::RELEASE);
@@ -231,7 +231,7 @@ impl System {
     /// Returns the codename of the current system.
     #[inline]
     pub const fn codename() -> &'static str {
-        &Self::SYSTEMN_CODENAME
+        &Self::SYSTEM_CODENAME
     }
 
     /// Returns abbreviated name of the current system.

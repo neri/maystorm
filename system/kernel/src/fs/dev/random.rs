@@ -2,18 +2,18 @@ use crate::fs::{devfs::*, *};
 use alloc::borrow::ToOwned;
 use megstd::{io::Result, Arc, String};
 
-/// Zero Device `/dev/zero`
-pub struct Zero;
+/// Random Device `/dev/random`
+pub struct Random;
 
-impl Zero {
+impl Random {
     pub fn init() {
         DevFs::install_minor_device(Arc::new(Self)).unwrap();
     }
 }
 
-impl DeviceFileDriver for Zero {
+impl DeviceFileDriver for Random {
     fn name(&self) -> String {
-        "zero".to_owned()
+        "random".to_owned()
     }
 
     fn open(&self) -> Result<Arc<dyn DeviceAccessToken>> {
@@ -21,9 +21,9 @@ impl DeviceFileDriver for Zero {
     }
 }
 
-impl DeviceAccessToken for Zero {
-    fn read_data(&self, _offset: OffsetType, buf: &mut [u8]) -> Result<usize> {
-        buf.fill(0);
-        Ok(buf.len())
+impl DeviceAccessToken for Random {
+    fn read_data(&self, _offset: OffsetType, _buf: &mut [u8]) -> Result<usize> {
+        todo!()
+        // Ok(buf.len())
     }
 }

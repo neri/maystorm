@@ -492,7 +492,7 @@ impl Scheduler {
     #[track_caller]
     fn spawn_thread(
         start: ThreadStart,
-        args: usize,
+        arg: usize,
         name: &str,
         options: SpawnOption,
     ) -> Option<ThreadHandle> {
@@ -517,7 +517,8 @@ impl Scheduler {
         };
         target_process.n_threads.fetch_add(1, Ordering::SeqCst);
         let thread =
-            ThreadContextData::new(pid, priority, name, Some(start), args, options.personality);
+            ThreadContextData::new(pid, priority, name, Some((start, arg)), options.personality)
+                .unwrap();
         Self::add(thread);
         Some(thread)
     }
@@ -669,7 +670,8 @@ impl LocalScheduler {
     fn new(index: ProcessorIndex) -> Box<Self> {
         let mut sb = Sb255::new();
         write!(sb, "Idle_#{}", index.0).unwrap();
-        let idle = ThreadContextData::new(ProcessId(0), Priority::Idle, sb.as_str(), None, 0, None);
+        let idle =
+            ThreadContextData::new(ProcessId(0), Priority::Idle, sb.as_str(), None, None).unwrap();
         Box::new(Self {
             index,
             idle,
@@ -830,15 +832,15 @@ impl SpawnOption {
 
     /// Start the specified function in a new thread.
     #[inline]
-    pub fn start(self, start: fn(usize), args: usize, name: &str) -> Option<ThreadHandle> {
-        Scheduler::spawn_thread(start, args, name, self)
+    pub fn start(self, start: fn(usize), arg: usize, name: &str) -> Option<ThreadHandle> {
+        Scheduler::spawn_thread(start, arg, name, self)
     }
 
     /// Start the specified function in a new process.
     #[inline]
-    pub fn start_process(mut self, start: fn(usize), args: usize, name: &str) -> Option<ProcessId> {
+    pub fn start_process(mut self, start: fn(usize), arg: usize, name: &str) -> Option<ProcessId> {
         self.new_process = true;
-        Scheduler::spawn_thread(start, args, name, self)
+        Scheduler::spawn_thread(start, arg, name, self)
             .and_then(|v| v.get())
             .map(|v| v.pid)
     }
@@ -1596,10 +1598,9 @@ impl ThreadContextData {
         pid: ProcessId,
         priority: Priority,
         name: &str,
-        start: Option<ThreadStart>,
-        arg: usize,
+        start: Option<(ThreadStart, usize)>,
         personality: Option<PersonalityContext>,
-    ) -> ThreadHandle {
+    ) -> Result<ThreadHandle, ()> {
         let handle = ThreadHandle::next();
 
         let name = {
@@ -1626,7 +1627,7 @@ impl ThreadContextData {
             personality,
             name,
         };
-        if let Some(start) = start {
+        if let Some((start, arg)) = start {
             unsafe {
                 let size_of_stack = CpuContextData::SIZE_OF_STACK;
                 let mut stack = Vec::with_capacity(size_of_stack);
@@ -1641,7 +1642,7 @@ impl ThreadContextData {
             }
         }
         ThreadPool::add(Box::new(thread));
-        handle
+        Ok(handle)
     }
 
     fn exit(&mut self) -> ! {

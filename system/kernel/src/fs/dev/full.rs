@@ -1,19 +1,22 @@
 use crate::fs::{devfs::*, *};
 use alloc::borrow::ToOwned;
-use megstd::{io::Result, Arc, String};
+use megstd::{
+    io::{ErrorKind, Result},
+    Arc, String,
+};
 
-/// Zero Device `/dev/zero`
-pub struct Zero;
+/// Storage Full Device `/dev/full`
+pub struct Full;
 
-impl Zero {
+impl Full {
     pub fn init() {
         DevFs::install_minor_device(Arc::new(Self)).unwrap();
     }
 }
 
-impl DeviceFileDriver for Zero {
+impl DeviceFileDriver for Full {
     fn name(&self) -> String {
-        "zero".to_owned()
+        "full".to_owned()
     }
 
     fn open(&self) -> Result<Arc<dyn DeviceAccessToken>> {
@@ -21,9 +24,13 @@ impl DeviceFileDriver for Zero {
     }
 }
 
-impl DeviceAccessToken for Zero {
+impl DeviceAccessToken for Full {
     fn read_data(&self, _offset: OffsetType, buf: &mut [u8]) -> Result<usize> {
         buf.fill(0);
         Ok(buf.len())
+    }
+
+    fn write_data(&self, _offset: OffsetType, _buf: &[u8]) -> Result<usize> {
+        Err(ErrorKind::StorageFull.into())
     }
 }

@@ -66,21 +66,46 @@ impl DevFs {
             .map(|v| MinorDevNo(v))
     }
 
-    pub fn install_minor_device(driver: Arc<dyn DeviceFileDriver>) -> Option<MinorDevNo> {
+    pub fn install_minor_device(
+        driver: Arc<dyn DeviceFileDriver>,
+    ) -> core::result::Result<MinorDevNo, InstallDeviceError> {
         let shared = Self::shared();
-        let Some(dev_no) = shared._next_minor_device_no() else { return None };
+        let mut devices = shared.minor_devices.write().unwrap();
+
+        let name = driver.name();
+        if Self::_find_file(&devices, name.as_str()).is_some() {
+            // TODO: conflict name
+            return Err(InstallDeviceError::NameAlreadyInUse);
+        }
+
+        let Some(dev_no) = shared._next_minor_device_no() else {
+            return Err(InstallDeviceError::OutOfDeviceNumber);
+        };
         let entry = ThisFsInodeEntry {
             file_type: driver.info().file_type,
             dev_no,
-            name: driver.name(),
+            name,
             driver,
         };
-        shared
-            .minor_devices
-            .write()
-            .unwrap()
-            .insert(dev_no, Arc::new(entry));
-        Some(dev_no)
+        devices.insert(dev_no, Arc::new(entry));
+        Ok(dev_no)
+    }
+
+    #[inline]
+    fn _find_file(
+        dir: &BTreeMap<MinorDevNo, Arc<ThisFsInodeEntry>>,
+        lpc: &str,
+    ) -> Option<INodeType> {
+        dir.values().find(|v| v.name() == lpc).map(|v| v.inode())
+    }
+
+    fn find_file(&self, dir: INodeType, lpc: &str) -> Result<INodeType> {
+        if dir == ROOT_INODE {
+            Self::_find_file(&self.minor_devices.read().unwrap(), lpc)
+                .ok_or(ErrorKind::NotFound.into())
+        } else {
+            Err(ErrorKind::NotFound.into())
+        }
     }
 
     #[inline]
@@ -92,6 +117,12 @@ impl DevFs {
             .get(&dev_no)
             .map(|v| v.clone())
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum InstallDeviceError {
+    NameAlreadyInUse,
+    OutOfDeviceNumber,
 }
 
 struct DevFsDriver;
@@ -127,19 +158,7 @@ impl FsDriver for DevFsDriver {
     }
 
     fn find_file(&self, dir: INodeType, lpc: &str) -> Result<INodeType> {
-        if dir == ROOT_INODE {
-            let shared = DevFs::shared();
-            shared
-                .minor_devices
-                .read()
-                .unwrap()
-                .values()
-                .find(|v| v.name() == lpc)
-                .map(|v| v.inode())
-                .ok_or(ErrorKind::NotFound.into())
-        } else {
-            Err(ErrorKind::NotFound.into())
-        }
+        DevFs::shared().find_file(dir, lpc)
     }
 
     fn open(self: Arc<Self>, inode: INodeType) -> Result<Arc<dyn FsAccessToken>> {

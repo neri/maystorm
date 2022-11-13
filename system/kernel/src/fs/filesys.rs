@@ -7,12 +7,7 @@ use crate::{
 use alloc::{
     borrow::ToOwned, collections::BTreeMap, fmt, format, string::String, sync::Arc, vec::Vec,
 };
-use core::{
-    cell::UnsafeCell,
-    fmt::Display,
-    num::NonZeroU64,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use core::{cell::UnsafeCell, fmt::Display, num::NonZeroU64};
 use megstd::{
     fs::*,
     io::{ErrorKind, Read, Result, Write},

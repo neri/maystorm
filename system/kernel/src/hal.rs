@@ -77,23 +77,13 @@ pub trait HalSync {
     #[inline]
     fn test_and_set(&self, ptr: &AtomicUsize, position: usize) -> bool {
         let bit = 1 << position;
-        let mut result = false;
-        let _ = self.fetch_update(ptr, |data| {
-            result = (data & bit) != 0;
-            Some(data | bit)
-        });
-        result
+        (ptr.fetch_or(bit, Ordering::SeqCst) & bit) != 0
     }
 
     #[inline]
     fn test_and_clear(&self, ptr: &AtomicUsize, position: usize) -> bool {
         let bit = 1 << position;
-        let mut result = false;
-        let _ = self.fetch_update(ptr, |data| {
-            result = (data & bit) != 0;
-            Some(data & !bit)
-        });
-        result
+        (ptr.fetch_and(!bit, Ordering::SeqCst) & bit) != 0
     }
 }
 
@@ -149,8 +139,6 @@ pub struct PhysicalAddress(u64);
 
 impl PhysicalAddress {
     pub const NULL: Self = Self(0);
-
-    // pub const MAX: Self = Self(0x0FFF_FFFF_FFFF);
 
     #[inline]
     pub const fn new(val: u64) -> Self {

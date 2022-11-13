@@ -83,7 +83,7 @@ impl Shell {
                     }
                     "ver" => {
                         println!(
-                            "{} v{} [codename {}]",
+                            "{} v{} (codename {})",
                             System::name(),
                             System::version(),
                             System::codename()
@@ -300,20 +300,20 @@ impl Shell {
         None
     }
 
-    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> (), &'static str); 12] = [
+    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> (), &'static str); 13] = [
         ("cd", Self::cmd_cd, ""),
         ("pwd", Self::cmd_pwd, ""),
-        ("dir", Self::cmd_dir, "Show directory"),
-        ("ls", Self::cmd_dir, ""),
-        ("help", Self::cmd_help, "Show Help"),
-        ("type", Self::cmd_type, "Show file"),
-        //
+        ("ls", Self::cmd_dir, "Show directory"),
+        ("cat", Self::cmd_cat, "Show file"),
+        ("dir", Self::cmd_dir, ""),
+        ("type", Self::cmd_cat, ""),
         ("stat", Self::cmd_stat, ""),
         ("mount", Self::cmd_mount, ""),
         ("ps", Self::cmd_ps, ""),
         ("lspci", Self::cmd_lspci, "Show List of PCI Devices"),
         ("lsusb", Self::cmd_lsusb, "Show List of USB Devices"),
         ("sysctl", Self::cmd_sysctl, "System Control"),
+        ("help", Self::cmd_help, ""),
     ];
 
     fn cmd_help(_: &[&str]) {
@@ -465,7 +465,7 @@ impl Shell {
         }
     }
 
-    fn cmd_type(args: &[&str]) {
+    fn cmd_cat(args: &[&str]) {
         let len = 0x10000;
         let mut sb = Vec::with_capacity(len);
         sb.resize(len, 0);

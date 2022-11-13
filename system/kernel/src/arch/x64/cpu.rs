@@ -51,6 +51,8 @@ impl SharedCpu {
 
 impl Cpu {
     pub unsafe fn init() {
+        assert_call_once!();
+
         let apic_id = System::acpi()
             .unwrap()
             .local_apics()
@@ -66,12 +68,12 @@ impl Cpu {
         if shared.max_cpuid_level_0 >= 0x1F {
             let cpuid1f = __cpuid_count(0x1F, 0);
             if (cpuid1f.ecx & 0xFF00) == 0x0100 {
-                shared.smt_topology = (1 << cpuid1f.eax) - 1;
+                shared.smt_topology = (1 << (cpuid1f.eax & 0x1F)) - 1;
             }
         } else if shared.max_cpuid_level_0 >= 0x0B {
             let cpuid0b = __cpuid_count(0x0B, 0);
             if (cpuid0b.ecx & 0xFF00) == 0x0100 {
-                shared.smt_topology = (1 << cpuid0b.eax) - 1;
+                shared.smt_topology = (1 << (cpuid0b.eax & 0x1F)) - 1;
             }
         }
 
