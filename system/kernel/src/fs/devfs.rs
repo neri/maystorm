@@ -157,7 +157,7 @@ impl FsDriver for DevFsDriver {
         }
     }
 
-    fn find_file(&self, dir: INodeType, lpc: &str) -> Result<INodeType> {
+    fn lookup(&self, dir: INodeType, lpc: &str) -> Result<INodeType> {
         DevFs::shared().find_file(dir, lpc)
     }
 

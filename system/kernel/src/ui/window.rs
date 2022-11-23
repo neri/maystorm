@@ -92,10 +92,9 @@ pub struct WindowManager<'a> {
     root: WindowHandle,
     pointer: WindowHandle,
     barrier: WindowHandle,
-    active: Option<WindowHandle>,
-    captured: Option<WindowHandle>,
-    captured_offset: Movement,
-    entered: Option<WindowHandle>,
+    active: AtomicWindowHandle,
+    captured: AtomicWindowHandle,
+    entered: AtomicWindowHandle,
 }
 
 #[allow(dead_code)]
@@ -209,10 +208,9 @@ impl WindowManager<'static> {
                 root,
                 pointer,
                 barrier,
-                active: None,
-                captured: None,
-                captured_offset: Movement::default(),
-                entered: None,
+                active: AtomicWindowHandle::default(),
+                captured: AtomicWindowHandle::default(),
+                entered: AtomicWindowHandle::default(),
                 system_event: ConcurrentFifo::with_capacity(WINDOW_SYSTEM_EVENT_QUEUE_SIZE),
                 update_coords: Mutex::new(Coordinates::VOID),
             }));
@@ -288,6 +286,8 @@ impl WindowManager<'_> {
     fn window_thread(_: usize) {
         let shared = WindowManager::shared_mut();
 
+        let mut captured_offset = Movement::default();
+
         loop {
             shared.sem_event.wait();
 
@@ -330,7 +330,7 @@ impl WindowManager<'_> {
                         shared.buttons_up.swap(0, Ordering::SeqCst) as u8,
                     );
 
-                    if let Some(captured) = shared.captured {
+                    if let Some(captured) = shared.captured.get() {
                         if current_buttons.contains(MouseButton::PRIMARY) {
                             if shared
                                 .attributes
@@ -368,11 +368,9 @@ impl WindowManager<'_> {
                                     } else {
                                         0
                                     };
-                                let x = position.x - shared.captured_offset.x;
-                                let y = cmp::min(
-                                    cmp::max(position.y - shared.captured_offset.y, top),
-                                    bottom,
-                                );
+                                let x = position.x - captured_offset.x;
+                                let y =
+                                    cmp::min(cmp::max(position.y - captured_offset.y, top), bottom);
                                 captured.move_to(Point::new(x, y));
                             } else {
                                 let _ = Self::make_mouse_events(
@@ -414,7 +412,7 @@ impl WindowManager<'_> {
                                 );
                             }
 
-                            shared.captured = None;
+                            shared.captured.reset();
                             shared.attributes.remove(
                                 WindowManagerAttributes::MOVING
                                     | WindowManagerAttributes::CLOSE_DOWN
@@ -422,7 +420,7 @@ impl WindowManager<'_> {
                             );
 
                             let target = Self::window_at_point(position);
-                            if let Some(entered) = shared.entered {
+                            if let Some(entered) = shared.entered.get() {
                                 if entered != target {
                                     let _ = Self::make_mouse_events(
                                         captured,
@@ -431,9 +429,14 @@ impl WindowManager<'_> {
                                         MouseButton::empty(),
                                         MouseButton::empty(),
                                     );
-                                    let _ = entered.post(WindowMessage::MouseLeave);
-                                    shared.entered = Some(target);
-                                    let _ = target.post(WindowMessage::MouseEnter);
+                                    shared
+                                        .make_enver_and_leave_event(
+                                            target,
+                                            entered,
+                                            position,
+                                            current_buttons,
+                                        )
+                                        .unwrap();
                                 }
                             }
                         }
@@ -441,7 +444,7 @@ impl WindowManager<'_> {
                         let target = Self::window_at_point(position);
 
                         if buttons_down.contains(MouseButton::PRIMARY) {
-                            if let Some(active) = shared.active {
+                            if let Some(active) = shared.active.get() {
                                 if active != target {
                                     WindowManager::set_active(Some(target));
                                 }
@@ -483,9 +486,8 @@ impl WindowManager<'_> {
                                     );
                                 }
                             }
-                            shared.captured = Some(target);
-                            shared.captured_offset =
-                                position - target_window.visible_frame().origin;
+                            shared.captured.set(target);
+                            captured_offset = position - target_window.visible_frame().origin;
                         } else {
                             let _ = Self::make_mouse_events(
                                 target,
@@ -496,11 +498,16 @@ impl WindowManager<'_> {
                             );
                         }
 
-                        if let Some(entered) = shared.entered {
+                        if let Some(entered) = shared.entered.get() {
                             if entered != target {
-                                let _ = entered.post(WindowMessage::MouseLeave);
-                                shared.entered = Some(target);
-                                let _ = target.post(WindowMessage::MouseEnter);
+                                shared
+                                    .make_enver_and_leave_event(
+                                        target,
+                                        entered,
+                                        position,
+                                        current_buttons,
+                                    )
+                                    .unwrap();
                             }
                         }
                     }
@@ -557,6 +564,28 @@ impl WindowManager<'_> {
             Some(err) => Err(err),
             None => Ok(()),
         }
+    }
+
+    fn make_enver_and_leave_event(
+        &self,
+        new: WindowHandle,
+        old: WindowHandle,
+        position: Point,
+        buttons: MouseButton,
+    ) -> Result<(), WindowPostError> {
+        self.entered.set(new);
+        old.post(WindowMessage::MouseLeave(MouseEvent::new(
+            position,
+            buttons,
+            MouseButton::empty(),
+        )))?;
+        new.post(WindowMessage::MouseEnter(MouseEvent::new(
+            position,
+            buttons,
+            MouseButton::empty(),
+        )))?;
+
+        Ok(())
     }
 
     #[inline]
@@ -659,12 +688,12 @@ impl WindowManager<'_> {
 
     fn set_active(window: Option<WindowHandle>) {
         let shared = WindowManager::shared_mut();
-        if let Some(old_active) = shared.active {
+        if let Some(old_active) = shared.active.get() {
             let _ = old_active.post(WindowMessage::Deactivated);
-            shared.active = window;
+            shared.active.write(window);
             let _ = old_active.update_opt(|window| window.refresh_title());
         } else {
-            shared.active = window;
+            shared.active.write(window);
         }
         if let Some(active) = window {
             let _ = active.post(WindowMessage::Activated);
@@ -834,7 +863,7 @@ impl WindowManager<'_> {
         {
             // ctrl alt del
             UserEnv::system_reset();
-        } else if let Some(window) = shared.active {
+        } else if let Some(window) = shared.active.get() {
             let _ = Self::post_system_event(WindowSystemEvent::Key(window, event));
         }
     }
@@ -1216,7 +1245,7 @@ impl RawWindow {
     fn hide(&self) {
         let shared = WindowManager::shared_mut();
         let frame = self.shadow_frame();
-        let new_active = if shared.active.contains(&self.handle) {
+        let new_active = if shared.active.contains(self.handle) {
             let window_orders = shared.window_orders.read().unwrap();
             window_orders
                 .iter()
@@ -1226,8 +1255,8 @@ impl RawWindow {
         } else {
             None
         };
-        if shared.captured.contains(&self.handle) {
-            shared.captured = None;
+        if shared.captured.contains(self.handle) {
+            shared.captured.reset();
         }
         WindowManager::remove_hierarchy(self.handle);
         WindowManager::invalidate_screen(frame);
@@ -1461,7 +1490,7 @@ impl RawWindow {
 
     #[inline]
     fn is_active(&self) -> bool {
-        WindowManager::shared().active.contains(&self.handle)
+        WindowManager::shared().active.contains(self.handle)
     }
 
     fn refresh_title(&mut self) {
@@ -2152,8 +2181,11 @@ pub struct WindowHandle(pub NonZeroUsize);
 
 impl WindowHandle {
     #[inline]
-    pub fn new(val: usize) -> Option<Self> {
-        NonZeroUsize::new(val).map(|x| Self(x))
+    pub const fn new(val: usize) -> Option<Self> {
+        match NonZeroUsize::new(val) {
+            Some(v) => Some(WindowHandle(v)),
+            None => None,
+        }
     }
 
     #[inline]
@@ -2504,6 +2536,82 @@ impl WindowHandle {
     }
 }
 
+#[repr(transparent)]
+#[derive(Default)]
+pub struct AtomicWindowHandle(AtomicUsize);
+
+unsafe impl Send for AtomicWindowHandle {}
+
+unsafe impl Sync for AtomicWindowHandle {}
+
+impl AtomicWindowHandle {
+    #[inline]
+    pub fn new(val: Option<WindowHandle>) -> Self {
+        Self(AtomicUsize::new(Self::_from_val(val)))
+    }
+
+    #[inline]
+    const fn _from_val(val: Option<WindowHandle>) -> usize {
+        match val {
+            Some(v) => v.as_usize(),
+            None => 0,
+        }
+    }
+
+    #[inline]
+    const fn _into_val(val: usize) -> Option<WindowHandle> {
+        WindowHandle::new(val)
+    }
+
+    #[inline]
+    pub fn get(&self) -> Option<WindowHandle> {
+        Self::_into_val(self.0.load(Ordering::Acquire))
+    }
+
+    #[inline]
+    pub fn set(&self, val: WindowHandle) {
+        self.write(Some(val));
+    }
+
+    #[inline]
+    pub fn reset(&self) {
+        self.write(None);
+    }
+
+    #[inline]
+    pub fn write(&self, val: Option<WindowHandle>) {
+        self.0.store(Self::_from_val(val), Ordering::Release);
+    }
+
+    #[inline]
+    pub fn swap(&self, val: Option<WindowHandle>) -> Option<WindowHandle> {
+        Self::_into_val(self.0.swap(Self::_from_val(val), Ordering::SeqCst))
+    }
+
+    #[inline]
+    pub fn is_some(&self) -> bool {
+        self.get().is_some()
+    }
+
+    #[inline]
+    pub fn is_none(&self) -> bool {
+        self.get().is_none()
+    }
+
+    #[inline]
+    pub fn contains(&self, val: WindowHandle) -> bool {
+        self.get().contains(&val)
+    }
+
+    #[inline]
+    pub fn map<F, R>(&self, f: F) -> Option<R>
+    where
+        F: FnOnce(WindowHandle) -> R,
+    {
+        self.get().map(f)
+    }
+}
+
 struct WindowMessageConsumer {
     handle: WindowHandle,
 }
@@ -2552,8 +2660,8 @@ pub enum WindowMessage {
     MouseMove(MouseEvent),
     MouseDown(MouseEvent),
     MouseUp(MouseEvent),
-    MouseEnter,
-    MouseLeave,
+    MouseEnter(MouseEvent),
+    MouseLeave(MouseEvent),
     /// Timer event
     Timer(usize),
     /// User Defined

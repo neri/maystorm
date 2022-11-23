@@ -19,8 +19,7 @@
     "pre-link-args": {
         "gcc": [
             "-m64",
-            "-nostdlib",
-            "-static"
+            "-nostdlib"
         ]
     },
     "relro-level": "full",

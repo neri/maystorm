@@ -135,7 +135,7 @@ impl FsDriver for InitRamfs {
         ))
     }
 
-    fn find_file(&self, dir: INodeType, lpc: &str) -> Result<INodeType> {
+    fn lookup(&self, dir: INodeType, lpc: &str) -> Result<INodeType> {
         self.get_file(dir)
             .and_then(|v| v.children.iter().find(|v| v.name() == lpc))
             .map(|v| v.inode())

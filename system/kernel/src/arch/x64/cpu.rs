@@ -311,14 +311,38 @@ impl CpuContextData {
         }
     }
 
-    pub unsafe fn switch(&mut self, other: &mut Self) {
+    #[inline]
+    pub unsafe fn init(&mut self, new_sp: *mut c_void, start: usize, arg: usize) {
+        asm!("
+            sub {new_sp}, 0x18
+            mov [{new_sp}], {new_thread}
+            mov [{new_sp} + 0x08], {start}
+            mov [{new_sp} + 0x10], {arg}
+            mov [{0} + {CTX_RSP}], {new_sp}
+            xor {temp:e}, {temp:e}
+            mov [{0} + {CTX_USER_CS}], {temp}
+            mov [{0} + {CTX_USER_DS}], {temp}
+            ",
+            in(reg) self,
+            new_sp = in(reg) new_sp,
+            start = in(reg) start,
+            arg = in(reg) arg,
+            new_thread = in(reg) Self::_new_thread,
+            temp = out(reg) _,
+            CTX_RSP = const Self::CTX_RSP,
+            CTX_USER_CS = const Self::CTX_USER_CS_DESC,
+            CTX_USER_DS = const Self::CTX_USER_DS_DESC,
+        );
+    }
+
+    pub unsafe fn switch(&self, other: &Self) {
         let gdt = GlobalDescriptorTable::current();
         Self::_switch(self, other, gdt);
     }
 
     #[naked]
     unsafe extern "C" fn _switch(
-        current: *mut Self,
+        current: *const Self,
         other: *const Self,
         gdt: *mut GlobalDescriptorTable,
     ) {
@@ -393,30 +417,6 @@ impl CpuContextData {
             USER_CS_IDX = const Selector::LEGACY_CODE.index(),
             USER_DS_IDX = const Selector::LEGACY_DATA.index(),
             options(noreturn)
-        );
-    }
-
-    #[inline]
-    pub unsafe fn init(&mut self, new_sp: *mut c_void, start: usize, arg: usize) {
-        asm!("
-            sub {new_sp}, 0x18
-            mov [{new_sp}], {new_thread}
-            mov [{new_sp} + 0x08], {start}
-            mov [{new_sp} + 0x10], {arg}
-            mov [{0} + {CTX_RSP}], {new_sp}
-            xor {temp:e}, {temp:e}
-            mov [{0} + {CTX_USER_CS}], {temp}
-            mov [{0} + {CTX_USER_DS}], {temp}
-            ",
-            in(reg) self,
-            new_sp = in(reg) new_sp,
-            start = in(reg) start,
-            arg = in(reg) arg,
-            new_thread = in(reg) Self::_new_thread,
-            temp = out(reg) _,
-            CTX_RSP = const Self::CTX_RSP,
-            CTX_USER_CS = const Self::CTX_USER_CS_DESC,
-            CTX_USER_DS = const Self::CTX_USER_DS_DESC,
         );
     }
 

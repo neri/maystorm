@@ -933,13 +933,11 @@ impl HoeFile {
     }
 
     fn get_file_size(&mut self, whence: Whence) -> usize {
-        let file_pos = match self.0.lseek(0, Whence::SeekCur) {
-            Ok(v) => v,
-            Err(_) => return 0,
+        let Ok(file_pos) = self.0.lseek(0, Whence::SeekCur) else {
+            return 0
         };
-        let file_size = match self.0.lseek(0, Whence::SeekEnd) {
-            Ok(v) => v,
-            Err(_) => return 0,
+        let Ok(file_size) =  self.0.lseek(0, Whence::SeekEnd) else {
+            return 0
         };
         match self.0.lseek(file_pos, Whence::SeekSet) {
             Ok(_) => match whence {
@@ -965,6 +963,7 @@ pub enum HoeLangMode {
     EUC,
 }
 
+/// A String encoded in Japanese Industrial Standards
 pub struct JisString<'a>(&'a [u8]);
 
 impl<'a> JisString<'a> {
@@ -974,7 +973,7 @@ impl<'a> JisString<'a> {
     }
 
     #[inline]
-    pub fn chars(&'a self, lang_mode: HoeLangMode) -> JisChars<'a> {
+    pub fn chars(&'a self, lang_mode: HoeLangMode) -> impl Iterator<Item = JisChar> + 'a {
         JisChars::new(self, lang_mode)
     }
 }

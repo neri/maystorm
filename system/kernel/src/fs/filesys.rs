@@ -109,7 +109,7 @@ impl FileManager {
         let resolved = &fq_path[prefix.len() - 1..];
         let mut dir = fs.root_dir();
         for pc in Self::_canonical_path_components(Self::PATH_SEPARATOR, resolved) {
-            dir = fs.find_file(dir, pc.as_str())?;
+            dir = fs.lookup(dir, pc.as_str())?;
         }
         Ok((fs, dir))
     }
@@ -241,12 +241,8 @@ pub trait FsDriver {
     fn root_dir(&self) -> INodeType;
     /// Reads the specified directory
     fn read_dir(&self, dir: INodeType, index: usize) -> Option<FsRawDirEntry>;
-    /// Finds the specified file name in the specified directory
-    ///
-    /// # NOTE
-    ///
-    /// This function is also used to search for file system objects other than files, such as directories.
-    fn find_file(&self, dir: INodeType, name: &str) -> Result<INodeType>;
+    /// Searches for a file system object with the specified file name in the specified directory.
+    fn lookup(&self, dir: INodeType, name: &str) -> Result<INodeType>;
     /// Opens a file with the specified inode
     fn open(self: Arc<Self>, inode: INodeType) -> Result<Arc<dyn FsAccessToken>>;
     /// Obtains metadata for the specified inode

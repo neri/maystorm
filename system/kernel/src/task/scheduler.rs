@@ -211,12 +211,21 @@ impl Scheduler {
         unsafe { without_interrupts!(Self::local_scheduler().map(|sch| sch.current_thread())) }
     }
 
+    #[inline]
+    #[track_caller]
+    fn current_thread_data<'a>() -> &'a mut ThreadContextData {
+        Self::current_thread()
+            .and_then(|v| unsafe { v._unsafe_weak() })
+            .unwrap()
+    }
+
     /// Get the personality instance associated with the current thread
     #[inline]
     pub fn current_personality<'a>() -> Option<&'a mut PersonalityContext> {
-        Self::current_thread()
-            .and_then(|thread| unsafe { thread.unsafe_weak() })
-            .and_then(|thread| thread.personality.as_mut())
+        Self::current_thread_data()
+            .personality
+            .as_ref()
+            .map(|v| unsafe { &mut *v.get() })
     }
 
     /// Perform the preemption
@@ -253,7 +262,7 @@ impl Scheduler {
             .flatten()
         {
             LocalScheduler::switch_context(local, next);
-        } else if current.update(|current| current.quantum.consume()) {
+        } else if current.as_ref().quantum.consume() {
             if let Some(next) = local.next_thread() {
                 LocalScheduler::switch_context(local, next);
             }
@@ -427,7 +436,6 @@ impl Scheduler {
             let mut usage = 0;
             for thread in ThreadPool::shared().data.lock().values() {
                 let thread = thread.clone();
-                let thread = unsafe { &mut (*thread.get()) };
 
                 let load0 = thread.load0.swap(0, Ordering::SeqCst);
                 let load = usize::min(load0 as usize * expect as usize / actual1000, 1000);
@@ -530,7 +538,7 @@ impl Scheduler {
     }
 
     pub fn spawn_task(task: Task) {
-        let thread = unsafe { Self::current_thread().unwrap().unsafe_weak().unwrap() };
+        let thread = Self::current_thread_data();
         if thread.executor.is_none() {
             thread.executor = Some(Executor::new());
         }
@@ -539,23 +547,19 @@ impl Scheduler {
 
     /// Performing Asynchronous Tasks
     pub fn perform_tasks() -> ! {
-        let thread = unsafe { Self::current_thread().unwrap().unsafe_weak().unwrap() };
+        let thread = Self::current_thread_data();
         thread.executor.as_ref().map(|v| v.run());
         Self::exit();
     }
 
     pub fn exit() -> ! {
-        let current = Self::current_thread().unwrap();
-        unsafe {
-            current.unsafe_weak().unwrap().exit();
-        }
+        let thread = Self::current_thread_data();
+        thread.exit();
     }
 
     pub fn get_idle_statistics(vec: &mut Vec<u32>) {
         vec.clear();
         for thread in ThreadPool::shared().data.lock().values() {
-            let thread = thread.clone();
-            let thread = unsafe { &(*thread.get()) };
             if thread.priority != Priority::Idle {
                 break;
             }
@@ -608,8 +612,6 @@ impl Scheduler {
     pub fn get_thread_statistics(sb: &mut impl fmt::Write) {
         writeln!(sb, " ID PID P ST %CPU TIME     NAME").unwrap();
         for thread in ThreadPool::shared().data.lock().values() {
-            let thread = thread.clone();
-            let thread = unsafe { &mut (*thread.get()) };
             if thread.pid == ProcessId(0) {
                 continue;
             }
@@ -696,9 +698,9 @@ impl LocalScheduler {
             drop(self);
 
             {
-                let current = current.unsafe_weak().unwrap();
-                let next = next.unsafe_weak().unwrap();
-                current.context.get_mut().switch(next.context.get_mut());
+                let current = current._unsafe_weak().unwrap();
+                let next = next._unsafe_weak().unwrap();
+                current.context.switch(&next.context);
             }
 
             Scheduler::local_scheduler()
@@ -711,14 +713,10 @@ impl LocalScheduler {
 
     #[inline]
     unsafe fn _switch_context_after(&mut self, irql: Irql) {
-        let current = self.current_thread();
-
-        current.update(|thread| {
-            // TODO: usize?
-            thread
-                .measure
-                .store(Timer::measure_deprecated().0 as usize, Ordering::SeqCst);
-        });
+        let current = self.current_thread().as_ref();
+        current
+            .measure
+            .store(Timer::measure_deprecated().0 as usize, Ordering::SeqCst);
         let retired = self.take_retired().unwrap();
         Scheduler::retire(retired);
         self.lower_irql(irql);
@@ -786,13 +784,10 @@ impl LocalScheduler {
 #[no_mangle]
 pub unsafe extern "C" fn sch_setup_new_thread() {
     let lsch = Scheduler::local_scheduler().unwrap();
-    let current = lsch.current_thread();
-    current.update(|thread| {
-        // TODO: usize?
-        thread
-            .measure
-            .store(Timer::measure_deprecated().0 as usize, Ordering::SeqCst);
-    });
+    let current = lsch.current_thread().as_ref();
+    current
+        .measure
+        .store(Timer::measure_deprecated().0 as usize, Ordering::SeqCst);
     let retired = lsch.take_retired().unwrap();
     Scheduler::retire(retired);
     lsch.lower_irql(Irql::Passive);
@@ -1292,7 +1287,7 @@ impl ProcessPool {
 
 #[derive(Default)]
 struct ThreadPool {
-    data: SpinMutex<BTreeMap<ThreadHandle, Arc<UnsafeCell<Box<ThreadContextData>>>>>,
+    data: SpinMutex<BTreeMap<ThreadHandle, Arc<ThreadContextData>>>,
 }
 
 impl ThreadPool {
@@ -1308,12 +1303,10 @@ impl ThreadPool {
         unsafe { &THREAD_POOL }
     }
 
-    fn add(thread: Box<ThreadContextData>) {
+    #[inline]
+    fn add(thread: ThreadContextData) {
         let handle = thread.handle;
-        Self::shared()
-            .data
-            .lock()
-            .insert(handle, Arc::new(UnsafeCell::new(thread)));
+        Self::shared().data.lock().insert(handle, Arc::new(thread));
     }
 
     #[inline]
@@ -1322,33 +1315,17 @@ impl ThreadPool {
     }
 
     #[inline]
-    unsafe fn unsafe_weak<'a>(&self, key: ThreadHandle) -> Option<&'a mut Box<ThreadContextData>> {
+    unsafe fn _unsafe_weak<'a>(&self, key: ThreadHandle) -> Option<&'a mut ThreadContextData> {
         self.data
             .lock()
             .get(&key)
-            .map(|v| &mut *UnsafeCell::get(&*Arc::as_ptr(v)))
+            .map(|v| &mut *(Arc::as_ptr(v) as *mut _))
     }
 
     #[inline]
     #[must_use]
-    fn get<'a>(&self, key: ThreadHandle) -> Option<&'a Box<ThreadContextData>> {
-        self.data
-            .lock()
-            .get(&key)
-            .map(|thread| unsafe { &(*thread.clone().get()) })
-    }
-
-    #[inline]
-    fn get_mut<F, R>(&self, key: ThreadHandle, f: F) -> Option<R>
-    where
-        F: FnOnce(&mut ThreadContextData) -> R,
-    {
-        self.data.lock().get_mut(&key).map(|thread| unsafe {
-            let thread = thread.clone().get();
-            let r = f(&mut *thread);
-            fence(Ordering::SeqCst);
-            r
-        })
+    fn get<'a>(&self, key: ThreadHandle) -> Option<Arc<ThreadContextData>> {
+        self.data.lock().get(&key).map(|v| v.clone())
     }
 }
 
@@ -1471,33 +1448,24 @@ impl ThreadHandle {
     }
 
     #[inline]
-    #[track_caller]
-    fn update<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&mut ThreadContextData) -> R,
-    {
-        ThreadPool::shared().get_mut(*self, f).unwrap()
-    }
-
-    #[inline]
-    fn get<'a>(&self) -> Option<&'a Box<ThreadContextData>> {
+    fn get<'a>(&self) -> Option<Arc<ThreadContextData>> {
         ThreadPool::shared().get(*self)
     }
 
     #[inline]
     #[track_caller]
-    fn as_ref<'a>(&self) -> &'a ThreadContextData {
+    fn as_ref<'a>(&self) -> Arc<ThreadContextData> {
         self.get().unwrap()
     }
 
     #[inline]
     #[track_caller]
-    unsafe fn unsafe_weak<'a>(&self) -> Option<&'a mut Box<ThreadContextData>> {
-        ThreadPool::shared().unsafe_weak(*self)
+    unsafe fn _unsafe_weak<'a>(&self) -> Option<&'a mut ThreadContextData> {
+        ThreadPool::shared()._unsafe_weak(*self)
     }
 
     #[inline]
-    pub fn name(&self) -> Option<&str> {
+    pub fn name(&self) -> Option<String> {
         self.get().map(|v| v.name())
     }
 
@@ -1516,13 +1484,13 @@ impl ThreadHandle {
     }
 
     fn update_statistics(&self) {
-        self.update(|thread| {
-            let now = Timer::measure_deprecated().0 as usize;
-            let then = thread.measure.swap(now, Ordering::SeqCst);
-            let diff = now - then;
-            thread.cpu_time.fetch_add(diff, Ordering::SeqCst);
-            thread.load0.fetch_add(diff as u32, Ordering::SeqCst);
-        });
+        let Some(thread) = self.get() else { return };
+
+        let now = Timer::measure_deprecated().0 as usize;
+        let then = thread.measure.swap(now, Ordering::SeqCst);
+        let diff = now - then;
+        thread.cpu_time.fetch_add(diff, Ordering::SeqCst);
+        thread.load0.fetch_add(diff as u32, Ordering::SeqCst);
     }
 }
 
@@ -1531,7 +1499,7 @@ type ThreadStart = fn(usize) -> ();
 #[allow(dead_code)]
 struct ThreadContextData {
     /// Architectural context data
-    context: UnsafeCell<CpuContextData>,
+    context: CpuContextData,
 
     stack: Option<Box<[u8]>>,
 
@@ -1541,7 +1509,7 @@ struct ThreadContextData {
 
     // Properties
     sem: Semaphore,
-    personality: Option<PersonalityContext>,
+    personality: Option<UnsafeCell<PersonalityContext>>,
     attribute: AtomicBitflags<ThreadAttribute>,
     sleep_counter: AtomicIsize,
     priority: Priority,
@@ -1610,7 +1578,7 @@ impl ThreadContextData {
         };
 
         let mut thread = Self {
-            context: UnsafeCell::new(CpuContextData::new()),
+            context: CpuContextData::new(),
             stack: None,
             pid,
             handle,
@@ -1624,7 +1592,7 @@ impl ThreadContextData {
             load0: AtomicU32::new(0),
             load: AtomicU32::new(0),
             executor: None,
-            personality,
+            personality: personality.map(|v| UnsafeCell::new(v)),
             name,
         };
         if let Some((start, arg)) = start {
@@ -1637,11 +1605,10 @@ impl ThreadContextData {
                 let stack = thread.stack.as_mut().unwrap().as_mut_ptr() as *mut c_void;
                 thread
                     .context
-                    .get_mut()
                     .init(stack.add(size_of_stack), start as usize, arg);
             }
         }
-        ThreadPool::add(Box::new(thread));
+        ThreadPool::add(thread);
         Ok(handle)
     }
 
@@ -1650,7 +1617,7 @@ impl ThreadContextData {
 
         self.sem.signal();
         if let Some(context) = self.personality.take() {
-            context.on_exit();
+            context.into_inner().on_exit();
         }
 
         let process = self.pid.get().unwrap();
@@ -1668,8 +1635,8 @@ impl ThreadContextData {
         self.sleep_counter.load(Ordering::Relaxed) > 0
     }
 
-    fn name(&self) -> &str {
-        self.name.as_str()
+    fn name(&self) -> String {
+        self.name.as_str().to_owned()
     }
 }
 
