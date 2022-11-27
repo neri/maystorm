@@ -16,7 +16,7 @@ use core::{
     future::Future,
     mem::swap,
     num::*,
-    ops::BitOr,
+    ops::{BitOr, Deref},
     pin::Pin,
     sync::atomic::*,
     task::{Context, Poll},
@@ -86,7 +86,7 @@ pub struct WindowManager<'a> {
 
     resources: Resources<'a>,
 
-    window_pool: RwLock<BTreeMap<WindowHandle, Arc<UnsafeCell<Box<RawWindow>>>>>,
+    window_pool: RwLock<BTreeMap<WindowHandle, Arc<UnsafeCell<RawWindow>>>>,
     window_orders: RwLock<Vec<WindowHandle>>,
 
     root: WindowHandle,
@@ -220,7 +220,7 @@ impl WindowManager<'static> {
     }
 
     #[track_caller]
-    fn add(window: Box<RawWindow>) {
+    fn add(window: RawWindow) {
         let handle = window.handle;
         WindowManager::shared_mut()
             .window_pool
@@ -239,28 +239,28 @@ impl WindowManager<'static> {
     }
 
     #[inline]
-    fn get<'a>(&self, key: &WindowHandle) -> Option<&'a Box<RawWindow>> {
-        match WindowManager::shared().window_pool.read() {
-            Ok(v) => v
-                .get(key)
-                .map(|v| v.clone().get())
-                .map(|v| unsafe { &(*v) }),
-            Err(_) => None,
-        }
+    fn get(&self, key: &WindowHandle) -> Option<WindowRef> {
+        WindowManager::shared()
+            .window_pool
+            .read()
+            .unwrap()
+            .get(key)
+            .map(|v| WindowRef(v.clone()))
     }
 
-    fn get_mut<F, R>(&mut self, key: &WindowHandle, f: F) -> Option<R>
+    fn update<F, R>(&mut self, key: &WindowHandle, f: F) -> Option<R>
     where
         F: FnOnce(&mut RawWindow) -> R,
     {
-        let window = match WindowManager::shared_mut().window_pool.write() {
-            Ok(mut v) => v.get_mut(key).map(|v| v.clone()),
-            Err(_) => None,
-        };
-        window.map(|window| unsafe {
-            let window = window.get();
-            f(&mut *window)
-        })
+        WindowManager::shared()
+            .window_pool
+            .read()
+            .unwrap()
+            .get(key)
+            .map(|v| unsafe {
+                let window = v.clone().get();
+                f(&mut *window)
+            })
     }
 }
 
@@ -620,7 +620,7 @@ impl WindowManager<'_> {
             window_orders.push(window.handle);
         }
 
-        window.as_ref().attributes.insert(WindowAttributes::VISIBLE);
+        window.attributes.insert(WindowAttributes::VISIBLE);
 
         drop(window_orders);
     }
@@ -1903,7 +1903,7 @@ impl WindowBuilder {
         handle
     }
 
-    fn build_inner<'a>(mut self, title: &str) -> Box<RawWindow> {
+    fn build_inner<'a>(mut self, title: &str) -> RawWindow {
         let window_options = self.options;
         if (window_options & megos::window::THIN_FRAME) != 0 {
             self.style.insert(WindowStyle::THIN_FRAME);
@@ -2025,7 +2025,7 @@ impl WindowBuilder {
 
         let handle = WindowManager::next_window_handle();
 
-        Box::new(RawWindow {
+        RawWindow {
             handle,
             frame,
             content_insets,
@@ -2046,7 +2046,7 @@ impl WindowBuilder {
             sem: Semaphore::new(0),
             queue,
             pid: Scheduler::current_pid(),
-        })
+        }
     }
 
     #[inline]
@@ -2176,6 +2176,17 @@ impl Default for BitmapStrategy {
 }
 
 #[repr(transparent)]
+struct WindowRef(Arc<UnsafeCell<RawWindow>>);
+
+impl Deref for WindowRef {
+    type Target = RawWindow;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.0.as_ref().get() }
+    }
+}
+
+#[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct WindowHandle(pub NonZeroUsize);
 
@@ -2200,13 +2211,13 @@ impl WindowHandle {
 
     #[inline]
     #[track_caller]
-    fn get<'a>(&self) -> Option<&'a Box<RawWindow>> {
+    fn get<'a>(&self) -> Option<WindowRef> {
         WindowManager::shared().get(self)
     }
 
     #[inline]
     #[track_caller]
-    fn as_ref<'a>(&self) -> &'a RawWindow {
+    fn as_ref<'a>(&self) -> WindowRef {
         self.get().unwrap()
     }
 
@@ -2215,7 +2226,7 @@ impl WindowHandle {
     where
         F: FnOnce(&mut RawWindow) -> R,
     {
-        WindowManager::shared_mut().get_mut(self, f)
+        WindowManager::shared_mut().update(self, f)
     }
 
     #[inline]
@@ -2226,8 +2237,6 @@ impl WindowHandle {
     {
         self.update_opt(f).unwrap()
     }
-
-    // :-:-:-:-:
 
     #[inline]
     pub fn is_active(&self) -> bool {

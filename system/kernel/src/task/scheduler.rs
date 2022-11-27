@@ -26,8 +26,7 @@ use megstd::string::*;
 const THRESHOLD_ENTER_MAX: usize = 950;
 const THRESHOLD_LEAVE_MAX: usize = 666;
 
-static SCHEDULER_STATE: AtomicEnum<SchedulerState> =
-    unsafe { AtomicEnum::from_raw_unchecked(SchedulerState::Disabled.as_raw()) };
+static SCHEDULER_STATE: AtomicEnum<SchedulerState> = AtomicEnum::new(SchedulerState::Disabled);
 static mut SCHEDULER: Option<Box<Scheduler>> = None;
 static mut THREAD_POOL: ThreadPool = ThreadPool::new();
 static PROCESS_POOL: ProcessPool = ProcessPool::new();
@@ -297,10 +296,11 @@ impl Scheduler {
     /// Get the scheduler for the current processor
     #[inline]
     unsafe fn local_scheduler() -> Option<&'static mut Box<LocalScheduler>> {
-        match SCHEDULER.as_mut() {
-            Some(sch) => sch.locals.get_mut(Hal::cpu().current_processor_index().0),
-            None => None,
-        }
+        SCHEDULER.as_mut().and_then(|scheduler| {
+            scheduler
+                .locals
+                .get_mut(Hal::cpu().current_processor_index().0)
+        })
     }
 
     /// Returns whether the specified processor is stalled or not.
@@ -763,8 +763,8 @@ impl LocalScheduler {
     #[must_use]
     unsafe fn raise_irql(&self, new_irql: Irql) -> Irql {
         let old_irql = self.current_irql();
-        if new_irql < old_irql {
-            panic!("IRQL_NOT_GREATER_OR_EQUAL");
+        if old_irql > new_irql {
+            panic!("IRQL_NOT_GREATER_OR_EQUAL {:?} > {:?}", old_irql, new_irql);
         }
         self.irql.store(new_irql as usize, Ordering::SeqCst);
         old_irql
@@ -774,15 +774,15 @@ impl LocalScheduler {
     #[track_caller]
     unsafe fn lower_irql(&self, new_irql: Irql) {
         let old_irql = self.current_irql();
-        if new_irql > old_irql {
-            panic!("IRQL_NOT_LESS_OR_EQUAL");
+        if old_irql < new_irql {
+            panic!("IRQL_NOT_LESS_OR_EQUAL {:?} < {:?}", old_irql, new_irql);
         }
         self.irql.store(new_irql as usize, Ordering::SeqCst);
     }
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn sch_setup_new_thread() {
+pub unsafe extern "C" fn setup_new_thread() {
     let lsch = Scheduler::local_scheduler().unwrap();
     let current = lsch.current_thread().as_ref();
     current
@@ -1448,13 +1448,13 @@ impl ThreadHandle {
     }
 
     #[inline]
-    fn get<'a>(&self) -> Option<Arc<ThreadContextData>> {
+    fn get(&self) -> Option<Arc<ThreadContextData>> {
         ThreadPool::shared().get(*self)
     }
 
     #[inline]
     #[track_caller]
-    fn as_ref<'a>(&self) -> Arc<ThreadContextData> {
+    fn as_ref(&self) -> Arc<ThreadContextData> {
         self.get().unwrap()
     }
 
@@ -1471,11 +1471,9 @@ impl ThreadHandle {
 
     #[inline]
     pub fn wake(&self) {
-        if let Some(thread) = self.get() {
-            thread.sleep_counter.fetch_sub(1, Ordering::SeqCst);
-            drop(thread);
-            Scheduler::add(*self);
-        }
+        let Some(thread) = self.get() else { return };
+        thread.sleep_counter.fetch_sub(1, Ordering::SeqCst);
+        Scheduler::add(*self);
     }
 
     #[inline]
@@ -1536,7 +1534,8 @@ impl ThreadAttribute {
     const ZOMBIE: Self = Self(0b0000_0000_0000_1000);
 }
 
-impl Into<usize> for ThreadAttribute {
+impl const Into<usize> for ThreadAttribute {
+    #[inline]
     fn into(self) -> usize {
         self.0
     }
@@ -1668,7 +1667,7 @@ pub enum Irql {
     Passive = 0,
     Apc,
     Dispatch,
-    DIrql,
+    Device,
     IPI,
     High,
 }
@@ -1701,10 +1700,3 @@ impl Irql {
         })
     }
 }
-
-// #[derive(Debug)]
-// #[allow(non_camel_case_types)]
-// enum IrqlError {
-//     IRQL_NOT_GREATER_OR_EQUAL(Irql, Irql),
-//     IRQL_NOT_LESS_OR_EQUAL(Irql, Irql),
-// }

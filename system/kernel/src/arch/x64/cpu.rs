@@ -453,7 +453,7 @@ impl CpuContextData {
             pop rdi
             call rax
             ",
-            setup_new_thread = sym task::scheduler::sch_setup_new_thread,
+            setup_new_thread = sym task::scheduler::setup_new_thread,
             options(noreturn)
         );
     }

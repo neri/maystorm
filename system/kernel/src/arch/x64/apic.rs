@@ -416,7 +416,7 @@ impl Apic {
             entry => {
                 let f: IrqHandler = transmute(entry);
                 let param = shared.idt_params[irq.0 as usize];
-                Irql::DIrql.raise(|| f(param));
+                Irql::Device.raise(|| f(param));
                 LocalApic::eoi();
             }
         }

@@ -45,13 +45,14 @@ linker = "/opt/homebrew/opt/llvm/bin/ld.lld"
 
 ### run on qemu
 
-1. Copy qemu's OVMF for x64 to `var/ovmfx64.fd`.
-2. Follow the build instructions to finish the installation.
+1. Follow the build instructions to finish the installation.
+2. Copy qemu's OVMF for x64 to `var/ovmfx64.fd`.
 3. `make run`
 
 ### run on real hardware
 
-* Copy the files in the path `mnt/efi` created by the build to a USB memory stick and reboot your computer.
+1. Follow the build instructions to finish the installation.
+2.  Copy the files in the path `mnt/efi` created by the build to a USB memory stick and reboot your computer.
 * You may need to change settings such as SecureBoot.
 
 ## HOE: Haribote-OS Emulation Subsystem

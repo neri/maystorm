@@ -20,16 +20,14 @@ impl<T: Into<usize>> AtomicBitflags<T> {
     }
 
     #[inline]
-    pub const unsafe fn from_bits_unchecked(bits: usize) -> AtomicBitflags<T> {
+    pub const fn new(value: T) -> AtomicBitflags<T>
+    where
+        T: ~const Into<usize>,
+    {
         Self {
-            bits: AtomicUsize::new(bits),
+            bits: AtomicUsize::new(value.into()),
             _phantom: PhantomData,
         }
-    }
-
-    #[inline]
-    pub fn new(value: T) -> AtomicBitflags<T> {
-        unsafe { Self::from_bits_unchecked(value.into()) }
     }
 
     #[inline]
@@ -106,7 +104,7 @@ impl<T: Into<usize> + From<usize>> AtomicBitflags<T> {
     }
 }
 
-impl<T: Into<usize> + Default> Default for AtomicBitflags<T> {
+impl<T: ~const Into<usize> + ~const Default> const Default for AtomicBitflags<T> {
     #[inline]
     fn default() -> Self {
         Self::new(T::default())

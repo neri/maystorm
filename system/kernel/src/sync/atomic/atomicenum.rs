@@ -7,19 +7,18 @@ pub struct AtomicEnum<T> {
     _phantom: PhantomData<T>,
 }
 
+unsafe impl<T: Send> Send for AtomicEnum<T> {}
+
+unsafe impl<T: Send> Sync for AtomicEnum<T> {}
+
 impl<T: Into<usize>> AtomicEnum<T> {
     #[inline]
-    pub fn new(value: T) -> Self {
+    pub const fn new(value: T) -> Self
+    where
+        T: ~const Into<usize>,
+    {
         Self {
             bits: AtomicUsize::new(value.into()),
-            _phantom: PhantomData,
-        }
-    }
-
-    #[inline]
-    pub const unsafe fn from_raw_unchecked(raw: usize) -> Self {
-        Self {
-            bits: AtomicUsize::new(raw),
             _phantom: PhantomData,
         }
     }
@@ -60,7 +59,7 @@ impl<T: Into<usize> + From<usize>> AtomicEnum<T> {
     }
 }
 
-impl<T: Into<usize> + Default> Default for AtomicEnum<T> {
+impl<T: ~const Into<usize> + ~const Default> const Default for AtomicEnum<T> {
     #[inline]
     fn default() -> Self {
         Self::new(T::default())
