@@ -1,102 +1,10 @@
 //! Spinlock
 
-use crate::arch::cpu::*;
+use crate::*;
 use core::{
     cell::UnsafeCell,
     ops::{Deref, DerefMut},
-    sync::atomic::*,
 };
-
-#[derive(Default)]
-pub struct Spinlock {
-    value: AtomicBool,
-}
-
-impl Spinlock {
-    const LOCKED_VALUE: bool = true;
-    const UNLOCKED_VALUE: bool = false;
-
-    #[inline]
-    pub const fn new() -> Self {
-        Self {
-            value: AtomicBool::new(Self::UNLOCKED_VALUE),
-        }
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn try_lock(&self) -> bool {
-        self.value
-            .compare_exchange(
-                Self::UNLOCKED_VALUE,
-                Self::LOCKED_VALUE,
-                Ordering::Acquire,
-                Ordering::Relaxed,
-            )
-            .is_ok()
-    }
-
-    pub fn lock(&self) {
-        while self
-            .value
-            .compare_exchange(
-                Self::UNLOCKED_VALUE,
-                Self::LOCKED_VALUE,
-                Ordering::Acquire,
-                Ordering::Relaxed,
-            )
-            .is_err()
-        {
-            let mut spin_loop = SpinLoopWait::new();
-            while self.value.load(Ordering::Relaxed) {
-                spin_loop.wait();
-            }
-        }
-    }
-
-    #[inline]
-    pub unsafe fn force_unlock(&self) {
-        self.value.store(Self::UNLOCKED_VALUE, Ordering::Release);
-    }
-
-    #[inline]
-    pub fn synchronized<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce() -> R,
-    {
-        self.lock();
-        let result = f();
-        unsafe {
-            self.force_unlock();
-        }
-        result
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct SpinLoopWait(usize);
-
-impl SpinLoopWait {
-    #[inline]
-    pub const fn new() -> Self {
-        Self(0)
-    }
-
-    #[inline]
-    pub fn reset(&mut self) {
-        self.0 = 0;
-    }
-
-    pub fn wait(&mut self) {
-        let count = self.0;
-        for _ in 0..(1 << count) {
-            Cpu::spin_loop_hint();
-        }
-        if count < 6 {
-            self.0 += 1;
-        }
-    }
-}
 
 /// Mutual exclusion primitives like std::sync::Mutex implemented in Spinlock
 pub struct SpinMutex<T: ?Sized> {
@@ -126,7 +34,7 @@ impl<T> SpinMutex<T> {
 impl<T: ?Sized> SpinMutex<T> {
     #[inline]
     pub fn try_lock(&self) -> Option<SpinMutexGuard<T>> {
-        let interrupt_guard = unsafe { Cpu::interrupt_guard() };
+        let interrupt_guard = unsafe { Hal::cpu().interrupt_guard() };
         self.lock
             .try_lock()
             .then(|| SpinMutexGuard::new(self, interrupt_guard))
@@ -134,7 +42,7 @@ impl<T: ?Sized> SpinMutex<T> {
 
     #[inline]
     pub fn lock<'a>(&'a self) -> SpinMutexGuard<'a, T> {
-        let interrupt_guard = unsafe { Cpu::interrupt_guard() };
+        let interrupt_guard = unsafe { Hal::cpu().interrupt_guard() };
         self.lock.lock();
         SpinMutexGuard::new(self, interrupt_guard)
     }
@@ -169,7 +77,6 @@ pub struct SpinMutexGuard<'a, T: ?Sized + 'a> {
 impl<T: ?Sized> !Send for SpinMutexGuard<'_, T> {}
 
 impl<T: ?Sized> !Sync for SpinMutexGuard<'_, T> {}
-// unsafe impl<T: ?Sized + Sync> Sync for SpinMutexGuard<'_, T> {}
 
 impl<'a, T: ?Sized> SpinMutexGuard<'a, T> {
     #[inline]

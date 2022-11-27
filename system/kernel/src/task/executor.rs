@@ -49,10 +49,7 @@ impl Executor {
             let mut tasks = tasks.write().unwrap();
             let mut waker_cache = waker_cache.write().unwrap();
 
-            let task = match tasks.get_mut(&task_id) {
-                Some(task) => task,
-                None => continue,
-            };
+            let Some(task) = tasks.get_mut(&task_id) else { continue };
             let waker = waker_cache
                 .entry(task_id)
                 .or_insert_with(|| TaskWaker::new(task_id, task_queue.clone()));

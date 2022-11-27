@@ -1,6 +1,8 @@
 //! WebAssembly Intermediate Code Interpreter
 
-use super::{intcode::*, opcode::WasmOpcode, stack::*, wasm::*};
+use crate::opcode::WasmOpcode;
+
+use super::{intcode::*, opcode::WasmSingleOpcode, stack::*, wasm::*};
 use alloc::{borrow::ToOwned, string::String, vec::Vec};
 use core::fmt;
 
@@ -42,7 +44,7 @@ impl WasmInterpreter<'_> {
             function: self.func_index,
             function_name,
             position: code.source_position(),
-            opcode: code.opcode().unwrap_or(WasmOpcode::Unreachable),
+            opcode: code.opcode(),
         }
     }
 
@@ -968,6 +970,25 @@ impl WasmInterpreter<'_> {
                         codes.set_position(target);
                     }
                 }
+
+                WasmIntMnemonic::MemoryCopy => {
+                    let stack_level = code.stack_level();
+                    let dest = unsafe { value_stack.get_unchecked(stack_level).get_u32() };
+                    let src = unsafe { value_stack.get_unchecked(stack_level + 1).get_u32() };
+                    let count = unsafe { value_stack.get_unchecked(stack_level + 2).get_u32() };
+                    memory
+                        .copy(dest as usize, src as usize, count as usize)
+                        .map_err(|k| self.error(k, code))?;
+                }
+                WasmIntMnemonic::MemoryFill => {
+                    let stack_level = code.stack_level();
+                    let offset = unsafe { value_stack.get_unchecked(stack_level).get_u32() };
+                    let val = unsafe { value_stack.get_unchecked(stack_level + 1).get_u32() };
+                    let count = unsafe { value_stack.get_unchecked(stack_level + 2).get_u32() };
+                    memory
+                        .write_bytes(offset as usize, val as u8, count as usize)
+                        .map_err(|k| self.error(k, code))?;
+                }
             }
         }
         if let Some(result_type) = result_types.first() {
@@ -1034,11 +1055,11 @@ impl WasmInterpreter<'_> {
                         Ok(())
                     })
             })
-        } else if let Some(f) = target.dlink() {
+        } else if let Some(function) = target.dlink() {
             let (_, locals) = value_stack.split_at_mut(stack_under);
             let (locals, _) = locals.split_at_mut(param_len);
 
-            let result = match f(module, locals) {
+            let result = match function(module, locals) {
                 Ok(v) => v,
                 Err(e) => return Err(self.error(e, code)),
             };
@@ -1186,7 +1207,7 @@ impl const From<WasmRuntimeErrorKind> for WasmRuntimeError {
             function: 0,
             function_name: None,
             position: 0,
-            opcode: WasmOpcode::Unreachable,
+            opcode: WasmSingleOpcode::Unreachable.into(),
         }
     }
 }
@@ -1195,29 +1216,19 @@ impl fmt::Debug for WasmRuntimeError {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let opcode = self.opcode();
+        write!(f, "{:?} at", self.kind())?;
         if let Some(function_name) = self.function_name() {
             write!(
                 f,
-                "{:?} (at 0x{:x} [{}({}):{}] opcode {:02x} {})",
-                self.kind(),
-                self.file_position(),
+                " {}(${}):{}",
                 function_name,
                 self.function(),
                 self.position(),
-                opcode as usize,
-                opcode.to_str(),
-            )
+            )?;
         } else {
-            write!(
-                f,
-                "{:?} (at 0x{:x} [${}:{}] opcode {:02x} {})",
-                self.kind(),
-                self.file_position(),
-                self.function(),
-                self.position(),
-                opcode as usize,
-                opcode.to_str(),
-            )
+            write!(f, " ${}:{}", self.function(), self.position(),)?;
         }
+
+        write!(f, ", 0x{:x}: {:?}", self.file_position(), opcode)
     }
 }

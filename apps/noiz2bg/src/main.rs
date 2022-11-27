@@ -107,10 +107,7 @@ impl App<'_> {
     #[inline]
     fn move_bg(&mut self) {
         for board in self.boards.iter_mut() {
-            let board = match board {
-                Some(v) => v,
-                None => break,
-            };
+            let Some(board) = board else { break };
             board.x = (board.x + self.board_mx) & (self.board_repx - 1);
             board.y = (board.y + self.board_my) & (self.board_repy - 1);
         }
@@ -124,10 +121,7 @@ impl App<'_> {
         let osx = (0 - self.board_repx) * (self.board_rep_xn / 2);
         let osy = (0 - self.board_repy) * (self.board_rep_yn / 2);
         for board in &self.boards {
-            let board = match board {
-                Some(v) => v,
-                None => break,
-            };
+            let Some(board) =  board else { break };
             let mut ox = osx;
             for _ in 0..self.board_rep_xn {
                 let mut oy = osy;

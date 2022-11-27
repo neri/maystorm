@@ -38,9 +38,8 @@ macro_rules! println {
 }
 
 pub fn get_file(handle: Handle, bs: &BootServices, path: &str) -> Result<Box<[u8]>, Status> {
-    let mut fs = match bs.get_image_file_system(handle) {
-        Ok(val) => val,
-        Err(_) => return Err(Status::LOAD_ERROR),
+    let Ok(mut fs) = bs.get_image_file_system(handle) else {
+        return Err(Status::LOAD_ERROR)
     };
     let mut root = match fs.open_volume() {
         Ok(val) => val,

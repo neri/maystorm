@@ -130,7 +130,7 @@ pub struct Metadata(fs_imp::Metadata);
 
 impl Metadata {
     pub fn file_type(&self) -> FileType {
-        FileType(self.0.file_type())
+        self.0.file_type()
     }
 
     #[inline]
@@ -156,43 +156,51 @@ impl Metadata {
     // pub fn created(&self) -> Result<SystemTime>
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub struct FileType(fs_imp::FileType);
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum FileType {
+    Dir,
+    File,
+    Symlink,
+    BlockDev,
+    CharDev,
+    Fifo,
+    Socket,
+}
 
 impl FileType {
     #[inline]
-    pub fn is_dir(&self) -> bool {
-        self.0.is_dir()
+    pub const fn is_dir(&self) -> bool {
+        matches!(*self, Self::Dir)
     }
 
     #[inline]
-    pub fn is_file(&self) -> bool {
-        self.0.is_file()
+    pub const fn is_file(&self) -> bool {
+        matches!(*self, Self::File)
     }
 
     #[inline]
-    pub fn is_symlink(&self) -> bool {
-        self.0.is_symlink()
+    pub const fn is_symlink(&self) -> bool {
+        matches!(*self, Self::Symlink)
     }
 
     #[inline]
-    pub fn is_block_device(&self) -> bool {
-        self.0.is_block_device()
+    pub const fn is_block_device(&self) -> bool {
+        matches!(*self, Self::BlockDev)
     }
 
     #[inline]
-    pub fn is_char_device(&self) -> bool {
-        self.0.is_char_device()
+    pub const fn is_char_device(&self) -> bool {
+        matches!(*self, Self::CharDev)
     }
 
     #[inline]
-    pub fn is_fifo(&self) -> bool {
-        self.0.is_fifo()
+    pub const fn is_fifo(&self) -> bool {
+        matches!(*self, Self::Fifo)
     }
 
     #[inline]
-    pub fn is_socket(&self) -> bool {
-        self.0.is_socket()
+    pub const fn is_socket(&self) -> bool {
+        matches!(*self, Self::Socket)
     }
 }
 
@@ -237,7 +245,7 @@ impl DirEntry {
 
     #[inline]
     pub fn file_type(&self) -> Result<FileType> {
-        self.0.file_type().map(FileType)
+        self.0.file_type()
     }
 
     #[inline]

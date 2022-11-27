@@ -1,5 +1,3 @@
-// MEG-OS Terminal
-
 use crate::{io::tty::*, ui::font::*, ui::window::*, *};
 use alloc::boxed::Box;
 use core::{
@@ -136,7 +134,7 @@ impl Terminal {
         Self {
             window,
             alpha,
-            font,
+            font: font.clone(),
             cols,
             rows,
             insets,
@@ -183,7 +181,7 @@ impl Terminal {
         Self {
             window,
             alpha,
-            font,
+            font: font.clone(),
             cols,
             rows,
             insets,
@@ -248,6 +246,12 @@ impl Terminal {
             '\x08' => {
                 if self.x > 0 {
                     self.x -= 1;
+                }
+                None
+            }
+            '\t' => {
+                for _ in 0..8 - (self.x & 7) {
+                    let _ = self.put_char(' ');
                 }
                 None
             }

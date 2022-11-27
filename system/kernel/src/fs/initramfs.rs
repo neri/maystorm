@@ -10,15 +10,16 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 use megstd::{
+    fs::FileType,
     io::{ErrorKind, Result},
-    sys::fs_imp::FileType,
 };
+
+const ROOT_INODE: INodeType = unsafe { INodeType::new_unchecked(2) };
 
 /// Minimal Initial Ram Filesystem
 pub struct InitRamfs {
     blob: Box<[u8]>,
     inodes: BTreeMap<INodeType, ThisFsInodeEntry>,
-    root: INodeType,
     next_inode: AtomicUsize,
 }
 
@@ -37,25 +38,23 @@ impl InitRamfs {
             return None;
         }
 
-        let root = unsafe { INodeType::new_unchecked(2) };
         let mut fs = Self {
             blob,
             inodes: BTreeMap::new(),
-            root,
-            next_inode: AtomicUsize::new(root.get() as usize),
+            next_inode: AtomicUsize::new(ROOT_INODE.get() as usize),
         };
 
         let dir_off = LE::read_u32(&fs.blob[4..8]) as usize - Self::OFFSET_DATA;
         let dir_size = LE::read_u32(&fs.blob[8..12]) as usize * Self::SIZE_OF_RAW_DIR;
         let mut root_dir = ThisFsInodeEntry {
             file_type: FileType::Dir,
-            inode: root,
+            inode: ROOT_INODE,
             offset: dir_off,
             size: dir_size,
             children: Vec::new(),
         };
         fs.parse_dir(&mut root_dir);
-        fs.inodes.insert(root, root_dir);
+        fs.inodes.insert(ROOT_INODE, root_dir);
 
         Some(Arc::new(fs) as Arc<dyn FsDriver>)
     }
@@ -110,18 +109,24 @@ impl InitRamfs {
 }
 
 impl FsDriver for InitRamfs {
+    fn device_name(&self) -> String {
+        "initramfs".to_owned()
+    }
+
+    fn description(&self) -> String {
+        "".to_owned()
+    }
+
     fn root_dir(&self) -> INodeType {
-        self.root
+        ROOT_INODE
     }
 
     fn read_dir(&self, dir: INodeType, index: usize) -> Option<FsRawDirEntry> {
-        let dir_ent = match self.get_file(dir).and_then(|v| v.children.get(index)) {
-            Some(v) => v,
-            None => return None,
+        let Some(dir_ent) = self.get_file(dir).and_then(|v| v.children.get(index)) else {
+            return None
         };
-        let file = match self.get_file(dir_ent.inode) {
-            Some(v) => v,
-            None => return None,
+        let Some(file) = self.get_file(dir_ent.inode) else {
+            return None
         };
         Some(FsRawDirEntry::new(
             dir_ent.inode(),
@@ -130,48 +135,22 @@ impl FsDriver for InitRamfs {
         ))
     }
 
-    fn find_file(&self, dir: INodeType, lpc: &str) -> Result<INodeType> {
+    fn lookup(&self, dir: INodeType, lpc: &str) -> Result<INodeType> {
         self.get_file(dir)
             .and_then(|v| v.children.iter().find(|v| v.name() == lpc))
             .map(|v| v.inode())
             .ok_or(ErrorKind::NotFound.into())
     }
 
-    fn open(&self, inode: INodeType) -> Result<INodeType> {
-        Ok(inode)
-    }
-
-    fn close(&self, _inode: INodeType) -> Result<()> {
-        Ok(())
+    fn open(self: Arc<Self>, inode: INodeType) -> Result<Arc<dyn FsAccessToken>> {
+        Ok(Arc::new(ThisFsAccessToken {
+            fs: self.clone(),
+            inode,
+        }))
     }
 
     fn stat(&self, inode: INodeType) -> Option<FsRawMetaData> {
         self.get_file(inode).map(|v| v.into())
-    }
-
-    fn read_data(&self, inode: INodeType, offset: OffsetType, buf: &mut [u8]) -> Result<usize> {
-        let dir_ent = self.get_file(inode).ok_or(ErrorKind::NotFound)?;
-        match dir_ent.file_type {
-            FileType::File => (),
-            FileType::Dir => return Err(ErrorKind::IsADirectory.into()),
-            _ => return Err(ErrorKind::InvalidData.into()),
-        }
-
-        let size_left = dir_ent.size as OffsetType - offset;
-        let count = OffsetType::min(size_left, buf.len() as OffsetType) as usize;
-        unsafe {
-            let src = (&self.blob[0] as *const _ as usize
-                + Self::OFFSET_DATA
-                + dir_ent.offset
-                + offset as usize) as *const u8;
-            let dst = &mut buf[0] as *mut _;
-            copy_nonoverlapping(src, dst, count);
-        }
-        Ok(count)
-    }
-
-    fn write_data(&self, _inode: INodeType, _offset: OffsetType, _buf: &[u8]) -> Result<usize> {
-        Err(ErrorKind::ReadOnlyFilesystem.into())
     }
 }
 
@@ -203,6 +182,41 @@ struct ThisFsInodeEntry {
 
 impl From<&ThisFsInodeEntry> for FsRawMetaData {
     fn from(src: &ThisFsInodeEntry) -> Self {
-        Self::new(src.file_type, src.size as i64)
+        Self::new(src.inode, src.file_type, src.size as i64)
+    }
+}
+
+struct ThisFsAccessToken {
+    fs: Arc<InitRamfs>,
+    inode: INodeType,
+}
+
+impl FsAccessToken for ThisFsAccessToken {
+    fn stat(&self) -> Option<FsRawMetaData> {
+        self.fs.stat(self.inode)
+    }
+
+    fn read_data(&self, offset: OffsetType, buf: &mut [u8]) -> Result<usize> {
+        let fs = self.fs.as_ref();
+        let dir_ent = fs.get_file(self.inode).ok_or(ErrorKind::NotFound)?;
+        let size_left = dir_ent.size as OffsetType - offset;
+        let count = OffsetType::min(size_left, buf.len() as OffsetType) as usize;
+        unsafe {
+            let src = (&fs.blob[0] as *const _ as usize
+                + InitRamfs::OFFSET_DATA
+                + dir_ent.offset
+                + offset as usize) as *const u8;
+            let dst = &mut buf[0] as *mut _;
+            copy_nonoverlapping(src, dst, count);
+        }
+        Ok(count)
+    }
+
+    fn write_data(&self, _offset: OffsetType, _buf: &[u8]) -> Result<usize> {
+        Err(ErrorKind::ReadOnlyFilesystem.into())
+    }
+
+    fn lseek(&self, _offset: OffsetType, _whence: Whence) -> Result<OffsetType> {
+        Err(ErrorKind::Unsupported.into())
     }
 }

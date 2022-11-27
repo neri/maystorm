@@ -7,7 +7,6 @@ use crate::{
     io::audio::{AudioContext, FreqType, NoteControl, OscType},
     mem::MemoryManager,
     ui::window::*,
-    *,
 };
 use alloc::{boxed::Box, sync::Arc};
 use core::{alloc::Layout, slice, str, time::Duration};
@@ -614,7 +613,7 @@ impl HrbBinaryLoader {
             .get::<Hoe>()
             .unwrap();
         unsafe {
-            RuntimeEnvironment::invoke_legacy(&hoe.context);
+            crate::arch::cpu::Cpu::invoke_legacy(&hoe.context);
         }
     }
 }
@@ -692,6 +691,7 @@ impl HoeWindow {
             .bg_color(Hoe::get_color(Self::WINDOW_BGCOLOR))
             // .active_title_color(Color::LIGHT_BLUE)
             // .inactive_title_color(ui::theme::Theme::shared().window_title_inactive_background())
+            // .style_add(WindowStyle::DARK_MODE)
             .opaque()
             .build(title);
         let window = HoeWindow {
@@ -929,17 +929,23 @@ impl HoeFile {
     }
 
     fn seek(&mut self, offset: isize, whence: Whence) {
-        self.0.lseek(offset as OffsetType, whence);
+        let _ = self.0.lseek(offset as OffsetType, whence);
     }
 
     fn get_file_size(&mut self, whence: Whence) -> usize {
-        let file_pos = self.0.lseek(0, Whence::SeekCur);
-        let file_size = self.0.lseek(0, Whence::SeekEnd);
-        self.0.lseek(file_pos, Whence::SeekSet);
-        match whence {
-            Whence::SeekSet => file_size as usize,
-            Whence::SeekCur => file_pos as usize,
-            Whence::SeekEnd => (file_pos - file_size) as usize,
+        let Ok(file_pos) = self.0.lseek(0, Whence::SeekCur) else {
+            return 0
+        };
+        let Ok(file_size) =  self.0.lseek(0, Whence::SeekEnd) else {
+            return 0
+        };
+        match self.0.lseek(file_pos, Whence::SeekSet) {
+            Ok(_) => match whence {
+                Whence::SeekSet => file_size as usize,
+                Whence::SeekCur => file_pos as usize,
+                Whence::SeekEnd => (file_pos - file_size) as usize,
+            },
+            Err(_) => return 0,
         }
     }
 
@@ -957,6 +963,7 @@ pub enum HoeLangMode {
     EUC,
 }
 
+/// A String encoded in Japanese Industrial Standards
 pub struct JisString<'a>(&'a [u8]);
 
 impl<'a> JisString<'a> {
@@ -966,7 +973,7 @@ impl<'a> JisString<'a> {
     }
 
     #[inline]
-    pub fn chars(&'a self, lang_mode: HoeLangMode) -> JisChars<'a> {
+    pub fn chars(&'a self, lang_mode: HoeLangMode) -> impl Iterator<Item = JisChar> + 'a {
         JisChars::new(self, lang_mode)
     }
 }

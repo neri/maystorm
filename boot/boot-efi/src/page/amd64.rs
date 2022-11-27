@@ -283,7 +283,7 @@ impl PageManager {
 }
 
 bitflags! {
-    pub struct MProtect: usize {
+    pub struct MProtect: u64 {
         const READ  = 0x4;
         const WRITE = 0x2;
         const EXEC  = 0x1;
@@ -292,6 +292,7 @@ bitflags! {
 }
 
 bitflags! {
+    #[derive(Debug, Clone, Copy)]
     struct PageAttributes: u64 {
         const PRESENT       = 0x0000_0000_0000_0001;
         const WRITE         = 0x0000_0000_0000_0002;

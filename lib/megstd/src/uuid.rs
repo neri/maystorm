@@ -38,6 +38,11 @@ impl Uuid {
     }
 
     #[inline]
+    pub const fn from_slice(slice: &[u8; 16]) -> Self {
+        Self(*slice)
+    }
+
+    #[inline]
     pub const fn a(&self) -> u32 {
         ((self.0[0] as u32) << 24)
             + ((self.0[1] as u32) << 16)
@@ -83,11 +88,6 @@ impl Uuid {
     #[inline]
     pub const fn into_raw(self) -> [u8; 16] {
         self.0
-    }
-
-    #[inline]
-    pub const fn from_slice(slice: &[u8; 16]) -> Self {
-        Self(*slice)
     }
 
     #[inline]
@@ -176,15 +176,15 @@ mod tests {
             [0xBA, 0x98, 0x76, 0x54, 0x32, 0x10],
         );
         let uuid2_raw = Uuid::from_raw([
-            0x11, 0xFF, 0x22, 0xEE, 0x33, 0xDD, 0x44, 0xCC, 0x55, 0xBB, 0x66, 0xAA, 0x77, 0x99,
-            0x88, 0x00,
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD,
+            0xEE, 0xFF,
         ]);
         let uuid2 = Uuid::from_parts(
-            0x11FF_22EE,
-            0x33DD,
-            0x44CC,
-            0x55BB,
-            [0x66, 0xAA, 0x77, 0x99, 0x88, 0x00],
+            0x0011_2233,
+            0x4455,
+            0x6677,
+            0x8899,
+            [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF],
         );
 
         assert_eq!(uuid1, uuid1_raw);
@@ -196,5 +196,11 @@ mod tests {
         assert_eq!(uuid1.c(), 0xDEF0);
         assert_eq!(uuid1.d(), 0xFEDC);
         assert_eq!(uuid1.e_u48(), 0xBA98_7654_3210);
+
+        assert_eq!(uuid2.a(), 0x0011_2233);
+        assert_eq!(uuid2.b(), 0x4455);
+        assert_eq!(uuid2.c(), 0x6677);
+        assert_eq!(uuid2.d(), 0x8899);
+        assert_eq!(uuid2.e_u48(), 0xAABB_CCDD_EEFF);
     }
 }

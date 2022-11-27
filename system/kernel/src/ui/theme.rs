@@ -19,7 +19,7 @@ impl Theme {
     }
 
     #[inline]
-    pub const fn desktop_color(&self) -> Color {
+    pub const fn default_desktop_color(&self) -> Color {
         Color::from_rgb(0x2196F3)
     }
 

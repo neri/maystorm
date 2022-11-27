@@ -1,7 +1,6 @@
 .PHONY: love default all clean install iso run runs test apps doc kernel boot refresh
 .SUFFIXED: .wasm
 
-
 MNT			= ./mnt/
 MISC		= ./misc/
 ASSETS		= ./assets/
@@ -16,9 +15,11 @@ TARGET_KERNEL	= system/target/$(KRNL_ARCH)/release/kernel.bin
 TARGET_ISO	= var/megos.iso
 TARGETS		= boot kernel
 ALL_TARGETS	= $(TARGETS) apps
-INITRD_FILES	= LICENSE $(ASSETS)initrd/* apps/target/wasm32-unknown-unknown/release/*.wasm
+VAR_INITRD	= var/initrd/
+INITRD_DEV	= var/initrd/dev/
+INITRD_FILES	= LICENSE $(VAR_INITRD)* $(ASSETS)initrd/* apps/target/wasm32-unknown-unknown/release/*.wasm
 
-X64_SMP			= system/kernel/src/arch/x86_64/smpinit
+X64_SMP			= system/kernel/src/arch/x64/smpinit
 X64_SMP_ASM		= $(X64_SMP).asm
 X64_SMP_BIN		= $(X64_SMP).bin
 
@@ -41,7 +42,7 @@ clean:
 	-rm -rf system/target apps/target boot/target tools/target
 
 refresh:
-	-rm system/Cargo.lock apps/Cargo.lock boot/Cargo.lock tools/Cargo.lock
+	-rm system/Cargo.lock apps/Cargo.lock boot/Cargo.lock tools/Cargo.lock lib/**/Cargo.lock
 
 # $(RUST_ARCH).json:
 # 	rustc +nightly -Z unstable-options --print target-spec-json --target $(RUST_ARCH) | sed -e 's/-sse,+/+sse,-/' > $@
@@ -56,9 +57,12 @@ run:
 	$(QEMU_X64) -machine q35 -cpu SandyBridge -smp 4,cores=2,threads=2 \
 -bios $(OVMF_X64) \
 -rtc base=localtime,clock=host \
--device nec-usb-xhci,id=xhci -device usb-tablet \
--drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,drive=stick \
--device usb-audio -device intel-hda -device hda-duplex \
+-device nec-usb-xhci,id=xhci \
+-device intel-hda -device hda-duplex \
+-device usb-hub,bus=xhci.0,port=1,id=usb-hub \
+-drive if=none,id=stick,format=raw,file=fat:rw:$(MNT) -device usb-storage,bus=xhci.0,port=2,drive=stick \
+-device usb-tablet \
+-device usb-audio,id=usb-audio \
 -serial mon:stdio
 
 run_up:
@@ -88,7 +92,10 @@ kernel: $(X64_SMP_BIN)
 $(X64_SMP_BIN): $(X64_SMP_ASM)
 	nasm -f bin $< -o $@
 
-install: test $(EFI_VENDOR) $(EFI_BOOT) $(ALL_TARGETS) tools/mkinitrd/src/*.rs
+$(VAR_INITRD):
+	-mkdir -p $(INITRD_DEV)
+
+install: test $(EFI_VENDOR) $(EFI_BOOT) $(ALL_TARGETS) tools/mkinitrd/src/*.rs $(VAR_INITRD)
 	cp $(TARGET_BOOT_EFI1) $(BOOT_EFI_BOOT1)
 	cp $(TARGET_BOOT_EFI1) $(BOOT_EFI_VENDOR1)
 	cp $(TARGET_BOOT_EFI2) $(BOOT_EFI_BOOT2)
@@ -102,10 +109,11 @@ iso: install
 apps:
 	cd apps; cargo build --target wasm32-unknown-unknown --release
 	for name in ./apps/target/wasm32-unknown-unknown/release/*.wasm; do \
-	cargo run --manifest-path ./tools/wasm-strip/Cargo.toml -- -preserve name $$name $$name; done
+	cargo run --manifest-path ./tools/wasm-strip/Cargo.toml -- -preserve name -strip-all $$name $$name; done
 
 test:
 	cargo test --manifest-path lib/megstd/Cargo.toml
+	cargo test --manifest-path lib/meggl/Cargo.toml
 	cargo test --manifest-path lib/wasm/Cargo.toml
 
 doc:

@@ -1,7 +1,7 @@
 // FileSystem Implementation
 
 use super::syscall::*;
-use crate::{io::Result, path::*, sys::fcntl::*, *};
+use crate::{fs::*, io::Result, path::*, sys::fcntl::*, *};
 use bitflags::*;
 
 pub struct File {
@@ -9,9 +9,9 @@ pub struct File {
 }
 
 impl File {
-    pub fn open<P: AsRef<Path>>(_path: P, _options: OpenOptions) -> Result<File> {
+    pub fn open<P: AsRef<Path>>(_path: P, options: OpenOptions) -> Result<File> {
         let path = _path.as_ref();
-        let _ = os_open(path.as_os_str().to_str().unwrap(), _options.bits());
+        let _ = os_open(path.as_os_str().to_str().unwrap(), options.bits() as usize);
         todo!()
     }
 
@@ -29,7 +29,8 @@ impl File {
 }
 
 bitflags! {
-    pub struct OpenOptions: usize {
+    #[derive(Debug, Clone, Copy)]
+    pub struct OpenOptions: u32 {
         const READ      = 0b0000_0001;
         const WRITE     = 0b0000_0010;
         const APPEND    = 0b0001_0000;
@@ -130,75 +131,6 @@ impl Metadata {
     // pub fn modified(&self) -> Result<SystemTime>
     // pub fn accessed(&self) -> Result<SystemTime>
     // pub fn created(&self) -> Result<SystemTime>
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub enum FileType {
-    Dir,
-    File,
-    Symlink,
-    BlockDev,
-    CharDev,
-    Fifo,
-    Socket,
-}
-
-impl FileType {
-    #[inline]
-    pub const fn is_dir(&self) -> bool {
-        match self {
-            Self::Dir => true,
-            _ => false,
-        }
-    }
-
-    #[inline]
-    pub const fn is_file(&self) -> bool {
-        match self {
-            Self::File => true,
-            _ => false,
-        }
-    }
-
-    #[inline]
-    pub const fn is_symlink(&self) -> bool {
-        match self {
-            Self::Symlink => true,
-            _ => false,
-        }
-    }
-
-    #[inline]
-    pub const fn is_block_device(&self) -> bool {
-        match self {
-            Self::BlockDev => true,
-            _ => false,
-        }
-    }
-
-    #[inline]
-    pub const fn is_char_device(&self) -> bool {
-        match self {
-            Self::CharDev => true,
-            _ => false,
-        }
-    }
-
-    #[inline]
-    pub const fn is_fifo(&self) -> bool {
-        match self {
-            Self::Fifo => true,
-            _ => false,
-        }
-    }
-
-    #[inline]
-    pub const fn is_socket(&self) -> bool {
-        match self {
-            Self::Socket => true,
-            _ => false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

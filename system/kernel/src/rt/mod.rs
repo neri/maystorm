@@ -1,19 +1,18 @@
 //! Runtime Environment and Personalities
 
-pub mod haribote;
-pub mod megos;
-
-use core::{cell::UnsafeCell, ffi::c_void};
-
-use crate::arch::cpu::*;
-use crate::task::scheduler::*;
+use crate::{task::scheduler::*, *};
 use alloc::{boxed::Box, string::String, string::*, vec::Vec};
+use core::{cell::UnsafeCell, ffi::c_void};
 use megstd::uuid::{Identify, Uuid};
+
+#[cfg(target_arch = "x86_64")]
+pub mod haribote;
+pub mod myos;
 
 static mut RE: UnsafeCell<RuntimeEnvironment> = UnsafeCell::new(RuntimeEnvironment::new());
 
 pub struct RuntimeEnvironment {
-    exts: Vec<String>,
+    path_ext: Vec<String>,
     image_loaders: Vec<Box<dyn BinaryRecognizer>>,
 }
 
@@ -21,21 +20,25 @@ impl RuntimeEnvironment {
     #[inline]
     const fn new() -> Self {
         Self {
-            exts: Vec::new(),
+            path_ext: Vec::new(),
             image_loaders: Vec::new(),
         }
     }
 
     #[inline]
     pub unsafe fn init() {
+        assert_call_once!();
+
         let shared = &mut *RE.get();
-        shared.add_image("wasm", megos::WasmRecognizer::new());
+        shared.add_image("wasm", myos::WasmRecognizer::new());
+
+        #[cfg(target_arch = "x86_64")]
         shared.add_image("hrb", haribote::HrbRecognizer::new());
     }
 
     #[inline]
     fn add_image(&mut self, ext: &str, loader: Box<dyn BinaryRecognizer>) {
-        self.exts.push(ext.to_string());
+        self.path_ext.push(ext.to_string());
         self.image_loaders.push(loader);
     }
 
@@ -45,9 +48,8 @@ impl RuntimeEnvironment {
     }
 
     #[inline]
-    pub fn supported_extensions<'a>() -> &'a [String] {
-        let shared = Self::shared();
-        shared.exts.as_slice()
+    pub fn supported_extensions<'a>() -> impl Iterator<Item = &'a String> {
+        Self::shared().path_ext.iter()
     }
 
     #[inline]
@@ -64,11 +66,6 @@ impl RuntimeEnvironment {
     #[inline]
     pub fn exit(_exit_code: usize) -> ! {
         Scheduler::exit();
-    }
-
-    #[inline]
-    pub unsafe fn invoke_legacy(context: &LegacyAppContext) -> ! {
-        Cpu::invoke_legacy(context);
     }
 }
 

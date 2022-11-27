@@ -1,5 +1,3 @@
-//! MEG-OS Scheduler
-
 use super::{executor::Executor, *};
 use crate::{
     arch::cpu::*,
@@ -15,26 +13,20 @@ use crate::{
     ui::window::{WindowHandle, WindowMessage},
     *,
 };
-use alloc::{
+use ::alloc::{
     borrow::ToOwned, boxed::Box, collections::btree_map::BTreeMap, string::String, sync::Arc,
     vec::*,
 };
-use bitflags::*;
 use core::{
-    cell::UnsafeCell, ffi::c_void, fmt::Write, intrinsics::transmute, num::*, ops::*,
-    sync::atomic::*, time::Duration,
+    cell::UnsafeCell, ffi::c_void, fmt, intrinsics::transmute, num::*, ops::*, sync::atomic::*,
+    time::Duration,
 };
 use megstd::string::*;
-use num_derive::FromPrimitive;
-use num_traits::FromPrimitive;
 
-const THRESHOLD_ENTER_SAVING: usize = 5;
-const THRESHOLD_LEAVE_SAVING: usize = 50;
-const THRESHOLD_ENTER_FULL: usize = 950;
-const THRESHOLD_LEAVE_FULL: usize = 666;
+const THRESHOLD_ENTER_MAX: usize = 950;
+const THRESHOLD_LEAVE_MAX: usize = 666;
 
-static SCHEDULER_STATE: AtomicEnum<SchedulerState> =
-    unsafe { AtomicEnum::from_raw_unchecked(SchedulerState::Disabled.as_raw()) };
+static SCHEDULER_STATE: AtomicEnum<SchedulerState> = AtomicEnum::new(SchedulerState::Disabled);
 static mut SCHEDULER: Option<Box<Scheduler>> = None;
 static mut THREAD_POOL: ThreadPool = ThreadPool::new();
 static PROCESS_POOL: ProcessPool = ProcessPool::new();
@@ -42,7 +34,7 @@ static PROCESS_POOL: ProcessPool = ProcessPool::new();
 /// System Scheduler
 pub struct Scheduler {
     queue_realtime: ThreadQueue,
-    queue_higher: ThreadQueue,
+    queue_urgent: ThreadQueue,
     queue_normal: ThreadQueue,
 
     locals: Box<[Box<LocalScheduler>]>,
@@ -64,12 +56,10 @@ pub struct Scheduler {
 pub enum SchedulerState {
     /// The scheduler has not started yet.
     Disabled = 0,
-    /// The scheduler is running on minimal power.
-    Minimal,
     /// The scheduler is running.
     Normal,
-    /// The scheduler is running on maximum power.
-    Maximum,
+    /// The scheduler is running at full throttle.
+    FullThrottle,
 }
 
 impl SchedulerState {
@@ -101,11 +91,13 @@ impl const From<usize> for SchedulerState {
 impl Scheduler {
     /// Start scheduler and sleep forever
     pub fn start(f: fn(usize) -> (), args: usize) -> ! {
+        assert_call_once!();
+
         const SIZE_OF_SUB_QUEUE: usize = 63;
         const SIZE_OF_MAIN_QUEUE: usize = 255;
 
         let queue_realtime = ThreadQueue::with_capacity(SIZE_OF_SUB_QUEUE);
-        let queue_higher = ThreadQueue::with_capacity(SIZE_OF_SUB_QUEUE);
+        let queue_urgent = ThreadQueue::with_capacity(SIZE_OF_SUB_QUEUE);
         let queue_normal = ThreadQueue::with_capacity(SIZE_OF_MAIN_QUEUE);
 
         ProcessPool::shared().add(ProcessContextData::new(
@@ -124,7 +116,7 @@ impl Scheduler {
         unsafe {
             SCHEDULER = Some(Box::new(Self {
                 queue_realtime,
-                queue_higher,
+                queue_urgent,
                 queue_normal,
                 locals: locals.into_boxed_slice(),
                 usage: AtomicUsize::new(0),
@@ -138,19 +130,29 @@ impl Scheduler {
         fence(Ordering::SeqCst);
         SCHEDULER_STATE.set(SchedulerState::Normal);
 
-        SpawnOption::with_priority(Priority::Realtime).start_process(
-            Self::_scheduler_thread,
-            0,
-            "Scheduler",
-        );
-
-        SpawnOption::with_priority(Priority::Normal).start_process(f, args, "System");
+        SpawnOption::with_priority(Priority::High).start_process(f, args, "System");
 
         loop {
             unsafe {
-                Cpu::halt();
+                Hal::cpu().wait_for_interrupt();
             }
         }
+    }
+
+    pub unsafe fn late_init() {
+        assert_call_once!();
+
+        SpawnOption::with_priority(Priority::Realtime).start(
+            Self::_scheduler_thread,
+            0,
+            "scheduler",
+        );
+
+        SpawnOption::with_priority(Priority::Realtime).start(
+            Self::_statistics_thread,
+            0,
+            "statistics",
+        );
     }
 
     #[inline]
@@ -208,12 +210,21 @@ impl Scheduler {
         unsafe { without_interrupts!(Self::local_scheduler().map(|sch| sch.current_thread())) }
     }
 
+    #[inline]
+    #[track_caller]
+    fn current_thread_data<'a>() -> &'a mut ThreadContextData {
+        Self::current_thread()
+            .and_then(|v| unsafe { v._unsafe_weak() })
+            .unwrap()
+    }
+
     /// Get the personality instance associated with the current thread
     #[inline]
     pub fn current_personality<'a>() -> Option<&'a mut PersonalityContext> {
-        Self::current_thread()
-            .and_then(|thread| unsafe { thread.unsafe_weak() })
-            .and_then(|thread| thread.personality.as_mut())
+        Self::current_thread_data()
+            .personality
+            .as_ref()
+            .map(|v| unsafe { &mut *v.get() })
     }
 
     /// Perform the preemption
@@ -241,7 +252,7 @@ impl Scheduler {
         } else if let Some(next) = shared.queue_realtime.dequeue() {
             LocalScheduler::switch_context(local, next);
         } else if let Some(next) = (priority < Priority::High)
-            .then(|| shared.queue_higher.dequeue())
+            .then(|| shared.queue_urgent.dequeue())
             .flatten()
         {
             LocalScheduler::switch_context(local, next);
@@ -250,8 +261,8 @@ impl Scheduler {
             .flatten()
         {
             LocalScheduler::switch_context(local, next);
-        } else if current.update(|current| current.quantum.consume()) {
-            if let Some(next) = Scheduler::next(local) {
+        } else if current.as_ref().quantum.consume() {
+            if let Some(next) = local.next_thread() {
                 LocalScheduler::switch_context(local, next);
             }
         }
@@ -267,7 +278,7 @@ impl Scheduler {
                     .as_ref()
                     .sleep_counter
                     .fetch_add(1, Ordering::SeqCst);
-                LocalScheduler::switch_context(local, Scheduler::next(local).unwrap_or(local.idle));
+                LocalScheduler::switch_context(local, local.next_thread().unwrap_or(local.idle));
             });
         }
     }
@@ -277,7 +288,7 @@ impl Scheduler {
             without_interrupts!({
                 let local = Self::local_scheduler().unwrap();
                 local.current_thread().update_statistics();
-                LocalScheduler::switch_context(local, Scheduler::next(local).unwrap_or(local.idle));
+                LocalScheduler::switch_context(local, local.next_thread().unwrap_or(local.idle));
             });
         }
     }
@@ -285,10 +296,11 @@ impl Scheduler {
     /// Get the scheduler for the current processor
     #[inline]
     unsafe fn local_scheduler() -> Option<&'static mut Box<LocalScheduler>> {
-        match SCHEDULER.as_mut() {
-            Some(sch) => sch.locals.get_mut(Cpu::current_processor_index().0),
-            None => None,
-        }
+        SCHEDULER.as_mut().and_then(|scheduler| {
+            scheduler
+                .locals
+                .get_mut(Hal::cpu().current_processor_index().0)
+        })
     }
 
     /// Returns whether the specified processor is stalled or not.
@@ -296,8 +308,7 @@ impl Scheduler {
         let shared = Self::shared();
         let state = Self::current_state();
         if shared.is_frozen.load(Ordering::SeqCst)
-            || (state == SchedulerState::Minimal && index != ProcessorIndex(0))
-            || (state != SchedulerState::Maximum
+            || (state != SchedulerState::FullThrottle
                 && System::cpu(index).processor_type() == ProcessorCoreType::Sub)
         {
             true
@@ -307,7 +318,8 @@ impl Scheduler {
     }
 
     /// Get the next executable thread from the thread queue
-    fn next(scheduler: &LocalScheduler) -> Option<ThreadHandle> {
+    #[must_use]
+    fn _next_thread(scheduler: &LocalScheduler) -> Option<ThreadHandle> {
         let shared = Self::shared();
         let index = scheduler.index;
 
@@ -315,7 +327,7 @@ impl Scheduler {
             Some(scheduler.idle)
         } else if let Some(next) = shared.queue_realtime.dequeue() {
             Some(next)
-        } else if let Some(next) = shared.queue_higher.dequeue() {
+        } else if let Some(next) = shared.queue_urgent.dequeue() {
             Some(next)
         } else if let Some(next) = shared.queue_normal.dequeue() {
             Some(next)
@@ -367,7 +379,7 @@ impl Scheduler {
     }
 
     /// Schedule a timer event
-    pub fn schedule_timer(event: TimerEvent) -> Result<(), TimerEvent> {
+    fn _schedule_timer(event: TimerEvent) -> Result<(), TimerEvent> {
         let shared = Self::shared();
         shared
             .timer_queue
@@ -378,12 +390,6 @@ impl Scheduler {
     /// Scheduler
     fn _scheduler_thread(_args: usize) {
         let shared = Self::shared();
-
-        SpawnOption::with_priority(Priority::Realtime).start(
-            Self::_statistics_thread,
-            0,
-            "Statistics",
-        );
 
         let mut events: Vec<TimerEvent> = Vec::with_capacity(100);
         loop {
@@ -396,10 +402,7 @@ impl Scheduler {
             }
 
             loop {
-                let event = match events.first() {
-                    Some(v) => v,
-                    None => break,
-                };
+                let Some(event) = events.first() else { break };
                 if event.is_alive() {
                     break;
                 } else {
@@ -422,18 +425,17 @@ impl Scheduler {
 
         let expect = 1_000_000;
         let interval = Duration::from_micros(expect as u64);
-        let mut measure = Timer::measure();
+        let mut measure = Timer::measure_deprecated();
         loop {
             Timer::sleep(interval);
 
-            let now = Timer::measure();
+            let now = Timer::measure_deprecated();
             let actual = now.0 - measure.0;
             let actual1000 = actual as usize * 1000;
 
             let mut usage = 0;
             for thread in ThreadPool::shared().data.lock().values() {
                 let thread = thread.clone();
-                let thread = unsafe { &mut (*thread.get()) };
 
                 let load0 = thread.load0.swap(0, Ordering::SeqCst);
                 let load = usize::min(load0 as usize * expect as usize / actual1000, 1000);
@@ -462,24 +464,17 @@ impl Scheduler {
 
             match Self::current_state() {
                 SchedulerState::Disabled => (),
-                SchedulerState::Minimal => {
-                    if usage_total > THRESHOLD_LEAVE_SAVING {
-                        Self::set_current_state(SchedulerState::Normal);
-                    }
-                }
                 SchedulerState::Normal => {
-                    if usage_total < THRESHOLD_ENTER_SAVING {
-                        Self::set_current_state(SchedulerState::Minimal);
-                    } else if usage_total
+                    if usage_total
                         > (System::current_device().num_of_performance_cpus() - 1) * 1000
-                            + THRESHOLD_ENTER_FULL
+                            + THRESHOLD_ENTER_MAX
                     {
-                        Self::set_current_state(SchedulerState::Maximum);
+                        Self::set_current_state(SchedulerState::FullThrottle);
                     }
                 }
-                SchedulerState::Maximum => {
+                SchedulerState::FullThrottle => {
                     if usage_total
-                        < System::current_device().num_of_performance_cpus() * THRESHOLD_LEAVE_FULL
+                        < System::current_device().num_of_performance_cpus() * THRESHOLD_LEAVE_MAX
                     {
                         Self::set_current_state(SchedulerState::Normal);
                     }
@@ -503,9 +498,9 @@ impl Scheduler {
     }
 
     #[track_caller]
-    fn spawn(
+    fn spawn_thread(
         start: ThreadStart,
-        args: usize,
+        arg: usize,
         name: &str,
         options: SpawnOption,
     ) -> Option<ThreadHandle> {
@@ -530,7 +525,8 @@ impl Scheduler {
         };
         target_process.n_threads.fetch_add(1, Ordering::SeqCst);
         let thread =
-            ThreadContextData::new(pid, priority, name, Some(start), args, options.personality);
+            ThreadContextData::new(pid, priority, name, Some((start, arg)), options.personality)
+                .unwrap();
         Self::add(thread);
         Some(thread)
     }
@@ -542,7 +538,7 @@ impl Scheduler {
     }
 
     pub fn spawn_task(task: Task) {
-        let thread = unsafe { Self::current_thread().unwrap().unsafe_weak().unwrap() };
+        let thread = Self::current_thread_data();
         if thread.executor.is_none() {
             thread.executor = Some(Executor::new());
         }
@@ -551,23 +547,19 @@ impl Scheduler {
 
     /// Performing Asynchronous Tasks
     pub fn perform_tasks() -> ! {
-        let thread = unsafe { Self::current_thread().unwrap().unsafe_weak().unwrap() };
+        let thread = Self::current_thread_data();
         thread.executor.as_ref().map(|v| v.run());
         Self::exit();
     }
 
     pub fn exit() -> ! {
-        let current = Self::current_thread().unwrap();
-        unsafe {
-            current.unsafe_weak().unwrap().exit();
-        }
+        let thread = Self::current_thread_data();
+        thread.exit();
     }
 
     pub fn get_idle_statistics(vec: &mut Vec<u32>) {
         vec.clear();
         for thread in ThreadPool::shared().data.lock().values() {
-            let thread = thread.clone();
-            let thread = unsafe { &(*thread.get()) };
             if thread.priority != Priority::Idle {
                 break;
             }
@@ -575,7 +567,7 @@ impl Scheduler {
         }
     }
 
-    pub fn print_statistics(sb: &mut impl Write) {
+    pub fn print_statistics(sb: &mut impl fmt::Write) {
         let max_load = 1000 * System::current_device().num_of_active_cpus() as u32;
         writeln!(sb, "PID P #TH %CPU TIME     NAME").unwrap();
         for process in ProcessPool::shared().read().unwrap().values() {
@@ -613,18 +605,16 @@ impl Scheduler {
                 write!(sb, " {:02}:{:02}.{:02}", min, sec, dsec,).unwrap();
             }
 
-            match process.name() {
-                Some(name) => writeln!(sb, " {}", name,).unwrap(),
-                None => (),
-            }
+            writeln!(sb, " {}", process.name(),).unwrap();
         }
     }
 
-    pub fn get_thread_statistics(sb: &mut impl Write) {
-        writeln!(sb, " ID PID P ST %CPU TIME     stack            NAME").unwrap();
+    pub fn get_thread_statistics(sb: &mut impl fmt::Write) {
+        writeln!(sb, " ID PID P ST %CPU TIME     NAME").unwrap();
         for thread in ThreadPool::shared().data.lock().values() {
-            let thread = thread.clone();
-            let thread = unsafe { &mut (*thread.get()) };
+            if thread.pid == ProcessId(0) {
+                continue;
+            }
 
             let status_char = if thread.is_asleep() {
                 'S'
@@ -643,7 +633,6 @@ impl Scheduler {
             )
             .unwrap();
 
-            let cts = unsafe { &*thread.context.get() }.get_context_status();
             let load = thread.load.load(Ordering::Relaxed);
             let load0 = load % 10;
             let load1 = load / 10;
@@ -664,8 +653,6 @@ impl Scheduler {
                 write!(sb, " {:02}:{:02}.{:02}", min, sec, dsec,).unwrap();
             }
 
-            write!(sb, " {:016x}", cts.0).unwrap();
-
             writeln!(sb, " {}", thread.name()).unwrap();
         }
     }
@@ -685,7 +672,8 @@ impl LocalScheduler {
     fn new(index: ProcessorIndex) -> Box<Self> {
         let mut sb = Sb255::new();
         write!(sb, "Idle_#{}", index.0).unwrap();
-        let idle = ThreadContextData::new(ProcessId(0), Priority::Idle, sb.as_str(), None, 0, None);
+        let idle =
+            ThreadContextData::new(ProcessId(0), Priority::Idle, sb.as_str(), None, None).unwrap();
         Box::new(Self {
             index,
             idle,
@@ -710,9 +698,9 @@ impl LocalScheduler {
             drop(self);
 
             {
-                let current = current.unsafe_weak().unwrap();
-                let next = next.unsafe_weak().unwrap();
-                current.context.get_mut().switch(next.context.get_mut());
+                let current = current._unsafe_weak().unwrap();
+                let next = next._unsafe_weak().unwrap();
+                current.context.switch(&next.context);
             }
 
             Scheduler::local_scheduler()
@@ -725,14 +713,10 @@ impl LocalScheduler {
 
     #[inline]
     unsafe fn _switch_context_after(&mut self, irql: Irql) {
-        let current = self.current_thread();
-
-        current.update(|thread| {
-            // TODO: usize?
-            thread
-                .measure
-                .store(Timer::measure().0 as usize, Ordering::SeqCst);
-        });
+        let current = self.current_thread().as_ref();
+        current
+            .measure
+            .store(Timer::measure_deprecated().0 as usize, Ordering::SeqCst);
         let retired = self.take_retired().unwrap();
         Scheduler::retire(retired);
         self.lower_irql(irql);
@@ -765,7 +749,13 @@ impl LocalScheduler {
 
     #[inline]
     fn current_irql(&self) -> Irql {
-        FromPrimitive::from_usize(self.irql.load(Ordering::SeqCst)).unwrap_or(Irql::Passive)
+        unsafe { transmute(self.irql.load(Ordering::SeqCst)) }
+    }
+
+    /// Get the next executable thread from the thread queue
+    #[must_use]
+    fn next_thread(&self) -> Option<ThreadHandle> {
+        Scheduler::_next_thread(self)
     }
 
     #[inline]
@@ -773,8 +763,8 @@ impl LocalScheduler {
     #[must_use]
     unsafe fn raise_irql(&self, new_irql: Irql) -> Irql {
         let old_irql = self.current_irql();
-        if new_irql < old_irql {
-            panic!("IRQL_NOT_GREATER_OR_EQUAL");
+        if old_irql > new_irql {
+            panic!("IRQL_NOT_GREATER_OR_EQUAL {:?} > {:?}", old_irql, new_irql);
         }
         self.irql.store(new_irql as usize, Ordering::SeqCst);
         old_irql
@@ -784,23 +774,20 @@ impl LocalScheduler {
     #[track_caller]
     unsafe fn lower_irql(&self, new_irql: Irql) {
         let old_irql = self.current_irql();
-        if new_irql > old_irql {
-            panic!("IRQL_NOT_LESS_OR_EQUAL");
+        if old_irql < new_irql {
+            panic!("IRQL_NOT_LESS_OR_EQUAL {:?} < {:?}", old_irql, new_irql);
         }
         self.irql.store(new_irql as usize, Ordering::SeqCst);
     }
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn sch_setup_new_thread() {
+pub unsafe extern "C" fn setup_new_thread() {
     let lsch = Scheduler::local_scheduler().unwrap();
-    let current = lsch.current_thread();
-    current.update(|thread| {
-        // TODO: usize?
-        thread
-            .measure
-            .store(Timer::measure().0 as usize, Ordering::SeqCst);
-    });
+    let current = lsch.current_thread().as_ref();
+    current
+        .measure
+        .store(Timer::measure_deprecated().0 as usize, Ordering::SeqCst);
     let retired = lsch.take_retired().unwrap();
     Scheduler::retire(retired);
     lsch.lower_irql(Irql::Passive);
@@ -840,15 +827,15 @@ impl SpawnOption {
 
     /// Start the specified function in a new thread.
     #[inline]
-    pub fn start(self, start: fn(usize), args: usize, name: &str) -> Option<ThreadHandle> {
-        Scheduler::spawn(start, args, name, self)
+    pub fn start(self, start: fn(usize), arg: usize, name: &str) -> Option<ThreadHandle> {
+        Scheduler::spawn_thread(start, arg, name, self)
     }
 
     /// Start the specified function in a new process.
     #[inline]
-    pub fn start_process(mut self, start: fn(usize), args: usize, name: &str) -> Option<ProcessId> {
+    pub fn start_process(mut self, start: fn(usize), arg: usize, name: &str) -> Option<ProcessId> {
         self.new_process = true;
-        Scheduler::spawn(start, args, name, self)
+        Scheduler::spawn_thread(start, arg, name, self)
             .and_then(|v| v.get())
             .map(|v| v.pid)
     }
@@ -891,7 +878,8 @@ where
             mutex: Arc::clone(&mutex),
         });
         let ptr = Box::into_raw(boxed);
-        let thread = Scheduler::spawn(Self::_start_thread, ptr as usize, name, options).unwrap();
+        let thread =
+            Scheduler::spawn_thread(Self::_start_thread, ptr as usize, name, options).unwrap();
 
         JoinHandle { thread, mutex }
     }
@@ -930,10 +918,16 @@ impl<T> JoinHandle<T> {
 static mut TIMER_SOURCE: Option<Box<dyn TimerSource>> = None;
 
 pub trait TimerSource {
+    /// Monotonic timer in ms.
+    fn monotonic(&self) -> u64;
+
+    /// deprecated
     fn measure(&self) -> TimeSpec;
 
+    /// deprecated
     fn from_duration(&self, val: Duration) -> TimeSpec;
 
+    /// deprecated
     fn into_duration(&self, val: TimeSpec) -> Duration;
 }
 
@@ -1020,7 +1014,7 @@ impl Timer {
             let timer = Timer::new(duration);
             let mut event = TimerEvent::one_shot(timer);
             while timer.is_alive() {
-                match Scheduler::schedule_timer(event) {
+                match event.schedule() {
                     Ok(()) => {
                         Scheduler::sleep();
                         return;
@@ -1041,7 +1035,7 @@ impl Timer {
         let sem = AsyncSemaphore::with_capacity(0, 1);
         let mut event = TimerEvent::async_timer(timer, sem.clone());
         while timer.is_alive() {
-            match Scheduler::schedule_timer(event) {
+            match event.schedule() {
                 Ok(()) => {
                     sem.wait().await;
                     return;
@@ -1054,13 +1048,13 @@ impl Timer {
     }
 
     #[inline]
-    pub fn measure() -> TimeSpec {
+    fn measure_deprecated() -> TimeSpec {
         Self::timer_source().measure()
     }
 
     #[inline]
     pub fn monotonic() -> Duration {
-        Self::measure().into_duration()
+        Duration::from_millis(Self::timer_source().monotonic())
     }
 }
 
@@ -1109,8 +1103,7 @@ pub struct TimerEvent {
     timer_type: TimerType,
 }
 
-// #[derive(Debug, Copy, Clone)]
-pub enum TimerType {
+enum TimerType {
     Async(Pin<Arc<AsyncSemaphore>>),
     OneShot(ThreadHandle),
     Window(WindowHandle, usize),
@@ -1145,6 +1138,11 @@ impl TimerEvent {
     #[inline]
     pub fn is_alive(&self) -> bool {
         self.timer.is_alive()
+    }
+
+    #[inline]
+    pub fn schedule(self) -> Result<(), Self> {
+        Scheduler::_schedule_timer(self)
     }
 
     pub fn fire(self) {
@@ -1289,7 +1287,7 @@ impl ProcessPool {
 
 #[derive(Default)]
 struct ThreadPool {
-    data: SpinMutex<BTreeMap<ThreadHandle, Arc<UnsafeCell<Box<ThreadContextData>>>>>,
+    data: SpinMutex<BTreeMap<ThreadHandle, Arc<ThreadContextData>>>,
 }
 
 impl ThreadPool {
@@ -1305,12 +1303,10 @@ impl ThreadPool {
         unsafe { &THREAD_POOL }
     }
 
-    fn add(thread: Box<ThreadContextData>) {
+    #[inline]
+    fn add(thread: ThreadContextData) {
         let handle = thread.handle;
-        Self::shared()
-            .data
-            .lock()
-            .insert(handle, Arc::new(UnsafeCell::new(thread)));
+        Self::shared().data.lock().insert(handle, Arc::new(thread));
     }
 
     #[inline]
@@ -1319,33 +1315,17 @@ impl ThreadPool {
     }
 
     #[inline]
-    unsafe fn unsafe_weak<'a>(&self, key: ThreadHandle) -> Option<&'a mut Box<ThreadContextData>> {
+    unsafe fn _unsafe_weak<'a>(&self, key: ThreadHandle) -> Option<&'a mut ThreadContextData> {
         self.data
             .lock()
             .get(&key)
-            .map(|v| &mut *UnsafeCell::get(&*Arc::as_ptr(v)))
+            .map(|v| &mut *(Arc::as_ptr(v) as *mut _))
     }
 
     #[inline]
     #[must_use]
-    fn get<'a>(&self, key: ThreadHandle) -> Option<&'a Box<ThreadContextData>> {
-        self.data
-            .lock()
-            .get(&key)
-            .map(|thread| unsafe { &(*thread.clone().get()) })
-    }
-
-    #[inline]
-    fn get_mut<F, R>(&self, key: ThreadHandle, f: F) -> Option<R>
-    where
-        F: FnOnce(&mut ThreadContextData) -> R,
-    {
-        self.data.lock().get_mut(&key).map(|thread| unsafe {
-            let thread = thread.clone().get();
-            let r = f(&mut *thread);
-            fence(Ordering::SeqCst);
-            r
-        })
+    fn get<'a>(&self, key: ThreadHandle) -> Option<Arc<ThreadContextData>> {
+        self.data.lock().get(&key).map(|v| v.clone())
     }
 }
 
@@ -1365,20 +1345,16 @@ impl ProcessId {
         self.get().map(|t| t.sem.wait());
     }
 
-    #[inline]
-    pub fn name<'a>(&self) -> Option<&'a str> {
-        self.get().and_then(|v| v.name())
-    }
-
     pub fn cwd(&self) -> String {
         self.get()
-            .map(|v| v.cwd.lock().unwrap().clone())
+            .map(|v| v.cwd.read().unwrap().clone())
             .unwrap_or("".to_owned())
     }
 
     #[inline]
-    pub unsafe fn set_cwd(&self, path: &str) {
-        self.get().map(|v| *v.cwd.lock().unwrap() = path.to_owned());
+    pub fn set_cwd(&self, path: &str) {
+        self.get()
+            .map(|v| *v.cwd.write().unwrap() = path.to_owned());
     }
 }
 
@@ -1391,6 +1367,8 @@ impl const From<ProcessId> for usize {
 
 #[allow(dead_code)]
 struct ProcessContextData {
+    name: String,
+
     parent: ProcessId,
     pid: ProcessId,
     n_threads: AtomicUsize,
@@ -1402,29 +1380,14 @@ struct ProcessContextData {
     load0: AtomicU32,
     load: AtomicU32,
 
-    cwd: Mutex<String>,
-
-    name: [u8; CONTEXT_LABEL_LENGTH],
-}
-
-const CONTEXT_LABEL_LENGTH: usize = 32;
-
-fn set_name_array(array: &mut [u8; CONTEXT_LABEL_LENGTH], name: &str) {
-    let mut i = 1;
-    for c in name.bytes() {
-        if i >= CONTEXT_LABEL_LENGTH {
-            break;
-        }
-        array[i] = c;
-        i += 1;
-    }
-    array[0] = i as u8 - 1;
+    cwd: RwLock<String>,
 }
 
 impl ProcessContextData {
     fn new(parent: ProcessId, priority: Priority, name: &str, cwd: &str) -> ProcessContextData {
         let pid = Self::next_pid();
-        let mut child = Self {
+        Self {
+            name: name.to_owned(),
             parent,
             pid,
             n_threads: AtomicUsize::new(0),
@@ -1434,13 +1397,8 @@ impl ProcessContextData {
             cpu_time: AtomicUsize::new(0),
             load0: AtomicU32::new(0),
             load: AtomicU32::new(0),
-            cwd: Mutex::new(cwd.to_owned()),
-            name: [0u8; CONTEXT_LABEL_LENGTH],
-        };
-
-        child.set_name(name);
-
-        child
+            cwd: RwLock::new(cwd.to_owned()),
+        }
     }
 
     #[inline]
@@ -1449,17 +1407,8 @@ impl ProcessContextData {
         ProcessId(NEXT_PID.fetch_add(1, Ordering::SeqCst))
     }
 
-    fn set_name(&mut self, name: &str) {
-        set_name_array(&mut self.name, name);
-    }
-
-    fn name<'a>(&self) -> Option<&'a str> {
-        let len = self.name[0] as usize;
-        match len {
-            0 => None,
-            _ => core::str::from_utf8(unsafe { core::slice::from_raw_parts(&self.name[1], len) })
-                .ok(),
-        }
+    fn name(&self) -> &str {
+        self.name.as_str()
     }
 
     fn exit(&self) {
@@ -1499,43 +1448,32 @@ impl ThreadHandle {
     }
 
     #[inline]
-    #[track_caller]
-    fn update<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&mut ThreadContextData) -> R,
-    {
-        ThreadPool::shared().get_mut(*self, f).unwrap()
-    }
-
-    #[inline]
-    fn get<'a>(&self) -> Option<&'a Box<ThreadContextData>> {
+    fn get(&self) -> Option<Arc<ThreadContextData>> {
         ThreadPool::shared().get(*self)
     }
 
     #[inline]
     #[track_caller]
-    fn as_ref<'a>(&self) -> &'a ThreadContextData {
+    fn as_ref(&self) -> Arc<ThreadContextData> {
         self.get().unwrap()
     }
 
     #[inline]
     #[track_caller]
-    unsafe fn unsafe_weak<'a>(&self) -> Option<&'a mut Box<ThreadContextData>> {
-        ThreadPool::shared().unsafe_weak(*self)
+    unsafe fn _unsafe_weak<'a>(&self) -> Option<&'a mut ThreadContextData> {
+        ThreadPool::shared()._unsafe_weak(*self)
     }
 
     #[inline]
-    pub fn name(&self) -> Option<&str> {
+    pub fn name(&self) -> Option<String> {
         self.get().map(|v| v.name())
     }
 
     #[inline]
     pub fn wake(&self) {
-        if let Some(thread) = self.get() {
-            thread.sleep_counter.fetch_sub(1, Ordering::SeqCst);
-            drop(thread);
-            Scheduler::add(*self);
-        }
+        let Some(thread) = self.get() else { return };
+        thread.sleep_counter.fetch_sub(1, Ordering::SeqCst);
+        Scheduler::add(*self);
     }
 
     #[inline]
@@ -1544,13 +1482,13 @@ impl ThreadHandle {
     }
 
     fn update_statistics(&self) {
-        self.update(|thread| {
-            let now = Timer::measure().0 as usize;
-            let then = thread.measure.swap(now, Ordering::SeqCst);
-            let diff = now - then;
-            thread.cpu_time.fetch_add(diff, Ordering::SeqCst);
-            thread.load0.fetch_add(diff as u32, Ordering::SeqCst);
-        });
+        let Some(thread) = self.get() else { return };
+
+        let now = Timer::measure_deprecated().0 as usize;
+        let then = thread.measure.swap(now, Ordering::SeqCst);
+        let diff = now - then;
+        thread.cpu_time.fetch_add(diff, Ordering::SeqCst);
+        thread.load0.fetch_add(diff as u32, Ordering::SeqCst);
     }
 }
 
@@ -1559,7 +1497,7 @@ type ThreadStart = fn(usize) -> ();
 #[allow(dead_code)]
 struct ThreadContextData {
     /// Architectural context data
-    context: UnsafeCell<CpuContextData>,
+    context: CpuContextData,
 
     stack: Option<Box<[u8]>>,
 
@@ -1569,7 +1507,7 @@ struct ThreadContextData {
 
     // Properties
     sem: Semaphore,
-    personality: Option<PersonalityContext>,
+    personality: Option<UnsafeCell<PersonalityContext>>,
     attribute: AtomicBitflags<ThreadAttribute>,
     sleep_counter: AtomicIsize,
     priority: Priority,
@@ -1588,16 +1526,18 @@ struct ThreadContextData {
     name: Sb255,
 }
 
-bitflags! {
-    struct ThreadAttribute: usize {
-        const QUEUED    = 0b0000_0000_0000_0001;
-        const ZOMBIE    = 0b0000_0000_0000_1000;
-    }
+#[derive(Debug, Clone, Copy)]
+struct ThreadAttribute(usize);
+
+impl ThreadAttribute {
+    const QUEUED: Self = Self(0b0000_0000_0000_0001);
+    const ZOMBIE: Self = Self(0b0000_0000_0000_1000);
 }
 
-impl Into<usize> for ThreadAttribute {
+impl const Into<usize> for ThreadAttribute {
+    #[inline]
     fn into(self) -> usize {
-        self.bits()
+        self.0
     }
 }
 
@@ -1613,7 +1553,6 @@ impl AtomicBitflags<ThreadAttribute> {
     }
 }
 
-use core::fmt;
 impl fmt::Display for AtomicBitflags<ThreadAttribute> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_char())
@@ -1626,10 +1565,9 @@ impl ThreadContextData {
         pid: ProcessId,
         priority: Priority,
         name: &str,
-        start: Option<ThreadStart>,
-        arg: usize,
+        start: Option<(ThreadStart, usize)>,
         personality: Option<PersonalityContext>,
-    ) -> ThreadHandle {
+    ) -> Result<ThreadHandle, ()> {
         let handle = ThreadHandle::next();
 
         let name = {
@@ -1639,7 +1577,7 @@ impl ThreadContextData {
         };
 
         let mut thread = Self {
-            context: UnsafeCell::new(CpuContextData::new()),
+            context: CpuContextData::new(),
             stack: None,
             pid,
             handle,
@@ -1653,10 +1591,10 @@ impl ThreadContextData {
             load0: AtomicU32::new(0),
             load: AtomicU32::new(0),
             executor: None,
-            personality,
+            personality: personality.map(|v| UnsafeCell::new(v)),
             name,
         };
-        if let Some(start) = start {
+        if let Some((start, arg)) = start {
             unsafe {
                 let size_of_stack = CpuContextData::SIZE_OF_STACK;
                 let mut stack = Vec::with_capacity(size_of_stack);
@@ -1666,12 +1604,11 @@ impl ThreadContextData {
                 let stack = thread.stack.as_mut().unwrap().as_mut_ptr() as *mut c_void;
                 thread
                     .context
-                    .get_mut()
                     .init(stack.add(size_of_stack), start as usize, arg);
             }
         }
-        ThreadPool::add(Box::new(thread));
-        handle
+        ThreadPool::add(thread);
+        Ok(handle)
     }
 
     fn exit(&mut self) -> ! {
@@ -1679,7 +1616,7 @@ impl ThreadContextData {
 
         self.sem.signal();
         if let Some(context) = self.personality.take() {
-            context.on_exit();
+            context.into_inner().on_exit();
         }
 
         let process = self.pid.get().unwrap();
@@ -1697,8 +1634,8 @@ impl ThreadContextData {
         self.sleep_counter.load(Ordering::Relaxed) > 0
     }
 
-    fn name(&self) -> &str {
-        self.name.as_str()
+    fn name(&self) -> String {
+        self.name.as_str().to_owned()
     }
 }
 
@@ -1723,13 +1660,14 @@ impl ThreadQueue {
 }
 
 /// Interrupt Request Level
+#[repr(usize)]
 #[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Irql {
     Passive = 0,
     Apc,
     Dispatch,
-    DIrql,
+    Device,
     IPI,
     High,
 }
@@ -1762,10 +1700,3 @@ impl Irql {
         })
     }
 }
-
-// #[derive(Debug)]
-// #[allow(non_camel_case_types)]
-// enum IrqlError {
-//     IRQL_NOT_GREATER_OR_EQUAL(Irql, Irql),
-//     IRQL_NOT_LESS_OR_EQUAL(Irql, Irql),
-// }

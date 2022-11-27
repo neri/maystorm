@@ -11,7 +11,7 @@ use bootprot::*;
 use core::{fmt, fmt::Write, num::NonZeroU8};
 use kernel::{
     drivers::pci, drivers::usb, fs::*, mem::*, rt::*, system::*, task::scheduler::*,
-    ui::window::WindowManager, *,
+    ui::window::WindowManager, user::userenv::UserEnv, *,
 };
 use megstd::io::Read;
 
@@ -55,9 +55,6 @@ impl Shell {
     }
 
     async fn repl_main() {
-        // Self::exec_cmd("ver");
-        // Self::exec_cmd("sysctl device");
-
         loop {
             print!("# ");
             if let Ok(cmdline) = System::stdout().read_line_async(120).await {
@@ -72,7 +69,7 @@ impl Shell {
                 let name = cmd.as_str();
                 let mut args = args.iter().map(|v| v.as_str()).collect::<Vec<&str>>();
                 match name {
-                    "clear" | "cls" => System::stdout().reset().unwrap(),
+                    "clear" | "cls" | "reset" => System::stdout().reset().unwrap(),
                     "exit" => println!("Feature not available"),
                     "echo" => {
                         let stdout = System::stdout();
@@ -86,14 +83,14 @@ impl Shell {
                     }
                     "ver" => {
                         println!(
-                            "{} v{} [codename {}]",
+                            "{} v{} (codename {})",
                             System::name(),
                             System::version(),
                             System::codename()
                         )
                     }
                     "reboot" => {
-                        System::reset();
+                        UserEnv::system_reset();
                     }
                     "uptime" => {
                         let systime = System::system_time();
@@ -252,12 +249,21 @@ impl Shell {
         FileManager::open(name)
             .map(|mut fcb| {
                 let stat = fcb.fstat().unwrap();
+                if !stat.file_type().is_file() {
+                    println!("permission denied: {}", name);
+                    return 1;
+                }
                 let file_size = stat.len() as usize;
                 if file_size > 0 {
                     let mut vec = Vec::with_capacity(file_size);
-                    vec.resize(file_size, 0);
-                    let act_size = fcb.read(vec.as_mut_slice()).unwrap();
-                    let blob = &vec[..act_size];
+                    match fcb.read_to_end(&mut vec) {
+                        Ok(_v) => (),
+                        Err(err) => {
+                            println!("{}: File read error {:?}", name, err);
+                            return 1;
+                        }
+                    };
+                    let blob = vec.as_slice();
                     if let Some(mut loader) = RuntimeEnvironment::recognize(blob) {
                         loader.option().name = name.to_string();
                         loader.option().argv = argv.iter().map(|v| v.to_string()).collect();
@@ -277,13 +283,15 @@ impl Shell {
                         println!("Bad executable");
                         return 1;
                     }
+                } else {
+                    unreachable!()
                 }
                 0
             })
             .ok()
     }
 
-    fn command(cmd: &str) -> Option<&'static fn(&[&str]) -> isize> {
+    fn command(cmd: &str) -> Option<&'static fn(&[&str]) -> ()> {
         for command in &Self::COMMAND_TABLE {
             if command.0 == cmd {
                 return Some(&command.1);
@@ -292,48 +300,48 @@ impl Shell {
         None
     }
 
-    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> isize, &'static str); 9] = [
+    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> (), &'static str); 13] = [
         ("cd", Self::cmd_cd, ""),
         ("pwd", Self::cmd_pwd, ""),
-        ("dir", Self::cmd_dir, "Show directory"),
-        ("help", Self::cmd_help, "Show Help"),
-        ("type", Self::cmd_type, "Show file"),
-        //
+        ("ls", Self::cmd_dir, "Show directory"),
+        ("cat", Self::cmd_cat, "Show file"),
+        ("dir", Self::cmd_dir, ""),
+        ("type", Self::cmd_cat, ""),
+        ("stat", Self::cmd_stat, ""),
+        ("mount", Self::cmd_mount, ""),
         ("ps", Self::cmd_ps, ""),
         ("lspci", Self::cmd_lspci, "Show List of PCI Devices"),
         ("lsusb", Self::cmd_lsusb, "Show List of USB Devices"),
         ("sysctl", Self::cmd_sysctl, "System Control"),
+        ("help", Self::cmd_help, ""),
     ];
 
-    fn cmd_help(_: &[&str]) -> isize {
+    fn cmd_help(_: &[&str]) {
         for cmd in &Self::COMMAND_TABLE {
             if cmd.2.len() > 0 {
                 println!("{}\t{}", cmd.0, cmd.2);
             }
         }
-        0
     }
 
-    fn cmd_cd(argv: &[&str]) -> isize {
+    fn cmd_cd(argv: &[&str]) {
         match FileManager::chdir(argv.get(1).unwrap_or(&"/")) {
-            Ok(_) => 0,
+            Ok(_) => (),
             Err(err) => {
                 println!("{:?}", err.kind());
-                1
             }
         }
     }
 
-    fn cmd_pwd(_argv: &[&str]) -> isize {
+    fn cmd_pwd(_argv: &[&str]) {
         println!("{}", Scheduler::current_pid().cwd());
-        0
     }
 
-    fn cmd_sysctl(argv: &[&str]) -> isize {
+    fn cmd_sysctl(argv: &[&str]) {
         if argv.len() < 2 {
             println!("usage: sysctl command [options]");
             println!("memory:\tShow memory information");
-            return 1;
+            return;
         }
         let subcmd = argv[1];
         match subcmd {
@@ -343,18 +351,9 @@ impl Shell {
                 let n_threads = device.num_of_active_cpus();
                 if n_threads > 1 {
                     if n_cores != n_threads {
-                        print!(
-                            "  {} Cores {} Threads {}",
-                            n_cores,
-                            n_threads,
-                            device.processor_system_type().to_string(),
-                        );
+                        print!("  {} Cores {} Threads", n_cores, n_threads,);
                     } else {
-                        print!(
-                            "  {} Processors {}",
-                            n_cores,
-                            device.processor_system_type().to_string(),
-                        );
+                        print!("  {} Processors", n_cores,);
                     }
                 } else {
                     print!("  Uniprocessor system");
@@ -379,18 +378,9 @@ impl Shell {
                 let n_threads = device.num_of_active_cpus();
                 if n_threads > 1 {
                     if n_cores != n_threads {
-                        println!(
-                            "{}: {} Cores {} Threads",
-                            device.processor_system_type().to_string(),
-                            n_cores,
-                            n_threads,
-                        );
+                        println!("{} Cores {} Threads", n_cores, n_threads,);
                     } else {
-                        println!(
-                            "{}: {} Processors",
-                            device.processor_system_type().to_string(),
-                            n_cores,
-                        );
+                        println!("{} Processors", n_cores,);
                     }
                 } else {
                     println!("Uniprocessor system");
@@ -428,19 +418,18 @@ impl Shell {
             }
             _ => {
                 println!("Unknown command: {}", subcmd);
-                return 1;
+                return;
             }
         }
-        0
     }
 
-    fn cmd_dir(args: &[&str]) -> isize {
+    fn cmd_dir(args: &[&str]) {
         let path = args.get(1).unwrap_or(&"");
         let dir = match FileManager::read_dir(path) {
             Ok(v) => v,
             Err(err) => {
                 println!("{:?}", err.kind());
-                return 1;
+                return;
             }
         };
 
@@ -474,11 +463,10 @@ impl Shell {
         if acc < items_per_line {
             println!("");
         }
-        0
     }
 
-    fn cmd_type(args: &[&str]) -> isize {
-        let len = 1024;
+    fn cmd_cat(args: &[&str]) {
+        let len = 0x10000;
         let mut sb = Vec::with_capacity(len);
         sb.resize(len, 0);
         for path in args.iter().skip(1) {
@@ -503,26 +491,63 @@ impl Shell {
                     }
                 }
             }
-            System::stdout().write_str("\r\n").unwrap();
+            // System::stdout().write_str("\r\n").unwrap();
         }
-        0
     }
 
-    fn cmd_ps(_argv: &[&str]) -> isize {
+    fn cmd_stat(args: &[&str]) {
+        if args.len() < 2 {
+            println!("stat PATH...");
+            return;
+        };
+        for path in args.iter().skip(1) {
+            let stat = match FileManager::stat(path) {
+                Ok(v) => v,
+                Err(err) => {
+                    println!("stat: {}: {:?}", path, err.kind());
+                    return;
+                }
+            };
+            println!(
+                "{} {:?} {} {}",
+                stat.inode(),
+                stat.file_type(),
+                stat.len(),
+                FileManager::canonical_path(path),
+            )
+        }
+    }
+
+    fn cmd_mount(_argv: &[&str]) {
+        let mount_points = FileManager::mount_points();
+        let mut keys = mount_points.keys().collect::<Vec<_>>();
+        keys.sort();
+
+        for key in keys {
+            let mount_point = mount_points.get(key).unwrap();
+            println!(
+                "{} on {} {}",
+                mount_point.device_name(),
+                key,
+                mount_point.description()
+            );
+        }
+    }
+
+    fn cmd_ps(_argv: &[&str]) {
         let mut sb = String::new();
         Scheduler::print_statistics(&mut sb);
         print!("{}", sb.as_str());
-        0
     }
 
-    fn cmd_lsusb(argv: &[&str]) -> isize {
+    fn cmd_lsusb(argv: &[&str]) {
         if let Some(addr) = argv.get(1).and_then(|v| v.parse::<NonZeroU8>().ok()) {
-            let addr = usb::UsbAddress(addr);
+            let addr = usb::UsbAddress::from(addr);
             let device = match usb::UsbManager::device_by_addr(addr) {
                 Some(v) => v,
                 None => {
                     println!("Error: Device not found");
-                    return 1;
+                    return;
                 }
             };
 
@@ -533,7 +558,7 @@ impl Shell {
                 .to_string();
             println!(
                 "{:02x} VID {} PID {} class {} USB {} {}",
-                device.addr().0.get(),
+                device.addr().as_u8(),
                 device.vid(),
                 device.pid(),
                 device.class(),
@@ -578,7 +603,6 @@ impl Shell {
         } else {
             Self::print_usb_device(0, None);
         }
-        0
     }
 
     fn print_usb_device(nest: usize, parent: Option<usb::UsbAddress>) {
@@ -588,7 +612,7 @@ impl Shell {
             }
             println!(
                 "{:02x} VID {} PID {} class {} {}{}",
-                device.addr().0.get(),
+                device.addr().as_u8(),
                 device.vid(),
                 device.pid(),
                 device.class(),
@@ -601,7 +625,7 @@ impl Shell {
         }
     }
 
-    fn cmd_lspci(_argv: &[&str]) -> isize {
+    fn cmd_lspci(_argv: &[&str]) {
         // let _opt_all = argv.len() > 1;
         for device in drivers::pci::Pci::devices() {
             let addr = device.address();
@@ -617,7 +641,6 @@ impl Shell {
                 class_string,
             );
         }
-        0
     }
 
     fn find_pci_class_string(cc: pci::PciClass) -> &'static str {

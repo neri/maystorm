@@ -9,7 +9,6 @@ use alloc::sync::Arc;
 use bitflags::*;
 use core::{mem::transmute, num::NonZeroU8, pin::Pin, time::Duration};
 use futures_util::Future;
-use num_traits::FromPrimitive;
 
 pub struct UsbHubStarter;
 
@@ -142,7 +141,7 @@ impl Usb2HubDriver {
                                     // Attached
                                     hub.clone().attach_device(port).await;
                                 } else {
-                                    log!("ADDR {} HUB2 PORT {} DETACHED", addr.0, i);
+                                    log!("ADDR {} HUB2 PORT {} DETACHED", addr.as_u8(), i);
                                     // TODO: Detached
                                 }
                             } else {
@@ -359,7 +358,7 @@ impl Usb3HubDriver {
                                     // Attached
                                     hub.clone().attach_device(port).await;
                                 } else {
-                                    log!("ADDR {} HUB3 PORT {} DETACHED", addr.0, i);
+                                    log!("ADDR {} HUB3 PORT {} DETACHED", addr.as_u8(), i);
                                     // TODO: Detached
                                 }
                             } else {
@@ -783,6 +782,7 @@ impl const From<UsbHub3PortFeatureSel> for u16 {
 
 bitflags! {
     /// USB2 Hub Port Status Bits
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub struct UsbHub2PortStatusBit: u16 {
         const PORT_CONNECTION   = 0b0000_0000_0000_0001;
         const PORT_ENABLE       = 0b0000_0000_0000_0010;
@@ -813,6 +813,7 @@ impl UsbHub2PortStatusBit {
 
 bitflags! {
     /// USB2 Hub Port Status Change Bits
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub struct UsbHub2PortChangeBit: u16 {
         const C_PORT_CONNECTION     = 0b0000_0000_0000_0001;
         const C_PORT_ENABLE         = 0b0000_0000_0000_0010;
@@ -824,6 +825,7 @@ bitflags! {
 
 bitflags! {
     /// USB3 Hub Port Status Bits
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub struct UsbHub3PortStatusBit: u16 {
         const PORT_CONNECTION   = 0b0000_0000_0000_0001;
         const PORT_ENABLE       = 0b0000_0000_0000_0010;
@@ -843,12 +845,13 @@ impl UsbHub3PortStatusBit {
 
     #[inline]
     pub fn link_state(&self) -> Option<Usb3LinkState> {
-        FromPrimitive::from_usize(self.link_state_raw())
+        unsafe { transmute(self.link_state_raw() as u8) }
     }
 }
 
 bitflags! {
     /// USB3 Hub Port Status Change Bits
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub struct UsbHub3PortChangeBit: u16 {
         const C_PORT_CONNECTION     = 0b0000_0000_0000_0001;
         const C_PORT_OVER_CURRENT   = 0b0000_0000_0000_1000;

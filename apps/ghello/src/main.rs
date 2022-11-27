@@ -1,16 +1,11 @@
 #![no_main]
 #![no_std]
 
-use megstd::game::v1::prelude::*;
+use megstd::game::v0::prelude::*;
 
 #[no_mangle]
 fn _start() {
-    let presenter = GameWindow::with_options(
-        "GAME BENCH",
-        Size::new(128, 64),
-        ScaleMode::NearestNeighbor2X,
-        0,
-    );
+    let presenter = GameWindow::new("Hello world", Size::new(128, 64));
 
     let chars = b"Hello, world!";
     for (index, char) in chars.iter().enumerate() {
@@ -25,7 +20,7 @@ fn _start() {
             let position = ((phase - index as isize) & 31) - 15;
             let value = position * position / 8;
             presenter.move_sprite(
-                index as v1::SpriteIndex,
+                index as v0::SpriteIndex,
                 Point::new(8 + index as isize * 9, 16 + value),
             );
         }

@@ -5,7 +5,7 @@
 
 use boot_efi::{invocation::*, loader::*, page::*};
 use bootprot::*;
-use core::{ffi::c_void, fmt::Write, mem::*};
+use core::{fmt::Write, mem::*};
 use lib_efi::*;
 use uefi::{
     data_types::Guid,
@@ -38,7 +38,7 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
 
     // Find the ACPI Table
     info.acpi_rsdptr = match st.find_config_table(ACPI2_GUID) {
-        Some(val) => val as u64,
+        Some(val) => val,
         None => {
             writeln!(st.stdout(), "Error: ACPI Table Not Found").unwrap();
             return Status::LOAD_ERROR;
@@ -46,16 +46,10 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
     };
 
     // Find DeviceTree
-    info.dtb = match st.find_config_table(DTB_GUID) {
-        Some(val) => val as u64,
-        None => 0,
-    };
+    info.dtb = st.find_config_table(DTB_GUID).unwrap_or_default();
 
     // Find the SMBIOS Table
-    info.smbios = match st.find_config_table(SMBIOS_GUID) {
-        Some(val) => val as u64,
-        None => 0,
-    };
+    info.smbios = st.find_config_table(SMBIOS_GUID).unwrap_or_default();
 
     // Check the CPU
     let invocation = Invocation::new();
@@ -70,6 +64,7 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
 
     // Init graphics
     let mut graphics_ok = false;
+    #[allow(deprecated)]
     if let Ok(gop) = unsafe { bs.locate_protocol::<gop::GraphicsOutput>() } {
         let gop = unsafe { &mut *gop.get() };
         let gop_info = gop.current_mode_info();
@@ -173,14 +168,14 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
 }
 
 pub trait MyUefiLib {
-    fn find_config_table(&self, _: ::uefi::Guid) -> Option<*const c_void>;
+    fn find_config_table(&self, _: ::uefi::Guid) -> Option<u64>;
 }
 
 impl MyUefiLib for SystemTable<::uefi::table::Boot> {
-    fn find_config_table(&self, guid: ::uefi::Guid) -> Option<*const c_void> {
+    fn find_config_table(&self, guid: ::uefi::Guid) -> Option<u64> {
         for entry in self.config_table() {
             if entry.guid == guid {
-                return Some(entry.address);
+                return Some(entry.address as u64);
             }
         }
         None

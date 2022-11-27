@@ -2,6 +2,8 @@
 #![no_std]
 #![feature(const_mut_refs)]
 #![feature(const_trait_impl)]
+#![feature(const_option_ext)]
+#![feature(const_convert)]
 
 mod wasm;
 pub use crate::wasm::*;

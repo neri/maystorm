@@ -1,6 +1,6 @@
 //! xHC Data Structures
 
-use crate::{drivers::usb::*, mem::PhysicalAddress};
+use crate::{drivers::usb::*, *};
 use core::{mem::transmute, num::NonZeroU8, sync::atomic::*};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
@@ -982,8 +982,8 @@ impl SlotContext {
     }
 
     #[inline]
-    pub fn speed_raw(&self) -> usize {
-        (self.data[0] >> 20) as usize & 15
+    pub fn speed(&self) -> PSIV {
+        unsafe { transmute((self.data[0] >> 20) as u8 & 15) }
     }
 
     #[inline]
@@ -1111,7 +1111,7 @@ impl EndpointContext {
 }
 
 /// Endpoint Type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EpType {
     Invalid = 0,
     IsochOut,
@@ -1126,8 +1126,16 @@ pub enum EpType {
 impl EpType {
     #[inline]
     pub fn from_usb_ep_type(usb_ep_type: UsbEndpointType, dir: bool) -> Self {
-        FromPrimitive::from_usize((dir as usize * 4) + usb_ep_type as usize)
-            .unwrap_or(Self::Invalid)
+        match (dir, usb_ep_type) {
+            (false, UsbEndpointType::Control) => Self::Invalid,
+            (false, UsbEndpointType::Isochronous) => Self::IsochOut,
+            (false, UsbEndpointType::Bulk) => Self::BulkOut,
+            (false, UsbEndpointType::Interrupt) => Self::InterruptOut,
+            (true, UsbEndpointType::Control) => Self::Control,
+            (true, UsbEndpointType::Isochronous) => Self::IsochIn,
+            (true, UsbEndpointType::Bulk) => Self::BulkIn,
+            (true, UsbEndpointType::Interrupt) => Self::InterruptIn,
+        }
     }
 
     #[inline]
@@ -1163,7 +1171,7 @@ impl EpType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TrbTranfserType {
     NoData = 0,
     ControlOut = 2,

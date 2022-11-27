@@ -2,7 +2,6 @@
 #![feature(abi_x86_interrupt)]
 #![feature(alloc_error_handler)]
 #![feature(asm_const)]
-#![feature(asm_sym)]
 #![feature(async_closure)]
 #![feature(box_into_inner)]
 #![feature(cfg_target_has_atomic)]
@@ -14,16 +13,23 @@
 #![feature(iter_advance_by)]
 #![feature(lang_items)]
 #![feature(maybe_uninit_uninit_array)]
+#![feature(more_qualified_paths)]
 #![feature(naked_functions)]
 #![feature(negative_impls)]
 #![feature(new_uninit)]
 #![feature(option_result_contains)]
 #![feature(panic_info_message)]
 #![feature(trait_alias)]
+//-//-//-//
+#![allow(incomplete_features)]
+#![feature(return_position_impl_trait_in_trait)]
 
 #[macro_use]
 pub mod arch;
-pub mod dev;
+
+#[macro_use]
+pub mod hal;
+
 pub mod drivers;
 pub mod fs;
 pub mod fw;
@@ -39,7 +45,8 @@ pub mod task;
 pub mod ui;
 pub mod user;
 
-use crate::arch::cpu::Cpu;
+pub use crate::hal::*;
+
 use crate::system::System;
 use alloc::boxed::Box;
 use bootprot::*;
@@ -73,13 +80,13 @@ macro_rules! log {
     };
 }
 
-static mut PANIC_GLOBAL_LOCK: sync::spinlock::Spinlock = sync::spinlock::Spinlock::new();
+static PANIC_GLOBAL_LOCK: Spinlock = Spinlock::new();
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     use io::tty::*;
     unsafe {
-        Cpu::disable_interrupt();
+        Hal::cpu().disable_interrupt();
         let _ = task::scheduler::Scheduler::freeze(true);
         PANIC_GLOBAL_LOCK.synchronized(|| {
             let stdout = System::em_console();
@@ -94,7 +101,7 @@ fn panic(info: &PanicInfo) -> ! {
             }
             let _ = writeln!(stdout, "{}", info);
         });
-        Cpu::stop();
+        Hal::cpu().stop();
     }
 }
 
@@ -107,8 +114,8 @@ pub struct HexDump<'a>(pub &'a [u8]);
 impl core::fmt::Debug for HexDump<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         for c in self.0.iter() {
-            let _ = write!(f, " {:02x}", *c);
+            write!(f, " {:02x}", *c)?;
         }
-        writeln!(f, "")
+        Ok(())
     }
 }

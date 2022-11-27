@@ -4,7 +4,7 @@ use crate::{
     log::{EventManager, SimpleMessagePayload},
     mem::*,
     res::icon::IconManager,
-    sync::fifo::ConcurrentFifo,
+    sync::fifo::{ConcurrentFifo, EventQueue},
     system::*,
     task::scheduler::*,
     ui::font::*,
@@ -15,71 +15,167 @@ use crate::{
     *,
 };
 use ::alloc::{string::String, sync::Arc, vec::*};
-use core::{fmt::Write, time::Duration};
+use core::{
+    fmt::Write,
+    mem::{transmute, MaybeUninit},
+    time::Duration,
+};
 use megstd::{drawing::image::ImageLoader, drawing::*, io::Read, string::*};
+
+static mut SHUTDOWN_COMMAND: MaybeUninit<EventQueue<ShutdownCommand>> = MaybeUninit::uninit();
 
 pub struct UserEnv;
 
 impl UserEnv {
     pub fn start(f: fn()) {
-        Scheduler::spawn_async(slpash_task(f));
-        Scheduler::perform_tasks();
-    }
-}
+        assert_call_once!();
 
-async fn slpash_task(f: fn()) {
-    let is_gui_boot = true;
+        unsafe {
+            SHUTDOWN_COMMAND.write(EventQueue::new(100));
+        }
 
-    if true {
-        let width = 320;
-        let height = 200;
+        SpawnOption::with_priority(Priority::Normal)
+            .start_process(Self::_main, f as usize, "init")
+            .unwrap();
+
+        Self::shutdown_command().wait_event().unwrap();
+
+        WindowManager::set_pointer_visible(false);
+
+        let width = 480;
+        let height = 240;
 
         let window = WindowBuilder::new()
-            .style(WindowStyle::SUSPENDED)
-            .bg_color(Color::Transparent)
+            .style(WindowStyle::NO_SHADOW)
             .size(Size::new(width, height))
+            .bg_color(Color::TRANSPARENT)
+            .level(WindowLevel::POPUP)
             .build("");
 
         window.draw(|bitmap| {
-            let font = match FontDescriptor::new(FontFamily::SansSerif, 96) {
-                Some(v) => v,
-                None => return,
+            bitmap.clear();
+            let Some(font) = FontDescriptor::new(FontFamily::SansSerif, 36) else {
+                return
             };
             AttributedString::new()
-                .font(font)
+                .font(&font)
                 .color(Color::LIGHT_GRAY)
                 .middle_center()
-                .text("Hello")
+                .shadow(Color::from_argb(0xFF333333), Movement::new(2, 2))
+                .text("Shutting down...")
                 .draw_text(bitmap, bitmap.bounds(), 0);
         });
+
+        WindowManager::set_barrier_opacity(0xCC);
         window.show();
 
-        window.create_timer(0, Duration::from_millis(2000));
-
-        while let Some(message) = window.await_message().await {
-            match message {
-                WindowMessage::Timer(_) => window.close(),
-                _ => window.handle_default_message(message),
-            }
-        }
+        Hal::cpu().reset();
     }
 
-    WindowManager::set_pointer_visible(true);
-
-    if is_gui_boot {
-        if let Ok(mut file) = FileManager::open("wall.qoi") {
-            let mut vec = Vec::new();
-            file.read_to_end(&mut vec).unwrap();
-            if let Some(mut dib) = ImageLoader::from_qoi(vec.as_slice()) {
-                WindowManager::set_desktop_bitmap(&dib.into_bitmap());
-            }
-        }
+    fn _main(f: usize) {
+        let f: fn() = unsafe { transmute(f) };
+        Scheduler::spawn_async(slpash_task(f));
+        Scheduler::perform_tasks();
     }
-    Timer::sleep_async(Duration::from_millis(500)).await;
+
+    pub fn system_reset() {
+        Self::shutdown_command()
+            .post(ShutdownCommand::Reboot)
+            .unwrap();
+    }
+
+    fn shutdown_command<'a>() -> &'a EventQueue<ShutdownCommand> {
+        unsafe { SHUTDOWN_COMMAND.assume_init_ref() }
+    }
+}
+
+#[derive(Debug)]
+enum ShutdownCommand {
+    Reboot,
+    // Shutdown,
+}
+
+#[allow(dead_code)]
+async fn slpash_task(f: fn()) {
+    let is_gui_boot = true;
+
+    let width = 480;
+    let height = 240;
+
+    let window = WindowBuilder::new()
+        .style(WindowStyle::NO_SHADOW)
+        .size(Size::new(width, height))
+        .bg_color(Color::TRANSPARENT)
+        .level(WindowLevel::POPUP)
+        .build("");
+
+    window.draw(|bitmap| {
+        bitmap.clear();
+        let Some(font) = FontDescriptor::new(FontFamily::SansSerif, 36) else {
+            return
+        };
+        AttributedString::new()
+            .font(&font)
+            .color(Color::LIGHT_GRAY)
+            .middle_center()
+            .text("Starting up...")
+            .draw_text(bitmap, bitmap.bounds(), 0);
+    });
+    // window.show();
+    WindowManager::set_barrier_opacity(255);
+
+    Timer::sleep_async(Duration::from_millis(1000)).await;
 
     Scheduler::spawn_async(status_bar_main());
     Scheduler::spawn_async(_notification_task());
     Scheduler::spawn_async(activity_monitor_main());
+
+    if let Ok(mut file) = FileManager::open("wall.qoi") {
+        let mut vec = Vec::new();
+        file.read_to_end(&mut vec).unwrap();
+        if let Some(mut dib) = ImageLoader::from_qoi(vec.as_slice()) {
+            WindowManager::set_desktop_bitmap(&dib.into_bitmap());
+        }
+    } else {
+        WindowManager::set_desktop_color(Theme::shared().default_desktop_color());
+    }
+
+    Timer::sleep_async(Duration::from_millis(500)).await;
+
+    let total = Duration::from_millis(500);
+    let base = Timer::monotonic();
+    let limit = base + total;
+    let total = total.as_millis() as usize;
+    window.create_timer(0, Duration::from_millis(1));
+    window.show();
+
+    while let Some(message) = window.wait_message() {
+        match message {
+            WindowMessage::Timer(timer_id) => match timer_id {
+                0 => {
+                    let now = Timer::monotonic();
+                    let progress = if limit > now {
+                        (now - base).as_millis() as usize
+                    } else {
+                        total
+                    };
+
+                    WindowManager::set_barrier_opacity(255 - (255 * progress / total) as u8);
+
+                    if now < limit {
+                        window.create_timer(0, Duration::from_millis(50));
+                    } else {
+                        window.close();
+                    }
+                }
+                _ => unreachable!(),
+            },
+            _ => window.handle_default_message(message),
+        }
+    }
+
+    WindowManager::set_barrier_opacity(0);
+    WindowManager::set_pointer_visible(true);
 
     Scheduler::spawn_async(shell_launcher(is_gui_boot, f));
 
@@ -105,9 +201,8 @@ async fn shell_launcher(is_gui_boot: bool, f: fn()) {
         let point = {
             let mut point = max_point;
             while point > min_point {
-                let font = match FontDescriptor::new(FontFamily::Monospace, point) {
-                    Some(v) => v,
-                    None => break,
+                let Some(font) = FontDescriptor::new(FontFamily::Monospace, point) else {
+                    break
                 };
                 if font.em_width() * 80 <= size.width() && font.line_height() * 25 <= size.height()
                 {
@@ -169,7 +264,7 @@ async fn status_bar_main() {
 
                 if sb0 != sb1 {
                     let ats = AttributedString::new()
-                        .font(font)
+                        .font(&font)
                         .color(fg_color)
                         .middle_center()
                         .text(sb0.as_str());
@@ -286,6 +381,17 @@ async fn activity_monitor_main() {
 
     let mut sb = String::new();
 
+    let spacing = 4;
+    let graph_rect = Rect::new(spacing, spacing, n_items as isize, 32);
+    let graph_size = graph_rect.size();
+    let meter_rect = Rect::new(
+        graph_rect.max_x() + spacing,
+        spacing,
+        width - graph_rect.width() - 12,
+        32,
+    );
+    let mut opr_bitmap = OperationalBitmap::new(graph_size);
+
     let interval = Duration::from_secs(1);
     window.create_timer(0, Duration::from_secs(0));
     while let Some(message) = window.await_message().await {
@@ -304,36 +410,28 @@ async fn activity_monitor_main() {
                         |bitmap| {
                             bitmap.fill_rect(bitmap.bounds(), bg_color);
 
-                            let spacing = 4;
-                            let mut cursor;
-
                             {
-                                let spacing = 4;
-                                let item_size = Size::new(n_items as isize, 32);
-                                let rect =
-                                    Rect::new(spacing, spacing, item_size.width, item_size.height);
-                                cursor = rect.x() + rect.width() + spacing;
-
                                 let h_lines = 4;
                                 let v_lines = 4;
                                 for i in 1..h_lines {
                                     let point = Point::new(
-                                        rect.x(),
-                                        rect.y() + i * item_size.height / h_lines,
+                                        graph_rect.x(),
+                                        graph_rect.y() + i * graph_size.height / h_lines,
                                     );
-                                    bitmap.draw_hline(point, item_size.width, graph_sub_color);
+                                    bitmap.draw_hline(point, graph_size.width, graph_sub_color);
                                 }
                                 for i in 1..v_lines {
                                     let point = Point::new(
-                                        rect.x() + i * item_size.width / v_lines,
-                                        rect.y(),
+                                        graph_rect.x() + i * graph_size.width / v_lines,
+                                        graph_rect.y(),
                                     );
-                                    bitmap.draw_vline(point, item_size.height, graph_sub_color);
+                                    bitmap.draw_vline(point, graph_size.height, graph_sub_color);
                                 }
 
-                                let limit = item_size.width as usize - 2;
+                                let limit = graph_rect.width() as usize - 2;
+                                opr_bitmap.reset();
                                 for i in 0..limit {
-                                    let scale = item_size.height - 2;
+                                    let scale = graph_size.height - 2;
                                     let value1 = usage_history
                                         [((usage_cursor + i - limit) % n_items)]
                                         as isize
@@ -344,20 +442,40 @@ async fn activity_monitor_main() {
                                         as isize
                                         * scale
                                         / 255;
-                                    let c0 = Point::new(
-                                        rect.x() + i as isize + 1,
-                                        rect.y() + 1 + value1,
+                                    let c0 = Point::new(i as isize + 1, 1 + value1);
+                                    let c1 = Point::new(i as isize, 1 + value2);
+                                    opr_bitmap.draw_line_anti_aliasing(
+                                        c0,
+                                        c1,
+                                        1,
+                                        |bitmap, point, level| unsafe {
+                                            bitmap.set_pixel_unchecked(
+                                                point,
+                                                bitmap
+                                                    .get_pixel_unchecked(point)
+                                                    .saturating_add(level),
+                                            );
+                                        },
                                     );
-                                    let c1 =
-                                        Point::new(rect.x() + i as isize, rect.y() + 1 + value2);
-                                    bitmap.draw_line(c0, c1, graph_line_color);
                                 }
-                                bitmap.draw_rect(rect, graph_border_color);
+                                opr_bitmap.draw_to(
+                                    bitmap,
+                                    graph_rect.origin(),
+                                    graph_rect.bounds(),
+                                    graph_line_color,
+                                );
+                                bitmap.draw_rect(graph_rect, graph_border_color);
                             }
 
+                            // bitmap.draw_rect(meter_rect, graph_border_color);
+
                             for cpu_index in 0..num_of_cpus {
-                                let rect = Rect::new(cursor, 4, 6, 32);
-                                cursor += rect.width() + 2;
+                                let rect = Rect::new(
+                                    meter_rect.x() + cpu_index as isize * 8,
+                                    meter_rect.y(),
+                                    6,
+                                    meter_rect.height(),
+                                );
 
                                 let value = usage_temp[cpu_index];
                                 let graph_color = if value < 250 {
@@ -369,7 +487,7 @@ async fn activity_monitor_main() {
                                 };
 
                                 let mut coords = Coordinates::from_rect(rect).unwrap();
-                                coords.top += (rect.height() - 1) * value as isize / 1000;
+                                coords.top += ((rect.height() - 1) * value as isize + 500) / 1000;
 
                                 bitmap.fill_rect(coords.into(), graph_color);
                                 bitmap.draw_rect(rect, graph_border_color);
@@ -401,9 +519,9 @@ async fn activity_monitor_main() {
                             let n_cores = device.num_of_performance_cpus();
                             let n_threads = device.num_of_active_cpus();
                             if n_cores != n_threads {
-                                write!(sb, " {}C{}T", n_cores, n_threads,).unwrap();
+                                write!(sb, " {}Cores {}Threads", n_cores, n_threads,).unwrap();
                             } else {
-                                write!(sb, " {}CPU", n_cores,).unwrap();
+                                write!(sb, " {}Cores", n_cores,).unwrap();
                             }
 
                             writeln!(sb, " {:?}", Scheduler::current_state()).unwrap();
@@ -414,7 +532,7 @@ async fn activity_monitor_main() {
                                 .bounds()
                                 .insets_by(EdgeInsets::new(38, spacing, 4, spacing));
                             AttributedString::new()
-                                .font(font)
+                                .font(&font)
                                 .color(fg_color)
                                 .valign(VerticalAlignment::Top)
                                 .text(sb.as_str())
@@ -513,7 +631,7 @@ async fn _notification_task() {
                             let rect2 = rect.insets_by(EdgeInsets::new(0, left_margin, 0, 0));
                             let ats = AttributedString::new()
                                 .font(
-                                    FontDescriptor::new(FontFamily::SansSerif, 14)
+                                    &FontDescriptor::new(FontFamily::SansSerif, 14)
                                         .unwrap_or(FontManager::ui_font()),
                                 )
                                 .color(fg_color)
@@ -587,7 +705,7 @@ async fn test_window_main() {
                     let rect = bitmap.bounds();
                     bitmap.fill_rect(rect, Color::LIGHT_BLUE);
                     AttributedString::new()
-                        .font(FontDescriptor::new(FontFamily::SansSerif, 32).unwrap())
+                        .font(&FontDescriptor::new(FontFamily::SansSerif, 32).unwrap())
                         .middle_center()
                         .color(Color::WHITE)
                         .text("ようこそ MYOS!")
@@ -639,7 +757,7 @@ async fn test_window_main() {
                     //     Theme::shared().button_default_border(),
                     // );
                     AttributedString::new()
-                        .font(font)
+                        .font(&font)
                         .middle_center()
                         .color(Theme::shared().button_default_foreground())
                         .text("Ok")
@@ -668,7 +786,7 @@ async fn test_window_main() {
                     //     Theme::shared().button_destructive_border(),
                     // );
                     AttributedString::new()
-                        .font(font)
+                        .font(&font)
                         .middle_center()
                         .color(Theme::shared().button_destructive_foreground())
                         .text("Cancel")
@@ -706,10 +824,11 @@ fn font_test(
     let rect = Rect::new(0, offset, bitmap.width() as isize, isize::MAX);
 
     let ats = AttributedString::new()
-        .font(font)
+        .font(&font)
         .top_left()
         .color(color)
         .line_break_mode(LineBreakMode::NoWrap)
+        .shadow(TrueColor::from_argb(0x80CCCCCC).into(), Movement::new(2, 2))
         // .text("あのイーハトーヴォのすきとおった風、夏でも底に冷たさをもつ青いそら、うつくしい森で飾られたモリーオ市、郊外のぎらぎらひかる草の波。");
         // .text("The quick brown fox jumps over the lazy dog.");
         .text("WAVE AVATAR Lorem ipsum dolor sit amet, consectetur adipiscing elit,");

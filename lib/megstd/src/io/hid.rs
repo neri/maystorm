@@ -1,8 +1,10 @@
 //! Human Interface Device Manager
 
 use alloc::vec::Vec;
-use bitflags::*;
-use core::num::NonZeroU8;
+use core::{
+    num::NonZeroU8,
+    ops::{BitAnd, BitXor},
+};
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
@@ -208,6 +210,12 @@ impl HidUsage {
     pub const CHARACTER_GESTURE: Self = Self::digitizers(0x0024);
     pub const TABLET_FUNCTION_KEYS: Self = Self::digitizers(0x0039);
     pub const PROGRAM_CHANGE_KEYS: Self = Self::digitizers(0x003A);
+    pub const DEVICE_MODE: Self = Self::digitizers(0x0052);
+    pub const CONTACT_COUNT: Self = Self::digitizers(0x0054);
+    pub const CONTACT_COUNT_MAXIMUM: Self = Self::digitizers(0x0055);
+    pub const SURFACE_SWITCH: Self = Self::digitizers(0x0057);
+    pub const BUTTON_SWITCH: Self = Self::digitizers(0x0058);
+    pub const PAD_TYPE: Self = Self::digitizers(0x0059);
     pub const GESTURE_CHARACTER_ENCODING: Self = Self::digitizers(0x0064);
     pub const PREFERRED_LINE_STYLE: Self = Self::digitizers(0x0070);
     pub const DIGITIZER_DIAGNOSTIC: Self = Self::digitizers(0x0080);
@@ -416,21 +424,45 @@ impl const From<Usage> for HidUsage {
     }
 }
 
-bitflags! {
-    /// Modifier keys as defined by the HID specification.
-    pub struct Modifier: u8 {
-        const LEFT_CTRL     = 0b0000_0001;
-        const LEFT_SHIFT    = 0b0000_0010;
-        const LEFT_ALT      = 0b0000_0100;
-        const LEFT_GUI      = 0b0000_1000;
-        const RIGHT_CTRL    = 0b0001_0000;
-        const RIGHT_SHIFT   = 0b0010_0000;
-        const RIGHT_ALT     = 0b0100_0000;
-        const RIGHT_GUI     = 0b1000_0000;
-    }
-}
+/// Modifier keys as defined by the HID specification.
+#[derive(Debug, Clone, Copy)]
+pub struct Modifier(pub u8);
 
 impl Modifier {
+    pub const LEFT_CTRL: Self = Self(0b0000_0001);
+    pub const LEFT_SHIFT: Self = Self(0b0000_0010);
+    pub const LEFT_ALT: Self = Self(0b0000_0100);
+    pub const LEFT_GUI: Self = Self(0b0000_1000);
+    pub const RIGHT_CTRL: Self = Self(0b0001_0000);
+    pub const RIGHT_SHIFT: Self = Self(0b0010_0000);
+    pub const RIGHT_ALT: Self = Self(0b0100_0000);
+    pub const RIGHT_GUI: Self = Self(0b1000_0000);
+
+    #[inline]
+    pub const fn bits(&self) -> u8 {
+        self.0
+    }
+
+    #[inline]
+    pub const fn empty() -> Self {
+        Self(0)
+    }
+
+    #[inline]
+    pub const fn from_bits_retain(val: u8) -> Self {
+        Self(val)
+    }
+
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        self.0 == 0
+    }
+
+    #[inline]
+    pub const fn contains(&self, other: Self) -> bool {
+        (self.0 & other.0) == other.0
+    }
+
     #[inline]
     pub const fn has_shift(self) -> bool {
         self.contains(Self::LEFT_SHIFT) | self.contains(Self::RIGHT_SHIFT)
@@ -457,7 +489,7 @@ impl const From<Modifier> for usize {
 impl const From<usize> for Modifier {
     #[inline]
     fn from(v: usize) -> Self {
-        Self::from_bits_truncate(v as u8)
+        Self(v as u8)
     }
 }
 
@@ -501,26 +533,89 @@ impl<T: Into<isize> + Copy> MouseReport<T> {
     }
 }
 
-bitflags! {
-    /// Mouse buttons as defined by the HID specification.
-    pub struct MouseButton: u8 {
-        /// Primary/Trigger Button
-        const PRIMARY   = 0b0000_0001;
-        /// Secondary Button
-        const SECONDARY = 0b0000_0010;
-        /// Tertiary Button
-        const TERTIARY  = 0b0000_0100;
-        const BUTTON4   = 0b0000_1000;
-        const BUTTON5   = 0b0001_0000;
-        const BUTTON6   = 0b0010_0000;
-        const BUTTON7   = 0b0100_0000;
-        const BUTTON8   = 0b1000_0000;
+/// Mouse buttons as defined by the HID specification.
+#[derive(Debug, Clone, Copy)]
+pub struct MouseButton(pub u8);
+
+impl MouseButton {
+    /// Primary/Trigger Button
+    pub const PRIMARY: Self = Self(0b0000_0001);
+    /// Secondary Button
+    pub const SECONDARY: Self = Self(0b0000_0010);
+    /// Tertiary Button
+    pub const TERTIARY: Self = Self(0b0000_0100);
+    pub const BUTTON4: Self = Self(0b0000_1000);
+    pub const BUTTON5: Self = Self(0b0001_0000);
+    pub const BUTTON6: Self = Self(0b0010_0000);
+    pub const BUTTON7: Self = Self(0b0100_0000);
+    pub const BUTTON8: Self = Self(0b1000_0000);
+
+    #[inline]
+    pub const fn bits(&self) -> u8 {
+        self.0
+    }
+
+    #[inline]
+    pub const fn empty() -> Self {
+        Self(0)
+    }
+
+    #[inline]
+    pub const fn from_bits_retain(val: u8) -> Self {
+        Self(val)
+    }
+
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        self.0 == 0
+    }
+
+    #[inline]
+    pub const fn contains(&self, other: Self) -> bool {
+        (self.0 & other.0) == other.0
     }
 }
 
 impl const Default for MouseButton {
     fn default() -> Self {
         Self::empty()
+    }
+}
+
+impl const BitAnd<Self> for MouseButton {
+    type Output = Self;
+
+    #[inline]
+    fn bitand(self, rhs: Self) -> Self::Output {
+        Self(self.0 & rhs.0)
+    }
+}
+
+impl const BitXor<Self> for MouseButton {
+    type Output = Self;
+
+    #[inline]
+    fn bitxor(self, rhs: Self) -> Self::Output {
+        Self(self.0 ^ rhs.0)
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct HidReportId(NonZeroU8);
+
+impl HidReportId {
+    #[inline]
+    pub const fn new(v: u8) -> Option<Self> {
+        match NonZeroU8::new(v) {
+            Some(v) => Some(Self(v)),
+            None => None,
+        }
+    }
+
+    #[inline]
+    pub const fn as_u8(&self) -> u8 {
+        self.0.get()
     }
 }
 
@@ -717,30 +812,49 @@ pub enum HidReportItemTag {
     Delimiter = 0xA8,
 }
 
-bitflags! {
-    pub struct HidReportMainFlag: usize {
-        /// Data / Constant
-        const CONSTANT          = 0x0001;
-        /// Array / Variable
-        const VARIABLE          = 0x0002;
-        /// Absolute / Relative
-        const RELATIVE          = 0x0004;
-        /// No Wrap / Wrap
-        const WRAP              = 0x0008;
-        /// Linear / Non Linear
-        const NON_LINEAR        = 0x0010;
-        /// Preferred State / No Preferred
-        const NO_PREFERRED      = 0x0020;
-        /// No Null Position / Null State
-        const NULL_STATE        = 0x0040;
-        /// Non volatile / Volatile
-        const VOLATILE          = 0x0080;
-        /// Bit field / Buffered Bytes
-        const BUFFERED_BYTES    = 0x0100;
-    }
-}
+#[derive(Debug, Clone, Copy)]
+pub struct HidReportMainFlag(u32);
 
 impl HidReportMainFlag {
+    /// Data / Constant
+    pub const CONSTANT: Self = Self(0x0001);
+    /// Array / Variable
+    pub const VARIABLE: Self = Self(0x0002);
+    /// Absolute / Relative
+    pub const RELATIVE: Self = Self(0x0004);
+    /// No Wrap / Wrap
+    pub const WRAP: Self = Self(0x0008);
+    /// Linear / Non Linear
+    pub const NON_LINEAR: Self = Self(0x0010);
+    /// Preferred State / No Preferred
+    pub const NO_PREFERRED: Self = Self(0x0020);
+    /// No Null Position / Null State
+    pub const NULL_STATE: Self = Self(0x0040);
+    /// Non volatile / Volatile
+    pub const VOLATILE: Self = Self(0x0080);
+    /// Bit field / Buffered Bytes
+    pub const BUFFERED_BYTES: Self = Self(0x0100);
+
+    #[inline]
+    pub const fn bits(&self) -> u32 {
+        self.0
+    }
+
+    #[inline]
+    pub const fn empty() -> Self {
+        Self(0)
+    }
+
+    #[inline]
+    pub const fn from_bits_retain(val: u32) -> Self {
+        Self(val)
+    }
+
+    #[inline]
+    pub const fn contains(&self, other: Self) -> bool {
+        (self.0 & other.0) == other.0
+    }
+
     #[inline]
     pub fn is_const(&self) -> bool {
         self.contains(Self::CONSTANT)
@@ -891,7 +1005,7 @@ impl const From<HidReportAmbiguousSignedValue> for i32 {
 }
 
 impl core::fmt::Debug for HidReportAmbiguousSignedValue {
-    fn fmt(&self, f: &mut _core::fmt::Formatter<'_>) -> _core::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Zero => write!(f, "Zero"),
             Self::U8(arg0) => write!(f, "{:02x}", arg0),
@@ -912,7 +1026,7 @@ pub struct HidReportGlobalState {
     pub unit: usize,
     pub report_size: usize,
     pub report_count: usize,
-    pub report_id: Option<NonZeroU8>,
+    pub report_id: Option<HidReportId>,
 }
 
 impl HidReportGlobalState {
@@ -959,4 +1073,13 @@ impl HidReportLocalState {
         self.usage_maximum = 0;
         self.delimiter = 0;
     }
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
+pub enum DeviceMode {
+    Mouse = 0,
+    SingleInputDevice,
+    MultiInputDevice,
 }

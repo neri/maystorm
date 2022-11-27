@@ -1,5 +1,3 @@
-//! A Window System
-
 use super::{font::*, text::*, theme::Theme};
 use crate::{
     io::hid_mgr::*,
@@ -8,16 +6,17 @@ use crate::{
     sync::{fifo::*, semaphore::*},
     sync::{Mutex, RwLock},
     task::scheduler::*,
+    user::userenv::UserEnv,
     *,
 };
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
-use bitflags::*;
 use core::{
     cell::UnsafeCell,
     cmp,
     future::Future,
     mem::swap,
     num::*,
+    ops::{BitOr, Deref},
     pin::Pin,
     sync::atomic::*,
     task::{Context, Poll},
@@ -38,7 +37,7 @@ const WINDOW_TITLE_LENGTH: usize = 32;
 const WINDOW_SHADOW_PADDING: isize = 16;
 const SHADOW_RADIUS: isize = 8;
 const SHADOW_OFFSET: Movement = Movement::new(2, 2);
-const SHADOW_LEVEL: usize = 128;
+const SHADOW_LEVEL: usize = 96;
 
 // Mouse Pointer
 const MOUSE_POINTER_WIDTH: usize = 12;
@@ -87,16 +86,15 @@ pub struct WindowManager<'a> {
 
     resources: Resources<'a>,
 
-    window_pool: RwLock<BTreeMap<WindowHandle, Arc<UnsafeCell<Box<RawWindow>>>>>,
+    window_pool: RwLock<BTreeMap<WindowHandle, Arc<UnsafeCell<RawWindow>>>>,
     window_orders: RwLock<Vec<WindowHandle>>,
 
     root: WindowHandle,
     pointer: WindowHandle,
     barrier: WindowHandle,
-    active: Option<WindowHandle>,
-    captured: Option<WindowHandle>,
-    captured_offset: Movement,
-    entered: Option<WindowHandle>,
+    active: AtomicWindowHandle,
+    captured: AtomicWindowHandle,
+    entered: AtomicWindowHandle,
 }
 
 #[allow(dead_code)]
@@ -111,6 +109,8 @@ struct Resources<'a> {
 
 impl WindowManager<'static> {
     pub fn init(main_screen: Bitmap32<'static>) {
+        assert_call_once!();
+
         let attributes = AtomicBitflags::EMPTY;
 
         let mut screen_size = main_screen.size();
@@ -208,24 +208,19 @@ impl WindowManager<'static> {
                 root,
                 pointer,
                 barrier,
-                active: None,
-                captured: None,
-                captured_offset: Movement::default(),
-                entered: None,
+                active: AtomicWindowHandle::default(),
+                captured: AtomicWindowHandle::default(),
+                entered: AtomicWindowHandle::default(),
                 system_event: ConcurrentFifo::with_capacity(WINDOW_SYSTEM_EVENT_QUEUE_SIZE),
                 update_coords: Mutex::new(Coordinates::VOID),
             }));
         }
 
-        SpawnOption::with_priority(Priority::High).start_process(
-            Self::window_thread,
-            0,
-            "Window Manager",
-        );
+        SpawnOption::with_priority(Priority::High).start(Self::window_thread, 0, "Window Manager");
     }
 
     #[track_caller]
-    fn add(window: Box<RawWindow>) {
+    fn add(window: RawWindow) {
         let handle = window.handle;
         WindowManager::shared_mut()
             .window_pool
@@ -244,28 +239,28 @@ impl WindowManager<'static> {
     }
 
     #[inline]
-    fn get<'a>(&self, key: &WindowHandle) -> Option<&'a Box<RawWindow>> {
-        match WindowManager::shared().window_pool.read() {
-            Ok(v) => v
-                .get(key)
-                .map(|v| v.clone().get())
-                .map(|v| unsafe { &(*v) }),
-            Err(_) => None,
-        }
+    fn get(&self, key: &WindowHandle) -> Option<WindowRef> {
+        WindowManager::shared()
+            .window_pool
+            .read()
+            .unwrap()
+            .get(key)
+            .map(|v| WindowRef(v.clone()))
     }
 
-    fn get_mut<F, R>(&mut self, key: &WindowHandle, f: F) -> Option<R>
+    fn update<F, R>(&mut self, key: &WindowHandle, f: F) -> Option<R>
     where
         F: FnOnce(&mut RawWindow) -> R,
     {
-        let window = match WindowManager::shared_mut().window_pool.write() {
-            Ok(mut v) => v.get_mut(key).map(|v| v.clone()),
-            Err(_) => None,
-        };
-        window.map(|window| unsafe {
-            let window = window.get();
-            f(&mut *window)
-        })
+        WindowManager::shared()
+            .window_pool
+            .read()
+            .unwrap()
+            .get(key)
+            .map(|v| unsafe {
+                let window = v.clone().get();
+                f(&mut *window)
+            })
     }
 }
 
@@ -290,6 +285,8 @@ impl WindowManager<'_> {
     /// Window Manager's Thread
     fn window_thread(_: usize) {
         let shared = WindowManager::shared_mut();
+
+        let mut captured_offset = Movement::default();
 
         loop {
             shared.sem_event.wait();
@@ -324,17 +321,16 @@ impl WindowManager<'_> {
             {
                 if shared.pointer.is_visible() {
                     let position = shared.pointer();
-                    let current_buttons = MouseButton::from_bits_truncate(
-                        shared.buttons.load(Ordering::Acquire) as u8,
-                    );
-                    let buttons_down = MouseButton::from_bits_truncate(
+                    let current_buttons =
+                        MouseButton::from_bits_retain(shared.buttons.load(Ordering::Acquire) as u8);
+                    let buttons_down = MouseButton::from_bits_retain(
                         shared.buttons_down.swap(0, Ordering::SeqCst) as u8,
                     );
-                    let buttons_up = MouseButton::from_bits_truncate(
+                    let buttons_up = MouseButton::from_bits_retain(
                         shared.buttons_up.swap(0, Ordering::SeqCst) as u8,
                     );
 
-                    if let Some(captured) = shared.captured {
+                    if let Some(captured) = shared.captured.get() {
                         if current_buttons.contains(MouseButton::PRIMARY) {
                             if shared
                                 .attributes
@@ -372,11 +368,9 @@ impl WindowManager<'_> {
                                     } else {
                                         0
                                     };
-                                let x = position.x - shared.captured_offset.x;
-                                let y = cmp::min(
-                                    cmp::max(position.y - shared.captured_offset.y, top),
-                                    bottom,
-                                );
+                                let x = position.x - captured_offset.x;
+                                let y =
+                                    cmp::min(cmp::max(position.y - captured_offset.y, top), bottom);
                                 captured.move_to(Point::new(x, y));
                             } else {
                                 let _ = Self::make_mouse_events(
@@ -418,7 +412,7 @@ impl WindowManager<'_> {
                                 );
                             }
 
-                            shared.captured = None;
+                            shared.captured.reset();
                             shared.attributes.remove(
                                 WindowManagerAttributes::MOVING
                                     | WindowManagerAttributes::CLOSE_DOWN
@@ -426,7 +420,7 @@ impl WindowManager<'_> {
                             );
 
                             let target = Self::window_at_point(position);
-                            if let Some(entered) = shared.entered {
+                            if let Some(entered) = shared.entered.get() {
                                 if entered != target {
                                     let _ = Self::make_mouse_events(
                                         captured,
@@ -435,9 +429,14 @@ impl WindowManager<'_> {
                                         MouseButton::empty(),
                                         MouseButton::empty(),
                                     );
-                                    let _ = entered.post(WindowMessage::MouseLeave);
-                                    shared.entered = Some(target);
-                                    let _ = target.post(WindowMessage::MouseEnter);
+                                    shared
+                                        .make_enver_and_leave_event(
+                                            target,
+                                            entered,
+                                            position,
+                                            current_buttons,
+                                        )
+                                        .unwrap();
                                 }
                             }
                         }
@@ -445,7 +444,7 @@ impl WindowManager<'_> {
                         let target = Self::window_at_point(position);
 
                         if buttons_down.contains(MouseButton::PRIMARY) {
-                            if let Some(active) = shared.active {
+                            if let Some(active) = shared.active.get() {
                                 if active != target {
                                     WindowManager::set_active(Some(target));
                                 }
@@ -487,9 +486,8 @@ impl WindowManager<'_> {
                                     );
                                 }
                             }
-                            shared.captured = Some(target);
-                            shared.captured_offset =
-                                position - target_window.visible_frame().origin;
+                            shared.captured.set(target);
+                            captured_offset = position - target_window.visible_frame().origin;
                         } else {
                             let _ = Self::make_mouse_events(
                                 target,
@@ -500,11 +498,16 @@ impl WindowManager<'_> {
                             );
                         }
 
-                        if let Some(entered) = shared.entered {
+                        if let Some(entered) = shared.entered.get() {
                             if entered != target {
-                                let _ = entered.post(WindowMessage::MouseLeave);
-                                shared.entered = Some(target);
-                                let _ = target.post(WindowMessage::MouseEnter);
+                                shared
+                                    .make_enver_and_leave_event(
+                                        target,
+                                        entered,
+                                        position,
+                                        current_buttons,
+                                    )
+                                    .unwrap();
                             }
                         }
                     }
@@ -563,6 +566,28 @@ impl WindowManager<'_> {
         }
     }
 
+    fn make_enver_and_leave_event(
+        &self,
+        new: WindowHandle,
+        old: WindowHandle,
+        position: Point,
+        buttons: MouseButton,
+    ) -> Result<(), WindowPostError> {
+        self.entered.set(new);
+        old.post(WindowMessage::MouseLeave(MouseEvent::new(
+            position,
+            buttons,
+            MouseButton::empty(),
+        )))?;
+        new.post(WindowMessage::MouseEnter(MouseEvent::new(
+            position,
+            buttons,
+            MouseButton::empty(),
+        )))?;
+
+        Ok(())
+    }
+
     #[inline]
     pub fn is_enabled() -> bool {
         unsafe { WM.is_some() }
@@ -575,9 +600,8 @@ impl WindowManager<'_> {
     }
 
     fn add_hierarchy(window: WindowHandle) {
-        let window = match window.get() {
-            Some(v) => v,
-            None => return,
+        let Some(window) = window.get() else {
+            return
         };
 
         Self::remove_hierarchy(window.handle);
@@ -596,15 +620,14 @@ impl WindowManager<'_> {
             window_orders.push(window.handle);
         }
 
-        window.as_ref().attributes.insert(WindowAttributes::VISIBLE);
+        window.attributes.insert(WindowAttributes::VISIBLE);
 
         drop(window_orders);
     }
 
     fn remove_hierarchy(window: WindowHandle) {
-        let window = match window.get() {
-            Some(v) => v,
-            None => return,
+        let Some(window) = window.get() else {
+            return
         };
 
         window.attributes.remove(WindowAttributes::VISIBLE);
@@ -665,12 +688,12 @@ impl WindowManager<'_> {
 
     fn set_active(window: Option<WindowHandle>) {
         let shared = WindowManager::shared_mut();
-        if let Some(old_active) = shared.active {
+        if let Some(old_active) = shared.active.get() {
             let _ = old_active.post(WindowMessage::Deactivated);
-            shared.active = window;
+            shared.active.write(window);
             let _ = old_active.update_opt(|window| window.refresh_title());
         } else {
-            shared.active = window;
+            shared.active.write(window);
         }
         if let Some(active) = window {
             let _ = active.post(WindowMessage::Activated);
@@ -736,9 +759,8 @@ impl WindowManager<'_> {
     }
 
     pub fn post_relative_pointer(pointer_state: &mut MouseState) {
-        let shared = match Self::shared_opt() {
-            Some(v) => v,
-            None => return,
+        let Some(shared) = Self::shared_opt() else {
+            return
         };
         let screen_bounds: Rect = shared.screen_size.into();
 
@@ -785,9 +807,8 @@ impl WindowManager<'_> {
     }
 
     pub fn post_absolute_pointer(pointer_state: &mut MouseState) {
-        let shared = match Self::shared_opt() {
-            Some(v) => v,
-            None => return,
+        let Some(shared) = Self::shared_opt() else {
+            return
         };
         let screen_bounds: Rect = shared.screen_size.into();
         let button_changes = pointer_state.current_buttons ^ pointer_state.prev_buttons;
@@ -833,17 +854,16 @@ impl WindowManager<'_> {
     }
 
     pub fn post_key_event(event: KeyEvent) {
-        let shared = match Self::shared_opt() {
-            Some(v) => v,
-            None => return,
+        let Some(shared) = Self::shared_opt() else {
+            return
         };
         if event.usage() == Usage::DELETE
             && event.modifier().has_ctrl()
             && event.modifier().has_alt()
         {
             // ctrl alt del
-            System::reset();
-        } else if let Some(window) = shared.active {
+            UserEnv::system_reset();
+        } else if let Some(window) = shared.active.get() {
             let _ = Self::post_system_event(WindowSystemEvent::Key(window, event));
         }
     }
@@ -853,11 +873,11 @@ impl WindowManager<'_> {
         Self::shared().root
     }
 
-    pub fn set_desktop_color(_color: Color) {
-        // let desktop = Self::shared().root;
-        // desktop.update(|window| {
-        //     window.set_bg_color(color);
-        // });
+    pub fn set_desktop_color(color: Color) {
+        let desktop = Self::shared().root;
+        desktop.update(|window| {
+            window.set_bg_color(color);
+        });
     }
 
     pub fn set_desktop_bitmap<'a, T: AsRef<ConstBitmap<'a>>>(bitmap: &T) {
@@ -961,21 +981,31 @@ impl WindowManager<'_> {
     }
 }
 
-bitflags! {
-    struct WindowManagerAttributes: usize {
-        const ROTATE        = 0b0000_0001;
-        const EVENT         = 0b0000_0010;
-        const MOUSE_MOVE    = 0b0000_0100;
-        const NEEDS_REDRAW  = 0b0000_1000;
-        const MOVING        = 0b0001_0000;
-        const CLOSE_DOWN    = 0b0010_0000;
-        const BACK_DOWN     = 0b0100_0000;
+#[derive(Debug, Clone, Copy)]
+struct WindowManagerAttributes(usize);
+
+impl WindowManagerAttributes {
+    const ROTATE: Self = Self(0b0000_0001);
+    const EVENT: Self = Self(0b0000_0010);
+    const MOUSE_MOVE: Self = Self(0b0000_0100);
+    const NEEDS_REDRAW: Self = Self(0b0000_1000);
+    const MOVING: Self = Self(0b0001_0000);
+    const CLOSE_DOWN: Self = Self(0b0010_0000);
+    const BACK_DOWN: Self = Self(0b0100_0000);
+}
+
+impl const Into<usize> for WindowManagerAttributes {
+    fn into(self) -> usize {
+        self.0
     }
 }
 
-impl Into<usize> for WindowManagerAttributes {
-    fn into(self) -> usize {
-        self.bits()
+impl const BitOr for WindowManagerAttributes {
+    type Output = Self;
+
+    #[inline]
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
     }
 }
 
@@ -987,7 +1017,7 @@ pub enum ViewActionState {
     Disabled,
 }
 
-impl Default for ViewActionState {
+impl const Default for ViewActionState {
     #[inline]
     fn default() -> Self {
         Self::Normal
@@ -1030,46 +1060,94 @@ struct RawWindow {
     queue: Option<ConcurrentFifo<WindowMessage>>,
 }
 
-bitflags! {
-    pub struct WindowStyle: usize {
-        const BORDER            = 0b0000_0000_0000_0001;
-        const THIN_FRAME        = 0b0000_0000_0000_0010;
-        const TITLE             = 0b0000_0000_0000_0100;
-        const CLOSE_BUTTON      = 0b0000_0000_0000_1000;
+#[derive(Debug, Clone, Copy)]
+pub struct WindowStyle(usize);
 
-        const OPAQUE_CONTENT    = 0b0000_0000_0001_0000;
-        const OPAQUE            = 0b0000_0000_0010_0000;
-        const NO_SHADOW         = 0b0000_0000_0100_0000;
-        const FLOATING          = 0b0000_0000_1000_0000;
+impl WindowStyle {
+    pub const BORDER: Self = Self(0b0000_0000_0000_0001);
+    pub const THIN_FRAME: Self = Self(0b0000_0000_0000_0010);
+    pub const TITLE: Self = Self(0b0000_0000_0000_0100);
+    pub const CLOSE_BUTTON: Self = Self(0b0000_0000_0000_1000);
 
-        const DARK_BORDER       = 0b0000_0001_0000_0000;
-        const DARK_TITLE        = 0b0000_0010_0000_0000;
-        const DARK_ACTIVE       = 0b0000_0100_0000_0000;
-        const PINCHABLE         = 0b0000_1000_0000_0000;
+    pub const OPAQUE_CONTENT: Self = Self(0b0000_0000_0001_0000);
+    pub const OPAQUE: Self = Self(0b0000_0000_0010_0000);
+    pub const NO_SHADOW: Self = Self(0b0000_0000_0100_0000);
+    pub const FLOATING: Self = Self(0b0000_0000_1000_0000);
 
-        const FULLSCREEN        = 0b0001_0000_0000_0000;
+    pub const DARK_MODE: Self = Self(0b0000_0001_0000_0000);
+    pub const DARK_BORDER: Self = Self(0b0000_0010_0000_0000);
+    pub const DARK_TITLE: Self = Self(0b0000_0100_0000_0000);
+    pub const DARK_ACTIVE: Self = Self(0b0000_1000_0000_0000);
 
-        const SUSPENDED         = 0b1000_0000_0000_0000;
+    pub const PINCHABLE: Self = Self(0b0001_0000_0000_0000);
+    pub const FULLSCREEN: Self = Self(0b0010_0000_0000_0000);
+    pub const SUSPENDED: Self = Self(0b1000_0000_0000_0000);
 
+    pub const DEFAULT: Self = Self::BORDER | Self::TITLE | Self::CLOSE_BUTTON;
+
+    #[inline]
+    pub const fn bits(&self) -> usize {
+        self.0
+    }
+
+    #[inline]
+    pub const fn empty() -> Self {
+        Self(0)
+    }
+
+    #[inline]
+    pub const fn from_bits_retain(val: usize) -> Self {
+        Self(val)
+    }
+
+    // #[inline]
+    // pub const fn is_empty(&self) -> bool {
+    //     self.0 == 0
+    // }
+
+    #[inline]
+    pub const fn contains(&self, bits: Self) -> bool {
+        (self.0 & bits.0) == bits.0
+    }
+
+    #[inline]
+    pub const fn insert(&mut self, bits: Self) {
+        self.0 |= bits.bits();
+    }
+
+    #[inline]
+    pub const fn remove(&mut self, bits: Self) {
+        self.0 &= !bits.bits();
+    }
+
+    #[inline]
+    pub const fn set(&mut self, bits: Self, value: bool) {
+        if value {
+            self.insert(bits)
+        } else {
+            self.remove(bits)
+        }
     }
 }
 
-impl Default for WindowStyle {
+impl const Default for WindowStyle {
     #[inline]
     fn default() -> Self {
-        Self::BORDER | Self::TITLE | Self::CLOSE_BUTTON
+        Self::DEFAULT
     }
 }
 
 impl const From<WindowStyle> for usize {
+    #[inline]
     fn from(val: WindowStyle) -> Self {
         val.bits()
     }
 }
 
 impl const From<usize> for WindowStyle {
+    #[inline]
     fn from(val: usize) -> Self {
-        Self::from_bits_truncate(val)
+        Self::from_bits_retain(val)
     }
 }
 
@@ -1111,16 +1189,27 @@ impl WindowStyle {
     }
 }
 
-bitflags! {
-    struct WindowAttributes: usize {
-        const NEEDS_REDRAW  = 0b0000_0001;
-        const VISIBLE       = 0b0000_0010;
+impl const BitOr for WindowStyle {
+    type Output = Self;
+
+    #[inline]
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.bits() | rhs.bits())
     }
 }
 
-impl Into<usize> for WindowAttributes {
+#[derive(Debug, Clone, Copy)]
+struct WindowAttributes(usize);
+
+impl WindowAttributes {
+    const NEEDS_REDRAW: Self = Self(0b0000_0001);
+    const VISIBLE: Self = Self(0b0000_0010);
+}
+
+impl const Into<usize> for WindowAttributes {
+    #[inline]
     fn into(self) -> usize {
-        self.bits()
+        self.0
     }
 }
 
@@ -1156,7 +1245,7 @@ impl RawWindow {
     fn hide(&self) {
         let shared = WindowManager::shared_mut();
         let frame = self.shadow_frame();
-        let new_active = if shared.active.contains(&self.handle) {
+        let new_active = if shared.active.contains(self.handle) {
             let window_orders = shared.window_orders.read().unwrap();
             window_orders
                 .iter()
@@ -1166,8 +1255,8 @@ impl RawWindow {
         } else {
             None
         };
-        if shared.captured.contains(&self.handle) {
-            shared.captured = None;
+        if shared.captured.contains(self.handle) {
+            shared.captured.reset();
         }
         WindowManager::remove_hierarchy(self.handle);
         WindowManager::invalidate_screen(frame);
@@ -1189,13 +1278,11 @@ impl RawWindow {
             if self.attributes.contains(WindowAttributes::VISIBLE) {
                 self.draw_frame();
 
-                let coords1 = match Coordinates::from_rect(old_frame) {
-                    Ok(v) => v,
-                    Err(_) => return,
+                let Ok(coords1) = Coordinates::from_rect(old_frame) else {
+                    return
                 };
-                let coords2 = match Coordinates::from_rect(self.shadow_frame()) {
-                    Ok(v) => v,
-                    Err(_) => return,
+                let Ok(coords2) = Coordinates::from_rect(self.shadow_frame()) else {
+                    return
                 };
                 WindowManager::invalidate_screen(Rect::from(coords1.merged(coords2)));
             }
@@ -1209,9 +1296,8 @@ impl RawWindow {
     }
 
     fn draw_inner_to_screen(&self, rect: Rect) {
-        let coords = match Coordinates::from_rect(rect) {
-            Ok(v) => v,
-            Err(_) => return,
+        let Ok(coords) = Coordinates::from_rect(rect) else {
+            return
         };
         let bounds = self.frame.bounds();
 
@@ -1220,8 +1306,7 @@ impl RawWindow {
                 && bounds.insets_by(self.content_insets).contains(rect);
 
         let shared = WindowManager::shared();
-        let is_direct = if is_opaque && !shared.attributes.contains(WindowManagerAttributes::ROTATE)
-        {
+        let is_direct = if is_opaque {
             let window_orders = shared.window_orders.read().unwrap();
             let first_index = 1 + window_orders
                 .iter()
@@ -1231,10 +1316,7 @@ impl RawWindow {
 
             let mut is_direct = true;
             for handle in window_orders[first_index..].iter() {
-                let window = match handle.get() {
-                    Some(v) => v,
-                    None => continue,
-                };
+                let Some(window) = handle.get() else { continue };
                 if screen_rect.overlaps(window.shadow_frame()) {
                     is_direct = false;
                     break;
@@ -1248,18 +1330,26 @@ impl RawWindow {
             let offset = self.frame.origin;
             let bitmap = self.bitmap();
             let main_screen = unsafe { &mut *shared.main_screen.get() };
-            main_screen.blt(
-                bitmap,
-                offset + Movement::from(coords.left_top()),
-                coords.into(),
-            );
-            // main_screen.draw_rect(rect + offset, Color::YELLOW.into());
+            if shared.attributes.contains(WindowManagerAttributes::ROTATE) {
+                main_screen.blt_rotate(
+                    bitmap.as_const(),
+                    offset + Movement::from(coords.left_top()),
+                    coords.into(),
+                );
+            } else {
+                main_screen.blt(
+                    bitmap.as_const(),
+                    offset + Movement::from(coords.left_top()),
+                    coords.into(),
+                );
+
+                // main_screen.draw_rect(rect + Movement::from(offset), Color::YELLOW.into());
+            }
         } else {
             drop(shared);
 
-            let inner_coords = match Coordinates::from_rect(bounds) {
-                Ok(v) => v,
-                Err(_) => return,
+            let Ok(inner_coords) = Coordinates::from_rect(bounds) else {
+                return
             };
             let frame_origin = self.frame.origin;
             let offset = self.shadow_frame().origin;
@@ -1276,9 +1366,9 @@ impl RawWindow {
         let back_buffer = back_buffer.as_mut();
         if self.draw_into(back_buffer, offset, screen_rect, is_opaque) {
             if shared.attributes.contains(WindowManagerAttributes::ROTATE) {
-                main_screen.blt_rotate(back_buffer, rect.origin + offset, rect);
+                main_screen.blt_rotate(back_buffer.as_const(), rect.origin + offset, rect);
             } else {
-                main_screen.blt(back_buffer, rect.origin + offset, rect);
+                main_screen.blt(back_buffer.as_const(), rect.origin + offset, rect);
 
                 // if is_opaque {
                 //     main_screen.draw_rect(rect + offset, Color::BLUE.into());
@@ -1293,12 +1383,11 @@ impl RawWindow {
         &self,
         target_bitmap: &mut Bitmap32,
         offset: Movement,
-        frame: Rect,
+        frame1: Rect,
         is_opaque: bool,
     ) -> bool {
-        let coords1 = match Coordinates::from_rect(frame) {
-            Ok(coords) => coords,
-            Err(_) => return false,
+        let Ok(coords1) = Coordinates::from_rect(frame1) else {
+            return false
         };
 
         let window_orders = WindowManager::shared().window_orders.read().unwrap();
@@ -1314,40 +1403,35 @@ impl RawWindow {
 
         for handle in window_orders[first_index..].iter() {
             let window = handle.as_ref();
-            let frame = window.shadow_frame();
-            if let Ok(coords2) = Coordinates::from_rect(frame) {
-                if frame.overlaps(frame) {
-                    let adjust_point = window.frame.origin() - coords2.left_top();
-                    let blt_origin = Point::new(
-                        cmp::max(coords1.left, coords2.left),
-                        cmp::max(coords1.top, coords2.top),
-                    ) - offset;
-                    let x = isize::max(coords1.left - coords2.left, 0);
-                    let y = isize::max(coords1.top - coords2.top, 0);
-                    let target_rect = Rect::new(
-                        x,
-                        y,
-                        cmp::min(coords1.right, coords2.right)
-                            - cmp::max(coords1.left, coords2.left),
-                        cmp::min(coords1.bottom, coords2.bottom)
-                            - cmp::max(coords1.top, coords2.top),
-                    );
+            let frame2 = window.shadow_frame();
+            let Ok(coords2) = Coordinates::from_rect(frame2) else { continue };
+            if frame2.overlaps(frame1) {
+                let adjust_point = window.frame.origin() - coords2.left_top();
+                let blt_origin = Point::new(
+                    cmp::max(coords1.left, coords2.left),
+                    cmp::max(coords1.top, coords2.top),
+                ) - offset;
+                let target_rect = Rect::new(
+                    isize::max(coords1.left - coords2.left, 0),
+                    isize::max(coords1.top - coords2.top, 0),
+                    cmp::min(coords1.right, coords2.right) - cmp::max(coords1.left, coords2.left),
+                    cmp::min(coords1.bottom, coords2.bottom) - cmp::max(coords1.top, coords2.top),
+                );
 
+                if !window.frame.contains(frame1) {
                     if let Some(shadow) = window.shadow_bitmap() {
-                        shadow.blt_to(target_bitmap, blt_origin, target_rect, |a, b| {
-                            b.blend(TrueColor::from_argb(0).with_opacity(a))
-                        });
+                        shadow.blt_shadow(target_bitmap, blt_origin, target_rect);
                     }
+                }
 
-                    let bitmap = window.bitmap();
-                    let blt_rect = target_rect - adjust_point;
-                    if window.style.contains(WindowStyle::OPAQUE)
-                        || self.handle == window.handle && is_opaque
-                    {
-                        target_bitmap.blt(bitmap, blt_origin, blt_rect);
-                    } else {
-                        target_bitmap.blt_blend(bitmap, blt_origin, blt_rect);
-                    }
+                let bitmap = window.bitmap();
+                let blt_rect = target_rect - adjust_point;
+                if window.style.contains(WindowStyle::OPAQUE)
+                    || self.handle == window.handle && is_opaque
+                {
+                    target_bitmap.blt(bitmap.as_const(), blt_origin, blt_rect);
+                } else {
+                    target_bitmap.blt_blend(bitmap.as_const(), blt_origin, blt_rect);
                 }
             }
         }
@@ -1406,10 +1490,9 @@ impl RawWindow {
 
     #[inline]
     fn is_active(&self) -> bool {
-        WindowManager::shared().active.contains(&self.handle)
+        WindowManager::shared().active.contains(self.handle)
     }
 
-    #[inline]
     fn refresh_title(&mut self) {
         self.draw_frame();
         if self.style.contains(WindowStyle::TITLE) {
@@ -1419,7 +1502,6 @@ impl RawWindow {
 
     fn draw_frame(&mut self) {
         let mut bitmap = Bitmap::from(self.bitmap());
-        let is_active = self.is_active();
         let is_thin = self.style.contains(WindowStyle::THIN_FRAME);
         let is_dark = self.style.contains(WindowStyle::DARK_BORDER);
 
@@ -1429,50 +1511,27 @@ impl RawWindow {
             let left = padding;
             let right = padding;
 
-            let rect = self.title_frame();
             bitmap
-                .view(rect, |bitmap| {
+                .view(self.title_frame(), |bitmap| {
                     let rect = bitmap.bounds();
 
-                    if is_thin {
-                        bitmap.fill_rect(rect, self.title_background());
-                    } else {
-                        // let rect = rect.insets_by(EdgeInsets::new(
-                        //     0,
-                        //     WINDOW_CORNER_RADIUS,
-                        //     0,
-                        //     WINDOW_CORNER_RADIUS,
-                        // ));
-                        bitmap.fill_rect(rect, self.title_background());
-                    }
+                    bitmap.fill_rect(rect, self.title_background());
 
                     self.draw_close_button();
                     self.draw_back_button();
 
                     if let Some(text) = self.title() {
-                        let font = shared.resources.title_font;
-                        let rect = rect.insets_by(EdgeInsets::new(0, left, 0, right));
-
-                        if is_active {
-                            let rect2 = rect + Movement::new(1, 1);
-                            AttributedString::new()
-                                .font(font)
-                                .color(if self.style.contains(WindowStyle::DARK_ACTIVE) {
-                                    Theme::shared().window_title_active_shadow_dark()
-                                } else {
-                                    Theme::shared().window_title_active_shadow()
-                                })
-                                .center()
-                                .text(text)
-                                .draw_text(bitmap, rect2, 1);
-                        }
-
                         AttributedString::new()
-                            .font(font)
+                            .font(&shared.resources.title_font)
                             .color(self.title_foreground())
                             .center()
+                            .shadow(self.title_shadow_color(), Movement::new(1, 1))
                             .text(text)
-                            .draw_text(bitmap, rect, 1);
+                            .draw_text(
+                                bitmap,
+                                rect.insets_by(EdgeInsets::new(0, left, 0, right)),
+                                1,
+                            );
                     }
                 })
                 .unwrap();
@@ -1480,7 +1539,6 @@ impl RawWindow {
 
         if self.style.contains(WindowStyle::BORDER) {
             if is_thin {
-                // Thin frame
                 if WINDOW_BORDER_WIDTH > 0 {
                     let rect = Rect::from(bitmap.size());
                     bitmap.draw_rect(
@@ -1493,7 +1551,6 @@ impl RawWindow {
                     );
                 }
             } else {
-                // Thick frame
                 let rect = Rect::from(bitmap.size());
                 bitmap.fill_round_rect_outside(rect, WINDOW_CORNER_RADIUS, Color::TRANSPARENT);
                 bitmap.draw_round_rect(
@@ -1511,8 +1568,7 @@ impl RawWindow {
 
     #[inline]
     fn title_background(&self) -> Color {
-        let is_active = self.is_active();
-        if is_active {
+        if self.is_active() {
             self.active_title_color
         } else {
             self.inactive_title_color
@@ -1533,6 +1589,19 @@ impl RawWindow {
             } else {
                 Theme::shared().window_title_inactive_foreground()
             }
+        }
+    }
+
+    #[inline]
+    fn title_shadow_color(&self) -> Color {
+        if self.is_active() {
+            if self.style.contains(WindowStyle::DARK_ACTIVE) {
+                Theme::shared().window_title_active_shadow_dark()
+            } else {
+                Theme::shared().window_title_active_shadow()
+            }
+        } else {
+            Color::TRANSPARENT
         }
     }
 
@@ -1700,9 +1769,8 @@ impl RawWindow {
 
     fn update_shadow(&self) {
         let bitmap = Bitmap::from(self.bitmap());
-        let shadow = match self.shadow_bitmap() {
-            Some(v) => v,
-            None => return,
+        let Some(shadow) = self.shadow_bitmap() else {
+            return
         };
 
         shadow.reset();
@@ -1755,14 +1823,13 @@ impl RawWindow {
         let mut bitmap = Bitmap::from(self.bitmap());
         let bounds = self.frame.bounds().insets_by(self.content_insets);
         let origin = Point::new(isize::max(0, rect.x()), isize::max(0, rect.y()));
-        let coords = match Coordinates::from_rect(Rect::new(
+        let Ok(coords) = Coordinates::from_rect(Rect::new(
             origin.x + bounds.x(),
             origin.y + bounds.y(),
             isize::min(rect.width(), bounds.width() - origin.x),
             isize::min(rect.height(), bounds.height() - origin.y),
-        )) {
-            Ok(coords) => coords,
-            Err(_) => return Err(WindowDrawingError::InconsistentCoordinates),
+        )) else {
+            return Err(WindowDrawingError::InconsistentCoordinates);
         };
         if coords.left > coords.right || coords.top > coords.bottom {
             return Err(WindowDrawingError::InconsistentCoordinates);
@@ -1836,7 +1903,7 @@ impl WindowBuilder {
         handle
     }
 
-    fn build_inner<'a>(mut self, title: &str) -> Box<RawWindow> {
+    fn build_inner<'a>(mut self, title: &str) -> RawWindow {
         let window_options = self.options;
         if (window_options & megos::window::THIN_FRAME) != 0 {
             self.style.insert(WindowStyle::THIN_FRAME);
@@ -1891,11 +1958,14 @@ impl WindowBuilder {
 
         let bg_color = self.bg_color;
 
+        let is_dark_mode = self.style.contains(WindowStyle::DARK_MODE);
+        //self.style.contains(WindowStyle::DARK_BORDER);
+
         self.style.set(
             WindowStyle::DARK_BORDER,
-            bg_color.brightness().unwrap_or(255) < 128,
+            is_dark_mode,
+            // bg_color.brightness().unwrap_or(255) < 128,
         );
-        let is_dark_mode = false; //self.style.contains(WindowStyle::DARK_BORDER);
 
         let accent_color = Theme::shared().window_default_accent();
         let active_title_color = self.active_title_color.unwrap_or(if is_dark_mode {
@@ -1955,7 +2025,7 @@ impl WindowBuilder {
 
         let handle = WindowManager::next_window_handle();
 
-        Box::new(RawWindow {
+        RawWindow {
             handle,
             frame,
             content_insets,
@@ -1976,7 +2046,7 @@ impl WindowBuilder {
             sem: Semaphore::new(0),
             queue,
             pid: Scheduler::current_pid(),
-        })
+        }
     }
 
     #[inline]
@@ -1987,13 +2057,13 @@ impl WindowBuilder {
 
     #[inline]
     pub const fn style_add(mut self, style: WindowStyle) -> Self {
-        self.style.bits |= style.bits();
+        self.style = WindowStyle::from_bits_retain(self.style.bits() | style.bits());
         self
     }
 
     #[inline]
     pub const fn style_sub(mut self, style: WindowStyle) -> Self {
-        self.style.bits &= !style.bits();
+        self.style = WindowStyle::from_bits_retain(self.style.bits() & !style.bits());
         self
     }
 
@@ -2106,13 +2176,27 @@ impl Default for BitmapStrategy {
 }
 
 #[repr(transparent)]
+struct WindowRef(Arc<UnsafeCell<RawWindow>>);
+
+impl Deref for WindowRef {
+    type Target = RawWindow;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.0.as_ref().get() }
+    }
+}
+
+#[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct WindowHandle(pub NonZeroUsize);
 
 impl WindowHandle {
     #[inline]
-    pub fn new(val: usize) -> Option<Self> {
-        NonZeroUsize::new(val).map(|x| Self(x))
+    pub const fn new(val: usize) -> Option<Self> {
+        match NonZeroUsize::new(val) {
+            Some(v) => Some(WindowHandle(v)),
+            None => None,
+        }
     }
 
     #[inline]
@@ -2127,13 +2211,13 @@ impl WindowHandle {
 
     #[inline]
     #[track_caller]
-    fn get<'a>(&self) -> Option<&'a Box<RawWindow>> {
+    fn get<'a>(&self) -> Option<WindowRef> {
         WindowManager::shared().get(self)
     }
 
     #[inline]
     #[track_caller]
-    fn as_ref<'a>(&self) -> &'a RawWindow {
+    fn as_ref<'a>(&self) -> WindowRef {
         self.get().unwrap()
     }
 
@@ -2142,7 +2226,7 @@ impl WindowHandle {
     where
         F: FnOnce(&mut RawWindow) -> R,
     {
-        WindowManager::shared_mut().get_mut(self, f)
+        WindowManager::shared_mut().update(self, f)
     }
 
     #[inline]
@@ -2153,8 +2237,6 @@ impl WindowHandle {
     {
         self.update_opt(f).unwrap()
     }
-
-    // :-:-:-:-:
 
     #[inline]
     pub fn is_active(&self) -> bool {
@@ -2340,9 +2422,8 @@ impl WindowHandle {
 
     /// Post a window message.
     pub fn post(&self, message: WindowMessage) -> Result<(), WindowPostError> {
-        let window = match self.get() {
-            Some(window) => window,
-            None => return Err(WindowPostError::NotFound),
+        let Some(window) = self.get() else {
+            return Err(WindowPostError::NotFound)
         };
         if let Some(queue) = window.queue.as_ref() {
             match message {
@@ -2367,9 +2448,8 @@ impl WindowHandle {
 
     /// Read a window message from the message queue.
     pub fn read_message(&self) -> Option<WindowMessage> {
-        let window = match self.get() {
-            Some(window) => window,
-            None => return None,
+        let Some(window) = self.get() else {
+            return None
         };
         if let Some(queue) = window.queue.as_ref() {
             match queue.dequeue() {
@@ -2393,9 +2473,8 @@ impl WindowHandle {
     /// Wait for window messages to be read.
     pub fn wait_message(&self) -> Option<WindowMessage> {
         loop {
-            let window = match self.get() {
-                Some(window) => window,
-                None => return None,
+            let Some(window) = self.get() else {
+                return None
             };
             match self.read_message() {
                 Some(message) => return Some(message),
@@ -2411,9 +2490,8 @@ impl WindowHandle {
 
     /// Supports asynchronous reading of window messages.
     pub fn poll_message(&self, cx: &mut Context<'_>) -> Poll<Option<WindowMessage>> {
-        let window = match self.get() {
-            Some(v) => v.as_ref(),
-            None => return Poll::Ready(None),
+        let Some(window) = self.get() else {
+            return Poll::Ready(None)
         };
         window.waker.register(cx.waker());
         match self.read_message().map(|message| {
@@ -2440,9 +2518,8 @@ impl WindowHandle {
 
     ///
     pub fn refresh_if_needed(&self) {
-        let window = match self.get() {
-            Some(v) => v,
-            None => return,
+        let Some(window) = self.get() else {
+            return
         };
         if window
             .attributes
@@ -2457,7 +2534,7 @@ impl WindowHandle {
         let mut event = TimerEvent::window(*self, timer_id, Timer::new(duration));
         loop {
             if event.is_alive() {
-                match Scheduler::schedule_timer(event) {
+                match event.schedule() {
                     Ok(()) => break,
                     Err(e) => event = e,
                 }
@@ -2465,6 +2542,82 @@ impl WindowHandle {
                 break event.fire();
             }
         }
+    }
+}
+
+#[repr(transparent)]
+#[derive(Default)]
+pub struct AtomicWindowHandle(AtomicUsize);
+
+unsafe impl Send for AtomicWindowHandle {}
+
+unsafe impl Sync for AtomicWindowHandle {}
+
+impl AtomicWindowHandle {
+    #[inline]
+    pub fn new(val: Option<WindowHandle>) -> Self {
+        Self(AtomicUsize::new(Self::_from_val(val)))
+    }
+
+    #[inline]
+    const fn _from_val(val: Option<WindowHandle>) -> usize {
+        match val {
+            Some(v) => v.as_usize(),
+            None => 0,
+        }
+    }
+
+    #[inline]
+    const fn _into_val(val: usize) -> Option<WindowHandle> {
+        WindowHandle::new(val)
+    }
+
+    #[inline]
+    pub fn get(&self) -> Option<WindowHandle> {
+        Self::_into_val(self.0.load(Ordering::Acquire))
+    }
+
+    #[inline]
+    pub fn set(&self, val: WindowHandle) {
+        self.write(Some(val));
+    }
+
+    #[inline]
+    pub fn reset(&self) {
+        self.write(None);
+    }
+
+    #[inline]
+    pub fn write(&self, val: Option<WindowHandle>) {
+        self.0.store(Self::_from_val(val), Ordering::Release);
+    }
+
+    #[inline]
+    pub fn swap(&self, val: Option<WindowHandle>) -> Option<WindowHandle> {
+        Self::_into_val(self.0.swap(Self::_from_val(val), Ordering::SeqCst))
+    }
+
+    #[inline]
+    pub fn is_some(&self) -> bool {
+        self.get().is_some()
+    }
+
+    #[inline]
+    pub fn is_none(&self) -> bool {
+        self.get().is_none()
+    }
+
+    #[inline]
+    pub fn contains(&self, val: WindowHandle) -> bool {
+        self.get().contains(&val)
+    }
+
+    #[inline]
+    pub fn map<F, R>(&self, f: F) -> Option<R>
+    where
+        F: FnOnce(WindowHandle) -> R,
+    {
+        self.get().map(f)
     }
 }
 
@@ -2516,8 +2669,8 @@ pub enum WindowMessage {
     MouseMove(MouseEvent),
     MouseDown(MouseEvent),
     MouseUp(MouseEvent),
-    MouseEnter,
-    MouseLeave,
+    MouseEnter(MouseEvent),
+    MouseLeave(MouseEvent),
     /// Timer event
     Timer(usize),
     /// User Defined

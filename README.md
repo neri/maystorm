@@ -4,7 +4,7 @@
 
 A hobby operating system written in Rust that supports WebAssembly.
 
-* [Documentation](https://meg-os.github.io/maystorm/kernel/)
+* [Documentation for megstd](https://meg-os.github.io/maystorm/megstd/)
 
 ## Feature
 
@@ -45,19 +45,21 @@ linker = "/opt/homebrew/opt/llvm/bin/ld.lld"
 
 ### run on qemu
 
-1. Copy qemu's OVMF for x64 to `var/ovmfx64.fd`.
-2. Follow the build instructions to finish the installation.
+1. Follow the build instructions to finish the installation.
+2. Copy qemu's OVMF for x64 to `var/ovmfx64.fd`.
 3. `make run`
 
 ### run on real hardware
 
-* Copy the files in the path `mnt/efi` created by the build to a USB memory stick and reboot your computer.
+1. Follow the build instructions to finish the installation.
+2.  Copy the files in the path `mnt/efi` created by the build to a USB memory stick and reboot your computer.
 * You may need to change settings such as SecureBoot.
 
 ## HOE: Haribote-OS Emulation Subsystem
 
 * We have confirmed that about half of the apps work at this point. Some APIs are not yet implemented.
 * This subsystem may be unsupported in the future, or may be replaced by another implementation.
+* If the haribote application is launched with insufficient 32-bit memory, it will not operate properly.
 
 ## History
 

@@ -1,7 +1,7 @@
 #![no_main]
 #![no_std]
 
-use megstd::{game::v1::prelude::*, sys::syscall::*};
+use megstd::{game::v0::prelude::*, sys::syscall::*};
 
 #[no_mangle]
 fn _start() {
@@ -27,7 +27,7 @@ impl App {
     }
 
     #[inline]
-    fn screen(&mut self) -> &mut v1::Screen {
+    fn screen(&mut self) -> &mut v0::Screen {
         self.presenter.screen()
     }
 
@@ -87,36 +87,36 @@ impl App {
 
         let screen = self.screen();
 
-        screen.fill_all(v1::NameTableEntry::from_index(1));
+        screen.fill_all(v0::NameTableEntry::from_index(1));
 
         screen.fill_names(
             Rect::new(
                 0,
                 0,
-                Self::WINDOW_WIDTH / v1::TILE_SIZE,
-                Self::WINDOW_HEIGHT / v1::TILE_SIZE,
+                Self::WINDOW_WIDTH / v0::TILE_SIZE,
+                Self::WINDOW_HEIGHT / v0::TILE_SIZE,
             ),
-            v1::NameTableEntry::from_index(2),
+            v0::NameTableEntry::from_index(2),
         );
         screen.fill_names(
             Rect::new(
                 2,
                 2,
-                Self::WINDOW_WIDTH / v1::TILE_SIZE - 4,
-                Self::WINDOW_HEIGHT / v1::TILE_SIZE - 4,
+                Self::WINDOW_WIDTH / v0::TILE_SIZE - 4,
+                Self::WINDOW_HEIGHT / v0::TILE_SIZE - 4,
             ),
-            v1::NameTableEntry::from_index(1),
+            v0::NameTableEntry::from_index(1),
         );
 
         screen.set_name(
-            Self::WINDOW_WIDTH / v1::TILE_SIZE - 2,
+            Self::WINDOW_WIDTH / v0::TILE_SIZE - 2,
             0,
-            v1::NameTableEntry::from_index(3),
+            v0::NameTableEntry::from_index(3),
         );
         screen.set_name(
-            Self::WINDOW_WIDTH / v1::TILE_SIZE - 1,
+            Self::WINDOW_WIDTH / v0::TILE_SIZE - 1,
             0,
-            v1::NameTableEntry::from_index(4),
+            v0::NameTableEntry::from_index(4),
         );
 
         let mut player = Player::new(
@@ -124,21 +124,21 @@ impl App {
             1,
             Direction::Neutral,
         );
-        let mut missile = Missile::new(Point::new(0, v1::MAX_HEIGHT), Direction::Neutral);
+        let mut missile = Missile::new(Point::new(0, v0::MAX_HEIGHT), Direction::Neutral);
 
         screen.set_sprite(
             0x20,
             0x80,
-            v1::OAM_ATTR_W16 | v1::OAM_ATTR_H16 | v1::PALETTE_0,
+            v0::OAM_ATTR_W16 | v0::OAM_ATTR_H16 | v0::PALETTE_0,
         );
 
-        screen.set_sprite(0x21, 0xE0, v1::PALETTE_1);
+        screen.set_sprite(0x21, 0xE0, v0::PALETTE_1);
 
         let chars = b"Hello world!";
         for (index, char) in chars.iter().enumerate() {
             self.presenter
                 .screen()
-                .set_sprite(index, *char, v1::PALETTE_1);
+                .set_sprite(index, *char, v0::PALETTE_1);
         }
 
         let mut fps = 0;
@@ -148,29 +148,29 @@ impl App {
             self.presenter.sync();
 
             self.presenter.dispatch_buttons(|pad| match pad {
-                v1::JoyPad::DpadRight => {
+                v0::JoyPad::DpadRight => {
                     player.dir = Direction::Right;
                     player.walk();
                 }
-                v1::JoyPad::DpadLeft => {
+                v0::JoyPad::DpadLeft => {
                     player.dir = Direction::Left;
                     player.walk();
                 }
-                v1::JoyPad::DpadDown => {
+                v0::JoyPad::DpadDown => {
                     player.dir = Direction::Down;
                     player.walk();
                 }
-                v1::JoyPad::DpadUp => {
+                v0::JoyPad::DpadUp => {
                     player.dir = Direction::Up;
                     player.walk();
                 }
-                v1::JoyPad::Fire1 => {
+                v0::JoyPad::Fire1 => {
                     if player.dir != Direction::Neutral && !missile.is_alive() {
                         missile.point = player.point + Movement::new(4, 4);
                         missile.dir = player.dir;
                     }
                 }
-                v1::JoyPad::Menu => {
+                v0::JoyPad::Menu => {
                     os_exit();
                 }
                 _ => (),
@@ -185,7 +185,7 @@ impl App {
                 let position = ((phase - index as isize) & 31) - 15;
                 let value = position * position / 8 - 16;
                 self.presenter.move_sprite(
-                    index as v1::SpriteIndex,
+                    index as v0::SpriteIndex,
                     Point::new(
                         (Self::WINDOW_WIDTH - len as isize * char_width) / 2
                             + index as isize * char_width,
@@ -205,22 +205,22 @@ impl App {
                     fps2 += 0x30;
                 }
                 screen.set_name(
-                    Self::WINDOW_WIDTH / v1::TILE_SIZE - 5,
+                    Self::WINDOW_WIDTH / v0::TILE_SIZE - 5,
                     0,
-                    v1::NameTableEntry::from_index(fps2),
+                    v0::NameTableEntry::from_index(fps2),
                 );
                 screen.set_name(
-                    Self::WINDOW_WIDTH / v1::TILE_SIZE - 4,
+                    Self::WINDOW_WIDTH / v0::TILE_SIZE - 4,
                     0,
-                    v1::NameTableEntry::from_index(fps1),
+                    v0::NameTableEntry::from_index(fps1),
                 );
                 screen.set_name(
-                    Self::WINDOW_WIDTH / v1::TILE_SIZE - 3,
+                    Self::WINDOW_WIDTH / v0::TILE_SIZE - 3,
                     0,
-                    v1::NameTableEntry::from_index(fps0),
+                    v0::NameTableEntry::from_index(fps0),
                 );
                 self.presenter.invalidate_rect(Rect::new(
-                    Self::WINDOW_WIDTH - v1::TILE_SIZE * 5,
+                    Self::WINDOW_WIDTH - v0::TILE_SIZE * 5,
                     0,
                     24,
                     8,
@@ -296,12 +296,12 @@ impl Missile {
 
     #[inline]
     fn is_alive(&self) -> bool {
-        self.point.y < v1::MAX_HEIGHT
+        self.point.y < v0::MAX_HEIGHT
     }
 
     fn step(&mut self) {
         let speed = 4;
-        if self.point.y < v1::MAX_HEIGHT {
+        if self.point.y < v0::MAX_HEIGHT {
             match self.dir {
                 Direction::Neutral => (),
                 Direction::Up => {
@@ -322,7 +322,7 @@ impl Missile {
                 || self.point.y < 8
                 || self.point.y >= App::WINDOW_HEIGHT - 8
             {
-                self.point.y = v1::MAX_HEIGHT;
+                self.point.y = v0::MAX_HEIGHT;
             }
         }
     }

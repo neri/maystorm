@@ -1,23 +1,13 @@
-//! xHCI: Extensible Host Controller Interface
-
 use super::*;
 use crate::{
-    arch::cpu::Cpu,
     drivers::{pci::*, usb::*},
     mem::mmio::*,
-    mem::{MemoryManager, NonNullPhysicalAddress, PhysicalAddress},
+    mem::MemoryManager,
     sync::{fifo::AsyncEventQueue, semaphore::*, RwLock},
     task::{scheduler::*, Task},
     *,
 };
-use alloc::{
-    boxed::Box,
-    collections::VecDeque,
-    format,
-    string::String,
-    sync::{Arc, Weak},
-    vec::Vec,
-};
+use alloc::{boxed::Box, collections::VecDeque, format, string::String, sync::Arc, vec::Vec};
 use core::{
     cell::UnsafeCell,
     ffi::c_void,
@@ -200,11 +190,11 @@ impl Xhci {
                         usb_leg_sup.write_volatile(xecp | USBLEGSUP_OS_OWNED);
 
                         if (usb_leg_sup.read_volatile() & USBLEGSUP_BIOS_OWNED) != 0 {
-                            for _ in 0..20 {
+                            for _ in 0..100 {
                                 if (usb_leg_sup.read_volatile() & USBLEGSUP_BIOS_OWNED) == 0 {
                                     break;
                                 }
-                                Timer::sleep(Duration::from_millis(50));
+                                Timer::sleep(Duration::from_millis(10));
                             }
                             // Force BIOS ownership to be disabled.
                             usb_leg_sup.write_volatile(
@@ -366,8 +356,9 @@ impl Xhci {
     /// wait for CNR (Controller Not Ready)
     #[inline]
     pub fn wait_cnr(&self, _: usize) {
+        let mut wait = Hal::cpu().spin_wait();
         while self.opr.status().contains(UsbSts::CNR) {
-            Cpu::spin_loop_hint();
+            wait.wait();
         }
     }
 
@@ -409,19 +400,6 @@ impl Xhci {
         None
     }
 
-    // pub fn schedule_ep_ring(
-    //     &self,
-    //     slot_id: Option<SlotId>,
-    //     dci: Option<DCI>,
-    // ) -> Option<Pin<Arc<AsyncSemaphore>>> {
-    //     if let Some(index) = self.ep_ring_index(slot_id, dci) {
-    //         let ctx = &mut self.ring_context.write().unwrap()[index];
-    //         let ctx = unsafe { &mut *ctx.as_mut_ptr() };
-    //         return ctx.semaphore().map(|v| v.clone());
-    //     }
-    //     return None;
-    // }
-
     pub fn allocate_crb<'a>(&'a self) -> Option<&'a mut CommandRequestBlock> {
         for crb in &self.crbs {
             let crb = unsafe { &mut *crb.get() };
@@ -454,14 +432,13 @@ impl Xhci {
         None
     }
 
-    pub fn issue_trb<T: TrbBase>(
+    pub fn issue_trb(
         &self,
         crb: Option<&mut CommandRequestBlock>,
-        trb: &T,
+        trb: &Trb,
         slot_id: Option<SlotId>,
         dci: Option<DCI>,
     ) {
-        let trb = trb.as_trb();
         let index = match self.ep_ring_index(slot_id, dci) {
             Some(index) => index,
             None => todo!(),
@@ -498,9 +475,9 @@ impl Xhci {
     }
 
     /// Issue trb command
-    pub fn execute_command<T: TrbBase>(
+    pub fn execute_command(
         &self,
-        trb: &T,
+        trb: &Trb,
     ) -> Result<TrbCommandCompletionEvent, TrbCommandCompletionEvent> {
         let mut crb = DisposableRef::new(self.allocate_crb().unwrap());
         self.issue_trb(Some(crb.as_mut()), trb, None, None);
@@ -559,15 +536,15 @@ impl Xhci {
         }
 
         let setup_trb = TrbSetupStage::new(trt, setup);
-        self.issue_trb(None, &setup_trb, slot_id, dci);
+        self.issue_trb(None, setup_trb.as_trb(), slot_id, dci);
 
         if len > 0 {
             let data_trb = TrbDataStage::new(*buffer, len, dir, false);
-            self.issue_trb(None, &data_trb, slot_id, dci);
+            self.issue_trb(None, data_trb.as_trb(), slot_id, dci);
         }
 
         let status_trb = TrbStatusStage::new(!dir);
-        self.issue_trb(None, &status_trb, slot_id, dci);
+        self.issue_trb(None, status_trb.as_trb(), slot_id, dci);
 
         self.ring_a_doorbell_async(device.parent_slot_id, slot_id, dci)
             .unwrap();
@@ -593,7 +570,7 @@ impl Xhci {
                     }
                     Some(TrbCompletionCode::STALL) => {
                         let _ = self.reset_endpoint(slot_id.unwrap(), dci.unwrap());
-                        Err(UsbError::General)
+                        Err(UsbError::Stall)
                     }
                     Some(err) => Err(UsbError::ControllerError(err as usize)),
                     None => Err(UsbError::General),
@@ -628,8 +605,7 @@ impl Xhci {
         }
 
         let trb = TrbNormal::new(*buffer, len, true, true);
-
-        self.issue_trb(None, &trb, slot_id, dci);
+        self.issue_trb(None, trb.as_trb(), slot_id, dci);
 
         self.ring_a_doorbell_async(device.parent_slot_id, slot_id, dci)
             .unwrap();
@@ -669,7 +645,7 @@ impl Xhci {
         dci: DCI,
     ) -> Result<TrbCommandCompletionEvent, TrbCommandCompletionEvent> {
         let trb = TrbResetEndpointCommand::new(slot_id, dci);
-        self.execute_command(&trb)
+        self.execute_command(trb.as_trb())
     }
 
     pub fn configure_endpoint(
@@ -685,7 +661,7 @@ impl Xhci {
         let control = input_context.control();
         let slot = input_context.slot();
         let endpoint = input_context.endpoint(dci);
-        let psiv: PSIV = FromPrimitive::from_usize(slot.speed_raw()).unwrap_or(PSIV::SS);
+        let psiv: PSIV = slot.speed();
 
         control.clear();
         control.set_add(1 | (1u32 << dci.0.get()));
@@ -699,7 +675,6 @@ impl Xhci {
         }
 
         slot.set_context_entries(usize::max(dci.0.get() as usize, slot.context_entries()));
-        // let psiv = FromPrimitive::from_usize(slot.speed_raw()).unwrap_or(PSIV::SS);
 
         endpoint.set_ep_type(ep_type);
 
@@ -755,7 +730,7 @@ impl Xhci {
         slot.set_ttt(hub_desc.characteristics().ttt());
 
         let trb = TrbEvaluateContextCommand::new(slot_id, input_context.raw_data());
-        match self.execute_command(&trb) {
+        match self.execute_command(trb.as_trb()) {
             Ok(_) => Ok(()),
             Err(_) => Err(UsbError::General),
         }
@@ -781,7 +756,7 @@ impl Xhci {
         // slot.set_max_exit_latency(max_exit_latency);
 
         let trb = TrbEvaluateContextCommand::new(slot_id, input_context.raw_data());
-        match self.execute_command(&trb) {
+        match self.execute_command(trb.as_trb()) {
             Ok(_) => Ok(()),
             Err(_) => Err(UsbError::General),
         }
@@ -848,7 +823,7 @@ impl Xhci {
         // );
 
         let trb = TrbAddressDeviceCommand::new(slot_id, input_context_pa);
-        match self.execute_command(&trb) {
+        match self.execute_command(trb.as_trb()) {
             Ok(_) => (),
             Err(err) => {
                 log!("ADDRESS_DEVICE ERROR {:?}", err.completion_code());
@@ -871,8 +846,8 @@ impl Xhci {
             route_string: new_route,
             psiv: speed,
         };
-        let ctx = Arc::new(HciContext::new(Arc::downgrade(&self), device));
-        let addr = UsbAddress(slot_id.0);
+        let ctx = Arc::new(HciContext::new(&self, device));
+        let addr = UsbAddress::from(slot_id.0);
         UsbManager::instantiate(addr, ctx as Arc<dyn UsbHostInterface>)
             .await
             .map(|_| addr)
@@ -918,10 +893,15 @@ impl Xhci {
         Timer::sleep(Duration::from_millis(10));
 
         let trb = TrbAddressDeviceCommand::new(slot_id, input_context_pa);
-        match self.execute_command(&trb) {
+        match self.execute_command(trb.as_trb()) {
             Ok(_result) => (),
             Err(err) => {
-                log!("ADDRESS_DEVICE ERROR {:?}", err.completion_code());
+                log!(
+                    "ROOT PORT {} ADDRESS_DEVICE ERROR {:?}",
+                    port_id.0.get(),
+                    err.completion_code()
+                );
+                return None;
             }
         }
 
@@ -933,8 +913,8 @@ impl Xhci {
             route_string: UsbRouteString::EMPTY,
             psiv,
         };
-        let ctx = Arc::new(HciContext::new(Arc::downgrade(&self), device));
-        let addr = UsbAddress(slot_id.0);
+        let ctx = Arc::new(HciContext::new(&self, device));
+        let addr = UsbAddress::from(slot_id.0);
 
         match UsbManager::instantiate(addr, ctx as Arc<dyn UsbHostInterface>).await {
             Ok(_) => {
@@ -964,7 +944,7 @@ impl Xhci {
         endpoint.set_max_packet_size(max_packet_size);
 
         let trb = TrbEvaluateContextCommand::new(slot_id, input_context.raw_data());
-        match self.execute_command(&trb) {
+        match self.execute_command(trb.as_trb()) {
             Ok(_) => Ok(()),
             Err(_) => todo!(),
         }
@@ -1195,7 +1175,7 @@ impl Xhci {
                 let status = port.status();
                 port.set(PortSc::ALL_CHANGE_BITS);
                 if status.is_connected() && status.is_enabled() {
-                    let _addr = self.clone().attach_root_device(port_id).await.unwrap();
+                    let _addr = self.clone().attach_root_device(port_id).await;
                 } else {
                     log!(
                         "ROOT PORT TIMED OUT {} {:08x} {:?} {:?}",
@@ -1282,7 +1262,7 @@ impl Xhci {
                 let mut slice = self.port2slot.write().unwrap();
                 let slot = slice.get_mut(port_id.0.get() as usize).unwrap();
                 if let Some(slot_id) = slot.take() {
-                    UsbManager::detach_device(UsbAddress(slot_id.0));
+                    UsbManager::detach_device(UsbAddress::from(slot_id.0));
                 }
             }
         }
@@ -1708,7 +1688,7 @@ impl InputContext {
 
 /// Host Controller Interface Device Context
 pub struct HciContext {
-    host: Weak<Xhci>,
+    host: Arc<Xhci>,
     device: UnsafeCell<HciDeviceContext>,
 }
 
@@ -1724,9 +1704,9 @@ pub struct HciDeviceContext {
 
 impl HciContext {
     #[inline]
-    pub const fn new(host: Weak<Xhci>, device: HciDeviceContext) -> Self {
+    pub fn new(host: &Arc<Xhci>, device: HciDeviceContext) -> Self {
         Self {
-            host,
+            host: host.clone(),
             device: UnsafeCell::new(device),
         }
     }
@@ -1735,11 +1715,16 @@ impl HciContext {
     fn device<'a>(&self) -> &'a mut HciDeviceContext {
         unsafe { &mut *self.device.get() }
     }
+
+    #[inline]
+    fn host(&self) -> Arc<Xhci> {
+        self.host.clone()
+    }
 }
 
 impl UsbHostInterface for HciContext {
     fn parent_device_address(&self) -> Option<UsbAddress> {
-        self.device().parent_slot_id.map(|v| UsbAddress(v.0))
+        self.device().parent_slot_id.map(|v| UsbAddress::from(v.0))
     }
 
     fn route_string(&self) -> UsbRouteString {
@@ -1751,53 +1736,34 @@ impl UsbHostInterface for HciContext {
     }
 
     fn set_max_packet_size(&self, max_packet_size: usize) -> Result<(), UsbError> {
-        let host = match self.host.upgrade() {
-            Some(v) => v.clone(),
-            None => return Err(UsbError::HostUnavailable),
-        };
         let device = self.device();
         let slot_id = device.slot_id;
-        host.set_max_packet_size(slot_id, max_packet_size)
+        self.host()
+            .set_max_packet_size(slot_id, max_packet_size)
             .map_err(|_| UsbError::General)
     }
 
     fn configure_hub2(&self, hub_desc: &Usb2HubDescriptor, is_mtt: bool) -> Result<(), UsbError> {
-        let host = match self.host.upgrade() {
-            Some(v) => v.clone(),
-            None => return Err(UsbError::HostUnavailable),
-        };
         let device = self.device();
         let slot_id = device.slot_id;
 
-        host.configure_hub2(slot_id, hub_desc, is_mtt)
+        self.host().configure_hub2(slot_id, hub_desc, is_mtt)
     }
 
     fn configure_hub3(&self, hub_desc: &Usb3HubDescriptor) -> Result<(), UsbError> {
-        let host = match self.host.upgrade() {
-            Some(v) => v.clone(),
-            None => return Err(UsbError::HostUnavailable),
-        };
         let device = self.device();
         let slot_id = device.slot_id;
 
-        host.configure_hub3(slot_id, hub_desc)
+        self.host().configure_hub3(slot_id, hub_desc)
     }
 
     fn focus_hub(&self) -> Result<(), UsbError> {
-        let host = match self.host.upgrade() {
-            Some(v) => v.clone(),
-            None => return Err(UsbError::HostUnavailable),
-        };
-        host.focus_hub(Some(self.device().slot_id));
+        self.host().focus_hub(Some(self.device().slot_id));
         Ok(())
     }
 
     fn unfocus_hub(&self) -> Result<(), UsbError> {
-        let host = match self.host.upgrade() {
-            Some(v) => v.clone(),
-            None => return Err(UsbError::HostUnavailable),
-        };
-        host.unfocus_hub(Some(self.device().slot_id));
+        self.host().unfocus_hub(Some(self.device().slot_id));
         Ok(())
     }
 
@@ -1806,18 +1772,14 @@ impl UsbHostInterface for HciContext {
         port_id: UsbHubPortNumber,
         speed: PSIV,
     ) -> Pin<Box<dyn Future<Output = Result<UsbAddress, UsbError>>>> {
-        let host = match self.host.upgrade() {
-            Some(v) => v.clone(),
-            None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
-        };
-        Box::pin(host.attach_child_device(self.clone(), port_id, speed))
+        Box::pin(
+            self.host()
+                .attach_child_device(self.clone(), port_id, speed),
+        )
     }
 
     fn configure_endpoint(&self, desc: &UsbEndpointDescriptor) -> Result<(), UsbError> {
-        let host = match self.host.upgrade() {
-            Some(v) => v.clone(),
-            None => return Err(UsbError::HostUnavailable),
-        };
+        let host = self.host();
         let device = self.device();
         let slot_id = device.slot_id;
 
@@ -1825,10 +1787,7 @@ impl UsbHostInterface for HciContext {
             Some(v) => v,
             None => return Err(UsbError::InvalidParameter),
         };
-        let ep_type = match desc.ep_type() {
-            Some(v) => v,
-            None => return Err(UsbError::InvalidParameter),
-        };
+        let ep_type = desc.ep_type();
         let ep_type = EpType::from_usb_ep_type(ep_type, ep.is_dir_in());
         let dci = ep.into();
 
@@ -1842,7 +1801,7 @@ impl UsbHostInterface for HciContext {
         );
 
         let trb = TrbConfigureEndpointCommand::new(slot_id, host.input_context(slot_id).raw_data());
-        match host.execute_command(&trb) {
+        match host.execute_command(trb.as_trb()) {
             Ok(_) => Ok(()),
             Err(_err) => Err(UsbError::General),
         }
@@ -1853,14 +1812,10 @@ impl UsbHostInterface for HciContext {
         setup: UsbControlSetupData,
         data: *mut u8,
     ) -> Pin<Box<dyn Future<Output = Result<usize, UsbError>>>> {
-        let host = match self.host.upgrade() {
-            Some(ref v) => v.clone(),
-            None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
-        };
         let device = self.device();
 
         Box::pin(
-            host.clone()
+            self.host()
                 .control_async(device, setup, TransferDirection::Read(data)),
         )
     }
@@ -1870,10 +1825,6 @@ impl UsbHostInterface for HciContext {
         setup: UsbControlSetupData,
         data: *const u8,
     ) -> Pin<Box<dyn Future<Output = Result<usize, UsbError>>>> {
-        let host = match self.host.upgrade() {
-            Some(ref v) => v.clone(),
-            None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
-        };
         let len = setup.wLength as usize;
         if len == 0 {
             return Box::pin(AsyncUsbError::new(UsbError::InvalidParameter));
@@ -1881,7 +1832,7 @@ impl UsbHostInterface for HciContext {
         let device = self.device();
 
         Box::pin(
-            host.clone()
+            self.host()
                 .control_async(device, setup, TransferDirection::Write(data)),
         )
     }
@@ -1892,16 +1843,17 @@ impl UsbHostInterface for HciContext {
         buffer: *mut u8,
         len: usize,
     ) -> Pin<Box<dyn Future<Output = Result<usize, UsbError>>>> {
-        let host = match self.host.upgrade() {
-            Some(ref v) => v.clone(),
-            None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
-        };
         let dci = DCI::from(ep);
         if len == 0 || !dci.can_read() {
             return Box::pin(AsyncUsbError::new(UsbError::InvalidParameter));
         }
 
-        Box::pin(host.transfer_async(self.device(), dci, TransferDirection::Read(buffer), len))
+        Box::pin(self.host().transfer_async(
+            self.device(),
+            dci,
+            TransferDirection::Read(buffer),
+            len,
+        ))
     }
 
     unsafe fn write(
@@ -1910,16 +1862,17 @@ impl UsbHostInterface for HciContext {
         buffer: *const u8,
         len: usize,
     ) -> Pin<Box<dyn Future<Output = Result<usize, UsbError>>>> {
-        let host = match self.host.upgrade() {
-            Some(ref v) => v.clone(),
-            None => return Box::pin(AsyncUsbError::new(UsbError::HostUnavailable)),
-        };
         let dci = DCI::from(ep);
         if len == 0 || !dci.can_write() {
             return Box::pin(AsyncUsbError::new(UsbError::InvalidParameter));
         }
 
-        Box::pin(host.transfer_async(self.device(), dci, TransferDirection::Write(buffer), len))
+        Box::pin(self.host().transfer_async(
+            self.device(),
+            dci,
+            TransferDirection::Write(buffer),
+            len,
+        ))
     }
 }
 

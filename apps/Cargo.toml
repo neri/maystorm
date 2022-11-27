@@ -8,9 +8,11 @@ members = [
   "hello2",
   "life",
   "noiz2bg",
-  "test",
 ]
 
 [profile.release]
 lto = true
 opt-level = "z"
+
+[workspace.dependencies]
+megstd = {path = "../lib/megstd"}

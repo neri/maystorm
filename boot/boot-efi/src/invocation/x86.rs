@@ -94,19 +94,17 @@ impl Invoke for Invocation {
         let params = [entry.0, new_sp.0 - 0x20];
 
         // Trampoline code to jump to 64-bit kernel
-        //
-        //                  [bits32]
-        // 6A 08                push 0x08
-        // E8 08 00 00 00       call _jmpf
-        //                  [bits 64]
-        // 48 8B 60 08          mov rsp, [rax + 8]
-        // FF 10                call [rax + 0]
-        // 0F 0B                ud2
-        //                  [bits 32]
-        //                  _jmpf:
-        // FF 2C 24             jmp far [esp]
         asm!("
-            .byte 0x6a, 0x08, 0xe8, 0x08, 0, 0, 0, 0x48, 0x8b, 0x60, 0x08, 0xff, 0x10, 0x0f, 0x0b, 0xff, 0x2c, 0x24
+                                            // [bits 32]
+            .byte 0x6a, 0x08                //      push 0x08
+            .byte 0xe8, 0x08, 0, 0, 0       //      call _jmpf
+                                            // [bits 64]
+            .byte 0x48, 0x8b, 0x60, 0x08    //      mov rsp, [rax + 8]
+            .byte 0xff, 0x10                //      call [rax + 0]
+            .byte 0x0f, 0x0b                //      ud2
+                                            // [bits 32]
+                                            // _jmpf:
+            .byte 0xff, 0x2c, 0x24          //      jmp far [esp]
             ",
             in("eax") &params,
             in("edi") info,

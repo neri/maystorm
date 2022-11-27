@@ -1,10 +1,10 @@
 use super::{fixedvec::FixedVec, slab::*};
 use crate::{
-    arch::cpu::Cpu,
     arch::page::*,
     sync::{fifo::EventQueue, semaphore::Semaphore, spinlock::SpinMutex},
     system::System,
     task::scheduler::*,
+    *,
 };
 use alloc::{boxed::Box, sync::Arc};
 use bitflags::*;
@@ -20,8 +20,6 @@ use core::{
     slice,
     sync::atomic::*,
 };
-
-pub use crate::arch::page::{NonNullPhysicalAddress, PhysicalAddress};
 
 static mut MM: UnsafeCell<MemoryManager> = UnsafeCell::new(MemoryManager::new());
 
@@ -59,6 +57,8 @@ impl MemoryManager {
     }
 
     pub unsafe fn init_first(info: &BootInfo) {
+        assert_call_once!();
+
         let shared = Self::shared_mut();
 
         let mm: &[BootMemoryMapDescriptor] =
@@ -283,7 +283,7 @@ impl MemoryManager {
         let max_real = 0xA0;
         let shared = Self::shared();
         for i in 1..max_real {
-            let result = Cpu::interlocked_test_and_clear(
+            let result = Hal::sync().test_and_clear(
                 &*(&shared.real_bitmap[0] as *const _ as *const AtomicUsize),
                 i,
             );
@@ -412,14 +412,15 @@ impl MemFreePair {
 }
 
 bitflags! {
-    pub struct MProtect: usize {
+    #[derive(Debug, Clone, Copy)]
+    pub struct MProtect: u32 {
         const READ  = 0x4;
         const WRITE = 0x2;
         const EXEC  = 0x1;
         const NONE  = 0x0;
 
-        const READ_WRITE = Self::READ.bits | Self::WRITE.bits;
-        const READ_EXEC = Self::READ.bits | Self::WRITE.bits;
+        const READ_WRITE = Self::READ.bits() | Self::WRITE.bits();
+        const READ_EXEC = Self::READ.bits() | Self::WRITE.bits();
     }
 }
 

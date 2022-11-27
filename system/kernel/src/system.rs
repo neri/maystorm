@@ -1,6 +1,4 @@
-use crate::{
-    arch::cpu::*, arch::page::PhysicalAddress, io::emcon::*, io::tty::*, task::scheduler::*, *,
-};
+use crate::{arch::cpu::*, io::emcon::*, io::tty::*, task::scheduler::*, *};
 use alloc::{boxed::Box, string::*, vec::Vec};
 use bootprot::BootInfo;
 use core::{cell::UnsafeCell, ffi::c_void, fmt, mem::transmute, sync::atomic::*};
@@ -77,27 +75,6 @@ pub enum ProcessorCoreType {
     Efficient,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ProcessorSystemType {
-    /// The system is equipped with a uniprocessor. (deprecated)
-    UP,
-    /// The system is equipped with a symmetric multiprocessing processor.
-    SMP,
-    /// The system is equipped with one or more simultaneous multi-threading processors.
-    SMT,
-}
-
-impl ToString for ProcessorSystemType {
-    fn to_string(&self) -> String {
-        let s = match self {
-            ProcessorSystemType::UP => "UP",
-            ProcessorSystemType::SMP => "SMP",
-            ProcessorSystemType::SMT => "SMT",
-        };
-        s.to_string()
-    }
-}
-
 /// A Kernel of MEG-OS codename Maystorm
 #[allow(dead_code)]
 pub struct System {
@@ -128,7 +105,7 @@ static mut SYSTEM: UnsafeCell<System> = UnsafeCell::new(System::new());
 
 impl System {
     const SYSTEM_NAME: &'static str = "MEG-OS";
-    const SYSTEMN_CODENAME: &'static str = "Cherry";
+    const SYSTEM_CODENAME: &'static str = "Cherry";
     const SYSTEM_SHORT_NAME: &'static str = "myos";
     const RELEASE: &'static str = "alpha";
     const VERSION: Version<'static> = Version::new(0, 12, 0, Self::RELEASE);
@@ -151,6 +128,8 @@ impl System {
 
     /// Initialize the system
     pub unsafe fn init(info: &BootInfo, f: fn() -> ()) -> ! {
+        assert_call_once!();
+
         let shared = SYSTEM.get_mut();
         shared.boot_flags = info.flags;
         shared.initrd_base = PhysicalAddress::new(info.initrd_base as u64);
@@ -169,8 +148,6 @@ impl System {
 
         shared.acpi = unsafe { myacpi::RsdPtr::parse(info.acpi_rsdptr as usize as *const c_void) };
 
-        // shared.current_device.power_profile = 0;
-
         if info.smbios != 0 {
             let device = &mut shared.current_device;
             let smbios = fw::smbios::SmBios::init(info.smbios.into());
@@ -186,6 +163,8 @@ impl System {
 
     /// The second half of the system initialization
     fn late_init(args: usize) {
+        assert_call_once!();
+
         let shared = unsafe { Self::shared_mut() };
 
         if false {
@@ -208,6 +187,7 @@ impl System {
         }
 
         unsafe {
+            Scheduler::late_init();
             mem::MemoryManager::late_init();
 
             log::EventManager::init();
@@ -251,7 +231,7 @@ impl System {
     /// Returns the codename of the current system.
     #[inline]
     pub const fn codename() -> &'static str {
-        &Self::SYSTEMN_CODENAME
+        &Self::SYSTEM_CODENAME
     }
 
     /// Returns abbreviated name of the current system.
@@ -308,7 +288,7 @@ impl System {
     pub fn current_processor<'a>() -> &'a Cpu {
         Self::shared()
             .cpus
-            .get(Cpu::current_processor_index().0)
+            .get(Hal::cpu().current_processor_index().0)
             .unwrap()
     }
 
@@ -335,11 +315,6 @@ impl System {
     }
 
     #[inline]
-    pub unsafe fn set_processor_system_type(value: ProcessorSystemType) {
-        Self::shared_mut().current_device.processor_system_type = value;
-    }
-
-    #[inline]
     pub fn smbios<'a>() -> Option<&'a fw::smbios::SmBios> {
         Self::shared().smbios.as_ref().map(|v| v.as_ref())
     }
@@ -353,11 +328,6 @@ impl System {
     #[inline]
     pub fn acpi<'a>() -> Option<&'a myacpi::Xsdt> {
         Self::shared().acpi.as_ref().map(|v| v.xsdt())
-    }
-
-    #[track_caller]
-    pub fn reset() -> ! {
-        Cpu::reset();
     }
 
     /// Get main screen
@@ -381,16 +351,32 @@ impl System {
             None => io::null::Null::null(),
         }
     }
+
+    #[track_caller]
+    pub fn assert_call_once(mutex: &AtomicBool) {
+        if mutex
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
+            .is_err()
+        {
+            panic!("Multiple calls are not allowed");
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! assert_call_once {
+    () => {
+        static MUTEX: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+        System::assert_call_once(&MUTEX);
+    };
 }
 
 pub struct DeviceInfo {
     manufacturer_name: Option<String>,
     model_name: Option<String>,
-    processor_system_type: ProcessorSystemType,
     num_of_active_cpus: AtomicUsize,
     num_of_main_cpus: AtomicUsize,
     total_memory_size: usize,
-    power_profile: u8,
 }
 
 impl DeviceInfo {
@@ -399,11 +385,9 @@ impl DeviceInfo {
         Self {
             manufacturer_name: None,
             model_name: None,
-            processor_system_type: ProcessorSystemType::UP,
             num_of_active_cpus: AtomicUsize::new(0),
             num_of_main_cpus: AtomicUsize::new(0),
             total_memory_size: 0,
-            power_profile: 0,
         }
     }
 
@@ -425,11 +409,6 @@ impl DeviceInfo {
         self.total_memory_size
     }
 
-    #[inline]
-    pub const fn processor_system_type(&self) -> ProcessorSystemType {
-        self.processor_system_type
-    }
-
     /// Returns the number of active logical CPU cores.
     #[inline]
     pub fn num_of_active_cpus(&self) -> usize {
@@ -441,10 +420,5 @@ impl DeviceInfo {
     #[inline]
     pub fn num_of_performance_cpus(&self) -> usize {
         self.num_of_main_cpus.load(Ordering::SeqCst)
-    }
-
-    /// A power profile in ACPI FADT tables
-    pub fn power_profile(&self) -> u8 {
-        self.power_profile
     }
 }

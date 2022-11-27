@@ -1,11 +1,8 @@
 //! Concurrent First In First Out
 
 use crate::{
-    arch::cpu::Cpu,
-    sync::{
-        semaphore::{AsyncSemaphore, Semaphore},
-        spinlock::SpinLoopWait,
-    },
+    sync::semaphore::{AsyncSemaphore, Semaphore},
+    *,
 };
 use alloc::{boxed::Box, sync::Arc};
 use core::{
@@ -139,7 +136,7 @@ impl<T: Sized> ConcurrentFifo<T> {
 
     #[inline]
     fn _enqueue(&self, data: T) -> Result<(), T> {
-        let mut spin = SpinLoopWait::new();
+        let mut spin = Hal::cpu().spin_wait();
         loop {
             let tail = self.tail.load(Ordering::Relaxed);
             if (tail + 1) & self.mask == self.head.load(Ordering::Relaxed) & self.mask {
@@ -168,7 +165,7 @@ impl<T: Sized> ConcurrentFifo<T> {
 
     #[inline]
     fn _dequeue(&self) -> Option<T> {
-        let mut spin = SpinLoopWait::new();
+        let mut spin = Hal::cpu().spin_wait();
         loop {
             let head = self.head.load(Ordering::Relaxed);
             let index = head & self.mask;
