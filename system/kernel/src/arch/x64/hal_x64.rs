@@ -108,10 +108,6 @@ pub mod hal {
     #[must_use]
     pub struct InterruptGuard(u64);
 
-    impl !Send for InterruptGuard {}
-
-    impl !Sync for InterruptGuard {}
-
     impl Drop for InterruptGuard {
         fn drop(&mut self) {
             if Rflags::from_bits_retain(self.0).contains(Rflags::IF) {

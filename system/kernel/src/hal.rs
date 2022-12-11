@@ -1,3 +1,5 @@
+//! Hardware Abstraction Layer
+
 use crate::{drivers::pci::PciConfigAddress, system::ProcessorIndex};
 use core::{
     num::NonZeroU64,
@@ -6,6 +8,10 @@ use core::{
 };
 
 pub use crate::arch::hal::{Hal, InterruptGuard, Spinlock};
+
+impl !Send for InterruptGuard {}
+
+impl !Sync for InterruptGuard {}
 
 #[const_trait]
 pub trait HalTrait {

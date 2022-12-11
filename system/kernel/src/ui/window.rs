@@ -3,8 +3,8 @@ use crate::{
     io::hid_mgr::*,
     res::icon::IconManager,
     sync::atomic::AtomicBitflags,
-    sync::{fifo::*, semaphore::*},
-    sync::{Mutex, RwLock},
+    sync::RwLock,
+    sync::{fifo::*, semaphore::*, spinlock::SpinMutex},
     task::scheduler::*,
     user::userenv::UserEnv,
     *,
@@ -81,8 +81,8 @@ pub struct WindowManager<'a> {
 
     main_screen: UnsafeCell<Bitmap32<'a>>,
     screen_size: Size,
-    screen_insets: EdgeInsets,
-    update_coords: Mutex<Coordinates>,
+    screen_insets: SpinMutex<EdgeInsets>,
+    update_coords: SpinMutex<Coordinates>,
 
     resources: Resources<'a>,
 
@@ -194,7 +194,8 @@ impl WindowManager<'static> {
                 buttons_up: AtomicUsize::new(0),
                 main_screen: UnsafeCell::new(main_screen),
                 screen_size,
-                screen_insets: EdgeInsets::default(),
+                screen_insets: SpinMutex::new(EdgeInsets::default()),
+                update_coords: SpinMutex::new(Coordinates::VOID),
                 resources: Resources {
                     _phantom: &(),
                     close_button,
@@ -212,7 +213,6 @@ impl WindowManager<'static> {
                 captured: AtomicWindowHandle::default(),
                 entered: AtomicWindowHandle::default(),
                 system_event: ConcurrentFifo::with_capacity(WINDOW_SYSTEM_EVENT_QUEUE_SIZE),
-                update_coords: Mutex::new(Coordinates::VOID),
             }));
         }
 
@@ -222,7 +222,7 @@ impl WindowManager<'static> {
     #[track_caller]
     fn add(window: RawWindow) {
         let handle = window.handle;
-        WindowManager::shared_mut()
+        WindowManager::shared()
             .window_pool
             .write()
             .unwrap()
@@ -231,7 +231,7 @@ impl WindowManager<'static> {
 
     fn remove(window: &RawWindow) {
         window.hide();
-        let shared = WindowManager::shared_mut();
+        let shared = WindowManager::shared();
         let window_orders = shared.window_orders.write().unwrap();
         let handle = window.handle;
         shared.window_pool.write().unwrap().remove(&handle);
@@ -248,19 +248,15 @@ impl WindowManager<'static> {
             .map(|v| WindowRef(v.clone()))
     }
 
-    fn update<F, R>(&mut self, key: &WindowHandle, f: F) -> Option<R>
+    #[inline]
+    fn update<F, R>(&self, key: &WindowHandle, f: F) -> Option<R>
     where
         F: FnOnce(&mut RawWindow) -> R,
     {
-        WindowManager::shared()
-            .window_pool
-            .read()
-            .unwrap()
-            .get(key)
-            .map(|v| unsafe {
-                let window = v.clone().get();
-                f(&mut *window)
-            })
+        self.window_pool.read().unwrap().get(key).map(|v| unsafe {
+            let window = v.clone().get();
+            f(&mut *window)
+        })
     }
 }
 
@@ -272,19 +268,13 @@ impl WindowManager<'_> {
     }
 
     #[inline]
-    #[track_caller]
-    fn shared_mut<'a>() -> &'a mut WindowManager<'static> {
-        unsafe { WM.as_mut().unwrap() }
-    }
-
-    #[inline]
     fn shared_opt<'a>() -> Option<&'a Box<WindowManager<'static>>> {
         unsafe { WM.as_ref() }
     }
 
     /// Window Manager's Thread
     fn window_thread(_: usize) {
-        let shared = WindowManager::shared_mut();
+        let shared = WindowManager::shared();
 
         let mut captured_offset = Movement::default();
 
@@ -295,7 +285,7 @@ impl WindowManager<'_> {
                 .attributes
                 .test_and_clear(WindowManagerAttributes::NEEDS_REDRAW)
             {
-                let mut update_coords = shared.update_coords.lock().unwrap();
+                let mut update_coords = shared.update_coords.lock();
                 if update_coords.is_valid() {
                     let coords = *update_coords;
                     *update_coords = Coordinates::VOID;
@@ -355,16 +345,17 @@ impl WindowManager<'_> {
                                     }
                                 });
                             } else if shared.attributes.contains(WindowManagerAttributes::MOVING) {
+                                let screen_insets = shared.screen_insets.lock();
                                 // dragging title
                                 let top = if captured.as_ref().level < WindowLevel::FLOATING {
-                                    shared.screen_insets.top
+                                    screen_insets.top
                                 } else {
                                     0
                                 };
                                 let bottom = shared.screen_size.height()
                                     - WINDOW_TITLE_HEIGHT / 2
                                     - if captured.as_ref().level < WindowLevel::FLOATING {
-                                        shared.screen_insets.bottom
+                                        screen_insets.bottom
                                     } else {
                                         0
                                     };
@@ -605,7 +596,7 @@ impl WindowManager<'_> {
         };
 
         Self::remove_hierarchy(window.handle);
-        let mut window_orders = WindowManager::shared_mut().window_orders.write().unwrap();
+        let mut window_orders = WindowManager::shared().window_orders.write().unwrap();
 
         let mut insert_position = None;
         for (index, lhs) in window_orders.iter().enumerate() {
@@ -632,7 +623,7 @@ impl WindowManager<'_> {
 
         window.attributes.remove(WindowAttributes::VISIBLE);
 
-        let mut window_orders = WindowManager::shared_mut().window_orders.write().unwrap();
+        let mut window_orders = WindowManager::shared().window_orders.write().unwrap();
         let mut remove_position = None;
         for (index, lhs) in window_orders.iter().enumerate() {
             if *lhs == window.handle {
@@ -656,27 +647,26 @@ impl WindowManager<'_> {
     #[inline]
     pub fn user_screen_bounds() -> Rect {
         match WindowManager::shared_opt() {
-            Some(shared) => Rect::from(shared.screen_size).insets_by(shared.screen_insets),
+            Some(shared) => Rect::from(shared.screen_size).insets_by(*shared.screen_insets.lock()),
             None => System::main_screen().bounds(),
         }
     }
 
     #[inline]
     pub fn screen_insets() -> EdgeInsets {
-        let shared = Self::shared();
-        shared.screen_insets
+        *Self::shared().screen_insets.lock()
     }
 
     #[inline]
     pub fn add_screen_insets(insets: EdgeInsets) {
-        let shared = Self::shared_mut();
-        shared.screen_insets += insets;
+        let mut screen_insets = Self::shared().screen_insets.lock();
+        *screen_insets += insets;
     }
 
     #[inline]
     pub fn invalidate_screen(rect: Rect) {
         let shared = Self::shared();
-        let mut update_coords = shared.update_coords.lock().unwrap();
+        let mut update_coords = shared.update_coords.lock();
         if let Ok(coords) = Coordinates::from_rect(rect) {
             update_coords.merge(coords);
             shared
@@ -687,7 +677,7 @@ impl WindowManager<'_> {
     }
 
     fn set_active(window: Option<WindowHandle>) {
-        let shared = WindowManager::shared_mut();
+        let shared = WindowManager::shared();
         if let Some(old_active) = shared.active.get() {
             let _ = old_active.post(WindowMessage::Deactivated);
             shared.active.write(window);
@@ -1243,7 +1233,7 @@ impl RawWindow {
     }
 
     fn hide(&self) {
-        let shared = WindowManager::shared_mut();
+        let shared = WindowManager::shared();
         let frame = self.shadow_frame();
         let new_active = if shared.active.contains(self.handle) {
             let window_orders = shared.window_orders.read().unwrap();
@@ -1360,7 +1350,7 @@ impl RawWindow {
 
     fn draw_outer_to_screen(&self, offset: Movement, rect: Rect, is_opaque: bool) {
         let screen_rect = rect + offset;
-        let shared = WindowManager::shared_mut();
+        let shared = WindowManager::shared();
         let main_screen = unsafe { &mut *shared.main_screen.get() };
         let back_buffer = unsafe { &mut *self.back_buffer.get() };
         let back_buffer = back_buffer.as_mut();
@@ -2226,7 +2216,7 @@ impl WindowHandle {
     where
         F: FnOnce(&mut RawWindow) -> R,
     {
-        WindowManager::shared_mut().update(self, f)
+        WindowManager::shared().update(self, f)
     }
 
     #[inline]
