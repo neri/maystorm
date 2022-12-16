@@ -1,8 +1,22 @@
-use crate::{arch::cpu::*, io::emcon::*, io::tty::*, task::scheduler::*, *};
+use crate::{
+    arch::cpu::*,
+    io::{
+        screen::{BitmapScreen, Screen, ScreenOrientation},
+        tty::*,
+    },
+    task::scheduler::*,
+    *,
+};
 use alloc::{boxed::Box, string::*, vec::Vec};
 use bootprot::BootInfo;
-use core::{cell::UnsafeCell, ffi::c_void, fmt, mem::transmute, sync::atomic::*};
-use megstd::{drawing::*, time::SystemTime};
+use core::{
+    cell::UnsafeCell,
+    ffi::c_void,
+    fmt,
+    mem::{transmute, MaybeUninit},
+    sync::atomic::*,
+};
+use megstd::{drawing::*, time::SystemTime, Arc};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Version<'a> {
@@ -91,8 +105,7 @@ pub struct System {
     smbios: Option<Box<fw::smbios::SmBios>>,
 
     // screens
-    main_screen: Option<UnsafeCell<Bitmap32<'static>>>,
-    em_console: EmConsole,
+    safe_screen: MaybeUninit<Option<Arc<BitmapScreen<'static>>>>,
     stdout: Option<Box<dyn Tty>>,
 
     // copy of boot info
@@ -118,8 +131,7 @@ impl System {
             acpi: None,
             smbios: None,
             boot_flags: BootFlags::empty(),
-            main_screen: None,
-            em_console: EmConsole::new(ui::font::FontManager::preferred_console_font()),
+            safe_screen: MaybeUninit::zeroed(),
             stdout: None,
             initrd_base: PhysicalAddress::NULL,
             initrd_size: 0,
@@ -136,15 +148,23 @@ impl System {
         shared.initrd_size = info.initrd_size as usize;
         shared.current_device.total_memory_size = info.total_memory_size as usize;
 
-        let main_screen = Bitmap32::from_static(
-            PhysicalAddress::new(info.vram_base).direct_map(),
-            Size::new(info.screen_width as isize, info.screen_height as isize),
-            info.vram_stride as usize,
-        );
-        shared.main_screen = Some(UnsafeCell::new(main_screen));
-        // Self::em_console().reset().unwrap();
-
         mem::MemoryManager::init_first(info);
+
+        if info.vram_base != 0
+            && info.vram_stride != 0
+            && info.screen_width != 0
+            && info.screen_height != 0
+        {
+            let screen = BitmapScreen::new(Bitmap32::from_static(
+                PhysicalAddress::new(info.vram_base).direct_map(),
+                Size::new(info.screen_width as isize, info.screen_height as isize),
+                info.vram_stride as usize,
+            ));
+            screen
+                .set_orientation(ScreenOrientation::Landscape)
+                .unwrap();
+            shared.safe_screen.write(Some(Arc::new(screen)));
+        }
 
         shared.acpi = unsafe { myacpi::RsdPtr::parse(info.acpi_rsdptr as usize as *const c_void) };
 
@@ -167,25 +187,6 @@ impl System {
 
         let shared = unsafe { Self::shared_mut() };
 
-        if false {
-            // banner
-            let device = System::current_device();
-            let bytes = device.total_memory_size();
-            let gb = bytes >> 30;
-            let mb = (100 * (bytes & 0x3FFF_FFFF)) / 0x4000_0000;
-
-            writeln!(
-                System::em_console(),
-                "{} v{} [{} Processor cores, Memory {}.{:02} GB]",
-                System::name(),
-                System::version(),
-                device.num_of_active_cpus(),
-                gb,
-                mb
-            )
-            .unwrap();
-        }
-
         unsafe {
             Scheduler::late_init();
             mem::MemoryManager::late_init();
@@ -199,9 +200,9 @@ impl System {
             drivers::usb::UsbManager::init();
             drivers::pci::Pci::init();
 
-            if let Some(main_screen) = shared.main_screen.as_mut() {
-                ui::font::FontManager::init();
-                ui::window::WindowManager::init(main_screen.get_mut().clone());
+            ui::font::FontManager::init();
+            if let Some(main_screen) = Self::main_screen() {
+                ui::window::WindowManager::init(main_screen);
             }
 
             arch::Arch::late_init();
@@ -330,13 +331,22 @@ impl System {
         Self::shared().acpi.as_ref().map(|v| v.xsdt())
     }
 
-    /// Get main screen
-    pub fn main_screen() -> Bitmap<'static> {
-        unsafe { &mut *Self::shared_mut().main_screen.as_mut().unwrap().get() }.into()
+    #[inline]
+    pub fn safe_screen<'a>() -> Option<Arc<BitmapScreen<'static>>> {
+        unsafe {
+            Self::shared()
+                .safe_screen
+                .assume_init_ref()
+                .as_ref()
+                .map(|v| v.clone())
+        }
     }
 
-    pub fn em_console<'a>() -> &'a mut EmConsole {
-        unsafe { &mut Self::shared_mut().em_console }
+    /// Get main screen
+    #[inline]
+    pub fn main_screen() -> Option<Arc<dyn Screen<ConstBitmap32<'static>, ColorType = TrueColor>>> {
+        Self::safe_screen()
+            .map(|v| v as Arc<dyn Screen<ConstBitmap32<'static>, ColorType = TrueColor>>)
     }
 
     pub fn set_stdout(stdout: Box<dyn Tty>) {
@@ -346,10 +356,15 @@ impl System {
 
     pub fn stdout<'a>() -> &'a mut dyn Tty {
         let shared = unsafe { Self::shared_mut() };
-        match shared.stdout.as_mut() {
-            Some(v) => v.as_mut(),
-            None => io::null::Null::null(),
-        }
+        shared
+            .stdout
+            .as_mut()
+            .map(|v| v.as_mut())
+            .unwrap_or(io::tty::NullTty::null())
+    }
+
+    pub fn log<'a>() -> &'a mut dyn Tty {
+        Self::stdout()
     }
 
     #[track_caller]

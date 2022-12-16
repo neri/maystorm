@@ -105,23 +105,17 @@ impl const From<ColorComponents> for HtmlCanvasColorComponents {
 /// Images compatible with HTML Canvas Image Data
 #[repr(C)]
 pub struct ConstHtmlCanvas<'a> {
-    width: usize,
-    height: usize,
+    size: Size,
     stride: usize,
     slice: &'a [HtmlCanvasColor],
 }
 
-impl Drawable for ConstHtmlCanvas<'_> {
+impl const Drawable for ConstHtmlCanvas<'_> {
     type ColorType = HtmlCanvasColor;
 
     #[inline]
-    fn width(&self) -> usize {
-        self.width
-    }
-
-    #[inline]
-    fn height(&self) -> usize {
-        self.height
+    fn size(&self) -> Size {
+        self.size
     }
 }
 
@@ -145,8 +139,7 @@ impl<'a> ConstHtmlCanvas<'a> {
         stride: Option<NonZeroUsize>,
     ) -> Self {
         Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
+            size,
             stride: match stride {
                 Some(v) => v.get(),
                 None => size.width() as usize,
@@ -163,8 +156,7 @@ impl<'a> ConstHtmlCanvas<'a> {
     #[inline]
     pub fn clone(&'a self) -> Self {
         Self {
-            width: self.width(),
-            height: self.height(),
+            size: self.size(),
             stride: self.stride(),
             slice: self.slice(),
         }
@@ -181,23 +173,17 @@ impl<'a> const AsRef<ConstHtmlCanvas<'a>> for ConstHtmlCanvas<'a> {
 /// Images compatible with HTML Canvas Image Data
 #[repr(C)]
 pub struct HtmlCanvas<'a> {
-    width: usize,
-    height: usize,
+    size: Size,
     stride: usize,
     slice: UnsafeCell<&'a mut [HtmlCanvasColor]>,
 }
 
-impl Drawable for HtmlCanvas<'_> {
+impl const Drawable for HtmlCanvas<'_> {
     type ColorType = HtmlCanvasColor;
 
     #[inline]
-    fn width(&self) -> usize {
-        self.width
-    }
-
-    #[inline]
-    fn height(&self) -> usize {
-        self.height
+    fn size(&self) -> Size {
+        self.size
     }
 }
 
@@ -228,8 +214,7 @@ impl<'a> HtmlCanvas<'a> {
         stride: Option<NonZeroUsize>,
     ) -> Self {
         Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
+            size,
             stride: match stride {
                 Some(v) => v.get(),
                 None => size.width() as usize,
@@ -247,8 +232,7 @@ impl<'a> HtmlCanvas<'a> {
     pub fn clone(&self) -> HtmlCanvas<'a> {
         let slice = unsafe { self.slice.get().as_mut().unwrap() };
         Self {
-            width: self.width(),
-            height: self.height(),
+            size: self.size(),
             stride: self.stride(),
             slice: UnsafeCell::new(slice),
         }
@@ -267,8 +251,7 @@ impl HtmlCanvas<'static> {
     pub unsafe fn from_static(ptr: *mut HtmlCanvasColor, size: Size, stride: usize) -> Self {
         let slice = core::slice::from_raw_parts_mut(ptr, size.height() as usize * stride);
         Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
+            size,
             stride,
             slice: UnsafeCell::new(slice),
         }
@@ -301,23 +284,17 @@ impl ToOwned for HtmlCanvas<'_> {
 
 #[repr(C)]
 pub struct OwnedHtmlCanvas {
-    width: usize,
-    height: usize,
+    size: Size,
     stride: usize,
     slice: UnsafeCell<Box<[HtmlCanvasColor]>>,
 }
 
-impl Drawable for OwnedHtmlCanvas {
+impl const Drawable for OwnedHtmlCanvas {
     type ColorType = HtmlCanvasColor;
 
     #[inline]
-    fn width(&self) -> usize {
-        self.width
-    }
-
-    #[inline]
-    fn height(&self) -> usize {
-        self.height
+    fn size(&self) -> Size {
+        self.size
     }
 }
 
@@ -352,8 +329,7 @@ impl OwnedHtmlCanvas {
     #[inline]
     pub fn from_vec(vec: Vec<HtmlCanvasColor>, size: Size) -> Self {
         Self {
-            width: size.width as usize,
-            height: size.height as usize,
+            size,
             stride: size.width as usize,
             slice: UnsafeCell::new(vec.into_boxed_slice()),
         }

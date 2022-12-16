@@ -41,7 +41,7 @@ all: $(ALL_TARGETS)
 clean:
 	-rm -rf system/target apps/target boot/target tools/target
 
-refresh:
+refresh: clean
 	-rm system/Cargo.lock apps/Cargo.lock boot/Cargo.lock tools/Cargo.lock lib/**/Cargo.lock
 
 # $(RUST_ARCH).json:

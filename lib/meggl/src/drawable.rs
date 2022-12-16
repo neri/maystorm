@@ -1,18 +1,22 @@
 use super::*;
 
+#[const_trait]
 pub trait Drawable
 where
     Self::ColorType: ColorTrait,
 {
     type ColorType;
 
-    fn width(&self) -> usize;
-
-    fn height(&self) -> usize;
+    fn size(&self) -> Size;
 
     #[inline]
-    fn size(&self) -> Size {
-        Size::new(self.width() as isize, self.height() as isize)
+    fn width(&self) -> usize {
+        self.size().width() as usize
+    }
+
+    #[inline]
+    fn height(&self) -> usize {
+        self.size().height() as usize
     }
 
     #[inline]
@@ -99,10 +103,14 @@ pub trait SetPixel: Drawable {
     }
 }
 
+#[const_trait]
 pub trait RasterImage: Drawable {
     fn slice(&self) -> &[Self::ColorType];
 
-    fn stride(&self) -> usize {
+    fn stride(&self) -> usize
+    where
+        Self: ~const Drawable,
+    {
         self.width()
     }
 }

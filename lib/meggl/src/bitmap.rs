@@ -19,7 +19,9 @@ pub trait Blt<T: Drawable>: Drawable {
 
 pub trait BasicDrawing: SetPixel {
     fn fill_rect(&mut self, rect: Rect, color: Self::ColorType);
+
     fn draw_hline(&mut self, origin: Point, width: isize, color: Self::ColorType);
+
     fn draw_vline(&mut self, origin: Point, height: isize, color: Self::ColorType);
 
     fn clear(&mut self) {
@@ -446,27 +448,21 @@ pub trait BltConvert<T: ColorTrait>: MutableRasterImage {
 
 #[repr(C)]
 pub struct ConstBitmap8<'a> {
-    width: usize,
-    height: usize,
+    size: Size,
     stride: usize,
     slice: &'a [IndexedColor],
 }
 
-impl Drawable for ConstBitmap8<'_> {
+impl const Drawable for ConstBitmap8<'_> {
     type ColorType = IndexedColor;
 
     #[inline]
-    fn width(&self) -> usize {
-        self.width
-    }
-
-    #[inline]
-    fn height(&self) -> usize {
-        self.height
+    fn size(&self) -> Size {
+        self.size
     }
 }
 
-impl RasterImage for ConstBitmap8<'_> {
+impl const RasterImage for ConstBitmap8<'_> {
     #[inline]
     fn stride(&self) -> usize {
         self.stride
@@ -486,8 +482,7 @@ impl<'a> ConstBitmap8<'a> {
         stride: Option<NonZeroUsize>,
     ) -> Self {
         Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
+            size,
             stride: match stride {
                 Some(v) => v.get(),
                 None => size.width() as usize,
@@ -499,8 +494,7 @@ impl<'a> ConstBitmap8<'a> {
     #[inline]
     pub const fn from_bytes(bytes: &'a [u8], size: Size) -> Self {
         Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
+            size,
             stride: size.width() as usize,
             slice: unsafe { transmute(bytes) },
         }
@@ -509,8 +503,7 @@ impl<'a> ConstBitmap8<'a> {
     #[inline]
     pub fn clone(&'a self) -> Self {
         Self {
-            width: self.width(),
-            height: self.height(),
+            size: self.size(),
             stride: self.stride(),
             slice: self.slice(),
         }
@@ -526,27 +519,21 @@ impl<'a> const AsRef<ConstBitmap8<'a>> for ConstBitmap8<'a> {
 
 #[repr(C)]
 pub struct Bitmap8<'a> {
-    width: usize,
-    height: usize,
+    size: Size,
     stride: usize,
     slice: UnsafeCell<&'a mut [IndexedColor]>,
 }
 
-impl Drawable for Bitmap8<'_> {
+impl const Drawable for Bitmap8<'_> {
     type ColorType = IndexedColor;
 
     #[inline]
-    fn width(&self) -> usize {
-        self.width
-    }
-
-    #[inline]
-    fn height(&self) -> usize {
-        self.height
+    fn size(&self) -> Size {
+        self.size
     }
 }
 
-impl RasterImage for Bitmap8<'_> {
+impl const RasterImage for Bitmap8<'_> {
     #[inline]
     fn stride(&self) -> usize {
         self.stride
@@ -573,8 +560,7 @@ impl<'a> Bitmap8<'a> {
         stride: Option<NonZeroUsize>,
     ) -> Self {
         Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
+            size,
             stride: match stride {
                 Some(v) => v.get(),
                 None => size.width() as usize,
@@ -586,8 +572,7 @@ impl<'a> Bitmap8<'a> {
     #[inline]
     pub const fn from_bytes(bytes: &'a mut [u8], size: Size) -> Self {
         Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
+            size,
             stride: size.width() as usize,
             slice: unsafe { transmute(bytes) },
         }
@@ -598,8 +583,7 @@ impl<'a> Bitmap8<'a> {
     pub fn clone(&self) -> Bitmap8<'a> {
         let slice = unsafe { self.slice.get().as_mut().unwrap() };
         Self {
-            width: self.width(),
-            height: self.height(),
+            size: self.size(),
             stride: self.stride(),
             slice: UnsafeCell::new(slice),
         }
@@ -613,8 +597,7 @@ impl Bitmap8<'static> {
     pub unsafe fn from_static(ptr: *mut IndexedColor, size: Size, stride: usize) -> Self {
         let slice = core::slice::from_raw_parts_mut(ptr, size.height() as usize * stride);
         Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
+            size,
             stride,
             slice: UnsafeCell::new(slice),
         }
@@ -722,8 +705,7 @@ impl Bitmap8<'_> {
         let r = {
             let slice = self.slice_mut();
             let mut view = Bitmap8 {
-                width: rect.width() as usize,
-                height: rect.height() as usize,
+                size: rect.size(),
                 stride,
                 slice: UnsafeCell::new(&mut slice[offset..offset + new_len]),
             };
@@ -751,11 +733,11 @@ impl BasicDrawing for Bitmap8<'_> {
         }
         let r = dx + width;
         let b = dy + height;
-        if r >= self.width as isize {
-            width = self.width as isize - dx;
+        if r >= self.size.width {
+            width = self.size.width - dx;
         }
-        if b >= self.height as isize {
-            height = self.height as isize - dy;
+        if b >= self.size.height {
+            height = self.size.height - dy;
         }
         if width <= 0 || height <= 0 {
             return;
@@ -780,7 +762,7 @@ impl BasicDrawing for Bitmap8<'_> {
         let dy = origin.y;
         let mut w = width;
 
-        if dy < 0 || dy >= (self.height as isize) {
+        if dy < 0 || dy >= self.size.height {
             return;
         }
         if dx < 0 {
@@ -788,8 +770,8 @@ impl BasicDrawing for Bitmap8<'_> {
             dx = 0;
         }
         let r = dx + w;
-        if r >= (self.width as isize) {
-            w = (self.width as isize) - dx;
+        if r >= self.size.width {
+            w = self.size.width - dx;
         }
         if w <= 0 {
             return;
@@ -857,27 +839,21 @@ impl ToOwned for Bitmap8<'_> {
 
 #[repr(C)]
 pub struct OwnedBitmap8 {
-    width: usize,
-    height: usize,
+    size: Size,
     stride: usize,
     slice: UnsafeCell<Box<[IndexedColor]>>,
 }
 
-impl Drawable for OwnedBitmap8 {
+impl const Drawable for OwnedBitmap8 {
     type ColorType = IndexedColor;
 
     #[inline]
-    fn width(&self) -> usize {
-        self.width
-    }
-
-    #[inline]
-    fn height(&self) -> usize {
-        self.height
+    fn size(&self) -> Size {
+        self.size
     }
 }
 
-impl RasterImage for OwnedBitmap8 {
+impl const RasterImage for OwnedBitmap8 {
     #[inline]
     fn stride(&self) -> usize {
         self.stride
@@ -908,8 +884,7 @@ impl OwnedBitmap8 {
     #[inline]
     pub fn from_vec(vec: Vec<IndexedColor>, size: Size) -> Self {
         Self {
-            width: size.width as usize,
-            height: size.height as usize,
+            size: size,
             stride: size.width as usize,
             slice: UnsafeCell::new(vec.into_boxed_slice()),
         }
@@ -939,27 +914,21 @@ impl<'a> Borrow<Bitmap8<'a>> for OwnedBitmap8 {
 
 #[repr(C)]
 pub struct ConstBitmap32<'a> {
-    width: usize,
-    height: usize,
+    size: Size,
     stride: usize,
     slice: &'a [TrueColor],
 }
 
-impl Drawable for ConstBitmap32<'_> {
+impl const Drawable for ConstBitmap32<'_> {
     type ColorType = TrueColor;
 
     #[inline]
-    fn width(&self) -> usize {
-        self.width
-    }
-
-    #[inline]
-    fn height(&self) -> usize {
-        self.height
+    fn size(&self) -> Size {
+        self.size
     }
 }
 
-impl RasterImage for ConstBitmap32<'_> {
+impl const RasterImage for ConstBitmap32<'_> {
     #[inline]
     fn stride(&self) -> usize {
         self.stride
@@ -979,8 +948,7 @@ impl<'a> ConstBitmap32<'a> {
         stride: Option<NonZeroUsize>,
     ) -> Self {
         Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
+            size,
             stride: match stride {
                 Some(v) => v.get(),
                 None => size.width() as usize,
@@ -992,8 +960,7 @@ impl<'a> ConstBitmap32<'a> {
     #[inline]
     pub const fn from_bytes(bytes: &'a [u32], size: Size) -> Self {
         Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
+            size,
             stride: size.width() as usize,
             slice: unsafe { transmute(bytes) },
         }
@@ -1002,8 +969,7 @@ impl<'a> ConstBitmap32<'a> {
     #[inline]
     pub fn clone(&'a self) -> Self {
         Self {
-            width: self.width(),
-            height: self.height(),
+            size: self.size(),
             stride: self.stride(),
             slice: self.slice(),
         }
@@ -1019,27 +985,21 @@ impl<'a> const AsRef<ConstBitmap32<'a>> for ConstBitmap32<'a> {
 
 #[repr(C)]
 pub struct Bitmap32<'a> {
-    width: usize,
-    height: usize,
+    size: Size,
     stride: usize,
     slice: UnsafeCell<&'a mut [TrueColor]>,
 }
 
-impl Drawable for Bitmap32<'_> {
+impl const Drawable for Bitmap32<'_> {
     type ColorType = TrueColor;
 
     #[inline]
-    fn width(&self) -> usize {
-        self.width
-    }
-
-    #[inline]
-    fn height(&self) -> usize {
-        self.height
+    fn size(&self) -> Size {
+        self.size
     }
 }
 
-impl RasterImage for Bitmap32<'_> {
+impl const RasterImage for Bitmap32<'_> {
     #[inline]
     fn stride(&self) -> usize {
         self.stride
@@ -1066,8 +1026,7 @@ impl<'a> Bitmap32<'a> {
         stride: Option<NonZeroUsize>,
     ) -> Self {
         Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
+            size,
             stride: match stride {
                 Some(v) => v.get(),
                 None => size.width() as usize,
@@ -1079,8 +1038,7 @@ impl<'a> Bitmap32<'a> {
     #[inline]
     pub fn from_bytes(bytes: &'a mut [u32], size: Size) -> Self {
         Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
+            size,
             stride: size.width() as usize,
             slice: unsafe { transmute(bytes) },
         }
@@ -1090,8 +1048,7 @@ impl<'a> Bitmap32<'a> {
     pub fn clone(&self) -> Bitmap32<'a> {
         let slice = unsafe { self.slice.get().as_mut().unwrap() };
         Self {
-            width: self.width(),
-            height: self.height(),
+            size: self.size(),
             stride: self.stride(),
             slice: UnsafeCell::new(slice),
         }
@@ -1110,8 +1067,7 @@ impl Bitmap32<'static> {
     pub unsafe fn from_static(ptr: *mut TrueColor, size: Size, stride: usize) -> Self {
         let slice = core::slice::from_raw_parts_mut(ptr, size.height() as usize * stride);
         Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
+            size,
             stride,
             slice: UnsafeCell::new(slice),
         }
@@ -1196,11 +1152,11 @@ impl BasicDrawing for Bitmap32<'_> {
         }
         let r = dx + width;
         let b = dy + height;
-        if r >= self.width as isize {
-            width = self.width as isize - dx;
+        if r >= self.size.width {
+            width = self.size.width - dx;
         }
-        if b >= self.height as isize {
-            height = self.height as isize - dy;
+        if b >= self.size.height {
+            height = self.size.height - dy;
         }
         if width <= 0 || height <= 0 {
             return;
@@ -1411,8 +1367,7 @@ impl Bitmap32<'_> {
         let r = {
             let slice = self.slice_mut();
             let mut view = Bitmap32 {
-                width: rect.width() as usize,
-                height: rect.height() as usize,
+                size: rect.size(),
                 stride,
                 slice: UnsafeCell::new(&mut slice[offset..offset + new_len]),
             };
@@ -1449,27 +1404,21 @@ impl ToOwned for Bitmap32<'_> {
 
 #[repr(C)]
 pub struct OwnedBitmap32 {
-    width: usize,
-    height: usize,
+    size: Size,
     stride: usize,
     slice: UnsafeCell<Box<[TrueColor]>>,
 }
 
-impl Drawable for OwnedBitmap32 {
+impl const Drawable for OwnedBitmap32 {
     type ColorType = TrueColor;
 
     #[inline]
-    fn width(&self) -> usize {
-        self.width
-    }
-
-    #[inline]
-    fn height(&self) -> usize {
-        self.height
+    fn size(&self) -> Size {
+        self.size
     }
 }
 
-impl RasterImage for OwnedBitmap32 {
+impl const RasterImage for OwnedBitmap32 {
     #[inline]
     fn stride(&self) -> usize {
         self.stride
@@ -1500,8 +1449,7 @@ impl OwnedBitmap32 {
     #[inline]
     pub fn from_vec(vec: Vec<TrueColor>, size: Size) -> Self {
         Self {
-            width: size.width as usize,
-            height: size.height as usize,
+            size,
             stride: size.width as usize,
             slice: UnsafeCell::new(vec.into_boxed_slice()),
         }
@@ -1534,22 +1482,14 @@ pub enum ConstBitmap<'a> {
     Argb32(&'a ConstBitmap32<'a>),
 }
 
-impl Drawable for ConstBitmap<'_> {
+impl const Drawable for ConstBitmap<'_> {
     type ColorType = Color;
 
     #[inline]
-    fn width(&self) -> usize {
+    fn size(&self) -> Size {
         match self {
-            Self::Indexed(ref v) => v.width(),
-            Self::Argb32(ref v) => v.width(),
-        }
-    }
-
-    #[inline]
-    fn height(&self) -> usize {
-        match self {
-            Self::Indexed(ref v) => v.height(),
-            Self::Argb32(ref v) => v.height(),
+            Self::Indexed(ref v) => v.size(),
+            Self::Argb32(ref v) => v.size(),
         }
     }
 }
@@ -1603,22 +1543,14 @@ pub enum Bitmap<'a> {
     Argb32(&'a mut Bitmap32<'a>),
 }
 
-impl Drawable for Bitmap<'_> {
+impl const Drawable for Bitmap<'_> {
     type ColorType = Color;
 
     #[inline]
-    fn width(&self) -> usize {
+    fn size(&self) -> Size {
         match self {
-            Self::Indexed(ref v) => v.width(),
-            Self::Argb32(ref v) => v.width(),
-        }
-    }
-
-    #[inline]
-    fn height(&self) -> usize {
-        match self {
-            Self::Indexed(ref v) => v.height(),
-            Self::Argb32(ref v) => v.height(),
+            Self::Indexed(ref v) => v.size(),
+            Self::Argb32(ref v) => v.size(),
         }
     }
 }
@@ -1857,22 +1789,14 @@ pub enum OwnedBitmap {
     Argb32(OwnedBitmap32),
 }
 
-impl Drawable for OwnedBitmap {
+impl const Drawable for OwnedBitmap {
     type ColorType = Color;
 
     #[inline]
-    fn width(&self) -> usize {
+    fn size(&self) -> Size {
         match self {
-            Self::Indexed(ref v) => v.width(),
-            Self::Argb32(ref v) => v.width(),
-        }
-    }
-
-    #[inline]
-    fn height(&self) -> usize {
-        match self {
-            Self::Indexed(ref v) => v.height(),
-            Self::Argb32(ref v) => v.height(),
+            Self::Indexed(ref v) => v.size(),
+            Self::Argb32(ref v) => v.size(),
         }
     }
 }
@@ -1929,31 +1853,25 @@ impl<'a> Borrow<Bitmap<'a>> for OwnedBitmap {
 
 /// A special bitmap type that can be used for operations such as transparency and shading.
 pub struct OperationalBitmap {
-    width: usize,
-    height: usize,
+    size: Size,
     vec: Vec<u8>,
 }
 
 impl ColorTrait for u8 {}
 
-impl Drawable for OperationalBitmap {
+impl const Drawable for OperationalBitmap {
     type ColorType = u8;
 
     #[inline]
-    fn width(&self) -> usize {
-        self.width
-    }
-
-    #[inline]
-    fn height(&self) -> usize {
-        self.height
+    fn size(&self) -> Size {
+        self.size
     }
 }
 
 impl RasterImage for OperationalBitmap {
     #[inline]
     fn stride(&self) -> usize {
-        self.width
+        self.width()
     }
 
     #[inline]
@@ -1973,30 +1891,18 @@ impl OperationalBitmap {
     #[inline]
     pub const fn new(size: Size) -> Self {
         let vec = Vec::new();
-        Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
-            vec,
-        }
+        Self { size, vec }
     }
 
     #[inline]
     pub fn from_slice(slice: &[u8], size: Size) -> Self {
         let vec = Vec::from(slice);
-        Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
-            vec,
-        }
+        Self { size, vec }
     }
 
     #[inline]
     pub fn from_vec(vec: Vec<u8>, size: Size) -> Self {
-        Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
-            vec,
-        }
+        Self { size, vec }
     }
 
     #[inline]
@@ -2464,23 +2370,17 @@ mod memory_colors {
 
 #[repr(C)]
 pub struct ConstBitmap1<'a> {
-    width: usize,
-    height: usize,
+    size: Size,
     stride: usize,
     slice: &'a [u8],
 }
 
-impl Drawable for ConstBitmap1<'_> {
+impl const Drawable for ConstBitmap1<'_> {
     type ColorType = u8;
 
     #[inline]
-    fn width(&self) -> usize {
-        self.width
-    }
-
-    #[inline]
-    fn height(&self) -> usize {
-        self.height
+    fn size(&self) -> Size {
+        self.size
     }
 }
 
@@ -2488,8 +2388,7 @@ impl<'a> ConstBitmap1<'a> {
     #[inline]
     pub const fn from_slice(slice: &'a [u8], size: Size, stride: Option<NonZeroUsize>) -> Self {
         Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
+            size,
             stride: match stride {
                 Some(v) => v.get(),
                 None => (size.width() + 7) as usize / 8,
@@ -2523,23 +2422,17 @@ impl<'a> const AsRef<ConstBitmap1<'a>> for ConstBitmap1<'a> {
 
 #[repr(C)]
 pub struct Bitmap1<'a> {
-    width: usize,
-    height: usize,
+    size: Size,
     stride: usize,
     slice: UnsafeCell<&'a mut [u8]>,
 }
 
-impl Drawable for Bitmap1<'_> {
+impl const Drawable for Bitmap1<'_> {
     type ColorType = u8;
 
     #[inline]
-    fn width(&self) -> usize {
-        self.width
-    }
-
-    #[inline]
-    fn height(&self) -> usize {
-        self.height
+    fn size(&self) -> Size {
+        self.size
     }
 }
 
@@ -2547,8 +2440,7 @@ impl<'a> Bitmap1<'a> {
     #[inline]
     pub const fn from_slice(slice: &'a mut [u8], size: Size, stride: Option<NonZeroUsize>) -> Self {
         Self {
-            width: size.width() as usize,
-            height: size.height() as usize,
+            size,
             stride: match stride {
                 Some(v) => v.get(),
                 None => (size.width() + 7) as usize / 8,

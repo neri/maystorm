@@ -40,16 +40,6 @@ impl Semaphore {
     }
 
     #[inline]
-    pub fn lock(&self) {
-        self.wait()
-    }
-
-    #[inline]
-    pub fn unlock(&self) {
-        self.signal()
-    }
-
-    #[inline]
     pub fn wait(&self) {
         self.signal.wait_for(|| self.try_lock());
     }
@@ -91,7 +81,7 @@ impl BinarySemaphore {
     #[must_use]
     pub fn try_lock(&self) -> bool {
         self.value
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
             .is_ok()
     }
 

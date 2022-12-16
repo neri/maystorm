@@ -1,6 +1,5 @@
 use super::apic::*;
 use crate::{
-    io::tty::Tty,
     rt::{LegacyAppContext, RuntimeEnvironment},
     system::{ProcessorCoreType, ProcessorIndex},
     task::scheduler::Scheduler,
@@ -1525,7 +1524,7 @@ unsafe extern "C" fn handle_default_exception(ctx: &X64ExceptionContext) {
         let stdout = if is_user {
             System::stdout()
         } else {
-            System::em_console() as &mut dyn Tty
+            System::log()
         };
         stdout.set_attribute(0x0F);
 

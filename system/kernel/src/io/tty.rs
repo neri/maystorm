@@ -1,7 +1,13 @@
 //! TeleTypewriter
 
 use alloc::{boxed::Box, string::String, vec::Vec};
-use core::{fmt::Write, future::Future, pin::Pin};
+use core::{
+    cell::UnsafeCell,
+    fmt::Write,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 pub trait TtyWrite: Write {
     fn reset(&mut self) -> Result<(), TtyError>;
@@ -83,3 +89,73 @@ pub enum TtyError {
 }
 
 pub type TtyReadResult = Result<char, TtyError>;
+
+// Null is singleton
+static mut NULL_TTY: UnsafeCell<NullTty> = UnsafeCell::new(NullTty::new());
+
+/// Null Tty
+pub struct NullTty;
+
+impl NullTty {
+    #[inline]
+    const fn new() -> Self {
+        Self {}
+    }
+
+    #[inline]
+    pub fn null<'a>() -> &'a mut dyn Tty {
+        unsafe { &mut *NULL_TTY.get() }
+    }
+}
+
+impl Write for NullTty {
+    fn write_str(&mut self, _s: &str) -> core::fmt::Result {
+        Ok(())
+    }
+}
+
+impl TtyWrite for NullTty {
+    fn reset(&mut self) -> Result<(), TtyError> {
+        Ok(())
+    }
+
+    fn dims(&self) -> (isize, isize) {
+        (0, 0)
+    }
+
+    fn cursor_position(&self) -> (isize, isize) {
+        (0, 0)
+    }
+
+    fn set_cursor_position(&mut self, _x: isize, _y: isize) {}
+
+    fn is_cursor_enabled(&self) -> bool {
+        false
+    }
+
+    fn set_cursor_enabled(&mut self, _enabled: bool) -> bool {
+        false
+    }
+
+    fn set_attribute(&mut self, _attribute: u8) {}
+}
+
+impl TtyRead for NullTty {
+    fn read_async(
+        &self,
+    ) -> core::pin::Pin<Box<dyn core::future::Future<Output = TtyReadResult> + '_>> {
+        Box::pin(NullReader {})
+    }
+}
+
+impl Tty for NullTty {}
+
+struct NullReader {}
+
+impl Future for NullReader {
+    type Output = TtyReadResult;
+
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        Poll::Ready(Err(TtyError::EndOfStream))
+    }
+}

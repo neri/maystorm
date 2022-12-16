@@ -5,7 +5,9 @@
 #![feature(async_closure)]
 #![feature(box_into_inner)]
 #![feature(cfg_target_has_atomic)]
+#![feature(const_maybe_uninit_zeroed)]
 #![feature(const_mut_refs)]
+#![feature(const_refs_to_cell)]
 #![feature(const_trait_impl)]
 #![feature(control_flow_enum)]
 #![feature(core_intrinsics)]
@@ -84,12 +86,11 @@ static PANIC_GLOBAL_LOCK: Spinlock = Spinlock::new();
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    use io::tty::*;
     unsafe {
         Hal::cpu().disable_interrupt();
         let _ = task::scheduler::Scheduler::freeze(true);
         PANIC_GLOBAL_LOCK.synchronized(|| {
-            let stdout = System::em_console();
+            let stdout = System::log();
             stdout.set_attribute(0x4F);
             let _ = writeln!(stdout, " = Guru Meditation = ");
             if let Some(thread) = task::scheduler::Scheduler::current_thread() {

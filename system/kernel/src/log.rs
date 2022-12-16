@@ -61,7 +61,7 @@ impl EventManager {
     }
 
     pub fn system_log(s: &str) {
-        let _ = write!(System::em_console(), "{}", s);
+        let _ = write!(System::log(), "{}", s);
     }
 
     pub fn notify_simple_message(icon: r::Icons, message: &str) {

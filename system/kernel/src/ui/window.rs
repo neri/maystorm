@@ -1,6 +1,6 @@
 use super::{font::*, text::*, theme::Theme};
 use crate::{
-    io::hid_mgr::*,
+    io::{hid_mgr::*, screen::Screen},
     res::icon::IconManager,
     sync::atomic::AtomicBitflags,
     sync::RwLock,
@@ -79,7 +79,6 @@ pub struct WindowManager<'a> {
     buttons_down: AtomicUsize,
     buttons_up: AtomicUsize,
 
-    main_screen: UnsafeCell<Bitmap32<'a>>,
     screen_size: Size,
     screen_insets: SpinMutex<EdgeInsets>,
     update_coords: SpinMutex<Coordinates>,
@@ -108,17 +107,10 @@ struct Resources<'a> {
 }
 
 impl WindowManager<'static> {
-    pub fn init(main_screen: Bitmap32<'static>) {
+    pub fn init(main_screen: Arc<dyn Screen<ConstBitmap32<'static>, ColorType = TrueColor>>) {
         assert_call_once!();
 
-        let attributes = AtomicBitflags::EMPTY;
-
-        let mut screen_size = main_screen.size();
-        if screen_size.width < screen_size.height {
-            attributes.insert(WindowManagerAttributes::ROTATE);
-            screen_size.swap();
-        }
-
+        let screen_size = main_screen.size();
         let pointer_x = screen_size.width / 2;
         let pointer_y = screen_size.height / 2;
         let mut window_pool = BTreeMap::new();
@@ -186,13 +178,12 @@ impl WindowManager<'static> {
         unsafe {
             WM = Some(Box::new(WindowManager {
                 sem_event: Semaphore::new(0),
-                attributes,
+                attributes: AtomicBitflags::EMPTY,
                 pointer_x: AtomicIsize::new(pointer_x),
                 pointer_y: AtomicIsize::new(pointer_y),
                 buttons: AtomicUsize::new(0),
                 buttons_down: AtomicUsize::new(0),
                 buttons_up: AtomicUsize::new(0),
-                main_screen: UnsafeCell::new(main_screen),
                 screen_size,
                 screen_insets: SpinMutex::new(EdgeInsets::default()),
                 update_coords: SpinMutex::new(Coordinates::VOID),
@@ -648,7 +639,7 @@ impl WindowManager<'_> {
     pub fn user_screen_bounds() -> Rect {
         match WindowManager::shared_opt() {
             Some(shared) => Rect::from(shared.screen_size).insets_by(*shared.screen_insets.lock()),
-            None => System::main_screen().bounds(),
+            None => System::main_screen().unwrap().bounds(),
         }
     }
 
@@ -975,7 +966,6 @@ impl WindowManager<'_> {
 struct WindowManagerAttributes(usize);
 
 impl WindowManagerAttributes {
-    const ROTATE: Self = Self(0b0000_0001);
     const EVENT: Self = Self(0b0000_0010);
     const MOUSE_MOVE: Self = Self(0b0000_0100);
     const NEEDS_REDRAW: Self = Self(0b0000_1000);
@@ -1319,21 +1309,13 @@ impl RawWindow {
         if is_direct {
             let offset = self.frame.origin;
             let bitmap = self.bitmap();
-            let main_screen = unsafe { &mut *shared.main_screen.get() };
-            if shared.attributes.contains(WindowManagerAttributes::ROTATE) {
-                main_screen.blt_rotate(
-                    bitmap.as_const(),
-                    offset + Movement::from(coords.left_top()),
-                    coords.into(),
-                );
-            } else {
-                main_screen.blt(
-                    bitmap.as_const(),
-                    offset + Movement::from(coords.left_top()),
-                    coords.into(),
-                );
 
-                // main_screen.draw_rect(rect + Movement::from(offset), Color::YELLOW.into());
+            if let Some(screen) = System::main_screen() {
+                screen.blt(
+                    bitmap.as_const(),
+                    offset + Movement::from(coords.left_top()),
+                    coords.into(),
+                );
             }
         } else {
             drop(shared);
@@ -1350,21 +1332,11 @@ impl RawWindow {
 
     fn draw_outer_to_screen(&self, offset: Movement, rect: Rect, is_opaque: bool) {
         let screen_rect = rect + offset;
-        let shared = WindowManager::shared();
-        let main_screen = unsafe { &mut *shared.main_screen.get() };
         let back_buffer = unsafe { &mut *self.back_buffer.get() };
         let back_buffer = back_buffer.as_mut();
         if self.draw_into(back_buffer, offset, screen_rect, is_opaque) {
-            if shared.attributes.contains(WindowManagerAttributes::ROTATE) {
-                main_screen.blt_rotate(back_buffer.as_const(), rect.origin + offset, rect);
-            } else {
-                main_screen.blt(back_buffer.as_const(), rect.origin + offset, rect);
-
-                // if is_opaque {
-                //     main_screen.draw_rect(rect + offset, Color::BLUE.into());
-                // } else {
-                //     main_screen.draw_rect(rect + offset, Color::RED.into());
-                // }
+            if let Some(screen) = System::main_screen() {
+                screen.blt(back_buffer.as_const(), rect.origin + offset, rect);
             }
         }
     }
