@@ -415,15 +415,15 @@ async fn activity_monitor_main() {
                                 let v_lines = 4;
                                 for i in 1..h_lines {
                                     let point = Point::new(
-                                        graph_rect.x(),
-                                        graph_rect.y() + i * graph_size.height / h_lines,
+                                        graph_rect.min_x(),
+                                        graph_rect.min_y() + i * graph_size.height / h_lines,
                                     );
                                     bitmap.draw_hline(point, graph_size.width, graph_sub_color);
                                 }
                                 for i in 1..v_lines {
                                     let point = Point::new(
-                                        graph_rect.x() + i * graph_size.width / v_lines,
-                                        graph_rect.y(),
+                                        graph_rect.min_x() + i * graph_size.width / v_lines,
+                                        graph_rect.min_y(),
                                     );
                                     bitmap.draw_vline(point, graph_size.height, graph_sub_color);
                                 }
@@ -471,8 +471,8 @@ async fn activity_monitor_main() {
 
                             for cpu_index in 0..num_of_cpus {
                                 let rect = Rect::new(
-                                    meter_rect.x() + cpu_index as isize * 8,
-                                    meter_rect.y(),
+                                    meter_rect.min_x() + cpu_index as isize * 8,
+                                    meter_rect.min_y(),
                                     6,
                                     meter_rect.height(),
                                 );

@@ -13,10 +13,6 @@ pub trait Blt<T: Drawable>: Drawable {
     fn blt(&mut self, src: &T, origin: Point, rect: Rect);
 }
 
-// pub trait BltScale<T: Drawable>: Drawable {
-//     fn blt_scale(&mut self, src: &T, origin: Point, rect: Rect, scale: ScaleMode);
-// }
-
 pub trait BasicDrawing: SetPixel {
     fn fill_rect(&mut self, rect: Rect, color: Self::ColorType);
 
@@ -41,26 +37,20 @@ pub trait BasicDrawing: SetPixel {
     }
 
     fn draw_circle(&mut self, origin: Point, radius: isize, color: Self::ColorType) {
-        let rect = Rect {
-            origin: origin - radius,
-            size: Size::new(radius * 2, radius * 2),
-        };
+        let rect = Rect::from((origin - radius, Size::new(radius * 2, radius * 2)));
         self.draw_round_rect(rect, radius, color);
     }
 
     fn fill_circle(&mut self, origin: Point, radius: isize, color: Self::ColorType) {
-        let rect = Rect {
-            origin: origin - radius,
-            size: Size::new(radius * 2, radius * 2),
-        };
+        let rect = Rect::from((origin - radius, Size::new(radius * 2, radius * 2)));
         self.fill_round_rect(rect, radius, color);
     }
 
     fn fill_round_rect(&mut self, rect: Rect, radius: isize, color: Self::ColorType) {
-        let width = rect.size.width;
-        let height = rect.size.height;
-        let dx = rect.origin.x;
-        let dy = rect.origin.y;
+        let width = rect.width();
+        let height = rect.height();
+        let dx = rect.min_x();
+        let dy = rect.min_y();
 
         let mut radius = radius;
         if radius * 2 > width {
@@ -108,10 +98,10 @@ pub trait BasicDrawing: SetPixel {
     }
 
     fn draw_round_rect(&mut self, rect: Rect, radius: isize, color: Self::ColorType) {
-        let width = rect.size.width;
-        let height = rect.size.height;
-        let dx = rect.origin.x;
-        let dy = rect.origin.y;
+        let width = rect.width();
+        let height = rect.height();
+        let dx = rect.min_x();
+        let dy = rect.min_y();
 
         let mut radius = radius;
         if radius * 2 > width {
@@ -168,10 +158,10 @@ pub trait BasicDrawing: SetPixel {
     }
 
     fn fill_round_rect_outside(&mut self, rect: Rect, radius: isize, color: Self::ColorType) {
-        let width = rect.size.width;
-        let height = rect.size.height;
-        let dx = rect.origin.x;
-        let dy = rect.origin.y;
+        let width = rect.width();
+        let height = rect.height();
+        let dx = rect.min_x();
+        let dy = rect.min_y();
         let left = rect.min_x();
         let right = rect.max_x();
 
@@ -259,7 +249,7 @@ pub trait RasterFontWriter: SetPixel {
     fn draw_font(&mut self, src: &[u8], size: Size, origin: Point, color: Self::ColorType) {
         let stride = (size.width as usize + 7) / 8;
 
-        let Ok(mut coords) = Coordinates::from_rect(Rect { origin, size }) else { return };
+        let Ok(mut coords) = Coordinates::from_rect(Rect::from((origin, size))) else { return };
 
         let width = self.width() as isize;
         let height = self.height() as isize;
@@ -365,8 +355,8 @@ pub trait BltConvert<T: ColorTrait>: MutableRasterImage {
     {
         let mut dx = origin.x;
         let mut dy = origin.y;
-        let mut sx = rect.origin.x;
-        let mut sy = rect.origin.y;
+        let mut sx = rect.min_x();
+        let mut sy = rect.min_y();
         let mut width = rect.width();
         let mut height = rect.height();
 
@@ -700,7 +690,7 @@ impl Bitmap8<'_> {
             return None;
         }
 
-        let offset = rect.x() as usize + rect.y() as usize * stride;
+        let offset = rect.min_x() as usize + rect.min_y() as usize * stride;
         let new_len = (rect.height() as usize - 1) * stride + rect.width() as usize;
         let r = {
             let slice = self.slice_mut();
@@ -720,8 +710,8 @@ impl BasicDrawing for Bitmap8<'_> {
     fn fill_rect(&mut self, rect: Rect, color: Self::ColorType) {
         let mut width = rect.width();
         let mut height = rect.height();
-        let mut dx = rect.x();
-        let mut dy = rect.y();
+        let mut dx = rect.min_x();
+        let mut dy = rect.min_y();
 
         if dx < 0 {
             width += dx;
@@ -1085,10 +1075,10 @@ impl Bitmap32<'_> {
         let alpha = rhs.a as usize;
         let alpha_n = 255 - alpha;
 
-        let mut width = rect.size.width;
-        let mut height = rect.size.height;
-        let mut dx = rect.origin.x;
-        let mut dy = rect.origin.y;
+        let mut width = rect.width();
+        let mut height = rect.height();
+        let mut dx = rect.min_x();
+        let mut dy = rect.min_y();
 
         if dx < 0 {
             width += dx;
@@ -1139,8 +1129,8 @@ impl BasicDrawing for Bitmap32<'_> {
     fn fill_rect(&mut self, rect: Rect, color: Self::ColorType) {
         let mut width = rect.width();
         let mut height = rect.height();
-        let mut dx = rect.x();
-        let mut dy = rect.y();
+        let mut dx = rect.min_x();
+        let mut dy = rect.min_y();
 
         if dx < 0 {
             width += dx;
@@ -1362,7 +1352,7 @@ impl Bitmap32<'_> {
             return None;
         }
 
-        let offset = rect.x() as usize + rect.y() as usize * stride;
+        let offset = rect.min_x() as usize + rect.min_y() as usize * stride;
         let new_len = (rect.height() as usize - 1) * stride + rect.width() as usize;
         let r = {
             let slice = self.slice_mut();
@@ -2176,8 +2166,8 @@ fn adjust_blt_coords(
 ) -> (isize, isize, isize, isize, isize, isize) {
     let mut dx = origin.x;
     let mut dy = origin.y;
-    let mut sx = rect.origin.x;
-    let mut sy = rect.origin.y;
+    let mut sx = rect.min_x();
+    let mut sy = rect.min_y();
     let mut width = rect.width();
     let mut height = rect.height();
     let dw = dest_size.width();

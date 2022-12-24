@@ -1,9 +1,6 @@
 use crate::{
     arch::cpu::*,
-    io::{
-        screen::{BitmapScreen, Screen, ScreenOrientation},
-        tty::*,
-    },
+    io::{screen::*, tty::*},
     task::scheduler::*,
     *,
 };
@@ -78,6 +75,27 @@ impl fmt::Display for Version<'_> {
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ProcessorIndex(pub usize);
+
+impl ProcessorIndex {
+    #[inline]
+    pub fn get<'a>(&self) -> Option<&'a Box<Cpu>> {
+        System::cpu_ref(*self)
+    }
+}
+
+impl const From<ProcessorIndex> for usize {
+    #[inline]
+    fn from(value: ProcessorIndex) -> Self {
+        value.0
+    }
+}
+
+impl const From<usize> for ProcessorIndex {
+    #[inline]
+    fn from(value: usize) -> Self {
+        Self(value)
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ProcessorCoreType {
@@ -185,7 +203,7 @@ impl System {
     fn late_init(args: usize) {
         assert_call_once!();
 
-        let shared = unsafe { Self::shared_mut() };
+        let shared = Self::shared();
 
         unsafe {
             Scheduler::late_init();
@@ -283,14 +301,9 @@ impl System {
         fence(Ordering::SeqCst);
     }
 
-    /// Returns an instance of the current processor.
     #[inline]
-    #[track_caller]
-    pub fn current_processor<'a>() -> &'a Cpu {
-        Self::shared()
-            .cpus
-            .get(Hal::cpu().current_processor_index().0)
-            .unwrap()
+    pub fn cpus<'a>() -> impl Iterator<Item = &'a Box<Cpu>> {
+        Self::shared().cpus.iter()
     }
 
     /// Returns a reference to the processor at the specified index.
@@ -301,18 +314,12 @@ impl System {
     #[inline]
     #[track_caller]
     pub fn cpu<'a>(index: ProcessorIndex) -> &'a Cpu {
-        Self::shared().cpus.get(index.0).unwrap()
+        Self::cpu_ref(index).unwrap()
     }
 
-    /// Returns a mutable reference to the processor at the specified index.
-    ///
-    /// # Panics
-    ///
-    /// Panics if specified index is larger than the number of processors.
     #[inline]
-    #[track_caller]
-    pub unsafe fn cpu_mut<'a>(index: ProcessorIndex) -> &'a mut Cpu {
-        Self::shared_mut().cpus.get_mut(index.0).unwrap()
+    pub fn cpu_ref<'a>(index: ProcessorIndex) -> Option<&'a Box<Cpu>> {
+        Self::shared().cpus.get(index.0)
     }
 
     #[inline]

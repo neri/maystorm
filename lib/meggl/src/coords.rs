@@ -10,6 +10,13 @@ pub struct Point {
     pub y: isize,
 }
 
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Default, PartialEq)]
+pub struct PointF {
+    pub x: FloatType,
+    pub y: FloatType,
+}
+
 impl Point {
     #[inline]
     pub const fn new(x: isize, y: isize) -> Self {
@@ -341,17 +348,17 @@ impl const From<Movement> for Distance2 {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, Default, PartialEq)]
-pub struct PointF {
-    pub x: FloatType,
-    pub y: FloatType,
-}
-
-#[repr(C)]
 #[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
 pub struct Size {
     pub width: isize,
     pub height: isize,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Default, PartialEq)]
+pub struct SizeF {
+    pub width: FloatType,
+    pub height: FloatType,
 }
 
 impl Size {
@@ -583,13 +590,22 @@ pub struct Rect {
 }
 
 impl Rect {
-    pub const VOID: Self = Self::new(isize::MAX, isize::MAX, 0, 0);
+    pub const VOID: Self = Self {
+        origin: Point::new(isize::MAX, isize::MAX),
+        size: Size::new(0, 0),
+    };
 
     #[inline]
     pub const fn new(x: isize, y: isize, width: isize, height: isize) -> Self {
         Self {
-            origin: Point { x, y },
-            size: Size { width, height },
+            origin: Point {
+                x: if width >= 0 { x } else { x + width },
+                y: if height >= 0 { y } else { y + height },
+            },
+            size: Size {
+                width: abs(width),
+                height: abs(height),
+            },
         }
     }
 
@@ -617,16 +633,6 @@ impl Rect {
     }
 
     #[inline]
-    pub const fn x(&self) -> isize {
-        self.origin.x
-    }
-
-    #[inline]
-    pub const fn y(&self) -> isize {
-        self.origin.y
-    }
-
-    #[inline]
     pub const fn size(&self) -> Size {
         self.size
     }
@@ -643,12 +649,12 @@ impl Rect {
 
     #[inline]
     pub const fn min_x(&self) -> isize {
-        min(self.x(), self.x() + self.width())
+        self.origin.x
     }
 
     #[inline]
     pub const fn max_x(&self) -> isize {
-        max(self.x(), self.x() + self.width())
+        self.origin.x() + self.width()
     }
 
     #[inline]
@@ -658,12 +664,12 @@ impl Rect {
 
     #[inline]
     pub const fn min_y(&self) -> isize {
-        min(self.y(), self.y() + self.height())
+        self.origin.y
     }
 
     #[inline]
     pub const fn max_y(&self) -> isize {
-        max(self.y(), self.y() + self.height())
+        self.origin.y() + self.height()
     }
 
     #[inline]
@@ -740,6 +746,13 @@ impl const From<Size> for Rect {
     #[inline]
     fn from(size: Size) -> Self {
         size.bounds()
+    }
+}
+
+impl const From<(Point, Size)> for Rect {
+    #[inline]
+    fn from(value: (Point, Size)) -> Self {
+        Self::new(value.0.x, value.0.y, value.1.width, value.1.height)
     }
 }
 
@@ -828,8 +841,8 @@ impl const Mul<isize> for Rect {
     #[inline]
     fn mul(self, rhs: isize) -> Self::Output {
         Self::new(
-            self.x() * rhs,
-            self.y() * rhs,
+            self.origin.x() * rhs,
+            self.origin.y() * rhs,
             self.width() * rhs,
             self.height() * rhs,
         )
@@ -849,8 +862,8 @@ impl const Mul<usize> for Rect {
     #[inline]
     fn mul(self, rhs: usize) -> Self::Output {
         Self::new(
-            self.x() * rhs as isize,
-            self.y() * rhs as isize,
+            self.origin.x() * rhs as isize,
+            self.origin.y() * rhs as isize,
             self.width() * rhs as isize,
             self.height() * rhs as isize,
         )
@@ -1096,6 +1109,23 @@ impl EdgeInsets {
     }
 }
 
+impl Zero for EdgeInsets {
+    #[inline]
+    fn zero() -> Self {
+        Self {
+            top: 0,
+            left: 0,
+            bottom: 0,
+            right: 0,
+        }
+    }
+
+    #[inline]
+    fn is_zero(&self) -> bool {
+        self.top == 0 && self.left == 0 && self.bottom == 0 && self.right == 0
+    }
+}
+
 impl const Add<Self> for EdgeInsets {
     type Output = Self;
 
@@ -1135,6 +1165,15 @@ impl const SubAssign<Self> for EdgeInsets {
     #[inline]
     fn sub_assign(&mut self, rhs: Self) {
         *self = self.sub(rhs);
+    }
+}
+
+#[inline]
+const fn abs(val: isize) -> isize {
+    if val >= 0 {
+        val
+    } else {
+        0 - val
     }
 }
 

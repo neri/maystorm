@@ -386,8 +386,7 @@ impl Shell {
                     println!("Uniprocessor system");
                 }
 
-                for index in 0..device.num_of_active_cpus() {
-                    let cpu = System::cpu(ProcessorIndex(index));
+                for (index, cpu) in System::cpus().enumerate() {
                     println!(
                         "CPU #{} {:08x} {:?}",
                         index,
@@ -619,7 +618,7 @@ impl Shell {
                 if device.is_configured() { "" } else { "? " },
                 device.preferred_device_name().unwrap_or("Unknown Device"),
             );
-            if device.children().len() > 0 {
+            if device.children().next().is_some() {
                 Self::print_usb_device(nest + 1, Some(device.addr()));
             }
         }

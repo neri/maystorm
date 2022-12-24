@@ -29,8 +29,8 @@ impl<T: Into<usize>> AtomicEnum<T> {
     }
 
     #[inline]
-    pub fn set(&self, val: T) {
-        self.bits.store(val.into(), Ordering::SeqCst);
+    pub fn set(&self, value: T) {
+        self.bits.store(value.into(), Ordering::SeqCst);
     }
 }
 

@@ -13,7 +13,6 @@ use alloc::{
     vec::Vec,
 };
 use core::{
-    cell::UnsafeCell,
     mem::transmute,
     mem::MaybeUninit,
     num::NonZeroUsize,
@@ -29,7 +28,7 @@ pub const FREQ_MAX: FreqType = 20_000.0;
 pub const AUDIO_LEVEL_MAX: SampleType = 1.0;
 pub const AUDIO_LEVEL_MIN: SampleType = -1.0;
 
-static mut AUDIO_MANAGER: MaybeUninit<UnsafeCell<AudioManager>> = MaybeUninit::uninit();
+static mut AUDIO_MANAGER: MaybeUninit<AudioManager> = MaybeUninit::uninit();
 
 pub struct AudioManager {
     audio_driver: Mutex<Option<Arc<dyn AudioDriver>>>,
@@ -44,7 +43,7 @@ impl AudioManager {
     pub unsafe fn init() {
         assert_call_once!();
 
-        AUDIO_MANAGER = MaybeUninit::new(UnsafeCell::new(AudioManager::new()));
+        AUDIO_MANAGER = MaybeUninit::new(AudioManager::new());
 
         SpawnOption::with_priority(Priority::High).start(Self::_audio_thread, 0, "Audio Manager");
     }
@@ -60,7 +59,7 @@ impl AudioManager {
 
     #[inline]
     fn shared<'a>() -> &'a Self {
-        unsafe { &*AUDIO_MANAGER.assume_init_ref().get() }
+        unsafe { &*AUDIO_MANAGER.assume_init_ref() }
     }
 
     #[inline]

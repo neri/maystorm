@@ -7,19 +7,23 @@ use crate::{
 use alloc::{
     borrow::ToOwned, collections::BTreeMap, fmt, format, string::String, sync::Arc, vec::Vec,
 };
-use core::{cell::UnsafeCell, fmt::Display, num::NonZeroU64};
+use core::{fmt::Display, num::NonZeroU64};
 use megstd::{
     fs::*,
     io::{ErrorKind, Read, Result, Write},
 };
 
-static mut FS: UnsafeCell<FileManager> = UnsafeCell::new(FileManager::new());
+static FS: FileManager = FileManager::new();
 
 pub type OffsetType = i64;
 
 pub struct FileManager {
     mount_points: RwLock<BTreeMap<String, Arc<dyn FsDriver>>>,
 }
+
+unsafe impl Send for FileManager {}
+
+unsafe impl Sync for FileManager {}
 
 impl FileManager {
     pub const PATH_SEPARATOR: &'static str = "/";
@@ -34,7 +38,7 @@ impl FileManager {
     pub unsafe fn init(initrd_base: *mut u8, initrd_size: usize) {
         assert_call_once!();
 
-        let shared = FS.get_mut();
+        let shared = Self::shared();
 
         let mut mount_points = shared.mount_points.write().unwrap();
         let bootfs =
@@ -46,7 +50,7 @@ impl FileManager {
 
     #[inline]
     fn shared<'a>() -> &'a Self {
-        unsafe { &*FS.get() }
+        &FS
     }
 
     #[inline]

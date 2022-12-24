@@ -6,25 +6,40 @@ pub trait Screen<T>: Drawable
 where
     T: Drawable<ColorType = Self::ColorType>,
 {
-    fn native_size(&self) -> Size;
-
     fn blt(&self, src: &T, origin: Point, rect: Rect);
 
     fn fill_rect(&self, rect: Rect, color: Self::ColorType);
 
+    /// Returns the native screen size
+    fn native_size(&self) -> Size;
+
+    /// Returns the physical size of the screen, if available.
+    fn physical_size(&self) -> Option<Size> {
+        None
+    }
+
+    /// Returns the number of pixels per inch.
+    fn pixels_per_inch(&self) -> usize {
+        96
+    }
+
+    /// Returns the screen rotation status.
     fn rotation(&self) -> ScreenRotation {
         Default::default()
     }
 
-    fn set_rotation(&self, val: ScreenRotation) -> Result<ScreenRotation, ScreenRotation> {
-        let _ = val;
+    /// Changes the rotation state of the screen.
+    fn set_rotation(&self, value: ScreenRotation) -> Result<ScreenRotation, ScreenRotation> {
+        let _ = value;
         Err(self.rotation())
     }
 
+    /// Rotate the screen one level, if possible.
     fn rotate(&self) -> Result<ScreenRotation, ScreenRotation> {
         self.set_rotation(self.rotation().succ())
     }
 
+    /// Returns the screen orientation status.
     fn orientation(&self) -> ScreenOrientation {
         let dims = self.size();
         if dims.width() < dims.height() {
@@ -34,11 +49,12 @@ where
         }
     }
 
+    /// Changes the screen orientation state.
     fn set_orientation(
         &self,
-        val: ScreenOrientation,
+        value: ScreenOrientation,
     ) -> Result<ScreenOrientation, ScreenOrientation> {
-        let _ = val;
+        let _ = value;
         Err(self.orientation())
     }
 }
@@ -88,6 +104,8 @@ impl const From<ScreenRotation> for usize {
 pub enum ScreenOrientation {
     Portrait,
     Landscape,
+    // LandscapeLeft,
+    // LandscapeRight,
     // PortraitUpsideDown,
 }
 
@@ -156,12 +174,7 @@ impl Screen<ConstBitmap32<'_>> for BitmapScreen<'_> {
         match self.rotation() {
             ScreenRotation::_0 => self.bitmap().blt(src, origin, rect),
             ScreenRotation::_90 => self.bitmap().blt_rotate(src, origin, rect),
-            ScreenRotation::_180 => {
-                // TODO:
-            }
-            ScreenRotation::_270 => {
-                // TODO:
-            }
+            ScreenRotation::_180 | ScreenRotation::_270 => unreachable!(),
         }
     }
 
@@ -169,11 +182,13 @@ impl Screen<ConstBitmap32<'_>> for BitmapScreen<'_> {
         if self.is_natural_orientation() {
             self.bitmap().fill_rect(rect, color.into());
         } else {
-            let Ok(coords) = Coordinates::from_rect(rect) else { return };
-            let c1 = coords.left_top().swapped();
-            let c2 = coords.right_bottom().swapped();
-            self.bitmap()
-                .fill_rect(Coordinates::from_diagonal(c1, c2).into(), color.into());
+            let rect = Rect::new(
+                self.dims.height() - rect.min_y() - rect.height(),
+                rect.min_x(),
+                rect.height(),
+                rect.width(),
+            );
+            self.bitmap().fill_rect(rect, color.into());
         }
     }
 
@@ -181,20 +196,13 @@ impl Screen<ConstBitmap32<'_>> for BitmapScreen<'_> {
         self.rotation.value()
     }
 
-    fn set_rotation(&self, val: ScreenRotation) -> Result<ScreenRotation, ScreenRotation> {
-        if match val {
+    fn set_rotation(&self, value: ScreenRotation) -> Result<ScreenRotation, ScreenRotation> {
+        if match value {
             ScreenRotation::_0 | ScreenRotation::_90 => {
-                self.rotation.set(val);
+                self.rotation.set(value);
                 true
             }
-            ScreenRotation::_180 => {
-                self.rotation.set(ScreenRotation::_0);
-                false
-            }
-            ScreenRotation::_270 => {
-                self.rotation.set(ScreenRotation::_90);
-                false
-            }
+            ScreenRotation::_180 | ScreenRotation::_270 => false,
         } {
             Ok(self.rotation())
         } else {
@@ -202,17 +210,28 @@ impl Screen<ConstBitmap32<'_>> for BitmapScreen<'_> {
         }
     }
 
+    fn rotate(&self) -> Result<ScreenRotation, ScreenRotation> {
+        let new_val = match self.rotation.value() {
+            ScreenRotation::_0 => ScreenRotation::_90,
+            ScreenRotation::_90 => ScreenRotation::_0,
+            ScreenRotation::_180 => ScreenRotation::_90,
+            ScreenRotation::_270 => ScreenRotation::_0,
+        };
+        self.rotation.set(new_val);
+        Ok(self.rotation())
+    }
+
     fn set_orientation(
         &self,
-        val: ScreenOrientation,
+        value: ScreenOrientation,
     ) -> Result<ScreenOrientation, ScreenOrientation> {
         if self.is_portrait_native() {
-            self.rotation.set(match val {
+            self.rotation.set(match value {
                 ScreenOrientation::Portrait => ScreenRotation::_0,
                 ScreenOrientation::Landscape => ScreenRotation::_90,
             });
         } else {
-            self.rotation.set(match val {
+            self.rotation.set(match value {
                 ScreenOrientation::Portrait => ScreenRotation::_90,
                 ScreenOrientation::Landscape => ScreenRotation::_0,
             });

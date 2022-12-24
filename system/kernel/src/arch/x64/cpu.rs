@@ -8,8 +8,7 @@ use crate::{
 use alloc::boxed::Box;
 use bitflags::*;
 use core::{
-    arch::asm,
-    arch::x86_64::__cpuid_count,
+    arch::{asm, x86_64::__cpuid_count},
     cell::UnsafeCell,
     convert::TryFrom,
     ffi::c_void,
@@ -20,12 +19,13 @@ use paste::paste;
 
 static mut SHARED_CPU: UnsafeCell<SharedCpu> = UnsafeCell::new(SharedCpu::new());
 
-#[allow(dead_code)]
 pub struct Cpu {
-    pub cpu_index: ProcessorIndex,
     apic_id: ApicId,
     core_type: ProcessorCoreType,
-    tsc_base: u64,
+
+    tsc_base: AtomicU64,
+
+    #[allow(dead_code)]
     gdt: Box<GlobalDescriptorTable>,
 }
 
@@ -94,17 +94,16 @@ impl Cpu {
         // }
 
         Box::new(Cpu {
-            cpu_index: ProcessorIndex(0),
             apic_id,
             core_type,
             gdt,
-            tsc_base: 0,
+            tsc_base: AtomicU64::new(0),
         })
     }
 
     #[inline]
-    pub fn set_tsc_base(&mut self, value: u64) {
-        self.tsc_base = value;
+    pub fn set_tsc_base(&self, value: u64) {
+        self.tsc_base.store(value, Ordering::Release);
     }
 
     #[inline]
@@ -135,12 +134,6 @@ impl Cpu {
     #[inline]
     pub const fn processor_type(&self) -> ProcessorCoreType {
         self.core_type
-    }
-
-    #[inline]
-    pub fn current_processor_type() -> ProcessorCoreType {
-        let index = Hal::cpu().current_processor_index();
-        System::cpu(index).processor_type()
     }
 
     #[inline]
@@ -215,13 +208,19 @@ impl Cpu {
     #[inline]
     pub unsafe fn read_tsc() -> u64 {
         let (tsc_raw, index) = Self::rdtscp();
-        tsc_raw - System::cpu(ProcessorIndex(index as usize)).tsc_base
+        tsc_raw
+            - ProcessorIndex(index as usize)
+                .get()
+                .unwrap()
+                .tsc_base
+                .load(Ordering::Relaxed)
     }
 
     /// Launch the 32-bit legacy mode application.
     pub unsafe fn invoke_legacy(ctx: &LegacyAppContext) -> ! {
         Hal::cpu().disable_interrupt();
 
+        // Prepare GDT for 32-bit user mode.
         let gdt = GlobalDescriptorTable::current();
         gdt.set_item(
             Selector::LEGACY_CODE,
@@ -249,25 +248,34 @@ impl Cpu {
 
         gdt.reload();
 
+        // The initial value of the Rflags register is interrupt allowed.
         let rflags = Rflags::IF;
 
+        // Reproduce the stack at the time of pseudo interrupt, return with an IRETQ, and transition to user mode.
         asm!("
-            mov ds, {0:e}
-            mov es, {0:e}
-            mov fs, {0:e}
-            mov gs, {0:e}
-            push {0}
-            push {2}
-            push {4}
-            push {1}
-            push {3}
+            mov ds, {new_ss:e}
+            mov es, {new_ss:e}
+            mov fs, {new_ss:e}
+            mov gs, {new_ss:e}
+            push {new_ss}
+            push {new_sp}
+            push {new_fl}
+            push {new_cs}
+            push {new_ip}
+            xor eax, eax
+            xor ebx, ebx
+            xor ecx, ecx
+            xor edx, edx
+            xor ebp, ebp
+            xor esi, esi
+            xor edi, edi
             iretq
             ",
-            in (reg) Selector::LEGACY_DATA.0 as usize,
-            in (reg) Selector::LEGACY_CODE.0 as usize,
-            in (reg) ctx.stack_pointer as usize,
-            in (reg) ctx.start as usize,
-            in (reg) rflags.bits(),
+            new_ss = in (reg) Selector::LEGACY_DATA.0 as usize,
+            new_cs = in (reg) Selector::LEGACY_CODE.0 as usize,
+            new_sp = in (reg) ctx.stack_pointer as usize,
+            new_ip = in (reg) ctx.start as usize,
+            new_fl = in (reg) rflags.bits(),
             options(noreturn));
     }
 }
@@ -334,6 +342,7 @@ impl CpuContextData {
         );
     }
 
+    #[inline]
     pub unsafe fn switch(&self, other: &Self) {
         let gdt = GlobalDescriptorTable::current();
         Self::_switch(self, other, gdt);

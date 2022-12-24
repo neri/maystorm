@@ -104,8 +104,8 @@ impl DrawingContext {
     pub fn fill_rect(&mut self, rect: Rect, color: WindowColor) {
         syscall::os_win_fill_rect(
             self.ctx,
-            rect.x() as usize,
-            rect.y() as usize,
+            rect.min_x() as usize,
+            rect.min_y() as usize,
             rect.width() as usize,
             rect.height() as usize,
             color.0 as usize,
@@ -127,8 +127,8 @@ impl DrawingContext {
         };
         syscall::os_draw_shape(
             self.ctx,
-            rect.x() as usize,
-            rect.y() as usize,
+            rect.min_x() as usize,
+            rect.min_y() as usize,
             rect.width() as usize,
             rect.height() as usize,
             &params,

@@ -469,7 +469,7 @@ impl WindowManager<'_> {
                                 }
                             }
                             shared.captured.set(target);
-                            captured_offset = position - target_window.visible_frame().origin;
+                            captured_offset = position - target_window.visible_frame().origin();
                         } else {
                             let _ = Self::make_mouse_events(
                                 target,
@@ -517,7 +517,7 @@ impl WindowManager<'_> {
         up: MouseButton,
     ) -> Result<(), WindowPostError> {
         let window = target.as_ref();
-        let origin = window.frame.insets_by(window.content_insets).origin;
+        let origin = window.frame.insets_by(window.content_insets).origin();
         let point = Point::new(position.x - origin.x, position.y - origin.y);
 
         if down.is_empty() && up.is_empty() {
@@ -769,12 +769,12 @@ impl WindowManager<'_> {
         let moved = Self::_update_relative_coord(
             &shared.pointer_x,
             pointer.x,
-            screen_bounds.x(),
+            screen_bounds.min_x(),
             screen_bounds.width() - 1,
         ) | Self::_update_relative_coord(
             &shared.pointer_y,
             pointer.y,
-            screen_bounds.y(),
+            screen_bounds.min_y(),
             screen_bounds.height() - 1,
         );
 
@@ -816,12 +816,12 @@ impl WindowManager<'_> {
         let moved = Self::_update_absolute_coord(
             &shared.pointer_x,
             pointer_x,
-            screen_bounds.x(),
+            screen_bounds.min_x(),
             screen_bounds.width() - 1,
         ) | Self::_update_absolute_coord(
             &shared.pointer_y,
             pointer_y,
-            screen_bounds.y(),
+            screen_bounds.min_y(),
             screen_bounds.height() - 1,
         );
 
@@ -937,8 +937,8 @@ impl WindowManager<'_> {
                 window.handle.0,
                 usize::from(window.pid),
                 window.level.0,
-                frame.x(),
-                frame.y(),
+                frame.min_x(),
+                frame.min_y(),
                 frame.width(),
                 frame.height(),
                 window.title().unwrap_or("")
@@ -1271,7 +1271,7 @@ impl RawWindow {
 
     fn test_frame(&self, position: Point, frame: Rect) -> bool {
         let mut frame = frame;
-        frame.origin += Movement::from(self.frame.origin);
+        frame.origin += Movement::from(self.frame.origin());
         frame.contains(position)
     }
 
@@ -1292,7 +1292,7 @@ impl RawWindow {
                 .iter()
                 .position(|&v| v == self.handle)
                 .unwrap_or(0);
-            let screen_rect = rect + Movement::from(self.frame.origin);
+            let screen_rect = rect + Movement::from(self.frame.origin());
 
             let mut is_direct = true;
             for handle in window_orders[first_index..].iter() {
@@ -1307,7 +1307,7 @@ impl RawWindow {
             false
         };
         if is_direct {
-            let offset = self.frame.origin;
+            let offset = self.frame.origin();
             let bitmap = self.bitmap();
 
             if let Some(screen) = System::main_screen() {
@@ -1323,8 +1323,8 @@ impl RawWindow {
             let Ok(inner_coords) = Coordinates::from_rect(bounds) else {
                 return
             };
-            let frame_origin = self.frame.origin;
-            let offset = self.shadow_frame().origin;
+            let frame_origin = self.frame.origin();
+            let offset = self.shadow_frame().origin();
             let rect = Rect::from(coords.trimmed(inner_coords)) + (frame_origin - offset);
             self.draw_outer_to_screen(Movement::from(offset), rect, is_opaque);
         }
@@ -1336,7 +1336,7 @@ impl RawWindow {
         let back_buffer = back_buffer.as_mut();
         if self.draw_into(back_buffer, offset, screen_rect, is_opaque) {
             if let Some(screen) = System::main_screen() {
-                screen.blt(back_buffer.as_const(), rect.origin + offset, rect);
+                screen.blt(back_buffer.as_const(), rect.origin() + offset, rect);
             }
         }
     }
@@ -1432,7 +1432,7 @@ impl RawWindow {
         let window_button_width = shared.resources.window_button_width;
         Rect::new(
             rect.max_x() - window_button_width - WINDOW_CORNER_RADIUS,
-            rect.y(),
+            rect.min_y(),
             window_button_width,
             rect.height(),
         )
@@ -1444,7 +1444,7 @@ impl RawWindow {
         let window_button_width = shared.resources.window_button_width;
         Rect::new(
             WINDOW_CORNER_RADIUS,
-            rect.y(),
+            rect.min_y(),
             window_button_width,
             rect.height(),
         )
@@ -1605,8 +1605,8 @@ impl RawWindow {
 
         let button = &shared.resources.close_button;
         let origin = Point::new(
-            button_frame.x() + (button_frame.width() - button.width() as isize) / 2,
-            button_frame.y() + (button_frame.height() - button.height() as isize) / 2,
+            button_frame.min_x() + (button_frame.width() - button.width() as isize) / 2,
+            button_frame.min_y() + (button_frame.height() - button.height() as isize) / 2,
         );
         button.draw_to(&mut bitmap, origin, button.bounds(), foreground.into());
     }
@@ -1648,8 +1648,8 @@ impl RawWindow {
 
         let button = &shared.resources.back_button;
         let origin = Point::new(
-            button_frame.x() + (button_frame.width() - button.width() as isize) / 2,
-            button_frame.y() + (button_frame.height() - button.height() as isize) / 2,
+            button_frame.min_x() + (button_frame.width() - button.width() as isize) / 2,
+            button_frame.min_y() + (button_frame.height() - button.height() as isize) / 2,
         );
         button.draw_to(&mut bitmap, origin, button.bounds(), foreground.into());
     }
@@ -1784,10 +1784,10 @@ impl RawWindow {
     {
         let mut bitmap = Bitmap::from(self.bitmap());
         let bounds = self.frame.bounds().insets_by(self.content_insets);
-        let origin = Point::new(isize::max(0, rect.x()), isize::max(0, rect.y()));
+        let origin = Point::new(isize::max(0, rect.min_x()), isize::max(0, rect.min_y()));
         let Ok(coords) = Coordinates::from_rect(Rect::new(
-            origin.x + bounds.x(),
-            origin.y + bounds.y(),
+            origin.x + bounds.min_x(),
+            origin.y + bounds.min_y(),
             isize::min(rect.width(), bounds.width() - origin.x),
             isize::min(rect.height(), bounds.height() - origin.y),
         )) else {
@@ -1890,18 +1890,18 @@ impl WindowBuilder {
         } else {
             let mut frame = self.frame;
             frame.size += content_insets;
-            if frame.x() == isize::MIN {
+            if frame.min_x() == isize::MIN {
                 frame.origin.x = (screen_bounds.max_x() - frame.width()) / 2;
-            } else if frame.x() < 0 {
+            } else if frame.min_x() < 0 {
                 frame.origin.x +=
                     screen_bounds.max_x() - (content_insets.left + content_insets.right);
             }
-            if frame.y() == isize::MIN {
+            if frame.min_y() == isize::MIN {
                 frame.origin.y = isize::max(
                     screen_bounds.min_y(),
                     (screen_bounds.max_y() - frame.height()) / 2,
                 );
-            } else if frame.y() < 0 {
+            } else if frame.min_y() < 0 {
                 frame.origin.y +=
                     screen_bounds.max_y() - (content_insets.top + content_insets.bottom);
             }
@@ -2377,7 +2377,7 @@ impl WindowHandle {
         window.draw_into(
             target_bitmap,
             Movement::default(),
-            rect + Movement::from(window.frame.origin),
+            rect + Movement::from(window.frame.origin()),
             false,
         );
     }

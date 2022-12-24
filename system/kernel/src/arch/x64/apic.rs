@@ -59,12 +59,10 @@ unsafe extern "C" fn apic_start_ap() {
     while AP_STALLED.load(Ordering::Relaxed) {
         Hal::cpu().spin_loop_hint();
     }
-    let tsc = Cpu::rdtsc();
 
-    for index in 0..System::current_device().num_of_active_cpus() {
-        let cpu = System::cpu(ProcessorIndex(index));
+    for (index, cpu) in System::cpus().enumerate() {
         if cpu.apic_id() == apic_id {
-            System::cpu_mut(ProcessorIndex(index)).set_tsc_base(tsc);
+            cpu.set_tsc_base(Cpu::rdtsc());
             MSR::TSC_AUX.write(index as u64);
             break;
         }
@@ -159,6 +157,7 @@ impl Apic {
         });
 
         // then enable irq
+        fence(Ordering::SeqCst);
         Hal::cpu().enable_interrupt();
 
         // Local APIC Timer
@@ -254,13 +253,12 @@ impl Apic {
 
         drop(idle_stacks);
 
-        for index in 0..System::current_device().num_of_active_cpus() {
-            let cpu = System::cpu(ProcessorIndex(index));
-            CURRENT_PROCESSOR_INDEXES[cpu.apic_id().0 as usize] = cpu.cpu_index.0 as u8;
+        for (index, cpu) in System::cpus().enumerate() {
+            CURRENT_PROCESSOR_INDEXES[cpu.apic_id().0 as usize] = index as u8;
         }
 
         AP_STALLED.store(false, Ordering::SeqCst);
-        System::cpu_mut(ProcessorIndex(0)).set_tsc_base(Cpu::rdtsc());
+        System::cpu(ProcessorIndex(0)).set_tsc_base(Cpu::rdtsc());
     }
 
     #[inline]

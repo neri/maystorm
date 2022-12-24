@@ -11,8 +11,8 @@ pub mod ps2;
 pub mod rtc;
 
 #[doc(hidden)]
-mod hal_x64;
-pub use hal_x64::*;
+pub mod hal_x64;
+pub use hal_x64 as hal;
 
 use crate::{assert_call_once, system::*};
 use core::arch::asm;

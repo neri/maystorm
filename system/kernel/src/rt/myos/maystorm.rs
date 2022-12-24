@@ -305,12 +305,10 @@ impl MyosRuntime {
 
             Function::DrawString => {
                 let window = params.get_window(self)?;
-
-                let max_lines = 0;
                 let origin = params.get_point()?;
                 let text = params.get_string(memory).unwrap_or("");
                 let color = params.get_color()?;
-                let mut rect = Rect::from(window.content_rect().size());
+                let mut rect = window.content_rect().bounds();
                 rect.origin = origin;
                 rect.size.width -= origin.x;
                 rect.size.height -= origin.y;
@@ -320,7 +318,7 @@ impl MyosRuntime {
                         .valign(VerticalAlignment::Top)
                         .color(color)
                         .text(text)
-                        .draw_text(bitmap, rect.bounds(), max_lines);
+                        .draw_text(bitmap, rect.bounds(), 0);
                 });
             }
             Function::FillRect => {
@@ -349,7 +347,7 @@ impl MyosRuntime {
                 let c2 = params.get_point()?;
                 let color = params.get_color()?;
                 let rect = Rect::from(Coordinates::from_diagonal(c1, c2)) + Size::new(1, 1);
-                let offset = Movement::from(rect.origin);
+                let offset = Movement::from(rect.origin());
                 window.draw_in_rect(rect, |bitmap| {
                     bitmap.draw_line(c1 - offset, c2 - offset, color);
                 });
@@ -1476,15 +1474,10 @@ impl OsGamePresenter {
         }
 
         let rect = rect * Self::SCALE_FACTOR;
-        // ScaleMode::DotByDot => {
-        //     let _ = self.window.draw_in_rect(rect, |bitmap| {
-        //         bitmap.blt(self.buffer.as_ref(), Point::new(0, 0), rect);
-        //     });
-        // }
         let _ = self.window.draw_in_rect(rect, |bitmap| match bitmap {
             Bitmap::Indexed(_) => todo!(),
             Bitmap::Argb32(bitmap) => {
-                let origin = Point::new(rect.x() / 2, rect.y() / 2);
+                let origin = Point::new(rect.min_x() / 2, rect.min_y() / 2);
                 for y in 0..bitmap.height() / 2 {
                     for x in 0..bitmap.width() / 2 {
                         unsafe {

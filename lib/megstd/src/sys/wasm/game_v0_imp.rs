@@ -81,8 +81,8 @@ impl v0::GamePresenter for GamePresenterImpl {
     fn invalidate_rect(&self, rect: Rect) {
         game_v0_rect(
             self.game_handle,
-            rect.x() as usize,
-            rect.y() as usize,
+            rect.min_x() as usize,
+            rect.min_y() as usize,
             rect.width() as usize,
             rect.height() as usize,
         );
