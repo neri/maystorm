@@ -23,7 +23,7 @@ impl XInputStarter {
 impl UsbInterfaceDriverStarter for XInputStarter {
     fn instantiate(
         &self,
-        device: &Arc<UsbDeviceControl>,
+        device: &Arc<UsbDeviceContext>,
         if_no: UsbInterfaceNumber,
         class: UsbClass,
     ) -> Option<Pin<Box<dyn Future<Output = Result<Task, UsbError>>>>> {
@@ -43,7 +43,7 @@ pub struct XInputDriver;
 
 impl XInputDriver {
     async fn _instantiate(
-        device: Arc<UsbDeviceControl>,
+        device: Arc<UsbDeviceContext>,
         if_no: UsbInterfaceNumber,
         _class: UsbClass,
     ) -> Result<Task, UsbError> {
@@ -68,7 +68,7 @@ impl XInputDriver {
     }
 
     async fn _xinput_task(
-        device: Arc<UsbDeviceControl>,
+        device: Arc<UsbDeviceContext>,
         _if_no: UsbInterfaceNumber,
         ep: UsbEndpointAddress,
         ps: u16,

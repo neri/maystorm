@@ -10,6 +10,13 @@ use num_traits::FromPrimitive;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PortId(pub NonZeroU8);
 
+impl const From<UsbHubPortNumber> for PortId {
+    #[inline]
+    fn from(value: UsbHubPortNumber) -> Self {
+        Self(value.0)
+    }
+}
+
 /// xHCI Slot Id
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -139,7 +146,7 @@ pub trait TrbBase {
     fn raw_data(&self) -> &TrbRawData;
 
     #[inline]
-    fn is_known_type(&self) -> bool {
+    fn has_known_type(&self) -> bool {
         self.trb_type()
             .map(|v| v != TrbType::RESERVED)
             .unwrap_or(false)

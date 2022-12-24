@@ -823,6 +823,12 @@ impl Usb2HubDescriptor {
     }
 
     #[inline]
+    pub fn ports(&self) -> impl Iterator<Item = UsbHubPortNumber> {
+        (1..=self.num_ports())
+            .map(|i| UsbHubPortNumber(unsafe { NonZeroU8::new_unchecked(i as u8) }))
+    }
+
+    #[inline]
     pub const fn characteristics(&self) -> Usb2HubCharacterisrics {
         Usb2HubCharacterisrics(self.wHubCharacteristics.as_u16())
     }
@@ -884,6 +890,12 @@ impl Usb3HubDescriptor {
     #[inline]
     pub const fn num_ports(&self) -> usize {
         self.bNbrPorts as usize
+    }
+
+    #[inline]
+    pub fn ports(&self) -> impl Iterator<Item = UsbHubPortNumber> {
+        (1..=self.num_ports())
+            .map(|i| UsbHubPortNumber(unsafe { NonZeroU8::new_unchecked(i as u8) }))
     }
 
     #[inline]
@@ -955,8 +967,8 @@ impl UsbRouteString {
     }
 
     #[inline]
-    pub const fn appending(&self, component: UsbHubPortNumber) -> Result<Self, Self> {
-        let lpc = component.0.get() as u32;
+    pub const fn appending(&self, port: UsbHubPortNumber) -> Result<Self, Self> {
+        let lpc = port.0.get() as u32;
         let lpc = if lpc < 15 { lpc } else { 15 };
         let raw = self.0;
         let depth = self.depth();
@@ -968,8 +980,8 @@ impl UsbRouteString {
     }
 
     #[inline]
-    pub const fn append(&mut self, component: UsbHubPortNumber) -> Result<(), ()> {
-        match self.appending(component) {
+    pub const fn append(&mut self, port: UsbHubPortNumber) -> Result<(), ()> {
+        match self.appending(port) {
             Ok(v) => {
                 *self = v;
                 Ok(())

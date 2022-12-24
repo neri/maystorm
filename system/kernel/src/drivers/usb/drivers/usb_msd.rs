@@ -18,7 +18,7 @@ impl UsbMsdStarter {
 impl UsbInterfaceDriverStarter for UsbMsdStarter {
     fn instantiate(
         &self,
-        device: &Arc<UsbDeviceControl>,
+        device: &Arc<UsbDeviceContext>,
         if_no: UsbInterfaceNumber,
         class: UsbClass,
     ) -> Option<Pin<Box<dyn Future<Output = Result<Task, UsbError>>>>> {
@@ -40,7 +40,7 @@ pub struct UsbMsdDriver {
 
 impl UsbMsdDriver {
     async fn _instantiate(
-        device: Arc<UsbDeviceControl>,
+        device: Arc<UsbDeviceContext>,
         if_no: UsbInterfaceNumber,
         _class: UsbClass,
     ) -> Result<Task, UsbError> {
@@ -70,7 +70,7 @@ impl UsbMsdDriver {
     }
 
     async fn _usb_msd_task(
-        _device: Arc<UsbDeviceControl>,
+        _device: Arc<UsbDeviceContext>,
         _if_no: UsbInterfaceNumber,
         _ep: UsbEndpointAddress,
         _ps: u16,
@@ -80,7 +80,7 @@ impl UsbMsdDriver {
     }
 
     pub async fn get_max_lun(
-        device: &UsbDeviceControl,
+        device: &UsbDeviceContext,
         if_no: UsbInterfaceNumber,
     ) -> Result<u8, UsbError> {
         let mut result = [0; 1];

@@ -23,7 +23,7 @@ impl UsbHidStarter {
 impl UsbInterfaceDriverStarter for UsbHidStarter {
     fn instantiate(
         &self,
-        device: &Arc<UsbDeviceControl>,
+        device: &Arc<UsbDeviceContext>,
         if_no: UsbInterfaceNumber,
         class: UsbClass,
     ) -> Option<Pin<Box<dyn Future<Output = Result<Task, UsbError>>>>> {
@@ -45,7 +45,7 @@ impl UsbHidDriver {
     const BUFFER_LEN: usize = 64;
 
     async fn _instantiate(
-        device: Arc<UsbDeviceControl>,
+        device: Arc<UsbDeviceContext>,
         if_no: UsbInterfaceNumber,
         class: UsbClass,
     ) -> Result<Task, UsbError> {
@@ -96,7 +96,7 @@ impl UsbHidDriver {
     }
 
     async fn _usb_hid_task(
-        device: Arc<UsbDeviceControl>,
+        device: Arc<UsbDeviceContext>,
         if_no: UsbInterfaceNumber,
         ep: UsbEndpointAddress,
         ps: usize,
@@ -413,7 +413,7 @@ impl UsbHidDriver {
 
     #[inline]
     pub async fn set_boot_protocol(
-        device: &UsbDeviceControl,
+        device: &UsbDeviceContext,
         if_no: UsbInterfaceNumber,
         is_boot: bool,
     ) -> Result<(), UsbError> {
@@ -431,7 +431,7 @@ impl UsbHidDriver {
 
     #[inline]
     pub async fn get_report(
-        device: &UsbDeviceControl,
+        device: &UsbDeviceContext,
         if_no: UsbInterfaceNumber,
         report_type: HidReportType,
         report_id: Option<HidReportId>,
@@ -458,7 +458,7 @@ impl UsbHidDriver {
 
     #[inline]
     pub async fn set_report(
-        device: &UsbDeviceControl,
+        device: &UsbDeviceContext,
         if_no: UsbInterfaceNumber,
         report_type: HidReportType,
         report_id: Option<HidReportId>,

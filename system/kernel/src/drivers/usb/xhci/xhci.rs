@@ -346,6 +346,16 @@ impl Xhci {
         self.ports.get(port_id.0.get() as usize - 1).unwrap()
     }
 
+    #[inline]
+    pub fn ports<'a>(&self) -> impl Iterator<Item = (PortId, &'a PortRegisters)> {
+        self.ports.iter().enumerate().map(|(index, port)| {
+            (
+                PortId(unsafe { NonZeroU8::new_unchecked(index as u8 + 1) }),
+                port,
+            )
+        })
+    }
+
     pub fn input_context<'a>(&self, slot_id: SlotId) -> &'a mut InputContext {
         self.ics
             .get(slot_id.0.get() as usize)
@@ -765,12 +775,12 @@ impl Xhci {
     pub async fn attach_child_device(
         self: Arc<Self>,
         hub: Arc<HciContext>,
-        port_id: UsbHubPortNumber,
+        port: UsbHubPortNumber,
         speed: PSIV,
     ) -> Result<UsbAddress, UsbError> {
         let device = hub.device();
 
-        let new_route = match device.route_string.appending(port_id) {
+        let new_route = match device.route_string.appending(port) {
             Ok(v) => v,
             Err(_) => return Err(UsbError::InvalidParameter),
         };
@@ -807,7 +817,7 @@ impl Xhci {
 
         if speed < hub.device().psiv {
             slot.set_parent_hub_slot_id(device.slot_id);
-            slot.set_parent_port_id(port_id);
+            slot.set_parent_port_id(port);
         }
 
         self.configure_endpoint(slot_id, DCI::CONTROL, EpType::Control, 0, 0, false);
@@ -830,7 +840,7 @@ impl Xhci {
                 log!(
                     " {}.{} {:?} {:?}",
                     hub.device().slot_id.0.get(),
-                    port_id.0.get(),
+                    port.0.get(),
                     hub.speed(),
                     speed
                 );
@@ -840,7 +850,7 @@ impl Xhci {
 
         let device = HciDeviceContext {
             root_port_id: device.root_port_id,
-            port_id: PortId(port_id.0),
+            port_id: port.into(),
             slot_id,
             parent_slot_id: Some(device.slot_id),
             route_string: new_route,
@@ -1145,8 +1155,7 @@ impl Xhci {
 
         Timer::sleep_async(Duration::from_millis(100)).await;
 
-        for (index, port) in self.ports.iter().enumerate() {
-            let port_id = PortId(NonZeroU8::new(index as u8 + 1).unwrap());
+        for (port_id, port) in self.ports() {
             self.wait_cnr(0);
             let status = port.status();
 
@@ -1191,13 +1200,12 @@ impl Xhci {
 
         while {
             let mut count = 0;
-            for (index, port) in self.ports.iter().enumerate() {
-                let port_id = PortId(NonZeroU8::new(index as u8 + 1).unwrap());
+            for (port_id, port) in self.ports() {
                 self.wait_cnr(0);
                 let status = port.status();
                 if status.is_connected_status_changed() && status.is_connected() && status.is_usb2()
                 {
-                    log!("PORT CHANGE {}", index);
+                    log!("PORT CHANGE {:?}", port_id);
                     self._process_port_change(port_id).await;
                     count += 1;
                 }
@@ -1262,7 +1270,7 @@ impl Xhci {
                 let mut slice = self.port2slot.write().unwrap();
                 let slot = slice.get_mut(port_id.0.get() as usize).unwrap();
                 if let Some(slot_id) = slot.take() {
-                    UsbManager::detach_device(UsbAddress::from(slot_id.0));
+                    let _ = UsbManager::remove_device(UsbAddress::from(slot_id.0));
                 }
             }
         }
@@ -1769,13 +1777,10 @@ impl UsbHostInterface for HciContext {
 
     fn attach_child_device(
         self: Arc<Self>,
-        port_id: UsbHubPortNumber,
+        port: UsbHubPortNumber,
         speed: PSIV,
     ) -> Pin<Box<dyn Future<Output = Result<UsbAddress, UsbError>>>> {
-        Box::pin(
-            self.host()
-                .attach_child_device(self.clone(), port_id, speed),
-        )
+        Box::pin(self.host().attach_child_device(self.clone(), port, speed))
     }
 
     fn configure_endpoint(&self, desc: &UsbEndpointDescriptor) -> Result<(), UsbError> {

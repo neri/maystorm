@@ -604,22 +604,21 @@ impl Shell {
         }
     }
 
-    fn print_usb_device(nest: usize, parent: Option<usb::UsbAddress>) {
+    fn print_usb_device(level: usize, parent: Option<usb::UsbAddress>) {
         for device in usb::UsbManager::devices().filter(|v| v.parent() == parent) {
-            for _ in 0..nest {
-                print!("  ");
-            }
             println!(
-                "{:02x} VID {} PID {} class {} {}{}",
+                "{:indent$}{:02x} VID {} PID {} class {} {}{}",
+                "",
                 device.addr().as_u8(),
                 device.vid(),
                 device.pid(),
                 device.class(),
                 if device.is_configured() { "" } else { "? " },
                 device.preferred_device_name().unwrap_or("Unknown Device"),
+                indent = level * 2
             );
             if device.children().next().is_some() {
-                Self::print_usb_device(nest + 1, Some(device.addr()));
+                Self::print_usb_device(level + 1, Some(device.addr()));
             }
         }
     }

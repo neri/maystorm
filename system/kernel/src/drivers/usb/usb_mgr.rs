@@ -1,13 +1,12 @@
 use super::*;
 use crate::{
     r,
-    sync::{fifo::AsyncEventQueue, RwLock},
+    sync::{fifo::AsyncEventQueue, spinlock::SpinMutex, RwLock},
     task::{scheduler::*, Task},
     *,
 };
 use alloc::{boxed::Box, collections::BTreeMap, string::String, sync::Arc, vec::Vec};
 use core::{
-    cell::UnsafeCell,
     mem::{size_of, MaybeUninit},
     num::NonZeroU8,
     ops::Deref,
@@ -42,7 +41,7 @@ pub trait UsbHostInterface {
 
     fn attach_child_device(
         self: Arc<Self>,
-        port_id: UsbHubPortNumber,
+        port: UsbHubPortNumber,
         speed: PSIV,
     ) -> Pin<Box<dyn Future<Output = Result<UsbAddress, UsbError>>>>;
 
@@ -77,14 +76,14 @@ pub trait UsbHostInterface {
 pub trait UsbClassDriverStarter {
     fn instantiate(
         &self,
-        device: &Arc<UsbDeviceControl>,
+        device: &Arc<UsbDeviceContext>,
     ) -> Option<Pin<Box<dyn Future<Output = Result<Task, UsbError>>>>>;
 }
 
 pub trait UsbInterfaceDriverStarter {
     fn instantiate(
         &self,
-        device: &Arc<UsbDeviceControl>,
+        device: &Arc<UsbDeviceContext>,
         if_no: UsbInterfaceNumber,
         class: UsbClass,
     ) -> Option<Pin<Box<dyn Future<Output = Result<Task, UsbError>>>>>;
@@ -93,7 +92,7 @@ pub trait UsbInterfaceDriverStarter {
 static mut USB_MANAGER: MaybeUninit<UsbManager> = MaybeUninit::uninit();
 
 pub struct UsbManager {
-    devices: RwLock<Vec<Arc<UsbDeviceControl>>>,
+    devices: RwLock<BTreeMap<UsbAddress, Arc<UsbDeviceContext>>>,
     specific_driver_starters: RwLock<Vec<Box<dyn UsbClassDriverStarter>>>,
     class_driver_starters: RwLock<Vec<Box<dyn UsbClassDriverStarter>>>,
     interface_driver_starters: RwLock<Vec<Box<dyn UsbInterfaceDriverStarter>>>,
@@ -108,7 +107,7 @@ impl UsbManager {
         assert_call_once!();
 
         USB_MANAGER.write(Self {
-            devices: RwLock::new(Vec::new()),
+            devices: RwLock::new(BTreeMap::new()),
             specific_driver_starters: RwLock::new(Vec::new()),
             class_driver_starters: RwLock::new(Vec::new()),
             interface_driver_starters: RwLock::new(Vec::new()),
@@ -138,7 +137,7 @@ impl UsbManager {
         addr: UsbAddress,
         ctx: Arc<dyn UsbHostInterface>,
     ) -> Result<(), UsbError> {
-        match UsbDeviceControl::new(addr, ctx).await {
+        match UsbDeviceContext::new(addr, ctx).await {
             Ok(device) => {
                 let shared = Self::shared();
                 let device = Arc::new(device);
@@ -157,7 +156,12 @@ impl UsbManager {
                     );
                 }
 
-                shared.devices.write().unwrap().push(device.clone());
+                let mut devices = shared.devices.write().unwrap();
+                devices
+                    .insert(addr, device.clone())
+                    .map(|_| panic!("USB Address {:03} already in use", addr.as_u8()));
+                drop(devices);
+
                 let mut tasks = Vec::new();
 
                 let mut is_configured = false;
@@ -255,25 +259,26 @@ impl UsbManager {
         }
     }
 
-    pub fn detach_device(addr: UsbAddress) {
+    pub fn remove_device(addr: UsbAddress) -> Result<(), UsbError> {
         let shared = Self::shared();
-        let mut vec = shared.devices.write().unwrap();
-        let index = match vec.iter().position(|v| v.device().addr() == addr) {
-            Some(v) => v,
-            None => return,
-        };
-        let _device = vec.remove(index);
-        drop(vec);
+        let mut devices = shared.devices.write().unwrap();
+        let _ = devices.remove(&addr);
 
-        log!("USB disconnected: {}", addr.as_u8());
+        Ok(())
     }
 
+    #[inline]
     pub fn devices() -> impl Iterator<Item = UsbDeviceIterResult> {
         UsbDeviceIter { index: 0 }
     }
 
     pub fn device_by_addr<'a>(addr: UsbAddress) -> Option<UsbDeviceIterResult> {
-        Self::devices().find(|v| v.addr() == addr)
+        Self::shared()
+            .devices
+            .read()
+            .unwrap()
+            .get(&addr)
+            .map(|v| UsbDeviceIterResult { device: v.clone() })
     }
 
     /// Register a task for USB transfer.
@@ -305,7 +310,7 @@ impl Iterator for UsbDeviceIter {
     fn next(&mut self) -> Option<Self::Item> {
         let devices = UsbManager::shared().devices.read().unwrap();
         if self.index < devices.len() {
-            match devices.get(self.index) {
+            match devices.values().nth(self.index) {
                 Some(device) => {
                     self.index += 1;
                     Some(UsbDeviceIterResult {
@@ -321,7 +326,7 @@ impl Iterator for UsbDeviceIter {
 }
 
 pub struct UsbDeviceIterResult {
-    device: Arc<UsbDeviceControl>,
+    device: Arc<UsbDeviceContext>,
 }
 
 impl Deref for UsbDeviceIterResult {
@@ -332,12 +337,12 @@ impl Deref for UsbDeviceIterResult {
     }
 }
 
-pub struct UsbDeviceControl {
+pub struct UsbDeviceContext {
     host: Arc<dyn UsbHostInterface>,
-    device: UnsafeCell<UsbDevice>,
+    device: UsbDevice,
 }
 
-impl UsbDeviceControl {
+impl UsbDeviceContext {
     #[inline]
     async fn new(addr: UsbAddress, host: Arc<dyn UsbHostInterface>) -> Result<Self, UsbError> {
         let mut device_desc: Option<UsbDeviceDescriptor> = None;
@@ -626,7 +631,7 @@ impl UsbDeviceControl {
             route_string: host.route_string(),
             uuid,
             parent,
-            children: Vec::new(),
+            children: SpinMutex::new(BTreeMap::new()),
             speed: host.speed(),
             lang_id,
             descriptor: device_desc,
@@ -640,10 +645,7 @@ impl UsbDeviceControl {
             configurations,
         };
 
-        Ok(Self {
-            host,
-            device: UnsafeCell::new(device),
-        })
+        Ok(Self { host, device })
     }
 
     fn host(&self) -> &dyn UsbHostInterface {
@@ -656,12 +658,7 @@ impl UsbDeviceControl {
 
     #[inline]
     pub fn device(&self) -> &UsbDevice {
-        unsafe { &*self.device.get() }
-    }
-
-    #[inline]
-    pub fn device_mut(&self) -> &mut UsbDevice {
-        unsafe { &mut *self.device.get() }
+        &self.device
     }
 
     #[inline]
@@ -686,27 +683,22 @@ impl UsbDeviceControl {
     #[inline]
     pub async fn attach_child_device(
         &self,
-        port_id: UsbHubPortNumber,
+        port: UsbHubPortNumber,
         speed: PSIV,
     ) -> Result<UsbAddress, UsbError> {
         self.host_clone()
-            .attach_child_device(port_id, speed)
+            .attach_child_device(port, speed)
             .await
             .map(|addr| {
-                self.device_mut().children.push(addr);
+                self.device().children.lock().insert(port, addr);
                 addr
             })
     }
 
     #[inline]
-    pub async fn detach_child_device(&self, child: UsbAddress) {
-        let index = match self.device().children.iter().position(|v| *v == child) {
-            Some(v) => v,
-            None => todo!(),
-        };
-        self.device_mut().children.remove(index);
-
-        UsbManager::detach_device(child);
+    pub async fn detach_child_device(&self, port: UsbHubPortNumber) -> Result<(), UsbError> {
+        let Some(child) = self.device().children.lock().remove(&port) else { return Err(UsbError::InvalidParameter) };
+        UsbManager::remove_device(child)
     }
 
     pub async fn read<T: Sized>(
@@ -1114,8 +1106,17 @@ impl UsbDeviceControl {
     }
 }
 
+impl Drop for UsbDeviceContext {
+    #[inline]
+    fn drop(&mut self) {
+        for child in self.device.children() {
+            let _ = UsbManager::remove_device(child);
+        }
+    }
+}
+
 #[repr(transparent)]
-pub struct UsbDeviceFocusedScope<'a>(&'a UsbDeviceControl);
+pub struct UsbDeviceFocusedScope<'a>(&'a UsbDeviceContext);
 
 impl Drop for UsbDeviceFocusedScope<'_> {
     #[inline]
@@ -1129,7 +1130,7 @@ pub struct UsbDevice {
     addr: UsbAddress,
     route_string: UsbRouteString,
     parent: Option<UsbAddress>,
-    children: Vec<UsbAddress>,
+    children: SpinMutex<BTreeMap<UsbHubPortNumber, UsbAddress>>,
     speed: PSIV,
 
     uuid: Uuid,
@@ -1167,8 +1168,8 @@ impl UsbDevice {
     }
 
     #[inline]
-    pub fn children(&self) -> &[UsbAddress] {
-        self.children.as_slice()
+    pub fn children(&self) -> impl Iterator<Item = UsbAddress> {
+        self.children.lock().clone().into_iter().map(|v| v.1)
     }
 
     /// Gets the uuid of this device, if available.
