@@ -4,7 +4,6 @@ use crate::{
     task::scheduler::*,
     *,
 };
-use alloc::{boxed::Box, string::*, vec::Vec};
 use bootprot::BootInfo;
 use core::{
     cell::UnsafeCell,
@@ -13,7 +12,7 @@ use core::{
     mem::{transmute, MaybeUninit},
     sync::atomic::*,
 };
-use megstd::{drawing::*, time::SystemTime, Arc};
+use megstd::{drawing::*, time::SystemTime, Arc, Box, String, Vec};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Version<'a> {

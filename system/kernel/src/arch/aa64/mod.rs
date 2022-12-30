@@ -1,5 +1,5 @@
-mod hal_aa64;
-pub use hal_aa64::*;
+pub mod hal_aa64;
+pub use hal_aa64 as hal;
 
 use crate::{assert_call_once, system::*};
 

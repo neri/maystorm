@@ -103,14 +103,10 @@ pub trait SetPixel: Drawable {
     }
 }
 
-#[const_trait]
 pub trait RasterImage: Drawable {
     fn slice(&self) -> &[Self::ColorType];
 
-    fn stride(&self) -> usize
-    where
-        Self: ~const Drawable,
-    {
+    fn stride(&self) -> usize {
         self.width()
     }
 }

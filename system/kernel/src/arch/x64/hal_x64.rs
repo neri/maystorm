@@ -75,7 +75,7 @@ impl HalCpu for CpuImpl {
     fn reset(&self) -> ! {
         unsafe {
             self.disable_interrupt();
-            let _ = Scheduler::freeze(true);
+            Scheduler::freeze(true);
 
             Cpu::out8(0x0CF9, 0x06);
             asm!("out 0x92, al", in("al") 0x01 as u8, options(nomem, nostack));
@@ -100,6 +100,27 @@ impl HalCpu for CpuImpl {
     #[inline]
     fn spin_wait(&self) -> impl HalSpinLoopWait {
         SpinLoopWait::new()
+    }
+
+    #[inline]
+    fn broadcast_reschedule(&self) {
+        Apic::broadcast_reschedule();
+    }
+
+    #[inline]
+    fn broadcast_invalidate_tlb(&self) -> Result<(), ()> {
+        Apic::broadcast_invalidate_tlb()
+    }
+
+    #[inline]
+    unsafe fn invoke_user(&self, start: usize, stack_pointer: usize) -> ! {
+        Cpu::invoke_user(start, stack_pointer);
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[inline]
+    unsafe fn invoke_legacy(&self, ctx: &crate::rt::LegacyAppContext) -> ! {
+        Cpu::invoke_legacy(ctx);
     }
 }
 
@@ -267,6 +288,11 @@ impl PhysicalAddress {
     #[inline]
     pub const fn direct_map<T>(&self) -> *mut T {
         PageManager::direct_map(*self) as *mut T
+    }
+
+    #[inline]
+    pub const fn direct_unmap(va: usize) -> PhysicalAddress {
+        PageManager::direct_unmap(va)
     }
 }
 

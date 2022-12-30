@@ -89,7 +89,7 @@ impl SignallingObject {
         let current = Scheduler::current_thread().unwrap();
         match self.compare_and_swap(None, Some(current)) {
             Ok(v) => {
-                Scheduler::sleep();
+                Scheduler::sleep_thread();
                 Ok(v)
             }
             Err(v) => Err(v),

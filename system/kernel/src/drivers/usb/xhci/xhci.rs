@@ -582,7 +582,7 @@ impl Xhci {
                         let _ = self.reset_endpoint(slot_id.unwrap(), dci.unwrap());
                         Err(UsbError::Stall)
                     }
-                    Some(err) => Err(UsbError::ControllerError(err as usize)),
+                    Some(err) => Err(err.into()),
                     None => Err(UsbError::General),
                 },
                 None => Err(UsbError::General),
@@ -639,7 +639,7 @@ impl Xhci {
                         }
                         Ok(size)
                     }
-                    Some(err) => Err(UsbError::ControllerError(err as usize)),
+                    Some(err) => Err(err.into()),
                     None => Err(UsbError::General),
                 },
                 None => Err(UsbError::UnexpectedToken),
@@ -742,7 +742,7 @@ impl Xhci {
         let trb = TrbEvaluateContextCommand::new(slot_id, input_context.raw_data());
         match self.execute_command(trb.as_trb()) {
             Ok(_) => Ok(()),
-            Err(_) => Err(UsbError::General),
+            Err(err) => Err(err.to_usb_error()),
         }
     }
 
@@ -768,7 +768,7 @@ impl Xhci {
         let trb = TrbEvaluateContextCommand::new(slot_id, input_context.raw_data());
         match self.execute_command(trb.as_trb()) {
             Ok(_) => Ok(()),
-            Err(_) => Err(UsbError::General),
+            Err(err) => Err(err.to_usb_error()),
         }
     }
 
@@ -788,11 +788,8 @@ impl Xhci {
         let trb = Trb::new(TrbType::ENABLE_SLOT_COMMAND);
         let slot_id = match self.execute_command(&trb) {
             Ok(result) => result.slot_id().unwrap(),
-            Err(_err) => {
-                // TODO:
-                return Err(UsbError::ControllerError(
-                    _err.completion_code().unwrap() as usize
-                ));
+            Err(err) => {
+                return Err(err.to_usb_error());
             }
         };
 
@@ -836,7 +833,9 @@ impl Xhci {
         match self.execute_command(trb.as_trb()) {
             Ok(_) => (),
             Err(err) => {
-                log!("ADDRESS_DEVICE ERROR {:?}", err.completion_code());
+                let err = err.to_usb_error();
+                UsbManager::notify_error(err);
+                log!("ADDRESS_DEVICE ERROR {:?}", err);
                 log!(
                     " {}.{} {:?} {:?}",
                     hub.device().slot_id.0.get(),
@@ -844,7 +843,7 @@ impl Xhci {
                     hub.speed(),
                     speed
                 );
-                return Err(UsbError::UsbTransactionError);
+                return Err(err);
             }
         }
 
@@ -1808,7 +1807,7 @@ impl UsbHostInterface for HciContext {
         let trb = TrbConfigureEndpointCommand::new(slot_id, host.input_context(slot_id).raw_data());
         match host.execute_command(trb.as_trb()) {
             Ok(_) => Ok(()),
-            Err(_err) => Err(UsbError::General),
+            Err(err) => Err(err.to_usb_error()),
         }
     }
 

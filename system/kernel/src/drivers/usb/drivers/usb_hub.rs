@@ -108,19 +108,19 @@ impl UsbHub2Driver {
     }
 
     async fn _main_task(self: &Arc<Self>) -> Result<(), UsbError> {
-        // Initialize
         let focus = self.device.focus_device();
         for port in self.hub_desc.ports() {
             self.set_port_feature(UsbHub2PortFeatureSel::PORT_POWER, port)
                 .await?;
             Timer::sleep_async(Duration::from_millis(10)).await;
         }
+        Timer::sleep_async(self.hub_desc.power_on_to_power_good()).await;
         for port in self.hub_desc.ports() {
             self.clear_port_feature(UsbHub2PortFeatureSel::C_PORT_CONNECTION, port)
                 .await?;
             Timer::sleep_async(Duration::from_millis(10)).await;
         }
-        Timer::sleep_async(self.hub_desc.power_on_to_power_good() * 2).await;
+        // Timer::sleep_async(self.hub_desc.power_on_to_power_good()).await;
 
         for port in self.hub_desc.ports() {
             let status = self.get_port_status(port).await?;
@@ -134,7 +134,6 @@ impl UsbHub2Driver {
         }
         drop(focus);
 
-        // Kernel
         let mut port_event = [0u8; 8];
         loop {
             match self
@@ -204,8 +203,7 @@ impl UsbHub2Driver {
             .await?;
         Timer::sleep_async(self.hub_desc.power_on_to_power_good()).await;
 
-        let status = self.get_port_status(port).await.unwrap();
-
+        let status = self.get_port_status(port).await?;
         self.clear_status_changes(
             status,
             &[
@@ -223,7 +221,7 @@ impl UsbHub2Driver {
 
         if status
             .status
-            .contains(UsbHub2PortStatusBit::PORT_CONNECTION)
+            .contains(UsbHub2PortStatusBit::PORT_CONNECTION | UsbHub2PortStatusBit::PORT_ENABLE)
         {
             let speed = status.status.speed();
             return self.device.attach_child_device(port, speed).await;
@@ -316,7 +314,6 @@ impl UsbHub3Driver {
     }
 
     async fn _main_task(self: Arc<Self>) -> Result<(), UsbError> {
-        // Initialize
         let focus = self.device.focus_device();
         for port in self.hub_desc.ports() {
             let status = self.get_port_status(port).await?;
@@ -334,7 +331,6 @@ impl UsbHub3Driver {
         }
         drop(focus);
 
-        // Kernel
         let mut port_event = [0u8; 8];
         loop {
             match self

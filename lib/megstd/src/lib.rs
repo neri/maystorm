@@ -32,5 +32,8 @@ extern crate alloc;
 pub use prelude::*;
 mod prelude {
     pub use crate::{osstr::*, sys::prelude::*};
-    pub use alloc::{boxed::Box, rc::Rc, string::String, sync::Arc, vec::Vec};
+    pub use alloc::{
+        borrow::ToOwned, boxed::Box, collections::btree_map::BTreeMap, format, rc::Rc,
+        string::String, string::ToString, sync::Arc, vec::Vec,
+    };
 }

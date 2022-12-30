@@ -157,69 +157,6 @@ pub trait BasicDrawing: SetPixel {
         }
     }
 
-    fn fill_round_rect_outside(&mut self, rect: Rect, radius: isize, color: Self::ColorType) {
-        let width = rect.width();
-        let height = rect.height();
-        let dx = rect.min_x();
-        let dy = rect.min_y();
-        let left = rect.min_x();
-        let right = rect.max_x();
-
-        let mut radius = radius;
-        if radius * 2 > width {
-            radius = width / 2;
-        }
-        if radius * 2 > height {
-            radius = height / 2;
-        }
-
-        let mut cx = radius;
-        let mut cy = 0;
-        let mut f = -2 * radius + 3;
-        let qh = height - 1;
-
-        while cx >= cy {
-            {
-                let bx = radius - cy;
-                let by = radius - cx;
-                let dw = width - bx * 2 - 1;
-                let lx = dx + bx;
-                if lx > left {
-                    self.draw_hline(Point::new(left, dy + by), lx - left, color);
-                    self.draw_hline(Point::new(left, dy + qh - by), lx - left, color);
-                }
-                let rx = dx + bx + dw;
-                if rx < right {
-                    self.draw_hline(Point::new(rx, dy + by), right - rx, color);
-                    self.draw_hline(Point::new(rx, dy + qh - by), right - rx, color);
-                }
-            }
-
-            {
-                let bx = radius - cx;
-                let by = radius - cy;
-                let dw = width - bx * 2 - 1;
-                let lx = dx + bx;
-                if lx > left {
-                    self.draw_hline(Point::new(left, dy + by), lx - left, color);
-                    self.draw_hline(Point::new(left, dy + qh - by), lx - left, color);
-                }
-                let rx = dx + bx + dw;
-                if rx < right {
-                    self.draw_hline(Point::new(rx, dy + by), right - rx, color);
-                    self.draw_hline(Point::new(rx, dy + qh - by), right - rx, color);
-                }
-            }
-
-            if f >= 0 {
-                cx -= 1;
-                f -= 4 * cx;
-            }
-            cy += 1;
-            f += 4 * cy + 2;
-        }
-    }
-
     fn draw_line(&mut self, c1: Point, c2: Point, color: Self::ColorType) {
         if c1.x() == c2.x() {
             if c1.y() < c2.y() {
@@ -452,7 +389,7 @@ impl const Drawable for ConstBitmap8<'_> {
     }
 }
 
-impl const RasterImage for ConstBitmap8<'_> {
+impl RasterImage for ConstBitmap8<'_> {
     #[inline]
     fn stride(&self) -> usize {
         self.stride
@@ -523,7 +460,7 @@ impl const Drawable for Bitmap8<'_> {
     }
 }
 
-impl const RasterImage for Bitmap8<'_> {
+impl RasterImage for Bitmap8<'_> {
     #[inline]
     fn stride(&self) -> usize {
         self.stride
@@ -843,7 +780,7 @@ impl const Drawable for OwnedBitmap8 {
     }
 }
 
-impl const RasterImage for OwnedBitmap8 {
+impl RasterImage for OwnedBitmap8 {
     #[inline]
     fn stride(&self) -> usize {
         self.stride
@@ -918,7 +855,7 @@ impl const Drawable for ConstBitmap32<'_> {
     }
 }
 
-impl const RasterImage for ConstBitmap32<'_> {
+impl RasterImage for ConstBitmap32<'_> {
     #[inline]
     fn stride(&self) -> usize {
         self.stride
@@ -989,7 +926,7 @@ impl const Drawable for Bitmap32<'_> {
     }
 }
 
-impl const RasterImage for Bitmap32<'_> {
+impl RasterImage for Bitmap32<'_> {
     #[inline]
     fn stride(&self) -> usize {
         self.stride
@@ -1408,7 +1345,7 @@ impl const Drawable for OwnedBitmap32 {
     }
 }
 
-impl const RasterImage for OwnedBitmap32 {
+impl RasterImage for OwnedBitmap32 {
     #[inline]
     fn stride(&self) -> usize {
         self.stride

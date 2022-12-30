@@ -142,6 +142,7 @@ impl UsbClass {
     pub const HUB_HS_MTT: Self = Self(0x09_00_02);
     pub const HUB_SS: Self = Self(0x09_00_03);
     pub const BLUETOOTH: Self = Self(0xE0_01_01);
+    pub const IAD: Self = Self(0xEF_02_01);
     pub const XINPUT: Self = Self(0xFF_5D_01);
     pub const XINPUT_HEADSET: Self = Self(0xFF_5D_02);
     pub const XINPUT_IF2: Self = Self(0xFF_5D_03);
@@ -202,6 +203,7 @@ impl UsbClass {
             (UsbClass::HUB_HS_MTT, "USB2 Hub with MTT"),
             (UsbClass::HUB_SS, "USB3 Hub"),
             (UsbClass::BLUETOOTH, "Bluetooth Interface"),
+            (UsbClass::IAD, "Interface Association Descriptor"),
             (UsbClass::XINPUT, "XInput Device"),
         ];
 
@@ -638,6 +640,36 @@ impl UsbDeviceQualifierDescriptor {
             self.bDeviceClass,
             self.bDeviceSubClass,
             self.bDeviceProtocol,
+        )
+    }
+}
+
+/// Interface Association Descriptor
+#[repr(C, packed)]
+#[allow(non_snake_case)]
+#[derive(Debug, Clone, Copy)]
+pub struct InterfaceAssociationDescriptor {
+    pub bLength: u8,
+    pub bDescriptorType: UsbDescriptorType,
+    pub bFirstInterface: UsbInterfaceNumber,
+    pub bInterfaceCount: u8,
+    pub bFunctionClass: UsbBaseClass,
+    pub bFunctionSubClass: UsbSubClass,
+    pub bFunctionProtocol: UsbProtocolCode,
+    pub iFunction: u8,
+}
+
+unsafe impl UsbDescriptor for InterfaceAssociationDescriptor {
+    const DESCRIPTOR_TYPE: UsbDescriptorType = UsbDescriptorType::InterfaceAssociation;
+}
+
+impl InterfaceAssociationDescriptor {
+    #[inline]
+    pub const fn class(&self) -> UsbClass {
+        UsbClass::new(
+            self.bFunctionClass,
+            self.bFunctionSubClass,
+            self.bFunctionProtocol,
         )
     }
 }

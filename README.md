@@ -1,10 +1,10 @@
 # MEG-OS
 
-![GitHub](https://img.shields.io/github/license/meg-os/maystorm) ![GitHub top language](https://img.shields.io/github/languages/top/meg-os/maystorm)
+![GitHub](https://img.shields.io/github/license/neri/maystorm) ![GitHub top language](https://img.shields.io/github/languages/top/neri/maystorm)
 
 A hobby operating system written in Rust that supports WebAssembly.
 
-* [Documentation for megstd](https://meg-os.github.io/maystorm/megstd/)
+* [Documentation for megstd](https://neri.github.io/maystorm/megstd/)
 
 ## Feature
 
@@ -71,7 +71,7 @@ linker = "/opt/homebrew/opt/llvm/bin/ld.lld"
 
 MIT License
 
-&copy; 2020,2021,2022 MEG-OS Project.
+&copy; 2020-2023 MEG-OS Project.
 
 ### Wall paper
 

@@ -6,12 +6,12 @@ pub mod signal;
 pub mod spinlock;
 
 pub mod atomic {
-    mod atomicenum;
     mod atomicflags;
     mod atomicfloat;
-    pub use atomicenum::*;
+    mod wrapper;
     pub use atomicflags::*;
     pub use atomicfloat::*;
+    pub use wrapper::*;
 }
 
 mod mutex;

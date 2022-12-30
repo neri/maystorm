@@ -50,10 +50,9 @@ pub mod user;
 pub use crate::hal::*;
 
 use crate::system::System;
-use alloc::boxed::Box;
 use bootprot::*;
-use core::fmt::Write;
-use core::panic::PanicInfo;
+use core::{fmt::Write, panic::PanicInfo};
+use megstd::Box;
 
 extern crate alloc;
 extern crate bitflags;
@@ -88,7 +87,7 @@ static PANIC_GLOBAL_LOCK: Spinlock = Spinlock::new();
 fn panic(info: &PanicInfo) -> ! {
     unsafe {
         Hal::cpu().disable_interrupt();
-        let _ = task::scheduler::Scheduler::freeze(true);
+        task::scheduler::Scheduler::freeze(true);
         PANIC_GLOBAL_LOCK.synchronized(|| {
             let stdout = System::log();
             stdout.set_attribute(0x4F);

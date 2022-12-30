@@ -613,7 +613,7 @@ impl HrbBinaryLoader {
             .get::<Hoe>()
             .unwrap();
         unsafe {
-            crate::arch::cpu::Cpu::invoke_legacy(&hoe.context);
+            Hal::cpu().invoke_legacy(&hoe.context);
         }
     }
 }
@@ -1063,6 +1063,8 @@ impl Iterator for JisChars<'_> {
 
 #[allow(non_camel_case_types)]
 pub enum JisChar {
+    /// Alphabet Numeric Kana
     ANK(u8),
+    /// Jis Kanji Code
     Kanji(u16),
 }

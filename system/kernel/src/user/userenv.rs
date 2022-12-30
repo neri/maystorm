@@ -14,13 +14,12 @@ use crate::{
     ui::window::*,
     *,
 };
-use ::alloc::{string::String, sync::Arc, vec::*};
 use core::{
     fmt::Write,
     mem::{transmute, MaybeUninit},
     time::Duration,
 };
-use megstd::{drawing::image::ImageLoader, drawing::*, io::Read, string::*};
+use megstd::{drawing::image::ImageLoader, drawing::*, io::Read, string::*, Arc, String, Vec};
 
 static mut SHUTDOWN_COMMAND: MaybeUninit<EventQueue<ShutdownCommand>> = MaybeUninit::uninit();
 
@@ -38,7 +37,7 @@ impl UserEnv {
             .start_process(Self::_main, f as usize, "init")
             .unwrap();
 
-        Self::shutdown_command().wait_event().unwrap();
+        Self::shutdown_command().wait_event();
 
         WindowManager::set_pointer_visible(false);
 

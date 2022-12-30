@@ -9,7 +9,6 @@ use crate::{
     user::userenv::UserEnv,
     *,
 };
-use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
 use core::{
     cell::UnsafeCell,
     cmp,
@@ -23,7 +22,7 @@ use core::{
     time::Duration,
 };
 use futures_util::task::AtomicWaker;
-use megstd::{drawing::*, io::hid::*, sys::megos};
+use megstd::{drawing::*, io::hid::*, sys::megos, Arc, BTreeMap, Box, String, Vec};
 
 const MAX_WINDOWS: usize = 255;
 const WINDOW_SYSTEM_EVENT_QUEUE_SIZE: usize = 100;
@@ -65,6 +64,8 @@ const MOUSE_POINTER_SOURCE: [u8; MOUSE_POINTER_WIDTH * MOUSE_POINTER_HEIGHT] = [
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F, 0x0F, 0x0F, 0xFF, 0xFF, 0xFF,
     0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 ];
+
+const CORNER_MASK: [u8; WINDOW_CORNER_RADIUS as usize] = [6, 4, 3, 2, 1, 1, 0, 0];
 
 static mut WM: Option<Box<WindowManager<'static>>> = None;
 
@@ -924,7 +925,7 @@ impl WindowManager<'_> {
         Self::while_hiding_pointer(|| shared.root.draw_into(bitmap, rect));
     }
 
-    pub fn get_statistics(sb: &mut impl Write) {
+    pub fn get_statistics(sb: &mut String) {
         let shared = Self::shared();
 
         writeln!(sb, "  # PID Lv Frame",).unwrap();
@@ -1514,16 +1515,33 @@ impl RawWindow {
                 }
             } else {
                 let rect = Rect::from(bitmap.size());
-                bitmap.fill_round_rect_outside(rect, WINDOW_CORNER_RADIUS, Color::TRANSPARENT);
-                bitmap.draw_round_rect(
-                    rect,
-                    WINDOW_CORNER_RADIUS,
-                    if is_dark {
-                        Theme::shared().window_default_border_dark()
-                    } else {
-                        Theme::shared().window_default_border_light()
-                    },
-                );
+                let border_color = if is_dark {
+                    Theme::shared().window_default_border_dark()
+                } else {
+                    Theme::shared().window_default_border_light()
+                };
+
+                bitmap.draw_round_rect(rect, SHADOW_RADIUS, border_color);
+
+                if let Ok(coord) = Coordinates::from_rect(rect) {
+                    let lt = coord.left_top();
+                    let rt = coord.right_top();
+                    let lb = coord.left_bottom();
+                    let rb = coord.right_bottom();
+
+                    for (i, len) in CORNER_MASK.into_iter().enumerate() {
+                        let y = i as isize;
+                        let w = len as isize;
+                        for origin in [
+                            lt + Movement::new(0, y),
+                            rt + Movement::new(-w, y),
+                            lb + Movement::new(0, -y - 1),
+                            rb + Movement::new(-w, -y - 1),
+                        ] {
+                            bitmap.draw_hline(origin, w, Color::TRANSPARENT);
+                        }
+                    }
+                }
             }
         }
     }
@@ -2493,17 +2511,8 @@ impl WindowHandle {
 
     /// Create a timer associated with a window
     pub fn create_timer(&self, timer_id: usize, duration: Duration) {
-        let mut event = TimerEvent::window(*self, timer_id, Timer::new(duration));
-        loop {
-            if event.is_alive() {
-                match event.schedule() {
-                    Ok(()) => break,
-                    Err(e) => event = e,
-                }
-            } else {
-                break event.fire();
-            }
-        }
+        let event = TimerEvent::window(*self, timer_id, Timer::new(duration));
+        event.schedule();
     }
 }
 

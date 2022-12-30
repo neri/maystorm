@@ -51,6 +51,15 @@ pub trait HalCpu {
     unsafe fn interrupt_guard(&self) -> InterruptGuard;
 
     fn spin_wait(&self) -> impl HalSpinLoopWait;
+
+    fn broadcast_reschedule(&self);
+
+    fn broadcast_invalidate_tlb(&self) -> Result<(), ()>;
+
+    unsafe fn invoke_user(&self, start: usize, stack_pointer: usize) -> !;
+
+    #[cfg(target_arch = "x86_64")]
+    unsafe fn invoke_legacy(&self, ctx: &crate::rt::LegacyAppContext) -> !;
 }
 
 pub trait HalSync {
@@ -132,10 +141,10 @@ pub trait HalSpinLoopWait {
 #[macro_export]
 macro_rules! without_interrupts {
     ( $f:expr ) => {{
-        let rflags = Hal::cpu().interrupt_guard();
-        let r = { $f };
-        drop(rflags);
-        r
+        let flags = Hal::cpu().interrupt_guard();
+        let result = { $f };
+        drop(flags);
+        result
     }};
 }
 

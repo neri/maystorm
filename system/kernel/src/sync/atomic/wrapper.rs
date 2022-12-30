@@ -1,17 +1,15 @@
-// Atomic Enum
-
 use core::{marker::PhantomData, sync::atomic::*};
 
-pub struct AtomicEnum<T> {
+pub struct AtomicWrapper<T> {
     bits: AtomicUsize,
     _phantom: PhantomData<T>,
 }
 
-unsafe impl<T: Send> Send for AtomicEnum<T> {}
+unsafe impl<T: Send> Send for AtomicWrapper<T> {}
 
-unsafe impl<T: Send> Sync for AtomicEnum<T> {}
+unsafe impl<T: Send> Sync for AtomicWrapper<T> {}
 
-impl<T: Into<usize>> AtomicEnum<T> {
+impl<T: Into<usize>> AtomicWrapper<T> {
     #[inline]
     pub const fn new(value: T) -> Self
     where
@@ -29,12 +27,12 @@ impl<T: Into<usize>> AtomicEnum<T> {
     }
 
     #[inline]
-    pub fn set(&self, value: T) {
+    pub fn store(&self, value: T) {
         self.bits.store(value.into(), Ordering::SeqCst);
     }
 }
 
-impl<T: Into<usize> + From<usize>> AtomicEnum<T> {
+impl<T: Into<usize> + From<usize>> AtomicWrapper<T> {
     #[inline]
     pub fn value(&self) -> T {
         T::from(self._bits())
@@ -59,7 +57,7 @@ impl<T: Into<usize> + From<usize>> AtomicEnum<T> {
     }
 }
 
-impl<T: ~const Into<usize> + ~const Default> const Default for AtomicEnum<T> {
+impl<T: ~const Into<usize> + ~const Default> const Default for AtomicWrapper<T> {
     #[inline]
     fn default() -> Self {
         Self::new(T::default())

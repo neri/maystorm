@@ -3,6 +3,7 @@
 use super::{UsbClassDriverStarter, UsbInterfaceDriverStarter};
 use alloc::{boxed::Box, vec::Vec};
 
+pub mod usb_audio;
 pub mod usb_hid;
 pub mod usb_hub;
 pub mod usb_msd;
@@ -22,6 +23,9 @@ pub(super) fn install_drivers(
     class_drivers.push(usb_hub::UsbHubStarter::new());
 
     // ## Interface Class Drivers
+
+    // 01_xx_xx Audio
+    interface_drivers.push(usb_audio::UsbAudioStarter::new());
 
     // 03_xx_xx HID
     interface_drivers.push(usb_hid::UsbHidStarter::new());

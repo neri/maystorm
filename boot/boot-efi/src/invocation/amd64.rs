@@ -38,7 +38,7 @@ impl Invoke for Invocation {
         entry: VirtualAddress,
         new_sp: VirtualAddress,
     ) -> ! {
-        // For Intel processors, unlock NXE disable.
+        // For Intel processors, unlock NXE disable. (Surface 3)
         if self.is_intel_processor() {
             asm!("
                 rdmsr

@@ -9,7 +9,7 @@ use crate::{
     task::scheduler::*,
     *,
 };
-use ::alloc::vec::*;
+use ::alloc::vec::Vec;
 use core::{
     cell::UnsafeCell,
     mem::{size_of, transmute, ManuallyDrop},
@@ -352,10 +352,6 @@ impl Apic {
                 let vec = msi.as_vec();
                 let addr = Self::MSI_BASE;
                 let data = Self::MSI_DATA | vec.0 as u16;
-                // panic!(
-                //     "register_msi {:02x} {:02x} {:08x} {:08x}",
-                //     msi.0, vec.0, addr, data
-                // );
                 (addr, data)
             })
             .map_err(|_| ())
@@ -363,10 +359,9 @@ impl Apic {
 
     #[inline]
     #[must_use]
-    pub unsafe fn broadcast_invalidate_tlb() -> bool {
+    pub fn broadcast_invalidate_tlb() -> Result<(), ()> {
         let shared = Self::shared();
-
-        shared.ipi_mutex.synchronized(|| {
+        match shared.ipi_mutex.synchronized(|| unsafe {
             Irql::IPI.raise(|| {
                 let max_cpu = System::current_device().num_of_active_cpus();
                 if max_cpu < 2 {
@@ -391,16 +386,15 @@ impl Apic {
 
                 shared.tlb_flush_bitmap.load(Ordering::Relaxed) == 0
             })
-        })
+        }) {
+            true => Ok(()),
+            false => Err(()),
+        }
     }
 
     #[inline]
-    pub unsafe fn broadcast_schedule() -> bool {
-        without_interrupts!({
-            LocalApic::broadcast_ipi(InterruptVector::IPI_SCHEDULE);
-
-            true
-        })
+    pub fn broadcast_reschedule() {
+        LocalApic::broadcast_ipi(InterruptVector::IPI_SCHEDULE);
     }
 
     #[inline]
@@ -748,14 +742,18 @@ impl LocalApic {
         delivery: ApicDeliveryMode,
         init_vec: InterruptVector,
     ) {
-        Self::InterruptCommandHigh.write((apic_id.0 as u32) << 24);
-        Self::InterruptCommand.write(
-            shorthand.as_redir()
-                | trigger_mode.as_redir()
-                | ((asserted as u32) << 14)
-                | delivery.as_redir()
-                | init_vec.0 as u32,
-        );
+        unsafe {
+            without_interrupts!({
+                Self::InterruptCommandHigh.write((apic_id.0 as u32) << 24);
+                Self::InterruptCommand.write(
+                    shorthand.as_redir()
+                        | trigger_mode.as_redir()
+                        | ((asserted as u32) << 14)
+                        | delivery.as_redir()
+                        | init_vec.0 as u32,
+                );
+            })
+        }
     }
 
     /// Send Init IPI

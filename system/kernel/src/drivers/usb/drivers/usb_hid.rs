@@ -6,10 +6,9 @@ use crate::{
     task::{scheduler::Timer, Task},
     *,
 };
-use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use core::{pin::Pin, time::Duration};
 use futures_util::Future;
-use megstd::io::hid::*;
+use megstd::{io::hid::*, Arc, Box, Vec};
 
 pub struct UsbHidStarter;
 

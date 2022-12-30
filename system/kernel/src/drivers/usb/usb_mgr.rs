@@ -201,7 +201,7 @@ impl UsbManager {
                         }
                     }
                 }
-                if !is_configured {
+                if !is_configured && device.device().class() == UsbClass::COMPOSITE {
                     for interface in device.device().current_configuration().interfaces() {
                         for driver in shared.interface_driver_starters.read().unwrap().iter() {
                             let instantiator = match driver.instantiate(
@@ -265,6 +265,10 @@ impl UsbManager {
         let _ = devices.remove(&addr);
 
         Ok(())
+    }
+
+    pub fn notify_error(err: UsbError) {
+        notify!(r::Icons::Usb, "An error occured on USB device, {:?}", err);
     }
 
     #[inline]
@@ -686,6 +690,9 @@ impl UsbDeviceContext {
         port: UsbHubPortNumber,
         speed: PSIV,
     ) -> Result<UsbAddress, UsbError> {
+        if self.child_device(port).is_some() {
+            return Err(UsbError::InvalidParameter);
+        }
         self.host_clone()
             .attach_child_device(port, speed)
             .await
@@ -697,8 +704,13 @@ impl UsbDeviceContext {
 
     #[inline]
     pub async fn detach_child_device(&self, port: UsbHubPortNumber) -> Result<(), UsbError> {
-        let Some(child) = self.device().children.lock().remove(&port) else { return Err(UsbError::InvalidParameter) };
+        let Some(child) = self.child_device(port) else { return Err(UsbError::InvalidParameter) };
         UsbManager::remove_device(child)
+    }
+
+    #[inline]
+    pub fn child_device(&self, port: UsbHubPortNumber) -> Option<UsbAddress> {
+        self.device().children.lock().get(&port).map(|v| *v)
     }
 
     pub async fn read<T: Sized>(

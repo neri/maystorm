@@ -3,7 +3,7 @@ use crate::{
     arch::cpu::*,
     rt::PersonalityContext,
     sync::{
-        atomic::{AtomicBitflags, AtomicEnum},
+        atomic::{AtomicBitflags, AtomicWrapper},
         fifo::*,
         semaphore::*,
         spinlock::*,
@@ -13,20 +13,16 @@ use crate::{
     ui::window::{WindowHandle, WindowMessage},
     *,
 };
-use ::alloc::{
-    borrow::ToOwned, boxed::Box, collections::btree_map::BTreeMap, string::String, sync::Arc,
-    vec::*,
-};
 use core::{
     cell::UnsafeCell, ffi::c_void, fmt, intrinsics::transmute, num::*, ops::*, sync::atomic::*,
     time::Duration,
 };
-use megstd::string::*;
+use megstd::{string::*, Arc, BTreeMap, Box, String, ToOwned, Vec};
 
 const THRESHOLD_ENTER_MAX: usize = 950;
 const THRESHOLD_LEAVE_MAX: usize = 666;
 
-static SCHEDULER_STATE: AtomicEnum<SchedulerState> = AtomicEnum::new(SchedulerState::Disabled);
+static SCHEDULER_STATE: AtomicWrapper<SchedulerState> = AtomicWrapper::default();
 static mut SCHEDULER: Option<Box<Scheduler>> = None;
 static mut THREAD_POOL: ThreadPool = ThreadPool::new();
 static PROCESS_POOL: ProcessPool = ProcessPool::new();
@@ -43,10 +39,9 @@ pub struct Scheduler {
     usage_total: AtomicUsize,
     is_frozen: AtomicBool,
 
-    next_timer: AtomicIsize,
+    timer_events: SpinMutex<Vec<TimerEvent>>,
+    next_timer: AtomicWrapper<Timer>,
     sem_timer: Semaphore,
-
-    timer_queue: ConcurrentFifo<TimerEvent>,
 }
 
 #[repr(usize)]
@@ -60,6 +55,13 @@ pub enum SchedulerState {
     Normal,
     /// The scheduler is running at full throttle.
     FullThrottle,
+}
+
+impl const Default for SchedulerState {
+    #[inline]
+    fn default() -> Self {
+        Self::Disabled
+    }
 }
 
 impl SchedulerState {
@@ -122,13 +124,13 @@ impl Scheduler {
                 usage: AtomicUsize::new(0),
                 usage_total: AtomicUsize::new(0),
                 is_frozen: AtomicBool::new(false),
-                next_timer: AtomicIsize::new(0),
+                next_timer: AtomicWrapper::default(),
                 sem_timer: Semaphore::new(0),
-                timer_queue: ConcurrentFifo::with_capacity(100),
+                timer_events: SpinMutex::new(Vec::new()),
             }));
         }
         fence(Ordering::SeqCst);
-        SCHEDULER_STATE.set(SchedulerState::Normal);
+        SCHEDULER_STATE.store(SchedulerState::Normal);
 
         SpawnOption::with_priority(Priority::High).start_process(f, args, "System");
 
@@ -177,19 +179,19 @@ impl Scheduler {
 
     #[inline]
     fn set_current_state(val: SchedulerState) {
-        SCHEDULER_STATE.set(val)
+        SCHEDULER_STATE.store(val)
     }
 
     /// All threads will stop.
-    pub unsafe fn freeze(force: bool) -> Result<(), ()> {
+    pub unsafe fn freeze(force: bool) {
         if Self::is_enabled() {
             let sch = Self::shared();
             sch.is_frozen.store(true, Ordering::SeqCst);
             if force {
-                return Cpu::broadcast_schedule();
+                Hal::cpu().broadcast_reschedule();
+                return;
             }
         }
-        Ok(())
     }
 
     /// Get the current process running on the current processor
@@ -237,7 +239,7 @@ impl Scheduler {
         current.update_statistics();
         let priority = { current.as_ref().priority };
         let shared = Self::shared();
-        if Timer::from_isize(shared.next_timer.load(Ordering::SeqCst)).is_expired() {
+        if shared.next_timer.value().is_expired() {
             shared.sem_timer.signal();
         }
         if shared.is_frozen.load(Ordering::SeqCst) {
@@ -268,7 +270,7 @@ impl Scheduler {
         }
     }
 
-    pub fn sleep() {
+    pub fn sleep_thread() {
         unsafe {
             without_interrupts!({
                 let local = Self::local_scheduler().unwrap();
@@ -379,28 +381,23 @@ impl Scheduler {
     }
 
     /// Schedule a timer event
-    fn _schedule_timer(event: TimerEvent) -> Result<(), TimerEvent> {
+    fn _schedule_timer(event: TimerEvent) {
         let shared = Self::shared();
-        shared
-            .timer_queue
-            .enqueue(event)
-            .map(|_| shared.sem_timer.signal())
+        let mut events = shared.timer_events.lock();
+        events.push(event);
+        events.sort_by_key(|v| v.timer.deadline);
+        if let Some(event) = events.first() {
+            shared.next_timer.store(event.timer);
+        }
+        shared.sem_timer.signal();
     }
 
     /// Scheduler
     fn _scheduler_thread(_args: usize) {
         let shared = Self::shared();
 
-        let mut events: Vec<TimerEvent> = Vec::with_capacity(100);
         loop {
-            if let Some(event) = shared.timer_queue.dequeue() {
-                events.push(event);
-                while let Some(event) = shared.timer_queue.dequeue() {
-                    events.push(event);
-                }
-                events.sort_by_key(|a| a.timer.deadline);
-            }
-
+            let mut events = shared.timer_events.lock();
             loop {
                 let Some(event) = events.first() else { break };
                 if event.is_alive() {
@@ -411,10 +408,9 @@ impl Scheduler {
             }
 
             if let Some(event) = events.first() {
-                shared
-                    .next_timer
-                    .store(event.timer.into_isize(), Ordering::SeqCst);
+                shared.next_timer.store(event.timer);
             }
+            drop(events);
             shared.sem_timer.wait();
         }
     }
@@ -1012,18 +1008,12 @@ impl Timer {
     pub fn sleep(duration: Duration) {
         if Scheduler::is_enabled() {
             let timer = Timer::new(duration);
-            let mut event = TimerEvent::one_shot(timer);
-            while timer.is_alive() {
-                match event.schedule() {
-                    Ok(()) => {
-                        Scheduler::sleep();
-                        return;
-                    }
-                    Err(e) => {
-                        event = e;
-                        Scheduler::yield_thread();
-                    }
-                }
+            let event = TimerEvent::one_shot(timer);
+            if timer.is_alive() {
+                event.schedule();
+                Scheduler::sleep_thread();
+            } else {
+                Scheduler::yield_thread();
             }
         } else {
             panic!("Scheduler unavailable");
@@ -1033,18 +1023,9 @@ impl Timer {
     pub async fn sleep_async(duration: Duration) {
         let timer = Timer::new(duration);
         let sem = AsyncSemaphore::with_capacity(0, 1);
-        let mut event = TimerEvent::async_timer(timer, sem.clone());
-        while timer.is_alive() {
-            match event.schedule() {
-                Ok(()) => {
-                    sem.wait().await;
-                    return;
-                }
-                Err(e) => {
-                    event = e;
-                }
-            }
-        }
+        let event = TimerEvent::async_timer(timer, sem.clone());
+        event.schedule();
+        sem.wait().await;
     }
 
     #[inline]
@@ -1055,6 +1036,20 @@ impl Timer {
     #[inline]
     pub fn monotonic() -> Duration {
         Duration::from_millis(Self::timer_source().monotonic())
+    }
+}
+
+impl const From<usize> for Timer {
+    #[inline]
+    fn from(value: usize) -> Self {
+        Timer::from_isize(value as isize)
+    }
+}
+
+impl const From<Timer> for usize {
+    #[inline]
+    fn from(value: Timer) -> Self {
+        value.into_isize() as usize
     }
 }
 
@@ -1141,7 +1136,7 @@ impl TimerEvent {
     }
 
     #[inline]
-    pub fn schedule(self) -> Result<(), Self> {
+    pub fn schedule(self) {
         Scheduler::_schedule_timer(self)
     }
 
@@ -1625,7 +1620,7 @@ impl ThreadContextData {
         }
 
         self.attribute.insert(ThreadAttribute::ZOMBIE);
-        Scheduler::sleep();
+        Scheduler::sleep_thread();
         unreachable!();
     }
 

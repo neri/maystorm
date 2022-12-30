@@ -6,14 +6,13 @@
 #![no_main]
 
 extern crate alloc;
-use alloc::{borrow::ToOwned, format, string::*, vec::*};
 use bootprot::*;
-use core::{fmt, fmt::Write, num::NonZeroU8};
+use core::{fmt, fmt::Write, num::NonZeroU8, slice};
 use kernel::{
     drivers::pci, drivers::usb, fs::*, mem::*, rt::*, system::*, task::scheduler::*,
     ui::window::WindowManager, user::userenv::UserEnv, *,
 };
-use megstd::io::Read;
+use megstd::{format, io::Read, String, ToOwned, ToString, Vec};
 
 /// Kernel entry point
 #[no_mangle]

@@ -1,4 +1,4 @@
-use crate::sync::atomic::AtomicEnum;
+use crate::sync::atomic::AtomicWrapper;
 use core::{cell::UnsafeCell, mem::transmute};
 use megstd::drawing::*;
 
@@ -124,7 +124,7 @@ impl ScreenOrientation {
 pub struct BitmapScreen<'a> {
     fb: UnsafeCell<Bitmap32<'a>>,
     dims: Size,
-    rotation: AtomicEnum<ScreenRotation>,
+    rotation: AtomicWrapper<ScreenRotation>,
 }
 
 impl<'a> BitmapScreen<'a> {
@@ -133,7 +133,7 @@ impl<'a> BitmapScreen<'a> {
         Self {
             dims: bitmap.size(),
             fb: UnsafeCell::new(bitmap),
-            rotation: AtomicEnum::default(),
+            rotation: AtomicWrapper::default(),
         }
     }
 
@@ -199,7 +199,7 @@ impl Screen<ConstBitmap32<'_>> for BitmapScreen<'_> {
     fn set_rotation(&self, value: ScreenRotation) -> Result<ScreenRotation, ScreenRotation> {
         if match value {
             ScreenRotation::_0 | ScreenRotation::_90 => {
-                self.rotation.set(value);
+                self.rotation.store(value);
                 true
             }
             ScreenRotation::_180 | ScreenRotation::_270 => false,
@@ -217,7 +217,7 @@ impl Screen<ConstBitmap32<'_>> for BitmapScreen<'_> {
             ScreenRotation::_180 => ScreenRotation::_90,
             ScreenRotation::_270 => ScreenRotation::_0,
         };
-        self.rotation.set(new_val);
+        self.rotation.store(new_val);
         Ok(self.rotation())
     }
 
@@ -226,12 +226,12 @@ impl Screen<ConstBitmap32<'_>> for BitmapScreen<'_> {
         value: ScreenOrientation,
     ) -> Result<ScreenOrientation, ScreenOrientation> {
         if self.is_portrait_native() {
-            self.rotation.set(match value {
+            self.rotation.store(match value {
                 ScreenOrientation::Portrait => ScreenRotation::_0,
                 ScreenOrientation::Landscape => ScreenRotation::_90,
             });
         } else {
-            self.rotation.set(match value {
+            self.rotation.store(match value {
                 ScreenOrientation::Portrait => ScreenRotation::_90,
                 ScreenOrientation::Landscape => ScreenRotation::_0,
             });

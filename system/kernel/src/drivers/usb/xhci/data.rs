@@ -297,6 +297,14 @@ pub trait TrbCC: TrbBase {
         let val = (self.raw_data()[2].load(Ordering::SeqCst) >> 24) & 0xFF;
         FromPrimitive::from_u32(val)
     }
+
+    #[inline]
+    fn to_usb_error(&self) -> UsbError {
+        match self.completion_code() {
+            Some(err) => err.into(),
+            None => UsbError::General,
+        }
+    }
 }
 
 pub trait TrbPortId: TrbBase {
@@ -519,6 +527,18 @@ pub enum TrbCompletionCode {
     INVALID_STREAM_ID,
     SECONDARY_BANDWIDTH,
     SPLIT_TRANSACTION,
+}
+
+impl const From<TrbCompletionCode> for UsbError {
+    #[inline]
+    fn from(value: TrbCompletionCode) -> Self {
+        match value {
+            TrbCompletionCode::INVALID => UsbError::InvalidParameter,
+            TrbCompletionCode::USB_TRANSACTION_ERROR => UsbError::UsbTransactionError,
+            TrbCompletionCode::SHORT_PACKET => UsbError::ShortPacket,
+            _ => UsbError::ControllerError(value as usize),
+        }
+    }
 }
 
 /// TRB for LINK

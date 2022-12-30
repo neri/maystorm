@@ -7,7 +7,6 @@ use crate::{
     *,
 };
 use alloc::{boxed::Box, sync::Arc};
-use bitflags::*;
 use bootprot::*;
 use core::{
     alloc::Layout,
@@ -20,6 +19,7 @@ use core::{
     slice,
     sync::atomic::*,
 };
+use megstd::String;
 
 static mut MM: UnsafeCell<MemoryManager> = UnsafeCell::new(MemoryManager::new());
 
@@ -34,7 +34,10 @@ pub struct MemoryManager {
     n_fragments: AtomicUsize,
     mem_list: SpinMutex<FixedVec<MemFreePair, { Self::MAX_FREE_PAIRS }>>,
     slab: Option<Box<SlabAllocator>>,
+
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     real_bitmap: [u32; 8],
+
     fifo: MaybeUninit<EventQueue<Arc<AsyncMmapRequest>>>,
 }
 
@@ -59,7 +62,7 @@ impl MemoryManager {
     pub unsafe fn init_first(info: &BootInfo) {
         assert_call_once!();
 
-        let shared = Self::shared_mut();
+        let shared = MM.get_mut();
 
         let mm: &[BootMemoryMapDescriptor] =
             slice::from_raw_parts(info.mmap_base as usize as *const _, info.mmap_len as usize);
@@ -80,7 +83,7 @@ impl MemoryManager {
         shared.reserved_memory_size = info.total_memory_size as usize - free_count;
         shared.free_pages.store(free_count, Ordering::SeqCst);
 
-        if cfg!(any(target_arch = "x86_64")) {
+        if cfg!(any(target_arch = "x86_64", target_arch = "x86")) {
             shared.real_bitmap = info.real_bitmap;
         }
 
@@ -96,21 +99,16 @@ impl MemoryManager {
         SpawnOption::with_priority(Priority::Realtime).start(Self::_page_thread, 0, "Page Manager");
     }
 
-    #[allow(dead_code)]
     fn _page_thread(_args: usize) {
         let shared = Self::shared();
-        let fifo = unsafe { &*shared.fifo.as_ptr() };
-        while let Some(event) = fifo.wait_event() {
+        let fifo = unsafe { shared.fifo.assume_init_ref() };
+        loop {
+            let event = fifo.wait_event();
             let result = unsafe { PageManager::mmap(event.request) };
-            PageManager::broadcast_invalidate_tlb().unwrap();
+            Hal::cpu().broadcast_invalidate_tlb().unwrap();
             event.result.store(result, Ordering::SeqCst);
             event.sem.signal();
         }
-    }
-
-    #[inline]
-    unsafe fn shared_mut() -> &'static mut Self {
-        MM.get_mut()
     }
 
     #[inline]
@@ -136,11 +134,6 @@ impl MemoryManager {
         } else {
             NonZeroUsize::new(PageManager::mmap(request))
         }
-    }
-
-    #[inline]
-    pub unsafe fn invalidate_cache(p: usize) {
-        PageManager::invalidate_cache(p);
     }
 
     #[inline]
@@ -271,7 +264,7 @@ impl MemoryManager {
                     return Ok(());
                 }
             }
-            Self::pg_dealloc(PageManager::direct_unmap(base.get()), layout);
+            Self::pg_dealloc(PhysicalAddress::direct_unmap(base.get()), layout);
             Ok(())
         } else {
             Ok(())
@@ -279,6 +272,7 @@ impl MemoryManager {
     }
 
     /// Allocate a page on real memory
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     pub unsafe fn static_alloc_real() -> Option<NonZeroU8> {
         let max_real = 0xA0;
         let shared = Self::shared();
@@ -294,7 +288,7 @@ impl MemoryManager {
         None
     }
 
-    pub fn statistics(sb: &mut impl Write) {
+    pub fn statistics(sb: &mut String) {
         let shared = Self::shared();
 
         let lost_size = shared.lost_size.load(Ordering::Relaxed);
@@ -411,16 +405,37 @@ impl MemFreePair {
     }
 }
 
-bitflags! {
-    #[derive(Debug, Clone, Copy)]
-    pub struct MProtect: u32 {
-        const READ  = 0x4;
-        const WRITE = 0x2;
-        const EXEC  = 0x1;
-        const NONE  = 0x0;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MProtect {
+    None = 0,
+    Read,
+    ReadWrite,
+    ReadExec,
+}
 
-        const READ_WRITE = Self::READ.bits() | Self::WRITE.bits();
-        const READ_EXEC = Self::READ.bits() | Self::WRITE.bits();
+impl MProtect {
+    #[inline]
+    pub const fn can_read(&self) -> bool {
+        match self {
+            MProtect::None => false,
+            _ => true,
+        }
+    }
+
+    #[inline]
+    pub const fn can_write(&self) -> bool {
+        match self {
+            MProtect::ReadWrite => true,
+            _ => true,
+        }
+    }
+
+    #[inline]
+    pub const fn can_executable(&self) -> bool {
+        match self {
+            MProtect::ReadExec => true,
+            _ => true,
+        }
     }
 }
 
@@ -447,6 +462,8 @@ pub enum MemoryMapRequest {
     Vram(PhysicalAddress, usize),
     /// for Kernel Mode Heap (base, length, attr)
     Kernel(usize, usize, MProtect),
-    /// for User Mode Heap (base, length, attr)
+    /// To reserve heap for User Mode (base, length, attr)
     User(usize, usize, MProtect),
+    /// To change page attributes (base, length, attr)
+    MProtect(usize, usize, MProtect),
 }

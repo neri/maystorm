@@ -1,12 +1,9 @@
 //! Log Event Manager
 
 use crate::{r, sync::fifo::AsyncEventQueue, system::System, *};
-use alloc::{
-    boxed::Box,
-    string::{String, ToString},
-};
 use core::{fmt::Write, mem::MaybeUninit, pin::Pin};
 use futures_util::Future;
+use megstd::{Box, String, ToString};
 
 #[macro_export]
 macro_rules! notify {

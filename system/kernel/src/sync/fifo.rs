@@ -36,10 +36,10 @@ impl<T> EventQueue<T> {
     }
 
     #[inline]
-    pub fn wait_event(&self) -> Option<T> {
+    pub fn wait_event(&self) -> T {
         loop {
             match self.fifo.dequeue() {
-                Some(v) => return Some(v),
+                Some(v) => return v,
                 None => (),
             }
             self.sem.wait();
