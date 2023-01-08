@@ -241,7 +241,7 @@ pub trait FontDriver {
 pub struct FixedFontDriver<'a> {
     size: Size,
     data: &'a [u8],
-    fix_y: isize,
+    offset: Movement,
     line_height: isize,
     stride: usize,
 }
@@ -251,11 +251,11 @@ impl FixedFontDriver<'_> {
         let width = width as isize;
         let height = height as isize;
         let line_height = height * 5 / 4;
-        let fix_y = (line_height - height) / 2;
+        let offset = Movement::new(0, (line_height - height) / 2);
         let stride = ((width as usize + 7) >> 3) * height as usize;
         FixedFontDriver {
             size: Size::new(width, height),
-            fix_y,
+            offset,
             line_height,
             stride,
             data,
@@ -273,6 +273,7 @@ impl FixedFontDriver<'_> {
     }
 
     /// Glyph Data for Rasterized Font
+    #[inline]
     fn glyph_for(&self, character: char) -> Option<&[u8]> {
         let c = character as usize;
         if c > 0x20 && c < 0x80 {
@@ -280,6 +281,20 @@ impl FixedFontDriver<'_> {
             Some(&self.data[base..base + self.stride])
         } else {
             None
+        }
+    }
+
+    #[inline]
+    pub fn draw_glyph<F>(&self, character: char, origin: Point, f: F)
+    where
+        F: FnOnce(&[u8], Size, Point),
+    {
+        if let Some(glyph) = self.glyph_for(character) {
+            f(
+                glyph,
+                Size::new(self.width_of(character), self.size.height()),
+                origin + self.offset,
+            );
         }
     }
 }
@@ -317,11 +332,9 @@ impl FontDriver for FixedFontDriver<'_> {
         _height: isize,
         color: Color,
     ) {
-        if let Some(font) = self.glyph_for(character) {
-            let origin = Point::new(origin.x, origin.y + self.fix_y);
-            let size = Size::new(self.width_of(character), self.size.height());
-            bitmap.draw_font(font, size, origin, color);
-        }
+        self.draw_glyph(character, origin, |glyph, size, origin| {
+            bitmap.draw_glyph(glyph, size, origin, color)
+        })
     }
 }
 

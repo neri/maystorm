@@ -62,6 +62,11 @@ pub struct Xhci {
     doorbells: &'static [DoorbellRegister],
     rts: &'static RuntimeRegisters,
 
+    roothub_usb2_off: AtomicU8,
+    roothub_usb2_cnt: AtomicU8,
+    roothub_usb3_off: AtomicU8,
+    roothub_usb3_cnt: AtomicU8,
+
     max_device_slots: usize,
     dcbaa_len: usize,
     context_size: usize,
@@ -137,6 +142,10 @@ impl Xhci {
             ports,
             doorbells,
             rts,
+            roothub_usb2_cnt: AtomicU8::new(0),
+            roothub_usb2_off: AtomicU8::new(0),
+            roothub_usb3_cnt: AtomicU8::new(0),
+            roothub_usb3_off: AtomicU8::new(0),
             max_device_slots,
             dcbaa_len,
             context_size,
@@ -206,6 +215,26 @@ impl Xhci {
                         usb_leg_ctl_sts.write_volatile(
                             (usb_leg_ctl_sts.read_volatile() & 0x000E_1FEE) | 0xE000_0000,
                         );
+                    }
+                    0x02 => {
+                        // Supported Protocol
+                        let ecap = XhciSupportedProtocolCapability(xecp_base);
+
+                        match (ecap.name(), ecap.rev_major(), ecap.rev_minor()) {
+                            (XhciSupportedProtocolCapability::NAME_USB, 2, 0) => {
+                                self.roothub_usb2_off
+                                    .store(ecap.compatible_port_offset(), Ordering::SeqCst);
+                                self.roothub_usb2_cnt
+                                    .store(ecap.compatible_port_count(), Ordering::SeqCst);
+                            }
+                            (XhciSupportedProtocolCapability::NAME_USB, 3, _) => {
+                                self.roothub_usb3_off
+                                    .store(ecap.compatible_port_offset(), Ordering::SeqCst);
+                                self.roothub_usb3_cnt
+                                    .store(ecap.compatible_port_count(), Ordering::SeqCst);
+                            }
+                            _ => (),
+                        }
                     }
                     _ => (),
                 }
@@ -347,6 +376,22 @@ impl Xhci {
     }
 
     #[inline]
+    pub fn port_is_usb2(&self, port_id: PortId) -> bool {
+        let port = port_id.0.get();
+        let offset = self.roothub_usb2_off.load(Ordering::Relaxed);
+        let count = self.roothub_usb2_cnt.load(Ordering::Relaxed);
+        port >= offset && port < offset + count
+    }
+
+    #[inline]
+    pub fn port_is_usb3(&self, port_id: PortId) -> bool {
+        let port = port_id.0.get();
+        let offset = self.roothub_usb3_off.load(Ordering::Relaxed);
+        let count = self.roothub_usb3_cnt.load(Ordering::Relaxed);
+        port >= offset && port < offset + count
+    }
+
+    #[inline]
     pub fn ports<'a>(&self) -> impl Iterator<Item = (PortId, &'a PortRegisters)> {
         self.ports.iter().enumerate().map(|(index, port)| {
             (
@@ -354,6 +399,40 @@ impl Xhci {
                 port,
             )
         })
+    }
+
+    #[inline]
+    pub fn usb2_ports<'a>(&self) -> impl Iterator<Item = (PortId, &'a PortRegisters)> {
+        let offset = self.roothub_usb2_off.load(Ordering::Relaxed);
+        let count = self.roothub_usb2_cnt.load(Ordering::Relaxed);
+        self.ports
+            .iter()
+            .enumerate()
+            .skip(offset as usize - 1)
+            .take(count as usize)
+            .map(|(index, port)| {
+                (
+                    PortId(unsafe { NonZeroU8::new_unchecked(index as u8 + 1) }),
+                    port,
+                )
+            })
+    }
+
+    #[inline]
+    pub fn usb3_ports<'a>(&self) -> impl Iterator<Item = (PortId, &'a PortRegisters)> {
+        let offset = self.roothub_usb3_off.load(Ordering::Relaxed);
+        let count = self.roothub_usb3_cnt.load(Ordering::Relaxed);
+        self.ports
+            .iter()
+            .enumerate()
+            .skip(offset as usize - 1)
+            .take(count as usize)
+            .map(|(index, port)| {
+                (
+                    PortId(unsafe { NonZeroU8::new_unchecked(index as u8 + 1) }),
+                    port,
+                )
+            })
     }
 
     pub fn input_context<'a>(&self, slot_id: SlotId) -> &'a mut InputContext {
@@ -1100,27 +1179,14 @@ impl Xhci {
                                 || locked_hub == Some(hub)
                                 || locked_hub == Some(slot_id)
                             {
-                                // log!(
-                                //     "DOORBELL {} {} {}",
-                                //     hub.map(|v| v.0.get()).unwrap_or(0),
-                                //     slot_id.map(|v| v.0.get()).unwrap_or_default(),
-                                //     dci.map(|v| v.0.get()).unwrap_or_default(),
-                                // );
                                 self.wait_cnr(0);
                                 self.ring_a_doorbell(slot_id, dci);
                             } else {
-                                // log!(
-                                //     "RETIRE HUB {} SLOT {} DCI {}",
-                                //     hub.map(|v| v.0.get()).unwrap_or(0),
-                                //     slot_id.map(|v| v.0.get()).unwrap_or(0),
-                                //     dci.map(|v| v.0.get()).unwrap_or(0),
-                                // );
                                 retired.push_back(task);
                             }
                         }
                         QueuedDoorbell::FocusHub(hub) => {
                             if locked_hub.is_none() {
-                                // log!("FOCUS DEVICE {}", hub.map(|v| v.0.get()).unwrap_or(0));
                                 locked_hub = Some(hub);
                             } else {
                                 retired.push_back(task);
@@ -1128,7 +1194,6 @@ impl Xhci {
                         }
                         QueuedDoorbell::UnfocusHub(hub) => {
                             if locked_hub == Some(hub) {
-                                // log!("UNFOCUS DEVICE {}", hub.map(|v| v.0.get()).unwrap_or(0));
                                 locked_hub = None;
                                 while let Some(task) = retired.pop_front() {
                                     active_tasks.push_back(task);
@@ -1152,68 +1217,48 @@ impl Xhci {
     async fn _root_hub_task(self: Arc<Self>) {
         self.focus_hub(None);
 
-        Timer::sleep_async(Duration::from_millis(100)).await;
-
-        for (port_id, port) in self.ports() {
+        for (port_id, port) in self.usb3_ports() {
             self.wait_cnr(0);
             let status = port.status();
-
-            // log!(
-            //     "PORT STATUS {} {:08x} {:?} {:?}",
-            //     index,
-            //     status.bits(),
-            //     status.speed(),
-            //     status.link_state(),
-            // );
-
             if status.is_connected() {
-                // if status.is_usb2() {
+                self._process_port_change(port_id, true).await;
+                port.clear_changes();
+            } else {
+                port.clear_changes();
                 port.set(PortSc::PR);
-                // }
-
-                let deadline = Timer::new(Duration::from_millis(200));
-                loop {
-                    if port.status().is_enabled() || deadline.is_expired() {
-                        break;
-                    }
-                    Timer::sleep_async(Duration::from_millis(10)).await;
-                }
-
-                self.wait_cnr(0);
-                let status = port.status();
-                port.set(PortSc::ALL_CHANGE_BITS);
-                if status.is_connected() && status.is_enabled() {
-                    let _addr = self.clone().attach_root_device(port_id).await;
-                } else {
-                    log!(
-                        "ROOT PORT TIMED OUT {} {:08x} {:?} {:?}",
-                        port_id.0.get(),
-                        status.bits(),
-                        status.speed(),
-                        status.link_state()
-                    );
-                }
             }
         }
-        // log!("ALL PORT RESET DONE");
-
-        while {
-            let mut count = 0;
-            for (port_id, port) in self.ports() {
-                self.wait_cnr(0);
-                let status = port.status();
-                if status.is_connected_status_changed() && status.is_connected() && status.is_usb2()
-                {
-                    log!("PORT CHANGE {:?}", port_id);
-                    self._process_port_change(port_id).await;
-                    count += 1;
-                }
-                port.set(PortSc::ALL_CHANGE_BITS);
+        for (port_id, port) in self.usb2_ports() {
+            self.wait_cnr(0);
+            let status = port.status();
+            if status.is_connected() {
+                self._process_port_change(port_id, true).await;
+                port.clear_changes();
+            } else {
+                port.clear_changes();
+                port.set(PortSc::PR);
             }
-            count > 0
-        } {}
+        }
+
+        Timer::sleep_async(Duration::from_millis(1000)).await;
+
+        // for (port_id, port) in self.ports() {
+        //     self.wait_cnr(0);
+        //     let status = port.status();
+        //     log!(
+        //         "STATUS2: {:?} {:08x} {:?} {:?}",
+        //         port_id,
+        //         status.bits(),
+        //         status.speed(),
+        //         status.link_state(),
+        //     );
+        // }
 
         self.unfocus_hub(None);
+
+        // log!("ALL PORT RESET DONE");
+
+        Timer::sleep_async(Duration::from_millis(1000)).await;
 
         while let Some(port_id) = self.port_status_change_queue.wait_event().await {
             let mut ports = Vec::new();
@@ -1223,20 +1268,22 @@ impl Xhci {
             }
             self.focus_hub(None);
             for port_id in ports {
-                self._process_port_change(port_id).await;
+                self._process_port_change(port_id, false).await;
             }
             self.unfocus_hub(None);
         }
     }
 
-    pub async fn _process_port_change(self: &Arc<Self>, port_id: PortId) {
+    pub async fn _process_port_change(self: &Arc<Self>, port_id: PortId, force: bool) {
         let port = self.port_by(port_id);
         self.wait_cnr(0);
         let status = port.status();
-
-        if status.is_connected_status_changed() {
+        if force || status.is_connected_status_changed() {
             if status.is_connected() {
                 // Attached USB device
+
+                // log!("PORT {} is_connected", port_id.0.get());
+
                 port.set(PortSc::CSC | PortSc::PR);
 
                 let deadline = Timer::new(Duration::from_millis(200));
@@ -1246,16 +1293,36 @@ impl Xhci {
                     }
                     Timer::sleep_async(Duration::from_millis(10)).await;
                 }
-
-                port.set(PortSc::PRC);
+                if deadline.is_expired() {
+                    log!("PORT {} PROCESS TIMED OUT", port_id.0.get());
+                    port.power_off();
+                    Timer::sleep_async(Duration::from_millis(100)).await;
+                    port.set(PortSc::PP | PortSc::PR);
+                    return;
+                }
 
                 let status = port.status();
                 if status.is_connected() && status.is_enabled() {
+                    port.clear_changes();
                     self.attach_root_device(port_id).await;
+
+                    self.slot_by_port(port_id)
+                        .and_then(|v| UsbManager::device_by_addr(UsbAddress::from(v.0)))
+                    // .map(|device| {
+                    //     log!(
+                    //         "{:03}.{:03} VID {} PID {} class {} {}{}",
+                    //         device.parent().map(|v| v.as_u8()).unwrap_or_default(),
+                    //         device.addr().as_u8(),
+                    //         device.vid(),
+                    //         device.pid(),
+                    //         device.class(),
+                    //         if device.is_configured() { "" } else { "? " },
+                    //         device.preferred_device_name().unwrap_or("Unknown Device"),
+                    //     );
+                    // })
+                    ;
                 } else {
-                    port.write(
-                        status & PortSc::PRESERVE_MASK & !PortSc::PP | PortSc::ALL_CHANGE_BITS,
-                    );
+                    port.power_off();
                     Timer::sleep_async(Duration::from_millis(100)).await;
                     port.set(PortSc::PP | PortSc::PR);
                     log!("XHCI: PORT RESET TIMED OUT {}", port_id.0.get());
@@ -1263,6 +1330,8 @@ impl Xhci {
 
                 return;
             } else {
+                // log!("PORT {} is_disconnected", port_id.0.get());
+
                 // Detached USB device
                 port.set(PortSc::CSC);
 
@@ -1272,9 +1341,9 @@ impl Xhci {
                     let _ = UsbManager::remove_device(UsbAddress::from(slot_id.0));
                 }
             }
+        } else {
+            port.clear_changes();
         }
-
-        port.set(PortSc::ALL_CHANGE_BITS);
     }
 
     pub fn focus_hub(self: &Arc<Self>, hub: Option<SlotId>) {

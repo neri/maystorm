@@ -32,7 +32,11 @@ A hobby operating system written in Rust that supports WebAssembly.
 * llvm (ld.lld)
 * qemu + ovmf (optional)
 
-### build
+### Minimum supported Rust version
+
+The latest version is recommended whenever possible.
+
+### building
 
 1. `make install`
 

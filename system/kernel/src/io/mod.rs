@@ -3,4 +3,4 @@ pub mod hid_mgr;
 pub mod screen;
 pub mod tty;
 
-// pub mod emcon;
+pub mod emcon;

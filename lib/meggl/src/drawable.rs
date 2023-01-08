@@ -1,4 +1,5 @@
 use super::*;
+use core::mem::transmute;
 
 #[const_trait]
 pub trait Drawable
@@ -147,5 +148,50 @@ where
         *self
             .slice_mut()
             .get_unchecked_mut(point.x as usize + point.y as usize * stride) = pixel;
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Rotation {
+    /// 0 degree
+    Default = 0,
+    /// 90 degree
+    ClockWise = 1,
+    /// 180 degree
+    UpsideDown = 2,
+    /// 270 degree
+    CounterClockWise = 3,
+}
+
+impl Rotation {
+    #[inline]
+    pub const fn succ(self) -> Self {
+        match self {
+            Self::Default => Self::ClockWise,
+            Self::ClockWise => Self::UpsideDown,
+            Self::UpsideDown => Self::CounterClockWise,
+            Self::CounterClockWise => Self::Default,
+        }
+    }
+}
+
+impl const Default for Rotation {
+    #[inline]
+    fn default() -> Self {
+        Self::Default
+    }
+}
+
+impl const From<usize> for Rotation {
+    #[inline]
+    fn from(value: usize) -> Self {
+        unsafe { transmute(value as u8) }
+    }
+}
+
+impl const From<Rotation> for usize {
+    #[inline]
+    fn from(value: Rotation) -> Self {
+        value as usize
     }
 }

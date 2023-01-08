@@ -124,6 +124,7 @@ pub struct System {
     // screens
     safe_screen: MaybeUninit<Option<Arc<BitmapScreen<'static>>>>,
     stdout: Option<Box<dyn Tty>>,
+    emcon: MaybeUninit<Box<UnsafeCell<io::emcon::EmConsole>>>,
 
     // copy of boot info
     boot_flags: BootFlags,
@@ -149,6 +150,7 @@ impl System {
             smbios: None,
             boot_flags: BootFlags::empty(),
             safe_screen: MaybeUninit::zeroed(),
+            emcon: MaybeUninit::zeroed(),
             stdout: None,
             initrd_base: PhysicalAddress::NULL,
             initrd_size: 0,
@@ -181,6 +183,12 @@ impl System {
                 .set_orientation(ScreenOrientation::Landscape)
                 .unwrap();
             shared.safe_screen.write(Some(Arc::new(screen)));
+
+            shared
+                .emcon
+                .write(Box::new(UnsafeCell::new(io::emcon::EmConsole::new(
+                    ui::font::FontManager::fixed_system_font(),
+                ))));
         }
 
         shared.acpi = unsafe { myacpi::RsdPtr::parse(info.acpi_rsdptr as usize as *const c_void) };
@@ -203,6 +211,23 @@ impl System {
         assert_call_once!();
 
         let shared = Self::shared();
+
+        if true {
+            let device = System::current_device();
+
+            let bytes = device.total_memory_size();
+            let gb = bytes >> 30;
+            let mb = (100 * (bytes & 0x3FFF_FFFF)) / 0x4000_0000;
+            log!(
+                "{} v{} (codename {}) {} Cores {}.{:02} GB Memory",
+                System::name(),
+                System::version(),
+                System::codename(),
+                device.num_of_active_cpus(),
+                gb,
+                mb
+            );
+        }
 
         unsafe {
             Scheduler::late_init();
@@ -370,7 +395,11 @@ impl System {
     }
 
     pub fn log<'a>() -> &'a mut dyn Tty {
-        Self::stdout()
+        // Self::stdout()
+        unsafe {
+            let shared = Self::shared_mut();
+            shared.emcon.assume_init_mut().get_mut()
+        }
     }
 
     #[track_caller]

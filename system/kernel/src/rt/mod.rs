@@ -5,6 +5,7 @@ use alloc::{boxed::Box, string::String, string::*, vec::Vec};
 use core::{cell::UnsafeCell, ffi::c_void};
 use megstd::uuid::{Identify, Uuid};
 
+pub mod arle;
 #[cfg(target_arch = "x86_64")]
 pub mod haribote;
 pub mod myos;
@@ -30,6 +31,9 @@ impl RuntimeEnvironment {
         assert_call_once!();
 
         let shared = &mut *RE.get();
+
+        shared.add_image("bin", arle::ArleRecognizer::new());
+
         shared.add_image("wasm", myos::WasmRecognizer::new());
 
         #[cfg(target_arch = "x86_64")]

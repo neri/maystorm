@@ -2,7 +2,6 @@
 
 use super::*;
 use crate::{drivers::usb::*, mem::MemoryManager, *};
-use bitflags::*;
 use core::{
     ffi::c_void,
     mem::size_of,
@@ -138,39 +137,40 @@ impl CapabilityRegisters {
     }
 }
 
-bitflags! {
+bitflags_impl! {
     /// Host Controller Capability Parameters 1
-    #[allow(dead_code)]
-    pub struct HccParams1: u32 {
-        /// 64bit Addressing Capability
-        const AC64  = 0b0000_0000_0000_0001;
-        /// BW Negotiation Capability
-        const BNC   = 0b0000_0000_0000_0010;
-        /// Context Size
-        const CSZ   = 0b0000_0000_0000_0100;
-        /// Port Power Control
-        const PPC   = 0b0000_0000_0000_1000;
-        /// Port Indicators
-        const PIND  = 0b0000_0000_0001_0000;
-        /// Light HC Reset Capability
-        const LHRC  = 0b0000_0000_0010_0000;
-        /// Latency Tolerance Messaging Capability
-        const LTC   = 0b0000_0000_0100_0000;
-        /// No Secondary SID Support
-        const NSS   = 0b0000_0000_1000_0000;
-        /// Parse All Event Data
-        const PAE   = 0b0000_0001_0000_0000;
-        /// Stopped - Short Packet Capacility
-        const SPC   = 0b0000_0010_0000_0000;
-        /// Stopped EDTLA Capability
-        const SEC   = 0b0000_0100_0000_0000;
-        /// Contiguous Frame ID Capability
-        const CFC   = 0b0000_1000_0000_0000;
-        /// Maximum Primary Stream Array Size
-        const MAX_PSA_SIZE  = 0b1111_0000_0000_0000;
+    pub struct HccParams1: u32 {}
+}
 
-        const XECP = 0xFFFF_0000;
-    }
+impl HccParams1 {
+    /// 64bit Addressing Capability
+    pub const AC64: Self = Self(0b0000_0000_0000_0001);
+    /// BW Negotiation Capability
+    pub const BNC: Self = Self(0b0000_0000_0000_0010);
+    /// Context Size
+    pub const CSZ: Self = Self(0b0000_0000_0000_0100);
+    /// Port Power Control
+    pub const PPC: Self = Self(0b0000_0000_0000_1000);
+    /// Port Indicators
+    pub const PIND: Self = Self(0b0000_0000_0001_0000);
+    /// Light HC Reset Capability
+    pub const LHRC: Self = Self(0b0000_0000_0010_0000);
+    /// Latency Tolerance Messaging Capability
+    pub const LTC: Self = Self(0b0000_0000_0100_0000);
+    /// No Secondary SID Support
+    pub const NSS: Self = Self(0b0000_0000_1000_0000);
+    /// Parse All Event Data
+    pub const PAE: Self = Self(0b0000_0001_0000_0000);
+    /// Stopped - Short Packet Capacility
+    pub const SPC: Self = Self(0b0000_0010_0000_0000);
+    /// Stopped EDTLA Capability
+    pub const SEC: Self = Self(0b0000_0100_0000_0000);
+    /// Contiguous Frame ID Capability
+    pub const CFC: Self = Self(0b0000_1000_0000_0000);
+    /// Maximum Primary Stream Array Size
+    pub const MAX_PSA_SIZE: Self = Self(0b1111_0000_0000_0000);
+
+    pub const XECP: Self = Self(0xFFFF_0000);
 }
 
 impl HccParams1 {
@@ -270,40 +270,47 @@ impl OperationalRegisters {
     }
 }
 
-bitflags! {
-    /// USBCMD Usb Command Register
+bitflags_impl! {
+    /// USBCMD: Usb Command Register
     #[allow(dead_code)]
-    pub struct UsbCmd: u32 {
-        /// Run(1)/Stop(0)
-        const RUN   = 0b0000_0000_0000_0001;
-        /// Host Controller Reset
-        const HCRST = 0b0000_0000_0000_0010;
-        /// Interrupt Enable
-        const INTE  = 0b0000_0000_0000_0100;
-
-        // TODO: and so on...
-    }
+    pub struct UsbCmd: u32 {}
 }
 
-bitflags! {
-    /// USBSTS USB Status Register
-    #[allow(dead_code)]
-    pub struct UsbSts: u32 {
-        /// HC Halted
-        const HCH   = 0b0000_0000_0000_0001;
+impl UsbCmd {
+    /// Run(1)/Stop(0)
+    pub const RUN: Self = Self(0b0000_0000_0000_0001);
+    /// Host Controller Reset
+    pub const HCRST: Self = Self(0b0000_0000_0000_0010);
+    /// Interrupt Enable
+    pub const INTE: Self = Self(0b0000_0000_0000_0100);
 
-        /// Controller Not Ready
-        const CNR   = 0b0000_1000_0000_0000;
-
-        // TODO: and so on...
-    }
+    // TODO: and so on...
 }
 
-bitflags! {
+bitflags_impl! {
+    /// USBSTS: USB Status Register
+    #[allow(dead_code)]
+    pub struct UsbSts: u32 {}
+}
+
+impl UsbSts {
+    /// HC Halted
+    pub const HCH: Self = Self(0b0000_0000_0000_0001);
+
+    /// Controller Not Ready
+    pub const CNR: Self = Self(0b0000_1000_0000_0000);
+
+    // TODO: and so on...
+}
+
+bitflags_impl! {
     /// Device Notification
     pub struct DeviceNotificationBitmap: u32 {
-        const FUNCTION_WAKE = 0b0000_0000_0000_0010;
     }
+}
+
+impl DeviceNotificationBitmap {
+    pub const FUNCTION_WAKE: Self = Self(0b0000_0000_0000_0010);
 }
 
 /// xHC USB Port Register Set
@@ -328,66 +335,80 @@ impl PortRegisters {
     }
 
     #[inline]
+    pub fn clear_changes(&self) {
+        self.set(PortSc::ALL_CHANGE_BITS);
+    }
+
+    #[inline]
+    pub fn power_off(&self) {
+        self.write(
+            ((self.status() & PortSc::PRESERVE_MASK) | PortSc::ALL_CHANGE_BITS) & !PortSc::PP,
+        );
+    }
+
+    #[inline]
     pub fn write(&self, val: PortSc) {
         self.portsc.store(val.bits(), Ordering::SeqCst);
     }
 }
 
-bitflags! {
+bitflags_impl! {
     /// Port Status and Control Register
-    pub struct PortSc: u32 {
-        /// A magic word to preserve mask
-        const PRESERVE_MASK = 0x0E00C3E0;
-
-        const ALL_CHANGE_BITS = 0x00FE_0000;
-        /// ROS Current Connect Status
-        const CCS   = 0x0000_0001;
-        /// RW1CS Port Enabled
-        const PED   = 0x0000_0002;
-        /// RO Over current Active
-        const OCA   = 0x0000_0008;
-        /// RW1S Port Reset
-        const PR    = 0x0000_0010;
-        /// RWS Port Link State
-        const PLS   = 0x0000_01E0;
-        /// RWS Port Power
-        const PP    = 0x0000_0200;
-        /// ROW Port Speed
-        const SPEED = 0x0000_3C00;
-        /// RWS Port Indicator
-        const PIC   = 0x0000_C000;
-        /// RW Port Link State Write Strobe
-        const LWS   = 0x0001_0000;
-        /// RW1CS Connect Status Change
-        const CSC   = 0x0002_0000;
-        /// RW1CS Port Enabled/Disabled Change
-        const PEC   = 0x0004_0000;
-        /// RW1CS Warm Port Reset Change
-        const WRC   = 0x0008_0000;
-        /// RW1CS Over current Change
-        const OCC   = 0x0010_0000;
-        /// RW1CS Port Reset Change
-        const PRC   = 0x0020_0000;
-        /// RW1CS Port Link State Change
-        const PLC   = 0x0040_0000;
-        /// RW1CS Port Config Error Change
-        const CEC   = 0x0080_0000;
-        /// RO Cold Attach Status
-        const CAS   = 0x0100_0000;
-        /// RWS Wake on Connect Enable
-        const WCE   = 0x0200_0000;
-        /// RWS Wake on Disconnect Enable
-        const WDE   = 0x0400_0000;
-        /// RWS Wake on Over current Enable
-        const WOE   = 0x0800_0000;
-        /// RO Device Removable
-        const DR    = 0x4000_0000;
-        /// RW1S Warm Port Reset
-        const WPR   = 0x8000_0000;
-    }
+    pub struct PortSc: u32 {}
 }
 
 impl PortSc {
+    /// A magic word to preserve mask
+    pub const PRESERVE_MASK: Self = Self(0x0E00C3E0);
+
+    /// (ROS) Current Connect Status
+    pub const CCS: Self = Self(0x0000_0001);
+    /// (RW1CS) Port Enabled
+    pub const PED: Self = Self(0x0000_0002);
+    /// (RO) Over current Active
+    pub const OCA: Self = Self(0x0000_0008);
+    /// (RW1S) Port Reset
+    pub const PR: Self = Self(0x0000_0010);
+    /// (RWS) Port Link State
+    pub const PLS: Self = Self(0x0000_01E0);
+    /// (RWS) Port Power
+    pub const PP: Self = Self(0x0000_0200);
+    /// (ROW) Port Speed
+    pub const SPEED: Self = Self(0x0000_3C00);
+    /// (RWS) Port Indicator
+    pub const PIC: Self = Self(0x0000_C000);
+    /// (RW) Port Link State Write Strobe
+    pub const LWS: Self = Self(0x0001_0000);
+
+    pub const ALL_CHANGE_BITS: Self = Self(0x00FE_0000);
+    /// (RW1CS) Connect Status Change
+    pub const CSC: Self = Self(0x0002_0000);
+    /// (RW1CS) Port Enabled/Disabled Change
+    pub const PEC: Self = Self(0x0004_0000);
+    /// (RW1CS) Warm Port Reset Change
+    pub const WRC: Self = Self(0x0008_0000);
+    /// (RW1CS) Over current Change
+    pub const OCC: Self = Self(0x0010_0000);
+    /// (RW1CS) Port Reset Change
+    pub const PRC: Self = Self(0x0020_0000);
+    /// (RW1CS) Port Link State Change
+    pub const PLC: Self = Self(0x0040_0000);
+    /// (RW1CS) Port Config Error Change
+    pub const CEC: Self = Self(0x0080_0000);
+
+    /// (RO) Cold Attach Status
+    pub const CAS: Self = Self(0x0100_0000);
+    /// (RWS) Wake on Connect Enable
+    pub const WCE: Self = Self(0x0200_0000);
+    /// (RWS) Wake on Disconnect Enable
+    pub const WDE: Self = Self(0x0400_0000);
+    /// (RWS) Wake on Over current Enable
+    pub const WOE: Self = Self(0x0800_0000);
+    /// (RO) Device Removable
+    pub const DR: Self = Self(0x4000_0000);
+    /// (RW1S) Warm Port Reset
+    pub const WPR: Self = Self(0x8000_0000);
+
     #[inline]
     pub const fn is_connected_status_changed(&self) -> bool {
         self.contains(Self::CSC)
@@ -409,7 +430,7 @@ impl PortSc {
     }
 
     #[inline]
-    pub const fn is_changed(&self) -> bool {
+    pub const fn has_changes(&self) -> bool {
         (self.bits() & Self::ALL_CHANGE_BITS.bits()) != 0
     }
 
@@ -429,17 +450,17 @@ impl PortSc {
     }
 
     #[inline]
-    pub fn speed(&self) -> Option<PSIV> {
+    pub const fn speed(&self) -> Option<PSIV> {
         unsafe { transmute(self.speed_raw() as u8) }
     }
 
     #[inline]
-    pub fn link_state(&self) -> Option<Usb3LinkState> {
+    pub const fn link_state(&self) -> Option<Usb3LinkState> {
         unsafe { transmute(self.link_state_raw() as u8) }
     }
 
     #[inline]
-    pub fn is_usb2(&self) -> bool {
+    pub const fn is_usb2(&self) -> bool {
         match self.speed() {
             Some(PSIV::LS) | Some(PSIV::FS) | Some(PSIV::HS) => true,
             _ => false,
@@ -447,8 +468,12 @@ impl PortSc {
     }
 
     #[inline]
-    pub fn is_usb3(&self) -> bool {
-        !self.is_usb2()
+    pub const fn is_usb3(&self) -> bool {
+        match self.speed() {
+            Some(PSIV::LS) | Some(PSIV::FS) | Some(PSIV::HS) => false,
+            Some(_) => true,
+            _ => false,
+        }
     }
 }
 

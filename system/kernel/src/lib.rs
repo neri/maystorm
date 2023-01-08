@@ -119,3 +119,132 @@ impl core::fmt::Debug for HexDump<'_> {
         Ok(())
     }
 }
+
+// like bitflags
+#[macro_export]
+macro_rules! bitflags_impl {
+    (
+        $(#[$outer:meta])*
+        $vis:vis struct $class:ident: $ty:ty {}
+    ) => {
+
+        $(#[$outer])*
+        #[repr(transparent)]
+        #[derive(Copy, Clone, Eq, PartialEq)]
+        $vis struct $class($ty);
+
+        impl $class {
+            #[inline]
+            pub const fn bits(&self) -> $ty {
+                self.0
+            }
+
+            #[inline]
+            pub const fn from_bits_retain(bits: $ty) -> Self {
+                Self(bits)
+            }
+
+            #[inline]
+            pub const fn contains(&self, other: Self) -> bool {
+                (self.0 & other.0) == other.0
+            }
+
+            #[inline]
+            pub const fn insert(&mut self, other: Self) {
+                self.0 |= other.0;
+            }
+
+            #[inline]
+            pub const fn remove(&mut self, other: Self) {
+                self.0 &= !other.0;
+            }
+
+            #[inline]
+            pub const fn toggle(&mut self, other: Self) {
+                self.0 ^= other.0;
+            }
+
+            #[inline]
+            pub const fn set(&mut self, other: Self, value: bool) {
+                if value {
+                    self.insert(other);
+                } else {
+                    self.remove(other);
+                }
+            }
+        }
+
+        impl const core::ops::Not for $class {
+            type Output = Self;
+
+            #[inline]
+            fn not(self) -> Self::Output {
+                Self(!self.0)
+            }
+        }
+
+        impl const core::ops::BitAnd<Self> for $class {
+            type Output = Self;
+
+            #[inline]
+            fn bitand(self, rhs: Self) -> Self::Output {
+                Self(self.bits() & rhs.bits())
+            }
+        }
+
+        impl const core::ops::BitAndAssign for $class {
+            #[inline]
+            fn bitand_assign(&mut self, rhs: Self) {
+                self.0 &= rhs.0;
+            }
+        }
+
+        impl const core::ops::BitOr<Self> for $class {
+            type Output = Self;
+
+            #[inline]
+            fn bitor(self, rhs: Self) -> Self::Output {
+                Self(self.bits() | rhs.bits())
+            }
+        }
+
+        impl const core::ops::BitOrAssign for $class {
+            #[inline]
+            fn bitor_assign(&mut self, rhs: Self) {
+                self.0 |= rhs.0;
+            }
+        }
+
+        impl const core::ops::BitXor<Self> for $class {
+            type Output = Self;
+
+            #[inline]
+            fn bitxor(self, rhs: Self) -> Self::Output {
+                Self(self.bits() ^ rhs.bits())
+            }
+        }
+
+        impl const core::ops::BitXorAssign for $class {
+            #[inline]
+            fn bitxor_assign(&mut self, rhs: Self) {
+                self.0 ^= rhs.0;
+            }
+        }
+
+        impl const core::ops::Sub for $class {
+            type Output = Self;
+
+            #[inline]
+            fn sub(self, rhs: Self) -> Self {
+                Self(self.0 & !rhs.0)
+            }
+        }
+
+        impl const core::ops::SubAssign for $class {
+            #[inline]
+            fn sub_assign(&mut self, rhs: Self) {
+                self.0 &= !rhs.0;
+            }
+        }
+    };
+}

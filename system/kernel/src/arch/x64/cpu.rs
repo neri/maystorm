@@ -60,7 +60,7 @@ impl Cpu {
             .unwrap_or(0);
         System::activate_cpu(Cpu::new(apic_id.into()));
 
-        let shared = Self::shared_mut();
+        let shared = SHARED_CPU.get_mut();
         shared.max_cpuid_level_0 = __cpuid_count(0, 0).eax;
         shared.max_cpuid_level_8 = __cpuid_count(0x8000_0000, 0).eax;
 
@@ -104,11 +104,6 @@ impl Cpu {
     #[inline]
     pub(super) fn set_tsc_base(&self, value: u64) {
         self.tsc_base.store(value, Ordering::Release);
-    }
-
-    #[inline]
-    unsafe fn shared_mut<'a>() -> &'a mut SharedCpu {
-        SHARED_CPU.get_mut()
     }
 
     #[inline]
@@ -632,7 +627,10 @@ impl DescriptorEntry {
     pub const fn tss_descriptor(base: Linear64, limit: Limit16) -> DescriptorPair {
         let (base_low, base_high) = base.as_segment_base_pair();
         let low = DescriptorEntry(
-            DescriptorType::Tss.as_descriptor_entry() | base_low | limit.0 as u64 | Self::PRESENT,
+            DescriptorType::Tss.as_descriptor_entry()
+                | base_low
+                | limit.as_descriptor_entry()
+                | Self::PRESENT,
         );
         let high = DescriptorEntry(base_high);
         DescriptorPair::new(low, high)
@@ -827,12 +825,19 @@ impl GlobalDescriptorTable {
     }
 }
 
-/// Type of x86 segment limit
+/// Type of x86 Segment Limit
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Limit16(pub u16);
 
-/// Type of x86 segment limit
+impl const AsDescriptorEntry for Limit16 {
+    #[inline]
+    fn as_descriptor_entry(&self) -> u64 {
+        self.0 as u64
+    }
+}
+
+/// Type of x86 Segment Limit
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Limit32(pub u32);
@@ -908,7 +913,7 @@ impl Offset64 {
     }
 }
 
-/// Type of x86 segment selector
+/// Type of x86 Segment Selector
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Selector(pub u16);
@@ -918,10 +923,10 @@ impl Selector {
     pub const NULL: Selector = Selector(0);
     pub const KERNEL_CODE: Selector = Selector::new(1, PrivilegeLevel::Kernel);
     pub const KERNEL_DATA: Selector = Selector::new(2, PrivilegeLevel::Kernel);
-    pub const USER_CODE: Selector = Selector::new(3, PrivilegeLevel::User);
-    pub const USER_DATA: Selector = Selector::new(4, PrivilegeLevel::User);
-    pub const LEGACY_CODE: Selector = Selector::new(5, PrivilegeLevel::User);
-    pub const LEGACY_DATA: Selector = Selector::new(6, PrivilegeLevel::User);
+    pub const LEGACY_CODE: Selector = Selector::new(3, PrivilegeLevel::User);
+    pub const LEGACY_DATA: Selector = Selector::new(4, PrivilegeLevel::User);
+    pub const USER_CODE: Selector = Selector::new(5, PrivilegeLevel::User);
+    pub const USER_DATA: Selector = Selector::new(6, PrivilegeLevel::User);
     pub const SYSTEM_TSS: Selector = Selector::new(8, PrivilegeLevel::Kernel);
 
     /// Make a new instance of the selector from the specified index and RPL
@@ -1058,8 +1063,10 @@ pub enum ExceptionType {
     MachineCheck = 18,
     /// #XM
     SimdException = 19,
-    /// #CE
+    /// #VE
     Virtualization = 20,
+    /// #CP
+    ControlProtection = 21,
     //Reserved
     /// #SX
     Security = 30,
@@ -1547,19 +1554,25 @@ pub enum F81C {
 #[allow(non_camel_case_types)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MSR {
-    TSC = 0x0000_0010,
-    APIC_BASE = 0x0000_001B,
-    MISC_ENABLE = 0x0000_01A0,
-    TSC_DEADLINE = 0x0000_06E0,
-    EFER = 0xC000_0080,
-    STAR = 0xC000_0081,
-    LSTAR = 0xC000_0082,
-    CSTAR = 0xC000_0083,
-    FMASK = 0xC000_0084,
-    FS_BASE = 0xC000_0100,
-    GS_BASE = 0xC000_0101,
-    KERNEL_GS_BASE = 0xC000_0102,
-    TSC_AUX = 0xC000_0103,
+    IA32_TSC = 0x0000_0010,
+    IA32_PLATFORM_ID = 0x0000_0017,
+    IA32_APIC_BASE = 0x0000_001B,
+    IA32_FEATURE_CONTROL = 0x0000_003A,
+    IA32_TSC_ADJUST = 0x0000_0003B,
+    IA32_MISC_ENABLE = 0x0000_01A0,
+    IA32_TSC_DEADLINE = 0x0000_06E0,
+    IA32_SYSENTER_CS = 0x0000_0174,
+    IA32_SYSENTER_ESP = 0x0000_0175,
+    IA32_SYSENTER_EIP = 0x0000_0176,
+    IA32_EFER = 0xC000_0080,
+    IA32_STAR = 0xC000_0081,
+    IA32_LSTAR = 0xC000_0082,
+    IA32_CSTAR = 0xC000_0083,
+    IA32_FMASK = 0xC000_0084,
+    IA32_FS_BASE = 0xC000_0100,
+    IA32_GS_BASE = 0xC000_0101,
+    IA32_KERNEL_GS_BASE = 0xC000_0102,
+    IA32_TSC_AUX = 0xC000_0103,
     CPU_WATCHDOG_TIMER = 0xC001_0074,
 }
 

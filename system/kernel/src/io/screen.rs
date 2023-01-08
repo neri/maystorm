@@ -1,5 +1,5 @@
 use crate::sync::atomic::AtomicWrapper;
-use core::{cell::UnsafeCell, mem::transmute};
+use core::cell::UnsafeCell;
 use megstd::drawing::*;
 
 pub trait Screen<T>: Drawable
@@ -9,6 +9,8 @@ where
     fn blt(&self, src: &T, origin: Point, rect: Rect);
 
     fn fill_rect(&self, rect: Rect, color: Self::ColorType);
+
+    fn draw_glyph(&self, glyph: &[u8], size: Size, origin: Point, color: Self::ColorType);
 
     /// Returns the native screen size
     fn native_size(&self) -> Size;
@@ -24,18 +26,18 @@ where
     }
 
     /// Returns the screen rotation status.
-    fn rotation(&self) -> ScreenRotation {
+    fn rotation(&self) -> Rotation {
         Default::default()
     }
 
     /// Changes the rotation state of the screen.
-    fn set_rotation(&self, value: ScreenRotation) -> Result<ScreenRotation, ScreenRotation> {
+    fn set_rotation(&self, value: Rotation) -> Result<Rotation, Rotation> {
         let _ = value;
         Err(self.rotation())
     }
 
     /// Rotate the screen one level, if possible.
-    fn rotate(&self) -> Result<ScreenRotation, ScreenRotation> {
+    fn rotate(&self) -> Result<Rotation, Rotation> {
         self.set_rotation(self.rotation().succ())
     }
 
@@ -56,47 +58,6 @@ where
     ) -> Result<ScreenOrientation, ScreenOrientation> {
         let _ = value;
         Err(self.orientation())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ScreenRotation {
-    _0 = 0,
-    _90 = 1,
-    _180 = 2,
-    _270 = 3,
-}
-
-impl ScreenRotation {
-    #[inline]
-    pub const fn succ(self) -> Self {
-        match self {
-            Self::_0 => Self::_90,
-            Self::_90 => Self::_180,
-            Self::_180 => Self::_270,
-            Self::_270 => Self::_0,
-        }
-    }
-}
-
-impl const Default for ScreenRotation {
-    #[inline]
-    fn default() -> Self {
-        Self::_0
-    }
-}
-
-impl const From<usize> for ScreenRotation {
-    #[inline]
-    fn from(value: usize) -> Self {
-        unsafe { transmute(value as u8) }
-    }
-}
-
-impl const From<ScreenRotation> for usize {
-    #[inline]
-    fn from(value: ScreenRotation) -> Self {
-        value as usize
     }
 }
 
@@ -124,7 +85,7 @@ impl ScreenOrientation {
 pub struct BitmapScreen<'a> {
     fb: UnsafeCell<Bitmap32<'a>>,
     dims: Size,
-    rotation: AtomicWrapper<ScreenRotation>,
+    rotation: AtomicWrapper<Rotation>,
 }
 
 impl<'a> BitmapScreen<'a> {
@@ -144,7 +105,7 @@ impl<'a> BitmapScreen<'a> {
 
     #[inline]
     fn is_natural_orientation(&self) -> bool {
-        matches!(self.rotation(), ScreenRotation::_0 | ScreenRotation::_180)
+        matches!(self.rotation(), Rotation::Default | Rotation::UpsideDown)
     }
 
     #[inline]
@@ -172,9 +133,9 @@ impl Screen<ConstBitmap32<'_>> for BitmapScreen<'_> {
 
     fn blt(&self, src: &ConstBitmap32, origin: Point, rect: Rect) {
         match self.rotation() {
-            ScreenRotation::_0 => self.bitmap().blt(src, origin, rect),
-            ScreenRotation::_90 => self.bitmap().blt_rotate(src, origin, rect),
-            ScreenRotation::_180 | ScreenRotation::_270 => unreachable!(),
+            Rotation::Default => self.bitmap().blt(src, origin, rect),
+            Rotation::ClockWise => self.bitmap().blt_cw(src, origin, rect),
+            Rotation::UpsideDown | Rotation::CounterClockWise => unreachable!(),
         }
     }
 
@@ -183,7 +144,7 @@ impl Screen<ConstBitmap32<'_>> for BitmapScreen<'_> {
             self.bitmap().fill_rect(rect, color.into());
         } else {
             let rect = Rect::new(
-                self.dims.height() - rect.min_y() - rect.height(),
+                self.dims.width() - rect.min_y() - rect.height(),
                 rect.min_x(),
                 rect.height(),
                 rect.width(),
@@ -192,17 +153,25 @@ impl Screen<ConstBitmap32<'_>> for BitmapScreen<'_> {
         }
     }
 
-    fn rotation(&self) -> ScreenRotation {
+    fn draw_glyph(&self, glyph: &[u8], size: Size, origin: Point, color: Self::ColorType) {
+        if self.is_natural_orientation() {
+            self.bitmap().draw_glyph(glyph, size, origin, color);
+        } else {
+            self.bitmap().draw_glyph_cw(glyph, size, origin, color);
+        }
+    }
+
+    fn rotation(&self) -> Rotation {
         self.rotation.value()
     }
 
-    fn set_rotation(&self, value: ScreenRotation) -> Result<ScreenRotation, ScreenRotation> {
+    fn set_rotation(&self, value: Rotation) -> Result<Rotation, Rotation> {
         if match value {
-            ScreenRotation::_0 | ScreenRotation::_90 => {
+            Rotation::Default | Rotation::ClockWise => {
                 self.rotation.store(value);
                 true
             }
-            ScreenRotation::_180 | ScreenRotation::_270 => false,
+            Rotation::UpsideDown | Rotation::CounterClockWise => false,
         } {
             Ok(self.rotation())
         } else {
@@ -210,12 +179,12 @@ impl Screen<ConstBitmap32<'_>> for BitmapScreen<'_> {
         }
     }
 
-    fn rotate(&self) -> Result<ScreenRotation, ScreenRotation> {
+    fn rotate(&self) -> Result<Rotation, Rotation> {
         let new_val = match self.rotation.value() {
-            ScreenRotation::_0 => ScreenRotation::_90,
-            ScreenRotation::_90 => ScreenRotation::_0,
-            ScreenRotation::_180 => ScreenRotation::_90,
-            ScreenRotation::_270 => ScreenRotation::_0,
+            Rotation::Default => Rotation::ClockWise,
+            Rotation::ClockWise => Rotation::Default,
+            Rotation::UpsideDown => Rotation::ClockWise,
+            Rotation::CounterClockWise => Rotation::Default,
         };
         self.rotation.store(new_val);
         Ok(self.rotation())
@@ -227,13 +196,13 @@ impl Screen<ConstBitmap32<'_>> for BitmapScreen<'_> {
     ) -> Result<ScreenOrientation, ScreenOrientation> {
         if self.is_portrait_native() {
             self.rotation.store(match value {
-                ScreenOrientation::Portrait => ScreenRotation::_0,
-                ScreenOrientation::Landscape => ScreenRotation::_90,
+                ScreenOrientation::Portrait => Rotation::Default,
+                ScreenOrientation::Landscape => Rotation::ClockWise,
             });
         } else {
             self.rotation.store(match value {
-                ScreenOrientation::Portrait => ScreenRotation::_90,
-                ScreenOrientation::Landscape => ScreenRotation::_0,
+                ScreenOrientation::Portrait => Rotation::ClockWise,
+                ScreenOrientation::Landscape => Rotation::Default,
             });
         }
         Ok(self.orientation())

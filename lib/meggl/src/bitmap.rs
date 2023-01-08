@@ -183,7 +183,7 @@ pub trait BasicDrawing: SetPixel {
 }
 
 pub trait RasterFontWriter: SetPixel {
-    fn draw_font(&mut self, src: &[u8], size: Size, origin: Point, color: Self::ColorType) {
+    fn draw_glyph(&mut self, glyph: &[u8], size: Size, origin: Point, color: Self::ColorType) {
         let stride = (size.width as usize + 7) / 8;
 
         let Ok(mut coords) = Coordinates::from_rect(Rect::from((origin, size))) else { return };
@@ -208,7 +208,7 @@ pub trait RasterFontWriter: SetPixel {
         let mut cursor = 0;
         for y in 0..height {
             for i in 0..w8 {
-                let data = unsafe { src.get_unchecked(cursor + i) };
+                let data = unsafe { glyph.get_unchecked(cursor + i) };
                 for j in 0..8 {
                     let position = 0x80u8 >> j;
                     if (data & position) != 0 {
@@ -220,7 +220,7 @@ pub trait RasterFontWriter: SetPixel {
                 }
             }
             if w7 > 0 {
-                let data = unsafe { src.get_unchecked(cursor + w8) };
+                let data = unsafe { glyph.get_unchecked(cursor + w8) };
                 let base_x = w8 * 8;
                 for i in 0..w7 {
                     let position = 0x80u8 >> i;
@@ -235,9 +235,66 @@ pub trait RasterFontWriter: SetPixel {
             cursor += stride;
         }
     }
+
+    fn draw_glyph_cw(&mut self, glyph: &[u8], size: Size, origin: Point, color: Self::ColorType) {
+        let stride = (size.width as usize + 7) / 8;
+        let width = self.width() as isize;
+        let height = self.height() as isize;
+
+        let Ok(mut coords) = Coordinates::from_rect(Rect::new(
+            width - origin.y - size.height,
+            origin.x,
+            size.height,
+            size.width,
+        )) else { return };
+
+        if coords.right > width {
+            coords.right = width;
+        }
+        if coords.bottom > height {
+            coords.bottom = height;
+        }
+        if coords.left < 0 || coords.left >= width || coords.top < 0 || coords.top >= height {
+            return;
+        }
+
+        let new_rect = Rect::from(coords);
+        let width = new_rect.height() as usize;
+        let height = new_rect.width();
+        drop(new_rect);
+        let w8 = width / 8;
+        let w7 = width & 7;
+        let mut cursor = 0;
+        for i in 0..height {
+            for j in 0..w8 {
+                let data = unsafe { glyph.get_unchecked(cursor + j) };
+                for k in 0..8 {
+                    let position = 0x80u8 >> k;
+                    if (data & position) != 0 {
+                        let point = Point::new(coords.right - i, coords.top + (j * 8 + k) as isize);
+                        self.set_pixel(point, color);
+                    }
+                }
+            }
+            if w7 > 0 {
+                let data = unsafe { glyph.get_unchecked(cursor + w8) };
+                let base_x = w8 * 8;
+                for k in 0..w7 {
+                    let position = 0x80u8 >> k;
+                    if (data & position) != 0 {
+                        let point =
+                            Point::new(coords.right - i, coords.top + (base_x + k) as isize);
+                        self.set_pixel(point, color);
+                    }
+                }
+            }
+            cursor += stride;
+        }
+    }
 }
 
 pub trait BltConvert<T: ColorTrait>: MutableRasterImage {
+    #[inline]
     fn blt_convert<U, F>(&mut self, src: &U, origin: Point, rect: Rect, mut f: F)
     where
         U: RasterImage<ColorType = T>,
@@ -1227,15 +1284,13 @@ impl<'a> Bitmap32<'a> {
         }
     }
 
-    #[inline]
     pub fn blt8(&mut self, src: &ConstBitmap8, origin: Point, rect: Rect, palette: &[u32; 256]) {
         self.blt_convert(src, origin, rect, |c| {
             TrueColor::from_argb(palette[c.0 as usize])
         });
     }
 
-    /// Experiments
-    pub fn blt_rotate(&mut self, src: &ConstBitmap32, origin: Point, rect: Rect) {
+    pub fn blt_cw(&mut self, src: &ConstBitmap32, origin: Point, rect: Rect) {
         let self_size = Size::new(self.height() as isize, self.width() as isize);
         let (mut dx, mut dy, sx, sy, width, height) =
             adjust_blt_coords(self_size, src.size(), origin, rect);
@@ -1547,10 +1602,17 @@ impl SetPixel for Bitmap<'_> {
 
 impl RasterFontWriter for Bitmap<'_> {
     #[inline]
-    fn draw_font(&mut self, src: &[u8], size: Size, origin: Point, color: Self::ColorType) {
+    fn draw_glyph(&mut self, glyph: &[u8], size: Size, origin: Point, color: Self::ColorType) {
         match self {
-            Self::Indexed(ref mut v) => v.draw_font(src, size, origin, color.into()),
-            Self::Argb32(ref mut v) => v.draw_font(src, size, origin, color.into()),
+            Self::Indexed(ref mut v) => v.draw_glyph(glyph, size, origin, color.into()),
+            Self::Argb32(ref mut v) => v.draw_glyph(glyph, size, origin, color.into()),
+        }
+    }
+
+    fn draw_glyph_cw(&mut self, glyph: &[u8], size: Size, origin: Point, color: Self::ColorType) {
+        match self {
+            Self::Indexed(ref mut v) => v.draw_glyph_cw(glyph, size, origin, color.into()),
+            Self::Argb32(ref mut v) => v.draw_glyph_cw(glyph, size, origin, color.into()),
         }
     }
 }

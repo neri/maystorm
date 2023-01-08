@@ -1204,3 +1204,39 @@ pub enum TrbTranfserType {
     ControlOut = 2,
     ControlIn = 3,
 }
+
+#[repr(C)]
+pub struct XhciSupportedProtocolCapability(pub *const u32);
+
+impl XhciSupportedProtocolCapability {
+    pub const NAME_USB: [u8; 4] = *b"USB ";
+
+    #[inline]
+    pub fn rev_minor(&self) -> u8 {
+        let data = unsafe { self.0.read_volatile() };
+        (data >> 16) as u8
+    }
+
+    #[inline]
+    pub fn rev_major(&self) -> u8 {
+        let data = unsafe { self.0.read_volatile() };
+        (data >> 24) as u8
+    }
+
+    #[inline]
+    pub fn name(&self) -> [u8; 4] {
+        unsafe { transmute(self.0.add(1).read_volatile()) }
+    }
+
+    #[inline]
+    pub fn compatible_port_offset(&self) -> u8 {
+        let data = unsafe { self.0.add(2).read_volatile() };
+        (data & 0xFF) as u8
+    }
+
+    #[inline]
+    pub fn compatible_port_count(&self) -> u8 {
+        let data = unsafe { self.0.add(2).read_volatile() };
+        ((data >> 8) & 0xFF) as u8
+    }
+}

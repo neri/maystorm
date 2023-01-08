@@ -7,7 +7,7 @@
 
 extern crate alloc;
 use bootprot::*;
-use core::{fmt, fmt::Write, num::NonZeroU8, slice};
+use core::{fmt, fmt::Write, num::NonZeroU8};
 use kernel::{
     drivers::pci, drivers::usb, fs::*, mem::*, rt::*, system::*, task::scheduler::*,
     ui::window::WindowManager, user::userenv::UserEnv, *,
@@ -606,7 +606,7 @@ impl Shell {
     fn print_usb_device(level: usize, parent: Option<usb::UsbAddress>) {
         for device in usb::UsbManager::devices().filter(|v| v.parent() == parent) {
             println!(
-                "{:indent$}{:02x} VID {} PID {} class {} {}{}",
+                "{:indent$}{:03} VID {} PID {} class {} {}{}",
                 "",
                 device.addr().as_u8(),
                 device.vid(),

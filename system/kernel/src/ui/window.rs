@@ -1901,6 +1901,11 @@ impl WindowBuilder {
             self.style.insert(WindowStyle::BORDER);
         }
 
+        // if self.style.contains(WindowStyle::BORDER) {
+        //     self.style.insert(WindowStyle::THIN_FRAME);
+        // }
+        // self.style.insert(WindowStyle::NO_SHADOW);
+
         let screen_bounds = WindowManager::user_screen_bounds();
         let content_insets = self.style.as_content_insets();
         let frame = if self.style.contains(WindowStyle::FULLSCREEN) {

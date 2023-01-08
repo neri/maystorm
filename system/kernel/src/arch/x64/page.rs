@@ -20,15 +20,16 @@ impl PageManager {
     // const PAGE_SIZE_2M: usize = 0x200000;
     const PAGE_SIZE_M1: PageTableRepr = 0xFFF;
     const PAGE_SIZE_2M_M1: PageTableRepr = 0x1F_FFFF;
-    const PAGE_SYSTEM_PREFIX: usize = 0xFFFF_0000_0000_0000;
 
     const PAGE_USER_MIN: usize = 0x000;
     const PAGE_USER_MAX: usize = 0x100;
+    const PAGE_DIRECT_MAP: usize = 0x180;
+    const PAGE_HEAP_MIN: usize = 0x1FC;
+    const PAGE_HEAP_MAX: usize = 0x1FD;
     const PAGE_RECURSIVE: usize = 0x1FE;
     // const PAGE_KERNEL_HEAP: usize = 0x1FC;
-    const PAGE_DIRECT_MAP: usize = 0x180;
-    const DIRECT_BASE: usize = Self::PAGE_SYSTEM_PREFIX | (Self::PAGE_DIRECT_MAP << 39);
-    // const HEAP_BASE: usize = Self::PAGE_SYSTEM_PREFIX | (Self::PAGE_KERNEL_HEAP << 39);
+
+    const DIRECT_BASE: usize = PageLevel::Level4.addr(Self::PAGE_DIRECT_MAP);
 
     #[inline]
     pub unsafe fn init(_info: &BootInfo) {
@@ -104,6 +105,20 @@ impl PageManager {
                 .unwrap();
                 va
             }
+            MemoryMapRequest::Kernel(va, len, attr) => {
+                if PageLevel::MAX.component(va) < Self::PAGE_HEAP_MIN
+                    || PageLevel::MAX.component(va) >= Self::PAGE_HEAP_MAX
+                    || PageLevel::MAX.component(len) >= (Self::PAGE_HEAP_MAX - Self::PAGE_HEAP_MIN)
+                    || PageLevel::MAX.component(va + len) >= Self::PAGE_HEAP_MAX
+                {
+                    return 0;
+                }
+                let Some(len) = NonZeroUsize::new(len) else { return 0 };
+                let Some(pa) = MemoryManager::alloc_pages(len.get()).map(|v| v.get()) else { return 0 };
+
+                Self::_map(va, len, PageTableEntry::new(pa, PageAttributes::from(attr))).unwrap();
+                va
+            }
             MemoryMapRequest::User(va, len, attr) => {
                 if PageLevel::MAX.component(va) < Self::PAGE_USER_MIN
                     || PageLevel::MAX.component(va) >= Self::PAGE_USER_MAX
@@ -129,9 +144,6 @@ impl PageManager {
                 Self::_mprotect(va, len, attr)
                     .map(|_| va)
                     .unwrap_or_default()
-            }
-            MemoryMapRequest::Kernel(_va, _len, _attr) => {
-                todo!()
             }
         }
     }
@@ -188,7 +200,11 @@ impl PageManager {
     #[inline]
     unsafe fn map_table_if_needed(va: usize, level: PageLevel, template: PageTableEntry) {
         let pte = level.pte_of(va);
-        if !pte.read_volatile().is_present() {
+        if pte.read_volatile().is_present() {
+            (&mut *pte)
+                .accept(template.attributes())
+                .map(|_| Self::invalidate_tlb(va));
+        } else {
             let pa = MemoryManager::pg_alloc(Layout::from_size_align_unchecked(
                 Self::PAGE_SIZE_MIN,
                 Self::PAGE_SIZE_MIN,
@@ -222,7 +238,7 @@ impl PageManager {
                 if !entry.is_present() {
                     return Err(va);
                 }
-                entry.upgrade(parent_template);
+                entry.accept(parent_template);
                 Self::invalidate_tlb(va);
             }
 
@@ -409,19 +425,29 @@ impl PageTableEntry {
 
     #[inline]
     pub fn set_access_rights(&mut self, new_attr: PageAttributes) {
-        for flag in [PageAttributes::NO_EXECUTE, PageAttributes::WRITE] {
+        for flag in [
+            PageAttributes::PRESENT,
+            PageAttributes::WRITE,
+            PageAttributes::NO_EXECUTE,
+        ] {
             self.set(flag, new_attr.contains(flag));
         }
     }
 
     #[inline]
-    pub fn upgrade(&mut self, new_attr: PageAttributes) {
-        if !new_attr.contains(PageAttributes::NO_EXECUTE) {
-            self.remove(PageAttributes::NO_EXECUTE)
+    pub fn accept(&mut self, new_attr: PageAttributes) -> Option<()> {
+        let mut result = false;
+        if self.contains(PageAttributes::NO_EXECUTE)
+            && !new_attr.contains(PageAttributes::NO_EXECUTE)
+        {
+            self.remove(PageAttributes::NO_EXECUTE);
+            result = true;
         }
-        if new_attr.contains(PageAttributes::WRITE) {
-            self.insert(PageAttributes::WRITE)
+        if !self.contains(PageAttributes::WRITE) && new_attr.contains(PageAttributes::WRITE) {
+            self.insert(PageAttributes::WRITE);
+            result = true;
         }
+        result.then(|| ())
     }
 }
 
@@ -483,24 +509,45 @@ impl PageLevel {
     pub const BITS_PER_LEVEL: usize = 9;
     pub const FIRST_LEVEL_BITS: usize = 12;
 
-    pub const RECURSIVE_LV1: usize =
-        PageManager::PAGE_SYSTEM_PREFIX | (PageManager::PAGE_RECURSIVE << 39);
-    pub const RECURSIVE_LV2: usize = Self::RECURSIVE_LV1 | (PageManager::PAGE_RECURSIVE << 30);
-    pub const RECURSIVE_LV3: usize = Self::RECURSIVE_LV2 | (PageManager::PAGE_RECURSIVE << 21);
-    pub const RECURSIVE_LV4: usize = Self::RECURSIVE_LV3 | (PageManager::PAGE_RECURSIVE << 12);
+    pub const RECURSIVE_LV1: usize = Self::Level4.addr(PageManager::PAGE_RECURSIVE);
+    pub const RECURSIVE_LV2: usize =
+        Self::RECURSIVE_LV1 + Self::Level3.addr(PageManager::PAGE_RECURSIVE);
+    pub const RECURSIVE_LV3: usize =
+        Self::RECURSIVE_LV2 + Self::Level2.addr(PageManager::PAGE_RECURSIVE);
+    pub const RECURSIVE_LV4: usize =
+        Self::RECURSIVE_LV3 + Self::Level1.addr(PageManager::PAGE_RECURSIVE);
 
-    /// Returns the component of the current level specified by linear address.
     #[inline]
-    pub const fn component(&self, va: usize) -> usize {
-        (va >> (Self::FIRST_LEVEL_BITS
+    pub const fn shift(&self) -> usize {
+        Self::FIRST_LEVEL_BITS
             + Self::BITS_PER_LEVEL
                 * match *self {
                     Self::Level1 => 0,
                     Self::Level2 => 1,
                     Self::Level3 => 2,
                     Self::Level4 => 3,
-                }))
-            & Self::MASK_PER_LEVEL
+                }
+    }
+
+    /// Returns the component of the current level specified by linear address.
+    #[inline]
+    pub const fn component(&self, va: usize) -> usize {
+        (va >> self.shift()) & Self::MASK_PER_LEVEL
+    }
+
+    #[inline]
+    pub const fn addr(&self, component: usize) -> usize {
+        ((component & Self::MASK_PER_LEVEL) << self.shift())
+            + match *self {
+                PageLevel::Level4 => {
+                    if component >= 0x100 {
+                        0xFFFF_0000_0000_0000
+                    } else {
+                        0
+                    }
+                }
+                _ => 0,
+            }
     }
 
     /// Returns the PageTableEntry corresponding to the current level of the specified linear address.
@@ -508,10 +555,10 @@ impl PageLevel {
     pub const unsafe fn pte_of(&self, va: usize) -> *mut PageTableEntry {
         let base = va & Self::MASK_MAX_VA;
         let pte = match *self {
-            Self::Level1 => Self::RECURSIVE_LV1 + ((base >> 12) << 3),
-            Self::Level2 => Self::RECURSIVE_LV2 + ((base >> 21) << 3),
-            Self::Level3 => Self::RECURSIVE_LV3 + ((base >> 30) << 3),
-            Self::Level4 => Self::RECURSIVE_LV4 + ((base >> 39) << 3),
+            Self::Level1 => Self::RECURSIVE_LV1 + ((base >> self.shift()) << 3),
+            Self::Level2 => Self::RECURSIVE_LV2 + ((base >> self.shift()) << 3),
+            Self::Level3 => Self::RECURSIVE_LV3 + ((base >> self.shift()) << 3),
+            Self::Level4 => Self::RECURSIVE_LV4 + ((base >> self.shift()) << 3),
         };
         pte as *mut PageTableEntry
     }
