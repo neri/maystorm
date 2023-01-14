@@ -115,7 +115,7 @@ impl UsbManager {
         });
 
         SpawnOption::with_priority(Priority::High)
-            .spawn(Self::_usb_xfer_task_thread, "USB xfer task");
+            .spawn(Self::_usb_xfer_task_thread, "USB Manager");
 
         let mut specific_drivers = Self::shared().specific_driver_starters.write().unwrap();
         let mut class_drivers = Self::shared().class_driver_starters.write().unwrap();

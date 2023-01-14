@@ -137,7 +137,7 @@ impl CapabilityRegisters {
     }
 }
 
-bitflags_impl! {
+my_bitflags! {
     /// Host Controller Capability Parameters 1
     pub struct HccParams1: u32 {}
 }
@@ -270,7 +270,7 @@ impl OperationalRegisters {
     }
 }
 
-bitflags_impl! {
+my_bitflags! {
     /// USBCMD: Usb Command Register
     #[allow(dead_code)]
     pub struct UsbCmd: u32 {}
@@ -287,7 +287,7 @@ impl UsbCmd {
     // TODO: and so on...
 }
 
-bitflags_impl! {
+my_bitflags! {
     /// USBSTS: USB Status Register
     #[allow(dead_code)]
     pub struct UsbSts: u32 {}
@@ -303,7 +303,7 @@ impl UsbSts {
     // TODO: and so on...
 }
 
-bitflags_impl! {
+my_bitflags! {
     /// Device Notification
     pub struct DeviceNotificationBitmap: u32 {
     }
@@ -352,7 +352,7 @@ impl PortRegisters {
     }
 }
 
-bitflags_impl! {
+my_bitflags! {
     /// Port Status and Control Register
     pub struct PortSc: u32 {}
 }

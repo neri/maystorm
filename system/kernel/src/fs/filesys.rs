@@ -138,7 +138,7 @@ impl FileManager {
         Ok(())
     }
 
-    pub fn read_dir(path: &str) -> Result<FsRawReadDir> {
+    pub fn read_dir(path: &str) -> Result<impl Iterator<Item = FsRawDirEntry>> {
         let (fs, dir) = Self::resolv(&path)?;
         Ok(FsRawReadDir::new(fs, dir))
     }
@@ -207,34 +207,6 @@ impl Display for INodeType {
         write!(f, "{}", self.0.get())
     }
 }
-
-// #[repr(transparent)]
-// pub struct AtomicINodeType(AtomicU64);
-
-// impl AtomicINodeType {
-//     #[inline]
-//     pub fn load(&self, order: Ordering) -> Option<INodeType> {
-//         INodeType::new(self.0.load(order))
-//     }
-
-//     #[inline]
-//     pub fn store(&self, val: Option<INodeType>, order: Ordering) {
-//         let val = match val {
-//             Some(v) => v.get(),
-//             None => 0,
-//         };
-//         self.0.store(val, order);
-//     }
-
-//     #[inline]
-//     pub fn swap(&self, val: Option<INodeType>, order: Ordering) -> Option<INodeType> {
-//         let val = match val {
-//             Some(v) => v.get(),
-//             None => 0,
-//         };
-//         INodeType::new(self.0.swap(val, order))
-//     }
-// }
 
 pub trait FsDriver {
     /// Device name if mounted on physical device, otherwise name of file system driver

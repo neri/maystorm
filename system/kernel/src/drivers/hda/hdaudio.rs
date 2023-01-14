@@ -7,7 +7,6 @@ use crate::{
     *,
 };
 use alloc::{boxed::Box, collections::BTreeMap, format, string::String, sync::Arc, vec::Vec};
-use bitflags::*;
 use core::{
     intrinsics::copy_nonoverlapping,
     mem::transmute,
@@ -508,7 +507,7 @@ pub enum ControllerError {
     StreamNotReady,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Node {
     addr: WidgetAddress,
     cap: AudioWidgetCapabilities,
@@ -1115,7 +1114,7 @@ impl GlobalRegisterSet {
     }
 }
 
-bitflags! {
+my_bitflags! {
     pub struct GlobalControl: u32 {
         /// Controller Reset
         const CRST      = 0x0000_0001;
@@ -1126,13 +1125,13 @@ bitflags! {
     }
 }
 
-bitflags! {
+my_bitflags! {
     pub struct GlobalStatus: u16 {
         const FSTS      = 0x0002;
     }
 }
 
-bitflags! {
+my_bitflags! {
     pub struct InterruptControl: u32 {
         const GIE       = 0x8000_0000;
         const CIE       = 0x4000_0000;
@@ -1179,8 +1178,7 @@ pub struct CorbRegisterSet {
     size: AtomicU8,
 }
 
-bitflags! {
-    #[derive(Debug, Clone, Copy)]
+my_bitflags! {
     pub struct CorbControl: u8 {
         /// DMA Run
         const RUN   = 0b0000_0010;
@@ -1189,8 +1187,7 @@ bitflags! {
     }
 }
 
-bitflags! {
-    #[derive(Debug, Clone, Copy)]
+my_bitflags! {
     pub struct CorbStatus: u8 {
         /// Memory Error Indication
         const MEI   = 0b0000_0001;
@@ -1289,7 +1286,7 @@ pub struct RirbRegisterSet {
     size: AtomicU8,
 }
 
-bitflags! {
+my_bitflags! {
     pub struct RirbControl: u8 {
         /// Response Interrupt Control
         const RINTCTL   = 0b0000_0001;
@@ -1300,7 +1297,7 @@ bitflags! {
     }
 }
 
-bitflags! {
+my_bitflags! {
     pub struct RirbStatus: u8 {
         /// Response Interrupt
         const RINTFL    = 0b0000_0001;
@@ -1439,7 +1436,7 @@ impl ImmediateCommandRegisterSet {
     }
 }
 
-bitflags! {
+my_bitflags! {
     pub struct ImmediateCommandStatus: u16 {
         /// Immediate Command Busy
         const ICB       = 0b0000_0000_0000_0001;
@@ -1557,7 +1554,7 @@ impl StreamDescriptorRegisterSet {
     }
 }
 
-bitflags! {
+my_bitflags! {
     pub struct StreamDescriptorControl: u32 {
         /// Stream Reset
         const SRST      = 0x0000_0001;
@@ -1597,8 +1594,7 @@ impl StreamDescriptorControl {
     }
 }
 
-bitflags! {
-    #[derive(Debug, Clone, Copy)]
+my_bitflags! {
     pub struct StreamDescriptorStatus: u8 {
         /// Buffer Completion Interrupt Status
         const BCIS      = 0x04;
@@ -1646,7 +1642,7 @@ impl BufferDescriptor {
     }
 }
 
-bitflags! {
+my_bitflags! {
     pub struct BufferDescriptorFlag: u32 {
         const IOC   = 0x0000_0001;
     }
@@ -1803,8 +1799,7 @@ pub enum ParameterId {
     VolumeKnobCapabilities = 0x13,
 }
 
-bitflags! {
-    #[derive(Debug, Clone, Copy)]
+my_bitflags! {
     pub struct AudioWidgetCapabilities: u32 {
         const STEREO            = 0x0000_0001;
         const IN_AMP            = 0x0000_0002;
@@ -2127,7 +2122,7 @@ impl SampleRate {
     }
 }
 
-bitflags! {
+my_bitflags! {
     pub struct SupportedPCMFormat: u32 {
         /// 8.0KHz 1/6 * 48
         const _8K       = 0x0000_0001;

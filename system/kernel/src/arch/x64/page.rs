@@ -1,5 +1,4 @@
 use crate::{mem::*, *};
-use bitflags::*;
 use core::{
     alloc::Layout,
     arch::asm,
@@ -164,7 +163,7 @@ impl PageManager {
             && (mask_2m & template.frame_address()) == 0
         {
             // 2M Pages
-            return Err(va);
+            todo!();
         } else {
             // 4K Pages
             let count = len / Self::PAGE_SIZE_MIN;
@@ -287,8 +286,7 @@ impl PageManager {
     }
 }
 
-bitflags! {
-    #[derive(Debug, Clone, Copy)]
+my_bitflags! {
     pub struct PageAttributes: PageTableRepr {
         const PRESENT       = 0x0000_0000_0000_0001;
         const WRITE         = 0x0000_0000_0000_0002;
@@ -564,8 +562,7 @@ impl PageLevel {
     }
 }
 
-bitflags! {
-    #[derive(Debug, Clone, Copy)]
+my_bitflags! {
     pub struct PageErrorCode: u16 {
         /// When set, the page fault was caused by a page-protection violation.
         /// When not set, it was caused by a non-present page.

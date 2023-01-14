@@ -683,7 +683,7 @@ impl HoeWindow {
     const WINDOW_ADJUST_BOTTOM: u32 = 2;
 
     fn new(hoe: &Hoe, title: &str, width: u32, height: u32, buffer: u32) -> Self {
-        let handle = WindowBuilder::new()
+        let handle = RawWindowBuilder::new()
             .size(Size::new(
                 (width - Self::WINDOW_ADJUST_X * 2) as isize,
                 (height - (Self::WINDOW_ADJUST_TOP + Self::WINDOW_ADJUST_BOTTOM)) as isize,

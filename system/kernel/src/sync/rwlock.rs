@@ -2,7 +2,6 @@
 
 use super::signal::SignallingObject;
 use super::*;
-// use alloc::boxed::Box;
 use core::{
     cell::UnsafeCell,
     mem,
@@ -91,7 +90,6 @@ impl<T: ?Sized> RwLock<T> {
                 (ptr::read(inner), ptr::read(data))
             };
             mem::forget(self);
-            inner.destroy();
             drop(inner);
 
             Ok(data.into_inner())
@@ -214,11 +212,6 @@ impl RwLockInner {
             data: AtomicUsize::new(0),
             signal: SignallingObject::default(),
         }
-    }
-
-    #[inline]
-    fn destroy(&self) {
-        // TODO: ?
     }
 
     #[inline]

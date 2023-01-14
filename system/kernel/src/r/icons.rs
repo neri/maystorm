@@ -1,5 +1,6 @@
 #[derive(Debug, Clone, Copy)]
 pub enum Icons {
+    Pointer,
     Apps,
     Cancel,
     Check,

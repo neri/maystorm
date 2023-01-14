@@ -58,21 +58,21 @@ impl FontManager {
         fonts.insert(FontFamily::SmallFixed, Arc::new(SMALL_FONT));
         fonts.insert(FontFamily::Terminal, Arc::new(TERMINAL_FONT));
 
-        if let Ok(mut file) = FileManager::open("/megos/fonts/mono.ttf") {
+        if let Ok(mut file) = FileManager::open("/system/fonts/mono.ttf") {
             let mut data = Vec::new();
             file.read_to_end(&mut data).unwrap();
             let font = Arc::new(TrueTypeFont::new(data).unwrap());
             fonts.insert(FontFamily::Monospace, font);
         }
 
-        if let Ok(mut file) = FileManager::open("/megos/fonts/sans.ttf") {
+        if let Ok(mut file) = FileManager::open("/system/fonts/sans.ttf") {
             let mut data = Vec::new();
             file.read_to_end(&mut data).unwrap();
             let font = Arc::new(TrueTypeFont::new(data).unwrap());
             fonts.insert(FontFamily::SansSerif, font);
         }
 
-        if let Ok(mut file) = FileManager::open("/megos/fonts/serif.ttf") {
+        if let Ok(mut file) = FileManager::open("/system/fonts/serif.ttf") {
             let mut data = Vec::new();
             file.read_to_end(&mut data).unwrap();
             let font = Arc::new(TrueTypeFont::new(data).unwrap());

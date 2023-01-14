@@ -6,7 +6,6 @@ use crate::{
     *,
 };
 use alloc::boxed::Box;
-use bitflags::*;
 use core::{
     arch::{asm, x86_64::__cpuid_count},
     cell::UnsafeCell,
@@ -532,26 +531,46 @@ impl ContextIndex {
     }
 }
 
-bitflags! {
-    #[derive(Debug, Clone, Copy)]
-    pub struct Rflags: u64 {
-        const CF    = 0x0000_0001;
-        const PF    = 0x0000_0004;
-        const AF    = 0x0000_0010;
-        const ZF    = 0x0000_0040;
-        const SF    = 0x0000_0080;
-        const TF    = 0x0000_0100;
-        const IF    = 0x0000_0200;
-        const DF    = 0x0000_0400;
-        const OF    = 0x0000_0800;
+my_bitflags! {
+    pub struct Rflags: usize {
+        /// Carry flag
+        const CF = 0x0000_0001;
+        // Reserved Always 1
+        const _VF = 0x0000_0002;
+        /// Parity flag
+        const PF = 0x0000_0004;
+        /// Adjust flag
+        const AF = 0x0000_0010;
+        /// Zero flag
+        const ZF = 0x0000_0040;
+        /// Sign flag
+        const SF = 0x0000_0080;
+        /// Trap flag
+        const TF = 0x0000_0100;
+        /// Interrupt enable flag
+        const IF = 0x0000_0200;
+        /// Direction flag
+        const DF = 0x0000_0400;
+        /// Overflow flag
+        const OF = 0x0000_0800;
+        /// I/O privilege level
         const IOPL3 = 0x0000_3000;
-        const NT    = 0x0000_4000;
-        const RF    = 0x0001_0000;
-        const VM    = 0x0002_0000;
-        const AC    = 0x0004_0000;
-        const VIF   = 0x0008_0000;
-        const VIP   = 0x0010_0000;
-        const ID    = 0x0020_0000;
+        /// Nested task flag
+        const NT = 0x0000_4000;
+        /// Mode flag (NEC V30)
+        const MD = 0x0000_8000;
+        /// Resume flag
+        const RF = 0x0001_0000;
+        /// Virtual 8086 mode flag
+        const VM = 0x0002_0000;
+        /// Alignment check
+        const AC = 0x0004_0000;
+        /// Virtual interrupt flag
+        const VIF = 0x0008_0000;
+        /// Virtual interrupt pending
+        const VIP = 0x0010_0000;
+        /// Able to use CPUID instruction
+        const ID = 0x0020_0000;
     }
 }
 
@@ -563,7 +582,8 @@ impl Rflags {
 
     #[inline]
     pub const fn set_iopl(&mut self, iopl: PrivilegeLevel) {
-        *self = Self::from_bits_retain((self.bits() & !Self::IOPL3.bits()) | ((iopl as u64) << 12));
+        *self =
+            Self::from_bits_retain((self.bits() & !Self::IOPL3.bits()) | ((iopl as usize) << 12));
     }
 }
 

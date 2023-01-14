@@ -1,7 +1,7 @@
 //! Arlequin Subsystem
 
 use super::*;
-use megstd::*;
+// use megstd::*;
 
 /// Recognize .bin file
 pub struct ArleRecognizer {
@@ -76,7 +76,7 @@ impl BinaryLoader for ArleLoader {
         &mut self.lio
     }
 
-    fn load(&mut self, blob: &[u8]) -> Result<(), ()> {
+    fn load(&mut self, _blob: &[u8]) -> Result<(), ()> {
         todo!()
     }
 

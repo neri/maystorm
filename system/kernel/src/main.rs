@@ -12,7 +12,7 @@ use kernel::{
     drivers::pci, drivers::usb, fs::*, mem::*, rt::*, system::*, task::scheduler::*,
     ui::window::WindowManager, user::userenv::UserEnv, *,
 };
-use megstd::{format, io::Read, String, ToOwned, ToString, Vec};
+use megstd::{io::Read, String, ToOwned, ToString, Vec};
 
 /// Kernel entry point
 #[no_mangle]
@@ -431,36 +431,50 @@ impl Shell {
             }
         };
 
+        let mut files = dir
+            .map(|v| {
+                let metadata = v.metadata();
+                let (color, suffix) = if metadata.file_type().is_dir() {
+                    (0x09, "/")
+                } else if metadata.file_type().is_symlink() {
+                    (0x0D, "@")
+                } else if metadata.file_type().is_char_device() {
+                    (0x0E, "")
+                } else {
+                    (0, "")
+                };
+                (v.name().to_owned(), suffix, color)
+            })
+            .collect::<Vec<_>>();
+        files.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let max_name_len = files.iter().fold(0, |acc, v| acc.max(v.0.len()));
+
         let stdout = System::stdout();
         let width = stdout.dims().0 as usize;
-        let item_len = 16;
+        let item_len = max_name_len + 2;
         let items_per_line = width / item_len;
         let needs_new_line = items_per_line > 0 && (width - (items_per_line * item_len)) > 0;
 
-        let mut acc = 0;
-        for dir_ent in dir {
-            let metadata = dir_ent.metadata();
-            let suffix = if metadata.file_type().is_dir() {
-                "/"
-            } else if metadata.file_type().is_symlink() {
-                "@"
-            } else {
-                ""
-            };
-            let name = format!("{}{}", dir_ent.name(), suffix);
-            print!(" {:<15}", name);
-
-            acc += 1;
-            if acc >= items_per_line {
-                if needs_new_line {
+        for (index, (name, suffix, attribute)) in files.into_iter().enumerate() {
+            if (index % items_per_line) == 0 {
+                if index > 0 && needs_new_line {
                     println!("");
                 }
-                acc = 0;
+            } else {
+                print!("  ");
             }
+            stdout.set_attribute(attribute);
+            print!("{}", name);
+            stdout.set_attribute(0);
+            print!("{}", suffix);
+            print!(
+                "{:len$} ",
+                "",
+                len = max_name_len - (name.len() + suffix.len())
+            );
         }
-        if acc < items_per_line {
-            println!("");
-        }
+        println!("");
     }
 
     fn cmd_cat(args: &[&str]) {

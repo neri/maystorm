@@ -55,7 +55,6 @@ use core::{fmt::Write, panic::PanicInfo};
 use megstd::Box;
 
 extern crate alloc;
-extern crate bitflags;
 
 #[macro_export]
 macro_rules! print {
@@ -122,10 +121,15 @@ impl core::fmt::Debug for HexDump<'_> {
 
 // like bitflags
 #[macro_export]
-macro_rules! bitflags_impl {
+macro_rules! my_bitflags {
     (
         $(#[$outer:meta])*
-        $vis:vis struct $class:ident: $ty:ty {}
+        $vis:vis struct $class:ident: $ty:ty {
+            $(
+                $(#[$attr:ident $($args:tt)*])*
+                const $flag:ident = $value:expr;
+            )*
+        }
     ) => {
 
         $(#[$outer])*
@@ -134,14 +138,49 @@ macro_rules! bitflags_impl {
         $vis struct $class($ty);
 
         impl $class {
+            $vis const EMPTY: Self = Self(0);
+
+            $(
+                $(#[$attr $($args)*])*
+                $vis const $flag: Self = Self($value);
+            )*
+
+            $vis const ALL: Self = Self(0
+                $(| $value)*
+            );
+        }
+
+        #[allow(dead_code)]
+        impl $class {
+
+            #[inline]
+            pub const fn from_bits_retain(bits: $ty) -> Self {
+                Self(bits)
+            }
+
             #[inline]
             pub const fn bits(&self) -> $ty {
                 self.0
             }
 
             #[inline]
-            pub const fn from_bits_retain(bits: $ty) -> Self {
-                Self(bits)
+            pub const fn empty() -> Self {
+                Self::EMPTY
+            }
+
+            #[inline]
+            pub const fn is_empty(&self) -> bool {
+                self.bits() == Self::EMPTY.bits()
+            }
+
+            #[inline]
+            pub const fn all() -> Self {
+                Self::ALL
+            }
+
+            #[inline]
+            pub const fn is_all(&self) -> bool {
+                (self.bits() & Self::ALL.bits()) == Self::ALL.bits()
             }
 
             #[inline]
@@ -192,7 +231,7 @@ macro_rules! bitflags_impl {
             }
         }
 
-        impl const core::ops::BitAndAssign for $class {
+        impl const core::ops::BitAndAssign<Self> for $class {
             #[inline]
             fn bitand_assign(&mut self, rhs: Self) {
                 self.0 &= rhs.0;
@@ -208,7 +247,7 @@ macro_rules! bitflags_impl {
             }
         }
 
-        impl const core::ops::BitOrAssign for $class {
+        impl const core::ops::BitOrAssign<Self> for $class {
             #[inline]
             fn bitor_assign(&mut self, rhs: Self) {
                 self.0 |= rhs.0;
@@ -224,14 +263,14 @@ macro_rules! bitflags_impl {
             }
         }
 
-        impl const core::ops::BitXorAssign for $class {
+        impl const core::ops::BitXorAssign<Self> for $class {
             #[inline]
             fn bitxor_assign(&mut self, rhs: Self) {
                 self.0 ^= rhs.0;
             }
         }
 
-        impl const core::ops::Sub for $class {
+        impl const core::ops::Sub<Self> for $class {
             type Output = Self;
 
             #[inline]
@@ -240,11 +279,26 @@ macro_rules! bitflags_impl {
             }
         }
 
-        impl const core::ops::SubAssign for $class {
+        impl const core::ops::SubAssign<Self> for $class {
             #[inline]
             fn sub_assign(&mut self, rhs: Self) {
                 self.0 &= !rhs.0;
             }
         }
+
+        impl const From<$ty> for $class {
+            #[inline]
+            fn from(val: $ty) -> $class {
+                $class::from_bits_retain(val)
+            }
+        }
+
+        impl const From<$class> for $ty {
+            #[inline]
+            fn from(val: $class) -> $ty {
+                val.0
+            }
+        }
+
     };
 }

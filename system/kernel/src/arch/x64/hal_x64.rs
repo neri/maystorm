@@ -72,6 +72,16 @@ impl HalCpu for CpuImpl {
         asm!("cli", options(nomem, nostack));
     }
 
+    #[inline]
+    unsafe fn is_interrupt_enabled(&self) -> bool {
+        let flags: usize;
+        asm!("
+            pushfq
+            pop {}
+            ", out(reg)flags);
+        Rflags::from_bits_retain(flags).contains(Rflags::IF)
+    }
+
     fn reset(&self) -> ! {
         unsafe {
             self.disable_interrupt();
@@ -89,7 +99,7 @@ impl HalCpu for CpuImpl {
 
     #[inline]
     unsafe fn interrupt_guard(&self) -> InterruptGuard {
-        let mut rax: u64;
+        let mut rax: usize;
         asm!("
                 pushfq
                 cli
@@ -126,7 +136,7 @@ impl HalCpu for CpuImpl {
 }
 
 #[must_use]
-pub struct InterruptGuard(u64);
+pub struct InterruptGuard(usize);
 
 impl Drop for InterruptGuard {
     fn drop(&mut self) {
@@ -228,7 +238,7 @@ impl HalSpinlock for Spinlock {
             .compare_exchange(
                 Self::UNLOCKED_VALUE,
                 Self::LOCKED_VALUE,
-                Ordering::Acquire,
+                Ordering::AcqRel,
                 Ordering::Relaxed,
             )
             .is_ok()
@@ -240,7 +250,7 @@ impl HalSpinlock for Spinlock {
             .compare_exchange(
                 Self::UNLOCKED_VALUE,
                 Self::LOCKED_VALUE,
-                Ordering::Acquire,
+                Ordering::AcqRel,
                 Ordering::Relaxed,
             )
             .is_err()
@@ -253,8 +263,16 @@ impl HalSpinlock for Spinlock {
     }
 
     #[inline]
-    unsafe fn force_unlock(&self) {
-        self.value.store(Self::UNLOCKED_VALUE, Ordering::Release);
+    unsafe fn force_unlock(&self) -> Option<()> {
+        self.value
+            .compare_exchange(
+                Self::LOCKED_VALUE,
+                Self::UNLOCKED_VALUE,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            )
+            .map(|_| ())
+            .ok()
     }
 }
 

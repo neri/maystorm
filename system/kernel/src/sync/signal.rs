@@ -29,13 +29,8 @@ impl SignallingObject {
     }
 
     #[inline]
-    pub fn load(&self) -> Option<ThreadHandle> {
-        Self::_into_t(self.data.load(Ordering::Relaxed))
-    }
-
-    #[inline]
-    pub fn swap(&self, val: Option<ThreadHandle>) -> Option<ThreadHandle> {
-        Self::_into_t(self.data.swap(Self::_from_t(val), Ordering::SeqCst))
+    pub fn take(&self) -> Option<ThreadHandle> {
+        Self::_into_t(self.data.swap(0, Ordering::SeqCst))
     }
 
     #[inline]
@@ -85,20 +80,16 @@ impl SignallingObject {
     }
 
     #[inline]
-    fn sleep(&self) -> Result<Option<ThreadHandle>, Option<ThreadHandle>> {
+    fn sleep(&self) -> Result<(), ()> {
         let current = Scheduler::current_thread().unwrap();
-        match self.compare_and_swap(None, Some(current)) {
-            Ok(v) => {
-                Scheduler::sleep_thread();
-                Ok(v)
-            }
-            Err(v) => Err(v),
-        }
+        self.compare_and_swap(None, Some(current))
+            .map(|_| Scheduler::sleep_thread())
+            .map_err(|_| ())
     }
 
     #[inline]
     pub fn signal(&self) -> Option<()> {
-        self.swap(None).map(|thread| thread.wake())
+        self.take().map(|thread| thread.wake())
     }
 }
 

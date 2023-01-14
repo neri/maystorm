@@ -326,7 +326,7 @@ impl System {
     }
 
     #[inline]
-    pub fn cpus<'a>() -> impl Iterator<Item = &'a Box<Cpu>> {
+    pub fn cpus<'a>() -> impl ExactSizeIterator<Item = &'a Box<Cpu>> {
         Self::shared().cpus.iter()
     }
 

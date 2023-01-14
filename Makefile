@@ -57,6 +57,7 @@ run:
 	$(QEMU_X64) -machine q35 -cpu SandyBridge -smp 4,cores=2,threads=2 \
 -bios $(OVMF_X64) \
 -rtc base=localtime,clock=host \
+-vga virtio \
 -device nec-usb-xhci,id=xhci \
 -device intel-hda -device hda-duplex \
 -device usb-hub,bus=xhci.0,port=1,id=usb-hub \

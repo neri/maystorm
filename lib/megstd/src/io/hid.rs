@@ -3,7 +3,7 @@
 use alloc::vec::Vec;
 use core::{
     num::NonZeroU8,
-    ops::{BitAnd, BitXor},
+    ops::{BitAnd, BitOr, BitXor},
 };
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
@@ -462,7 +462,9 @@ impl Modifier {
     pub const fn contains(&self, other: Self) -> bool {
         (self.0 & other.0) == other.0
     }
+}
 
+impl Modifier {
     #[inline]
     pub const fn has_shift(self) -> bool {
         self.contains(Self::LEFT_SHIFT) | self.contains(Self::RIGHT_SHIFT)
@@ -582,6 +584,14 @@ impl const Default for MouseButton {
     }
 }
 
+impl const BitOr<Self> for MouseButton {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
+}
+
 impl const BitAnd<Self> for MouseButton {
     type Output = Self;
 
@@ -597,6 +607,34 @@ impl const BitXor<Self> for MouseButton {
     #[inline]
     fn bitxor(self, rhs: Self) -> Self::Output {
         Self(self.0 ^ rhs.0)
+    }
+}
+
+impl const From<u8> for MouseButton {
+    #[inline]
+    fn from(value: u8) -> Self {
+        MouseButton(value)
+    }
+}
+
+impl const From<MouseButton> for u8 {
+    #[inline]
+    fn from(value: MouseButton) -> Self {
+        value.0
+    }
+}
+
+impl const From<usize> for MouseButton {
+    #[inline]
+    fn from(value: usize) -> Self {
+        MouseButton(value as u8)
+    }
+}
+
+impl const From<MouseButton> for usize {
+    #[inline]
+    fn from(value: MouseButton) -> Self {
+        value.0 as usize
     }
 }
 

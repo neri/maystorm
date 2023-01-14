@@ -1,7 +1,6 @@
 //! MEG-OS Boot loader for UEFI
 #![no_std]
 #![no_main]
-#![feature(abi_efiapi)]
 
 use boot_efi::{invocation::*, loader::*, page::*};
 use bootprot::*;

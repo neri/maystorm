@@ -168,7 +168,7 @@ impl Terminal {
             font.line_height() * rows as isize,
         ) + insets;
 
-        let window = WindowBuilder::new()
+        let window = RawWindowBuilder::new()
             .frame(Rect::new(
                 screen_insets.left + 16 + 24 * n_instances as isize,
                 screen_insets.top + 16 + 24 * n_instances as isize,

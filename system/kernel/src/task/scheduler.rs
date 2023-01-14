@@ -3,7 +3,7 @@ use crate::{
     arch::cpu::*,
     rt::PersonalityContext,
     sync::{
-        atomic::{AtomicBitflags, AtomicWrapper},
+        atomic::{AtomicFlags, AtomicWrapper},
         fifo::*,
         semaphore::*,
         spinlock::*,
@@ -41,7 +41,6 @@ pub struct Scheduler {
 
     timer_events: SpinMutex<Vec<TimerEvent>>,
     next_timer: AtomicWrapper<Timer>,
-    sem_timer: Semaphore,
 }
 
 #[repr(usize)]
@@ -125,7 +124,6 @@ impl Scheduler {
                 usage_total: AtomicUsize::new(0),
                 is_frozen: AtomicBool::new(false),
                 next_timer: AtomicWrapper::default(),
-                sem_timer: Semaphore::new(0),
                 timer_events: SpinMutex::new(Vec::new()),
             }));
         }
@@ -145,15 +143,9 @@ impl Scheduler {
         assert_call_once!();
 
         SpawnOption::with_priority(Priority::Realtime).start(
-            Self::_scheduler_thread,
-            0,
-            "scheduler",
-        );
-
-        SpawnOption::with_priority(Priority::Realtime).start(
             Self::_statistics_thread,
             0,
-            "statistics",
+            "Scheduler Statistics",
         );
     }
 
@@ -231,6 +223,8 @@ impl Scheduler {
 
     /// Perform the preemption
     pub unsafe fn reschedule() {
+        assert!(Hal::cpu().is_interrupt_disabled());
+
         if !Self::is_enabled() {
             return;
         }
@@ -240,7 +234,7 @@ impl Scheduler {
         let priority = { current.as_ref().priority };
         let shared = Self::shared();
         if shared.next_timer.value().is_expired() {
-            shared.sem_timer.signal();
+            Self::_process_timer_events();
         }
         if shared.is_frozen.load(Ordering::SeqCst) {
             LocalScheduler::switch_context(local, local.idle);
@@ -297,7 +291,10 @@ impl Scheduler {
 
     /// Get the scheduler for the current processor
     #[inline]
+    #[track_caller]
     unsafe fn local_scheduler() -> Option<&'static mut Box<LocalScheduler>> {
+        assert!(Hal::cpu().is_interrupt_disabled());
+
         SCHEDULER.as_mut().and_then(|scheduler| {
             scheduler
                 .locals
@@ -386,32 +383,28 @@ impl Scheduler {
         let mut events = shared.timer_events.lock();
         events.push(event);
         events.sort_by_key(|v| v.timer.deadline);
+
         if let Some(event) = events.first() {
-            shared.next_timer.store(event.timer);
+            let _ = shared
+                .next_timer
+                .fetch_update(|v| (v > event.timer).then(|| event.timer));
         }
-        shared.sem_timer.signal();
     }
 
-    /// Scheduler
-    fn _scheduler_thread(_args: usize) {
+    fn _process_timer_events() {
         let shared = Self::shared();
-
-        loop {
-            let mut events = shared.timer_events.lock();
-            loop {
-                let Some(event) = events.first() else { break };
-                if event.is_alive() {
-                    break;
-                } else {
-                    events.remove(0).fire();
-                }
+        let mut events = shared.timer_events.lock();
+        while let Some(event) = events.first() {
+            if event.is_alive() {
+                break;
+            } else {
+                events.remove(0).fire();
             }
-
-            if let Some(event) = events.first() {
-                shared.next_timer.store(event.timer);
-            }
-            drop(events);
-            shared.sem_timer.wait();
+        }
+        if let Some(event) = events.first() {
+            shared.next_timer.store(event.timer);
+        } else {
+            shared.next_timer.store(Timer::FOREVER);
         }
     }
 
@@ -927,14 +920,18 @@ pub trait TimerSource {
     fn into_duration(&self, val: TimeSpec) -> Duration;
 }
 
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, PartialOrd)]
 pub struct Timer {
     deadline: TimeSpec,
 }
 
 impl Timer {
-    pub const JUST: Timer = Timer {
+    pub const JUST: Self = Self {
         deadline: TimeSpec(0),
+    };
+
+    pub const FOREVER: Self = Self {
+        deadline: TimeSpec(isize::MAX),
     };
 
     #[inline]
@@ -971,9 +968,16 @@ impl Timer {
     }
 
     #[inline]
+    pub const fn is_forever(&self) -> bool {
+        self.deadline.0 == isize::MAX
+    }
+
+    #[inline]
     pub fn is_alive(&self) -> bool {
         if self.is_just() {
             false
+        } else if self.is_forever() {
+            true
         } else {
             let timer = Self::timer_source();
             self.deadline > timer.measure()
@@ -1503,7 +1507,7 @@ struct ThreadContextData {
     // Properties
     sem: Semaphore,
     personality: Option<UnsafeCell<PersonalityContext>>,
-    attribute: AtomicBitflags<ThreadAttribute>,
+    attribute: AtomicFlags<ThreadAttribute>,
     sleep_counter: AtomicIsize,
     priority: Priority,
     quantum: Quantum,
@@ -1521,22 +1525,14 @@ struct ThreadContextData {
     name: Sb255,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct ThreadAttribute(usize);
-
-impl ThreadAttribute {
-    const QUEUED: Self = Self(0b0000_0000_0000_0001);
-    const ZOMBIE: Self = Self(0b0000_0000_0000_1000);
-}
-
-impl const Into<usize> for ThreadAttribute {
-    #[inline]
-    fn into(self) -> usize {
-        self.0
+my_bitflags! {
+    struct ThreadAttribute: usize {
+        const QUEUED    = 0b0000_0000_0000_0001;
+        const ZOMBIE    = 0b0000_0000_0000_1000;
     }
 }
 
-impl AtomicBitflags<ThreadAttribute> {
+impl AtomicFlags<ThreadAttribute> {
     fn to_char(&self) -> char {
         if self.contains(ThreadAttribute::ZOMBIE) {
             'z'
@@ -1548,7 +1544,7 @@ impl AtomicBitflags<ThreadAttribute> {
     }
 }
 
-impl fmt::Display for AtomicBitflags<ThreadAttribute> {
+impl fmt::Display for AtomicFlags<ThreadAttribute> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_char())
     }
@@ -1577,7 +1573,7 @@ impl ThreadContextData {
             pid,
             handle,
             sem: Semaphore::new(0),
-            attribute: AtomicBitflags::empty(),
+            attribute: AtomicFlags::empty(),
             sleep_counter: AtomicIsize::new(0),
             priority,
             quantum: Quantum::from(priority),

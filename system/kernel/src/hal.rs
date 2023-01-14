@@ -35,6 +35,22 @@ pub trait HalCpu {
 
     unsafe fn disable_interrupt(&self);
 
+    unsafe fn is_interrupt_enabled(&self) -> bool;
+
+    #[inline]
+    unsafe fn is_interrupt_disabled(&self) -> bool {
+        !self.is_interrupt_enabled()
+    }
+
+    #[inline]
+    unsafe fn set_interrupt_enabled(&self, enabled: bool) {
+        if enabled {
+            self.enable_interrupt();
+        } else {
+            self.disable_interrupt();
+        }
+    }
+
     fn reset(&self) -> !;
 
     #[inline]
@@ -116,7 +132,7 @@ pub trait HalSpinlock {
 
     fn lock(&self);
 
-    unsafe fn force_unlock(&self);
+    unsafe fn force_unlock(&self) -> Option<()>;
 
     #[inline]
     fn synchronized<F, R>(&self, f: F) -> R

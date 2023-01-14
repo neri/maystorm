@@ -8,6 +8,9 @@ pub struct IconManager {}
 impl IconManager {
     pub fn bitmap(icon: r::Icons) -> Option<OwnedBitmap> {
         match icon {
+            r::Icons::Pointer => {
+                ImageLoader::from_qoi(include_bytes!("../../../../assets/images/pointer.qoi"))
+            }
             r::Icons::Apps => ImageLoader::from_qoi(include_bytes!(
                 "../../../../assets/material-design-icons/ic_apps_black_24dp.qoi"
             )),

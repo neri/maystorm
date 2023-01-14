@@ -92,7 +92,9 @@ impl<'a, T: ?Sized> MutexGuard<'a, T> {
 impl<T: ?Sized> Drop for MutexGuard<'_, T> {
     #[inline]
     fn drop(&mut self) {
-        self.mutex.inner.unlock();
+        unsafe {
+            self.mutex.inner.force_unlock();
+        }
     }
 }
 

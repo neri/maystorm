@@ -272,7 +272,7 @@ impl MyosRuntime {
                     .unwrap_or(Theme::shared().window_default_background());
                 let window_option = params.get_u32().unwrap_or_default();
 
-                let window = WindowBuilder::new()
+                let window = RawWindowBuilder::new()
                     .with_options(window_option)
                     .size(size)
                     .bg_color(bg_color)

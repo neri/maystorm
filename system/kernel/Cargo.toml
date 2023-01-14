@@ -16,7 +16,6 @@ wasm = {path = "../../lib/wasm"}
 
 # aml = {git = "https://github.com/rust-osdev/acpi"}
 ab_glyph = {default-features = false, features = ["libm"]}
-bitflags = {}
 byteorder = {default-features = false}
 cfg-if = {}
 futures-util = {default-features = false, features = ["alloc"]}

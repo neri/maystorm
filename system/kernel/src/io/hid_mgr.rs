@@ -1,10 +1,15 @@
 //! Human Interface Device Manager
 
-use crate::{sync::atomic::AtomicBitflags, sync::RwLock, ui::window::*, *};
+use crate::{
+    sync::atomic::{AtomicFlags, AtomicWrapperU8},
+    sync::RwLock,
+    ui::window::*,
+    *,
+};
 use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
 use core::{
     num::*,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicIsize, AtomicUsize, Ordering},
 };
 use megstd::{drawing::*, io::hid::*};
 use num_traits::FromPrimitive;
@@ -179,13 +184,12 @@ impl Into<char> for KeyEvent {
     }
 }
 
-#[derive(Debug, Copy, Clone, Default)]
 pub struct MouseState {
-    pub current_buttons: MouseButton,
-    pub prev_buttons: MouseButton,
-    pub x: isize,
-    pub y: isize,
-    pub wheel: isize,
+    pub current_buttons: AtomicWrapperU8<MouseButton>,
+    pub prev_buttons: AtomicWrapperU8<MouseButton>,
+    pub x: AtomicIsize,
+    pub y: AtomicIsize,
+    pub wheel: AtomicIsize,
     pub max_x: isize,
     pub max_y: isize,
 }
@@ -194,37 +198,37 @@ impl MouseState {
     #[inline]
     pub const fn empty() -> Self {
         Self {
-            current_buttons: MouseButton::empty(),
-            prev_buttons: MouseButton::empty(),
-            x: 0,
-            y: 0,
-            wheel: 0,
+            current_buttons: AtomicWrapperU8::default(),
+            prev_buttons: AtomicWrapperU8::default(),
+            x: AtomicIsize::new(0),
+            y: AtomicIsize::new(0),
+            wheel: AtomicIsize::new(0),
             max_x: 0,
             max_y: 0,
         }
     }
 
     #[inline]
-    pub fn process_relative_report<T>(&mut self, report: MouseReport<T>)
+    pub fn process_relative_report<T>(&self, report: MouseReport<T>)
     where
         T: Into<isize> + Copy,
     {
-        self.prev_buttons = self.current_buttons;
-        self.current_buttons = report.buttons;
-        self.x += report.x.into();
-        self.y += report.y.into();
+        self.prev_buttons
+            .store(self.current_buttons.swap(report.buttons));
+        self.x.fetch_add(report.x.into(), Ordering::SeqCst);
+        self.y.fetch_add(report.y.into(), Ordering::SeqCst);
         WindowManager::post_relative_pointer(self);
     }
 
     #[inline]
-    pub fn process_absolute_report<T>(&mut self, report: MouseReport<T>)
+    pub fn process_absolute_report<T>(&self, report: MouseReport<T>)
     where
         T: Into<isize> + Copy,
     {
-        self.prev_buttons = self.current_buttons;
-        self.current_buttons = report.buttons;
-        self.x = report.x.into();
-        self.y = report.y.into();
+        self.prev_buttons
+            .store(self.current_buttons.swap(report.buttons));
+        self.x.store(report.x.into(), Ordering::SeqCst);
+        self.y.store(report.y.into(), Ordering::SeqCst);
         WindowManager::post_absolute_pointer(self);
     }
 }
@@ -868,7 +872,7 @@ impl core::fmt::Debug for ParsedReportMainItem {
 ///
 /// Keyboard scancodes will be converted to the Usage specified by the USB-HID specification on all platforms.
 pub struct HidManager {
-    key_modifier: AtomicBitflags<Modifier>,
+    key_modifier: AtomicFlags<Modifier>,
     simulated_game_input: RwLock<GameInput>,
     game_inputs: RwLock<BTreeMap<GameInputHandle, Arc<RwLock<GameInput>>>>,
     current_game_inputs: RwLock<Option<GameInputHandle>>,
@@ -880,7 +884,7 @@ impl HidManager {
     #[inline]
     const fn new() -> Self {
         HidManager {
-            key_modifier: AtomicBitflags::empty(),
+            key_modifier: AtomicFlags::empty(),
             simulated_game_input: RwLock::new(GameInput::empty()),
             game_inputs: RwLock::new(BTreeMap::new()),
             current_game_inputs: RwLock::new(None),

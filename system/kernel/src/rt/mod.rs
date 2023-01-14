@@ -6,9 +6,11 @@ use core::{cell::UnsafeCell, ffi::c_void};
 use megstd::uuid::{Identify, Uuid};
 
 pub mod arle;
+
+pub mod myos;
+
 #[cfg(target_arch = "x86_64")]
 pub mod haribote;
-pub mod myos;
 
 static mut RE: UnsafeCell<RuntimeEnvironment> = UnsafeCell::new(RuntimeEnvironment::new());
 

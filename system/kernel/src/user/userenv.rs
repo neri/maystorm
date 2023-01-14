@@ -39,12 +39,12 @@ impl UserEnv {
 
         Self::shutdown_command().wait_event();
 
-        WindowManager::set_pointer_visible(false);
+        WindowManager::set_pointer_enabled(false);
 
         let width = 480;
         let height = 240;
 
-        let window = WindowBuilder::new()
+        let window = RawWindowBuilder::new()
             .style(WindowStyle::NO_SHADOW)
             .size(Size::new(width, height))
             .bg_color(Color::TRANSPARENT)
@@ -101,7 +101,7 @@ async fn slpash_task(f: fn()) {
     let width = 480;
     let height = 240;
 
-    let window = WindowBuilder::new()
+    let window = RawWindowBuilder::new()
         .style(WindowStyle::NO_SHADOW)
         .size(Size::new(width, height))
         .bg_color(Color::TRANSPARENT)
@@ -132,8 +132,8 @@ async fn slpash_task(f: fn()) {
     if let Ok(mut file) = FileManager::open("wall.qoi") {
         let mut vec = Vec::new();
         file.read_to_end(&mut vec).unwrap();
-        if let Some(mut dib) = ImageLoader::from_qoi(vec.as_slice()) {
-            WindowManager::set_desktop_bitmap(&dib.into_bitmap());
+        if let Some(dib) = ImageLoader::from_qoi(vec.as_slice()) {
+            WindowManager::set_desktop_bitmap(&dib.as_const());
         }
     } else {
         WindowManager::set_desktop_color(Theme::shared().default_desktop_color());
@@ -174,7 +174,7 @@ async fn slpash_task(f: fn()) {
     }
 
     WindowManager::set_barrier_opacity(0);
-    WindowManager::set_pointer_visible(true);
+    WindowManager::set_pointer_enabled(true);
 
     Scheduler::spawn_async(shell_launcher(is_gui_boot, f));
 
@@ -214,7 +214,7 @@ async fn shell_launcher(is_gui_boot: bool, f: fn()) {
         let font = FontDescriptor::new(FontFamily::Monospace, point)
             .unwrap_or(FontManager::monospace_font());
 
-        let window = WindowBuilder::new()
+        let window = RawWindowBuilder::new()
             .style(WindowStyle::NO_SHADOW)
             .fullscreen()
             .level(WindowLevel::DESKTOP_ITEMS)
@@ -239,7 +239,7 @@ async fn status_bar_main() {
     let fg_color = Theme::shared().status_bar_foreground();
 
     let screen_bounds = WindowManager::main_screen_bounds();
-    let window = WindowBuilder::new()
+    let window = RawWindowBuilder::new()
         .style(WindowStyle::NO_SHADOW | WindowStyle::FLOATING)
         .frame(Rect::new(0, 0, screen_bounds.width(), STATUS_BAR_HEIGHT))
         .bg_color(bg_color)
@@ -351,7 +351,7 @@ async fn activity_monitor_main() {
     let width = 260;
     let height = 180;
     let screen_bounds = WindowManager::user_screen_bounds();
-    let window = WindowBuilder::new()
+    let window = RawWindowBuilder::new()
         .style_sub(WindowStyle::CLOSE_BUTTON)
         .frame(Rect::new(
             -width - 16,
@@ -576,7 +576,7 @@ async fn _notification_task() {
     };
 
     let screen_bounds = WindowManager::user_screen_bounds();
-    let window = WindowBuilder::new()
+    let window = RawWindowBuilder::new()
         .style(WindowStyle::FLOATING | WindowStyle::SUSPENDED)
         .level(WindowLevel::POPUP)
         .frame(
@@ -668,7 +668,7 @@ async fn test_window_main() {
 
     let width = 640;
     let height = 480;
-    let window = WindowBuilder::new()
+    let window = RawWindowBuilder::new()
         .size(Size::new(width, height))
         .bg_color(bg_color)
         .inactive_title_color(bg_color)

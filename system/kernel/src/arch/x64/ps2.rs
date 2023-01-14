@@ -1,18 +1,19 @@
 // PS/2 Device Driver
 
 use super::apic::*;
-use crate::{io::hid_mgr::*, task::scheduler::*, *};
-use bitflags::*;
-use core::{arch::asm, cell::UnsafeCell, time::Duration};
+use crate::{io::hid_mgr::*, sync::atomic::AtomicWrapperU8, task::scheduler::*, *};
+use core::{arch::asm, mem::transmute, time::Duration};
 use megstd::io::hid::*;
 
-static mut PS2: UnsafeCell<Ps2> = UnsafeCell::new(Ps2::new());
+static PS2: Ps2 = Ps2::new();
 
 pub(super) struct Ps2 {
-    key_state: Ps2KeyState,
+    key_state: AtomicWrapperU8<Ps2KeyState>,
+
+    mouse_phase: AtomicWrapperU8<Ps2MousePhase>,
+    mouse_buf_lead: AtomicWrapperU8<MouseLeadByte>,
+    mouse_buf_x: AtomicWrapperU8<Ps2Data>,
     mouse_state: MouseState,
-    mouse_phase: Ps2MousePhase,
-    mouse_buf: [Ps2Data; 3],
 }
 
 #[allow(dead_code)]
@@ -22,17 +23,18 @@ impl Ps2 {
 
     const fn new() -> Self {
         Self {
-            key_state: Ps2KeyState::Default,
-            mouse_phase: Ps2MousePhase::Ack,
-            mouse_buf: [Ps2Data(0); 3],
+            key_state: AtomicWrapperU8::default(),
+            mouse_phase: AtomicWrapperU8::default(),
+            mouse_buf_lead: AtomicWrapperU8::new(MouseLeadByte::empty()),
+            mouse_buf_x: AtomicWrapperU8::new(Ps2Data(0)),
             mouse_state: MouseState::empty(),
         }
     }
 
-    pub unsafe fn init() -> Result<(), Ps2Error> {
+    pub unsafe fn init() -> Result<(), ()> {
         // NO PS/2 Controller
         match Self::wait_for_write(10) {
-            Err(_) => return Err(Ps2Error::Unsupported),
+            Err(_) => return Err(()),
             Ok(_) => (),
         }
 
@@ -142,21 +144,17 @@ impl Ps2 {
 
     // IRQ 01 PS/2 Keyboard
     fn irq_01(_: usize) {
-        let ps2 = unsafe { &mut *PS2.get() };
-        let data = Self::read_data();
-        ps2.process_key_data(data);
+        PS2.process_key_data(Self::read_data());
     }
 
     // IRQ 12 PS/2 Mouse
     fn irq_12(_: usize) {
-        let ps2 = unsafe { &mut *PS2.get() };
-        let data = Self::read_data();
-        ps2.process_mouse_data(data);
+        PS2.process_mouse_data(Self::read_data());
     }
 
-    fn process_key_data(&mut self, data: Ps2Data) {
+    fn process_key_data(&self, data: Ps2Data) {
         if data == Ps2Data::SCAN_E0 {
-            self.key_state = Ps2KeyState::PrefixE0;
+            self.key_state.store(Ps2KeyState::PrefixE0);
         } else {
             let flags = if data.is_break() {
                 KeyEventFlags::BREAK
@@ -164,10 +162,10 @@ impl Ps2 {
                 KeyEventFlags::empty()
             };
             let mut scancode = data.scancode();
-            match self.key_state {
+            match self.key_state.value() {
                 Ps2KeyState::PrefixE0 => {
                     scancode |= 0x80;
-                    self.key_state = Ps2KeyState::Default;
+                    self.key_state.store(Ps2KeyState::Default);
                 }
                 _ => (),
             }
@@ -176,25 +174,28 @@ impl Ps2 {
         }
     }
 
-    fn process_mouse_data(&mut self, data: Ps2Data) {
-        match self.mouse_phase {
+    fn process_mouse_data(&self, data: Ps2Data) {
+        match self.mouse_phase.value() {
             Ps2MousePhase::Ack => {
                 if data == Ps2Data::ACK {
                     self.mouse_phase.next();
                 }
             }
             Ps2MousePhase::Leading => {
-                if MouseLeadByte::from(data).is_valid() {
-                    self.mouse_buf[self.mouse_phase.as_index()] = data;
+                let lead = MouseLeadByte::from(data);
+                if lead.is_valid() {
+                    self.mouse_buf_lead.store(lead);
                     self.mouse_phase.next();
                 }
             }
             Ps2MousePhase::X => {
-                self.mouse_buf[self.mouse_phase.as_index()] = data;
+                self.mouse_buf_x.store(data);
                 self.mouse_phase.next();
             }
             Ps2MousePhase::Y => {
-                self.mouse_buf[self.mouse_phase.as_index()] = data;
+                let lead = self.mouse_buf_lead.value();
+                let data_x = self.mouse_buf_x.value();
+                let data_y = data;
                 self.mouse_phase.next();
 
                 fn movement(data: Ps2Data, sign: bool) -> i16 {
@@ -204,9 +205,8 @@ impl Ps2 {
                         data.0 as i16
                     }
                 }
-                let lead = MouseLeadByte::from(self.mouse_buf[0]);
-                let x = movement(self.mouse_buf[1], lead.contains(MouseLeadByte::X_SIGN));
-                let y = 0 - movement(self.mouse_buf[2], lead.contains(MouseLeadByte::Y_SIGN));
+                let x = movement(data_x, lead.contains(MouseLeadByte::X_SIGN));
+                let y = 0 - movement(data_y, lead.contains(MouseLeadByte::Y_SIGN));
                 let report = MouseReport {
                     buttons: lead.into(),
                     x,
@@ -219,8 +219,9 @@ impl Ps2 {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
-pub(super) enum Ps2Error {
+enum Ps2Error {
     Unsupported,
     Timeout,
 }
@@ -231,14 +232,27 @@ enum Ps2KeyState {
     PrefixE0,
 }
 
-impl Default for Ps2KeyState {
+impl const Default for Ps2KeyState {
     fn default() -> Self {
         Self::Default
     }
 }
 
-bitflags! {
-    #[derive(Debug, Clone, Copy)]
+impl const From<u8> for Ps2KeyState {
+    #[inline]
+    fn from(value: u8) -> Self {
+        unsafe { transmute(value) }
+    }
+}
+
+impl const From<Ps2KeyState> for u8 {
+    #[inline]
+    fn from(value: Ps2KeyState) -> Self {
+        value as u8
+    }
+}
+
+my_bitflags! {
     struct MouseLeadByte: u8 {
         const LEFT_BUTTON = 0b0000_0001;
         const RIGHT_BUTTON = 0b0000_0010;
@@ -282,22 +296,40 @@ enum Ps2MousePhase {
 }
 
 impl Ps2MousePhase {
-    fn next(&mut self) {
-        *self = match *self {
+    fn next(&self) -> Self {
+        match *self {
             Ps2MousePhase::Ack => Ps2MousePhase::Leading,
             Ps2MousePhase::Leading => Ps2MousePhase::X,
             Ps2MousePhase::X => Ps2MousePhase::Y,
             Ps2MousePhase::Y => Ps2MousePhase::Leading,
         }
     }
+}
 
-    fn as_index(self) -> usize {
-        match self {
-            Ps2MousePhase::Leading => 0,
-            Ps2MousePhase::X => 1,
-            Ps2MousePhase::Y => 2,
-            _ => 0,
-        }
+impl AtomicWrapperU8<Ps2MousePhase> {
+    fn next(&self) {
+        self.store(self.value().next());
+    }
+}
+
+impl const Default for Ps2MousePhase {
+    #[inline]
+    fn default() -> Self {
+        Self::Ack
+    }
+}
+
+impl const From<u8> for Ps2MousePhase {
+    #[inline]
+    fn from(value: u8) -> Self {
+        unsafe { transmute(value) }
+    }
+}
+
+impl const From<Ps2MousePhase> for u8 {
+    #[inline]
+    fn from(value: Ps2MousePhase) -> Self {
+        value as u8
     }
 }
 
@@ -327,6 +359,20 @@ impl Ps2Data {
     }
 }
 
+impl const From<u8> for Ps2Data {
+    #[inline]
+    fn from(value: u8) -> Self {
+        Self(value)
+    }
+}
+
+impl const From<Ps2Data> for u8 {
+    #[inline]
+    fn from(value: Ps2Data) -> Self {
+        value.0
+    }
+}
+
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct Ps2Command(pub u8);
@@ -341,15 +387,14 @@ impl Ps2Command {
     const WRITE_SECOND_PORT: Ps2Command = Ps2Command(0xD4);
 }
 
-bitflags! {
-    #[derive(Debug, Clone, Copy)]
-    struct Ps2Status: u8 {
-        const OUTPUT_FULL = 0b0000_0001;
-        const INPUT_FULL = 0b0000_0010;
-        const SYSTEM_FLAG = 0b0000_0100;
-        const COMMAND = 0b0000_1000;
+my_bitflags! {
+    pub struct Ps2Status: u8 {
+        const OUTPUT_FULL   = 0b0000_0001;
+        const INPUT_FULL    = 0b0000_0010;
+        const SYSTEM_FLAG   = 0b0000_0100;
+        const COMMAND       = 0b0000_1000;
         const TIMEOUT_ERROR = 0b0100_0000;
-        const PARITY_ERROR = 0b1000_0000;
+        const PARITY_ERROR  = 0b1000_0000;
     }
 }
 

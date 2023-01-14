@@ -7,13 +7,7 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
-use bitflags::*;
-use core::{
-    cell::UnsafeCell,
-    fmt,
-    num::NonZeroU8,
-    ops::{Add, ControlFlow},
-};
+use core::{cell::UnsafeCell, fmt, num::NonZeroU8, ops::Add};
 
 #[repr(transparent)]
 #[derive(Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -341,22 +335,17 @@ impl PciDevice {
 
     /// Returns an array of capability ID and register offset pairs.
     #[inline]
-    pub fn capabilities(&self) -> &[(PciCapabilityId, u8)] {
-        self.capabilities.as_ref()
+    pub fn capabilities(&self) -> impl ExactSizeIterator<Item = &(PciCapabilityId, u8)> {
+        self.capabilities.iter()
     }
 
     #[inline]
     pub unsafe fn register_msi(&self, f: fn(usize) -> (), val: usize) -> Result<(), ()> {
-        let msi_reg = match self.capabilities.iter().try_for_each(|(id, offset)| {
-            if *id == PciCapabilityId::MSI {
-                ControlFlow::Break(*offset)
-            } else {
-                ControlFlow::CONTINUE
-            }
-        }) {
-            ControlFlow::Continue(_) => return Err(()),
-            ControlFlow::Break(v) => v,
-        };
+        let Some(msi_reg) = self
+            .capabilities()
+            .find(|(id, _)| *id == PciCapabilityId::MSI)
+            .map(|(_, offset)| *offset)
+            else { return Err(()) };
         let (msi_addr, msi_data) = match Hal::pci().register_msi(f, val) {
             Ok(v) => v,
             Err(_) => return Err(()),
@@ -390,8 +379,7 @@ impl PciDevice {
     }
 }
 
-bitflags! {
-    #[derive(Debug, Clone, Copy)]
+my_bitflags! {
     pub struct PciCommand: u32 {
         const IO_SPACE      = 0b0000_0000_0000_0001;
         const MEM_SPACE     = 0b0000_0000_0000_0010;
@@ -510,7 +498,7 @@ impl PciBar {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PciBarType {
-    /// Isolated I/O
+    /// Isolated I/O (x86)
     IsolatedIO,
     /// Any 32bit MMIO
     Mmio32,

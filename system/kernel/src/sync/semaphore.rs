@@ -91,19 +91,26 @@ impl BinarySemaphore {
     }
 
     #[inline]
-    pub fn unlock(&self) {
-        self.value.store(false, Ordering::Release);
-        let _ = self.signal.signal();
+    pub unsafe fn force_unlock(&self) -> Option<()> {
+        self.value
+            .compare_exchange(true, false, Ordering::AcqRel, Ordering::Relaxed)
+            .map(|_| {
+                let _ = self.signal.signal();
+            })
+            .ok()
     }
 
     #[inline]
+    #[track_caller]
     pub fn synchronized<F, R>(&self, f: F) -> R
     where
         F: FnOnce() -> R,
     {
         self.lock();
         let result = f();
-        self.unlock();
+        unsafe {
+            self.force_unlock();
+        }
         result
     }
 }
@@ -183,7 +190,7 @@ impl AsyncSemaphore {
     }
 }
 
-struct AsyncSemaphoreObserver {
+pub struct AsyncSemaphoreObserver {
     sem: Pin<Arc<AsyncSemaphore>>,
 }
 
@@ -199,7 +206,7 @@ impl Future for AsyncSemaphoreObserver {
     }
 }
 
-struct AsyncSemaphoreResultObserver<T> {
+pub struct AsyncSemaphoreResultObserver<T> {
     sem: Pin<Arc<AsyncSemaphore>>,
     _phantom: PhantomData<T>,
 }
