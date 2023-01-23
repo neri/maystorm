@@ -333,7 +333,7 @@ impl Apic {
     }
 
     #[inline]
-    pub unsafe fn register_msi(f: fn(usize) -> (), val: usize) -> Result<(u64, u16), ()> {
+    pub unsafe fn register_msi(f: fn(usize) -> (), arg: usize) -> Result<(u64, u16), ()> {
         let shared = Self::shared_mut();
         static NEXT_MSI: AtomicIsize = AtomicIsize::new(0);
         NEXT_MSI
@@ -348,7 +348,7 @@ impl Apic {
                 let msi = Msi(v);
                 let global_irq = msi.as_irq();
                 shared.idt[global_irq.0 as usize] = f as usize;
-                shared.idt_params[global_irq.0 as usize] = val;
+                shared.idt_params[global_irq.0 as usize] = arg;
                 let vec = msi.as_vec();
                 let addr = Self::MSI_BASE;
                 let data = Self::MSI_DATA | vec.0 as u16;
@@ -363,7 +363,7 @@ impl Apic {
         let shared = Self::shared();
         match shared.ipi_mutex.synchronized(|| unsafe {
             Irql::IPI.raise(|| {
-                let max_cpu = System::current_device().num_of_active_cpus();
+                let max_cpu = System::current_device().num_of_logical_cpus();
                 if max_cpu < 2 {
                     return true;
                 }

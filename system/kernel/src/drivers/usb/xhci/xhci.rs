@@ -100,16 +100,17 @@ impl Xhci {
     const MAX_TR_INDEX: usize = Self::SIZE_EP_RING - 1;
     const MAX_PORT_CHANGE: usize = 64;
 
+    #[inline]
     pub fn registrar() -> Box<dyn PciDriverRegistrar> {
         XhciRegistrar::new()
     }
 
     unsafe fn new(device: &PciDevice) -> Option<Arc<dyn PciDriver>> {
-        let bar = match device.bars().first() {
+        let bar = match device.bars().next() {
             Some(v) => v,
             None => return None,
         };
-        let mmio = match MmioSlice::from_bar(*bar) {
+        let mmio = match MmioSlice::from_bar(bar) {
             Some(v) => v,
             None => return None,
         };

@@ -346,8 +346,8 @@ impl Shell {
         match subcmd {
             "device" => {
                 let device = System::current_device();
-                let n_cores = device.num_of_performance_cpus();
-                let n_threads = device.num_of_active_cpus();
+                let n_cores = device.num_of_main_cpus();
+                let n_threads = device.num_of_logical_cpus();
                 if n_threads > 1 {
                     if n_cores != n_threads {
                         print!("  {} Cores {} Threads", n_cores, n_threads,);
@@ -373,8 +373,8 @@ impl Shell {
             "cpu" => {
                 let device = System::current_device();
 
-                let n_cores = device.num_of_performance_cpus();
-                let n_threads = device.num_of_active_cpus();
+                let n_cores = device.num_of_main_cpus();
+                let n_threads = device.num_of_logical_cpus();
                 if n_threads > 1 {
                     if n_cores != n_threads {
                         println!("{} Cores {} Threads", n_cores, n_threads,);

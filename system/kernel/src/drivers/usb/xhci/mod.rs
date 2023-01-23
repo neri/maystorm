@@ -1,8 +1,8 @@
 //! xHCI: Extensible Host Controller Interface
 
-mod data;
-mod regs;
 mod xhci;
-pub use data::*;
-pub use regs::*;
+mod xhci_r;
+mod xhci_s;
 pub use xhci::*;
+pub use xhci_r::*;
+pub use xhci_s::*;

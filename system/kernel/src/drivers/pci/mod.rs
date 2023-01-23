@@ -1,7 +1,7 @@
 //! Peripheral Component Interconnect Bus
 
 mod pci;
-use alloc::{boxed::Box, vec::Vec};
+use megstd::{Box, Vec};
 pub use pci::*;
 
 fn install_drivers(drivers: &mut Vec<Box<dyn PciDriverRegistrar>>) {

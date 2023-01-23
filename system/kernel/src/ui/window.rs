@@ -1146,7 +1146,7 @@ impl RawWindow {
     fn hide(&self) {
         let shared = WindowManager::shared();
         let frame = self.shadow_frame();
-        let new_active = if shared.active.contains(self.handle) {
+        let next_active = if shared.active.contains(self.handle) {
             let window_orders = shared.window_orders.read().unwrap();
             window_orders
                 .iter()
@@ -1161,8 +1161,8 @@ impl RawWindow {
         }
         WindowManager::remove_hierarchy(self.handle);
         WindowManager::invalidate_screen(frame);
-        if new_active.is_some() {
-            WindowManager::set_active(new_active);
+        if next_active.is_some() {
+            WindowManager::set_active(next_active);
         }
     }
 
@@ -1317,7 +1317,7 @@ impl RawWindow {
                 {
                     target_bitmap.blt(bitmap.as_const(), blt_origin, blt_rect);
                 } else {
-                    target_bitmap.blt_blend(bitmap.as_const(), blt_origin, blt_rect);
+                    target_bitmap.blt_blend(bitmap.as_const(), blt_origin, blt_rect, u8::MAX);
                 }
             }
         }

@@ -1,60 +1,63 @@
 use super::install_drivers;
 use crate::{sync::RwLock, system::System, *};
-use alloc::{
-    boxed::Box,
-    collections::{btree_map::Values, BTreeMap},
-    string::String,
-    sync::Arc,
-    vec::Vec,
-};
+use alloc::{boxed::Box, collections::BTreeMap, format, string::String, sync::Arc, vec::Vec};
 use core::{cell::UnsafeCell, fmt, num::NonZeroU8, ops::Add};
 
-#[repr(transparent)]
 #[derive(Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PciConfigAddress(u32);
+pub struct PciConfigAddress {
+    bus: u8,
+    dev: u8,
+    fun: u8,
+    register: u8,
+}
 
 impl PciConfigAddress {
     #[inline]
     pub const fn bus(bus: u8) -> Self {
-        Self((bus as u32) << 24)
+        Self {
+            bus,
+            dev: 0,
+            fun: 0,
+            register: 0,
+        }
     }
 
     #[inline]
     pub const fn dev(mut self, dev: u8) -> Self {
-        self.0 |= (dev as u32) << 16;
+        self.dev = dev;
         self
     }
 
     #[inline]
     pub const fn fun(mut self, fun: u8) -> Self {
-        self.0 |= (fun as u32) << 8;
+        self.fun = fun;
         self
     }
 
     #[inline]
     pub const fn register(mut self, register: u8) -> Self {
-        self.0 |= register as u32;
+        self.register = register;
         self
     }
 
     #[inline]
     pub const fn get_bus(&self) -> u8 {
-        (self.0 >> 24) as u8
+        self.bus
     }
 
     #[inline]
     pub const fn get_dev(&self) -> u8 {
-        (self.0 >> 16) as u8
+        self.dev
     }
 
     #[inline]
     pub const fn get_fun(&self) -> u8 {
-        (self.0 >> 8) as u8
+        self.fun
     }
 
     #[inline]
     pub const fn get_register(&self) -> u8 {
-        self.0 as u8
+        self.register
     }
 }
 
@@ -81,7 +84,7 @@ impl fmt::Debug for PciConfigAddress {
 }
 
 pub trait PciDriverRegistrar {
-    fn instantiate(&self, device: &PciDevice) -> Option<Arc<dyn PciDriver>>;
+    fn instantiate(&self, device: &'static PciDevice) -> Option<Arc<dyn PciDriver>>;
 }
 
 pub trait PciDriver {
@@ -114,12 +117,12 @@ impl Pci {
     }
 
     #[inline]
-    unsafe fn shared_mut() -> &'static mut Pci {
+    unsafe fn shared_mut<'a>() -> &'a mut Pci {
         PCI.get_mut()
     }
 
     #[inline]
-    fn shared() -> &'static Pci {
+    fn shared<'a>() -> &'a Pci {
         unsafe { &*PCI.get() }
     }
 
@@ -147,15 +150,15 @@ impl Pci {
         }
     }
 
-    pub fn devices<'a>() -> Values<'a, PciConfigAddress, PciDevice> {
-        Self::shared().devices.values()
+    pub fn devices() -> impl Iterator<Item = &'static PciDevice> {
+        Self::shared().devices.values().into_iter()
     }
 
     pub fn device_by_addr<'a>(addr: PciConfigAddress) -> Option<&'a PciDevice> {
         Self::shared().devices.get(&addr)
     }
 
-    pub fn drivers() -> Vec<Arc<dyn PciDriver>> {
+    pub fn drivers() -> impl Iterator<Item = Arc<dyn PciDriver>> {
         Self::shared()
             .drivers
             .read()
@@ -163,21 +166,50 @@ impl Pci {
             .values()
             .map(|v| v.clone())
             .into_iter()
-            .collect()
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 }
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PciVendorId(pub u16);
 
 impl PciVendorId {
-    pub const INVALID: Self = Self(0xFFFF);
+    pub const INVALID_0000: Self = Self(0x0000);
+    pub const INVALID_FFFF: Self = Self(0xFFFF);
+
+    #[inline]
+    pub const fn is_valid(&self) -> bool {
+        self.0 != Self::INVALID_0000.0 && self.0 != Self::INVALID_FFFF.0
+    }
+}
+
+impl fmt::Debug for PciVendorId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("VEN_{:04x}", self.0))
+    }
 }
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PciDeviceId(pub u16);
+
+impl PciDeviceId {
+    pub const INVALID_0000: Self = Self(0x0000);
+    pub const INVALID_FFFF: Self = Self(0xFFFF);
+
+    #[inline]
+    pub const fn is_valid(&self) -> bool {
+        self.0 != Self::INVALID_0000.0 && self.0 != Self::INVALID_FFFF.0
+    }
+}
+
+impl fmt::Debug for PciDeviceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("DEV_{:04x}", self.0))
+    }
+}
 
 #[repr(C)]
 #[derive(Debug)]
@@ -197,12 +229,14 @@ pub struct PciDevice {
 impl PciDevice {
     unsafe fn instantiate(bus: u8, dev: u8, fun: u8) -> bool {
         let base = PciConfigAddress::bus(bus).dev(dev).fun(fun);
+
         let dev_ven = Hal::pci().read(base);
         let vendor_id = PciVendorId(dev_ven as u16);
-        if vendor_id == PciVendorId::INVALID {
+        let device_id = PciDeviceId((dev_ven >> 16) as u16);
+        if !vendor_id.is_valid() || !device_id.is_valid() {
             return false;
         }
-        let device_id = PciDeviceId((dev_ven >> 16) as u16);
+
         let sta_cmd = Hal::pci().read(base.register(1));
         let subsys = Hal::pci().read(base.register(0x0B));
         let subsys_vendor_id = PciVendorId(subsys as u16);
@@ -229,7 +263,7 @@ impl PciDevice {
         let mut bars = Vec::with_capacity(bar_limit);
         let mut index = 0;
         while index < bar_limit {
-            if let Some(bar) = PciBar::parse(base, index + 4) {
+            if let Some(bar) = PciBar::parse(base, index) {
                 bars.push(bar);
                 if bar.bar_type() == PciBarType::Mmio64 {
                     index += 1;
@@ -294,6 +328,27 @@ impl PciDevice {
     }
 
     #[inline]
+    pub fn ven_dev(&self) -> String {
+        format!("PCI\\{:?}&{:?}", self.vendor_id, self.device_id,)
+    }
+
+    #[inline]
+    pub fn ven_dev_subsys(&self) -> String {
+        format!(
+            "PCI\\{:?}&{:?}&SUBSYS_{:04x}{:04x}",
+            self.vendor_id, self.device_id, self.subsys_vendor_id.0, self.subsys_device_id.0,
+        )
+    }
+
+    #[inline]
+    pub fn ven_dev_cc(&self) -> String {
+        format!(
+            "PCI\\{:?}&{:?}&{:?}",
+            self.vendor_id, self.device_id, self.class_code,
+        )
+    }
+
+    #[inline]
     pub const fn vendor_id(&self) -> PciVendorId {
         self.vendor_id
     }
@@ -329,8 +384,8 @@ impl PciDevice {
     }
 
     #[inline]
-    pub fn bars(&self) -> &[PciBar] {
-        self.bars.as_ref()
+    pub fn bars(&self) -> impl Iterator<Item = &PciBar> {
+        self.bars.iter()
     }
 
     /// Returns an array of capability ID and register offset pairs.
@@ -340,13 +395,13 @@ impl PciDevice {
     }
 
     #[inline]
-    pub unsafe fn register_msi(&self, f: fn(usize) -> (), val: usize) -> Result<(), ()> {
+    pub unsafe fn register_msi(&self, f: fn(usize) -> (), arg: usize) -> Result<(), ()> {
         let Some(msi_reg) = self
             .capabilities()
             .find(|(id, _)| *id == PciCapabilityId::MSI)
             .map(|(_, offset)| *offset)
             else { return Err(()) };
-        let (msi_addr, msi_data) = match Hal::pci().register_msi(f, val) {
+        let (msi_addr, msi_data) = match Hal::pci().register_msi(f, arg) {
             Ok(v) => v,
             Err(_) => return Err(()),
         };
@@ -391,50 +446,77 @@ my_bitflags! {
 
 /// PCI Base Address Register
 #[derive(Debug, Clone, Copy)]
-pub struct PciBar(u64);
+pub struct PciBar {
+    base: PhysicalAddress,
+    bar_type: PciBarType,
+    scale: u8,
+    is_prefetchable: bool,
+    bar_index: PciBarIndex,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PciBarIndex(pub u8);
 
 impl PciBar {
-    /// Internal data mask
-    const VALID_BASE_MASK: u64 = 0x00FF_FFFF_FFFF_FFFF;
-
-    #[inline]
-    const fn from_raw(raw: u64) -> Self {
-        Self(raw)
-    }
-
     /// Parse bar
-    unsafe fn parse(base: PciConfigAddress, index: usize) -> Option<PciBar> {
+    unsafe fn parse(config: PciConfigAddress, index: usize) -> Option<PciBar> {
         without_interrupts!({
-            let reg = base.register(index as u8);
+            let reg = config.register(4 + index as u8);
             let raw = Hal::pci().read(reg);
             if raw == 0 {
                 return None;
             }
-            let org = PciBar::from_raw(raw as u64);
+            let (bar_type, is_prefetchable) = if (raw & 1) == 0 {
+                (
+                    match raw & 0x06 {
+                        0x00 => PciBarType::Mmio32,
+                        0x02 => PciBarType::Mmio1MB,
+                        0x04 => PciBarType::Mmio64,
+                        _ => PciBarType::Reserved,
+                    },
+                    (raw & 0x08) == 0x08,
+                )
+            } else {
+                (PciBarType::IsolatedIO, false)
+            };
 
-            let result = match org.bar_type() {
+            let result = match bar_type {
                 PciBarType::IsolatedIO | PciBarType::Mmio32 => {
-                    let bias = org.bar_type().mask_bias() as u32;
+                    let base = match bar_type {
+                        PciBarType::IsolatedIO => PhysicalAddress::new(raw as u64 & 0xFFFF_FFFC),
+                        _ => PhysicalAddress::new(raw as u64 & !0x0F),
+                    };
+                    let bias = bar_type.mask_bias() as u32;
                     Hal::pci().write(reg, u32::MAX);
-                    let scale = (Hal::pci().read(reg) & bias).trailing_zeros() as usize;
-                    Hal::pci().write(reg, org.0 as u32);
-                    Some(org.set_scale(scale))
+                    let scale = (Hal::pci().read(reg) & bias).trailing_zeros() as u8;
+                    Hal::pci().write(reg, raw);
+                    Some(Self {
+                        bar_index: PciBarIndex(index as u8),
+                        base,
+                        bar_type,
+                        scale,
+                        is_prefetchable,
+                    })
                 }
                 PciBarType::Mmio64 => {
-                    let reg_h = base.register(index as u8 + 1);
-                    let org_h = PciBar::from_raw(Hal::pci().read(reg_h) as u64);
-                    let bias = org.bar_type().mask_bias();
+                    let reg_h = reg + 1;
+                    let raw_h = Hal::pci().read(reg_h);
+                    let base = PhysicalAddress::new(((raw_h as u64) << 32) | (raw as u64 & !0x0F));
+                    let bias = bar_type.mask_bias();
                     Hal::pci().write(reg, u32::MAX);
                     Hal::pci().write(reg_h, u32::MAX);
                     let data =
                         (Hal::pci().read(reg) as u64) | ((Hal::pci().read(reg_h) as u64) << 32);
-                    let scale = (data & bias).trailing_zeros() as usize;
-                    Hal::pci().write(reg, org.0 as u32);
-                    Hal::pci().write(reg_h, org_h.0 as u32);
-                    Some(
-                        PciBar::from_raw(((org_h.0 as u64) << 32) | (org.0 as u64))
-                            .set_scale(scale),
-                    )
+                    let scale = (data & bias).trailing_zeros() as u8;
+                    Hal::pci().write(reg, raw);
+                    Hal::pci().write(reg_h, raw_h);
+                    Some(Self {
+                        bar_index: PciBarIndex(index as u8),
+                        base,
+                        bar_type,
+                        scale,
+                        is_prefetchable,
+                    })
                 }
                 PciBarType::Mmio1MB | PciBarType::Reserved => None,
             };
@@ -444,44 +526,29 @@ impl PciBar {
     }
 
     #[inline]
+    pub const fn bar_index(&self) -> PciBarIndex {
+        self.bar_index
+    }
+
+    #[inline]
     pub const fn base(&self) -> PhysicalAddress {
-        if self.is_isolated_io() {
-            PhysicalAddress::new(self.0 & 0xFFFF_FFFC)
-        } else {
-            PhysicalAddress::new((self.0 & Self::VALID_BASE_MASK) & !0x0F)
-        }
+        self.base
     }
 
     #[inline]
     pub const fn size(&self) -> usize {
-        1 << ((self.0 >> 56) & 63)
-    }
-
-    #[inline]
-    fn set_scale(mut self, scale: usize) -> Self {
-        self.0 = (self.0 & Self::VALID_BASE_MASK) | ((scale as u64) << 56);
-        self
+        1 << self.scale
     }
 
     #[inline]
     pub const fn bar_type(&self) -> PciBarType {
-        use PciBarType::*;
-        if self.is_isolated_io() {
-            IsolatedIO
-        } else {
-            match self.0 & 0x06 {
-                0x00 => Mmio32,
-                0x02 => Mmio1MB,
-                0x04 => Mmio64,
-                _ => Reserved,
-            }
-        }
+        self.bar_type
     }
 
     /// Returns whether or not this BAR is an x86 isolated IO.
     #[inline]
     pub const fn is_isolated_io(&self) -> bool {
-        (self.0 & 0x01) == 0x01
+        matches!(self.bar_type, PciBarType::IsolatedIO)
     }
 
     /// Returns whether or not this BAR is a memory-mapped IO.
@@ -492,7 +559,7 @@ impl PciBar {
 
     #[inline]
     pub const fn is_prefetchable(&self) -> bool {
-        self.is_mmio() && (self.0 & 0x08) == 0x08
+        self.is_prefetchable
     }
 }
 
@@ -564,8 +631,8 @@ impl const From<u8> for PciCapabilityId {
 /// }
 /// ```
 #[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
-pub struct PciClass(u32);
+#[derive(Clone, Copy)]
+pub struct PciClass(pub u32);
 
 impl PciClass {
     /// Makes an instance from the PCI class code register (0x02)
@@ -607,6 +674,21 @@ impl PciClass {
         self.raw_data() >> 8
     }
 
+    #[inline]
+    pub const fn get_class_code(&self) -> u8 {
+        (self.0 >> 24) as u8
+    }
+
+    #[inline]
+    pub const fn get_sub_class(&self) -> u8 {
+        (self.0 >> 16) as u8
+    }
+
+    #[inline]
+    pub const fn get_interface(&self) -> u8 {
+        (self.0 >> 8) as u8
+    }
+
     /// Returns whether or not this instance matches the specified class code, subclass, or programming interface.
     #[inline]
     pub const fn matches(&self, other: Self) -> bool {
@@ -620,6 +702,29 @@ impl PciClass {
                     (self.0 & mask) == (other.0 & mask)
                 }
             }
+        }
+    }
+}
+
+impl fmt::Debug for PciClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // f.debug_tuple("PciClass").field(&self.0).finish()
+        match self.class_type() {
+            PciClassType::Unspecified => f.write_str("PciClass::Unspecified"),
+            PciClassType::ClassCode => {
+                f.write_fmt(format_args!("CC_{:02x}", self.get_class_code()))
+            }
+            PciClassType::Subclass => f.write_fmt(format_args!(
+                "CC_{:02x}{:02x}",
+                self.get_class_code(),
+                self.get_sub_class()
+            )),
+            PciClassType::Interface => f.write_fmt(format_args!(
+                "CC_{:02x}{:02x}{:02x}",
+                self.get_class_code(),
+                self.get_sub_class(),
+                self.get_interface()
+            )),
         }
     }
 }

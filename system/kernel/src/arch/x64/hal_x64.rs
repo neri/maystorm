@@ -198,8 +198,8 @@ impl HalPci for PciImpl {
     }
 
     #[inline]
-    unsafe fn register_msi(&self, f: fn(usize) -> (), val: usize) -> Result<(u64, u16), ()> {
-        Apic::register_msi(f, val)
+    unsafe fn register_msi(&self, f: fn(usize) -> (), arg: usize) -> Result<(u64, u16), ()> {
+        Apic::register_msi(f, arg)
     }
 }
 

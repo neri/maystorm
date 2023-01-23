@@ -5,8 +5,10 @@
 #![feature(async_closure)]
 #![feature(box_into_inner)]
 #![feature(cfg_target_has_atomic)]
+#![feature(const_convert)]
 #![feature(const_maybe_uninit_zeroed)]
 #![feature(const_mut_refs)]
+#![feature(const_option_ext)]
 #![feature(const_refs_to_cell)]
 #![feature(const_trait_impl)]
 #![feature(control_flow_enum)]
@@ -138,14 +140,14 @@ macro_rules! my_bitflags {
         $vis struct $class($ty);
 
         impl $class {
-            $vis const EMPTY: Self = Self(0);
+            const __EMPTY: Self = Self(0);
 
             $(
                 $(#[$attr $($args)*])*
                 $vis const $flag: Self = Self($value);
             )*
 
-            $vis const ALL: Self = Self(0
+            const __ALL: Self = Self(0
                 $(| $value)*
             );
         }
@@ -159,28 +161,33 @@ macro_rules! my_bitflags {
             }
 
             #[inline]
+            pub const fn from_bits_truncate(bits: $ty) -> Self {
+                Self(bits & Self::__ALL.0)
+            }
+
+            #[inline]
             pub const fn bits(&self) -> $ty {
                 self.0
             }
 
             #[inline]
             pub const fn empty() -> Self {
-                Self::EMPTY
+                Self::__EMPTY
             }
 
             #[inline]
             pub const fn is_empty(&self) -> bool {
-                self.bits() == Self::EMPTY.bits()
+                self.bits() == Self::__EMPTY.bits()
             }
 
             #[inline]
             pub const fn all() -> Self {
-                Self::ALL
+                Self::__ALL
             }
 
             #[inline]
             pub const fn is_all(&self) -> bool {
-                (self.bits() & Self::ALL.bits()) == Self::ALL.bits()
+                (self.bits() & Self::__ALL.bits()) == Self::__ALL.bits()
             }
 
             #[inline]
@@ -210,6 +217,41 @@ macro_rules! my_bitflags {
                 } else {
                     self.remove(other);
                 }
+            }
+
+            #[inline]
+            pub const fn intersects(&self, other: Self) -> bool {
+                (self.0 & other.0) != 0
+            }
+
+            #[inline]
+            #[must_use]
+            pub const fn intersection(self, other: Self) -> Self {
+                Self(self.0 & other.0)
+            }
+
+            #[inline]
+            #[must_use]
+            pub const fn union(self, other: Self) -> Self {
+                Self(self.0 | other.0)
+            }
+
+            #[inline]
+            #[must_use]
+            pub const fn difference(self, other: Self) -> Self {
+                Self(self.0 & !other.0)
+            }
+
+            #[inline]
+            #[must_use]
+            pub const fn symmetric_difference(self, other: Self) -> Self {
+                Self(self.0 ^ other.0)
+            }
+
+            #[inline]
+            #[must_use]
+            pub const fn complement(self) -> Self {
+                Self(!self.0 & Self::__ALL.0)
             }
         }
 

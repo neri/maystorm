@@ -2,6 +2,7 @@
 
 use crate::{drivers::pci::PciConfigAddress, system::ProcessorIndex};
 use core::{
+    fmt,
     num::NonZeroU64,
     ops::{Add, BitAnd, BitOr, Mul, Not, Sub},
     sync::atomic::{AtomicUsize, Ordering},
@@ -51,6 +52,9 @@ pub trait HalCpu {
         }
     }
 
+    #[must_use]
+    unsafe fn interrupt_guard(&self) -> InterruptGuard;
+
     fn reset(&self) -> !;
 
     #[inline]
@@ -64,8 +68,6 @@ pub trait HalCpu {
     }
 
     #[must_use]
-    unsafe fn interrupt_guard(&self) -> InterruptGuard;
-
     fn spin_wait(&self) -> impl HalSpinLoopWait;
 
     fn broadcast_reschedule(&self);
@@ -123,7 +125,7 @@ pub trait HalPci {
 
     unsafe fn write(&self, addr: PciConfigAddress, value: u32);
 
-    unsafe fn register_msi(&self, f: fn(usize) -> (), val: usize) -> Result<(u64, u16), ()>;
+    unsafe fn register_msi(&self, f: fn(usize) -> (), arg: usize) -> Result<(u64, u16), ()>;
 }
 
 pub trait HalSpinlock {
@@ -309,6 +311,12 @@ impl const From<PhysicalAddress> for u64 {
     }
 }
 
+impl fmt::LowerHex for PhysicalAddress {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> core::fmt::Result {
+        fmt::LowerHex::fmt(&self.0, f)
+    }
+}
+
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NonNullPhysicalAddress(NonZeroU64);
@@ -321,10 +329,7 @@ impl NonNullPhysicalAddress {
 
     #[inline]
     pub const fn new(val: PhysicalAddress) -> Option<Self> {
-        match NonZeroU64::new(val.as_u64()) {
-            Some(v) => Some(Self(v)),
-            None => None,
-        }
+        NonZeroU64::new(val.as_u64()).map(Self)
     }
 
     #[inline]

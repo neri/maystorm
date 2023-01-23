@@ -78,7 +78,7 @@ impl MmioSlice {
     }
 
     #[inline]
-    pub unsafe fn from_bar(bar: PciBar) -> Option<Self> {
+    pub unsafe fn from_bar(bar: &PciBar) -> Option<Self> {
         if bar.is_mmio() {
             Self::from_phys(bar.base(), bar.size())
         } else {

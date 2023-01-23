@@ -223,7 +223,7 @@ impl System {
                 System::name(),
                 System::version(),
                 System::codename(),
-                device.num_of_active_cpus(),
+                device.num_of_main_cpus(),
                 gb,
                 mb
             );
@@ -318,7 +318,7 @@ impl System {
         let processor_type = new_cpu.processor_type();
         shared.cpus.push(new_cpu);
         let device = &shared.current_device;
-        device.num_of_active_cpus.fetch_add(1, Ordering::AcqRel);
+        device.num_of_logical_cpus.fetch_add(1, Ordering::AcqRel);
         if processor_type == ProcessorCoreType::Main {
             device.num_of_main_cpus.fetch_add(1, Ordering::AcqRel);
         }
@@ -424,7 +424,7 @@ macro_rules! assert_call_once {
 pub struct DeviceInfo {
     manufacturer_name: Option<String>,
     model_name: Option<String>,
-    num_of_active_cpus: AtomicUsize,
+    num_of_logical_cpus: AtomicUsize,
     num_of_main_cpus: AtomicUsize,
     total_memory_size: usize,
 }
@@ -435,7 +435,7 @@ impl DeviceInfo {
         Self {
             manufacturer_name: None,
             model_name: None,
-            num_of_active_cpus: AtomicUsize::new(0),
+            num_of_logical_cpus: AtomicUsize::new(0),
             num_of_main_cpus: AtomicUsize::new(0),
             total_memory_size: 0,
         }
@@ -461,14 +461,14 @@ impl DeviceInfo {
 
     /// Returns the number of active logical CPU cores.
     #[inline]
-    pub fn num_of_active_cpus(&self) -> usize {
-        self.num_of_active_cpus.load(Ordering::SeqCst)
+    pub fn num_of_logical_cpus(&self) -> usize {
+        self.num_of_logical_cpus.load(Ordering::SeqCst)
     }
 
     /// Returns the number of performance CPU cores.
-    /// Returns less than `num_of_active_cpus` for SMT-enabled processors.
+    /// Returns less than `num_of_logical_cpus` for SMT-enabled processors.
     #[inline]
-    pub fn num_of_performance_cpus(&self) -> usize {
+    pub fn num_of_main_cpus(&self) -> usize {
         self.num_of_main_cpus.load(Ordering::SeqCst)
     }
 }

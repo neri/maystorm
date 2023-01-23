@@ -10,6 +10,7 @@ A hobby operating system written in Rust that supports WebAssembly.
 
 * A hobby operating system written in Rust
 * Not a POSIX clone system
+  * The contents of the path /dev/ are dynamically generated on this operating system.
 * Supports applications in WebAssembly format
 
 ## Requirements

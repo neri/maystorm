@@ -368,7 +368,7 @@ async fn activity_monitor_main() {
 
     let font = FontDescriptor::new(FontFamily::SmallFixed, 8).unwrap_or(FontManager::ui_font());
 
-    let num_of_cpus = System::current_device().num_of_active_cpus();
+    let num_of_cpus = System::current_device().num_of_logical_cpus();
     let n_items = 64;
     let mut usage_temp = Vec::with_capacity(num_of_cpus);
     let mut usage_cursor = 0;
@@ -515,8 +515,8 @@ async fn activity_monitor_main() {
                             let usage1 = usage / 10;
                             write!(sb, "CPU: {:3}.{}%", usage1, usage0,).unwrap();
 
-                            let n_cores = device.num_of_performance_cpus();
-                            let n_threads = device.num_of_active_cpus();
+                            let n_cores = device.num_of_main_cpus();
+                            let n_threads = device.num_of_logical_cpus();
                             if n_cores != n_threads {
                                 write!(sb, " {}Cores {}Threads", n_cores, n_threads,).unwrap();
                             } else {

@@ -71,13 +71,14 @@ impl HdAudioController {
     pub const CURRENT_VERSION: (usize, usize) = (1, 0);
     pub const WAIT_DELAY_MS: u64 = 100;
 
+    #[inline]
     pub fn registrar() -> Box<dyn PciDriverRegistrar> {
         HdaDriverRegistrar::new()
     }
 
     pub unsafe fn new(device: &PciDevice) -> Option<Arc<dyn PciDriver>> {
-        let Some(bar) = device.bars().first() else { return None };
-        let Some(mmio) = MmioSlice::from_bar(*bar) else { return None };
+        let Some(bar) = device.bars().next() else { return None };
+        let Some(mmio) = MmioSlice::from_bar(bar) else { return None };
 
         device.set_pci_command(PciCommand::MEM_SPACE | PciCommand::BUS_MASTER);
 

@@ -301,7 +301,7 @@ pub trait BltConvert<T: ColorTrait>: MutableRasterImage {
         F: FnMut(T) -> Self::ColorType,
     {
         let (dx, dy, sx, sy, width, height) =
-            adjust_blt_coords(self.size(), src.size(), origin, rect);
+            _adjust_blt_coords(self.size(), src.size(), origin, rect);
         if width <= 0 || height <= 0 {
             return;
         }
@@ -604,7 +604,7 @@ impl<'a> Bitmap8<'a> {
 
     pub fn blt(&mut self, src: &ConstBitmap8, origin: Point, rect: Rect) {
         let (dx, dy, sx, sy, width, height) =
-            adjust_blt_coords(self.size(), src.size(), origin, rect);
+            _adjust_blt_coords(self.size(), src.size(), origin, rect);
         if width <= 0 || height <= 0 {
             return;
         }
@@ -619,10 +619,16 @@ impl<'a> Bitmap8<'a> {
         let src_fb = src.slice();
 
         if ds == width && ss == width {
-            memory_colors::memcpy_colors8(dest_fb, dest_cursor, src_fb, src_cursor, width * height);
+            memory_colors::_memcpy_colors8(
+                dest_fb,
+                dest_cursor,
+                src_fb,
+                src_cursor,
+                width * height,
+            );
         } else {
             for _ in 0..height {
-                memory_colors::memcpy_colors8(dest_fb, dest_cursor, src_fb, src_cursor, width);
+                memory_colors::_memcpy_colors8(dest_fb, dest_cursor, src_fb, src_cursor, width);
                 dest_cursor += ds;
                 src_cursor += ss;
             }
@@ -637,7 +643,7 @@ impl<'a> Bitmap8<'a> {
         color_key: <Self as Drawable>::ColorType,
     ) {
         let (dx, dy, sx, sy, width, height) =
-            adjust_blt_coords(self.size(), src.size(), origin, rect);
+            _adjust_blt_coords(self.size(), src.size(), origin, rect);
         if width <= 0 || height <= 0 {
             return;
         }
@@ -737,10 +743,10 @@ impl BasicDrawing for Bitmap8<'_> {
         let stride = self.stride;
         let mut cursor = dx as usize + dy as usize * stride;
         if stride == width {
-            memory_colors::memset_colors8(self.slice_mut(), cursor, width * height, color);
+            memory_colors::_memset_colors8(self.slice_mut(), cursor, width * height, color);
         } else {
             for _ in 0..height {
-                memory_colors::memset_colors8(self.slice_mut(), cursor, width, color);
+                memory_colors::_memset_colors8(self.slice_mut(), cursor, width, color);
                 cursor += stride;
             }
         }
@@ -767,7 +773,7 @@ impl BasicDrawing for Bitmap8<'_> {
         }
 
         let cursor = dx as usize + dy as usize * self.stride;
-        memory_colors::memset_colors8(self.slice_mut(), cursor, w as usize, color);
+        memory_colors::_memset_colors8(self.slice_mut(), cursor, w as usize, color);
     }
 
     fn draw_vline(&mut self, origin: Point, height: isize, color: Self::ColorType) {
@@ -1161,10 +1167,10 @@ impl BasicDrawing for Bitmap32<'_> {
         let stride = self.stride;
         let mut cursor = dx as usize + dy as usize * stride;
         if stride == width {
-            memory_colors::memset_colors32(self.slice_mut(), cursor, width * height, color);
+            memory_colors::_memset_colors32(self.slice_mut(), cursor, width * height, color);
         } else {
             for _ in 0..height {
-                memory_colors::memset_colors32(self.slice_mut(), cursor, width, color);
+                memory_colors::_memset_colors32(self.slice_mut(), cursor, width, color);
                 cursor += stride;
             }
         }
@@ -1192,7 +1198,7 @@ impl BasicDrawing for Bitmap32<'_> {
         }
 
         let cursor = dx as usize + dy as usize * self.stride;
-        memory_colors::memset_colors32(self.slice_mut(), cursor, w as usize, color);
+        memory_colors::_memset_colors32(self.slice_mut(), cursor, w as usize, color);
     }
 
     fn draw_vline(&mut self, origin: Point, height: isize, color: Self::ColorType) {
@@ -1240,7 +1246,7 @@ impl BltConvert<IndexedColor> for Bitmap32<'_> {}
 impl<'a> Bitmap32<'a> {
     pub fn blt(&mut self, src: &ConstBitmap32, origin: Point, rect: Rect) {
         let (dx, dy, sx, sy, width, height) =
-            adjust_blt_coords(self.size(), src.size(), origin, rect);
+            _adjust_blt_coords(self.size(), src.size(), origin, rect);
         if width <= 0 || height <= 0 {
             return;
         }
@@ -1255,7 +1261,7 @@ impl<'a> Bitmap32<'a> {
         let src_fb = src.slice();
 
         if ds == width && ss == width {
-            memory_colors::memcpy_colors32(
+            memory_colors::_memcpy_colors32(
                 dest_fb,
                 dest_cursor,
                 src_fb,
@@ -1264,17 +1270,17 @@ impl<'a> Bitmap32<'a> {
             );
         } else {
             for _ in 0..height {
-                memory_colors::memcpy_colors32(dest_fb, dest_cursor, src_fb, src_cursor, width);
+                memory_colors::_memcpy_colors32(dest_fb, dest_cursor, src_fb, src_cursor, width);
                 dest_cursor += ds;
                 src_cursor += ss;
             }
         }
     }
 
-    pub fn blt_blend(&mut self, src: &ConstBitmap32, origin: Point, rect: Rect) {
+    pub fn blt_blend(&mut self, src: &ConstBitmap32, origin: Point, rect: Rect, opacity: u8) {
         let (dx, dy, sx, sy, width, height) =
-            adjust_blt_coords(self.size(), src.size(), origin, rect);
-        if width <= 0 || height <= 0 {
+            _adjust_blt_coords(self.size(), src.size(), origin, rect);
+        if opacity == 0 || width <= 0 || height <= 0 {
             return;
         }
         let width = width as usize;
@@ -1287,10 +1293,19 @@ impl<'a> Bitmap32<'a> {
         let dest_fb = self.slice_mut();
         let src_fb = src.slice();
 
-        for _ in 0..height {
-            memory_colors::blend_line32(dest_fb, dest_cursor, src_fb, src_cursor, width);
-            dest_cursor += ds;
-            src_cursor += ss;
+        if opacity == u8::MAX {
+            for _ in 0..height {
+                memory_colors::_memcpy_blend32(dest_fb, dest_cursor, src_fb, src_cursor, width);
+                dest_cursor += ds;
+                src_cursor += ss;
+            }
+        } else {
+            // TODO:
+            for _ in 0..height {
+                memory_colors::_memcpy_blend32(dest_fb, dest_cursor, src_fb, src_cursor, width);
+                dest_cursor += ds;
+                src_cursor += ss;
+            }
         }
     }
 
@@ -1303,7 +1318,7 @@ impl<'a> Bitmap32<'a> {
     pub fn blt_cw(&mut self, src: &ConstBitmap32, origin: Point, rect: Rect) {
         let self_size = Size::new(self.height() as isize, self.width() as isize);
         let (mut dx, mut dy, sx, sy, width, height) =
-            adjust_blt_coords(self_size, src.size(), origin, rect);
+            _adjust_blt_coords(self_size, src.size(), origin, rect);
         if width <= 0 || height <= 0 {
             return;
         }
@@ -1349,7 +1364,7 @@ impl<'a> Bitmap32<'a> {
                     Some(c.into())
                 }
             }),
-            ConstBitmap::Argb32(src) => self.blt_blend(src, origin, rect),
+            ConstBitmap::Argb32(src) => self.blt_blend(src, origin, rect, u8::MAX),
         }
     }
 }
@@ -1929,7 +1944,7 @@ impl OperationalBitmap {
     }
 
     /// Draws an anti-aliased line using Xiaolin Wu's algorithm.
-    pub fn draw_line_anti_aliasing<F>(&mut self, c1: Point, c2: Point, scale: isize, mut f: F)
+    pub fn draw_line_anti_aliasing<F>(&mut self, c1: Point, c2: Point, scale: isize, mut kernel: F)
     where
         F: FnMut(&mut OperationalBitmap, Point, u8),
     {
@@ -1940,7 +1955,7 @@ impl OperationalBitmap {
         const IPART_MASK: isize = !FRAC_MASK;
 
         let mut plot = |bitmap: &mut OperationalBitmap, x: isize, y: isize, level: isize| {
-            f(
+            kernel(
                 bitmap,
                 Point::new(x >> FRAC_SHIFT, y >> FRAC_SHIFT),
                 (0xFF * level >> FRAC_SHIFT) as u8,
@@ -2093,13 +2108,13 @@ impl OperationalBitmap {
         }
     }
 
-    pub fn blt_to<T, F>(&self, dest: &mut T, origin: Point, rect: Rect, mut f: F)
+    pub fn blt_to<T, F>(&self, dest: &mut T, origin: Point, rect: Rect, mut kernel: F)
     where
         T: Drawable + GetPixel + SetPixel,
         F: FnMut(u8, <T as Drawable>::ColorType) -> <T as Drawable>::ColorType,
     {
         let (dx, dy, sx, sy, width, height) =
-            adjust_blt_coords(dest.size(), self.size(), origin, rect);
+            _adjust_blt_coords(dest.size(), self.size(), origin, rect);
         if width <= 0 || height <= 0 {
             return;
         }
@@ -2111,7 +2126,7 @@ impl OperationalBitmap {
                 unsafe {
                     dest.set_pixel_unchecked(
                         dp,
-                        f(self.get_pixel_unchecked(sp), dest.get_pixel_unchecked(dp)),
+                        kernel(self.get_pixel_unchecked(sp), dest.get_pixel_unchecked(dp)),
                     );
                 }
             }
@@ -2123,13 +2138,13 @@ impl OperationalBitmap {
         self.blt_to(dest, origin, rect, |a, b| b.shadowed(a))
     }
 
-    pub fn blt_from<T, F>(&mut self, src: &T, origin: Point, rect: Rect, mut f: F)
+    pub fn blt_from<T, F>(&mut self, src: &T, origin: Point, rect: Rect, mut kernel: F)
     where
         T: GetPixel,
         F: FnMut(<T as Drawable>::ColorType, u8) -> u8,
     {
         let (dx, dy, sx, sy, width, height) =
-            adjust_blt_coords(self.size(), src.size(), origin, rect);
+            _adjust_blt_coords(self.size(), src.size(), origin, rect);
         if width <= 0 || height <= 0 {
             return;
         }
@@ -2141,7 +2156,7 @@ impl OperationalBitmap {
                 unsafe {
                     self.set_pixel_unchecked(
                         dp,
-                        f(src.get_pixel_unchecked(sp), self.get_pixel_unchecked(dp)),
+                        kernel(src.get_pixel_unchecked(sp), self.get_pixel_unchecked(dp)),
                     );
                 }
             }
@@ -2168,7 +2183,7 @@ impl OperationalBitmap {
 /// Adjust the coordinates for blt.
 ///
 /// Returns the adjusted destination x, y, source x, y, width and height.
-fn adjust_blt_coords(
+fn _adjust_blt_coords(
     dest_size: Size,
     src_size: Size,
     origin: Point,
@@ -2226,7 +2241,7 @@ mod memory_colors {
 
     /// Fast fill
     #[inline]
-    pub fn memset_colors8(
+    pub fn _memset_colors8(
         slice: &mut [IndexedColor],
         cursor: usize,
         size: usize,
@@ -2273,7 +2288,7 @@ mod memory_colors {
 
     /// Fast copy
     #[inline]
-    pub fn memcpy_colors8(
+    pub fn _memcpy_colors8(
         dest: &mut [IndexedColor],
         dest_cursor: usize,
         src: &[IndexedColor],
@@ -2329,7 +2344,12 @@ mod memory_colors {
 
     /// Faster Fill
     #[inline]
-    pub fn memset_colors32(slice: &mut [TrueColor], cursor: usize, count: usize, color: TrueColor) {
+    pub fn _memset_colors32(
+        slice: &mut [TrueColor],
+        cursor: usize,
+        count: usize,
+        color: TrueColor,
+    ) {
         for v in unsafe { slice.get_unchecked_mut(cursor..cursor + count) }.iter_mut() {
             *v = color;
         }
@@ -2337,7 +2357,7 @@ mod memory_colors {
 
     /// Faster copy
     #[inline]
-    pub fn memcpy_colors32(
+    pub fn _memcpy_colors32(
         dest: &mut [TrueColor],
         dest_cursor: usize,
         src: &[TrueColor],
@@ -2346,14 +2366,15 @@ mod memory_colors {
     ) {
         let src = unsafe { src.get_unchecked(src_cursor..src_cursor + count) };
         let dest = unsafe { dest.get_unchecked_mut(dest_cursor..dest_cursor + count) };
-        for (dest, src) in dest.iter_mut().zip(src.iter()) {
-            *dest = *src;
-        }
+        // for (dest, src) in dest.iter_mut().zip(src.iter()) {
+        //     *dest = *src;
+        // }
+        dest.copy_from_slice(src);
     }
 
     // Alpha blending
     #[inline]
-    pub fn blend_line32(
+    pub fn _memcpy_blend32(
         dest: &mut [TrueColor],
         dest_cursor: usize,
         src: &[TrueColor],
@@ -2362,8 +2383,8 @@ mod memory_colors {
     ) {
         let dest = unsafe { &mut dest.get_unchecked_mut(dest_cursor..dest_cursor + count) };
         let src = unsafe { &src.get_unchecked(src_cursor..src_cursor + count) };
-        for i in 0..count {
-            dest[i] = dest[i].blend_draw(src[i]);
+        for (dest, src) in dest.iter_mut().zip(src.iter()) {
+            *dest = dest.blend_draw(*src);
         }
     }
 }

@@ -108,7 +108,7 @@ impl Scheduler {
             "/",
         ));
 
-        let num_of_active_cpus = System::current_device().num_of_active_cpus();
+        let num_of_active_cpus = System::current_device().num_of_logical_cpus();
         let mut locals = Vec::with_capacity(num_of_active_cpus);
         for index in 0..num_of_active_cpus {
             locals.push(LocalScheduler::new(ProcessorIndex(index)));
@@ -445,7 +445,7 @@ impl Scheduler {
                 process.load.store(load, Ordering::SeqCst);
             }
 
-            let num_cpu = System::current_device().num_of_active_cpus();
+            let num_cpu = System::current_device().num_of_logical_cpus();
             let usage_total = usize::min(usage, num_cpu * 1000);
             let usage_per_cpu = usize::min(usage / num_cpu, 1000);
             shared.usage_total.store(usage_total, Ordering::SeqCst);
@@ -455,7 +455,7 @@ impl Scheduler {
                 SchedulerState::Disabled => (),
                 SchedulerState::Normal => {
                     if usage_total
-                        > (System::current_device().num_of_performance_cpus() - 1) * 1000
+                        > (System::current_device().num_of_main_cpus() - 1) * 1000
                             + THRESHOLD_ENTER_MAX
                     {
                         Self::set_current_state(SchedulerState::FullThrottle);
@@ -463,7 +463,7 @@ impl Scheduler {
                 }
                 SchedulerState::FullThrottle => {
                     if usage_total
-                        < System::current_device().num_of_performance_cpus() * THRESHOLD_LEAVE_MAX
+                        < System::current_device().num_of_main_cpus() * THRESHOLD_LEAVE_MAX
                     {
                         Self::set_current_state(SchedulerState::Normal);
                     }
@@ -557,7 +557,7 @@ impl Scheduler {
     }
 
     pub fn print_statistics(sb: &mut impl fmt::Write) {
-        let max_load = 1000 * System::current_device().num_of_active_cpus() as u32;
+        let max_load = 1000 * System::current_device().num_of_logical_cpus() as u32;
         writeln!(sb, "PID P #TH %CPU TIME     NAME").unwrap();
         for process in ProcessPool::shared().read().unwrap().values() {
             let process = process.clone();
