@@ -803,10 +803,12 @@ impl UsbDeviceContext {
             })
     }
 
+    #[inline]
     pub async fn control_nodata(&self, setup: UsbControlSetupData) -> Result<(), UsbError> {
         Self::_control_nodata(&self.host_clone(), setup).await
     }
 
+    #[inline]
     pub async fn control_vec(
         &self,
         setup: UsbControlSetupData,
@@ -817,6 +819,7 @@ impl UsbDeviceContext {
         Self::_control_vec(&self.host_clone(), setup, vec, min_len, max_len).await
     }
 
+    #[inline]
     pub async fn control_slice(
         &self,
         setup: UsbControlSetupData,
@@ -930,6 +933,7 @@ impl UsbDeviceContext {
     }
 
     /// Get the descriptor associated with a device
+    #[inline]
     pub async fn get_descriptor<T: UsbDescriptor>(
         &self,
         request_type: UsbControlRequestBitmap,
@@ -974,6 +978,7 @@ impl UsbDeviceContext {
     }
 
     /// Get string descriptor
+    #[inline]
     pub async fn get_string(&self, index: Option<NonZeroU8>, lang_id: UsbLangId) -> Option<String> {
         Self::_get_string(&self.host_clone(), index, lang_id).await
     }
@@ -1010,6 +1015,7 @@ impl UsbDeviceContext {
     }
 
     /// set configuration
+    #[inline]
     pub async fn set_configuration(&self, value: UsbConfigurationValue) -> Result<(), UsbError> {
         Self::_set_configuration(&self.host_clone(), value).await
     }
@@ -1064,6 +1070,7 @@ impl UsbDeviceContext {
     }
 
     /// Set exit latency values (USB3)
+    #[inline]
     pub async fn set_sel(&self, values: &Usb3ExitLatencyValues) -> Result<(), UsbError> {
         Self::_set_sel(&self.host_clone(), values).await
     }

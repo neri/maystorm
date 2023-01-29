@@ -19,7 +19,7 @@ VAR_INITRD	= var/initrd/
 INITRD_DEV	= var/initrd/dev/
 INITRD_FILES	= LICENSE $(VAR_INITRD)* $(ASSETS)initrd/* apps/target/wasm32-unknown-unknown/release/*.wasm
 
-X64_SMP			= system/kernel/src/arch/x64/smpinit
+X64_SMP			= system/src/arch/x64/smpinit
 X64_SMP_ASM		= $(X64_SMP).asm
 X64_SMP_BIN		= $(X64_SMP).bin
 

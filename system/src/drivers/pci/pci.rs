@@ -179,6 +179,8 @@ impl PciVendorId {
     pub const INVALID_0000: Self = Self(0x0000);
     pub const INVALID_FFFF: Self = Self(0xFFFF);
 
+    pub const VIRTIO: Self = Self(0x1AF4);
+
     #[inline]
     pub const fn is_valid(&self) -> bool {
         self.0 != Self::INVALID_0000.0 && self.0 != Self::INVALID_FFFF.0
@@ -198,6 +200,9 @@ pub struct PciDeviceId(pub u16);
 impl PciDeviceId {
     pub const INVALID_0000: Self = Self(0x0000);
     pub const INVALID_FFFF: Self = Self(0xFFFF);
+
+    pub const VIRTIO_MIN: Self = Self(0x1000);
+    pub const VIRTIO_MAX: Self = Self(0x107F);
 
     #[inline]
     pub const fn is_valid(&self) -> bool {

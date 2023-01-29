@@ -24,6 +24,7 @@
 #![feature(option_result_contains)]
 #![feature(panic_info_message)]
 #![feature(trait_alias)]
+#![feature(let_chains)]
 //-//-//-//
 #![allow(incomplete_features)]
 #![feature(return_position_impl_trait_in_trait)]
@@ -40,6 +41,7 @@ pub mod fw;
 pub mod io;
 pub mod log;
 pub mod mem;
+pub mod num;
 pub mod r;
 pub mod res;
 pub mod rt;

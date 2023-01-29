@@ -12,4 +12,5 @@ bootprot = {path = "../../lib/bootprot"}
 byteorder = {default-features = false}
 cfg-if = {}
 lib-efi = {path = "../lib-efi"}
-uefi = {}
+uefi = {features = ['alloc']}
+uefi-services = {default-features = false}

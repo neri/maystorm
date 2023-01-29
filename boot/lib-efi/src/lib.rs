@@ -3,7 +3,7 @@
 #![feature(alloc_error_handler)]
 
 use alloc::{boxed::Box, vec::Vec};
-use core::{alloc::Layout, fmt::Write, panic::PanicInfo};
+use core::{fmt::Write, panic::PanicInfo};
 use uefi::{prelude::*, proto::media::file::*, CStr16};
 extern crate alloc;
 
@@ -13,11 +13,6 @@ pub mod debug;
 fn panic(info: &PanicInfo) -> ! {
     println!("{}", info);
     loop {}
-}
-
-#[alloc_error_handler]
-fn alloc_error_handler(layout: Layout) -> ! {
-    panic!("allocation error: {:?}", layout)
 }
 
 #[macro_export]

@@ -89,11 +89,11 @@ impl App {
         let mut marbles = [Marble::empty(); MAX_SPRITES];
         for (index, item) in marbles.iter_mut().enumerate() {
             *item = Marble::new(
-                (os_rand() % (Self::WINDOW_WIDTH as u32 - 48)) as isize + 16,
-                (os_rand() % (Self::WINDOW_HEIGHT as u32 - 48)) as isize + 16,
-                if (os_rand() & 1) == 0 { 1 } else { -1 },
-                if (os_rand() & 1) == 0 { 1 } else { -1 },
-                1 + (os_rand() & 1) as isize,
+                16 + Self::random(Self::WINDOW_WIDTH as u32 - 48) as isize,
+                16 + Self::random(Self::WINDOW_HEIGHT as u32 - 48) as isize,
+                Self::random(3) as isize - 1,
+                Self::random(3) as isize - 1,
+                1 + Self::random(2) as isize,
             );
             screen.set_sprite(
                 index,
@@ -131,6 +131,17 @@ impl App {
                 self.presenter.set_needs_display();
                 fps = 0;
                 time = now;
+            }
+        }
+    }
+
+    fn random(divisor: u32) -> u32 {
+        let Some(max) = u64::MAX.checked_div(divisor as u64) else { return 0 };
+        let max = max as u32 * divisor;
+        loop {
+            let r: u32 = os_rand();
+            if r <= max {
+                return r % divisor;
             }
         }
     }

@@ -24,9 +24,7 @@ static INITRD_PATH: &str = "/EFI/MEGOS/initrd.img";
 
 #[entry]
 fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
-    unsafe {
-        uefi::alloc::init(st.boot_services());
-    }
+    uefi_services::init(&mut st).unwrap();
 
     let mut info = BootInfo {
         platform: PlatformType::UEFI,
@@ -149,7 +147,6 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
         .unwrap();
     let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr, buf_size) };
     let (_st, mm) = st.exit_boot_services(handle, buf).unwrap();
-    uefi::alloc::exit_boot_services();
 
     // ------------------------------------------------------------------------
 
