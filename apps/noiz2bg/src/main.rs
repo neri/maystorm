@@ -319,7 +319,7 @@ impl App<'_> {
                 width.checked_div(z).unwrap_or(0),
                 height.checked_div(z).unwrap_or(0),
                 ColorComponents {
-                    a: 0x30,
+                    a: Alpha8(0x30),
                     r: (0x99isize * 256).checked_div(1 + z).unwrap_or(0) as u8,
                     g: (0xAAisize * 256).checked_div(1 + z).unwrap_or(0) as u8,
                     b: 0xDD,

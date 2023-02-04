@@ -91,8 +91,8 @@ impl App {
             *item = Marble::new(
                 16 + Self::random(Self::WINDOW_WIDTH as u32 - 48) as isize,
                 16 + Self::random(Self::WINDOW_HEIGHT as u32 - 48) as isize,
-                Self::random(3) as isize - 1,
-                Self::random(3) as isize - 1,
+                if Self::random(2) > 0 { 1 } else { -1 },
+                if Self::random(2) > 0 { 1 } else { -1 },
                 1 + Self::random(2) as isize,
             );
             screen.set_sprite(

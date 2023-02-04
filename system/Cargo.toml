@@ -15,15 +15,19 @@ myacpi = {path = "../lib/myacpi"}
 wasm = {path = "../lib/wasm"}
 
 # aml = {git = "https://github.com/rust-osdev/acpi"}
-ab_glyph = {default-features = false, features = ["libm"]}
 byteorder = {default-features = false}
 cfg-if = {}
 futures-util = {default-features = false, features = ["alloc"]}
-libm = {}
 num-derive = {default-features = false}
 num-traits = {default-features = false}
 paste = {}
 seq-macro = {}
+
+ab_glyph = {default-features = false, features = ["libm"]}
+libm = {}
+
+png-decoder = {default-features = false, git = "https://github.com/neri/png-decoder"}
+rapid-qoi = {default-features = false, features = ["alloc"]}
 
 [profile.release]
 lto = true

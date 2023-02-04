@@ -38,19 +38,24 @@ pub trait GetPixel: Drawable {
         }
     }
 
-    /// Returns an iterator that enumerates all pixels in the bitmap in no particular order.
     #[inline]
-    fn all_pixels(&self) -> AllPixels<Self>
+    fn to_operational<F>(&self, kernel: F) -> OperationalBitmap
     where
-        Self: Sized,
+        F: FnMut(<Self as Drawable>::ColorType) -> u8,
     {
+        OperationalBitmap::from_pixels(self, kernel)
+    }
+
+    /// Returns an iterator that enumerates all pixels of the bitmap in order from left to right and top to bottom.
+    #[inline]
+    fn all_pixels<'a>(&'a self) -> AllPixels<'a, Self> {
         AllPixels::new(self)
     }
 }
 
 pub struct AllPixels<'a, T>
 where
-    T: GetPixel,
+    T: GetPixel + ?Sized,
 {
     inner: &'a T,
     x: usize,
@@ -59,7 +64,7 @@ where
 
 impl<'a, T> AllPixels<'a, T>
 where
-    T: GetPixel,
+    T: GetPixel + ?Sized,
 {
     #[inline]
     pub const fn new(inner: &'a T) -> Self {
@@ -69,7 +74,7 @@ where
 
 impl<T> Iterator for AllPixels<'_, T>
 where
-    T: GetPixel,
+    T: GetPixel + ?Sized,
 {
     type Item = T::ColorType;
 

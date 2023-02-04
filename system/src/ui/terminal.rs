@@ -10,10 +10,10 @@ use core::{
 use megstd::drawing::*;
 
 const DEFAULT_INSETS: EdgeInsets = EdgeInsets::new(0, 0, 0, 0);
-const DEFAULT_ATTRIBUTE: u8 = 0x07;
-const BG_ALPHA: u8 = 0xE0;
-// const DEFAULT_ATTRIBUTE: u8 = 0xF8;
-// const BG_ALPHA: u8 = 0xFF;
+// const DEFAULT_ATTRIBUTE: u8 = 0x07;
+// const BG_ALPHA: Alpha8 = Alpha8(0xE0);
+const DEFAULT_ATTRIBUTE: u8 = 0xF8;
+const BG_ALPHA: Alpha8 = Alpha8::OPAQUE;
 
 static TA: TerminalAgent = TerminalAgent::new();
 
@@ -55,13 +55,14 @@ impl TerminalAgent {
 
 pub struct Terminal {
     window: WindowHandle,
-    alpha: u8,
+    alpha: Alpha8,
     font: FontDescriptor,
     cols: usize,
     rows: usize,
     insets: EdgeInsets,
     x: usize,
     y: usize,
+    default_attribute: u8,
     attribute: u8,
     fg_color: Color,
     bg_color: Color,
@@ -71,49 +72,30 @@ pub struct Terminal {
 }
 
 impl Terminal {
-    pub const PRIMARY_PALETTE: [TrueColor; 16] = [
-        TrueColor::PRIMARY_BLACK,
-        TrueColor::from_rgb(0x00_00_80),
-        TrueColor::from_rgb(0x00_80_00),
-        TrueColor::from_rgb(0x00_80_80),
-        TrueColor::from_rgb(0x80_00_00),
-        TrueColor::from_rgb(0x80_00_80),
-        TrueColor::from_rgb(0x80_80_00),
-        TrueColor::from_rgb(0xC0_C0_C0),
-        TrueColor::from_rgb(0x80_80_80),
-        TrueColor::PRIMARY_BLUE,
-        TrueColor::PRIMARY_GREEN,
-        TrueColor::PRIMARY_CYAN,
-        TrueColor::PRIMARY_RED,
-        TrueColor::PRIMARY_MAGENTA,
-        TrueColor::PRIMARY_YELLOW,
-        TrueColor::PRIMARY_WHITE,
-    ];
-
     pub const DEFAULT_PALETTE: [TrueColor; 16] = [
-        IndexedColor::BLACK.as_true_color(),
-        IndexedColor::BLUE.as_true_color(),
-        IndexedColor::GREEN.as_true_color(),
-        IndexedColor::CYAN.as_true_color(),
-        IndexedColor::RED.as_true_color(),
-        IndexedColor::MAGENTA.as_true_color(),
-        IndexedColor::BROWN.as_true_color(),
-        IndexedColor::LIGHT_GRAY.as_true_color(),
-        IndexedColor::DARK_GRAY.as_true_color(),
-        IndexedColor::LIGHT_BLUE.as_true_color(),
-        IndexedColor::LIGHT_GREEN.as_true_color(),
-        IndexedColor::LIGHT_CYAN.as_true_color(),
-        IndexedColor::LIGHT_RED.as_true_color(),
-        IndexedColor::LIGHT_MAGENTA.as_true_color(),
-        IndexedColor::YELLOW.as_true_color(),
-        IndexedColor::WHITE.as_true_color(),
+        TrueColor::BLACK,
+        TrueColor::BLUE,
+        TrueColor::GREEN,
+        TrueColor::CYAN,
+        TrueColor::RED,
+        TrueColor::MAGENTA,
+        TrueColor::BROWN,
+        TrueColor::LIGHT_GRAY,
+        TrueColor::DARK_GRAY,
+        TrueColor::LIGHT_BLUE,
+        TrueColor::LIGHT_GREEN,
+        TrueColor::LIGHT_CYAN,
+        TrueColor::LIGHT_RED,
+        TrueColor::LIGHT_MAGENTA,
+        TrueColor::YELLOW,
+        TrueColor::WHITE,
     ];
 
     pub fn from_window(
         window: WindowHandle,
         insets: Option<EdgeInsets>,
         font: FontDescriptor,
-        alpha: u8,
+        alpha: Alpha8,
         attribute: u8,
         palette: Option<[TrueColor; 16]>,
     ) -> Self {
@@ -123,8 +105,12 @@ impl Terminal {
         } else {
             DEFAULT_ATTRIBUTE
         };
-        let alpha = if alpha > 0 { alpha } else { BG_ALPHA };
-        let palette = palette.unwrap_or(Self::PRIMARY_PALETTE);
+        let alpha = if alpha.is_transparent() {
+            BG_ALPHA
+        } else {
+            alpha
+        };
+        let palette = palette.unwrap_or(Self::DEFAULT_PALETTE);
         let (fg_color, bg_color) = Self::_split_attr(&palette, attribute, alpha);
 
         let rect = window.content_size().bounds().insets_by(insets);
@@ -140,6 +126,7 @@ impl Terminal {
             insets,
             x: 0,
             y: 0,
+            default_attribute: attribute,
             attribute,
             fg_color,
             bg_color,
@@ -187,6 +174,7 @@ impl Terminal {
             insets,
             x: 0,
             y: 0,
+            default_attribute: attribute,
             attribute,
             fg_color,
             bg_color,
@@ -215,11 +203,11 @@ impl Terminal {
         // }
     }
 
-    fn split_attr(&self, val: u8, alpha: u8) -> (Color, Color) {
+    fn split_attr(&self, val: u8, alpha: Alpha8) -> (Color, Color) {
         Self::_split_attr(&self.palette, val, alpha)
     }
 
-    fn _split_attr(palette: &[TrueColor; 16], val: u8, alpha: u8) -> (Color, Color) {
+    fn _split_attr(palette: &[TrueColor; 16], val: u8, alpha: Alpha8) -> (Color, Color) {
         (
             Color::from(palette[(val & 0x0F) as usize]),
             Color::from(palette[(val >> 4) as usize].with_opacity(alpha)),
@@ -298,7 +286,7 @@ impl Terminal {
                                 &font_cache,
                                 Point::default(),
                                 rect,
-                                IndexedColor::DEFAULT_KEY,
+                                IndexedColor::KEY_COLOR,
                             );
                         } else {
                             self.font
@@ -423,12 +411,16 @@ impl TtyWrite for Terminal {
         let attribute = if attribute > 0 {
             attribute
         } else {
-            DEFAULT_ATTRIBUTE
+            self.default_attribute
         };
         self.attribute = attribute;
         let (fg_color, bg_color) = self.split_attr(attribute, self.alpha);
         self.fg_color = fg_color;
         self.bg_color = bg_color;
+    }
+
+    fn attributes(&self) -> u8 {
+        self.attribute
     }
 }
 

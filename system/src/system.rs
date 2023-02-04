@@ -212,7 +212,7 @@ impl System {
 
         let shared = Self::shared();
 
-        if true {
+        if false {
             let device = System::current_device();
 
             let bytes = device.total_memory_size();
@@ -303,7 +303,7 @@ impl System {
     /// Returns whether the kernel is multiprocessor-capable.
     #[inline]
     pub const fn is_multi_processor_capable_kernel() -> bool {
-        true
+        Scheduler::is_multi_processor_capable()
     }
 
     /// Add SMP-initialized CPU cores to the list of activated cores.

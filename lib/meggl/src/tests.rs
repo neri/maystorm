@@ -5,7 +5,7 @@ fn components() {
     let rgb = TrueColor(0x12345678);
     let components = rgb.components();
 
-    assert_eq!(rgb.components().a, 0x12);
+    assert_eq!(rgb.components().a, Alpha8(0x12));
     assert_eq!(rgb.components().r, 0x34);
     assert_eq!(rgb.components().g, 0x56);
     assert_eq!(rgb.components().b, 0x78);
@@ -62,7 +62,7 @@ fn rgb555() {
 fn canvas() {
     let true_color = TrueColor::from_argb(0x12345678);
     let components1 = true_color.components();
-    let canvas_color = HtmlCanvasColor::from(true_color);
+    let canvas_color = RGBA8888::from(true_color);
     let components2 = canvas_color.components();
     let true_color = TrueColor::from(canvas_color);
 

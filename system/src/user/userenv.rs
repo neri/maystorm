@@ -1,6 +1,6 @@
 use crate::{
     fs::*,
-    io::tty::*,
+    io::{image::ImageLoader, tty::*},
     log::{EventManager, SimpleMessagePayload},
     mem::*,
     res::icon::IconManager,
@@ -19,7 +19,7 @@ use core::{
     mem::{transmute, MaybeUninit},
     time::Duration,
 };
-use megstd::{drawing::image::ImageLoader, drawing::*, io::Read, string::*, Arc, String, Vec};
+use megstd::{drawing::*, io::Read, string::*, Arc, String, Vec};
 
 static mut SHUTDOWN_COMMAND: MaybeUninit<EventQueue<ShutdownCommand>> = MaybeUninit::uninit();
 
@@ -40,6 +40,28 @@ impl UserEnv {
         Self::shutdown_command().wait_event();
 
         WindowManager::set_pointer_enabled(false);
+        WindowManager::set_barrier_opacity(Alpha8::TRANSPARENT);
+
+        {
+            let bounds = WindowManager::main_screen_bounds();
+            let mut window_contents = OwnedBitmap32::new(bounds.size(), TrueColor::TRANSPARENT);
+            WindowManager::save_screen_to(window_contents.as_mut(), bounds);
+            let contents = window_contents
+                .to_operational(|c| (c.brightness().unwrap_or_default() as usize) as u8);
+
+            let bg_window = RawWindowBuilder::new()
+                .style(WindowStyle::NO_SHADOW | WindowStyle::FULLSCREEN | WindowStyle::SUSPENDED)
+                .level(WindowLevel::POPUP_BARRIER_BG)
+                .bg_color(Color::BLUE)
+                .build("");
+
+            bg_window.draw(|bitmap| {
+                contents.blt_to(bitmap, Point::new(0, 0), bitmap.bounds(), |level, _c| {
+                    TrueColor::from_gray(level, Alpha8::OPAQUE).into()
+                });
+            });
+            bg_window.show();
+        }
 
         let width = 480;
         let height = 240;
@@ -58,17 +80,60 @@ impl UserEnv {
             };
             AttributedString::new()
                 .font(&font)
-                .color(Color::LIGHT_GRAY)
+                .color(Color::WHITE)
                 .middle_center()
                 .shadow(Color::from_argb(0xFF333333), Movement::new(2, 2))
                 .text("Shutting down...")
                 .draw_text(bitmap, bitmap.bounds(), 0);
         });
 
-        WindowManager::set_barrier_opacity(0xCC);
         window.show();
 
-        Hal::cpu().reset();
+        let from = 0.0;
+        let to = 0.5;
+        let duration = Duration::from_millis(500);
+
+        let base = Timer::monotonic();
+        let limit = base + duration;
+        let diff = to - from;
+
+        window.create_timer(0, Duration::from_millis(1));
+        window.show();
+
+        while let Some(message) = window.wait_message() {
+            match message {
+                WindowMessage::Timer(timer_id) => match timer_id {
+                    0 => {
+                        let now = Timer::monotonic();
+                        let progress = if limit > now {
+                            from + diff * (now.as_micros() as f64 - base.as_micros() as f64)
+                                / duration.as_micros() as f64
+                        } else {
+                            to
+                        };
+
+                        WindowManager::set_barrier_opacity(progress.into());
+
+                        if now < limit {
+                            window.create_timer(0, Duration::from_millis(50));
+                        } else {
+                            Timer::sleep(Duration::from_millis(200));
+
+                            // System reset
+                            unsafe {
+                                Hal::cpu().disable_interrupt();
+                                Scheduler::freeze(true);
+                                Hal::cpu().reset();
+                            }
+                        }
+                    }
+                    _ => unreachable!(),
+                },
+                _ => window.handle_default_message(message),
+            }
+        }
+
+        unreachable!();
     }
 
     fn _main(f: usize) {
@@ -110,33 +175,38 @@ async fn slpash_task(f: fn()) {
 
     window.draw(|bitmap| {
         bitmap.clear();
-        let Some(font) = FontDescriptor::new(FontFamily::SansSerif, 36) else {
+        let Some(font) = FontDescriptor::new(FontFamily::SansSerif, 48) else {
             return
         };
         AttributedString::new()
             .font(&font)
             .color(Color::LIGHT_GRAY)
             .middle_center()
-            .text("Starting up...")
+            .text("HELLO")
             .draw_text(bitmap, bitmap.bounds(), 0);
     });
     // window.show();
-    WindowManager::set_barrier_opacity(255);
+    WindowManager::set_barrier_opacity(Alpha8::OPAQUE);
 
     Timer::sleep_async(Duration::from_millis(1000)).await;
 
     Scheduler::spawn_async(status_bar_main());
     Scheduler::spawn_async(_notification_task());
-    Scheduler::spawn_async(activity_monitor_main());
 
-    if let Ok(mut file) = FileManager::open("wall.qoi") {
-        let mut vec = Vec::new();
-        file.read_to_end(&mut vec).unwrap();
-        if let Some(dib) = ImageLoader::from_qoi(vec.as_slice()) {
-            WindowManager::set_desktop_bitmap(&dib.as_const());
+    if is_gui_boot {
+        Scheduler::spawn_async(activity_monitor_main());
+    }
+
+    if is_gui_boot {
+        if let Ok(mut file) = FileManager::open("wall.png") {
+            let mut vec = Vec::new();
+            file.read_to_end(&mut vec).unwrap();
+            if let Ok(dib) = ImageLoader::load(vec.as_slice()) {
+                WindowManager::set_desktop_bitmap(&dib.as_const());
+            }
+        } else {
+            WindowManager::set_desktop_color(Theme::shared().default_desktop_color());
         }
-    } else {
-        WindowManager::set_desktop_color(Theme::shared().default_desktop_color());
     }
 
     Timer::sleep_async(Duration::from_millis(500)).await;
@@ -159,7 +229,9 @@ async fn slpash_task(f: fn()) {
                         total
                     };
 
-                    WindowManager::set_barrier_opacity(255 - (255 * progress / total) as u8);
+                    WindowManager::set_barrier_opacity(
+                        (1.0 - progress as f64 / total as f64).into(),
+                    );
 
                     if now < limit {
                         window.create_timer(0, Duration::from_millis(50));
@@ -173,7 +245,7 @@ async fn slpash_task(f: fn()) {
         }
     }
 
-    WindowManager::set_barrier_opacity(0);
+    WindowManager::set_barrier_opacity(Alpha8::TRANSPARENT);
     WindowManager::set_pointer_enabled(true);
 
     Scheduler::spawn_async(shell_launcher(is_gui_boot, f));
@@ -218,10 +290,30 @@ async fn shell_launcher(is_gui_boot: bool, f: fn()) {
             .style(WindowStyle::NO_SHADOW)
             .fullscreen()
             .level(WindowLevel::DESKTOP_ITEMS)
-            .bg_color(TrueColor::from_gray(0, 0).into())
+            .bg_color(TrueColor::from_gray(0, Alpha8::TRANSPARENT).into())
             .build("Terminal");
 
-        let mut terminal = Terminal::from_window(window, None, font, u8::MAX, 0, None);
+        let palette: [TrueColor; 16] = [
+            IndexedColor::BLACK.into(),
+            IndexedColor::BLUE.into(),
+            IndexedColor::GREEN.into(),
+            IndexedColor::CYAN.into(),
+            IndexedColor::RED.into(),
+            IndexedColor::MAGENTA.into(),
+            IndexedColor::BROWN.into(),
+            IndexedColor::LIGHT_GRAY.into(),
+            IndexedColor::DARK_GRAY.into(),
+            IndexedColor::LIGHT_BLUE.into(),
+            IndexedColor::LIGHT_GREEN.into(),
+            IndexedColor::LIGHT_CYAN.into(),
+            IndexedColor::LIGHT_RED.into(),
+            IndexedColor::LIGHT_MAGENTA.into(),
+            IndexedColor::YELLOW.into(),
+            IndexedColor::WHITE.into(),
+        ];
+
+        let mut terminal =
+            Terminal::from_window(window, None, font, Alpha8::OPAQUE, 0x07, Some(palette));
         terminal.reset().unwrap();
         System::set_stdout(Box::new(terminal));
         // println!("Screen {} x {} Font {}", size.width(), size.height(), point);
@@ -431,13 +523,12 @@ async fn activity_monitor_main() {
                                 opr_bitmap.reset();
                                 for i in 0..limit {
                                     let scale = graph_size.height - 2;
-                                    let value1 = usage_history
-                                        [((usage_cursor + i - limit) % n_items)]
+                                    let value1 = usage_history[(usage_cursor + i - limit) % n_items]
                                         as isize
                                         * scale
                                         / 255;
                                     let value2 = usage_history
-                                        [((usage_cursor + i - 1 - limit) % n_items)]
+                                        [(usage_cursor + i - 1 - limit) % n_items]
                                         as isize
                                         * scale
                                         / 255;
@@ -795,12 +886,12 @@ async fn test_window_main() {
         }
     });
 
-    WindowManager::set_barrier_opacity(0x80);
+    WindowManager::set_barrier_opacity(0.5.into());
 
     while let Some(message) = window.await_message().await {
         match message {
             WindowMessage::Close => {
-                WindowManager::set_barrier_opacity(0);
+                WindowManager::set_barrier_opacity(Alpha8::TRANSPARENT);
                 window.close();
                 return;
             }
@@ -808,7 +899,7 @@ async fn test_window_main() {
         }
     }
 
-    WindowManager::set_barrier_opacity(0);
+    WindowManager::set_barrier_opacity(Alpha8::TRANSPARENT);
 }
 
 fn font_test(

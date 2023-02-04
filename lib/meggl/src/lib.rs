@@ -1,5 +1,6 @@
 //! MEG-OS Standard Graphics Drawing Library
 #![no_std]
+#![feature(const_fn_floating_point_arithmetic)]
 #![feature(const_mut_refs)]
 #![feature(const_swap)]
 #![feature(const_trait_impl)]
@@ -18,8 +19,6 @@ pub use canvas::*;
 pub use color::*;
 pub use coords::*;
 pub use drawable::*;
-
-pub mod image;
 
 #[cfg(test)]
 pub mod tests;

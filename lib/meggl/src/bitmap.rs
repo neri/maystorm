@@ -182,7 +182,7 @@ pub trait BasicDrawing: SetPixel {
     }
 }
 
-pub trait RasterFontWriter: SetPixel {
+pub trait DrawGlyph: SetPixel {
     fn draw_glyph(&mut self, glyph: &[u8], size: Size, origin: Point, color: Self::ColorType) {
         let stride = (size.width as usize + 7) / 8;
 
@@ -806,7 +806,7 @@ impl BasicDrawing for Bitmap8<'_> {
     }
 }
 
-impl RasterFontWriter for Bitmap8<'_> {}
+impl DrawGlyph for Bitmap8<'_> {}
 
 impl<'a> const AsRef<ConstBitmap8<'a>> for Bitmap8<'a> {
     #[inline]
@@ -1082,7 +1082,7 @@ impl Bitmap32<'_> {
         } else if rhs.is_transparent() {
             return;
         }
-        let alpha = rhs.a as usize;
+        let alpha = rhs.a.0 as usize;
         let alpha_n = 255 - alpha;
 
         let mut width = rect.width();
@@ -1117,7 +1117,7 @@ impl Bitmap32<'_> {
             for _ in 0..width {
                 let lhs = unsafe { slice.get_unchecked(cursor) }.components();
                 let c = lhs
-                    .blend_color(
+                    .blending(
                         rhs,
                         |lhs, rhs| {
                             (((lhs as usize) * alpha_n + (rhs as usize) * alpha) / 255) as u8
@@ -1231,7 +1231,7 @@ impl BasicDrawing for Bitmap32<'_> {
     }
 }
 
-impl RasterFontWriter for Bitmap32<'_> {}
+impl DrawGlyph for Bitmap32<'_> {}
 
 impl<'a> From<&'a Bitmap32<'a>> for ConstBitmap32<'a> {
     #[inline]
@@ -1255,32 +1255,29 @@ impl<'a> Bitmap32<'a> {
 
         let ds = self.stride();
         let ss = src.stride();
-        let mut dest_cursor = dx as usize + dy as usize * ds;
-        let mut src_cursor = sx as usize + sy as usize * ss;
-        let dest_fb = self.slice_mut();
-        let src_fb = src.slice();
+        unsafe {
+            let mut dest_fb = self
+                .slice_mut()
+                .as_mut_ptr()
+                .add(dx as usize + dy as usize * ds) as *mut u32;
+            let mut src_fb = src.slice().as_ptr().add(sx as usize + sy as usize * ss) as *const u32;
 
-        if ds == width && ss == width {
-            memory_colors::_memcpy_colors32(
-                dest_fb,
-                dest_cursor,
-                src_fb,
-                src_cursor,
-                width * height,
-            );
-        } else {
-            for _ in 0..height {
-                memory_colors::_memcpy_colors32(dest_fb, dest_cursor, src_fb, src_cursor, width);
-                dest_cursor += ds;
-                src_cursor += ss;
+            if ds == width && ss == width {
+                dest_fb.copy_from(src_fb, width * height);
+            } else {
+                for _ in 0..height {
+                    dest_fb.copy_from(src_fb, width);
+                    dest_fb = dest_fb.add(ds);
+                    src_fb = src_fb.add(ss);
+                }
             }
         }
     }
 
-    pub fn blt_blend(&mut self, src: &ConstBitmap32, origin: Point, rect: Rect, opacity: u8) {
+    pub fn blt_blend(&mut self, src: &ConstBitmap32, origin: Point, rect: Rect, opacity: Alpha8) {
         let (dx, dy, sx, sy, width, height) =
             _adjust_blt_coords(self.size(), src.size(), origin, rect);
-        if opacity == 0 || width <= 0 || height <= 0 {
+        if opacity.is_transparent() || width <= 0 || height <= 0 {
             return;
         }
         let width = width as usize;
@@ -1293,7 +1290,7 @@ impl<'a> Bitmap32<'a> {
         let dest_fb = self.slice_mut();
         let src_fb = src.slice();
 
-        if opacity == u8::MAX {
+        if opacity == Alpha8::OPAQUE {
             for _ in 0..height {
                 memory_colors::_memcpy_blend32(dest_fb, dest_cursor, src_fb, src_cursor, width);
                 dest_cursor += ds;
@@ -1364,7 +1361,7 @@ impl<'a> Bitmap32<'a> {
                     Some(c.into())
                 }
             }),
-            ConstBitmap::Argb32(src) => self.blt_blend(src, origin, rect, u8::MAX),
+            ConstBitmap::Argb32(src) => self.blt_blend(src, origin, rect, Alpha8::OPAQUE),
         }
     }
 }
@@ -1649,7 +1646,7 @@ impl SetPixel for Bitmap<'_> {
     }
 }
 
-impl RasterFontWriter for Bitmap<'_> {
+impl DrawGlyph for Bitmap<'_> {
     #[inline]
     fn draw_glyph(&mut self, glyph: &[u8], size: Size, origin: Point, color: Self::ColorType) {
         match self {
@@ -1921,6 +1918,17 @@ impl OperationalBitmap {
     }
 
     #[inline]
+    pub fn from_pixels<F, T>(data: &T, mut kernel: F) -> OperationalBitmap
+    where
+        T: GetPixel + ?Sized,
+        F: FnMut(<T as Drawable>::ColorType) -> u8,
+    {
+        let size = data.size();
+        let vec = data.all_pixels().map(|v| kernel(v)).collect();
+        OperationalBitmap { size, vec }
+    }
+
+    #[inline]
     pub fn reset(&mut self) {
         self.fill(0);
     }
@@ -2172,7 +2180,7 @@ impl OperationalBitmap {
                 let color = color.into_true_color();
                 self.blt_to(bitmap, origin, rect, |a, b| {
                     let mut c = color.components();
-                    c.a = a;
+                    c.a = Alpha8(a);
                     b.blend_draw(c.into())
                 });
             }
@@ -2355,23 +2363,6 @@ mod memory_colors {
         }
     }
 
-    /// Faster copy
-    #[inline]
-    pub fn _memcpy_colors32(
-        dest: &mut [TrueColor],
-        dest_cursor: usize,
-        src: &[TrueColor],
-        src_cursor: usize,
-        count: usize,
-    ) {
-        let src = unsafe { src.get_unchecked(src_cursor..src_cursor + count) };
-        let dest = unsafe { dest.get_unchecked_mut(dest_cursor..dest_cursor + count) };
-        // for (dest, src) in dest.iter_mut().zip(src.iter()) {
-        //     *dest = *src;
-        // }
-        dest.copy_from_slice(src);
-    }
-
     // Alpha blending
     #[inline]
     pub fn _memcpy_blend32(
@@ -2522,5 +2513,70 @@ impl<'a> const AsMut<Bitmap1<'a>> for Bitmap1<'a> {
     #[inline]
     fn as_mut(&mut self) -> &mut Bitmap1<'a> {
         self
+    }
+}
+
+/// A 4bpp bitmap type
+#[repr(C)]
+pub struct ConstBitmap4<'a> {
+    size: Size,
+    stride: usize,
+    slice: &'a [IndexedColorPair44],
+}
+
+impl Drawable for ConstBitmap4<'_> {
+    type ColorType = IndexedColor4;
+
+    fn size(&self) -> Size {
+        self.size
+    }
+}
+
+impl GetPixel for ConstBitmap4<'_> {
+    unsafe fn get_pixel_unchecked(&self, point: Point) -> Self::ColorType {
+        let x = point.x as usize;
+        let y = point.y as usize;
+        let pair = self.slice.get_unchecked(y * self.stride + x / 2);
+        if (x & 1) == 0 {
+            pair.lhs()
+        } else {
+            pair.rhs()
+        }
+    }
+}
+
+impl<'a> ConstBitmap4<'a> {
+    #[inline]
+    pub const fn from_slice(
+        slice: &'a [IndexedColorPair44],
+        size: Size,
+        stride: Option<NonZeroUsize>,
+    ) -> Self {
+        Self {
+            size,
+            stride: match stride {
+                Some(v) => v.get(),
+                None => size.width() as usize,
+            },
+            slice,
+        }
+    }
+
+    #[inline]
+    pub const fn from_bytes(bytes: &'a [u8], size: Size) -> Self {
+        Self {
+            size,
+            stride: size.width() as usize,
+            slice: unsafe { transmute(bytes) },
+        }
+    }
+
+    #[inline]
+    pub fn clone(&'a self) -> Self {
+        Self {
+            size: self.size(),
+            stride: self.stride,
+            slice: self.slice,
+        }
     }
 }

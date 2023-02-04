@@ -469,7 +469,7 @@ impl MyosRuntime {
                         &ConstBitmap::from(&src),
                         Point::default(),
                         src.size().into(),
-                        IndexedColor::DEFAULT_KEY,
+                        IndexedColor::KEY_COLOR,
                     );
                 });
             }

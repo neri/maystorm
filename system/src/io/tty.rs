@@ -23,6 +23,10 @@ pub trait TtyWrite: Write {
     fn set_cursor_enabled(&mut self, enabled: bool) -> bool;
 
     fn set_attribute(&mut self, attribute: u8);
+
+    fn attributes(&self) -> u8 {
+        0
+    }
 }
 
 pub trait TtyRead {

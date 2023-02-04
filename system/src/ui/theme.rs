@@ -25,13 +25,11 @@ impl Theme {
 
     #[inline]
     pub const fn status_bar_background(&self) -> Color {
-        // Color::from_argb(0x80ECEFF1)
         Color::from_argb(0x80263238)
     }
 
     #[inline]
     pub const fn status_bar_foreground(&self) -> Color {
-        // Color::BLACK
         Color::WHITE
     }
 
@@ -57,7 +55,8 @@ impl Theme {
 
     #[inline]
     pub const fn window_default_border_dark(&self) -> Color {
-        Color::from_rgb(0x546e7a)
+        // Color::from_rgb(0x546e7a)
+        Color::DARK_GRAY
     }
 
     #[inline]
@@ -82,7 +81,7 @@ impl Theme {
 
     #[inline]
     pub const fn window_title_active_background(&self) -> Color {
-        Color::from_argb(0xE0ECEFF1)
+        Color::WHITE
     }
 
     #[inline]
@@ -107,6 +106,11 @@ impl Theme {
 
     #[inline]
     pub const fn window_title_active_background_dark(&self) -> Color {
+        Color::from_rgb(0x546e7a)
+    }
+
+    #[inline]
+    pub const fn window_title_inactive_background_dark(&self) -> Color {
         Color::from_rgb(0x29434e)
     }
 

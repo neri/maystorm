@@ -25,6 +25,7 @@
 #![feature(panic_info_message)]
 #![feature(trait_alias)]
 #![feature(let_chains)]
+#![feature(array_chunks)]
 //-//-//-//
 #![allow(incomplete_features)]
 #![feature(return_position_impl_trait_in_trait)]

@@ -302,9 +302,9 @@ impl Shell {
     const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> (), &'static str); 13] = [
         ("cd", Self::cmd_cd, ""),
         ("pwd", Self::cmd_pwd, ""),
-        ("ls", Self::cmd_dir, "Show directory"),
+        ("ls", Self::cmd_ls, "Show directory"),
         ("cat", Self::cmd_cat, "Show file"),
-        ("dir", Self::cmd_dir, ""),
+        ("dir", Self::cmd_ls, ""),
         ("type", Self::cmd_cat, ""),
         ("stat", Self::cmd_stat, ""),
         ("mount", Self::cmd_mount, ""),
@@ -421,7 +421,7 @@ impl Shell {
         }
     }
 
-    fn cmd_dir(args: &[&str]) {
+    fn cmd_ls(args: &[&str]) {
         let path = args.get(1).unwrap_or(&"");
         let dir = match FileManager::read_dir(path) {
             Ok(v) => v,
@@ -431,13 +431,18 @@ impl Shell {
             }
         };
 
+        let stdout = System::stdout();
+        let attributes = stdout.attributes();
+        let text_bg = attributes & 0xF0;
+        // let text_fg = attributes & 0x0F;
+
         let mut files = dir
             .map(|v| {
                 let metadata = v.metadata();
                 let (color, suffix) = if metadata.file_type().is_dir() {
-                    (0x09, "/")
+                    (text_bg | 0x09, "/")
                 } else if metadata.file_type().is_symlink() {
-                    (0x0D, "@")
+                    (text_bg | 0x0D, "@")
                 } else if metadata.file_type().is_char_device() {
                     (0x0E, "")
                 } else {
@@ -448,31 +453,25 @@ impl Shell {
             .collect::<Vec<_>>();
         files.sort_by(|a, b| a.0.cmp(&b.0));
 
-        let max_name_len = files.iter().fold(0, |acc, v| acc.max(v.0.len()));
-
-        let stdout = System::stdout();
+        let item_len = files.iter().fold(0, |acc, v| acc.max(v.0.len())) + 2;
         let width = stdout.dims().0 as usize;
-        let item_len = max_name_len + 2;
         let items_per_line = width / item_len;
-        let needs_new_line = items_per_line > 0 && (width - (items_per_line * item_len)) > 0;
+        let needs_new_line = items_per_line > 0 && width % item_len > 0;
 
         for (index, (name, suffix, attribute)) in files.into_iter().enumerate() {
             if (index % items_per_line) == 0 {
                 if index > 0 && needs_new_line {
                     println!("");
                 }
-            } else {
-                print!("  ");
             }
             stdout.set_attribute(attribute);
             print!("{}", name);
             stdout.set_attribute(0);
             print!("{}", suffix);
-            print!(
-                "{:len$} ",
-                "",
-                len = max_name_len - (name.len() + suffix.len())
-            );
+            let len = name.len() + suffix.len();
+            if len < item_len {
+                print!("{:len$}", "", len = item_len - len);
+            }
         }
         println!("");
     }

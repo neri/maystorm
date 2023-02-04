@@ -2,116 +2,16 @@ use super::*;
 use alloc::{borrow::ToOwned, boxed::Box, vec::Vec};
 use core::{borrow::Borrow, cell::UnsafeCell, mem::transmute, num::NonZeroUsize};
 
-#[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
-pub struct HtmlCanvasColor(pub(super) u32);
-
-impl ColorTrait for HtmlCanvasColor {}
-
-impl HtmlCanvasColor {
-    pub const TRANSPARENT: Self = Self(0);
-    pub const WHITE: Self = Self(0xFFFFFFFF);
-
-    #[inline]
-    pub const fn from_gray(white: u8, alpha: u8) -> Self {
-        Self(white as u32 * 0x00_01_01_01 + alpha as u32 * 0x01_00_00_00)
-    }
-
-    #[inline]
-    pub const fn components(&self) -> HtmlCanvasColorComponents {
-        HtmlCanvasColorComponents::from(*self)
-    }
-}
-
-impl const From<TrueColor> for HtmlCanvasColor {
-    #[inline]
-    fn from(v: TrueColor) -> Self {
-        Self::from(HtmlCanvasColorComponents::from(v.components()))
-    }
-}
-
-impl const From<HtmlCanvasColor> for TrueColor {
-    #[inline]
-    fn from(v: HtmlCanvasColor) -> Self {
-        Self::from(ColorComponents::from(v.components()))
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg(target_endian = "little")]
-pub struct HtmlCanvasColorComponents {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-    pub a: u8,
-}
-
-impl HtmlCanvasColorComponents {
-    #[inline]
-    pub const fn from_rgb(r: u8, g: u8, b: u8) -> Self {
-        Self {
-            r,
-            g,
-            b,
-            a: u8::MAX,
-        }
-    }
-
-    #[inline]
-    pub const fn from_rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
-        Self { r, g, b, a }
-    }
-}
-
-impl const From<HtmlCanvasColor> for HtmlCanvasColorComponents {
-    #[inline]
-    fn from(color: HtmlCanvasColor) -> Self {
-        unsafe { transmute(color) }
-    }
-}
-
-impl const From<HtmlCanvasColorComponents> for HtmlCanvasColor {
-    #[inline]
-    fn from(components: HtmlCanvasColorComponents) -> Self {
-        unsafe { transmute(components) }
-    }
-}
-
-impl const From<HtmlCanvasColorComponents> for ColorComponents {
-    #[inline]
-    fn from(v: HtmlCanvasColorComponents) -> Self {
-        Self {
-            b: v.b,
-            g: v.g,
-            r: v.r,
-            a: v.a,
-        }
-    }
-}
-
-impl const From<ColorComponents> for HtmlCanvasColorComponents {
-    #[inline]
-    fn from(v: ColorComponents) -> Self {
-        Self {
-            r: v.r,
-            g: v.g,
-            b: v.b,
-            a: v.a,
-        }
-    }
-}
-
 /// Images compatible with HTML Canvas Image Data
 #[repr(C)]
 pub struct ConstHtmlCanvas<'a> {
     size: Size,
     stride: usize,
-    slice: &'a [HtmlCanvasColor],
+    slice: &'a [RGBA8888],
 }
 
 impl const Drawable for ConstHtmlCanvas<'_> {
-    type ColorType = HtmlCanvasColor;
+    type ColorType = RGBA8888;
 
     #[inline]
     fn size(&self) -> Size {
@@ -134,7 +34,7 @@ impl RasterImage for ConstHtmlCanvas<'_> {
 impl<'a> ConstHtmlCanvas<'a> {
     #[inline]
     pub const fn from_slice(
-        slice: &'a [HtmlCanvasColor],
+        slice: &'a [RGBA8888],
         size: Size,
         stride: Option<NonZeroUsize>,
     ) -> Self {
@@ -175,11 +75,11 @@ impl<'a> const AsRef<ConstHtmlCanvas<'a>> for ConstHtmlCanvas<'a> {
 pub struct HtmlCanvas<'a> {
     size: Size,
     stride: usize,
-    slice: UnsafeCell<&'a mut [HtmlCanvasColor]>,
+    slice: UnsafeCell<&'a mut [RGBA8888]>,
 }
 
 impl const Drawable for HtmlCanvas<'_> {
-    type ColorType = HtmlCanvasColor;
+    type ColorType = RGBA8888;
 
     #[inline]
     fn size(&self) -> Size {
@@ -208,11 +108,7 @@ impl MutableRasterImage for HtmlCanvas<'_> {
 
 impl<'a> HtmlCanvas<'a> {
     #[inline]
-    pub fn from_slice(
-        slice: &'a mut [HtmlCanvasColor],
-        size: Size,
-        stride: Option<NonZeroUsize>,
-    ) -> Self {
+    pub fn from_slice(slice: &'a mut [RGBA8888], size: Size, stride: Option<NonZeroUsize>) -> Self {
         Self {
             size,
             stride: match stride {
@@ -248,7 +144,7 @@ impl HtmlCanvas<'static> {
     /// # SAFETY
     /// Must guarantee the existence of the `ptr`.
     #[inline]
-    pub unsafe fn from_static(ptr: *mut HtmlCanvasColor, size: Size, stride: usize) -> Self {
+    pub unsafe fn from_static(ptr: *mut RGBA8888, size: Size, stride: usize) -> Self {
         let slice = core::slice::from_raw_parts_mut(ptr, size.height() as usize * stride);
         Self {
             size,
@@ -286,11 +182,11 @@ impl ToOwned for HtmlCanvas<'_> {
 pub struct OwnedHtmlCanvas {
     size: Size,
     stride: usize,
-    slice: UnsafeCell<Box<[HtmlCanvasColor]>>,
+    slice: UnsafeCell<Box<[RGBA8888]>>,
 }
 
 impl const Drawable for OwnedHtmlCanvas {
-    type ColorType = HtmlCanvasColor;
+    type ColorType = RGBA8888;
 
     #[inline]
     fn size(&self) -> Size {
@@ -319,7 +215,7 @@ impl MutableRasterImage for OwnedHtmlCanvas {
 
 impl OwnedHtmlCanvas {
     #[inline]
-    pub fn new(size: Size, bg_color: HtmlCanvasColor) -> Self {
+    pub fn new(size: Size, bg_color: RGBA8888) -> Self {
         let len = size.width() as usize * size.height() as usize;
         let mut vec = Vec::with_capacity(len);
         vec.resize(len, bg_color);
@@ -327,7 +223,7 @@ impl OwnedHtmlCanvas {
     }
 
     #[inline]
-    pub fn from_vec(vec: Vec<HtmlCanvasColor>, size: Size) -> Self {
+    pub fn from_vec(vec: Vec<RGBA8888>, size: Size) -> Self {
         Self {
             size,
             stride: size.width as usize,
@@ -357,5 +253,5 @@ impl<'a> Borrow<HtmlCanvas<'a>> for OwnedHtmlCanvas {
     }
 }
 
-impl BltConvert<HtmlCanvasColor> for HtmlCanvas<'_> {}
+impl BltConvert<RGBA8888> for HtmlCanvas<'_> {}
 impl BltConvert<TrueColor> for HtmlCanvas<'_> {}

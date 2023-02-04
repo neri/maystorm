@@ -400,6 +400,8 @@ impl FontDriver for TrueTypeFont {
         height: isize,
         color: Color,
     ) {
+        let Bitmap::Argb32(bitmap) = bitmap else { return };
+
         let scale = height as f32 * self.font.height_unscaled() / self.units_per_em;
         let ascent = (height as f32 * self.font.ascent_unscaled() / self.units_per_em) as isize;
         // let descent = (height as f32 * self.font.descent_unscaled() / self.units_per_em) as isize;
@@ -413,11 +415,9 @@ impl FontDriver for TrueTypeFont {
             glyph.draw(|x, y, a| {
                 let point = origin + Movement::new(x as isize, y as isize);
                 if let Some(b) = bitmap.get_pixel(point) {
-                    let b = b.into_true_color();
-                    let mut c = color.components();
-                    c.a = (a * 255.0) as u8;
                     unsafe {
-                        bitmap.set_pixel_unchecked(point, b.blend_draw(c.into()).into());
+                        bitmap
+                            .set_pixel_unchecked(point, b.blend_draw(color.with_opacity(a.into())));
                     }
                 }
             })

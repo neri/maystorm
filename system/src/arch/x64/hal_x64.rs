@@ -7,7 +7,6 @@ use crate::{
     drivers::pci::PciConfigAddress,
     hal::*,
     system::ProcessorIndex,
-    task::scheduler::Scheduler,
     *,
 };
 use core::{
@@ -84,9 +83,6 @@ impl HalCpu for CpuImpl {
 
     fn reset(&self) -> ! {
         unsafe {
-            self.disable_interrupt();
-            Scheduler::freeze(true);
-
             Cpu::out8(0x0CF9, 0x06);
 
             asm!("out 0x92, al", in("al") 0x01 as u8, options(nomem, nostack));

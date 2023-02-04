@@ -13,6 +13,7 @@ use crate::{
     ui::window::{WindowHandle, WindowMessage},
     *,
 };
+use alloc::format;
 use core::{
     cell::UnsafeCell, ffi::c_void, fmt, intrinsics::transmute, num::*, ops::*, sync::atomic::*,
     time::Duration,
@@ -147,6 +148,17 @@ impl Scheduler {
             0,
             "Scheduler Statistics",
         );
+
+        for index in 0..System::current_device().num_of_logical_cpus() {
+            let cpuid = ProcessorIndex(index);
+            cpuid.get().map(|v| {
+                if v.processor_type() == ProcessorCoreType::Main {
+                    SpawnOption::new() //with_priority(Priority::Normal)
+                        .strong_affinity(cpuid)
+                        .start(Self::_dispatch, index, &format!("dispatch_#{}", index));
+                }
+            });
+        }
     }
 
     #[inline]
@@ -155,12 +167,23 @@ impl Scheduler {
         unsafe { SCHEDULER.as_ref().unwrap() }
     }
 
+    fn _dispatch(_index: usize) {
+        loop {
+            Timer::sleep(Duration::from_millis(1000_000));
+        }
+    }
+
     /// Returns whether or not the thread scheduler is running.
     pub fn is_enabled() -> bool {
         match Self::current_state() {
             SchedulerState::Disabled => false,
             _ => true,
         }
+    }
+
+    #[inline]
+    pub const fn is_multi_processor_capable() -> bool {
+        true
     }
 
     /// Returns the current state of the scheduler.
@@ -175,10 +198,14 @@ impl Scheduler {
     }
 
     /// All threads will stop.
-    pub unsafe fn freeze(force: bool) {
+    pub fn freeze(force: bool) {
         if Self::is_enabled() {
-            let sch = Self::shared();
-            sch.is_frozen.store(true, Ordering::SeqCst);
+            fence(Ordering::SeqCst);
+
+            Self::shared().is_frozen.store(true, Ordering::SeqCst);
+
+            fence(Ordering::SeqCst);
+
             if force {
                 Hal::cpu().broadcast_reschedule();
                 return;
@@ -513,9 +540,15 @@ impl Scheduler {
             None => target_process.priority,
         };
         target_process.n_threads.fetch_add(1, Ordering::SeqCst);
-        let thread =
-            ThreadContextData::new(pid, priority, name, Some((start, arg)), options.personality)
-                .unwrap();
+        let thread = ThreadContextData::new(
+            pid,
+            priority,
+            options.strong_affinity,
+            name,
+            Some((start, arg)),
+            options.personality,
+        )
+        .unwrap();
         Self::add(thread);
         Some(thread)
     }
@@ -661,8 +694,15 @@ impl LocalScheduler {
     fn new(index: ProcessorIndex) -> Box<Self> {
         let mut sb = Sb255::new();
         write!(sb, "Idle_#{}", index.0).unwrap();
-        let idle =
-            ThreadContextData::new(ProcessId(0), Priority::Idle, sb.as_str(), None, None).unwrap();
+        let idle = ThreadContextData::new(
+            ProcessId(0),
+            Priority::Idle,
+            Some(index),
+            sb.as_str(),
+            None,
+            None,
+        )
+        .unwrap();
         Box::new(Self {
             index,
             idle,
@@ -787,6 +827,7 @@ pub struct SpawnOption {
     priority: Option<Priority>,
     new_process: bool,
     personality: Option<PersonalityContext>,
+    strong_affinity: Option<ProcessorIndex>,
 }
 
 impl SpawnOption {
@@ -796,6 +837,7 @@ impl SpawnOption {
             priority: None,
             new_process: false,
             personality: None,
+            strong_affinity: None,
         }
     }
 
@@ -805,12 +847,20 @@ impl SpawnOption {
             priority: Some(priority),
             new_process: false,
             personality: None,
+            strong_affinity: None,
         }
     }
 
     #[inline]
     pub fn personality(mut self, personality: PersonalityContext) -> Self {
         self.personality = Some(personality);
+        self
+    }
+
+    #[inline]
+    pub fn strong_affinity(mut self, strong_affinity: ProcessorIndex) -> Self {
+        self.strong_affinity = (System::current_device().num_of_logical_cpus() > strong_affinity.0)
+            .then(|| strong_affinity);
         self
     }
 
@@ -1480,6 +1530,11 @@ impl ThreadHandle {
         self.get().map(|thread| thread.sem.wait());
     }
 
+    #[inline]
+    pub fn strong_affinity(&self) -> Option<ProcessorIndex> {
+        self.get().and_then(|v| v.strong_affinity)
+    }
+
     fn update_statistics(&self) {
         let Some(thread) = self.get() else { return };
 
@@ -1510,6 +1565,7 @@ struct ThreadContextData {
     attribute: AtomicFlags<ThreadAttribute>,
     sleep_counter: AtomicIsize,
     priority: Priority,
+    strong_affinity: Option<ProcessorIndex>,
     quantum: Quantum,
 
     // Statistics
@@ -1555,6 +1611,7 @@ impl ThreadContextData {
     fn new(
         pid: ProcessId,
         priority: Priority,
+        strong_affinity: Option<ProcessorIndex>,
         name: &str,
         start: Option<(ThreadStart, usize)>,
         personality: Option<PersonalityContext>,
@@ -1576,6 +1633,7 @@ impl ThreadContextData {
             attribute: AtomicFlags::empty(),
             sleep_counter: AtomicIsize::new(0),
             priority,
+            strong_affinity,
             quantum: Quantum::from(priority),
             measure: AtomicUsize::new(0),
             cpu_time: AtomicUsize::new(0),
