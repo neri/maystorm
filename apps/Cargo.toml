@@ -2,8 +2,6 @@
 [workspace]
 members = [
   "bball",
-  "gbench",
-  "ghello",
   "hello",
   "hello2",
   "life",

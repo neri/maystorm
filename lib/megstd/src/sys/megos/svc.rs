@@ -47,19 +47,6 @@ pub enum Function {
     /// Draw a shape in a window
     DrawShape,
 
-    /// Initialize Game API
-    GameV0Init,
-    /// Transfers the drawing buffer to the window and synchronizes the frames.
-    GameV0Sync,
-    /// Redraws the drawing buffer of the specified range.
-    GameV0Rect,
-    /// Moves the sprite and redraw it.
-    GameV0MoveSprite,
-    /// Gets the status of a button for a game.
-    GameV0Button,
-    /// Load the system stock font
-    GameV0LoadFont,
-
     /// Returns a simple pseudo-random number
     Rand = 100,
     /// Set the seed of the random number

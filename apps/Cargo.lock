@@ -28,20 +28,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
-name = "gbench"
-version = "0.1.0"
-dependencies = [
- "megstd",
-]
-
-[[package]]
-name = "ghello"
-version = "0.1.0"
-dependencies = [
- "megstd",
-]
-
-[[package]]
 name = "hello"
 version = "0.1.0"
 dependencies = [
@@ -110,9 +96,9 @@ dependencies = [
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.50"
+version = "1.0.51"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ef7d57beacfaf2d8aee5937dab7b7f28de3cb8b1828479bb5de2a7106f2bae2"
+checksum = "5d727cae5b39d21da60fa540906919ad737832fe0b1c165da3a34d6548c849d6"
 dependencies = [
  "unicode-ident",
 ]

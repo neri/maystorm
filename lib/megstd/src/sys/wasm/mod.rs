@@ -10,9 +10,6 @@ pub mod syscall;
 #[cfg(feature = "window")]
 pub mod window;
 
-#[cfg(feature = "game")]
-pub mod game_v0_imp;
-
 pub mod path {
     pub const MAIN_SEP_STR: &'static str = "/";
 }
