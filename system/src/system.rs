@@ -201,7 +201,7 @@ impl System {
             shared.smbios = Some(smbios);
         }
 
-        arch::Arch::init();
+        arch::Arch::init(info);
 
         Scheduler::start(Self::late_init, f as usize);
     }

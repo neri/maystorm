@@ -1,4 +1,4 @@
-use super::apic::*;
+use super::{apic::*, page::PageManager};
 use crate::{
     rt::{LegacyAppContext, RuntimeEnvironment},
     system::{ProcessorCoreType, ProcessorIndex},
@@ -34,6 +34,10 @@ struct SharedCpu {
     max_cpuid_level_8: u32,
     smt_topology: u32,
     has_smt: AtomicBool,
+    max_physical_address_bits: usize,
+    max_virtual_address_bits: usize,
+    vram_base: PhysicalAddress,
+    vram_size_min: usize,
 }
 
 impl SharedCpu {
@@ -43,23 +47,25 @@ impl SharedCpu {
             max_cpuid_level_8: 0,
             smt_topology: 0,
             has_smt: AtomicBool::new(false),
+            max_physical_address_bits: 36,
+            max_virtual_address_bits: 48,
+            vram_base: PhysicalAddress::new(0),
+            vram_size_min: 0,
         }
     }
 }
 
 impl Cpu {
-    pub unsafe fn init() {
+    pub unsafe fn init(info: &BootInfo) {
         assert_call_once!();
 
-        let apic_id = System::acpi()
-            .unwrap()
-            .local_apics()
-            .next()
-            .map(|v| v.apic_id())
-            .unwrap_or(0);
-        System::activate_cpu(Cpu::new(apic_id.into()));
-
         let shared = SHARED_CPU.get_mut();
+        shared.vram_base = PhysicalAddress::new(info.vram_base);
+        shared.vram_size_min =
+            4 * (info.vram_stride as usize * info.screen_height as usize - 1).next_power_of_two();
+
+        InterruptDescriptorTable::init();
+
         shared.max_cpuid_level_0 = __cpuid_count(0, 0).eax;
         shared.max_cpuid_level_8 = __cpuid_count(0x8000_0000, 0).eax;
 
@@ -75,7 +81,19 @@ impl Cpu {
             }
         }
 
-        InterruptDescriptorTable::init();
+        if shared.max_cpuid_level_8 >= 0x8000_0008 {
+            let cpuid88 = __cpuid_count(0x8000_0008, 0);
+            shared.max_physical_address_bits = (cpuid88.eax & 0xFF) as usize;
+            shared.max_virtual_address_bits = ((cpuid88.eax >> 8) & 0xFF) as usize;
+        }
+
+        let apic_id = System::acpi()
+            .unwrap()
+            .local_apics()
+            .next()
+            .map(|v| v.apic_id())
+            .unwrap_or(0);
+        System::activate_cpu(Cpu::new(apic_id.into()));
     }
 
     pub(super) unsafe fn new(apic_id: ApicId) -> Box<Self> {
@@ -87,6 +105,44 @@ impl Cpu {
             Self::shared().has_smt.store(true, Ordering::SeqCst);
             ProcessorCoreType::Sub
         };
+
+        PageManager::init_per_cpu();
+
+        // Setting MTRR of VRAM to Write Combining improves drawing performance on some models. (expr)
+        let shared = &*SHARED_CPU.get();
+        for (index, mtrr) in Mtrr::items().enumerate() {
+            if !mtrr.is_enabled {
+                let mtrr = MtrrItem {
+                    base: shared.vram_base,
+                    mask: Cpu::physical_address_mask() & !(shared.vram_size_min as u64 - 1),
+                    mem_type: MtrrMemoryType::WC,
+                    is_enabled: true,
+                };
+                Mtrr::set(MtrrIndex(index as u8), mtrr);
+                break;
+            }
+        }
+
+        // log!(
+        //     "VRAM {:012x} {:012x} {:016x} {:016x}",
+        //     shared.vram_base,
+        //     shared.vram_base + shared.vram_size_min - 1,
+        //     Cpu::physical_address_mask(),
+        //     Cpu::virtual_address_mask()
+        // );
+        // for (index, mtrr) in Mtrr::items().filter(|v| v.is_enabled).enumerate() {
+        //     log!(
+        //         "MTRR {:02x}.{} {:012x}-{:012x} {:012x} {:?} {}",
+        //         apic_id.0,
+        //         index,
+        //         mtrr.base,
+        //         mtrr.base + Cpu::physical_address_mask() & !mtrr.mask,
+        //         mtrr.mask,
+        //         mtrr.mem_type,
+        //         mtrr.is_enabled
+        //     );
+        // }
+        // todo!();
 
         // if Feature::F81C(F81C::WDT).has_feature() {
         //     MSR::CPU_WATCHDOG_TIMER.write(0);
@@ -108,6 +164,18 @@ impl Cpu {
     #[inline]
     fn shared<'a>() -> &'a SharedCpu {
         unsafe { &*SHARED_CPU.get() }
+    }
+
+    #[inline]
+    pub fn physical_address_mask() -> u64 {
+        let shared = Self::shared();
+        (1 << shared.max_physical_address_bits) - 1
+    }
+
+    #[inline]
+    pub fn virtual_address_mask() -> usize {
+        let shared = Self::shared();
+        (1 << shared.max_virtual_address_bits) - 1
     }
 
     #[inline]
@@ -1569,31 +1637,48 @@ pub enum F81C {
     PCX_L2I = 28,
 }
 
-#[repr(u32)]
-#[non_exhaustive]
-#[allow(non_camel_case_types)]
+#[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum MSR {
-    IA32_TSC = 0x0000_0010,
-    IA32_PLATFORM_ID = 0x0000_0017,
-    IA32_APIC_BASE = 0x0000_001B,
-    IA32_FEATURE_CONTROL = 0x0000_003A,
-    IA32_TSC_ADJUST = 0x0000_0003B,
-    IA32_MISC_ENABLE = 0x0000_01A0,
-    IA32_TSC_DEADLINE = 0x0000_06E0,
-    IA32_SYSENTER_CS = 0x0000_0174,
-    IA32_SYSENTER_ESP = 0x0000_0175,
-    IA32_SYSENTER_EIP = 0x0000_0176,
-    IA32_EFER = 0xC000_0080,
-    IA32_STAR = 0xC000_0081,
-    IA32_LSTAR = 0xC000_0082,
-    IA32_CSTAR = 0xC000_0083,
-    IA32_FMASK = 0xC000_0084,
-    IA32_FS_BASE = 0xC000_0100,
-    IA32_GS_BASE = 0xC000_0101,
-    IA32_KERNEL_GS_BASE = 0xC000_0102,
-    IA32_TSC_AUX = 0xC000_0103,
-    CPU_WATCHDOG_TIMER = 0xC001_0074,
+pub struct MSR(u32);
+
+impl MSR {
+    pub const IA32_TSC: Self = Self(0x0000_0010);
+    pub const IA32_PLATFORM_ID: Self = Self(0x0000_0017);
+    pub const IA32_APIC_BASE: Self = Self(0x0000_001B);
+    pub const IA32_FEATURE_CONTROL: Self = Self(0x0000_003A);
+    pub const IA32_TSC_ADJUST: Self = Self(0x0000_0003B);
+    pub const IA32_MTRRCAP: Self = Self(0x0000_00FE);
+    pub const IA32_MISC_ENABLE: Self = Self(0x0000_01A0);
+    pub const IA32_TSC_DEADLINE: Self = Self(0x0000_06E0);
+    pub const IA32_SYSENTER_CS: Self = Self(0x0000_0174);
+    pub const IA32_SYSENTER_ESP: Self = Self(0x0000_0175);
+    pub const IA32_SYSENTER_EIP: Self = Self(0x0000_0176);
+    pub const IA32_PAT: Self = Self(0x0000_0277);
+    pub const IA32_EFER: Self = Self(0xC000_0080);
+    pub const IA32_STAR: Self = Self(0xC000_0081);
+    pub const IA32_LSTAR: Self = Self(0xC000_0082);
+    pub const IA32_CSTAR: Self = Self(0xC000_0083);
+    pub const IA32_FMASK: Self = Self(0xC000_0084);
+    pub const IA32_FS_BASE: Self = Self(0xC000_0100);
+    pub const IA32_GS_BASE: Self = Self(0xC000_0101);
+    pub const IA32_KERNEL_GS_BASE: Self = Self(0xC000_0102);
+    pub const IA32_TSC_AUX: Self = Self(0xC000_0103);
+    pub const CPU_WATCHDOG_TIMER: Self = Self(0xC001_0074);
+
+    #[allow(non_upper_case_globals)]
+    pub const IA32_MTRRdefType: Self = Self(0x0000_02FF);
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn IA32_MTRRphysBase(n: MtrrIndex) -> Self {
+        Self(0x0000_0200 + n.0 as u32 * 2)
+    }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn IA32_MTRRphysMask(n: MtrrIndex) -> Self {
+        Self(0x0000_0201 + n.0 as u32 * 2)
+    }
 }
 
 #[repr(C)]
@@ -1618,7 +1703,7 @@ impl MSR {
             "wrmsr",
             in("eax") value.pair.eax,
             in("edx") value.pair.edx,
-            in("ecx") self as u32,
+            in("ecx") self.0,
         );
     }
 
@@ -1630,13 +1715,124 @@ impl MSR {
             "rdmsr",
             lateout("eax") eax,
             lateout("edx") edx,
-            in("ecx") self as u32,
+            in("ecx") self.0,
         );
         MsrResult {
             pair: EaxAndEdx { eax, edx },
         }
         .qword
     }
+
+    #[inline]
+    pub unsafe fn set_pat(values: &[PAT; 8]) {
+        let data = values
+            .into_iter()
+            .fold(0, |acc, v| (acc << 8) + (*v as u64))
+            .swap_bytes();
+        MSR::IA32_PAT.write(data);
+    }
+}
+
+pub struct Mtrr;
+
+impl Mtrr {
+    #[inline]
+    pub fn indexes() -> impl Iterator<Item = MtrrIndex> {
+        (0..unsafe { MSR::IA32_MTRRCAP.read() } as u8)
+            .into_iter()
+            .map(|v| MtrrIndex(v))
+    }
+
+    #[inline]
+    pub unsafe fn get(index: MtrrIndex) -> MtrrItem {
+        let base = MSR::IA32_MTRRphysBase(index).read();
+        let mask = MSR::IA32_MTRRphysMask(index).read();
+        MtrrItem::from_raw(base, mask)
+    }
+
+    #[inline]
+    pub unsafe fn set(index: MtrrIndex, item: MtrrItem) {
+        let (base, mask) = item.into_pair();
+        MSR::IA32_MTRRphysBase(index).write(base);
+        MSR::IA32_MTRRphysMask(index).write(mask);
+    }
+
+    #[inline]
+    pub unsafe fn items() -> impl Iterator<Item = MtrrItem> {
+        Self::indexes().map(|n| Self::get(n))
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct MtrrIndex(pub u8);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MtrrMemoryType {
+    /// UC Uncacheable
+    UC = 0,
+    /// WC WriteCombining
+    WC = 1,
+    /// WT WriteThrough
+    WT = 4,
+    /// WP WriteProtect
+    WP = 5,
+    /// WB WriteBack
+    WB = 6,
+}
+
+impl MtrrMemoryType {
+    #[inline]
+    pub const fn from_raw(value: u8) -> Self {
+        unsafe { transmute(value) }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MtrrItem {
+    pub base: PhysicalAddress,
+    pub mask: u64,
+    pub mem_type: MtrrMemoryType,
+    pub is_enabled: bool,
+}
+
+impl MtrrItem {
+    const ADDR_MASK: u64 = !0xFFF;
+
+    #[inline]
+    pub fn from_raw(base: u64, mask: u64) -> Self {
+        let mem_type = MtrrMemoryType::from_raw(base as u8);
+        let is_enabled = (mask & 0x800) != 0;
+        Self {
+            base: PhysicalAddress::new(base & Self::ADDR_MASK),
+            mask: mask & Self::ADDR_MASK,
+            mem_type,
+            is_enabled,
+        }
+    }
+
+    #[inline]
+    pub fn into_pair(self) -> (u64, u64) {
+        let base = (self.base.as_u64() & Self::ADDR_MASK) | self.mem_type as u64;
+        let mask = (self.mask & Self::ADDR_MASK) | if self.is_enabled { 0x800 } else { 0 };
+        (base, mask)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PAT {
+    /// UC Uncacheable
+    UC = 0,
+    /// WC WriteCombining
+    WC = 1,
+    /// WT WriteThrough
+    WT = 4,
+    /// WP WriteProtect
+    WP = 5,
+    /// WB WriteBack
+    WB = 6,
+    /// UC- Uncached
+    UC_ = 7,
 }
 
 #[allow(dead_code)]

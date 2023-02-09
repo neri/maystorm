@@ -3,6 +3,7 @@
 use crate::{drivers::pci::PciConfigAddress, system::ProcessorIndex};
 use core::{
     fmt,
+    iter::Step,
     num::NonZeroU64,
     ops::{Add, BitAnd, BitOr, Mul, Not, Sub},
     sync::atomic::{AtomicUsize, Ordering},
@@ -314,6 +315,23 @@ impl const From<PhysicalAddress> for u64 {
 impl fmt::LowerHex for PhysicalAddress {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> core::fmt::Result {
         fmt::LowerHex::fmt(&self.0, f)
+    }
+}
+
+impl Step for PhysicalAddress {
+    #[inline]
+    fn steps_between(start: &Self, end: &Self) -> Option<usize> {
+        u64::steps_between(&start.0, &end.0)
+    }
+
+    #[inline]
+    fn forward_checked(start: Self, count: usize) -> Option<Self> {
+        u64::forward_checked(start.0, count).map(|v| PhysicalAddress(v))
+    }
+
+    #[inline]
+    fn backward_checked(start: Self, count: usize) -> Option<Self> {
+        u64::backward_checked(start.0, count).map(|v| PhysicalAddress(v))
     }
 }
 
