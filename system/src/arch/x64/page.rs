@@ -1,3 +1,4 @@
+use super::cpu::{MSR, PAT};
 use crate::{mem::*, *};
 use core::{
     alloc::Layout,
@@ -39,13 +40,13 @@ impl PageManager {
         p.add(Self::PAGE_RECURSIVE)
             .write_volatile(PageTableEntry::new(
                 PhysicalAddress::new(base),
-                PageAttributes::NO_EXECUTE | PageAttributes::WRITE | PageAttributes::PRESENT,
+                PageAttribute::NO_EXECUTE | PageAttribute::WRITE | PageAttribute::PRESENT,
             ));
 
         // FFFF_????_????_???? (TEMP) DIRECT MAPPING AREA
         {
             let mut pte = p.read_volatile();
-            pte += PageAttributes::NO_EXECUTE | PageAttributes::WRITE | PageAttributes::PRESENT;
+            pte += PageAttribute::NO_EXECUTE | PageAttribute::WRITE | PageAttribute::PRESENT;
             p.add(Self::PAGE_DIRECT_MAP).write_volatile(pte);
         }
 
@@ -66,6 +67,11 @@ impl PageManager {
     }
 
     #[inline]
+    pub unsafe fn init_per_cpu() {
+        MSR::set_pat(&PageAttribute::PREFERRED_PAT_SETTINGS);
+    }
+
+    #[inline]
     #[track_caller]
     pub(crate) unsafe fn mmap(request: MemoryMapRequest) -> usize {
         match request {
@@ -78,9 +84,10 @@ impl PageManager {
                     len,
                     PageTableEntry::new(
                         pa,
-                        PageAttributes::NO_EXECUTE
-                            | PageAttributes::WRITE
-                            | PageAttributes::PRESENT,
+                        PageAttribute::NO_EXECUTE
+                            | PageAttribute::PAT_UC
+                            | PageAttribute::WRITE
+                            | PageAttribute::PRESENT,
                     ),
                 )
                 .unwrap();
@@ -95,10 +102,11 @@ impl PageManager {
                     len,
                     PageTableEntry::new(
                         pa,
-                        PageAttributes::NO_EXECUTE
-                            | PageAttributes::WRITE
-                            | PageAttributes::USER
-                            | PageAttributes::PRESENT,
+                        PageAttribute::NO_EXECUTE
+                            | PageAttribute::PAT_WC
+                            | PageAttribute::WRITE
+                            | PageAttribute::USER
+                            | PageAttribute::PRESENT,
                     ),
                 )
                 .unwrap();
@@ -115,7 +123,7 @@ impl PageManager {
                 let Some(len) = NonZeroUsize::new(len) else { return 0 };
                 let Some(pa) = MemoryManager::alloc_pages(len.get()).map(|v| v.get()) else { return 0 };
 
-                Self::_map(va, len, PageTableEntry::new(pa, PageAttributes::from(attr))).unwrap();
+                Self::_map(va, len, PageTableEntry::new(pa, PageAttribute::from(attr))).unwrap();
                 va
             }
             MemoryMapRequest::User(va, len, attr) => {
@@ -129,8 +137,8 @@ impl PageManager {
                 let Some(len) = NonZeroUsize::new(len) else { return 0 };
                 let Some(pa) = MemoryManager::alloc_pages(len.get()).map(|v| v.get()) else { return 0 };
 
-                let mut template = PageAttributes::from(attr);
-                template.insert(PageAttributes::USER);
+                let mut template = PageAttribute::from(attr);
+                template.insert(PageAttribute::USER);
                 template.set_avl(PageTableAvl::Reserved);
                 // template.remove(PageAttributes::PRESENT);
 
@@ -153,33 +161,25 @@ impl PageManager {
         let mask_2m = Self::PAGE_SIZE_2M_M1;
         let len = (len.get() + mask_4k as usize) & !(mask_4k) as usize;
 
-        if (va as PageTableRepr & mask_4k) != 0 {
-            panic!("mmap: Invalid address: {:016x}", va);
-        }
-
-        if template.contains(PageAttributes::LARGE)
-            && (va & mask_2m as usize) == 0
-            && (len & mask_2m as usize) == 0
-            && (mask_2m & template.frame_address()) == 0
-        {
+        if template.contains(PageAttribute::LARGE) {
             // 2M Pages
+            let _ = mask_2m;
             todo!();
         } else {
             // 4K Pages
             let count = len / Self::PAGE_SIZE_MIN;
             let mut template = template;
-            template.remove(PageAttributes::LARGE);
             let fva = va;
             let mut va = va;
             for _ in 0..count {
                 let mut parent_template = template;
-                parent_template.insert(PageAttributes::PRESENT | PageAttributes::WRITE);
+                parent_template.insert(PageAttribute::PRESENT | PageAttribute::WRITE);
                 for level in [PageLevel::Level4, PageLevel::Level3, PageLevel::Level2] {
                     Self::map_table_if_needed(va, level, parent_template);
                 }
 
                 let pdte = PageLevel::Level2.pte_of(va).read_volatile();
-                if pdte.contains(PageAttributes::LARGE) {
+                if pdte.contains(PageAttribute::LARGE) {
                     panic!(
                         "LARGE PDT {:016x} {:016x} {:016x} {}",
                         va, pdte.0, fva, count
@@ -201,7 +201,7 @@ impl PageManager {
         let pte = level.pte_of(va);
         if pte.read_volatile().is_present() {
             (&mut *pte)
-                .accept(template.attributes())
+                .accept(template.access_rights())
                 .map(|_| Self::invalidate_tlb(va));
         } else {
             let pa = MemoryManager::pg_alloc(Layout::from_size_align_unchecked(
@@ -224,19 +224,25 @@ impl PageManager {
         let mask_4k = Self::PAGE_SIZE_M1;
         let len = (len.get() + mask_4k as usize) & !(mask_4k) as usize;
 
+        for va in (va..va + len).step_by(Self::PAGE_SIZE_MIN) {
+            for level in [PageLevel::Level4, PageLevel::Level3, PageLevel::Level2] {
+                let entry = &*level.pte_of(va);
+                if !entry.is_present() {
+                    return Err(va);
+                }
+            }
+        }
+
         let count = len / Self::PAGE_SIZE_MIN;
-        let mut new_attr = PageAttributes::from(attr);
-        new_attr.remove(PageAttributes::LARGE);
+        let mut new_attr = PageAttribute::from(attr);
+        new_attr.remove(PageAttribute::LARGE);
         let mut parent_template = new_attr;
-        parent_template.insert(PageAttributes::WRITE);
+        parent_template.insert(PageAttribute::WRITE);
 
         let mut va = va;
         for _ in 0..count {
             for level in [PageLevel::Level4, PageLevel::Level3, PageLevel::Level2] {
                 let entry = &mut *level.pte_of(va);
-                if !entry.is_present() {
-                    return Err(va);
-                }
                 entry.accept(parent_template);
                 Self::invalidate_tlb(va);
             }
@@ -256,12 +262,6 @@ impl PageManager {
         fence(Ordering::SeqCst);
         asm!("invlpg [{}]", in(reg) p);
     }
-
-    // #[inline]
-    // pub(super) unsafe fn invalidate_cache(p: usize) {
-    //     fence(Ordering::SeqCst);
-    //     asm!("clflush [{}]", in(reg) p);
-    // }
 
     #[inline]
     unsafe fn read_pdbr() -> PageTableRepr {
@@ -287,7 +287,7 @@ impl PageManager {
 }
 
 my_bitflags! {
-    pub struct PageAttributes: PageTableRepr {
+    pub struct PageAttribute: PageTableRepr {
         const PRESENT       = 0x0000_0000_0000_0001;
         const WRITE         = 0x0000_0000_0000_0002;
         const USER          = 0x0000_0000_0000_0004;
@@ -304,6 +304,31 @@ my_bitflags! {
     }
 }
 
+impl PageAttribute {
+    pub const ACCESS_RIGHTS: Self = Self::WRITE | Self::USER | Self::NO_EXECUTE;
+
+    pub const PAT_000: Self = Self::empty();
+    pub const PAT_001: Self = Self::PWT;
+    pub const PAT_010: Self = Self::PCD;
+    pub const PAT_011: Self = Self::PAT_010 | Self::PAT_001;
+
+    pub const PAT_WB: Self = Self::PAT_000;
+    pub const PAT_WT: Self = Self::PAT_001;
+    pub const PAT_WC: Self = Self::PAT_010;
+    pub const PAT_UC: Self = Self::PAT_011;
+
+    pub const PREFERRED_PAT_SETTINGS: [PAT; 8] = [
+        PAT::WB,
+        PAT::WT,
+        PAT::WC,
+        PAT::UC,
+        PAT::WB,
+        PAT::WT,
+        PAT::UC_,
+        PAT::UC,
+    ];
+}
+
 #[repr(u64)]
 #[allow(dead_code)]
 #[non_exhaustive]
@@ -314,7 +339,7 @@ pub(super) enum PageTableAvl {
 }
 
 #[allow(dead_code)]
-impl PageAttributes {
+impl PageAttribute {
     pub const AVL_SHIFT: usize = 9;
 
     #[inline]
@@ -330,16 +355,16 @@ impl PageAttributes {
     }
 }
 
-impl From<MProtect> for PageAttributes {
+impl From<MProtect> for PageAttribute {
     #[inline]
     fn from(value: MProtect) -> Self {
         match value {
-            MProtect::None => PageAttributes::empty(),
-            MProtect::Read => PageAttributes::PRESENT | PageAttributes::NO_EXECUTE,
+            MProtect::None => PageAttribute::empty(),
+            MProtect::Read => PageAttribute::PRESENT | PageAttribute::NO_EXECUTE,
             MProtect::ReadWrite => {
-                PageAttributes::PRESENT | PageAttributes::WRITE | PageAttributes::NO_EXECUTE
+                PageAttribute::PRESENT | PageAttribute::WRITE | PageAttribute::NO_EXECUTE
             }
-            MProtect::ReadExec => PageAttributes::PRESENT,
+            MProtect::ReadExec => PageAttribute::PRESENT,
         }
     }
 }
@@ -359,7 +384,7 @@ impl PageTableEntry {
     }
 
     #[inline]
-    pub const fn new(base: PhysicalAddress, attr: PageAttributes) -> Self {
+    pub const fn new(base: PhysicalAddress, attr: PageAttribute) -> Self {
         Self((base.as_u64() & Self::ADDRESS_BIT) | attr.bits())
     }
 
@@ -375,26 +400,26 @@ impl PageTableEntry {
 
     #[inline]
     pub const fn is_present(&self) -> bool {
-        self.contains(PageAttributes::PRESENT)
+        self.contains(PageAttribute::PRESENT)
     }
 
     #[inline]
-    pub const fn contains(&self, flags: PageAttributes) -> bool {
+    pub const fn contains(&self, flags: PageAttribute) -> bool {
         (self.0 & flags.bits()) == flags.bits()
     }
 
     #[inline]
-    pub const fn insert(&mut self, flags: PageAttributes) {
+    pub const fn insert(&mut self, flags: PageAttribute) {
         self.0 |= flags.bits();
     }
 
     #[inline]
-    pub const fn remove(&mut self, flags: PageAttributes) {
+    pub const fn remove(&mut self, flags: PageAttribute) {
         self.0 &= !flags.bits();
     }
 
     #[inline]
-    pub const fn set(&mut self, flags: PageAttributes, value: bool) {
+    pub const fn set(&mut self, flags: PageAttribute, value: bool) {
         match value {
             true => self.insert(flags),
             false => self.remove(flags),
@@ -407,8 +432,13 @@ impl PageTableEntry {
     }
 
     #[inline]
-    pub const fn attributes(&self) -> PageAttributes {
-        PageAttributes::from_bits_retain(self.0 & Self::NORMAL_ATTRIBUTE_BITS)
+    pub const fn attributes(&self) -> PageAttribute {
+        PageAttribute::from_bits_retain(self.0 & Self::NORMAL_ATTRIBUTE_BITS)
+    }
+
+    #[inline]
+    pub const fn access_rights(&self) -> PageAttribute {
+        PageAttribute::from_bits_retain(self.0 & PageAttribute::ACCESS_RIGHTS.bits())
     }
 
     #[inline]
@@ -417,55 +447,54 @@ impl PageTableEntry {
     }
 
     #[inline]
-    pub const fn set_attributes(&mut self, flags: PageAttributes) {
+    pub const fn set_attributes(&mut self, flags: PageAttribute) {
         self.0 = (self.0 & Self::ADDRESS_BIT) | (flags.bits() & !Self::ADDRESS_BIT);
     }
 
     #[inline]
-    pub fn set_access_rights(&mut self, new_attr: PageAttributes) {
+    pub fn set_access_rights(&mut self, new_attr: PageAttribute) {
         for flag in [
-            PageAttributes::PRESENT,
-            PageAttributes::WRITE,
-            PageAttributes::NO_EXECUTE,
+            PageAttribute::PRESENT,
+            PageAttribute::WRITE,
+            PageAttribute::NO_EXECUTE,
         ] {
             self.set(flag, new_attr.contains(flag));
         }
     }
 
     #[inline]
-    pub fn accept(&mut self, new_attr: PageAttributes) -> Option<()> {
+    pub fn accept(&mut self, new_attr: PageAttribute) -> Option<()> {
         let mut result = false;
-        if self.contains(PageAttributes::NO_EXECUTE)
-            && !new_attr.contains(PageAttributes::NO_EXECUTE)
+        if self.contains(PageAttribute::NO_EXECUTE) && !new_attr.contains(PageAttribute::NO_EXECUTE)
         {
-            self.remove(PageAttributes::NO_EXECUTE);
+            self.remove(PageAttribute::NO_EXECUTE);
             result = true;
         }
-        if !self.contains(PageAttributes::WRITE) && new_attr.contains(PageAttributes::WRITE) {
-            self.insert(PageAttributes::WRITE);
+        if !self.contains(PageAttribute::WRITE) && new_attr.contains(PageAttribute::WRITE) {
+            self.insert(PageAttribute::WRITE);
             result = true;
         }
         result.then(|| ())
     }
 }
 
-impl const AddAssign<PageAttributes> for PageTableEntry {
+impl const AddAssign<PageAttribute> for PageTableEntry {
     #[inline]
-    fn add_assign(&mut self, rhs: PageAttributes) {
+    fn add_assign(&mut self, rhs: PageAttribute) {
         self.insert(rhs);
     }
 }
 
-impl const SubAssign<PageAttributes> for PageTableEntry {
+impl const SubAssign<PageAttribute> for PageTableEntry {
     #[inline]
-    fn sub_assign(&mut self, rhs: PageAttributes) {
+    fn sub_assign(&mut self, rhs: PageAttribute) {
         self.remove(rhs);
     }
 }
 
-impl const BitOrAssign<PageAttributes> for PageTableEntry {
+impl const BitOrAssign<PageAttribute> for PageTableEntry {
     #[inline]
-    fn bitor_assign(&mut self, rhs: PageAttributes) {
+    fn bitor_assign(&mut self, rhs: PageAttribute) {
         self.insert(rhs);
     }
 }
@@ -609,5 +638,29 @@ impl PageErrorCode {
     #[inline]
     pub fn could_not_execute(&self) -> bool {
         self.contains(Self::FETCH)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PageErrorKind {
+    NotPresent,
+    CannotExecute,
+    CannotWrite,
+    CannotRead,
+}
+
+impl PageErrorKind {
+    pub fn from_err(code: PageErrorCode) -> Self {
+        if code.is_page_present() {
+            if code.could_not_execute() {
+                Self::CannotExecute
+            } else if code.could_not_write() {
+                Self::CannotWrite
+            } else {
+                Self::CannotRead
+            }
+        } else {
+            Self::NotPresent
+        }
     }
 }

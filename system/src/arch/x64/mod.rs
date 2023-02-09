@@ -15,16 +15,17 @@ pub mod hal_x64;
 pub use hal_x64 as hal;
 
 use crate::{assert_call_once, system::*};
+use bootprot::BootInfo;
 use core::arch::asm;
 use megstd::time::SystemTime;
 
 pub struct Arch;
 
 impl Arch {
-    pub unsafe fn init() {
+    pub unsafe fn init(info: &BootInfo) {
         assert_call_once!();
 
-        cpu::Cpu::init();
+        cpu::Cpu::init(info);
 
         let acpi = System::acpi().unwrap();
 
