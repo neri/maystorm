@@ -108,27 +108,79 @@ impl Cpu {
 
         PageManager::init_per_cpu();
 
-        // Setting MTRR of VRAM to Write Combining improves drawing performance on some models. (expr)
         let shared = &*SHARED_CPU.get();
-        for (index, mtrr) in Mtrr::items().enumerate() {
-            if !mtrr.is_enabled {
-                let mtrr = MtrrItem {
-                    base: shared.vram_base,
-                    mask: Cpu::physical_address_mask() & !(shared.vram_size_min as u64 - 1),
-                    mem_type: MtrrMemoryType::WC,
-                    is_enabled: true,
-                };
-                Mtrr::set(MtrrIndex(index as u8), mtrr);
-                break;
+        if Mtrr::items()
+            .find(|v| {
+                v.is_enabled && v.matches(shared.vram_base) && v.mem_type == MtrrMemoryType::WC
+            })
+            .is_none()
+        {
+            // Setting MTRR of VRAM to Write Combining improves drawing performance on some models. (expr)
+            if Mtrr::items()
+                .find(|v| v.is_enabled && v.matches(shared.vram_base))
+                .is_none()
+            {
+                // simply add
+                for (index, mtrr) in Mtrr::items().enumerate() {
+                    if !mtrr.is_enabled {
+                        let mtrr = MtrrItem {
+                            base: shared.vram_base,
+                            mask: !(shared.vram_size_min as u64 - 1),
+                            mem_type: MtrrMemoryType::WC,
+                            is_enabled: true,
+                        };
+                        Mtrr::set(MtrrIndex(index as u8), mtrr);
+                        break;
+                    }
+                }
+            } else if shared.vram_base == PhysicalAddress::new(0xC000_0000)
+                && Mtrr::items()
+                    .find(|v| {
+                        v.is_enabled
+                            && v.matches(shared.vram_base)
+                            && v.matches(PhysicalAddress::new(0xFFFF_FFFF))
+                            && v.mem_type == MtrrMemoryType::UC
+                    })
+                    .is_some()
+                && Mtrr::items().find(|v| !v.is_enabled).is_some()
+            {
+                // Some Intel machines have the range C000_0000 to FFFF_FFFF set to UC
+                for (index, mtrr) in Mtrr::items().enumerate() {
+                    if mtrr.is_enabled && mtrr.matches(shared.vram_base) {
+                        let mtrr = MtrrItem {
+                            base: PhysicalAddress::new(0xE000_0000),
+                            mask: !0x1FFF_FFFF,
+                            mem_type: MtrrMemoryType::UC,
+                            is_enabled: true,
+                        };
+                        Mtrr::set(MtrrIndex(index as u8), mtrr);
+                    }
+                }
+                for (index, mtrr) in Mtrr::items().enumerate() {
+                    if !mtrr.is_enabled {
+                        let mtrr = MtrrItem {
+                            base: shared.vram_base,
+                            mask: !0x1FFF_FFFF,
+                            mem_type: MtrrMemoryType::WC,
+                            is_enabled: true,
+                        };
+                        Mtrr::set(MtrrIndex(index as u8), mtrr);
+                        break;
+                    }
+                }
+            } else {
+                // Unknown, giving up
             }
         }
 
         // log!(
-        //     "VRAM {:012x} {:012x} {:016x} {:016x}",
+        //     "MTRR {:04x} {:04x} VRAM {:012x} {:012x} BITS {} {}",
+        //     MSR::IA32_MTRRCAP.read(),
+        //     MSR::IA32_MTRR_DEF_TYPE.read(),
         //     shared.vram_base,
-        //     shared.vram_base + shared.vram_size_min - 1,
-        //     Cpu::physical_address_mask(),
-        //     Cpu::virtual_address_mask()
+        //     shared.vram_size_min - 1,
+        //     shared.max_physical_address_bits,
+        //     shared.max_virtual_address_bits,
         // );
         // for (index, mtrr) in Mtrr::items().filter(|v| v.is_enabled).enumerate() {
         //     log!(
@@ -136,7 +188,7 @@ impl Cpu {
         //         apic_id.0,
         //         index,
         //         mtrr.base,
-        //         mtrr.base + Cpu::physical_address_mask() & !mtrr.mask,
+        //         mtrr.base + (Cpu::physical_address_mask() & !mtrr.mask),
         //         mtrr.mask,
         //         mtrr.mem_type,
         //         mtrr.is_enabled
@@ -1654,6 +1706,7 @@ impl MSR {
     pub const IA32_SYSENTER_ESP: Self = Self(0x0000_0175);
     pub const IA32_SYSENTER_EIP: Self = Self(0x0000_0176);
     pub const IA32_PAT: Self = Self(0x0000_0277);
+    pub const IA32_MTRR_DEF_TYPE: Self = Self(0x0000_02FF);
     pub const IA32_EFER: Self = Self(0xC000_0080);
     pub const IA32_STAR: Self = Self(0xC000_0081);
     pub const IA32_LSTAR: Self = Self(0xC000_0082);
@@ -1664,9 +1717,6 @@ impl MSR {
     pub const IA32_KERNEL_GS_BASE: Self = Self(0xC000_0102);
     pub const IA32_TSC_AUX: Self = Self(0xC000_0103);
     pub const CPU_WATCHDOG_TIMER: Self = Self(0xC001_0074);
-
-    #[allow(non_upper_case_globals)]
-    pub const IA32_MTRRdefType: Self = Self(0x0000_02FF);
 
     #[inline]
     #[allow(non_snake_case)]
@@ -1814,8 +1864,14 @@ impl MtrrItem {
     #[inline]
     pub fn into_pair(self) -> (u64, u64) {
         let base = (self.base.as_u64() & Self::ADDR_MASK) | self.mem_type as u64;
-        let mask = (self.mask & Self::ADDR_MASK) | if self.is_enabled { 0x800 } else { 0 };
+        let mask = (self.mask & Self::ADDR_MASK & Cpu::physical_address_mask())
+            | if self.is_enabled { 0x800 } else { 0 };
         (base, mask)
+    }
+
+    #[inline]
+    pub fn matches(&self, other: PhysicalAddress) -> bool {
+        (self.base & self.mask) == (other & self.mask)
     }
 }
 
