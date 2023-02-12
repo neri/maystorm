@@ -94,7 +94,7 @@ impl MemoryManager {
         shared.fifo.write(EventQueue::new(100));
     }
 
-    pub unsafe fn late_init() {
+    pub unsafe fn init_second() {
         PageManager::init_late();
         SpawnOption::with_priority(Priority::Realtime).start(Self::_page_thread, 0, "Page Manager");
     }
@@ -458,8 +458,8 @@ pub enum DeallocationError {
 pub enum MemoryMapRequest {
     /// for MMIO (physical_address, length)
     Mmio(PhysicalAddress, usize),
-    /// for VRAM (physical_address, length)
-    Vram(PhysicalAddress, usize),
+    /// for Framebuffer (physical_address, length)
+    Framebuffer(PhysicalAddress, usize),
     /// for Kernel Mode Heap (base, length, attr)
     Kernel(usize, usize, MProtect),
     /// To reserve heap for User Mode (base, length, attr)

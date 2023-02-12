@@ -97,7 +97,7 @@ impl Terminal {
         font: FontDescriptor,
         alpha: Alpha8,
         attribute: u8,
-        palette: Option<[TrueColor; 16]>,
+        palette: Option<&[TrueColor; 16]>,
     ) -> Self {
         let insets = insets.unwrap_or(DEFAULT_INSETS);
         let attribute = if attribute > 0 {
@@ -110,7 +110,7 @@ impl Terminal {
         } else {
             alpha
         };
-        let palette = palette.unwrap_or(Self::DEFAULT_PALETTE);
+        let palette = *palette.unwrap_or(&Self::DEFAULT_PALETTE);
         let (fg_color, bg_color) = Self::_split_attr(&palette, attribute, alpha);
 
         let rect = window.content_size().bounds().insets_by(insets);
@@ -163,6 +163,7 @@ impl Terminal {
                 window_size.height,
             ))
             .bg_color(bg_color)
+            .style_add(WindowStyle::DARK_MODE)
             .build("Terminal");
 
         Self {

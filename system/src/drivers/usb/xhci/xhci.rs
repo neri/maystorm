@@ -1270,6 +1270,7 @@ impl Xhci {
             self.focus_hub(None);
             for port_id in ports {
                 self._process_port_change(port_id, false).await;
+                self.port_by(port_id).clear_changes();
             }
             self.unfocus_hub(None);
         }
@@ -1342,8 +1343,6 @@ impl Xhci {
                     let _ = UsbManager::remove_device(UsbAddress::from(slot_id.0));
                 }
             }
-        } else {
-            port.clear_changes();
         }
     }
 

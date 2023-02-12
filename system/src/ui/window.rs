@@ -27,10 +27,11 @@ const MAX_WINDOWS: usize = 255;
 const WINDOW_SYSTEM_EVENT_QUEUE_SIZE: usize = 100;
 
 const WINDOW_BORDER_WIDTH: isize = 1;
+const WINDOW_CORNER_RADIUS: isize = 8;
 const WINDOW_THICK_BORDER_WIDTH_V: isize = WINDOW_CORNER_RADIUS / 2;
 const WINDOW_THICK_BORDER_WIDTH_H: isize = WINDOW_CORNER_RADIUS / 2;
-const WINDOW_CORNER_RADIUS: isize = 8;
 const WINDOW_TITLE_HEIGHT: isize = 26;
+const WINDOW_TITLE_BORDER: isize = 0;
 const WINDOW_SHADOW_PADDING: isize = 16;
 const SHADOW_RADIUS: isize = 8;
 const SHADOW_OFFSET: Movement = Movement::new(2, 2);
@@ -821,7 +822,7 @@ impl WindowManager<'_> {
             && event.modifier().has_alt()
         {
             // ctrl alt del
-            UserEnv::system_reset();
+            UserEnv::system_reset(false);
         } else if let Some(window) = shared.active.get() {
             let _ = Self::post_system_event(WindowSystemEvent::Key(window, event));
         }
@@ -883,6 +884,9 @@ impl WindowManager<'_> {
         shared
             .attributes
             .set(WindowManagerAttributes::POINTER_ENABLED, enabled);
+        if !enabled {
+            shared.pointer.hide();
+        }
         shared.signal(WindowManagerAttributes::EVENT_MOUSE_SHOW);
         result
     }
@@ -1072,7 +1076,7 @@ impl WindowStyle {
             if self.contains(Self::THIN_FRAME) {
                 if self.contains(Self::TITLE) {
                     EdgeInsets::new(
-                        WINDOW_BORDER_WIDTH * 2 + WINDOW_TITLE_HEIGHT,
+                        WINDOW_BORDER_WIDTH + WINDOW_TITLE_HEIGHT + WINDOW_TITLE_BORDER,
                         WINDOW_BORDER_WIDTH,
                         WINDOW_BORDER_WIDTH,
                         WINDOW_BORDER_WIDTH,
@@ -1083,7 +1087,7 @@ impl WindowStyle {
             } else {
                 if self.contains(Self::TITLE) {
                     EdgeInsets::new(
-                        WINDOW_THICK_BORDER_WIDTH_V + WINDOW_TITLE_HEIGHT + WINDOW_BORDER_WIDTH,
+                        WINDOW_THICK_BORDER_WIDTH_V + WINDOW_TITLE_HEIGHT + WINDOW_TITLE_BORDER,
                         WINDOW_THICK_BORDER_WIDTH_H,
                         WINDOW_THICK_BORDER_WIDTH_V,
                         WINDOW_THICK_BORDER_WIDTH_H,
@@ -1400,15 +1404,21 @@ impl RawWindow {
             let right = padding;
 
             let frame = self.visible_frame();
-            bitmap.draw_hline(
-                Point::new(0, WINDOW_BORDER_WIDTH + WINDOW_TITLE_HEIGHT),
-                frame.width(),
-                if is_dark {
-                    Theme::shared().window_default_border_dark()
-                } else {
-                    Theme::shared().window_default_border_light()
-                },
-            );
+            if WINDOW_TITLE_BORDER > 0 {
+                bitmap.fill_rect(
+                    Rect::new(
+                        0,
+                        WINDOW_BORDER_WIDTH + WINDOW_TITLE_HEIGHT,
+                        frame.width(),
+                        WINDOW_TITLE_BORDER,
+                    ),
+                    if is_dark {
+                        Theme::shared().window_default_border_dark()
+                    } else {
+                        Theme::shared().window_default_border_light()
+                    },
+                );
+            }
             bitmap.fill_rect(self.title_frame(), self.title_background());
             self.draw_close_button();
             self.draw_back_button();
@@ -2580,4 +2590,54 @@ pub enum WindowMessage {
 pub enum WindowSystemEvent {
     /// Raw Keyboard event
     Key(WindowHandle, KeyEvent),
+}
+
+pub struct AnimatedProp {
+    start: f64,
+    end: f64,
+    start_time: Duration,
+    duration: Duration,
+}
+
+impl AnimatedProp {
+    #[inline]
+    pub fn new(start: f64, end: f64, duration: Duration) -> Self {
+        let start_time = Timer::monotonic();
+
+        Self {
+            start,
+            end,
+            start_time,
+            duration,
+        }
+    }
+
+    #[inline]
+    pub const fn empty() -> Self {
+        Self {
+            start: 0.0,
+            end: 0.0,
+            start_time: Duration::from_millis(0),
+            duration: Duration::from_millis(0),
+        }
+    }
+
+    #[inline]
+    pub fn is_alive(&self) -> bool {
+        Timer::monotonic() < self.start_time + self.duration
+    }
+
+    pub fn progress(&self) -> f64 {
+        let now = Timer::monotonic();
+        let delta = now - self.start_time;
+        let end_time = self.start_time + self.duration;
+
+        if now < end_time {
+            self.start
+                + (self.end - self.start)
+                    * (delta.as_micros() as f64 / self.duration.as_micros() as f64)
+        } else {
+            self.end
+        }
+    }
 }

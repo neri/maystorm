@@ -238,10 +238,7 @@ impl Apic {
             LocalApic::send_startup_ipi(apic_id, sipi_vec);
             let deadline = Timer::new(Duration::from_millis(100));
             let mut wait = Hal::cpu().spin_wait();
-            while deadline.is_alive() {
-                if AP_BOOT_OK.load(Ordering::SeqCst) {
-                    break;
-                }
+            while deadline.is_alive() && !AP_BOOT_OK.load(Ordering::SeqCst) {
                 wait.wait();
             }
             if !AP_BOOT_OK.load(Ordering::SeqCst) {
@@ -435,7 +432,7 @@ unsafe extern "x86-interrupt" fn ipi_schedule_handler() {
 
 unsafe extern "x86-interrupt" fn ipi_tlb_flush_handler() {
     let shared = Apic::shared();
-    PageManager::invalidate_all_pages();
+    PageManager::invalidate_all_tlb();
     Hal::sync().test_and_clear(
         &shared.tlb_flush_bitmap,
         Hal::cpu().current_processor_index().0,

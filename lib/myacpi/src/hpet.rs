@@ -4,7 +4,7 @@ use super::*;
 #[repr(C, packed)]
 #[allow(unused)]
 pub struct Hpet {
-    _hdr: AcpiHeader,
+    hdr: AcpiHeader,
     block_id: u32,
     base_address: Gas,
     hpet_number: u8,

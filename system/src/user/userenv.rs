@@ -37,7 +37,7 @@ impl UserEnv {
             .start_process(Self::_main, f as usize, "init")
             .unwrap();
 
-        Self::shutdown_command().wait_event();
+        let command = Self::shutdown_command().wait_event();
 
         WindowManager::set_pointer_enabled(false);
         WindowManager::set_barrier_opacity(Alpha8::TRANSPARENT);
@@ -83,19 +83,11 @@ impl UserEnv {
                 .color(Color::WHITE)
                 .middle_center()
                 .shadow(Color::from_argb(0xFF333333), Movement::new(2, 2))
-                .text("Shutting down...")
+                .text("Shutting down")
                 .draw_text(bitmap, bitmap.bounds(), 0);
         });
 
-        window.show();
-
-        let from = 0.0;
-        let to = 0.5;
-        let duration = Duration::from_millis(500);
-
-        let base = Timer::monotonic();
-        let limit = base + duration;
-        let diff = to - from;
+        let animation = AnimatedProp::new(0.0, 0.5, Duration::from_millis(500));
 
         window.create_timer(0, Duration::from_millis(1));
         window.show();
@@ -104,32 +96,33 @@ impl UserEnv {
             match message {
                 WindowMessage::Timer(timer_id) => match timer_id {
                     0 => {
-                        let now = Timer::monotonic();
-                        let progress = if limit > now {
-                            from + diff * (now.as_micros() as f64 - base.as_micros() as f64)
-                                / duration.as_micros() as f64
-                        } else {
-                            to
-                        };
+                        WindowManager::set_barrier_opacity(animation.progress().into());
 
-                        WindowManager::set_barrier_opacity(progress.into());
-
-                        if now < limit {
+                        if animation.is_alive() {
                             window.create_timer(0, Duration::from_millis(50));
                         } else {
-                            Timer::sleep(Duration::from_millis(200));
-
-                            // System reset
-                            unsafe {
-                                Hal::cpu().disable_interrupt();
-                                Scheduler::freeze(true);
-                                Hal::cpu().reset();
-                            }
+                            break;
                         }
                     }
                     _ => unreachable!(),
                 },
                 _ => window.handle_default_message(message),
+            }
+        }
+
+        Timer::sleep(Duration::from_millis(200));
+
+        let reboot = || unsafe {
+            Hal::cpu().disable_interrupt();
+            Scheduler::freeze(true);
+            Hal::cpu().reset();
+        };
+
+        match command {
+            ShutdownCommand::Reboot => reboot(),
+            ShutdownCommand::Shutdown => {
+                // TODO:
+                reboot()
             }
         }
 
@@ -142,10 +135,16 @@ impl UserEnv {
         Scheduler::perform_tasks();
     }
 
-    pub fn system_reset() {
-        Self::shutdown_command()
-            .post(ShutdownCommand::Reboot)
-            .unwrap();
+    pub fn system_reset(shutdown: bool) {
+        if shutdown {
+            Self::shutdown_command()
+                .post(ShutdownCommand::Shutdown)
+                .unwrap();
+        } else {
+            Self::shutdown_command()
+                .post(ShutdownCommand::Reboot)
+                .unwrap();
+        }
     }
 
     fn shutdown_command<'a>() -> &'a EventQueue<ShutdownCommand> {
@@ -156,7 +155,7 @@ impl UserEnv {
 #[derive(Debug)]
 enum ShutdownCommand {
     Reboot,
-    // Shutdown,
+    Shutdown,
 }
 
 #[allow(dead_code)]
@@ -190,12 +189,11 @@ async fn slpash_task(f: fn()) {
 
     Timer::sleep_async(Duration::from_millis(1000)).await;
 
-    Scheduler::spawn_async(status_bar_main());
-    Scheduler::spawn_async(_notification_task());
-
     if is_gui_boot {
+        Scheduler::spawn_async(status_bar_main());
         Scheduler::spawn_async(activity_monitor_main());
     }
+    Scheduler::spawn_async(_notification_task());
 
     if is_gui_boot {
         if let Ok(mut file) = FileManager::open("wall.png") {
@@ -211,10 +209,8 @@ async fn slpash_task(f: fn()) {
 
     Timer::sleep_async(Duration::from_millis(500)).await;
 
-    let total = Duration::from_millis(500);
-    let base = Timer::monotonic();
-    let limit = base + total;
-    let total = total.as_millis() as usize;
+    let animation = AnimatedProp::new(1.0, 0.0, Duration::from_millis(500));
+
     window.create_timer(0, Duration::from_millis(1));
     window.show();
 
@@ -222,18 +218,9 @@ async fn slpash_task(f: fn()) {
         match message {
             WindowMessage::Timer(timer_id) => match timer_id {
                 0 => {
-                    let now = Timer::monotonic();
-                    let progress = if limit > now {
-                        (now - base).as_millis() as usize
-                    } else {
-                        total
-                    };
+                    WindowManager::set_barrier_opacity(animation.progress().into());
 
-                    WindowManager::set_barrier_opacity(
-                        (1.0 - progress as f64 / total as f64).into(),
-                    );
-
-                    if now < limit {
+                    if animation.is_alive() {
                         window.create_timer(0, Duration::from_millis(50));
                     } else {
                         window.close();
@@ -266,23 +253,24 @@ async fn shell_launcher(is_gui_boot: bool, f: fn()) {
         let terminal = Terminal::new(80, 24, font, None);
         System::set_stdout(Box::new(terminal));
     } else {
-        let size = WindowManager::main_screen_bounds();
-        let max_point = isize::min(size.width() / 40, size.height() / 25);
-        let min_point = max_point / 2;
-        let point = {
-            let mut point = max_point;
-            while point > min_point {
-                let Some(font) = FontDescriptor::new(FontFamily::Monospace, point) else {
-                    break
-                };
-                if font.em_width() * 80 <= size.width() && font.line_height() * 25 <= size.height()
-                {
-                    break;
-                }
-                point -= 1;
-            }
-            point
-        };
+        // let size = WindowManager::main_screen_bounds();
+        // let max_point = isize::min(size.width() / 40, size.height() / 25);
+        // let min_point = isize::min(max_point / 2, 16);
+        // let point = {
+        //     let mut point = min_point;
+        //     while point < max_point {
+        //         let Some(font) = FontDescriptor::new(FontFamily::Monospace, point) else {
+        //             break
+        //         };
+        //         if font.em_width() * 80 > size.width() && font.line_height() * 25 > size.height()
+        //         {
+        //             break;
+        //         }
+        //         point += 1;
+        //     }
+        //     point
+        // };
+        let point = 16;
         let font = FontDescriptor::new(FontFamily::Monospace, point)
             .unwrap_or(FontManager::monospace_font());
 
@@ -290,30 +278,35 @@ async fn shell_launcher(is_gui_boot: bool, f: fn()) {
             .style(WindowStyle::NO_SHADOW)
             .fullscreen()
             .level(WindowLevel::DESKTOP_ITEMS)
-            .bg_color(TrueColor::from_gray(0, Alpha8::TRANSPARENT).into())
+            .bg_color(Color::TRANSPARENT)
             .build("Terminal");
 
-        let palette: [TrueColor; 16] = [
-            IndexedColor::BLACK.into(),
-            IndexedColor::BLUE.into(),
-            IndexedColor::GREEN.into(),
-            IndexedColor::CYAN.into(),
-            IndexedColor::RED.into(),
-            IndexedColor::MAGENTA.into(),
-            IndexedColor::BROWN.into(),
-            IndexedColor::LIGHT_GRAY.into(),
-            IndexedColor::DARK_GRAY.into(),
-            IndexedColor::LIGHT_BLUE.into(),
-            IndexedColor::LIGHT_GREEN.into(),
-            IndexedColor::LIGHT_CYAN.into(),
-            IndexedColor::LIGHT_RED.into(),
-            IndexedColor::LIGHT_MAGENTA.into(),
-            IndexedColor::YELLOW.into(),
-            IndexedColor::WHITE.into(),
-        ];
-
-        let mut terminal =
-            Terminal::from_window(window, None, font, Alpha8::OPAQUE, 0x07, Some(palette));
+        // WindowManager::set_desktop_color(Color::BLACK);
+        let mut terminal = Terminal::from_window(
+            window,
+            Some(EdgeInsets::padding_each(4)),
+            font,
+            Alpha8::OPAQUE,
+            0x07,
+            Some(&[
+                IndexedColor::BLACK.into(),
+                IndexedColor::BLUE.into(),
+                IndexedColor::GREEN.into(),
+                IndexedColor::CYAN.into(),
+                IndexedColor::RED.into(),
+                IndexedColor::MAGENTA.into(),
+                IndexedColor::BROWN.into(),
+                IndexedColor::LIGHT_GRAY.into(),
+                IndexedColor::DARK_GRAY.into(),
+                IndexedColor::LIGHT_BLUE.into(),
+                IndexedColor::LIGHT_GREEN.into(),
+                IndexedColor::LIGHT_CYAN.into(),
+                IndexedColor::LIGHT_RED.into(),
+                IndexedColor::LIGHT_MAGENTA.into(),
+                IndexedColor::YELLOW.into(),
+                IndexedColor::WHITE.into(),
+            ]),
+        );
         terminal.reset().unwrap();
         System::set_stdout(Box::new(terminal));
         // println!("Screen {} x {} Font {}", size.width(), size.height(), point);
@@ -647,6 +640,8 @@ async fn activity_monitor_main() {
     }
 }
 
+const NOTIFICATION_MESSAGE_ID: usize = 0;
+
 /// Simple Notification Task
 async fn _notification_task() {
     let window_width = 288;
@@ -654,31 +649,22 @@ async fn _notification_task() {
     let margin = EdgeInsets::padding_each(8);
     let padding = EdgeInsets::padding_each(8);
     let item_spacing = 8;
-    let radius = 8;
+    let radius = 12;
 
     let (bg_color, fg_color, border_color) = if false {
         (Color::from_argb(0xC0000000), Color::WHITE, Color::DARK_GRAY)
     } else {
         (
-            Theme::shared().window_title_active_background(),
-            Theme::shared().window_title_active_foreground(),
+            Color::from_argb(0xF0cfd8dc),
+            Color::BLACK,
             Theme::shared().window_default_border_light(),
         )
     };
 
-    let screen_bounds = WindowManager::user_screen_bounds();
     let window = RawWindowBuilder::new()
         .style(WindowStyle::FLOATING | WindowStyle::SUSPENDED)
         .level(WindowLevel::POPUP)
-        .frame(
-            Rect::new(
-                screen_bounds.max_x() - window_width,
-                screen_bounds.min_y(),
-                window_width,
-                window_height,
-            )
-            .insets_by(margin),
-        )
+        .size(Size::new(window_width, window_height))
         .bg_color(Color::TRANSPARENT)
         .build("Notification Center");
 
@@ -688,15 +674,57 @@ async fn _notification_task() {
     let dismiss_time = Duration::from_millis(5000);
     let mut last_timer = Timer::new(dismiss_time);
 
+    const DISMISS_TIMER_ID: usize = 0;
+    const OPEN_ANIMATION_TIMER_ID: usize = 1;
+    const CLOSE_ANIMATION_TIMER_ID: usize = 2;
+
+    let animation_duration = Duration::from_millis(150);
+    let mut open_animation = AnimatedProp::empty();
+    let mut close_animation = AnimatedProp::empty();
+
+    let apply_frame = |window: WindowHandle, position: f64| {
+        let main_screen_bounds = WindowManager::main_screen_bounds();
+        let user_screen_bounds = WindowManager::user_screen_bounds();
+        let rect = Rect::new(
+            main_screen_bounds.width() - position as isize,
+            user_screen_bounds.min_y(),
+            window_width,
+            window_height,
+        )
+        .insets_by(margin);
+        window.set_frame(rect);
+    };
+
     while let Some(message) = window.await_message().await {
         match message {
-            WindowMessage::Timer(_) => {
+            WindowMessage::Timer(DISMISS_TIMER_ID) => {
                 if last_timer.is_expired() {
+                    close_animation =
+                        AnimatedProp::new(window_width as f64, 0.0, animation_duration);
+                    window.create_timer(CLOSE_ANIMATION_TIMER_ID, Duration::from_millis(1));
+                }
+            }
+            WindowMessage::Timer(OPEN_ANIMATION_TIMER_ID) => {
+                apply_frame(window, open_animation.progress());
+                if open_animation.is_alive() {
+                    window.create_timer(OPEN_ANIMATION_TIMER_ID, Duration::from_millis(10));
+                }
+            }
+            WindowMessage::Timer(CLOSE_ANIMATION_TIMER_ID) => {
+                apply_frame(window, close_animation.progress());
+                if close_animation.is_alive() {
+                    window.create_timer(CLOSE_ANIMATION_TIMER_ID, Duration::from_millis(10));
+                } else {
                     window.hide();
                 }
             }
-            WindowMessage::User(_) => {
+            WindowMessage::User(NOTIFICATION_MESSAGE_ID) => {
                 if let Some(payload) = message_buffer.dequeue() {
+                    open_animation =
+                        AnimatedProp::new(0.0, window_width as f64, animation_duration);
+                    window.create_timer(OPEN_ANIMATION_TIMER_ID, Duration::from_millis(1));
+                    apply_frame(window, open_animation.progress());
+
                     window
                         .draw_in_rect(Rect::from(window.content_size()), |bitmap| {
                             bitmap.clear();
@@ -730,9 +758,10 @@ async fn _notification_task() {
                             ats.draw_text(bitmap, rect2, 0);
                         })
                         .unwrap();
+
                     window.show();
                     last_timer = Timer::new(dismiss_time);
-                    window.create_timer(0, dismiss_time);
+                    window.create_timer(DISMISS_TIMER_ID, dismiss_time);
                 }
             }
             _ => window.handle_default_message(message),
@@ -747,7 +776,9 @@ async fn _notification_observer(
     // Timer::sleep_async(Duration::from_millis(1000)).await;
     while let Some(payload) = EventManager::monitor_notification().await {
         buffer.enqueue(payload).unwrap();
-        window.post(WindowMessage::User(0)).unwrap();
+        window
+            .post(WindowMessage::User(NOTIFICATION_MESSAGE_ID))
+            .unwrap();
         Timer::sleep_async(Duration::from_millis(3000)).await;
     }
 }

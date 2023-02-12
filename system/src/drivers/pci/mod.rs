@@ -11,6 +11,6 @@ fn install_drivers(drivers: &mut Vec<Box<dyn PciDriverRegistrar>>) {
     // High Definition Audio
     drivers.push(super::hda::HdAudioController::registrar());
 
-    // // VIRTIO
+    // VIRTIO
     // drivers.push(super::virtio::Virtio::registrar());
 }

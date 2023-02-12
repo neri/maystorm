@@ -3,7 +3,7 @@ use super::*;
 /// Boot Graphics Resource Table
 #[repr(C, packed)]
 pub struct Bgrt {
-    _hdr: AcpiHeader,
+    hdr: AcpiHeader,
     version: u16,
     status: u8,
     image_type: ImageType,

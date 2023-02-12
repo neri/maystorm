@@ -1,4 +1,11 @@
-use core::{ffi::c_void, fmt::Display, mem::transmute, str::from_utf8_unchecked};
+use crate::fadt::Fadt;
+use core::{
+    ffi::c_void,
+    fmt::Display,
+    mem::{size_of, transmute},
+    slice,
+    str::from_utf8_unchecked,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TableId(pub [u8; 4]);
@@ -9,6 +16,11 @@ impl TableId {
 
     /// Fixed ACPI Description Table
     pub const FADT: Self = Self(*b"FACP");
+
+    /// Differentiated System Description Table
+    pub const DSDT: Self = Self(*b"DSDT");
+    /// Secondary System Descriptor Table
+    pub const SSDT: Self = Self(*b"SSDT");
 
     /// Multiple APIC Description Table
     pub const MADT: Self = Self(*b"APIC");
@@ -34,7 +46,7 @@ impl Display for TableId {
     }
 }
 
-#[repr(C)]
+#[repr(C, packed)]
 #[allow(unused)]
 pub struct AcpiHeader {
     signature: TableId,
@@ -62,6 +74,13 @@ impl AcpiHeader {
     #[inline]
     pub fn assume<T: AcpiTable>(&self) -> Option<&T> {
         (self.signature() == T::TABLE_ID).then(|| unsafe { transmute(self) })
+    }
+
+    #[inline]
+    pub unsafe fn data(&self) -> &[u8] {
+        let data = unsafe { (self as *const _ as *const u8).add(size_of::<AcpiHeader>()) };
+        let len = self.len() - size_of::<AcpiHeader>();
+        unsafe { slice::from_raw_parts(data, len) }
     }
 }
 
@@ -153,7 +172,7 @@ pub enum GasAccessSize {
 /// Extended System Description Table
 #[repr(C, packed)]
 pub struct Xsdt {
-    _hdr: AcpiHeader,
+    hdr: AcpiHeader,
     _entry: u64,
 }
 
@@ -183,6 +202,11 @@ impl Xsdt {
     #[inline]
     pub fn find_first<T: AcpiTable>(&self) -> Option<&T> {
         self.find().next()
+    }
+
+    #[inline]
+    pub fn fadt(&self) -> Option<&Fadt> {
+        self.find_first()
     }
 }
 

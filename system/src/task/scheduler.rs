@@ -92,7 +92,7 @@ impl const From<usize> for SchedulerState {
 
 impl Scheduler {
     /// Start scheduler and sleep forever
-    pub fn start(f: fn(usize) -> (), args: usize) -> ! {
+    pub unsafe fn start(f: fn(usize) -> (), args: usize) -> ! {
         assert_call_once!();
 
         const SIZE_OF_SUB_QUEUE: usize = 63;
@@ -140,7 +140,7 @@ impl Scheduler {
         }
     }
 
-    pub unsafe fn late_init() {
+    pub unsafe fn init_second() {
         assert_call_once!();
 
         SpawnOption::with_priority(Priority::Realtime).start(
@@ -153,7 +153,7 @@ impl Scheduler {
             let cpuid = ProcessorIndex(index);
             cpuid.get().map(|v| {
                 if v.processor_type() == ProcessorCoreType::Main {
-                    SpawnOption::new() //with_priority(Priority::Normal)
+                    SpawnOption::with_priority(Priority::High)
                         .strong_affinity(cpuid)
                         .start(Self::_dispatch, index, &format!("dispatch_#{}", index));
                 }

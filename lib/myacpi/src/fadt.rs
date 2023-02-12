@@ -4,7 +4,7 @@ use super::*;
 #[repr(C, packed)]
 #[allow(unused)]
 pub struct Fadt {
-    _hdr: AcpiHeader,
+    hdr: AcpiHeader,
     firmware_ctrl: u32,
     dsdt: u32,
     _reserved1: u8,
@@ -90,6 +90,20 @@ impl Fadt {
         }
     }
 
+    #[inline]
+    fn _x_value(v1: u64, v2: u32) -> u64 {
+        if v1 != 0 {
+            v1
+        } else {
+            v2 as u64
+        }
+    }
+
+    pub fn dsdt(&self) -> u64 {
+        Self::_x_value(self.x_dsdt, self.dsdt)
+    }
+
+    #[inline]
     pub fn gpe0_blk(&self) -> Option<Gas> {
         Self::_blk(&self.x_gpe0_blk, self.gpe0_blk as u64)
     }

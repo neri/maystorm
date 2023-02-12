@@ -169,16 +169,21 @@ impl System {
 
         mem::MemoryManager::init_first(info);
 
-        if info.vram_base != 0
-            && info.vram_stride != 0
-            && info.screen_width != 0
-            && info.screen_height != 0
+        if info.vram_base > 0
+            && info.vram_stride > 0
+            && info.screen_width > 0
+            && info.screen_height > 0
         {
-            let screen = BitmapScreen::new(Bitmap32::from_static(
-                PhysicalAddress::new(info.vram_base).direct_map(),
-                Size::new(info.screen_width as isize, info.screen_height as isize),
-                info.vram_stride as usize,
-            ));
+            let stride = info.vram_stride as usize;
+            let vram_size = stride * info.screen_height as usize;
+            let base = mem::MemoryManager::mmap(mem::MemoryMapRequest::Framebuffer(
+                PhysicalAddress::new(info.vram_base),
+                vram_size,
+            ))
+            .unwrap()
+            .get() as *mut TrueColor;
+            let size = Size::new(info.screen_width as isize, info.screen_height as isize);
+            let screen = BitmapScreen::new(Bitmap32::from_static(base, size, stride));
             screen
                 .set_orientation(ScreenOrientation::Landscape)
                 .unwrap();
@@ -201,13 +206,13 @@ impl System {
             shared.smbios = Some(smbios);
         }
 
-        arch::Arch::init(info);
+        arch::Arch::init_first(info);
 
-        Scheduler::start(Self::late_init, f as usize);
+        Scheduler::start(Self::init_second, f as usize);
     }
 
     /// The second half of the system initialization
-    fn late_init(args: usize) {
+    fn init_second(args: usize) {
         assert_call_once!();
 
         let shared = Self::shared();
@@ -230,24 +235,22 @@ impl System {
         }
 
         unsafe {
-            Scheduler::late_init();
-            mem::MemoryManager::late_init();
-
             log::EventManager::init();
-
+            Scheduler::init_second();
+            mem::MemoryManager::init_second();
             fs::FileManager::init(shared.initrd_base.direct_map(), shared.initrd_size);
 
-            io::audio::AudioManager::init();
             io::hid_mgr::HidManager::init();
+            io::audio::AudioManager::init();
             drivers::usb::UsbManager::init();
+
             drivers::pci::Pci::init();
+            arch::Arch::init_second();
 
             ui::font::FontManager::init();
             if let Some(main_screen) = Self::main_screen() {
                 ui::window::WindowManager::init(main_screen);
             }
-
-            arch::Arch::late_init();
 
             rt::RuntimeEnvironment::init();
 
@@ -403,7 +406,7 @@ impl System {
     }
 
     #[track_caller]
-    pub fn assert_call_once(mutex: &AtomicBool) {
+    pub fn assert_call_once(mutex: &'static AtomicBool) {
         if mutex
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
             .is_err()

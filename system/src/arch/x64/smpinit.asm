@@ -4,6 +4,7 @@
 %define KERNEL_SS           0x10
 
 %define IA32_MISC           0x000001A0
+%define IA32_PAT            0x00000277
 %define IA32_EFER           0xC0000080
 
 %define CR0_PE              0
@@ -17,16 +18,15 @@
 
 %define SMPINFO             0x0800
 %define SMPINFO_MAX_CPU     0x04
-%define SMPINFO_EFER        0x08
-;define SMPINFO_            0x0C
-%define SMPINFO_STACK_BASE  0x10
-%define SMPINFO_CR3         0x18
-%define SMPINFO_CR4         0x20
-%define SMPINFO_IDT         0x26
-%define SMPINFO_START64     0x30
-%define SMPINFO_AP_STARTUP  0x38
-%define SMPINFO_MSR_MISC    0x40
-%define SMPINFO_GDTR        0x50
+%define SMPINFO_CR4         0x08
+%define SMPINFO_CR3         0x0C
+%define SMPINFO_PAT         0x10
+%define SMPINFO_EFER        0x18
+;define SMPINFO_            0x1C
+%define SMPINFO_START64     0x20
+%define SMPINFO_STACK_BASE  0x28
+%define SMPINFO_AP_STARTUP  0x30
+%define SMPINFO_GDTR        0x40
 
 [section .text]
 _begin_payload:
@@ -96,6 +96,11 @@ _now_in_rm:
     mov eax, [bp + SMPINFO_CR3]
     mov cr3 ,eax
 
+    mov ecx, IA32_PAT
+    mov eax, [bp+ SMPINFO_PAT]
+    mov edx, [bp+ SMPINFO_PAT + 4]
+    wrmsr
+
     mov ecx, IA32_EFER
     xor edx, edx
     mov eax, [bp+ SMPINFO_EFER]
@@ -111,8 +116,6 @@ _now_in_rm:
 
 [BITS 64]
 _now_in_64bit_mode:
-    lidt [rbp + SMPINFO_IDT]
-
     ; init stack pointer
     mov rax, [rbp + SMPINFO_STACK_BASE]
     mov rsp, [rax + rdi * 8]
@@ -141,15 +144,22 @@ _prepare_sipi:
 
     mov ecx, 1
     mov [r10], ecx
+
     mov rdx, cr4
     mov [r10 + SMPINFO_CR4], edx
+
     mov rdx, cr3
     mov [r10 + SMPINFO_CR3], rdx
-    sidt [r10 + SMPINFO_IDT]
+
     mov ecx, IA32_EFER
     rdmsr
     btr eax, EFER_LMA
     mov [r10 + SMPINFO_EFER], eax
+
+    mov ecx, IA32_PAT
+    rdmsr
+    mov [r10 + SMPINFO_PAT], eax
+    mov [r10 + SMPINFO_PAT + 4], edx
 
     lea ecx, [rel _now_in_64bit_mode]
     mov [r10 + SMPINFO_START64], ecx

@@ -22,7 +22,7 @@ use megstd::time::SystemTime;
 pub struct Arch;
 
 impl Arch {
-    pub unsafe fn init(info: &BootInfo) {
+    pub unsafe fn init_first(info: &BootInfo) {
         assert_call_once!();
 
         cpu::Cpu::init(info);
@@ -38,7 +38,7 @@ impl Arch {
         rtc::Rtc::init();
     }
 
-    pub unsafe fn late_init() {
+    pub unsafe fn init_second() {
         assert_call_once!();
 
         let _ = ps2::Ps2::init();

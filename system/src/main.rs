@@ -89,7 +89,10 @@ impl Shell {
                         )
                     }
                     "reboot" => {
-                        UserEnv::system_reset();
+                        UserEnv::system_reset(false);
+                    }
+                    "shutdown" => {
+                        UserEnv::system_reset(true);
                     }
                     "uptime" => {
                         let systime = System::system_time();

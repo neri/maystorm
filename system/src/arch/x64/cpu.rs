@@ -1,4 +1,4 @@
-use super::{apic::*, page::PageManager};
+use super::apic::*;
 use crate::{
     rt::{LegacyAppContext, RuntimeEnvironment},
     system::{ProcessorCoreType, ProcessorIndex},
@@ -14,6 +14,7 @@ use core::{
     mem::{size_of, transmute},
     sync::atomic::*,
 };
+use megstd::Vec;
 use paste::paste;
 
 static mut SHARED_CPU: UnsafeCell<SharedCpu> = UnsafeCell::new(SharedCpu::new());
@@ -98,6 +99,7 @@ impl Cpu {
 
     pub(super) unsafe fn new(apic_id: ApicId) -> Box<Self> {
         let gdt = GlobalDescriptorTable::new();
+        InterruptDescriptorTable::load();
 
         let core_type = if (apic_id.as_u32() & Self::shared().smt_topology) == 0 {
             ProcessorCoreType::Main
@@ -106,70 +108,64 @@ impl Cpu {
             ProcessorCoreType::Sub
         };
 
-        PageManager::init_per_cpu();
-
         let shared = &*SHARED_CPU.get();
-        if Mtrr::items()
-            .find(|v| {
-                v.is_enabled && v.matches(shared.vram_base) && v.mem_type == MtrrMemoryType::WC
-            })
+
+        let mtrr_items = Mtrr::items().filter(|v| v.is_enabled).collect::<Vec<_>>();
+        let mut mtrr_new = Vec::new();
+        let mtrr_remain = Mtrr::count() - mtrr_items.len();
+        if mtrr_items
+            .iter()
+            .find(|v| v.matches(shared.vram_base) && v.mem_type == Mtrr::WC)
             .is_none()
         {
             // Setting MTRR of VRAM to Write Combining improves drawing performance on some models. (expr)
-            if Mtrr::items()
-                .find(|v| v.is_enabled && v.matches(shared.vram_base))
-                .is_none()
+            if mtrr_remain > 0
+                && mtrr_items
+                    .iter()
+                    .find(|v| v.matches(shared.vram_base))
+                    .is_none()
             {
                 // simply add
-                for (index, mtrr) in Mtrr::items().enumerate() {
-                    if !mtrr.is_enabled {
-                        let mtrr = MtrrItem {
-                            base: shared.vram_base,
-                            mask: !(shared.vram_size_min as u64 - 1),
-                            mem_type: MtrrMemoryType::WC,
-                            is_enabled: true,
-                        };
-                        Mtrr::set(MtrrIndex(index as u8), mtrr);
-                        break;
-                    }
-                }
-            } else if shared.vram_base == PhysicalAddress::new(0xC000_0000)
-                && Mtrr::items()
+                mtrr_new.extend_from_slice(mtrr_items.as_slice());
+                mtrr_new.push(MtrrItem {
+                    base: shared.vram_base,
+                    mask: !(shared.vram_size_min as u64 - 1),
+                    mem_type: Mtrr::WC,
+                    is_enabled: true,
+                });
+            } else if mtrr_remain > 0
+                && shared.vram_base == PhysicalAddress::new(0xC000_0000)
+                && mtrr_items
+                    .iter()
                     .find(|v| {
-                        v.is_enabled
-                            && v.matches(shared.vram_base)
+                        v.base == shared.vram_base
                             && v.matches(PhysicalAddress::new(0xFFFF_FFFF))
-                            && v.mem_type == MtrrMemoryType::UC
+                            && v.mem_type == Mtrr::UC
                     })
                     .is_some()
-                && Mtrr::items().find(|v| !v.is_enabled).is_some()
             {
                 // Some Intel machines have the range C000_0000 to FFFF_FFFF set to UC
-                for (index, mtrr) in Mtrr::items().enumerate() {
-                    if mtrr.is_enabled && mtrr.matches(shared.vram_base) {
-                        let mtrr = MtrrItem {
-                            base: PhysicalAddress::new(0xE000_0000),
-                            mask: !0x1FFF_FFFF,
-                            mem_type: MtrrMemoryType::UC,
-                            is_enabled: true,
-                        };
-                        Mtrr::set(MtrrIndex(index as u8), mtrr);
-                    }
-                }
-                for (index, mtrr) in Mtrr::items().enumerate() {
-                    if !mtrr.is_enabled {
-                        let mtrr = MtrrItem {
-                            base: shared.vram_base,
-                            mask: !0x1FFF_FFFF,
-                            mem_type: MtrrMemoryType::WC,
-                            is_enabled: true,
-                        };
-                        Mtrr::set(MtrrIndex(index as u8), mtrr);
-                        break;
-                    }
-                }
+                mtrr_new = mtrr_items
+                    .into_iter()
+                    .filter(|v| !v.matches(shared.vram_base))
+                    .collect();
+                mtrr_new.push(MtrrItem {
+                    base: shared.vram_base,
+                    mask: !0x1FFF_FFFF,
+                    mem_type: Mtrr::WC,
+                    is_enabled: true,
+                });
+                mtrr_new.push(MtrrItem {
+                    base: PhysicalAddress::new(0xE000_0000),
+                    mask: !0x1FFF_FFFF,
+                    mem_type: Mtrr::UC,
+                    is_enabled: true,
+                });
             } else {
                 // Unknown, giving up
+            }
+            if mtrr_new.len() > 0 {
+                Mtrr::set_items(&mtrr_new);
             }
         }
 
@@ -1403,8 +1399,6 @@ impl InterruptDescriptorTable {
     }
 
     unsafe fn init() {
-        Self::load();
-
         register_exception!(DivideError);
         register_exception!(Breakpoint);
         register_exception!(InvalidOpcode);
@@ -1783,14 +1777,33 @@ impl MSR {
     }
 }
 
-pub struct Mtrr;
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct MtrrIndex(pub u8);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Mtrr {
+    /// UC Uncacheable
+    UC = 0,
+    /// WC WriteCombining
+    WC = 1,
+    /// WT WriteThrough
+    WT = 4,
+    /// WP WriteProtect
+    WP = 5,
+    /// WB WriteBack
+    WB = 6,
+}
 
 impl Mtrr {
     #[inline]
+    pub fn count() -> usize {
+        unsafe { MSR::IA32_MTRRCAP.read() as usize & 0xFF }
+    }
+
+    #[inline]
     pub fn indexes() -> impl Iterator<Item = MtrrIndex> {
-        (0..unsafe { MSR::IA32_MTRRCAP.read() } as u8)
-            .into_iter()
-            .map(|v| MtrrIndex(v))
+        (0..Self::count() as u8).into_iter().map(|v| MtrrIndex(v))
     }
 
     #[inline]
@@ -1811,27 +1824,21 @@ impl Mtrr {
     pub unsafe fn items() -> impl Iterator<Item = MtrrItem> {
         Self::indexes().map(|n| Self::get(n))
     }
-}
 
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct MtrrIndex(pub u8);
+    #[inline]
+    pub unsafe fn set_items(items: &[MtrrItem]) {
+        let mut items = items
+            .iter()
+            .filter(|v| v.is_enabled)
+            .map(|v| *v)
+            .collect::<Vec<_>>();
+        items.sort_by_key(|v| v.base);
+        items.resize(Self::count(), MtrrItem::empty());
+        for (index, item) in Self::indexes().zip(items.into_iter()) {
+            Self::set(index, item);
+        }
+    }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum MtrrMemoryType {
-    /// UC Uncacheable
-    UC = 0,
-    /// WC WriteCombining
-    WC = 1,
-    /// WT WriteThrough
-    WT = 4,
-    /// WP WriteProtect
-    WP = 5,
-    /// WB WriteBack
-    WB = 6,
-}
-
-impl MtrrMemoryType {
     #[inline]
     pub const fn from_raw(value: u8) -> Self {
         unsafe { transmute(value) }
@@ -1842,7 +1849,7 @@ impl MtrrMemoryType {
 pub struct MtrrItem {
     pub base: PhysicalAddress,
     pub mask: u64,
-    pub mem_type: MtrrMemoryType,
+    pub mem_type: Mtrr,
     pub is_enabled: bool,
 }
 
@@ -1850,8 +1857,18 @@ impl MtrrItem {
     const ADDR_MASK: u64 = !0xFFF;
 
     #[inline]
+    pub const fn empty() -> Self {
+        Self {
+            base: PhysicalAddress::new(0),
+            mask: 0,
+            mem_type: Mtrr::UC,
+            is_enabled: false,
+        }
+    }
+
+    #[inline]
     pub fn from_raw(base: u64, mask: u64) -> Self {
-        let mem_type = MtrrMemoryType::from_raw(base as u8);
+        let mem_type = Mtrr::from_raw(base as u8);
         let is_enabled = (mask & 0x800) != 0;
         Self {
             base: PhysicalAddress::new(base & Self::ADDR_MASK),

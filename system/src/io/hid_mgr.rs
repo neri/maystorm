@@ -921,6 +921,37 @@ impl HidManager {
         }
     }
 
+    #[allow(dead_code)]
+    fn usage_to_char_101(usage: Usage, modifier: Modifier) -> char {
+        let mut uni: char = INVALID_UNICHAR;
+
+        if usage >= Usage::ALPHABET_MIN && usage <= Usage::ALPHABET_MAX {
+            uni = (usage.0 - Usage::KEY_A.0 + 0x61) as char;
+            if modifier.has_shift() {
+                uni = (uni as u8 ^ 0x20) as char;
+            }
+        } else if usage >= Usage::NUMBER_MIN && usage <= Usage::NON_ALPHABET_MAX {
+            if modifier.has_shift() {
+                uni = USAGE_TO_CHAR_NON_ALPLABET_101_S[(usage.0 - Usage::NUMBER_MIN.0) as usize];
+            } else {
+                uni = USAGE_TO_CHAR_NON_ALPLABET_101[(usage.0 - Usage::NUMBER_MIN.0) as usize];
+            }
+        } else if usage == Usage::DELETE {
+            uni = '\x7F';
+        } else if usage >= Usage::NUMPAD_MIN && usage <= Usage::NUMPAD_MAX {
+            uni = USAGE_TO_CHAR_NUMPAD[(usage.0 - Usage::NUMPAD_MIN.0) as usize];
+        }
+
+        if uni >= '\x40' && uni < '\x7F' {
+            if modifier.has_ctrl() {
+                uni = (uni as u8 & 0x1F) as char;
+            }
+        }
+
+        uni
+    }
+
+    #[allow(dead_code)]
     fn usage_to_char_109(usage: Usage, modifier: Modifier) -> char {
         let mut uni: char = INVALID_UNICHAR;
 
@@ -961,6 +992,16 @@ impl HidManager {
 }
 
 // Non Alphabet
+static USAGE_TO_CHAR_NON_ALPLABET_101: [char; 27] = [
+    '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '\x0D', '\x1B', '\x08', '\x09', ' ', '-',
+    '+', '[', ']', '\\', '\\', ';', '\'', '`', ',', '.', '/',
+];
+
+static USAGE_TO_CHAR_NON_ALPLABET_101_S: [char; 27] = [
+    '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '\x0D', '\x1B', '\x08', '\x09', ' ', '_',
+    '=', '{', '}', '|', '|', ':', '"', '~', '<', '>', '?',
+];
+
 static USAGE_TO_CHAR_NON_ALPLABET_109: [char; 27] = [
     '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '\x0D', '\x1B', '\x08', '\x09', ' ', '-',
     '^', '@', '[', ']', ']', ';', ':', '`', ',', '.', '/',

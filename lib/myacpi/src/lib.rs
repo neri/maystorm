@@ -5,6 +5,7 @@
 mod tables;
 pub use tables::*;
 pub mod bgrt;
+pub mod dsdt;
 pub mod fadt;
 pub mod hpet;
 pub mod madt;

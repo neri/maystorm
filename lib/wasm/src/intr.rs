@@ -72,9 +72,7 @@ impl WasmInterpreter<'_> {
         let mut codes = WasmIntermediateCodeStream::from_codes(code_block.intermediate_codes());
 
         let value_stack = heap.alloc(code_block.max_value_stack());
-        for value in value_stack.iter_mut() {
-            *value = WasmUnsafeValue::zero();
-        }
+        value_stack.fill(WasmUnsafeValue::zero());
 
         let mut result_stack_level = 0;
 

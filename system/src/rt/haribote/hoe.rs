@@ -689,7 +689,7 @@ impl HoeWindow {
                 (height - (Self::WINDOW_ADJUST_TOP + Self::WINDOW_ADJUST_BOTTOM)) as isize,
             ))
             .bg_color(Hoe::get_color(Self::WINDOW_BGCOLOR))
-            .active_title_color(Color::LIGHT_BLUE)
+            // .active_title_color(Color::LIGHT_BLUE)
             // .inactive_title_color(ui::theme::Theme::shared().window_title_inactive_background())
             // .style_add(WindowStyle::DARK_MODE)
             .opaque()

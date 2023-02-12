@@ -5,7 +5,7 @@ use core::mem::transmute;
 #[repr(C, packed)]
 #[allow(unused)]
 pub struct Madt {
-    _hdr: AcpiHeader,
+    hdr: AcpiHeader,
     local_apic_address: u32,
     flags: u32,
     // TODO:
