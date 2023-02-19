@@ -96,7 +96,6 @@ fn panic(info: &PanicInfo) -> ! {
         PANIC_GLOBAL_LOCK.synchronized(|| {
             let stdout = System::log();
             stdout.set_attribute(0x4F);
-            let _ = writeln!(stdout, " = Guru Meditation = ");
             if let Some(thread) = task::scheduler::Scheduler::current_thread() {
                 if let Some(name) = thread.name() {
                     let _ = write!(stdout, "thread '{}' ", name);

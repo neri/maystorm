@@ -22,12 +22,74 @@ use core::{
 use megstd::{drawing::*, io::Read, string::*, Arc, String, Vec};
 
 static mut SHUTDOWN_COMMAND: MaybeUninit<EventQueue<ShutdownCommand>> = MaybeUninit::uninit();
+static mut BG_TERMINAL: Option<WindowHandle> = None;
 
 pub struct UserEnv;
 
 impl UserEnv {
     pub fn start(f: fn()) {
         assert_call_once!();
+
+        let point = 16;
+        let font = FontDescriptor::new(FontFamily::Monospace, point)
+            .unwrap_or(FontManager::monospace_font());
+
+        let window = RawWindowBuilder::new()
+            .style(WindowStyle::NO_SHADOW)
+            .fullscreen()
+            .level(WindowLevel::DESKTOP_ITEMS)
+            .bg_color(Color::TRANSPARENT)
+            .build("Terminal");
+
+        unsafe {
+            BG_TERMINAL = Some(window);
+        }
+
+        // WindowManager::set_desktop_color(Color::BLACK);
+        let mut terminal = Terminal::from_window(
+            window,
+            Some(EdgeInsets::padding_each(4)),
+            font,
+            Alpha8::OPAQUE,
+            0x07,
+            Some(&[
+                IndexedColor::BLACK.into(),
+                IndexedColor::BLUE.into(),
+                IndexedColor::GREEN.into(),
+                IndexedColor::CYAN.into(),
+                IndexedColor::RED.into(),
+                IndexedColor::MAGENTA.into(),
+                IndexedColor::BROWN.into(),
+                IndexedColor::LIGHT_GRAY.into(),
+                IndexedColor::DARK_GRAY.into(),
+                IndexedColor::LIGHT_BLUE.into(),
+                IndexedColor::LIGHT_GREEN.into(),
+                IndexedColor::LIGHT_CYAN.into(),
+                IndexedColor::LIGHT_RED.into(),
+                IndexedColor::LIGHT_MAGENTA.into(),
+                IndexedColor::YELLOW.into(),
+                IndexedColor::WHITE.into(),
+            ]),
+        );
+        terminal.reset().unwrap();
+        System::set_stdout(Box::new(terminal));
+
+        if true {
+            let device = System::current_device();
+
+            let bytes = device.total_memory_size();
+            let gb = bytes >> 30;
+            let mb = (100 * (bytes & 0x3FFF_FFFF)) / 0x4000_0000;
+            println!(
+                "{} v{} (codename {}) {} Cores {}.{:02} GB Memory",
+                System::name(),
+                System::version(),
+                System::codename(),
+                device.num_of_main_cpus(),
+                gb,
+                mb
+            );
+        }
 
         unsafe {
             SHUTDOWN_COMMAND.write(EventQueue::new(100));
@@ -136,15 +198,13 @@ impl UserEnv {
     }
 
     pub fn system_reset(shutdown: bool) {
-        if shutdown {
-            Self::shutdown_command()
-                .post(ShutdownCommand::Shutdown)
-                .unwrap();
-        } else {
-            Self::shutdown_command()
-                .post(ShutdownCommand::Reboot)
-                .unwrap();
-        }
+        Self::shutdown_command()
+            .post(if shutdown {
+                ShutdownCommand::Shutdown
+            } else {
+                ShutdownCommand::Reboot
+            })
+            .unwrap();
     }
 
     fn shutdown_command<'a>() -> &'a EventQueue<ShutdownCommand> {
@@ -162,40 +222,42 @@ enum ShutdownCommand {
 async fn slpash_task(f: fn()) {
     let is_gui_boot = true;
 
-    let width = 480;
-    let height = 240;
+    if is_gui_boot {
+        if let Some(window) = unsafe { BG_TERMINAL.take() } {
+            window.close();
+        }
 
-    let window = RawWindowBuilder::new()
-        .style(WindowStyle::NO_SHADOW)
-        .size(Size::new(width, height))
-        .bg_color(Color::TRANSPARENT)
-        .level(WindowLevel::POPUP)
-        .build("");
+        let width = 480;
+        let height = 240;
 
-    window.draw(|bitmap| {
-        bitmap.clear();
-        let Some(font) = FontDescriptor::new(FontFamily::SansSerif, 48) else {
+        let window = RawWindowBuilder::new()
+            .style(WindowStyle::NO_SHADOW)
+            .size(Size::new(width, height))
+            .bg_color(Color::TRANSPARENT)
+            .level(WindowLevel::POPUP)
+            .build("");
+
+        window.draw(|bitmap| {
+            bitmap.clear();
+            let Some(font) = FontDescriptor::new(FontFamily::SansSerif, 48) else {
             return
         };
-        AttributedString::new()
-            .font(&font)
-            .color(Color::LIGHT_GRAY)
-            .middle_center()
-            .text("HELLO")
-            .draw_text(bitmap, bitmap.bounds(), 0);
-    });
-    // window.show();
-    WindowManager::set_barrier_opacity(Alpha8::OPAQUE);
+            AttributedString::new()
+                .font(&font)
+                .color(Color::LIGHT_GRAY)
+                .middle_center()
+                .text("HELLO")
+                .draw_text(bitmap, bitmap.bounds(), 0);
+        });
+        // window.show();
+        WindowManager::set_barrier_opacity(Alpha8::OPAQUE);
 
-    Timer::sleep_async(Duration::from_millis(1000)).await;
+        Timer::sleep_async(Duration::from_millis(1000)).await;
 
-    if is_gui_boot {
         Scheduler::spawn_async(status_bar_main());
         Scheduler::spawn_async(activity_monitor_main());
-    }
-    Scheduler::spawn_async(_notification_task());
+        Scheduler::spawn_async(_notification_task());
 
-    if is_gui_boot {
         if let Ok(mut file) = FileManager::open("wall.png") {
             let mut vec = Vec::new();
             file.read_to_end(&mut vec).unwrap();
@@ -205,35 +267,38 @@ async fn slpash_task(f: fn()) {
         } else {
             WindowManager::set_desktop_color(Theme::shared().default_desktop_color());
         }
-    }
 
-    Timer::sleep_async(Duration::from_millis(500)).await;
+        Timer::sleep_async(Duration::from_millis(500)).await;
 
-    let animation = AnimatedProp::new(1.0, 0.0, Duration::from_millis(500));
+        let animation = AnimatedProp::new(1.0, 0.0, Duration::from_millis(500));
 
-    window.create_timer(0, Duration::from_millis(1));
-    window.show();
+        window.create_timer(0, Duration::from_millis(1));
+        window.show();
 
-    while let Some(message) = window.wait_message() {
-        match message {
-            WindowMessage::Timer(timer_id) => match timer_id {
-                0 => {
-                    WindowManager::set_barrier_opacity(animation.progress().into());
+        while let Some(message) = window.wait_message() {
+            match message {
+                WindowMessage::Timer(timer_id) => match timer_id {
+                    0 => {
+                        WindowManager::set_barrier_opacity(animation.progress().into());
 
-                    if animation.is_alive() {
-                        window.create_timer(0, Duration::from_millis(50));
-                    } else {
-                        window.close();
+                        if animation.is_alive() {
+                            window.create_timer(0, Duration::from_millis(50));
+                        } else {
+                            window.close();
+                        }
                     }
-                }
-                _ => unreachable!(),
-            },
-            _ => window.handle_default_message(message),
+                    _ => unreachable!(),
+                },
+                _ => window.handle_default_message(message),
+            }
         }
+
+        WindowManager::set_barrier_opacity(Alpha8::TRANSPARENT);
+    } else {
+        Scheduler::spawn_async(_notification_task());
     }
 
-    WindowManager::set_barrier_opacity(Alpha8::TRANSPARENT);
-    WindowManager::set_pointer_enabled(true);
+    WindowManager::set_pointer_states(true, true, true);
 
     Scheduler::spawn_async(shell_launcher(is_gui_boot, f));
 
@@ -270,45 +335,6 @@ async fn shell_launcher(is_gui_boot: bool, f: fn()) {
         //     }
         //     point
         // };
-        let point = 16;
-        let font = FontDescriptor::new(FontFamily::Monospace, point)
-            .unwrap_or(FontManager::monospace_font());
-
-        let window = RawWindowBuilder::new()
-            .style(WindowStyle::NO_SHADOW)
-            .fullscreen()
-            .level(WindowLevel::DESKTOP_ITEMS)
-            .bg_color(Color::TRANSPARENT)
-            .build("Terminal");
-
-        // WindowManager::set_desktop_color(Color::BLACK);
-        let mut terminal = Terminal::from_window(
-            window,
-            Some(EdgeInsets::padding_each(4)),
-            font,
-            Alpha8::OPAQUE,
-            0x07,
-            Some(&[
-                IndexedColor::BLACK.into(),
-                IndexedColor::BLUE.into(),
-                IndexedColor::GREEN.into(),
-                IndexedColor::CYAN.into(),
-                IndexedColor::RED.into(),
-                IndexedColor::MAGENTA.into(),
-                IndexedColor::BROWN.into(),
-                IndexedColor::LIGHT_GRAY.into(),
-                IndexedColor::DARK_GRAY.into(),
-                IndexedColor::LIGHT_BLUE.into(),
-                IndexedColor::LIGHT_GREEN.into(),
-                IndexedColor::LIGHT_CYAN.into(),
-                IndexedColor::LIGHT_RED.into(),
-                IndexedColor::LIGHT_MAGENTA.into(),
-                IndexedColor::YELLOW.into(),
-                IndexedColor::WHITE.into(),
-            ]),
-        );
-        terminal.reset().unwrap();
-        System::set_stdout(Box::new(terminal));
         // println!("Screen {} x {} Font {}", size.width(), size.height(), point);
     }
     SpawnOption::new().start_process(unsafe { core::mem::transmute(f) }, 0, "shell");

@@ -740,7 +740,12 @@ impl UsbDeviceContext {
         min_len: usize,
         max_len: usize,
     ) -> Result<(), UsbError> {
+        buffer.resize(0, 0);
+        buffer
+            .try_reserve(max_len)
+            .map_err(|_| UsbError::OutOfMemory)?;
         buffer.resize(max_len, 0);
+
         self.read_slice(ep, buffer.as_mut_slice(), min_len, max_len)
             .await
             .map(|new_len| {
@@ -859,17 +864,22 @@ impl UsbDeviceContext {
     async fn _control_vec(
         host: &Arc<dyn UsbHostInterface>,
         mut setup: UsbControlSetupData,
-        vec: &mut Vec<u8>,
+        buffer: &mut Vec<u8>,
         min_len: usize,
         max_len: usize,
     ) -> Result<(), UsbError> {
-        vec.resize(max_len, 0);
+        buffer.resize(0, 0);
+        buffer
+            .try_reserve(max_len)
+            .map_err(|_| UsbError::OutOfMemory)?;
+        buffer.resize(max_len, 0);
+
         setup.wLength = max_len as u16;
-        unsafe { host.clone().control_recv(setup, vec.as_mut_ptr()) }
+        unsafe { host.clone().control_recv(setup, buffer.as_mut_ptr()) }
             .await
             .and_then(|len| {
                 if len >= min_len {
-                    vec.resize(len, 0);
+                    buffer.resize(len, 0);
                     Ok(())
                 } else {
                     Err(UsbError::ShortPacket)

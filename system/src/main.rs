@@ -571,7 +571,7 @@ impl Shell {
                 .unwrap_or("Unknown Device")
                 .to_string();
             println!(
-                "{:02x} VID {} PID {} class {} USB {} {}",
+                "{:03} VID {} PID {} class {} USB {} {}",
                 device.addr().as_u8(),
                 device.vid(),
                 device.pid(),

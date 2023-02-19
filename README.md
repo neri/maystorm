@@ -41,13 +41,6 @@ The latest version is recommended whenever possible.
 
 1. `make install`
 
-If you get a linker error, configure your linker in `~/.cargo/config.toml` or similar.
-
-```
-[target.x86_64-unknown-none]
-linker = "/opt/homebrew/opt/llvm/bin/ld.lld"
-```
-
 ### run on qemu
 
 1. Follow the build instructions to finish the installation.

@@ -13,6 +13,8 @@
     "exe-suffix": ".bin",
     "has-rpath": false,
     "llvm-target": "x86_64-unknown-none",
+    "linker-flavor": "ld.lld",
+    "linker": "rust-lld",
     "max-atomic-width": 64,
     "os": "none",
     "position-independent-executables": false,

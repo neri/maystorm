@@ -201,14 +201,14 @@ impl<T: Into<usize>> AtomicFlags<T> {
 
 impl<T: Into<usize>> AtomicFlags<T> {
     #[inline]
-    pub fn test_and_set(&self, other: T) -> bool {
+    pub fn fetch_set(&self, other: T) -> bool {
         use crate::*;
-        Hal::sync().test_and_set(&self.bits, other.into().trailing_zeros() as usize)
+        Hal::sync().fetch_set(&self.bits, other.into().trailing_zeros() as usize)
     }
 
     #[inline]
-    pub fn test_and_clear(&self, other: T) -> bool {
+    pub fn fetch_reset(&self, other: T) -> bool {
         use crate::*;
-        Hal::sync().test_and_clear(&self.bits, other.into().trailing_zeros() as usize)
+        Hal::sync().fetch_reset(&self.bits, other.into().trailing_zeros() as usize)
     }
 }

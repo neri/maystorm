@@ -1316,4 +1316,5 @@ pub enum UsbError {
     Stall,
     ShortPacket,
     UsbTransactionError,
+    OutOfMemory,
 }

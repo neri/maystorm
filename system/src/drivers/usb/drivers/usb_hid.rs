@@ -49,15 +49,15 @@ impl UsbHidDriver {
         class: UsbClass,
     ) -> Result<Task, UsbError> {
         let Some(interface) = device
-            .device()
-            .current_configuration()
-            .find_interface(if_no, None)
-        else {
-            return Err(UsbError::InvalidParameter)
-        };
+.device()
+.current_configuration()
+.find_interface(if_no, None)
+else {
+return Err(UsbError::InvalidParameter)
+};
         let Some(endpoint) = interface.endpoints().first() else {
-            return Err(UsbError::InvalidDescriptor)
-        };
+return Err(UsbError::InvalidDescriptor)
+};
         if !endpoint.is_dir_in() {
             return Err(UsbError::InvalidDescriptor);
         }
@@ -114,15 +114,15 @@ impl UsbHidDriver {
         //     device.device().preferred_device_name().unwrap_or_default(),
         // );
         // for app in report_desc.applications() {
-        //     log!(
-        //         " {} {} I {} O {} F {}",
+        //     println!(
+        //         " {:02x} {} I {} O {} F {}",
         //         app.report_id().map(|v| v.as_u8()).unwrap_or_default(),
         //         app.usage(),
         //         app.bit_count_for_input(),
         //         app.bit_count_for_output(),
         //         app.bit_count_for_feature(),
         //     );
-        //     log!(" {:?}", app.entries().collect::<Vec<_>>());
+        //     println!(" {:?}", app.entries().collect::<Vec<_>>());
         // }
 
         for app in report_desc
@@ -133,26 +133,24 @@ impl UsbHidDriver {
             let mut data = Vec::new();
             data.resize((app.bit_count_for_feature() + 7) / 8, 0);
             let empty_data = [0; Self::BUFFER_LEN];
-            let mut bit_position = 0;
+            let mut writer = HidBitStreamWriter::new(data.as_mut_slice());
             match app.usage() {
                 HidUsage::KEYBOARD => {
                     // Flashing LED on the keyboard
-                    for item in app.output_items() {
-                        if item.is_const() {
-                            bit_position += item.bit_count();
-                            continue;
-                        }
-                        if item.report_size() == 1
-                            && item.usage_min().usage_page() == UsagePage::LED
-                        {
-                            for i in 0..item.report_count() {
-                                let _ = Self::write_bits(&mut data, bit_position + i, 1, 1);
+                    let len = (app.bit_count_for_output() + 7) / 8;
+                    if len > 0 {
+                        for item in app.output_items() {
+                            if item.report_size() == 1
+                                && item.usage_min().usage_page() == UsagePage::LED
+                            {
+                                for _ in item.usage_range() {
+                                    let _ = writer.write_item(item, 1);
+                                }
+                            } else {
+                                writer.advance_by(item);
                             }
                         }
-                        bit_position += item.bit_count();
-                    }
-                    let len = (bit_position + 7) / 8;
-                    if len > 0 {
+
                         let _ = Self::set_report(
                             &device,
                             if_no,
@@ -163,6 +161,7 @@ impl UsbHidDriver {
                         )
                         .await;
                         Timer::sleep_async(Duration::from_millis(100)).await;
+
                         let _ = Self::set_report(
                             &device,
                             if_no,
@@ -176,38 +175,33 @@ impl UsbHidDriver {
                     }
                 }
                 // HidUsage::DEVICE_CONFIGURATION => {
-                //     let mut bit_position = 0;
-                //     for item in app.features() {
-                //         if item.is_const() {
-                //             bit_position += item.bit_count();
-                //             continue;
-                //         }
-                //         match item.usage_min() {
-                //             HidUsage::DEVICE_MODE => {
-                //                 Self::write_bits(
-                //                     &mut data,
-                //                     bit_position,
-                //                     item.bit_count(),
-                //                     DeviceMode::Mouse as usize,
-                //                 );
+                //     let len = (app.bit_count_for_feature() + 7) / 8;
+                //         if len > 0 {
+                //             for item in app.features() {
+                //                 match item.usage_min() {
+                //                     HidUsage::DEVICE_MODE => {
+                //                         let _ = writer
+                //                             .write_item(item, DeviceMode::SingleInputDevice as u32);
+                //                     }
+                //                     HidUsage::SURFACE_SWITCH | HidUsage::BUTTON_SWITCH => {
+                //                         let _ = writer.write_item(item, 1);
+                //                     }
+                //                     _ => {
+                //                         writer.advance_by(item);
+                //                     }
+                //                 }
                 //             }
-                //             HidUsage::SURFACE_SWITCH | HidUsage::BUTTON_SWITCH => {
-                //                 Self::write_bits(&mut data, bit_position, item.bit_count(), 1);
-                //             }
-                //             _ => (),
+
+                //             let _ = Self::set_report(
+                //                 &device,
+                //                 if_no,
+                //                 HidReportType::Feature,
+                //                 app.report_id(),
+                //                 len,
+                //                 data.as_slice(),
+                //             )
+                //             .await;
                 //         }
-                //         bit_position += item.bit_count();
-                //     }
-                //     let len = (bit_position + 7) / 8;
-                //     let _ = Self::set_report(
-                //         &device,
-                //         if_no,
-                //         HidReportType::Feature,
-                //         app.report_id(),
-                //         len,
-                //         data.as_slice(),
-                //     )
-                //     .await;
                 // }
                 _ => (),
             }
@@ -219,6 +213,10 @@ impl UsbHidDriver {
         loop {
             match device.read_vec(ep, &mut buffer, 1, ps).await {
                 Ok(_) => {
+                    // if report_desc.has_report_id() && buffer.iter().fold(0, |a, b| a | *b) > 0 {
+                    //     println!("HID {:?}", HexDump(&buffer));
+                    // }
+
                     let (app, _report_id) = if report_desc.has_report_id() {
                         let report_id = HidReportId::new(buffer[0]);
                         let app =
@@ -227,51 +225,47 @@ impl UsbHidDriver {
                     } else {
                         (report_desc.primary_app(), None)
                     };
-                    // if buffer.iter().fold(0, |a, b| a | *b) > 0 {
-                    //     log!(
-                    //         "APP {}> {:?}",
-                    //         _report_id.map(|v| v.as_u8()).unwrap_or_default(),
-                    //         HexDump(&buffer)
-                    //     );
-                    // }
+
                     let Some(app) = app else { continue };
                     if buffer.len() * 8 < app.bit_count_for_input() {
                         // Some devices send smaller garbage data
                         continue;
                     }
 
-                    let mut bit_position = report_desc.initial_bit_position();
+                    let mut reader = HidBitStreamReader::new(
+                        buffer.as_slice(),
+                        report_desc.initial_bit_position(),
+                    );
                     match app.usage() {
                         HidUsage::KEYBOARD => {
                             let mut report = KeyReportRaw::default();
                             for item in app.input_items() {
-                                if item.is_const() {
-                                    bit_position += item.bit_count();
-                                    continue;
-                                };
-                                if item.is_variable()
-                                    && item.report_size() == 1
-                                    && item.usage_min() == HidUsage::from(Usage::MOD_MIN)
+                                if item.usage_min() == HidUsage::from(Usage::MOD_MIN)
                                     && item.usage_max() == HidUsage::from(Usage::MOD_MAX)
                                 {
                                     // Modifier bit array
-                                    report.modifier =
-                                        Self::read_bits(&buffer, bit_position, item.report_count())
-                                            .map(|v| Modifier::from_bits_retain(v as u8))
-                                            .unwrap_or_default();
+                                    report.modifier = reader
+                                        .read_bit_array(item)
+                                        .map(|v| Modifier::from_bits_retain(v as u8))
+                                        .unwrap_or_default();
                                 } else if item.report_size() == 8
                                     && item.is_array()
                                     && item.usage_min().usage_page() == UsagePage::KEYBOARD
                                 {
                                     // Keyboard usage array
-                                    let limit =
-                                        usize::min(report.keydata.len(), item.report_count());
-                                    for i in 0..limit {
-                                        report.keydata[i] = Usage(buffer[bit_position / 8 + i]);
+                                    let read_data = (0..item.report_count())
+                                        .flat_map(|_| {
+                                            reader.read_value(item).map(|v| Usage(v as u8)).ok()
+                                        })
+                                        .collect::<Vec<_>>();
+                                    for (data, usage) in
+                                        report.keydata.iter_mut().zip(read_data.into_iter())
+                                    {
+                                        *data = usage;
                                     }
+                                } else {
+                                    reader.advance_by(item);
                                 }
-
-                                bit_position += item.bit_count();
                             }
                             key_state.process_report(report);
                         }
@@ -279,83 +273,44 @@ impl UsbHidDriver {
                             let mut is_absolute = false;
                             let mut report = MouseReport::default();
                             for item in app.input_items() {
-                                if item.is_const() {
-                                    bit_position += item.bit_count();
-                                    continue;
-                                };
                                 match item.usage_min() {
                                     HidUsage::BUTTON_1 => {
                                         if item.is_variable() && item.report_size() == 1 {
-                                            report.buttons = Self::read_bits(
-                                                &buffer,
-                                                bit_position,
-                                                item.report_count(),
-                                            )
-                                            .map(|v| MouseButton::from_bits_retain(v as u8))
-                                            .unwrap();
+                                            report.buttons = reader
+                                                .read_bit_array(item)
+                                                .map(|v| MouseButton::from_bits_retain(v as u8))
+                                                .unwrap();
                                         }
                                     }
                                     HidUsage::X => {
                                         if item.is_relative() {
-                                            report.x = match Self::read_bits_signed(
-                                                &buffer,
-                                                bit_position,
-                                                item.report_size(),
-                                            ) {
-                                                Some(v) => v,
-                                                None => todo!(),
-                                            }
+                                            report.x =
+                                                reader.read_value_signed(item).unwrap() as isize;
                                         } else {
                                             is_absolute = true;
                                             mouse_state.max_x = item.logical_max() as isize;
-                                            report.x = match Self::read_bits(
-                                                &buffer,
-                                                bit_position,
-                                                item.report_size(),
-                                            ) {
-                                                Some(v) => v as isize,
-                                                None => todo!(),
-                                            }
+                                            report.x = reader.read_value(item).unwrap() as isize;
                                         }
                                     }
                                     HidUsage::Y => {
                                         if item.is_relative() {
-                                            report.y = match Self::read_bits_signed(
-                                                &buffer,
-                                                bit_position,
-                                                item.report_size(),
-                                            ) {
-                                                Some(v) => v,
-                                                None => todo!(),
-                                            }
+                                            report.y =
+                                                reader.read_value_signed(item).unwrap() as isize;
                                         } else {
                                             is_absolute = true;
                                             mouse_state.max_y = item.logical_max() as isize;
-                                            report.y = match Self::read_bits(
-                                                &buffer,
-                                                bit_position,
-                                                item.report_size(),
-                                            ) {
-                                                Some(v) => v as isize,
-                                                None => todo!(),
-                                            }
+                                            report.y = reader.read_value(item).unwrap() as isize;
                                         }
                                     }
                                     HidUsage::WHEEL => {
-                                        if item.is_relative() {
-                                            report.wheel = match Self::read_bits_signed(
-                                                &buffer,
-                                                bit_position,
-                                                item.report_size(),
-                                            ) {
-                                                Some(v) => v,
-                                                None => todo!(),
-                                            }
-                                        }
+                                        report.wheel =
+                                            reader.read_value_signed(item).unwrap_or_default()
+                                                as isize;
                                     }
-                                    _ => (),
+                                    _ => {
+                                        reader.advance_by(item);
+                                    }
                                 }
-                                bit_position += item.bit_count();
                             }
                             if is_absolute {
                                 mouse_state.process_absolute_report(report);
@@ -367,21 +322,18 @@ impl UsbHidDriver {
                             let mut bitmap = Vec::new();
                             for item in app.input_items() {
                                 if item.is_const() {
-                                    bit_position += item.bit_count();
+                                    reader.advance_by(item);
                                     continue;
                                 };
-
                                 if item.is_variable() && item.report_size() == 1 {
-                                    Self::read_bits(&buffer, bit_position, item.report_size()).map(
-                                        |data| {
-                                            if data != 0 {
-                                                bitmap.push(item.usage_min());
-                                            }
-                                        },
-                                    );
+                                    if let Ok(data) = reader.read_value(item) {
+                                        if data != 0 {
+                                            bitmap.push(item.usage_min());
+                                        }
+                                    }
+                                } else {
+                                    reader.advance_by(item);
                                 }
-
-                                bit_position += item.bit_count();
                             }
                             if bitmap.len() > 0 {
                                 log!("CONSUME {:?}", bitmap);
@@ -441,11 +393,11 @@ impl UsbHidDriver {
             .control_vec(
                 UsbControlSetupData::request(
                     UsbControlRequestBitmap(0xA1),
-                    UsbControlRequest(0x01),
+                    UsbControlRequest::HID_GET_REPORT,
                 )
                 .value(
-                    (report_type as u16) * 256
-                        + (report_id.map(|v| v.as_u8()).unwrap_or_default() as u16),
+                    (report_id.map(|v| v.as_u8()).unwrap_or_default() as u16)
+                        + (report_type as u16) * 256,
                 )
                 .index_if(if_no),
                 vec,
@@ -468,80 +420,16 @@ impl UsbHidDriver {
             .control_send(
                 UsbControlSetupData::request(
                     UsbControlRequestBitmap(0x21),
-                    UsbControlRequest(0x09),
+                    UsbControlRequest::HID_SET_REPORT,
                 )
                 .value(
-                    (report_type as u16) * 256
-                        + (report_id.map(|v| v.as_u8()).unwrap_or_default() as u16),
+                    (report_id.map(|v| v.as_u8()).unwrap_or_default() as u16)
+                        + (report_type as u16) * 256,
                 )
                 .index_if(if_no),
                 max_len,
                 data,
             )
             .await
-    }
-
-    pub fn write_bits(blob: &mut [u8], position: usize, size: usize, value: usize) -> Option<()> {
-        let range = (position / 8)..((position + size + 7) / 8);
-        blob.get_mut(range).map(|slice| {
-            let mask = if size > 31 {
-                0xFFFF_FFFF
-            } else {
-                (1 << size) - 1
-            };
-            let value = value & mask;
-            let position7 = position & 7;
-            slice[0] |= (value << position7) as u8;
-            if size + position7 > 8 {
-                todo!();
-            }
-        })
-    }
-
-    pub fn read_bits(blob: &[u8], position: usize, size: usize) -> Option<usize> {
-        let range = (position / 8)..((position + size + 7) / 8);
-        blob.get(range).map(|slice| {
-            let mask = if size > 63 {
-                0xFFFF_FFFF_FFFF_FFFF
-            } else {
-                (1 << size) - 1
-            };
-            let position7 = position & 7;
-            let read_size = position7 + size;
-            let data = unsafe {
-                if read_size < 8 {
-                    *slice.get_unchecked(0) as u64
-                } else if read_size < 16 {
-                    *slice.get_unchecked(0) as u64 + (*slice.get_unchecked(1) as u64) * 0x100
-                } else if read_size < 24 {
-                    *slice.get_unchecked(0) as u64
-                        + (*slice.get_unchecked(1) as u64) * 0x100
-                        + (*slice.get_unchecked(2) as u64) * 0x100_00
-                } else if read_size < 32 {
-                    *slice.get_unchecked(0) as u64
-                        + (*slice.get_unchecked(1) as u64) * 0x100
-                        + (*slice.get_unchecked(2) as u64) * 0x100_00
-                        + (*slice.get_unchecked(3) as u64) * 0x100_00_00
-                } else {
-                    *slice.get_unchecked(0) as u64
-                        + (*slice.get_unchecked(1) as u64) * 0x100
-                        + (*slice.get_unchecked(2) as u64) * 0x100_00
-                        + (*slice.get_unchecked(3) as u64) * 0x100_00_00
-                        + (*slice.get_unchecked(4) as u64) * 0x100_00_00_00
-                }
-            };
-            ((data >> position7) & mask) as usize
-        })
-    }
-
-    pub fn read_bits_signed(blob: &[u8], position: usize, size: usize) -> Option<isize> {
-        Self::read_bits(blob, position, size).map(|v| {
-            let mask = 1 << (size - 1);
-            if (v & mask) == 0 {
-                v as isize
-            } else {
-                (!(mask - 1) | v) as isize
-            }
-        })
     }
 }

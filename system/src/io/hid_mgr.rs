@@ -341,7 +341,7 @@ impl HidParsedReport {
                         return Err(reader.position());
                     }
                 };
-                let param = HidReportAmbiguousSignedValue::Zero;
+                let param = HidReportValue::Zero;
                 (tag, param)
             } else {
                 let tag = match lead_byte.item_tag() {
@@ -791,6 +791,11 @@ impl ParsedReportMainItem {
     }
 
     #[inline]
+    pub fn usage_range(&self) -> impl Iterator<Item = HidUsage> {
+        (self.usage_min.0..=self.usage_max.0).map(|v| HidUsage(v))
+    }
+
+    #[inline]
     pub const fn logical_min(&self) -> u32 {
         self.logical_min
     }
@@ -835,11 +840,13 @@ impl core::fmt::Debug for ParsedReportApplication {
 
 impl core::fmt::Debug for ParsedReportMainItem {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let _ = write!(
+        write!(
             f,
-            "{:?} size {} {}",
-            self.flags, self.report_size, self.report_count
-        );
+            "{:x} size {} {}",
+            self.flags.bits(),
+            self.report_size,
+            self.report_count,
+        )?;
         if !self.flags.contains(HidReportMainFlag::CONSTANT) {
             if self.usage_max > self.usage_min {
                 let _ = write!(f, " usage {}..{}", self.usage_min, self.usage_max);
@@ -1011,6 +1018,193 @@ static USAGE_TO_CHAR_NON_ALPLABET_109: [char; 27] = [
 static USAGE_TO_CHAR_NUMPAD: [char; 16] = [
     '/', '*', '-', '+', '\x0D', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '.',
 ];
+
+#[derive(Debug, Clone, Copy)]
+pub enum HidBitStreamError {
+    InvalidParameter,
+    OutOfBounds,
+}
+
+pub struct HidBitStreamReader<'a> {
+    slice: &'a [u8],
+    position: usize,
+}
+
+impl<'a> HidBitStreamReader<'a> {
+    #[inline]
+    pub const fn new(slice: &'a [u8], position: usize) -> HidBitStreamReader<'a> {
+        Self { slice, position }
+    }
+}
+
+impl HidBitStreamReader<'_> {
+    fn _read_bits(&self, position: usize, size: usize) -> Result<u32, HidBitStreamError> {
+        let pos7 = position & 7;
+        let pos8 = position / 8;
+        let mask = if size > 31 {
+            0xFFFF_FFFFu32
+        } else {
+            (1 << size) - 1
+        };
+        let read_size = pos7 + size;
+        if read_size > 32 {
+            return Err(HidBitStreamError::InvalidParameter);
+        }
+        let mut iter = self.slice.iter().skip(pos8);
+        let data = match read_size {
+            1..=8 => iter.next().map(|v| *v as u32),
+            9..=16 => {
+                let b1 = iter.next();
+                let b2 = iter.next();
+                match (b1, b2) {
+                    (Some(b1), Some(b2)) => Some((*b1 as u32) + (*b2 as u32 * 0x1_00)),
+                    _ => None,
+                }
+            }
+            17..=24 => {
+                let b1 = iter.next();
+                let b2 = iter.next();
+                let b3 = iter.next();
+                match (b1, b2, b3) {
+                    (Some(b1), Some(b2), Some(b3)) => {
+                        Some((*b1 as u32) + (*b2 as u32 * 0x1_00) + (*b3 as u32 * 0x1_00_00))
+                    }
+                    _ => None,
+                }
+            }
+            25..=32 => {
+                let b1 = iter.next();
+                let b2 = iter.next();
+                let b3 = iter.next();
+                let b4 = iter.next();
+                match (b1, b2, b3, b4) {
+                    (Some(b1), Some(b2), Some(b3), Some(b4)) => Some(
+                        (*b1 as u32)
+                            + (*b2 as u32 * 0x1_00)
+                            + (*b3 as u32 * 0x1_00_00)
+                            + (*b4 as u32 * 0x1_00_00_00),
+                    ),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+        .ok_or(HidBitStreamError::OutOfBounds)?;
+
+        Ok((data >> pos7) & mask)
+    }
+
+    fn _read_bits_signed(&self, position: usize, size: usize) -> Result<i32, HidBitStreamError> {
+        self._read_bits(position, size).map(|v| {
+            let mask = 1 << (size - 1);
+            if (v & mask) == 0 {
+                v as i32
+            } else {
+                (!(mask - 1) | v) as i32
+            }
+        })
+    }
+
+    pub fn advance_by(&mut self, item: &ParsedReportMainItem) {
+        self.position += item.bit_count();
+    }
+
+    pub fn read_value(&mut self, item: &ParsedReportMainItem) -> Result<u32, HidBitStreamError> {
+        let bit_size = item.report_size();
+        if item.is_const() || item.is_relative() {
+            return Err(HidBitStreamError::InvalidParameter);
+        }
+        self._read_bits(self.position, bit_size).map(|v| {
+            self.position += bit_size;
+            v
+        })
+    }
+
+    pub fn read_value_signed(
+        &mut self,
+        item: &ParsedReportMainItem,
+    ) -> Result<i32, HidBitStreamError> {
+        let bit_size = item.report_size();
+        if item.is_const() || !item.is_relative() {
+            return Err(HidBitStreamError::InvalidParameter);
+        }
+        self._read_bits_signed(self.position, bit_size).map(|v| {
+            self.position += bit_size;
+            v
+        })
+    }
+
+    pub fn read_bit_array(
+        &mut self,
+        item: &ParsedReportMainItem,
+    ) -> Result<u32, HidBitStreamError> {
+        if item.is_const() || item.report_size() != 1 {
+            return Err(HidBitStreamError::InvalidParameter);
+        }
+        let bit_size = item.report_count();
+        self._read_bits(self.position, bit_size).map(|v| {
+            self.position += bit_size;
+            v
+        })
+    }
+}
+
+pub struct HidBitStreamWriter<'a> {
+    slice: &'a mut [u8],
+    position: usize,
+}
+
+impl<'a> HidBitStreamWriter<'a> {
+    #[inline]
+    pub const fn new(slice: &'a mut [u8]) -> HidBitStreamWriter<'a> {
+        Self { slice, position: 0 }
+    }
+}
+
+impl HidBitStreamWriter<'_> {
+    fn _write_bits(
+        &mut self,
+        position: usize,
+        size: usize,
+        value: u32,
+    ) -> Result<(), HidBitStreamError> {
+        let pos7 = position & 7;
+        let pos8 = position / 8;
+        let mask = if size > 31 {
+            0xFFFF_FFFFu32
+        } else {
+            (1 << size) - 1
+        };
+        let read_size = pos7 + size;
+        if read_size > 8 {
+            return Err(HidBitStreamError::InvalidParameter);
+        }
+
+        let range = (pos8)..((position + size + 7) / 8);
+        self.slice
+            .get_mut(range)
+            .map(|slice| {
+                slice[0] = (slice[0] & !(mask << pos7) as u8) | (value << pos7) as u8;
+            })
+            .ok_or(HidBitStreamError::OutOfBounds)
+    }
+
+    pub fn advance_by(&mut self, item: &ParsedReportMainItem) {
+        self.position += item.bit_count();
+    }
+
+    pub fn write_item(
+        &mut self,
+        item: &ParsedReportMainItem,
+        value: u32,
+    ) -> Result<(), HidBitStreamError> {
+        let bit_size = item.report_size();
+        self._write_bits(self.position, bit_size, value).map(|v| {
+            self.position += bit_size;
+            v
+        })
+    }
+}
 
 pub struct GameInputManager;
 

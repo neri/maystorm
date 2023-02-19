@@ -148,7 +148,7 @@ struct SyncImpl;
 
 impl HalSync for SyncImpl {
     #[inline]
-    fn test_and_set(&self, ptr: &AtomicUsize, position: usize) -> bool {
+    fn fetch_set(&self, ptr: &AtomicUsize, position: usize) -> bool {
         unsafe {
             let ptr = ptr as *const _ as *mut usize;
             let result: u8;
@@ -161,7 +161,7 @@ impl HalSync for SyncImpl {
     }
 
     #[inline]
-    fn test_and_clear(&self, ptr: &AtomicUsize, position: usize) -> bool {
+    fn fetch_reset(&self, ptr: &AtomicUsize, position: usize) -> bool {
         unsafe {
             let ptr = ptr as *const _ as *mut usize;
             let result: u8;
@@ -178,7 +178,7 @@ struct PciImpl;
 
 impl HalPci for PciImpl {
     #[inline]
-    unsafe fn read(&self, addr: crate::drivers::pci::PciConfigAddress) -> u32 {
+    unsafe fn read_pci(&self, addr: crate::drivers::pci::PciConfigAddress) -> u32 {
         without_interrupts!({
             Cpu::out32(0xCF8, addr.into());
             Cpu::in32(0xCFC)
@@ -186,7 +186,7 @@ impl HalPci for PciImpl {
     }
 
     #[inline]
-    unsafe fn write(&self, addr: crate::drivers::pci::PciConfigAddress, value: u32) {
+    unsafe fn write_pci(&self, addr: crate::drivers::pci::PciConfigAddress, value: u32) {
         without_interrupts!({
             Cpu::out32(0xCF8, addr.into());
             Cpu::out32(0xCFC, value);

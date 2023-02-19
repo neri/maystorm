@@ -35,7 +35,8 @@ impl Theme {
 
     #[inline]
     pub const fn window_default_background(&self) -> Color {
-        Color::WHITE
+        // Color::WHITE
+        Color::from_rgb(0xF7F7F7)
     }
 
     #[inline]
@@ -81,7 +82,7 @@ impl Theme {
 
     #[inline]
     pub const fn window_title_active_background(&self) -> Color {
-        Color::WHITE
+        Color::from_rgb(0xF7F5F9)
     }
 
     #[inline]

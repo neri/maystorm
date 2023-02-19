@@ -385,7 +385,7 @@ impl Scheduler {
         } else if thread.is_asleep() {
             //
         } else {
-            if !thread.attribute.test_and_set(ThreadAttribute::QUEUED) {
+            if !thread.attribute.fetch_set(ThreadAttribute::QUEUED) {
                 shared._enqueue(handle);
             }
         }
@@ -399,7 +399,7 @@ impl Scheduler {
         if thread.priority == Priority::Idle || thread.attribute.contains(ThreadAttribute::ZOMBIE) {
             return;
         }
-        if !thread.attribute.test_and_set(ThreadAttribute::QUEUED) {
+        if !thread.attribute.fetch_set(ThreadAttribute::QUEUED) {
             shared._enqueue(handle);
         }
     }

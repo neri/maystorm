@@ -109,22 +109,22 @@ pub trait HalSync {
     }
 
     #[inline]
-    fn test_and_set(&self, ptr: &AtomicUsize, position: usize) -> bool {
+    fn fetch_set(&self, ptr: &AtomicUsize, position: usize) -> bool {
         let bit = 1 << position;
         (ptr.fetch_or(bit, Ordering::SeqCst) & bit) != 0
     }
 
     #[inline]
-    fn test_and_clear(&self, ptr: &AtomicUsize, position: usize) -> bool {
+    fn fetch_reset(&self, ptr: &AtomicUsize, position: usize) -> bool {
         let bit = 1 << position;
         (ptr.fetch_and(!bit, Ordering::SeqCst) & bit) != 0
     }
 }
 
 pub trait HalPci {
-    unsafe fn read(&self, addr: PciConfigAddress) -> u32;
+    unsafe fn read_pci(&self, addr: PciConfigAddress) -> u32;
 
-    unsafe fn write(&self, addr: PciConfigAddress, value: u32);
+    unsafe fn write_pci(&self, addr: PciConfigAddress, value: u32);
 
     unsafe fn register_msi(&self, f: fn(usize) -> (), arg: usize) -> Result<(u64, u16), ()>;
 }

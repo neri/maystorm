@@ -235,25 +235,25 @@ impl PciDevice {
     unsafe fn instantiate(bus: u8, dev: u8, fun: u8) -> bool {
         let base = PciConfigAddress::bus(bus).dev(dev).fun(fun);
 
-        let dev_ven = Hal::pci().read(base);
+        let dev_ven = Hal::pci().read_pci(base);
         let vendor_id = PciVendorId(dev_ven as u16);
         let device_id = PciDeviceId((dev_ven >> 16) as u16);
         if !vendor_id.is_valid() || !device_id.is_valid() {
             return false;
         }
 
-        let sta_cmd = Hal::pci().read(base.register(1));
-        let subsys = Hal::pci().read(base.register(0x0B));
+        let sta_cmd = Hal::pci().read_pci(base.register(1));
+        let subsys = Hal::pci().read_pci(base.register(0x0B));
         let subsys_vendor_id = PciVendorId(subsys as u16);
         let subsys_device_id = PciDeviceId((subsys >> 16) as u16);
-        let class_code = PciClass::from_pci(Hal::pci().read(base.register(0x02)));
-        let header_type = ((Hal::pci().read(base.register(3)) >> 16) & 0xFF) as u8;
+        let class_code = PciClass::from_pci(Hal::pci().read_pci(base.register(0x02)));
+        let header_type = ((Hal::pci().read_pci(base.register(3)) >> 16) & 0xFF) as u8;
         let has_multi_func = (header_type & 0x80) != 0;
         let header_type = header_type & 0x7F;
 
         let secondary_bus_number = if header_type == 0x01 {
             // PCI to PCI bridge
-            let val = Hal::pci().read(base.register(6));
+            let val = Hal::pci().read_pci(base.register(6));
             let bus = (val >> 8) as u8;
             NonZeroU8::new(bus)
         } else {
@@ -279,11 +279,11 @@ impl PciDevice {
 
         let mut capabilities = Vec::new();
         if (sta_cmd & 0x0010_0000) != 0 {
-            let mut cap_ptr = (Hal::pci().read(base.register(0x0D)) & 0xFF) as u8;
+            let mut cap_ptr = (Hal::pci().read_pci(base.register(0x0D)) & 0xFF) as u8;
 
             loop {
                 let current_register = cap_ptr / 4;
-                let cap_head = Hal::pci().read(base.register(current_register));
+                let cap_head = Hal::pci().read_pci(base.register(current_register));
                 let cap_id = PciCapabilityId((cap_head & 0xFF) as u8);
                 let next_ptr = ((cap_head >> 8) & 0xFF) as u8;
 
@@ -412,30 +412,30 @@ impl PciDevice {
         };
         let base = self.addr.register(msi_reg);
 
-        Hal::pci().write(base + 1, msi_addr as u32);
-        Hal::pci().write(base + 2, (msi_addr >> 32) as u32);
-        Hal::pci().write(base + 3, msi_data as u32);
-        Hal::pci().write(base, (Hal::pci().read(base) & 0xFF8FFFFF) | 0x00010000);
+        Hal::pci().write_pci(base + 1, msi_addr as u32);
+        Hal::pci().write_pci(base + 2, (msi_addr >> 32) as u32);
+        Hal::pci().write_pci(base + 3, msi_data as u32);
+        Hal::pci().write_pci(base, (Hal::pci().read_pci(base) & 0xFF8FFFFF) | 0x00010000);
 
         Ok(())
     }
 
     pub unsafe fn read_pci_command(&self) -> PciCommand {
-        PciCommand::from_bits_retain(Hal::pci().read(self.addr.register(1)))
+        PciCommand::from_bits_retain(Hal::pci().read_pci(self.addr.register(1)))
     }
 
     pub unsafe fn write_pci_command(&self, val: PciCommand) {
-        Hal::pci().write(self.addr.register(1), val.bits());
+        Hal::pci().write_pci(self.addr.register(1), val.bits());
     }
 
     pub unsafe fn set_pci_command(&self, val: PciCommand) {
         let base = self.addr.register(1);
-        Hal::pci().write(base, Hal::pci().read(base) | val.bits());
+        Hal::pci().write_pci(base, Hal::pci().read_pci(base) | val.bits());
     }
 
     pub unsafe fn clear_pci_command(&self, val: PciCommand) {
         let base = self.addr.register(1);
-        Hal::pci().write(base, Hal::pci().read(base) & !val.bits());
+        Hal::pci().write_pci(base, Hal::pci().read_pci(base) & !val.bits());
     }
 }
 
@@ -467,7 +467,7 @@ impl PciBar {
     unsafe fn parse(config: PciConfigAddress, index: usize) -> Option<PciBar> {
         without_interrupts!({
             let reg = config.register(4 + index as u8);
-            let raw = Hal::pci().read(reg);
+            let raw = Hal::pci().read_pci(reg);
             if raw == 0 {
                 return None;
             }
@@ -492,9 +492,9 @@ impl PciBar {
                         _ => PhysicalAddress::new(raw as u64 & !0x0F),
                     };
                     let bias = bar_type.mask_bias() as u32;
-                    Hal::pci().write(reg, u32::MAX);
-                    let scale = (Hal::pci().read(reg) & bias).trailing_zeros() as u8;
-                    Hal::pci().write(reg, raw);
+                    Hal::pci().write_pci(reg, u32::MAX);
+                    let scale = (Hal::pci().read_pci(reg) & bias).trailing_zeros() as u8;
+                    Hal::pci().write_pci(reg, raw);
                     Some(Self {
                         bar_index: PciBarIndex(index as u8),
                         base,
@@ -505,16 +505,16 @@ impl PciBar {
                 }
                 PciBarType::Mmio64 => {
                     let reg_h = reg + 1;
-                    let raw_h = Hal::pci().read(reg_h);
+                    let raw_h = Hal::pci().read_pci(reg_h);
                     let base = PhysicalAddress::new(((raw_h as u64) << 32) | (raw as u64 & !0x0F));
                     let bias = bar_type.mask_bias();
-                    Hal::pci().write(reg, u32::MAX);
-                    Hal::pci().write(reg_h, u32::MAX);
-                    let data =
-                        (Hal::pci().read(reg) as u64) | ((Hal::pci().read(reg_h) as u64) << 32);
+                    Hal::pci().write_pci(reg, u32::MAX);
+                    Hal::pci().write_pci(reg_h, u32::MAX);
+                    let data = (Hal::pci().read_pci(reg) as u64)
+                        | ((Hal::pci().read_pci(reg_h) as u64) << 32);
                     let scale = (data & bias).trailing_zeros() as u8;
-                    Hal::pci().write(reg, raw);
-                    Hal::pci().write(reg_h, raw_h);
+                    Hal::pci().write_pci(reg, raw);
+                    Hal::pci().write_pci(reg_h, raw_h);
                     Some(Self {
                         bar_index: PciBarIndex(index as u8),
                         base,

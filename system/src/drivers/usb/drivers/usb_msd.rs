@@ -18,19 +18,20 @@ impl UsbMsdStarter {
 impl UsbInterfaceDriverStarter for UsbMsdStarter {
     fn instantiate(
         &self,
-        device: &Arc<UsbDeviceContext>,
-        if_no: UsbInterfaceNumber,
-        class: UsbClass,
+        _device: &Arc<UsbDeviceContext>,
+        _if_no: UsbInterfaceNumber,
+        _class: UsbClass,
     ) -> Option<Pin<Box<dyn Future<Output = Result<Task, UsbError>>>>> {
-        if class == UsbClass::MSD_BULK_ONLY {
-            Some(Box::pin(UsbMsdDriver::_instantiate(
-                device.clone(),
-                if_no,
-                class,
-            )))
-        } else {
-            None
-        }
+        // if class == UsbClass::MSD_BULK_ONLY {
+        //     Some(Box::pin(UsbMsdDriver::_instantiate(
+        //         device.clone(),
+        //         if_no,
+        //         class,
+        //     )))
+        // } else {
+        //     None
+        // }
+        None
     }
 }
 

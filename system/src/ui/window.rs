@@ -253,7 +253,7 @@ impl WindowManager<'_> {
 
             if shared
                 .attributes
-                .test_and_clear(WindowManagerAttributes::EVENT)
+                .fetch_reset(WindowManagerAttributes::EVENT)
             {
                 while let Some(event) = shared.system_event.dequeue() {
                     match event {
@@ -265,14 +265,14 @@ impl WindowManager<'_> {
             }
             if shared
                 .attributes
-                .test_and_clear(WindowManagerAttributes::EVENT_MOUSE_SHOW)
+                .fetch_reset(WindowManagerAttributes::EVENT_MOUSE_SHOW)
             {
-                if shared
+                if shared.attributes.contains(
+                    WindowManagerAttributes::POINTER_ENABLED
+                        | WindowManagerAttributes::POINTER_VISIBLE,
+                ) && !shared
                     .attributes
-                    .contains(WindowManagerAttributes::POINTER_ENABLED)
-                    && shared
-                        .attributes
-                        .contains(WindowManagerAttributes::POINTER_VISIBLE)
+                    .contains(WindowManagerAttributes::POINTER_HIDE_TEMP)
                 {
                     shared.pointer.show();
                 } else {
@@ -281,7 +281,7 @@ impl WindowManager<'_> {
             }
             if shared
                 .attributes
-                .test_and_clear(WindowManagerAttributes::EVENT_MOUSE_MOVE)
+                .fetch_reset(WindowManagerAttributes::EVENT_MOUSE_MOVE)
             {
                 if Self::is_pointer_enabled() {
                     let position = shared.pointer();
@@ -477,7 +477,7 @@ impl WindowManager<'_> {
             }
             if shared
                 .attributes
-                .test_and_clear(WindowManagerAttributes::NEEDS_REDRAW)
+                .fetch_reset(WindowManagerAttributes::NEEDS_REDRAW)
             {
                 let mut update_coords = shared.update_coords.lock();
                 if update_coords.is_valid() {
@@ -779,7 +779,7 @@ impl WindowManager<'_> {
         );
 
         if button_changed | moved {
-            shared.signal(WindowManagerAttributes::EVENT_MOUSE_MOVE);
+            WindowManager::set_pointer_move();
         }
     }
 
@@ -809,7 +809,7 @@ impl WindowManager<'_> {
         );
 
         if button_changed | moved {
-            shared.signal(WindowManagerAttributes::EVENT_MOUSE_MOVE);
+            WindowManager::set_pointer_move();
         }
     }
 
@@ -904,8 +904,58 @@ impl WindowManager<'_> {
         shared
             .attributes
             .set(WindowManagerAttributes::POINTER_VISIBLE, visible);
+        shared
+            .attributes
+            .remove(WindowManagerAttributes::POINTER_HIDE_TEMP);
+        if !visible {
+            shared.pointer.hide();
+        }
         shared.signal(WindowManagerAttributes::EVENT_MOUSE_SHOW);
         result
+    }
+
+    /// Make the pointer temporarily invisible
+    pub fn hide_pointer_temporarily() {
+        let shared = Self::shared();
+        shared
+            .attributes
+            .contains(WindowManagerAttributes::POINTER_HIDE_TEMP);
+        shared.pointer.hide();
+    }
+
+    #[inline]
+    pub fn set_pointer_move() {
+        let shared = Self::shared();
+        if shared
+            .attributes
+            .fetch_reset(WindowManagerAttributes::POINTER_HIDE_TEMP)
+        {
+            shared
+                .attributes
+                .insert(WindowManagerAttributes::EVENT_MOUSE_SHOW);
+        }
+        shared.signal(WindowManagerAttributes::EVENT_MOUSE_MOVE);
+    }
+
+    #[inline]
+    pub fn set_pointer_states(is_enabled: bool, is_visible: bool, is_temporarily_hidden: bool) {
+        let shared = Self::shared();
+        let _ = shared.attributes.fetch_update(|attr| {
+            let mut attr = attr;
+            attr.set(WindowManagerAttributes::POINTER_ENABLED, is_enabled);
+            attr.set(WindowManagerAttributes::POINTER_VISIBLE, is_visible);
+            attr.set(
+                WindowManagerAttributes::POINTER_HIDE_TEMP,
+                is_temporarily_hidden,
+            );
+            Some(attr)
+        });
+        if !is_enabled || !is_visible || is_temporarily_hidden {
+            shared.pointer.hide();
+        }
+        shared
+            .attributes
+            .insert(WindowManagerAttributes::EVENT_MOUSE_SHOW);
     }
 
     #[inline]
@@ -970,9 +1020,10 @@ my_bitflags! {
 
         const EVENT_MOUSE_MOVE  = 0x0000_0100;
         const EVENT_MOUSE_SHOW  = 0x0000_0200;
-        const POINTER_ENABLED   = 0x0000_0400;
-        const POINTER_VISIBLE   = 0x0000_0800;
-        const HW_CURSOR         = 0x0000_1000;
+        const HW_CURSOR         = 0x0000_0400;
+        const POINTER_HIDE_TEMP = 0x0000_2000;
+        const POINTER_VISIBLE   = 0x0000_4000;
+        const POINTER_ENABLED   = 0x0000_8000;
 
         const MOVING            = 0x0001_0000;
         const CLOSE_DOWN        = 0x0002_0000;
@@ -2374,7 +2425,7 @@ impl WindowHandle {
                 _ => {
                     if window
                         .attributes
-                        .test_and_clear(WindowAttributes::NEEDS_REDRAW)
+                        .fetch_reset(WindowAttributes::NEEDS_REDRAW)
                     {
                         Some(WindowMessage::Draw)
                     } else {
@@ -2440,7 +2491,7 @@ impl WindowHandle {
         };
         if window
             .attributes
-            .test_and_clear(WindowAttributes::NEEDS_REDRAW)
+            .fetch_reset(WindowAttributes::NEEDS_REDRAW)
         {
             self.draw(|_| {})
         }

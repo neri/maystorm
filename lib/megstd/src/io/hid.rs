@@ -3,7 +3,7 @@
 use alloc::vec::Vec;
 use core::{
     num::NonZeroU8,
-    ops::{BitAnd, BitOr, BitXor},
+    ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign},
 };
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
@@ -540,7 +540,7 @@ impl<T: Into<isize> + Copy> MouseReport<T> {
 pub struct MouseButton(pub u8);
 
 impl MouseButton {
-    /// Primary/Trigger Button
+    /// Primary Button
     pub const PRIMARY: Self = Self(0b0000_0001);
     /// Secondary Button
     pub const SECONDARY: Self = Self(0b0000_0010);
@@ -579,16 +579,32 @@ impl MouseButton {
 }
 
 impl const Default for MouseButton {
+    #[inline]
     fn default() -> Self {
         Self::empty()
+    }
+}
+
+impl const BitOrAssign<Self> for MouseButton {
+    #[inline]
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 = self.0 | rhs.0;
     }
 }
 
 impl const BitOr<Self> for MouseButton {
     type Output = Self;
 
+    #[inline]
     fn bitor(self, rhs: Self) -> Self::Output {
         Self(self.0 | rhs.0)
+    }
+}
+
+impl const BitAndAssign<Self> for MouseButton {
+    #[inline]
+    fn bitand_assign(&mut self, rhs: Self) {
+        self.0 = self.0 & rhs.0;
     }
 }
 
@@ -598,6 +614,13 @@ impl const BitAnd<Self> for MouseButton {
     #[inline]
     fn bitand(self, rhs: Self) -> Self::Output {
         Self(self.0 & rhs.0)
+    }
+}
+
+impl const BitXorAssign<Self> for MouseButton {
+    #[inline]
+    fn bitxor_assign(&mut self, rhs: Self) {
+        self.0 = self.0 ^ rhs.0;
     }
 }
 
@@ -676,39 +699,22 @@ impl HidReporteReader<'_> {
     }
 
     fn next_u16(&mut self) -> Option<u16> {
-        if self.index + 1 < self.data.len() {
-            let result = unsafe {
-                (*self.data.get_unchecked(self.index) as u16)
-                    + (*self.data.get_unchecked(self.index + 1) as u16 * 256)
-            };
-            self.index += 2;
-            Some(result)
-        } else {
-            None
-        }
+        let b1 = self.next()?;
+        let b2 = self.next()?;
+        Some((b1 as u16) + (b2 as u16 * 0x100))
     }
 
     fn next_u32(&mut self) -> Option<u32> {
-        if self.index + 3 < self.data.len() {
-            let result = unsafe {
-                (*self.data.get_unchecked(self.index) as u32)
-                    + (*self.data.get_unchecked(self.index + 1) as u32 * 0x100)
-                    + (*self.data.get_unchecked(self.index + 2) as u32 * 0x100_00)
-                    + (*self.data.get_unchecked(self.index + 3) as u32 * 0x100_00_00)
-            };
-            self.index += 4;
-            Some(result)
-        } else {
-            None
-        }
+        let b1 = self.next()?;
+        let b2 = self.next()?;
+        let b3 = self.next()?;
+        let b4 = self.next()?;
+        Some((b1 as u32) + (b2 as u32 * 0x100) + (b3 as u32 * 0x100_00) + (b4 as u32 * 0x100_00_00))
     }
 
-    pub fn read_param(
-        &mut self,
-        lead_byte: HidReportLeadByte,
-    ) -> Option<HidReportAmbiguousSignedValue> {
+    pub fn read_param(&mut self, lead_byte: HidReportLeadByte) -> Option<HidReportValue> {
         match lead_byte.trail_bytes() {
-            HidTrailBytes::Zero => Some(HidReportAmbiguousSignedValue::Zero),
+            HidTrailBytes::Zero => Some(HidReportValue::Zero),
             HidTrailBytes::Byte => self.next().map(|v| v.into()),
             HidTrailBytes::Word => self.next_u16().map(|v| v.into()),
             HidTrailBytes::DWord => self.next_u32().map(|v| v.into()),
@@ -925,15 +931,15 @@ pub enum HidReportCollectionType {
     UsageModifier,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum HidReportAmbiguousSignedValue {
+#[derive(Clone, Copy)]
+pub enum HidReportValue {
     Zero,
-    U8(u8),
-    U16(u16),
-    U32(u32),
+    X8(u8),
+    X16(u16),
+    X32(u32),
 }
 
-impl HidReportAmbiguousSignedValue {
+impl HidReportValue {
     #[inline]
     pub const fn as_u32(&self) -> u32 {
         self.as_usize() as u32
@@ -948,9 +954,9 @@ impl HidReportAmbiguousSignedValue {
     pub const fn as_usize(&self) -> usize {
         match *self {
             Self::Zero => 0,
-            Self::U8(v) => v as usize,
-            Self::U16(v) => v as usize,
-            Self::U32(v) => v as usize,
+            Self::X8(v) => v as usize,
+            Self::X16(v) => v as usize,
+            Self::X32(v) => v as usize,
         }
     }
 
@@ -958,108 +964,108 @@ impl HidReportAmbiguousSignedValue {
     pub const fn as_isize(&self) -> isize {
         match *self {
             Self::Zero => 0,
-            Self::U8(v) => v as i8 as isize,
-            Self::U16(v) => v as i16 as isize,
-            Self::U32(v) => v as i32 as isize,
+            Self::X8(v) => v as i8 as isize,
+            Self::X16(v) => v as i16 as isize,
+            Self::X32(v) => v as i32 as isize,
         }
     }
 }
 
-impl const From<u8> for HidReportAmbiguousSignedValue {
+impl const From<u8> for HidReportValue {
     #[inline]
     fn from(val: u8) -> Self {
-        Self::U8(val)
+        Self::X8(val)
     }
 }
 
-impl const From<u16> for HidReportAmbiguousSignedValue {
+impl const From<u16> for HidReportValue {
     #[inline]
     fn from(val: u16) -> Self {
-        Self::U16(val)
+        Self::X16(val)
     }
 }
 
-impl const From<u32> for HidReportAmbiguousSignedValue {
+impl const From<u32> for HidReportValue {
     #[inline]
     fn from(val: u32) -> Self {
-        Self::U32(val)
+        Self::X32(val)
     }
 }
 
-impl const From<HidReportAmbiguousSignedValue> for usize {
+impl const From<HidReportValue> for usize {
     #[inline]
-    fn from(val: HidReportAmbiguousSignedValue) -> Self {
+    fn from(val: HidReportValue) -> Self {
         val.as_usize()
     }
 }
 
-impl const From<HidReportAmbiguousSignedValue> for isize {
+impl const From<HidReportValue> for isize {
     #[inline]
-    fn from(val: HidReportAmbiguousSignedValue) -> Self {
+    fn from(val: HidReportValue) -> Self {
         val.as_isize()
     }
 }
 
-impl const From<HidReportAmbiguousSignedValue> for u8 {
+impl const From<HidReportValue> for u8 {
     #[inline]
-    fn from(val: HidReportAmbiguousSignedValue) -> Self {
+    fn from(val: HidReportValue) -> Self {
         val.as_usize() as u8
     }
 }
 
-impl const From<HidReportAmbiguousSignedValue> for u16 {
+impl const From<HidReportValue> for u16 {
     #[inline]
-    fn from(val: HidReportAmbiguousSignedValue) -> Self {
+    fn from(val: HidReportValue) -> Self {
         val.as_usize() as u16
     }
 }
 
-impl const From<HidReportAmbiguousSignedValue> for u32 {
+impl const From<HidReportValue> for u32 {
     #[inline]
-    fn from(val: HidReportAmbiguousSignedValue) -> Self {
+    fn from(val: HidReportValue) -> Self {
         val.as_u32()
     }
 }
 
-impl const From<HidReportAmbiguousSignedValue> for i8 {
+impl const From<HidReportValue> for i8 {
     #[inline]
-    fn from(val: HidReportAmbiguousSignedValue) -> Self {
+    fn from(val: HidReportValue) -> Self {
         val.as_isize() as i8
     }
 }
 
-impl const From<HidReportAmbiguousSignedValue> for i16 {
+impl const From<HidReportValue> for i16 {
     #[inline]
-    fn from(val: HidReportAmbiguousSignedValue) -> Self {
+    fn from(val: HidReportValue) -> Self {
         val.as_isize() as i16
     }
 }
 
-impl const From<HidReportAmbiguousSignedValue> for i32 {
+impl const From<HidReportValue> for i32 {
     #[inline]
-    fn from(val: HidReportAmbiguousSignedValue) -> Self {
+    fn from(val: HidReportValue) -> Self {
         val.as_i32()
     }
 }
 
-impl core::fmt::Debug for HidReportAmbiguousSignedValue {
+impl core::fmt::Debug for HidReportValue {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Zero => write!(f, "Zero"),
-            Self::U8(arg0) => write!(f, "{:02x}", arg0),
-            Self::U16(arg0) => write!(f, "{:04x}", arg0),
-            Self::U32(arg0) => write!(f, "{:08x}", arg0),
+            Self::X8(arg0) => write!(f, "{:02x}", arg0),
+            Self::X16(arg0) => write!(f, "{:04x}", arg0),
+            Self::X32(arg0) => write!(f, "{:08x}", arg0),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy)]
 pub struct HidReportGlobalState {
     pub usage_page: UsagePage,
-    pub logical_minimum: HidReportAmbiguousSignedValue,
-    pub logical_maximum: HidReportAmbiguousSignedValue,
-    pub physical_minimum: HidReportAmbiguousSignedValue,
-    pub physical_maximum: HidReportAmbiguousSignedValue,
+    pub logical_minimum: HidReportValue,
+    pub logical_maximum: HidReportValue,
+    pub physical_minimum: HidReportValue,
+    pub physical_maximum: HidReportValue,
     pub unit_exponent: isize,
     pub unit: usize,
     pub report_size: usize,
@@ -1072,10 +1078,10 @@ impl HidReportGlobalState {
     pub const fn new() -> Self {
         Self {
             usage_page: UsagePage(0),
-            logical_minimum: HidReportAmbiguousSignedValue::Zero,
-            logical_maximum: HidReportAmbiguousSignedValue::Zero,
-            physical_minimum: HidReportAmbiguousSignedValue::Zero,
-            physical_maximum: HidReportAmbiguousSignedValue::Zero,
+            logical_minimum: HidReportValue::Zero,
+            logical_maximum: HidReportValue::Zero,
+            physical_minimum: HidReportValue::Zero,
+            physical_maximum: HidReportValue::Zero,
             unit_exponent: 0,
             unit: 0,
             report_size: 0,
@@ -1106,10 +1112,7 @@ impl HidReportLocalState {
 
     #[inline]
     pub fn reset(&mut self) {
-        self.usage = Vec::new();
-        self.usage_minimum = 0;
-        self.usage_maximum = 0;
-        self.delimiter = 0;
+        *self = Self::new();
     }
 }
 
