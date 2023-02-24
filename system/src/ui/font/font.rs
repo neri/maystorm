@@ -211,7 +211,13 @@ impl FontDescriptor {
     }
 
     #[inline]
-    pub fn draw_char(&self, character: char, bitmap: &mut Bitmap, origin: Point, color: Color) {
+    pub fn draw_char(
+        &self,
+        character: char,
+        bitmap: &mut BitmapRefMut,
+        origin: Point,
+        color: Color,
+    ) {
         self.driver
             .draw_char(character, bitmap, origin, self.point(), color)
     }
@@ -231,7 +237,7 @@ pub trait FontDriver {
     fn draw_char(
         &self,
         character: char,
-        bitmap: &mut Bitmap,
+        bitmap: &mut BitmapRefMut,
         origin: Point,
         height: isize,
         color: Color,
@@ -327,7 +333,7 @@ impl FontDriver for FixedFontDriver<'_> {
     fn draw_char(
         &self,
         character: char,
-        bitmap: &mut Bitmap,
+        bitmap: &mut BitmapRefMut,
         origin: Point,
         _height: isize,
         color: Color,
@@ -395,12 +401,12 @@ impl FontDriver for TrueTypeFont {
     fn draw_char(
         &self,
         character: char,
-        bitmap: &mut Bitmap,
+        bitmap: &mut BitmapRefMut,
         origin: Point,
         height: isize,
         color: Color,
     ) {
-        let Bitmap::Argb32(bitmap) = bitmap else { return };
+        let BitmapRefMut::Argb32(bitmap) = bitmap else { return };
 
         let scale = height as f32 * self.font.height_unscaled() / self.units_per_em;
         let ascent = (height as f32 * self.font.ascent_unscaled() / self.units_per_em) as isize;

@@ -1,7 +1,7 @@
 #![no_main]
 #![no_std]
 
-use megstd::{sys::syscall::*, window::*};
+use megstd::{drawing::OneBitColor, sys::syscall::*, window::*};
 
 const BG_COLOR: WindowColor = WindowColor::BLACK;
 const FG_COLOR: WindowColor = WindowColor::YELLOW;
@@ -29,9 +29,9 @@ fn _start() {
     }
 
     let mut current =
-        Bitmap1::from_slice(&mut curr_data, Size::new(BITMAP_WIDTH, BITMAP_HEIGHT), None);
+        BitmapRefMut1::from_bytes(&mut curr_data, Size::new(BITMAP_WIDTH, BITMAP_HEIGHT));
     let mut next =
-        Bitmap1::from_slice(&mut next_data, Size::new(BITMAP_WIDTH, BITMAP_HEIGHT), None);
+        BitmapRefMut1::from_bytes(&mut next_data, Size::new(BITMAP_WIDTH, BITMAP_HEIGHT));
 
     loop {
         window.draw(|ctx| {
@@ -47,7 +47,7 @@ fn _start() {
         for y in 1..h {
             for x in 1..w {
                 let center = Point::new(x, y);
-                let mut life = unsafe { current.get_pixel_unchecked(center) };
+                let life = unsafe { current.get_pixel_unchecked(center) };
 
                 let count = [
                     (-1, -1),
@@ -66,7 +66,8 @@ fn _start() {
                             center.x + coords.0,
                             center.y + coords.1,
                         ))
-                    } != 0
+                    }
+                    .into_bool()
                     {
                         acc + 1
                     } else {
@@ -74,17 +75,21 @@ fn _start() {
                     }
                 });
 
-                if life == 0 {
-                    if count == 3 {
-                        life = 1;
+                let next_life = if life.into_bool() {
+                    if count <= 1 || count >= 4 {
+                        OneBitColor::Zero
+                    } else {
+                        life
                     }
                 } else {
-                    if count <= 1 || count >= 4 {
-                        life = 0;
+                    if count == 3 {
+                        OneBitColor::One
+                    } else {
+                        life
                     }
-                }
+                };
                 unsafe {
-                    next.set_pixel_unchecked(center, life);
+                    next.set_pixel_unchecked(center, next_life);
                 }
             }
         }

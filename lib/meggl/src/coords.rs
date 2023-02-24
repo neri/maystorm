@@ -1,20 +1,11 @@
 use core::{convert::TryFrom, mem::swap, ops::*};
 pub use num_traits::Zero;
 
-pub type FloatType = f64;
-
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
 pub struct Point {
     pub x: isize,
     pub y: isize,
-}
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone, Default, PartialEq)]
-pub struct PointF {
-    pub x: FloatType,
-    pub y: FloatType,
 }
 
 impl Point {
@@ -352,13 +343,6 @@ impl const From<Movement> for Distance2 {
 pub struct Size {
     pub width: isize,
     pub height: isize,
-}
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone, Default, PartialEq)]
-pub struct SizeF {
-    pub width: FloatType,
-    pub height: FloatType,
 }
 
 impl Size {

@@ -4,7 +4,7 @@ use super::*;
 use crate::{
     arch::cpu::LegacySyscallContext,
     fs::*,
-    io::audio::{AudioContext, FreqType, NoteControl, OscType},
+    io::audio::{AudioContext, FreqType, NoteControl, NoteOnParams, OscType},
     mem::MemoryManager,
     ui::window::*,
 };
@@ -330,16 +330,10 @@ impl Hoe {
                     note.stop();
                 }
                 let freq = regs.eax as FreqType / 1000.0;
-                if freq > 20.0 {
+                if freq >= 20.0 && freq <= 20_000.0 {
                     let mut osc = ctx.create_oscillator(freq, OscType::Square);
                     osc.connect(ctx.destination());
-                    // self.audio_handle = osc.start().ok();
-                    let mut note = io::audio::NoteOnParams::new(
-                        Arc::downgrade(ctx),
-                        0.0,
-                        44_100.0 / 4.0,
-                        0.75,
-                    );
+                    let mut note = NoteOnParams::new(Arc::downgrade(ctx), 0.0, 0.9, 0.1);
                     note.connect(osc);
                     self.note = note.start().ok();
                 }

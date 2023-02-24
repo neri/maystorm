@@ -921,7 +921,7 @@ impl Xhci {
                     hub.device().slot_id.0.get(),
                     port.0.get(),
                     hub.speed(),
-                    speed
+                    speed,
                 );
                 return Err(err);
             }

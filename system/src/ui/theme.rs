@@ -35,8 +35,7 @@ impl Theme {
 
     #[inline]
     pub const fn window_default_background(&self) -> Color {
-        // Color::WHITE
-        Color::from_rgb(0xF7F7F7)
+        Color::WHITE
     }
 
     #[inline]
@@ -82,7 +81,7 @@ impl Theme {
 
     #[inline]
     pub const fn window_title_active_background(&self) -> Color {
-        Color::from_rgb(0xF7F5F9)
+        Color::from_argb(0xF0EFEEF7)
     }
 
     #[inline]
@@ -97,7 +96,7 @@ impl Theme {
 
     #[inline]
     pub const fn window_title_inactive_background(&self) -> Color {
-        Color::from_rgb(0xEEEEEE)
+        Color::from_rgb(0xE5E5E5)
     }
 
     #[inline]
@@ -107,12 +106,12 @@ impl Theme {
 
     #[inline]
     pub const fn window_title_active_background_dark(&self) -> Color {
-        Color::from_rgb(0x546e7a)
+        Color::from_rgb(0x29434e)
     }
 
     #[inline]
     pub const fn window_title_inactive_background_dark(&self) -> Color {
-        Color::from_rgb(0x29434e)
+        Color::from_rgb(0x546e7a)
     }
 
     #[inline]

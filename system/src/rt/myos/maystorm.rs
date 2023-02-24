@@ -394,7 +394,7 @@ impl MyosRuntime {
                 };
                 window.draw_in_rect(rect, |bitmap| {
                     bitmap.blt_transparent(
-                        &ConstBitmap::from(&src),
+                        &BitmapRef::from(&src),
                         Point::default(),
                         src.size().into(),
                         IndexedColor::KEY_COLOR,
@@ -410,11 +410,7 @@ impl MyosRuntime {
                     size: src.size(),
                 };
                 window.draw_in_rect(rect, |bitmap| {
-                    bitmap.blt(
-                        &ConstBitmap::from(&src),
-                        Point::default(),
-                        src.size().into(),
-                    );
+                    bitmap.blt(&BitmapRef::from(&src), Point::default(), src.size().into());
                 });
             }
             Function::BlendRect => {
@@ -423,7 +419,7 @@ impl MyosRuntime {
                 let size = params.get_size()?;
                 let color = params.get_u32().map(|v| TrueColor::from_argb(v))?;
                 let rect = Rect { origin, size };
-                let mut bitmap: Bitmap32 = unsafe { transmute(bitmap) };
+                let mut bitmap: BitmapRefMut32 = unsafe { transmute(bitmap) };
                 bitmap.blend_rect(rect, color);
             }
             Function::Blt1 => {
@@ -660,7 +656,7 @@ impl ParamsDecoder<'_> {
     fn get_string<'a>(&mut self, memory: &'a WasmMemory) -> Option<&'a str> {
         self.get_memarg()
             .ok()
-            .and_then(|memarg| unsafe { memory.slice(memarg.base(), memarg.len()) }.ok())
+            .and_then(|memarg| memory.slice(memarg.base(), memarg.len()).ok())
             .and_then(|v| core::str::from_utf8(v).ok())
     }
 
@@ -669,7 +665,7 @@ impl ParamsDecoder<'_> {
     fn get_string16(&mut self, memory: &WasmMemory) -> Option<String> {
         self.get_memarg()
             .ok()
-            .and_then(|memarg| unsafe { memory.slice(memarg.base(), memarg.len() * 2) }.ok())
+            .and_then(|memarg| memory.slice(memarg.base(), memarg.len() * 2).ok())
             .and_then(|v| unsafe { core::mem::transmute(v) })
             .and_then(|p| String::from_utf16(p).ok())
     }
@@ -696,10 +692,10 @@ impl ParamsDecoder<'_> {
     fn get_bitmap8<'a>(
         &mut self,
         memory: &'a WasmMemory,
-    ) -> Result<ConstBitmap8<'a>, WasmRuntimeErrorKind> {
+    ) -> Result<BitmapRef8<'a>, WasmRuntimeErrorKind> {
         const SIZE_OF_BITMAP: usize = 20;
         let base = self.get_u32()? as usize;
-        let array = unsafe { memory.slice(base as usize, SIZE_OF_BITMAP) }?;
+        let array = memory.slice(base as usize, SIZE_OF_BITMAP)?;
 
         let width = LE::read_u32(&array[0..4]) as usize;
         let height = LE::read_u32(&array[4..8]) as usize;
@@ -707,9 +703,9 @@ impl ParamsDecoder<'_> {
         let base = LE::read_u32(&array[12..16]) as usize;
 
         let len = width * height;
-        let slice = unsafe { memory.slice(base, len) }?;
+        let slice = memory.slice(base, len)?;
 
-        Ok(ConstBitmap8::from_bytes(
+        Ok(BitmapRef8::from_bytes(
             slice,
             Size::new(width as isize, height as isize),
         ))
@@ -718,10 +714,10 @@ impl ParamsDecoder<'_> {
     fn get_bitmap32<'a>(
         &mut self,
         memory: &'a WasmMemory,
-    ) -> Result<ConstBitmap32<'a>, WasmRuntimeErrorKind> {
+    ) -> Result<BitmapRef32<'a>, WasmRuntimeErrorKind> {
         const SIZE_OF_BITMAP: usize = 20;
         let base = self.get_u32()? as usize;
-        let array = unsafe { memory.slice(base as usize, SIZE_OF_BITMAP) }?;
+        let array = memory.slice(base as usize, SIZE_OF_BITMAP)?;
 
         let width = LE::read_u32(&array[0..4]) as usize;
         let height = LE::read_u32(&array[4..8]) as usize;
@@ -731,7 +727,7 @@ impl ParamsDecoder<'_> {
         let len = width * height;
         let slice = memory.read_u32_array(base, len)?;
 
-        Ok(ConstBitmap32::from_bytes(
+        Ok(BitmapRef32::from_bytes(
             slice,
             Size::new(width as isize, height as isize),
         ))
@@ -804,7 +800,7 @@ struct OsBitmap1<'a> {
 impl<'a> OsBitmap1<'a> {
     fn from_memory(memory: &'a WasmMemory, base: u32) -> Result<Self, WasmRuntimeErrorKind> {
         const SIZE_OF_BITMAP: usize = 16;
-        let array = unsafe { memory.slice(base as usize, SIZE_OF_BITMAP) }?;
+        let array = memory.slice(base as usize, SIZE_OF_BITMAP)?;
 
         let width = LE::read_u32(&array[0..4]) as usize;
         let height = LE::read_u32(&array[4..8]) as usize;
@@ -813,7 +809,7 @@ impl<'a> OsBitmap1<'a> {
 
         let dim = Size::new(width as isize, height as isize);
         let size = stride * height;
-        let slice = unsafe { memory.slice(base, size) }?;
+        let slice = memory.slice(base, size)?;
 
         Ok(Self { slice, dim, stride })
     }
@@ -829,7 +825,7 @@ impl OsBitmap1<'_> {
         }
     }
 
-    fn blt(&self, to: &mut Bitmap, origin: Point, color: Color, mode: usize) {
+    fn blt(&self, to: &mut BitmapRefMut, origin: Point, color: Color, mode: usize) {
         // TODO: clipping
         let scale = mode as isize;
         let stride = self.stride;
@@ -926,7 +922,7 @@ impl OsWindow {
     #[inline]
     fn draw_in_rect<F>(&mut self, rect: Rect, f: F)
     where
-        F: FnOnce(&mut Bitmap) -> (),
+        F: FnOnce(&mut BitmapRefMut) -> (),
     {
         let _ = self.native.draw_in_rect(rect, f);
         self.add_region(rect);

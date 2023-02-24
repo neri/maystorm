@@ -83,14 +83,14 @@ impl ScreenOrientation {
 }
 
 pub struct BitmapScreen<'a> {
-    fb: UnsafeCell<Bitmap32<'a>>,
+    fb: UnsafeCell<BitmapRefMut32<'a>>,
     dims: Size,
     rotation: AtomicWrapper<Rotation>,
 }
 
 impl<'a> BitmapScreen<'a> {
     #[inline]
-    pub const fn new(bitmap: Bitmap32<'a>) -> Self {
+    pub const fn new(bitmap: BitmapRefMut32<'a>) -> Self {
         Self {
             dims: bitmap.size(),
             fb: UnsafeCell::new(bitmap),
@@ -99,7 +99,7 @@ impl<'a> BitmapScreen<'a> {
     }
 
     #[inline]
-    fn bitmap(&self) -> &'a mut Bitmap32<'a> {
+    fn bitmap(&self) -> &'a mut BitmapRefMut32<'a> {
         unsafe { &mut *self.fb.get() }
     }
 
@@ -126,12 +126,12 @@ impl Drawable for BitmapScreen<'_> {
     }
 }
 
-impl Screen<ConstBitmap32<'_>> for BitmapScreen<'_> {
+impl Screen<BitmapRef32<'_>> for BitmapScreen<'_> {
     fn native_size(&self) -> Size {
         self.dims
     }
 
-    fn blt(&self, src: &ConstBitmap32, origin: Point, rect: Rect) {
+    fn blt(&self, src: &BitmapRef32, origin: Point, rect: Rect) {
         match self.rotation() {
             Rotation::Default => self.bitmap().blt(src, origin, rect),
             Rotation::ClockWise => self.bitmap().blt_cw(src, origin, rect),

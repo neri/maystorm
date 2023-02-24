@@ -1,4 +1,5 @@
 use core::{
+    fmt,
     mem::transmute,
     ops::{Add, AddAssign, Sub, SubAssign},
 };
@@ -8,6 +9,11 @@ use core::{
 pub trait ColorTrait: Sized + Copy + Clone + PartialEq + Eq + Default {
     // fn bits_per_pixel() -> usize;
     // fn bits_per_channel() -> usize;
+
+    #[inline]
+    fn stride_for(width: isize) -> usize {
+        width as usize
+    }
 }
 
 pub trait Transparency: ColorTrait {
@@ -138,8 +144,8 @@ impl IndexedColor {
     }
 
     #[inline]
-    pub const fn as_true_color(self) -> TrueColor {
-        TrueColor::from_argb(self.as_argb())
+    pub const fn as_true_color(self) -> BGRA8888 {
+        BGRA8888::from_argb(self.as_argb())
     }
 
     #[inline]
@@ -155,7 +161,7 @@ impl const From<u8> for IndexedColor {
     }
 }
 
-impl const From<IndexedColor> for TrueColor {
+impl const From<IndexedColor> for BGRA8888 {
     #[inline]
     fn from(val: IndexedColor) -> Self {
         val.as_true_color()
@@ -347,20 +353,20 @@ impl const SubAssign<u8> for Alpha8 {
 }
 
 #[cfg(target_endian = "little")]
-pub type BGRA8888 = TrueColor;
+pub type TrueColor = BGRA8888;
 
 /// 32bit TrueColor
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
-pub struct TrueColor(pub u32);
+pub struct BGRA8888(pub u32);
 
-impl ColorTrait for TrueColor {}
+impl ColorTrait for BGRA8888 {}
 
-impl Transparency for TrueColor {
+impl Transparency for BGRA8888 {
     const TRANSPARENT: Self = Self(0);
 }
 
-impl PrimaryColor for TrueColor {
+impl PrimaryColor for BGRA8888 {
     const PRIMARY_BLACK: Self = Self::from_rgb(0x00_00_00);
     const PRIMARY_BLUE: Self = Self::from_rgb(0x00_00_FF);
     const PRIMARY_GREEN: Self = Self::from_rgb(0x00_FF_00);
@@ -371,7 +377,7 @@ impl PrimaryColor for TrueColor {
     const PRIMARY_WHITE: Self = Self::from_rgb(0xFF_FF_FF);
 }
 
-impl TrueColor {
+impl BGRA8888 {
     pub const BLACK: Self = Self::from_rgb(0x212121);
     pub const BLUE: Self = Self::from_rgb(0x0D47A1);
     pub const GREEN: Self = Self::from_rgb(0x1B5E20);
@@ -499,16 +505,16 @@ impl TrueColor {
     }
 }
 
-impl const From<u32> for TrueColor {
+impl const From<u32> for BGRA8888 {
     #[inline]
     fn from(argb: u32) -> Self {
         Self::from_argb(argb)
     }
 }
 
-impl const From<TrueColor> for IndexedColor {
+impl const From<BGRA8888> for IndexedColor {
     #[inline]
-    fn from(color: TrueColor) -> Self {
+    fn from(color: BGRA8888) -> Self {
         Self::from_rgb(color.rgb())
     }
 }
@@ -540,13 +546,13 @@ impl ColorComponents {
 
     #[inline]
     #[cfg(target_endian = "little")]
-    pub const fn from_true_color(val: TrueColor) -> Self {
+    pub const fn from_true_color(val: BGRA8888) -> Self {
         unsafe { transmute(val) }
     }
 
     #[inline]
     #[cfg(target_endian = "little")]
-    pub const fn into_true_color(self) -> TrueColor {
+    pub const fn into_true_color(self) -> BGRA8888 {
         unsafe { transmute(self) }
     }
 
@@ -576,15 +582,15 @@ impl ColorComponents {
 }
 
 #[cfg(target_endian = "little")]
-impl const From<TrueColor> for ColorComponents {
+impl const From<BGRA8888> for ColorComponents {
     #[inline]
-    fn from(color: TrueColor) -> Self {
+    fn from(color: BGRA8888) -> Self {
         unsafe { transmute(color) }
     }
 }
 
 #[cfg(target_endian = "little")]
-impl const From<ColorComponents> for TrueColor {
+impl const From<ColorComponents> for BGRA8888 {
     #[inline]
     fn from(components: ColorComponents) -> Self {
         unsafe { transmute(components) }
@@ -653,14 +659,14 @@ impl RGBA8888 {
     }
 }
 
-impl const From<TrueColor> for RGBA8888 {
+impl const From<BGRA8888> for RGBA8888 {
     #[inline]
-    fn from(v: TrueColor) -> Self {
+    fn from(v: BGRA8888) -> Self {
         Self::from(ColorComponentsRGBA::from(v.components()))
     }
 }
 
-impl const From<RGBA8888> for TrueColor {
+impl const From<RGBA8888> for BGRA8888 {
     #[inline]
     fn from(v: RGBA8888) -> Self {
         Self::from(ColorComponents::from(v.components()))
@@ -768,7 +774,7 @@ impl const From<[u8; 4]> for ColorComponentsRGBA {
 pub enum Color {
     Transparent,
     Indexed(IndexedColor),
-    Argb32(TrueColor),
+    Argb32(BGRA8888),
 }
 
 impl ColorTrait for Color {}
@@ -793,31 +799,31 @@ impl PrimaryColor for Color {
 }
 
 impl Color {
-    pub const BLACK: Self = Self::Argb32(TrueColor::BLACK);
-    pub const BLUE: Self = Self::Argb32(TrueColor::BLUE);
-    pub const GREEN: Self = Self::Argb32(TrueColor::GREEN);
-    pub const CYAN: Self = Self::Argb32(TrueColor::CYAN);
-    pub const RED: Self = Self::Argb32(TrueColor::RED);
-    pub const MAGENTA: Self = Self::Argb32(TrueColor::MAGENTA);
-    pub const BROWN: Self = Self::Argb32(TrueColor::BROWN);
-    pub const LIGHT_GRAY: Self = Self::Argb32(TrueColor::LIGHT_GRAY);
-    pub const DARK_GRAY: Self = Self::Argb32(TrueColor::DARK_GRAY);
-    pub const LIGHT_BLUE: Self = Self::Argb32(TrueColor::LIGHT_BLUE);
-    pub const LIGHT_GREEN: Self = Self::Argb32(TrueColor::LIGHT_GREEN);
-    pub const LIGHT_CYAN: Self = Self::Argb32(TrueColor::LIGHT_CYAN);
-    pub const LIGHT_RED: Self = Self::Argb32(TrueColor::LIGHT_RED);
-    pub const LIGHT_MAGENTA: Self = Self::Argb32(TrueColor::LIGHT_MAGENTA);
-    pub const YELLOW: Self = Self::Argb32(TrueColor::YELLOW);
-    pub const WHITE: Self = Self::Argb32(TrueColor::WHITE);
+    pub const BLACK: Self = Self::Argb32(BGRA8888::BLACK);
+    pub const BLUE: Self = Self::Argb32(BGRA8888::BLUE);
+    pub const GREEN: Self = Self::Argb32(BGRA8888::GREEN);
+    pub const CYAN: Self = Self::Argb32(BGRA8888::CYAN);
+    pub const RED: Self = Self::Argb32(BGRA8888::RED);
+    pub const MAGENTA: Self = Self::Argb32(BGRA8888::MAGENTA);
+    pub const BROWN: Self = Self::Argb32(BGRA8888::BROWN);
+    pub const LIGHT_GRAY: Self = Self::Argb32(BGRA8888::LIGHT_GRAY);
+    pub const DARK_GRAY: Self = Self::Argb32(BGRA8888::DARK_GRAY);
+    pub const LIGHT_BLUE: Self = Self::Argb32(BGRA8888::LIGHT_BLUE);
+    pub const LIGHT_GREEN: Self = Self::Argb32(BGRA8888::LIGHT_GREEN);
+    pub const LIGHT_CYAN: Self = Self::Argb32(BGRA8888::LIGHT_CYAN);
+    pub const LIGHT_RED: Self = Self::Argb32(BGRA8888::LIGHT_RED);
+    pub const LIGHT_MAGENTA: Self = Self::Argb32(BGRA8888::LIGHT_MAGENTA);
+    pub const YELLOW: Self = Self::Argb32(BGRA8888::YELLOW);
+    pub const WHITE: Self = Self::Argb32(BGRA8888::WHITE);
 
     #[inline]
     pub const fn from_rgb(rgb: u32) -> Self {
-        Self::Argb32(TrueColor::from_rgb(rgb))
+        Self::Argb32(BGRA8888::from_rgb(rgb))
     }
 
     #[inline]
     pub const fn from_argb(argb: u32) -> Self {
-        Self::Argb32(TrueColor::from_argb(argb))
+        Self::Argb32(BGRA8888::from_argb(argb))
     }
 
     #[inline]
@@ -830,9 +836,9 @@ impl Color {
     }
 
     #[inline]
-    pub const fn into_true_color(&self) -> TrueColor {
+    pub const fn into_true_color(&self) -> BGRA8888 {
         match self {
-            Color::Transparent => TrueColor::TRANSPARENT,
+            Color::Transparent => BGRA8888::TRANSPARENT,
             Color::Indexed(v) => v.as_true_color(),
             Color::Argb32(v) => *v,
         }
@@ -874,9 +880,9 @@ impl const Into<IndexedColor> for Color {
     }
 }
 
-impl const Into<TrueColor> for Color {
+impl const Into<BGRA8888> for Color {
     #[inline]
-    fn into(self) -> TrueColor {
+    fn into(self) -> BGRA8888 {
         self.into_true_color()
     }
 }
@@ -888,9 +894,9 @@ impl const From<IndexedColor> for Color {
     }
 }
 
-impl const From<TrueColor> for Color {
+impl const From<BGRA8888> for Color {
     #[inline]
-    fn from(val: TrueColor) -> Self {
+    fn from(val: BGRA8888) -> Self {
         Self::Argb32(val)
     }
 }
@@ -909,14 +915,14 @@ impl Transparency for PackedColor {
 }
 
 impl PrimaryColor for PackedColor {
-    const PRIMARY_BLACK: Self = Self::from_true_color(TrueColor::PRIMARY_BLACK);
-    const PRIMARY_BLUE: Self = Self::from_true_color(TrueColor::PRIMARY_BLUE);
-    const PRIMARY_GREEN: Self = Self::from_true_color(TrueColor::PRIMARY_GREEN);
-    const PRIMARY_CYAN: Self = Self::from_true_color(TrueColor::PRIMARY_CYAN);
-    const PRIMARY_RED: Self = Self::from_true_color(TrueColor::PRIMARY_RED);
-    const PRIMARY_MAGENTA: Self = Self::from_true_color(TrueColor::PRIMARY_MAGENTA);
-    const PRIMARY_YELLOW: Self = Self::from_true_color(TrueColor::PRIMARY_YELLOW);
-    const PRIMARY_WHITE: Self = Self::from_true_color(TrueColor::PRIMARY_WHITE);
+    const PRIMARY_BLACK: Self = Self::from_true_color(BGRA8888::PRIMARY_BLACK);
+    const PRIMARY_BLUE: Self = Self::from_true_color(BGRA8888::PRIMARY_BLUE);
+    const PRIMARY_GREEN: Self = Self::from_true_color(BGRA8888::PRIMARY_GREEN);
+    const PRIMARY_CYAN: Self = Self::from_true_color(BGRA8888::PRIMARY_CYAN);
+    const PRIMARY_RED: Self = Self::from_true_color(BGRA8888::PRIMARY_RED);
+    const PRIMARY_MAGENTA: Self = Self::from_true_color(BGRA8888::PRIMARY_MAGENTA);
+    const PRIMARY_YELLOW: Self = Self::from_true_color(BGRA8888::PRIMARY_YELLOW);
+    const PRIMARY_WHITE: Self = Self::from_true_color(BGRA8888::PRIMARY_WHITE);
 }
 
 impl PackedColor {
@@ -942,7 +948,7 @@ impl PackedColor {
 
     #[inline]
     pub const fn from_argb(argb: u32) -> Self {
-        Self::from_true_color(TrueColor::from_argb(argb))
+        Self::from_true_color(BGRA8888::from_argb(argb))
     }
 
     #[inline]
@@ -951,7 +957,7 @@ impl PackedColor {
     }
 
     #[inline]
-    pub const fn from_true_color(argb: TrueColor) -> Self {
+    pub const fn from_true_color(argb: BGRA8888) -> Self {
         match argb.is_transparent() {
             true => Self::TRANSPARENT,
             false => Self(argb.argb()),
@@ -987,7 +993,7 @@ impl PackedColor {
     }
 
     #[inline]
-    pub const fn into_true_color(self) -> TrueColor {
+    pub const fn into_true_color(self) -> BGRA8888 {
         self.as_color().into_true_color()
     }
 
@@ -997,9 +1003,9 @@ impl PackedColor {
     }
 }
 
-impl const From<TrueColor> for PackedColor {
+impl const From<BGRA8888> for PackedColor {
     #[inline]
-    fn from(color: TrueColor) -> Self {
+    fn from(color: BGRA8888) -> Self {
         Self::from_true_color(color)
     }
 }
@@ -1058,7 +1064,7 @@ impl RGB555 {
     }
 
     #[inline]
-    pub const fn as_true_color(&self) -> TrueColor {
+    pub const fn as_true_color(&self) -> BGRA8888 {
         let components = self.components();
         let components = ColorComponents {
             a: Alpha8::OPAQUE,
@@ -1076,11 +1082,11 @@ impl RGB555 {
 
     #[inline]
     const fn from_rgb(rgb: u32) -> Self {
-        Self::from_true_color(TrueColor::from_rgb(rgb))
+        Self::from_true_color(BGRA8888::from_rgb(rgb))
     }
 
     #[inline]
-    pub const fn from_true_color(color: TrueColor) -> Self {
+    pub const fn from_true_color(color: BGRA8888) -> Self {
         let components = color.components();
         Self(
             ((components.b >> 3) as u16)
@@ -1090,14 +1096,14 @@ impl RGB555 {
     }
 }
 
-impl const From<TrueColor> for RGB555 {
+impl const From<BGRA8888> for RGB555 {
     #[inline]
-    fn from(color: TrueColor) -> Self {
+    fn from(color: BGRA8888) -> Self {
         Self::from_true_color(color)
     }
 }
 
-impl const From<RGB555> for TrueColor {
+impl const From<RGB555> for BGRA8888 {
     #[inline]
     fn from(color: RGB555) -> Self {
         color.as_true_color()
@@ -1151,7 +1157,7 @@ impl RGB565 {
     }
 
     #[inline]
-    pub const fn as_true_color(&self) -> TrueColor {
+    pub const fn as_true_color(&self) -> BGRA8888 {
         let components = self.components();
         let components = ColorComponents {
             a: Alpha8::OPAQUE,
@@ -1174,11 +1180,11 @@ impl RGB565 {
 
     #[inline]
     const fn from_rgb(rgb: u32) -> Self {
-        Self::from_true_color(TrueColor::from_rgb(rgb))
+        Self::from_true_color(BGRA8888::from_rgb(rgb))
     }
 
     #[inline]
-    pub const fn from_true_color(color: TrueColor) -> Self {
+    pub const fn from_true_color(color: BGRA8888) -> Self {
         let components = color.components();
         Self(
             ((components.b >> 3) as u16)
@@ -1188,14 +1194,14 @@ impl RGB565 {
     }
 }
 
-impl const From<TrueColor> for RGB565 {
+impl const From<BGRA8888> for RGB565 {
     #[inline]
-    fn from(color: TrueColor) -> Self {
+    fn from(color: BGRA8888) -> Self {
         Self::from_true_color(color)
     }
 }
 
-impl const From<RGB565> for TrueColor {
+impl const From<RGB565> for BGRA8888 {
     #[inline]
     fn from(color: RGB565) -> Self {
         color.as_true_color()
@@ -1237,7 +1243,12 @@ pub enum IndexedColor4 {
     Color1111,
 }
 
-impl ColorTrait for IndexedColor4 {}
+impl const ColorTrait for IndexedColor4 {
+    #[inline]
+    fn stride_for(width: isize) -> usize {
+        (width as usize + 1) / 2
+    }
+}
 
 impl IndexedColor4 {
     #[inline]
@@ -1279,7 +1290,7 @@ pub struct IndexedColorPair44(u8);
 
 impl IndexedColorPair44 {
     #[inline]
-    pub const fn into_tuple(self) -> (IndexedColor4, IndexedColor4) {
+    pub const fn into_pair(self) -> (IndexedColor4, IndexedColor4) {
         let left = IndexedColor4::from_u8(self.0 >> 4);
         let right = IndexedColor4::from_u8(self.0 & 15);
         (left, right)
@@ -1287,12 +1298,12 @@ impl IndexedColorPair44 {
 
     #[inline]
     pub const fn lhs(&self) -> IndexedColor4 {
-        self.into_tuple().0
+        self.into_pair().0
     }
 
     #[inline]
     pub const fn rhs(&self) -> IndexedColor4 {
-        self.into_tuple().1
+        self.into_pair().1
     }
 
     #[inline]
@@ -1307,7 +1318,7 @@ impl IndexedColorPair44 {
     where
         F: FnOnce((IndexedColor4, IndexedColor4)) -> (IndexedColor4, IndexedColor4),
     {
-        *self = Self::from_pair(kernel(self.into_tuple()));
+        *self = Self::from_pair(kernel(self.into_pair()));
     }
 
     #[inline]
@@ -1322,62 +1333,154 @@ impl IndexedColorPair44 {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum MonoColor {
-    A,
-    B,
+pub enum OneBitColor {
+    Zero,
+    One,
 }
 
-impl ColorTrait for MonoColor {}
+impl const ColorTrait for OneBitColor {
+    #[inline]
+    fn stride_for(width: isize) -> usize {
+        (width as usize + 7) / 8
+    }
+}
 
-impl MonoColor {
+impl OneBitColor {
     #[inline]
     pub const fn new(value: u8) -> Self {
         match value {
-            0 => Self::A,
-            _ => Self::B,
+            0 => Self::Zero,
+            _ => Self::One,
+        }
+    }
+
+    #[inline]
+    pub const fn from_bool(value: bool) -> Self {
+        if value {
+            Self::One
+        } else {
+            Self::Zero
         }
     }
 
     #[inline]
     pub const fn into_bool(self) -> bool {
         match self {
-            Self::A => false,
-            Self::B => true,
+            Self::Zero => false,
+            Self::One => true,
         }
     }
 }
 
-impl const From<MonoColor> for u8 {
+impl const From<OneBitColor> for u8 {
     #[inline]
-    fn from(value: MonoColor) -> Self {
+    fn from(value: OneBitColor) -> Self {
         value.into_bool() as u8
     }
 }
 
-impl const From<u8> for MonoColor {
+impl const From<u8> for OneBitColor {
     #[inline]
     fn from(value: u8) -> Self {
         Self::new(value)
     }
 }
 
-impl const From<MonoColor> for bool {
+impl const From<OneBitColor> for bool {
     #[inline]
-    fn from(value: MonoColor) -> Self {
+    fn from(value: OneBitColor) -> Self {
         value.into_bool()
     }
 }
 
-impl const From<bool> for MonoColor {
+impl const From<bool> for OneBitColor {
     #[inline]
     fn from(value: bool) -> Self {
         Self::new(value as u8)
     }
 }
 
-impl const Default for MonoColor {
+impl const Default for OneBitColor {
     #[inline]
     fn default() -> Self {
-        Self::A
+        Self::Zero
+    }
+}
+
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Octet(u8);
+
+impl Octet {
+    #[inline]
+    pub const fn new(value: u8) -> Self {
+        Self(value)
+    }
+
+    #[inline]
+    pub const fn as_u8(&self) -> u8 {
+        self.0
+    }
+
+    #[inline]
+    pub fn get(&self, at: usize) -> OneBitColor {
+        OneBitColor::new(self.0 & 0x80u8 >> at)
+    }
+
+    #[inline]
+    pub fn set(&mut self, at: usize, value: OneBitColor) {
+        let mask = 0x80u8 >> at;
+        if value.into_bool() {
+            self.0 |= mask;
+        } else {
+            self.0 &= !mask;
+        }
+    }
+
+    #[inline]
+    pub fn from_array(array: &[OneBitColor]) -> Self {
+        array
+            .iter()
+            .take(8)
+            .enumerate()
+            .filter_map(|(v, bit)| bit.into_bool().then(|| 0x80u8 >> v))
+            .reduce(|a, b| a + b)
+            .map(Self)
+            .unwrap_or_default()
+    }
+
+    #[inline]
+    pub fn iter(&self) -> impl Iterator<Item = OneBitColor> {
+        let raw = self.0;
+        (0..8)
+            .map(|v| 0x80u8 >> v)
+            .map(move |v| OneBitColor::new(raw & v))
+    }
+
+    #[inline]
+    pub fn into_array(self) -> [OneBitColor; 8] {
+        let mut result = [OneBitColor::default(); 8];
+        result.iter_mut().zip(self.iter()).for_each(|(a, b)| *a = b);
+        result
+    }
+}
+
+impl const Default for Octet {
+    #[inline]
+    fn default() -> Self {
+        Self(0)
+    }
+}
+
+impl const From<Octet> for u8 {
+    #[inline]
+    fn from(value: Octet) -> Self {
+        value.as_u8()
+    }
+}
+
+impl fmt::Debug for Octet {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:08b}", self.0)
     }
 }

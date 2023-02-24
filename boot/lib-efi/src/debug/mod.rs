@@ -1,12 +1,8 @@
-// Debug Console
-
-// use crate::*;
-use core::fmt::Write;
-use core::slice;
+use core::{cell::UnsafeCell, fmt::Write, slice};
 
 include!("megh0816.rs");
 
-static mut CONSOLE: Console = Console::new();
+static mut CONSOLE: UnsafeCell<Console> = UnsafeCell::new(Console::new());
 
 static BIT_MASKS: [u8; 8] = [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
 
@@ -41,7 +37,7 @@ impl Console {
 
     #[inline]
     pub fn shared<'a>() -> &'a mut Self {
-        unsafe { &mut CONSOLE }
+        unsafe { CONSOLE.get_mut() }
     }
 
     #[inline]
@@ -49,7 +45,7 @@ impl Console {
         unsafe { slice::from_raw_parts_mut(self.base as *mut u32, self.stride * self.height) }
     }
 
-    pub fn init(base: usize, width: usize, height: usize, stride: usize) {
+    pub unsafe fn init(base: usize, width: usize, height: usize, stride: usize) {
         let shared = Self::shared();
         shared.base = base;
         shared.width = width;
@@ -58,7 +54,7 @@ impl Console {
         shared.cols = (width - Self::PADDING_X * 2) / FONT_MEGH0816_WIDTH;
         shared.rows = (height - Self::PADDING_Y * 2) / FONT_MEGH0816_HEIGHT;
 
-        shared.fill_rect(0, 0, width, height, 0x000000);
+        // shared.fill_rect(0, 0, width, height, 0x000000);
     }
 
     pub fn put_char(&mut self, c: char) {

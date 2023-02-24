@@ -183,7 +183,7 @@ impl System {
             .unwrap()
             .get() as *mut TrueColor;
             let size = Size::new(info.screen_width as isize, info.screen_height as isize);
-            let screen = BitmapScreen::new(Bitmap32::from_static(base, size, stride));
+            let screen = BitmapScreen::new(BitmapRefMut32::from_static(base, size, stride));
             screen
                 .set_orientation(ScreenOrientation::Landscape)
                 .unwrap();
@@ -378,9 +378,9 @@ impl System {
 
     /// Get main screen
     #[inline]
-    pub fn main_screen() -> Option<Arc<dyn Screen<ConstBitmap32<'static>, ColorType = TrueColor>>> {
+    pub fn main_screen() -> Option<Arc<dyn Screen<BitmapRef32<'static>, ColorType = TrueColor>>> {
         Self::safe_screen()
-            .map(|v| v as Arc<dyn Screen<ConstBitmap32<'static>, ColorType = TrueColor>>)
+            .map(|v| v as Arc<dyn Screen<BitmapRef32<'static>, ColorType = TrueColor>>)
     }
 
     pub fn set_stdout(stdout: Box<dyn Tty>) {

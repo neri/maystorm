@@ -27,7 +27,9 @@ where
 }
 
 pub trait GetPixel: Drawable {
-    /// SAFETY: The point must be within the size range.
+    /// # Safety
+    ///
+    /// The point must be within the size range.
     unsafe fn get_pixel_unchecked(&self, point: Point) -> Self::ColorType;
 
     fn get_pixel(&self, point: Point) -> Option<Self::ColorType> {
@@ -97,7 +99,9 @@ where
 }
 
 pub trait SetPixel: Drawable {
-    /// SAFETY: The point must be within the size range.
+    /// # Safety
+    ///
+    /// The point must be within the size range.
     unsafe fn set_pixel_unchecked(&mut self, point: Point, pixel: Self::ColorType);
 
     fn set_pixel(&mut self, point: Point, pixel: Self::ColorType) {
@@ -132,7 +136,7 @@ pub trait MutableRasterImage: RasterImage {
     fn slice_mut(&mut self) -> &mut [Self::ColorType];
 
     #[inline]
-    unsafe fn process_pixel_unchecked<F>(&mut self, point: Point, f: F)
+    unsafe fn process_pixel_unchecked<F>(&mut self, point: Point, kernel: F)
     where
         F: FnOnce(Self::ColorType) -> Self::ColorType,
     {
@@ -140,7 +144,7 @@ pub trait MutableRasterImage: RasterImage {
         let pixel = self
             .slice_mut()
             .get_unchecked_mut(point.x as usize + point.y as usize * stride);
-        *pixel = f(*pixel);
+        *pixel = kernel(*pixel);
     }
 }
 

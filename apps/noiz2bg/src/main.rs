@@ -28,6 +28,8 @@ ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #![no_main]
 #![no_std]
 
+use core::cell::UnsafeCell;
+
 use megstd::{sys::syscall::*, window::*};
 
 #[no_mangle]
@@ -37,7 +39,7 @@ fn _start() {
 
 struct App<'a> {
     window: Window,
-    bitmap: Bitmap32<'a>,
+    bitmap: BitmapRefMut32<'a>,
     board_index: usize,
     boards: [Option<Board>; App::BOARD_MAX],
     scene: Scene,
@@ -53,7 +55,7 @@ struct App<'a> {
 const BITMAP_WIDTH: isize = 256;
 const BITMAP_HEIGHT: isize = 256;
 const BITMAP_SIZE: usize = (BITMAP_WIDTH * BITMAP_HEIGHT) as usize;
-static mut DATA: [u32; BITMAP_SIZE] = [0; BITMAP_SIZE];
+static mut DATA: UnsafeCell<[u32; BITMAP_SIZE]> = UnsafeCell::new([0; BITMAP_SIZE]);
 
 impl<'a> App<'a> {
     #[inline]
@@ -63,8 +65,10 @@ impl<'a> App<'a> {
             .opaque()
             .bitmap_argb32()
             .build("noiz2bg");
-        let bitmap =
-            Bitmap32::from_bytes(unsafe { &mut DATA }, Size::new(BITMAP_WIDTH, BITMAP_HEIGHT));
+        let bitmap = BitmapRefMut32::from_bytes(
+            unsafe { DATA.get_mut() },
+            Size::new(BITMAP_WIDTH, BITMAP_HEIGHT),
+        );
         Self {
             window,
             bitmap,

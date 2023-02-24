@@ -136,7 +136,7 @@ impl DrawingContext {
     }
 
     #[inline]
-    pub fn blt1<'a, T: AsRef<ConstBitmap1<'a>>>(
+    pub fn blt1<'a, T: AsRef<BitmapRef1<'a>>>(
         &mut self,
         bitmap: &T,
         origin: Point,
@@ -154,7 +154,7 @@ impl DrawingContext {
     }
 
     #[inline]
-    pub fn blt8<'a, T: AsRef<ConstBitmap8<'a>>>(&mut self, bitmap: &T, origin: Point) {
+    pub fn blt8<'a, T: AsRef<BitmapRef8<'a>>>(&mut self, bitmap: &T, origin: Point) {
         syscall::os_blt8(
             self.ctx,
             origin.x as usize,
@@ -164,7 +164,7 @@ impl DrawingContext {
     }
 
     #[inline]
-    pub fn blt32<'a, T: AsRef<ConstBitmap32<'a>>>(&mut self, bitmap: &T, origin: Point) {
+    pub fn blt32<'a, T: AsRef<BitmapRef32<'a>>>(&mut self, bitmap: &T, origin: Point) {
         syscall::os_blt32(
             self.ctx,
             origin.x as usize,

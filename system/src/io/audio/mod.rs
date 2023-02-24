@@ -13,6 +13,7 @@ use alloc::{
     vec::Vec,
 };
 use core::{
+    f64::consts::TAU,
     mem::transmute,
     mem::MaybeUninit,
     num::NonZeroUsize,
@@ -459,7 +460,7 @@ impl SineWaveOscillator {
     pub fn new(ctx: Weak<AudioContext>, length: f64) -> Box<AudioNode> {
         let mut this = Self {
             length,
-            delta: core::f64::consts::PI * 2.0 / length,
+            delta: TAU / length,
             time: 0.0,
         };
         AudioNode::new(ctx, move |data| {
@@ -476,69 +477,78 @@ impl SineWaveOscillator {
 /// TODO:
 pub struct SawtoothWaveOscillator {
     length: f64,
-    delta: f64,
     time: f64,
 }
 
 impl SawtoothWaveOscillator {
     pub fn new(ctx: Weak<AudioContext>, length: f64) -> Box<AudioNode> {
-        let mut this = Self {
-            length,
-            delta: 2.0 / length,
-            time: 0.0,
-        };
+        let mut this = Self { length, time: 0.0 };
         AudioNode::new(ctx, move |data: SampleType| {
-            let result = data * (this.time * this.delta - 1.0);
+            let gain = (this.length - this.time) / this.length * 2.0 - 1.0;
             this.time = this.time + 1.0;
             if this.time >= this.length {
                 this.time -= this.length;
             }
-            result
+            data * gain
         })
     }
 }
 
 /// TODO:
-pub struct TriangleWaveOscillator {}
+pub struct TriangleWaveOscillator {
+    length: f64,
+    time: f64,
+}
 
 impl TriangleWaveOscillator {
-    pub fn new(ctx: Weak<AudioContext>, _length: f64) -> Box<AudioNode> {
-        AudioNode::new(ctx, move |data: SampleType| data)
+    pub fn new(ctx: Weak<AudioContext>, length: f64) -> Box<AudioNode> {
+        let mut this = Self { length, time: 0.0 };
+        AudioNode::new(ctx, move |data: SampleType| {
+            let length_2 = this.length / 2.0;
+            let gain = if this.time < length_2 {
+                this.time / length_2
+            } else {
+                (this.length - this.time) / length_2
+            };
+            this.time = this.time + 1.0;
+            if this.time >= this.length {
+                this.time -= this.length;
+            }
+            data * (gain * 2.0 - 1.0)
+        })
     }
 }
 
 /// Experimental Envelope Generator
 pub struct NoteOnParams {
-    atack: f64,
-    decay: f64,
+    attack_time: f64,
+    decay_time: f64,
     sustain: f64,
-    atack_delta: f64,
-    decay_delta: f64,
-    current_gain: f64,
     time: f64,
 }
 
 impl NoteOnParams {
-    pub fn new(ctx: Weak<AudioContext>, atack: f64, decay: f64, sustain: f64) -> Box<AudioNode> {
+    pub fn new(ctx: Weak<AudioContext>, attack: f64, decay: f64, sustain: f64) -> Box<AudioNode> {
+        let _44_100 = 44_100.0;
         let mut this = Self {
-            atack,
-            decay: atack + decay,
+            attack_time: _44_100 * attack,
+            decay_time: _44_100 * decay,
             sustain,
-            atack_delta: 1.0 / atack,
-            decay_delta: (1.0 - sustain) / decay,
-            current_gain: if atack < 1.0 { 1.0 } else { 0.0 },
             time: 0.0,
         };
         AudioNode::new(ctx, move |data| {
-            if this.time < this.atack {
-                this.current_gain += this.atack_delta;
-            } else if this.time < this.decay {
-                this.current_gain -= this.decay_delta;
+            let gain;
+            if this.time < this.attack_time {
+                gain = this.time / this.attack_time;
+            } else if this.time < this.attack_time + this.decay_time {
+                gain = this.sustain
+                    + (1.0 - this.sustain) * (this.decay_time - this.time - this.attack_time)
+                        / this.decay_time;
             } else {
                 return data * this.sustain;
             }
             this.time = this.time + 1.0;
-            data * this.current_gain
+            data * gain
         })
     }
 }

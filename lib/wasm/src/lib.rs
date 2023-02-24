@@ -1,9 +1,11 @@
 //! WebAssembly Runtime Library
 #![no_std]
-#![feature(const_mut_refs)]
-#![feature(const_trait_impl)]
-#![feature(const_option_ext)]
+#![deny(unsafe_op_in_unsafe_fn)]
 #![feature(const_convert)]
+#![feature(const_mut_refs)]
+#![feature(const_option_ext)]
+#![feature(const_trait_impl)]
+#![feature(slice_split_at_unchecked)]
 
 mod wasm;
 pub use crate::wasm::*;

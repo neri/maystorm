@@ -80,7 +80,9 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
         info.screen_width = width as u16;
         info.screen_height = height as u16;
 
-        debug::Console::init(info.vram_base as usize, width, height, stride);
+        unsafe {
+            debug::Console::init(info.vram_base as usize, width, height, stride);
+        }
         graphics_ok = true;
     }
     if !graphics_ok && !info.flags.contains(BootFlags::HEADLESS) {

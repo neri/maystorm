@@ -163,7 +163,7 @@ impl Terminal {
                 window_size.height,
             ))
             .bg_color(bg_color)
-            .style_add(WindowStyle::DARK_MODE)
+            // .style_add(WindowStyle::DARK_MODE)
             .build("Terminal");
 
         Self {
@@ -281,7 +281,7 @@ impl Terminal {
                         bitmap.fill_rect(bitmap.bounds(), self.bg_color);
 
                         if let Some(font_cache) = self.font_cache.as_ref() {
-                            let font_cache = ConstBitmap::from(font_cache.as_ref());
+                            let font_cache = BitmapRef::from(font_cache.as_ref());
                             let rect = Rect::new(w * c as isize, 0, w, h);
                             bitmap.blt_transparent(
                                 &font_cache,

@@ -1,9 +1,12 @@
-use crate::opcode::{WasmOpcode, WasmSingleOpcode};
+use crate::{
+    opcode::{WasmOpcode, WasmSingleOpcode},
+    LocalVarIndex, StackLevel,
+};
 use alloc::{boxed::Box, vec::Vec};
 
 /// Intermediate code for Webassembly runtime
 #[non_exhaustive]
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq)]
 pub enum WasmIntMnemonic {
     /// Undefined
     Undefined,
@@ -33,16 +36,16 @@ pub enum WasmIntMnemonic {
     Select,
 
     /// Gets a value from a local variable
-    LocalGet(usize),
+    LocalGet(LocalVarIndex),
     /// Sets a value to a local variable
-    LocalSet(usize),
-    LocalTee(usize),
+    LocalSet(LocalVarIndex),
+    LocalTee(LocalVarIndex),
 
     /// Gets a 32-bit value from a local variable
-    LocalGet32(usize),
+    LocalGet32(LocalVarIndex),
     /// Sets a 32-bit value to a local variable
-    LocalSet32(usize),
-    LocalTee32(usize),
+    LocalSet32(LocalVarIndex),
+    LocalTee32(LocalVarIndex),
 
     /// Gets a value from a global variable
     GlobalGet(usize),
@@ -68,6 +71,16 @@ pub enum WasmIntMnemonic {
     I64Store8(u32),
     I64Store16(u32),
     I64Store32(u32),
+
+    #[cfg(feature = "float")]
+    F32Load(u32),
+    #[cfg(feature = "float")]
+    F32Store(u32),
+    #[cfg(feature = "float64")]
+    F64Load(u32),
+    #[cfg(feature = "float64")]
+    F64Store(u32),
+
     MemorySize,
     MemoryGrow,
     MemoryCopy,
@@ -75,6 +88,10 @@ pub enum WasmIntMnemonic {
 
     I32Const(i32),
     I64Const(i64),
+    #[cfg(feature = "float")]
+    F32Const(f32),
+    #[cfg(feature = "float64")]
+    F64Const(f64),
 
     I32Eqz,
     I32Eq,
@@ -145,8 +162,13 @@ pub enum WasmIntMnemonic {
     I32Extend8S,
     I32Extend16S,
 
+    I32ReinterpretF32,
+    I64ReinterpretF64,
+    F32ReinterpretI32,
+    F64ReinterpretI64,
+
     // Fused Instructions
-    FusedI32SetConst(usize, i32),
+    FusedI32SetConst(LocalVarIndex, i32),
     FusedI32AddI(i32),
     FusedI32SubI(i32),
     FusedI32AndI(i32),
@@ -156,7 +178,7 @@ pub enum WasmIntMnemonic {
     FusedI32ShrSI(i32),
     FusedI32ShrUI(i32),
 
-    FusedI64SetConst(usize, i64),
+    FusedI64SetConst(LocalVarIndex, i64),
     FusedI64AddI(i64),
     FusedI64SubI(i64),
 
@@ -177,15 +199,13 @@ pub enum WasmIntMnemonic {
     FusedI64BrNe(usize),
 }
 
-type StackType = usize;
-
 /// Wasm Intermediate Code
 #[derive(Debug)]
 pub struct WasmImc {
     pub position: u32,
     pub opcode: WasmOpcode,
     pub mnemonic: WasmIntMnemonic,
-    pub stack_level: StackType,
+    pub stack_level: StackLevel,
 }
 
 impl WasmImc {
@@ -198,7 +218,7 @@ impl WasmImc {
             position: 0,
             opcode: WasmOpcode::UNREACHABLE,
             mnemonic,
-            stack_level: 0,
+            stack_level: StackLevel::zero(),
         }
     }
 
@@ -207,13 +227,13 @@ impl WasmImc {
         source_position: usize,
         opcode: WasmOpcode,
         mnemonic: WasmIntMnemonic,
-        stack_level: usize,
+        stack_level: StackLevel,
     ) -> Self {
         Self {
             position: source_position as u32,
             opcode,
             mnemonic,
-            stack_level: stack_level as StackType,
+            stack_level,
         }
     }
 
@@ -238,8 +258,8 @@ impl WasmImc {
     }
 
     #[inline]
-    pub const fn stack_level(&self) -> usize {
-        self.stack_level as usize
+    pub const fn base_stack_level(&self) -> StackLevel {
+        self.stack_level
     }
 
     pub fn adjust_branch_target<F, E>(&mut self, mut f: F) -> Result<(), E>

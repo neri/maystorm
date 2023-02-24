@@ -33,7 +33,7 @@ const WINDOW_THICK_BORDER_WIDTH_H: isize = WINDOW_CORNER_RADIUS / 2;
 const WINDOW_TITLE_HEIGHT: isize = 26;
 const WINDOW_TITLE_BORDER: isize = 0;
 const WINDOW_SHADOW_PADDING: isize = 16;
-const SHADOW_RADIUS: isize = 8;
+const SHADOW_RADIUS: isize = 12;
 const SHADOW_OFFSET: Movement = Movement::new(2, 2);
 const SHADOW_LEVEL: usize = 96;
 
@@ -83,7 +83,7 @@ struct Resources<'a> {
 }
 
 impl WindowManager<'static> {
-    pub fn init(main_screen: Arc<dyn Screen<ConstBitmap32<'static>, ColorType = TrueColor>>) {
+    pub fn init(main_screen: Arc<dyn Screen<BitmapRef32<'static>, ColorType = TrueColor>>) {
         assert_call_once!();
 
         let screen_size = main_screen.size();
@@ -840,7 +840,7 @@ impl WindowManager<'_> {
         });
     }
 
-    pub fn set_desktop_bitmap<'a>(bitmap: &ConstBitmap) {
+    pub fn set_desktop_bitmap<'a>(bitmap: &BitmapRef) {
         let shared = Self::shared();
         let _ = shared.root.update_opt(|root| {
             let (mut r, mut g, mut b, mut a) = (0, 0, 0, 0);
@@ -919,7 +919,7 @@ impl WindowManager<'_> {
         let shared = Self::shared();
         shared
             .attributes
-            .contains(WindowManagerAttributes::POINTER_HIDE_TEMP);
+            .insert(WindowManagerAttributes::POINTER_HIDE_TEMP);
         shared.pointer.hide();
     }
 
@@ -969,7 +969,7 @@ impl WindowManager<'_> {
         result
     }
 
-    pub fn save_screen_to(bitmap: &mut Bitmap32, rect: Rect) {
+    pub fn save_screen_to(bitmap: &mut BitmapRefMut32, rect: Rect) {
         let shared = Self::shared();
         Self::while_hiding_pointer(|| shared.root.draw_into(bitmap, rect));
     }
@@ -1315,7 +1315,7 @@ impl RawWindow {
 
     fn draw_into(
         &self,
-        target_bitmap: &mut Bitmap32,
+        target_bitmap: &mut BitmapRefMut32,
         offset: Movement,
         frame1: Rect,
         is_opaque: bool,
@@ -1763,15 +1763,15 @@ impl RawWindow {
     }
 
     #[inline]
-    fn bitmap<'a>(&self) -> &'a mut Bitmap<'a> {
+    fn bitmap<'a>(&self) -> &'a mut BitmapRefMut<'a> {
         unsafe { &mut *self.bitmap.get() }.as_mut()
     }
 
     #[inline]
-    fn bitmap32<'a>(&self) -> &'a mut Bitmap32<'a> {
+    fn bitmap32<'a>(&self) -> &'a mut BitmapRefMut32<'a> {
         match self.bitmap() {
-            Bitmap::Indexed(_) => unreachable!(),
-            Bitmap::Argb32(ref mut v) => v,
+            BitmapRefMut::Indexed(_) => unreachable!(),
+            BitmapRefMut::Argb32(ref mut v) => v,
         }
     }
 
@@ -1782,7 +1782,7 @@ impl RawWindow {
 
     fn draw_in_rect<F>(&self, rect: Rect, f: F) -> Result<(), WindowDrawingError>
     where
-        F: FnOnce(&mut Bitmap) -> (),
+        F: FnOnce(&mut BitmapRefMut) -> (),
     {
         let bitmap = self.bitmap();
         let bounds = self.frame.bounds().insets_by(self.content_insets);
@@ -1886,10 +1886,12 @@ impl RawWindowBuilder {
             self.style.insert(WindowStyle::BORDER);
         }
 
+        // // Here you can experiment with forcing window attributes.
         // if self.style.contains(WindowStyle::BORDER) {
         //     self.style.insert(WindowStyle::THIN_FRAME);
         // }
         // self.style.insert(WindowStyle::NO_SHADOW);
+        // self.style.insert(WindowStyle::DARK_MODE);
 
         if self.style.contains(WindowStyle::FLOATING) && self.level <= WindowLevel::NORMAL {
             self.level = WindowLevel::FLOATING;
@@ -2357,7 +2359,7 @@ impl WindowHandle {
     #[inline]
     pub fn draw<F>(&self, f: F)
     where
-        F: FnOnce(&mut Bitmap) -> (),
+        F: FnOnce(&mut BitmapRefMut) -> (),
     {
         self.update(|window| {
             let rect = window.actual_bounds().insets_by(window.content_insets);
@@ -2372,13 +2374,13 @@ impl WindowHandle {
 
     pub fn draw_in_rect<F>(&self, rect: Rect, f: F) -> Result<(), WindowDrawingError>
     where
-        F: FnOnce(&mut Bitmap) -> (),
+        F: FnOnce(&mut BitmapRefMut) -> (),
     {
         self.as_ref().draw_in_rect(rect, f)
     }
 
     /// Draws the contents of the window on the screen as a bitmap.
-    pub fn draw_into(&self, target_bitmap: &mut Bitmap32, rect: Rect) {
+    pub fn draw_into(&self, target_bitmap: &mut BitmapRefMut32, rect: Rect) {
         let window = self.as_ref();
         window.draw_into(
             target_bitmap,

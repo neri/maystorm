@@ -25,12 +25,12 @@ impl const HalTrait for Hal {
 
     #[inline]
     fn sync() -> impl HalSync {
-        SyncImpl
+        HalSyncImpl
     }
 
     #[inline]
     fn pci() -> impl HalPci {
-        PciImpl
+        HalPciImpl
     }
 }
 
@@ -144,9 +144,9 @@ impl Drop for InterruptGuard {
     }
 }
 
-struct SyncImpl;
+struct HalSyncImpl;
 
-impl HalSync for SyncImpl {
+impl HalSync for HalSyncImpl {
     #[inline]
     fn fetch_set(&self, ptr: &AtomicUsize, position: usize) -> bool {
         unsafe {
@@ -155,7 +155,7 @@ impl HalSync for SyncImpl {
             asm!("
                     lock bts [{0}], {1}
                     setc {2}
-                    ", in(reg) ptr, in(reg) position, lateout(reg_byte) result);
+                    ", in(reg) ptr, in(reg) position, out(reg_byte) result);
             result != 0
         }
     }
@@ -168,15 +168,15 @@ impl HalSync for SyncImpl {
             asm!("
                     lock btr [{0}], {1}
                     setc {2}
-                    ", in(reg) ptr, in(reg) position, lateout(reg_byte) result);
+                    ", in(reg) ptr, in(reg) position, out(reg_byte) result);
             result != 0
         }
     }
 }
 
-struct PciImpl;
+struct HalPciImpl;
 
-impl HalPci for PciImpl {
+impl HalPci for HalPciImpl {
     #[inline]
     unsafe fn read_pci(&self, addr: crate::drivers::pci::PciConfigAddress) -> u32 {
         without_interrupts!({

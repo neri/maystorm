@@ -15,12 +15,22 @@ use crate::{
     *,
 };
 use core::{
+    f64::consts::TAU,
     fmt::Write,
     mem::{transmute, MaybeUninit},
     time::Duration,
 };
-use megstd::{drawing::*, io::Read, string::*, Arc, String, Vec};
+use megstd::{
+    drawing::{
+        vertex::{AffineMatrix2d, Vertex2d},
+        *,
+    },
+    io::Read,
+    string::*,
+    Arc, String, Vec,
+};
 
+static IS_GUI_BOOT: bool = true;
 static mut SHUTDOWN_COMMAND: MaybeUninit<EventQueue<ShutdownCommand>> = MaybeUninit::uninit();
 static mut BG_TERMINAL: Option<WindowHandle> = None;
 
@@ -220,9 +230,7 @@ enum ShutdownCommand {
 
 #[allow(dead_code)]
 async fn slpash_task(f: fn()) {
-    let is_gui_boot = true;
-
-    if is_gui_boot {
+    if IS_GUI_BOOT {
         if let Some(window) = unsafe { BG_TERMINAL.take() } {
             window.close();
         }
@@ -300,14 +308,14 @@ async fn slpash_task(f: fn()) {
 
     WindowManager::set_pointer_states(true, true, true);
 
-    Scheduler::spawn_async(shell_launcher(is_gui_boot, f));
+    Scheduler::spawn_async(shell_launcher(f));
 
     // Scheduler::spawn_async(test_window_main());
 }
 
 #[allow(dead_code)]
-async fn shell_launcher(is_gui_boot: bool, f: fn()) {
-    if is_gui_boot {
+async fn shell_launcher(f: fn()) {
+    if IS_GUI_BOOT {
         Timer::sleep_async(Duration::from_millis(500)).await;
 
         // Main Terminal
@@ -317,25 +325,8 @@ async fn shell_launcher(is_gui_boot: bool, f: fn()) {
             .unwrap_or(FontManager::monospace_font());
         let terminal = Terminal::new(80, 24, font, None);
         System::set_stdout(Box::new(terminal));
-    } else {
-        // let size = WindowManager::main_screen_bounds();
-        // let max_point = isize::min(size.width() / 40, size.height() / 25);
-        // let min_point = isize::min(max_point / 2, 16);
-        // let point = {
-        //     let mut point = min_point;
-        //     while point < max_point {
-        //         let Some(font) = FontDescriptor::new(FontFamily::Monospace, point) else {
-        //             break
-        //         };
-        //         if font.em_width() * 80 > size.width() && font.line_height() * 25 > size.height()
-        //         {
-        //             break;
-        //         }
-        //         point += 1;
-        //     }
-        //     point
-        // };
-        // println!("Screen {} x {} Font {}", size.width(), size.height(), point);
+
+        // Scheduler::spawn_async(clock_task());
     }
     SpawnOption::new().start_process(unsafe { core::mem::transmute(f) }, 0, "shell");
 }
@@ -551,19 +542,26 @@ async fn activity_monitor_main() {
                                         as isize
                                         * scale
                                         / 255;
-                                    let c0 = Point::new(i as isize + 1, 1 + value1);
-                                    let c1 = Point::new(i as isize, 1 + value2);
-                                    opr_bitmap.draw_line_anti_aliasing(
-                                        c0,
+                                    let c1 = Point::new(i as isize + 1, 1 + value1);
+                                    let c2 = Point::new(i as isize, 1 + value2);
+                                    opr_bitmap.draw_line_anti_aliasing_f(
                                         c1,
-                                        1,
+                                        c2,
                                         |bitmap, point, level| unsafe {
-                                            bitmap.set_pixel_unchecked(
-                                                point,
-                                                bitmap
-                                                    .get_pixel_unchecked(point)
-                                                    .saturating_add(level),
-                                            );
+                                            bitmap.process_pixel_unchecked(point, |c| {
+                                                c.saturating_add((255.0 * level) as u8)
+                                            });
+                                        },
+                                    );
+                                    opr_bitmap.draw_line(
+                                        Point::new(i as isize + 1, 1 + (value1 + value2) / 2),
+                                        Point::new(i as isize + 1, graph_size.height - 1),
+                                        |bitmap, point| unsafe {
+                                            bitmap.process_pixel_unchecked(point, |c| {
+                                                c.saturating_add(
+                                                    0x20 + (graph_size.height - point.y) as u8 * 3,
+                                                )
+                                            });
                                         },
                                     );
                                 }
@@ -960,7 +958,7 @@ async fn test_window_main() {
 }
 
 fn font_test(
-    bitmap: &mut Bitmap,
+    bitmap: &mut BitmapRefMut,
     offset: isize,
     color: Color,
     family: FontFamily,
@@ -984,4 +982,144 @@ fn font_test(
     ats.draw_text(bitmap, rect, max_lines);
 
     bounds.height()
+}
+
+#[allow(dead_code)]
+async fn clock_task() {
+    let bg_color = Color::WHITE;
+
+    let width = 240;
+    let height = 240;
+    let window_size = Size::new(width, height);
+    let padding = 4;
+    let radius = ((isize::min(width, height) - padding) / 2) as f64;
+    let center = Point::new(width / 2, height / 2);
+    let scale = 1.0;
+
+    let window = RawWindowBuilder::new()
+        .size(window_size)
+        .bg_color(bg_color)
+        .build("Clock");
+
+    let mut shadow_bitmap = OperationalBitmap::new(window_size);
+
+    window.create_timer(0, Duration::from_millis(1));
+
+    while let Some(message) = window.await_message().await {
+        match message {
+            WindowMessage::Timer(_id) => {
+                window.set_needs_display();
+                window.create_timer(0, Duration::from_millis(100));
+            }
+            WindowMessage::Draw => {
+                let time = System::system_time();
+                let seconds = time.secs as f64 + (time.nanos as f64 / 1_000_000_000.0);
+                let h = time.secs as f64 / 3600.0 % 12.0;
+                let m = time.secs as f64 / 60.0 % 60.0;
+                let s = seconds % 60.0;
+
+                shadow_bitmap.reset();
+
+                for i in 0..60 {
+                    let radian = i as f64 * TAU / 60.0;
+                    match i {
+                        0 | 15 | 30 | 45 => {
+                            let mut polygon = [
+                                Vertex2d::new(0.0, 0.0 - radius),
+                                Vertex2d::new(1.0, 4.0 - radius),
+                                Vertex2d::new(0.0, 8.0 - radius),
+                                Vertex2d::new(-1.0, 4.0 - radius),
+                            ];
+                            AffineMatrix2d::new(center.into(), radian, scale)
+                                .transform_polygon(&mut polygon);
+                            draw_polygon(&mut shadow_bitmap, &polygon, 0x66);
+                        }
+                        _ => {
+                            let mut polygon = [
+                                Vertex2d::new(0.0, 0.0 - radius),
+                                Vertex2d::new(0.0, if i % 5 == 0 { 8.0 } else { 4.0 } - radius),
+                            ];
+                            AffineMatrix2d::new(center.into(), radian, scale)
+                                .transform_polygon(&mut polygon);
+                            draw_polygon(&mut shadow_bitmap, &polygon, 0x66);
+                        }
+                    }
+                }
+
+                let mut polygon = [
+                    Vertex2d::new(0.0, 0.0 - radius * 0.5),
+                    Vertex2d::new(4.0, 0.0),
+                    Vertex2d::new(0.0, 8.0),
+                    Vertex2d::new(-4.0, 0.0),
+                ];
+                AffineMatrix2d::new(center.into(), h * TAU / 12.0, scale)
+                    .transform_polygon(&mut polygon);
+                draw_polygon(&mut shadow_bitmap, &polygon, 0x66);
+
+                let mut polygon = [
+                    Vertex2d::new(0.0, 16.0 - radius),
+                    Vertex2d::new(2.0, 0.0),
+                    Vertex2d::new(0.0, 4.0),
+                    Vertex2d::new(-2.0, 0.0),
+                ];
+                AffineMatrix2d::new(center.into(), m * TAU / 60.0, scale)
+                    .transform_polygon(&mut polygon);
+                draw_polygon(&mut shadow_bitmap, &polygon, 0x66);
+
+                let mut polygon = [
+                    Vertex2d::new(0.0, 16.0 - radius),
+                    Vertex2d::new(0.0, 0.0),
+                    Vertex2d::new(0.0, 4.0),
+                ];
+                AffineMatrix2d::new(center.into(), s * TAU / 60.0, scale)
+                    .transform_polygon(&mut polygon);
+                draw_polygon(&mut shadow_bitmap, &polygon, 0x66);
+
+                window.draw(|bitmap| {
+                    bitmap.fill_rect(bitmap.bounds(), bg_color);
+
+                    shadow_bitmap.draw_to(
+                        bitmap,
+                        Point::new(0, 0),
+                        shadow_bitmap.bounds(),
+                        Color::PRIMARY_BLACK,
+                    );
+                });
+            }
+            WindowMessage::Close => {
+                window.close();
+            }
+            _ => window.handle_default_message(message),
+        }
+    }
+}
+
+fn draw_polygon(bitmap: &mut OperationalBitmap, polygon: &[Vertex2d], color: u8) {
+    let mut polygon = polygon.iter();
+    let len = polygon.len();
+    let Some(vertex0) = polygon.next() else { return };
+    let mut vertex1 = vertex0;
+    while let Some(vertex2) = polygon.next() {
+        bitmap.draw_line_anti_aliasing_f(
+            (*vertex1).into(),
+            (*vertex2).into(),
+            |bitmap, point, level| unsafe {
+                bitmap.process_pixel_unchecked(point, |c| {
+                    c.saturating_add((color as f64 * level) as u8)
+                });
+            },
+        );
+        vertex1 = vertex2;
+    }
+    if len > 2 {
+        bitmap.draw_line_anti_aliasing_f(
+            (*vertex0).into(),
+            (*vertex1).into(),
+            |bitmap, point, level| unsafe {
+                bitmap.process_pixel_unchecked(point, |c| {
+                    c.saturating_add((color as f64 * level) as u8)
+                });
+            },
+        );
+    }
 }

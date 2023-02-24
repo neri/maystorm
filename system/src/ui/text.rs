@@ -69,7 +69,7 @@ impl AttributedString<'_> {
     }
 
     #[inline]
-    pub fn draw_text(&self, bitmap: &mut Bitmap, rect: Rect, max_lines: usize) {
+    pub fn draw_text(&self, bitmap: &mut BitmapRefMut, rect: Rect, max_lines: usize) {
         TextProcessing::draw_text(
             bitmap,
             &self.text,
@@ -383,7 +383,7 @@ impl TextProcessing {
 
     /// Write text to bitmap
     pub fn draw_text(
-        bitmap: &mut Bitmap,
+        bitmap: &mut BitmapRefMut,
         text: &str,
         font: &FontDescriptor,
         rect: Rect,

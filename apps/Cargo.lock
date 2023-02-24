@@ -17,9 +17,9 @@ dependencies = [
 
 [[package]]
 name = "bitflags"
-version = "2.0.0-rc.2"
+version = "2.0.0-rc.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eebde8a2685242023acc9d9464bb75aa20f7774a5aaaf77894b1cc94061370e3"
+checksum = "c4a03f1cd193cbed3c9d3375ed0c1b795ef7ddbeb67c31ae93ffe6bb6a282da6"
 
 [[package]]
 name = "cfg-if"
@@ -42,6 +42,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "libm"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "348108ab3fba42ec82ff6e9564fc4ca0247bdccdc68dd8af9764bbc79c3c8ffb"
+
+[[package]]
 name = "life"
 version = "0.1.0"
 dependencies = [
@@ -52,8 +58,10 @@ dependencies = [
 name = "meggl"
 version = "0.1.0"
 dependencies = [
+ "libm",
  "num-derive",
  "num-traits",
+ "paste",
 ]
 
 [[package]]
@@ -95,6 +103,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "paste"
+version = "1.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d01a5bd0424d00070b0098dd17ebca6f961a959dead1dbcbbbc1d1cd8d3deeba"
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.51"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -114,9 +128,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "1.0.107"
+version = "1.0.109"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f4064b5b16e03ae50984a5a8ed5d4f8803e6bc1fd170a3cda91a1be4b18e3f5"
+checksum = "72b64191b275b66ffe2469e8af2c1cfe3bafa67b529ead792a6d0160888b4237"
 dependencies = [
  "proc-macro2",
  "quote",
