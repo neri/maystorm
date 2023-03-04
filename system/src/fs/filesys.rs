@@ -1,5 +1,6 @@
 use super::{devfs::DevFs, initramfs::*};
 use crate::{
+    fs::ramfs::RamFs,
     sync::{RwLock, RwLockReadGuard},
     task::scheduler::Scheduler,
     *,
@@ -38,14 +39,35 @@ impl FileManager {
     pub unsafe fn init(initrd_base: *mut u8, initrd_size: usize) {
         assert_call_once!();
 
-        let shared = Self::shared();
+        macro_rules! mount {
+            ( $mount_points:expr, $path:expr, $driver:expr ) => {
+                $mount_points.insert($path.to_owned(), $driver);
+            };
+        }
 
-        let mut mount_points = shared.mount_points.write().unwrap();
-        let bootfs =
-            InitRamfs::from_static(initrd_base, initrd_size).expect("Unable to access bootfs");
-        mount_points.insert(Self::PATH_SEPARATOR.to_owned(), bootfs.clone());
-        mount_points.insert("/dev/".to_owned(), DevFs::init());
-        mount_points.insert("/boot/".to_owned(), bootfs.clone());
+        {
+            let mut mount_points = Self::shared().mount_points.write().unwrap();
+            mount!(mount_points, Self::PATH_SEPARATOR, RamFs::new());
+            drop(mount_points);
+
+            for path in &["boot", "system", "home", "bin", "dev", "etc", "tmp", "var"] {
+                match Self::mkdir(path) {
+                    Ok(_) => (),
+                    Err(err) => {
+                        panic!("mkdir: {}: {:?}", path, err);
+                    }
+                }
+            }
+        }
+
+        {
+            let mut mount_points = Self::shared().mount_points.write().unwrap();
+            let bootfs =
+                InitRamfs::from_static(initrd_base, initrd_size).expect("Unable to access bootfs");
+
+            mount!(mount_points, "/dev/", DevFs::init());
+            mount!(mount_points, "/boot/", bootfs.clone());
+        }
     }
 
     #[inline]
@@ -92,7 +114,20 @@ impl FileManager {
         Self::_join_path(&path_components)
     }
 
-    fn resolv(path: &str) -> Result<(Arc<dyn FsDriver>, INodeType)> {
+    /// Resolve all path components, including the last path component
+    fn resolve_all(path: &str) -> Result<(Arc<dyn FsDriver>, INodeType)> {
+        let (fs, dir, lpc) = Self::resolve_dir(path)?;
+        match lpc {
+            Some(lpc) => {
+                let inode = fs.lookup(dir, lpc.as_str())?;
+                Ok((fs, inode))
+            }
+            None => Ok((fs, dir)),
+        }
+    }
+
+    /// Resolve path components except the last path component
+    fn resolve_dir(path: &str) -> Result<(Arc<dyn FsDriver>, INodeType, Option<String>)> {
         let shared = FileManager::shared();
         let mount_points = shared.mount_points.read().unwrap();
 
@@ -112,39 +147,35 @@ impl FileManager {
 
         let resolved = &fq_path[prefix.len() - 1..];
         let mut dir = fs.root_dir();
-        for pc in Self::_canonical_path_components(Self::PATH_SEPARATOR, resolved) {
+        let mut components = Self::_canonical_path_components(Self::PATH_SEPARATOR, resolved);
+        let lpc = components.pop().map(|v| v.clone());
+        for pc in components {
             dir = fs.lookup(dir, pc.as_str())?;
         }
-        Ok((fs, dir))
-    }
-
-    pub fn mkdir(_path: &str) -> Result<()> {
-        Err(ErrorKind::Unsupported.into())
-    }
-
-    pub fn rmdir(_path: &str) -> Result<()> {
-        Err(ErrorKind::Unsupported.into())
+        Ok((fs, dir, lpc))
     }
 
     pub fn chdir(path: &str) -> Result<()> {
         let path_components = Self::canonical_path_components(path);
-        let (fs, inode) = Self::resolv(path)?;
+        let (fs, inode) = Self::resolve_all(path)?;
         let stat = fs.stat(inode).ok_or(ErrorKind::NotFound)?;
         if !stat.file_type().is_dir() {
             return Err(ErrorKind::NotADirectory.into());
         }
+
         let path_components = path_components.iter().map(|v| v.as_str()).collect();
         Scheduler::current_pid().set_cwd(Self::_join_path(&path_components).as_str());
+
         Ok(())
     }
 
     pub fn read_dir(path: &str) -> Result<impl Iterator<Item = FsRawDirEntry>> {
-        let (fs, dir) = Self::resolv(&path)?;
+        let (fs, dir) = Self::resolve_all(path)?;
         Ok(FsRawReadDir::new(fs, dir))
     }
 
     pub fn open(path: &str) -> Result<FsRawFileControlBlock> {
-        let (fs, inode) = Self::resolv(path)?;
+        let (fs, inode) = Self::resolve_all(path)?;
 
         let Some(stat) = fs.stat(inode) else {
             return Err(ErrorKind::NotFound.into())
@@ -154,22 +185,46 @@ impl FileManager {
         }
 
         let access_token = fs.open(inode)?;
-        let fcb = FsRawFileControlBlock::new(
+
+        Ok(FsRawFileControlBlock::new(
             access_token,
             stat.file_type().is_char_device() || stat.file_type().is_block_device(),
-        );
-
-        Ok(fcb)
+        ))
     }
 
-    pub fn unlink(_path: &str) -> Result<()> {
-        Err(ErrorKind::Unsupported.into())
+    pub fn creat(path: &str) -> Result<FsRawFileControlBlock> {
+        let (fs, dir, lpc) = Self::resolve_dir(path)?;
+        let Some(name) = lpc else {
+            return Err(ErrorKind::NotFound.into())
+        };
+        let name = name.as_str();
+
+        let access_token = fs.creat(dir, name)?;
+
+        Ok(FsRawFileControlBlock::new(access_token, false))
+    }
+
+    pub fn mkdir(path: &str) -> Result<()> {
+        let (fs, dir, lpc) = Self::resolve_dir(path)?;
+        let Some(name) = lpc else {
+            return Err(ErrorKind::NotFound.into())
+        };
+
+        fs.mkdir(dir, &name)
+    }
+
+    pub fn unlink(path: &str) -> Result<()> {
+        let (fs, dir, lpc) = Self::resolve_dir(path)?;
+        let Some(name) = lpc else {
+            return Err(ErrorKind::NotFound.into())
+        };
+
+        fs.unlink(dir, &name)
     }
 
     pub fn stat(path: &str) -> Result<FsRawMetaData> {
-        let (fs, inode) = Self::resolv(path)?;
-        let stat = fs.stat(inode).ok_or(ErrorKind::NotFound)?;
-        Ok(stat)
+        let (fs, inode) = Self::resolve_all(path)?;
+        fs.stat(inode).ok_or(ErrorKind::NotFound.into())
     }
 
     pub fn mount_points<'a>() -> RwLockReadGuard<'a, BTreeMap<String, Arc<dyn FsDriver>>> {
@@ -224,16 +279,16 @@ pub trait FsDriver {
     /// Obtains metadata for the specified inode
     fn stat(&self, inode: INodeType) -> Option<FsRawMetaData>;
 
-    fn unlink(&self, _dir: INodeType, _name: &str) -> Result<()> {
+    fn creat(self: Arc<Self>, _dir: INodeType, _name: &str) -> Result<Arc<dyn FsAccessToken>> {
         Err(ErrorKind::ReadOnlyFilesystem.into())
     }
 
-    fn mkdir(&self, _dir: INodeType, _name: &str) -> Result<INodeType> {
-        Err(ErrorKind::Unsupported.into())
+    fn mkdir(self: Arc<Self>, _dir: INodeType, _name: &str) -> Result<()> {
+        Err(ErrorKind::ReadOnlyFilesystem.into())
     }
 
-    fn rmdir(&self, _dir: INodeType, _name: &str) -> Result<()> {
-        Err(ErrorKind::Unsupported.into())
+    fn unlink(&self, _dir: INodeType, _name: &str) -> Result<()> {
+        Err(ErrorKind::ReadOnlyFilesystem.into())
     }
 }
 
@@ -242,9 +297,17 @@ pub trait FsAccessToken {
 
     fn read_data(&self, offset: OffsetType, buf: &mut [u8]) -> Result<usize>;
 
-    fn write_data(&self, offset: OffsetType, buf: &[u8]) -> Result<usize>;
+    fn write_data(&self, _offset: OffsetType, _buf: &[u8]) -> Result<usize> {
+        Err(ErrorKind::ReadOnlyFilesystem.into())
+    }
 
-    fn lseek(&self, offset: OffsetType, whence: Whence) -> Result<OffsetType>;
+    fn lseek(&self, _offset: OffsetType, _whence: Whence) -> Result<OffsetType> {
+        Err(ErrorKind::Unsupported.into())
+    }
+
+    fn truncate(&self, _length: OffsetType) -> Result<()> {
+        Err(ErrorKind::ReadOnlyFilesystem.into())
+    }
 }
 
 pub struct FsRawReadDir {
@@ -364,6 +427,10 @@ impl FsRawFileControlBlock {
             }
             Ok(self.file_pos)
         }
+    }
+
+    pub fn truncate(&mut self, length: OffsetType) -> Result<()> {
+        self.access_token.truncate(length)
     }
 
     pub fn fstat(&self) -> Option<FsRawMetaData> {

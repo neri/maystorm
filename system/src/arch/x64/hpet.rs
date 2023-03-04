@@ -61,7 +61,11 @@ impl Hpet {
 
     #[inline]
     fn main_counter_value(&self) -> u64 {
-        unsafe { self.read(0xF0) }
+        if COUNTER_32BIT.load(Ordering::Relaxed) {
+            todo!()
+        } else {
+            unsafe { self.read(0xF0) }
+        }
     }
 }
 

@@ -1,8 +1,4 @@
 use super::*;
-use crate::*;
-use alloc::{
-    borrow::ToOwned, boxed::Box, collections::BTreeMap, string::String, sync::Arc, vec::Vec,
-};
 use byteorder::*;
 use core::{
     intrinsics::copy_nonoverlapping,
@@ -12,6 +8,7 @@ use core::{
 use megstd::{
     fs::FileType,
     io::{ErrorKind, Result},
+    Arc, BTreeMap, Box, String, ToOwned, Vec,
 };
 
 const ROOT_INODE: INodeType = unsafe { INodeType::new_unchecked(2) };
@@ -214,9 +211,5 @@ impl FsAccessToken for ThisFsAccessToken {
 
     fn write_data(&self, _offset: OffsetType, _buf: &[u8]) -> Result<usize> {
         Err(ErrorKind::ReadOnlyFilesystem.into())
-    }
-
-    fn lseek(&self, _offset: OffsetType, _whence: Whence) -> Result<OffsetType> {
-        Err(ErrorKind::Unsupported.into())
     }
 }

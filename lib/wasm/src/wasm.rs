@@ -1132,16 +1132,16 @@ impl WasmMemory {
     }
 
     /// Write slice to memory
-    #[inline]
     pub fn write_slice(&self, offset: usize, src: &[u8]) -> Result<(), WasmRuntimeErrorKind> {
         let memory = self.as_mut_slice();
-        let size = src.len();
+        let count = src.len();
         let limit = memory.len();
-        if offset < limit && size < limit && offset + size < limit {
-            let dest = &mut memory[offset] as *mut u8;
-            let src = &src[0] as *const u8;
+        if offset < limit && count < limit && offset + count < limit {
             unsafe {
-                dest.copy_from_nonoverlapping(src, size);
+                memory
+                    .as_mut_ptr()
+                    .add(offset)
+                    .copy_from_nonoverlapping(src.as_ptr(), count);
             }
             Ok(())
         } else {
@@ -1158,9 +1158,8 @@ impl WasmMemory {
         let memory = self.as_mut_slice();
         let limit = memory.len();
         if offset < limit && count < limit && offset + count < limit {
-            let dest = &mut memory[offset] as *mut u8;
             unsafe {
-                dest.write_bytes(val, count);
+                memory.as_mut_ptr().add(offset).write_bytes(val, count);
             }
             Ok(())
         } else {
@@ -1178,9 +1177,10 @@ impl WasmMemory {
             && src + count < limit
         {
             unsafe {
-                let dest = memory.as_mut_ptr().add(dest);
-                let src = memory.as_ptr().add(src);
-                dest.copy_from(src, count);
+                memory
+                    .as_mut_ptr()
+                    .add(dest)
+                    .copy_from(memory.as_ptr().add(src), count);
             }
             Ok(())
         } else {

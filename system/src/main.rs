@@ -302,8 +302,9 @@ impl Shell {
         None
     }
 
-    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> (), &'static str); 13] = [
+    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> (), &'static str); 14] = [
         ("cd", Self::cmd_cd, ""),
+        ("mkdir", Self::cmd_mkdir, ""),
         ("pwd", Self::cmd_pwd, ""),
         ("ls", Self::cmd_ls, "Show directory"),
         ("cat", Self::cmd_cat, "Show file"),
@@ -331,6 +332,25 @@ impl Shell {
             Ok(_) => (),
             Err(err) => {
                 println!("{:?}", err.kind());
+            }
+        }
+    }
+
+    fn cmd_mkdir(argv: &[&str]) {
+        let mut argv = argv.iter();
+        let arg0 = unsafe { argv.next().unwrap_unchecked() };
+
+        if argv.len() < 1 {
+            println!("usage: {} directory_name", arg0);
+            return;
+        };
+
+        for path in argv {
+            match FileManager::mkdir(path) {
+                Ok(_) => (),
+                Err(err) => {
+                    println!("{}: {}: {:?}", arg0, path, err.kind());
+                }
             }
         }
     }
@@ -480,6 +500,7 @@ impl Shell {
     }
 
     fn cmd_cat(args: &[&str]) {
+        let arg0 = args[0];
         let len = 0x10000;
         let mut sb = Vec::with_capacity(len);
         sb.resize(len, 0);
@@ -487,7 +508,7 @@ impl Shell {
             let mut file = match FileManager::open(path) {
                 Ok(v) => v,
                 Err(err) => {
-                    println!("type: {}: {:?}", path, err.kind());
+                    println!("{}: {}: {:?}", arg0, path, err.kind());
                     continue;
                 }
             };
@@ -500,7 +521,7 @@ impl Shell {
                         }
                     }
                     Err(err) => {
-                        println!("Error: {:?}", err.kind());
+                        println!("{}: {}: {:?}", arg0, path, err.kind());
                         break;
                     }
                 }

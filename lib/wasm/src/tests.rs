@@ -5,6 +5,8 @@ use crate::{
     WasmValType, *,
 };
 use alloc::borrow::ToOwned;
+
+#[cfg(feature = "float")]
 use core::f64::consts::PI;
 
 #[test]

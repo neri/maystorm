@@ -15,16 +15,12 @@ use crate::{
     *,
 };
 use core::{
-    f64::consts::TAU,
     fmt::Write,
     mem::{transmute, MaybeUninit},
     time::Duration,
 };
 use megstd::{
-    drawing::{
-        vertex::{AffineMatrix2d, Vertex2d},
-        *,
-    },
+    drawing::{vertex::*, *},
     io::Read,
     string::*,
     Arc, String, Vec,
@@ -266,7 +262,7 @@ async fn slpash_task(f: fn()) {
         Scheduler::spawn_async(activity_monitor_main());
         Scheduler::spawn_async(_notification_task());
 
-        if let Ok(mut file) = FileManager::open("wall.png") {
+        if let Ok(mut file) = FileManager::open("/boot/wall.png") {
             let mut vec = Vec::new();
             file.read_to_end(&mut vec).unwrap();
             if let Ok(dib) = ImageLoader::load(vec.as_slice()) {
@@ -987,6 +983,7 @@ fn font_test(
 #[allow(dead_code)]
 async fn clock_task() {
     let bg_color = Color::WHITE;
+    let fg_color = Color::DARK_GRAY;
 
     let width = 240;
     let height = 240;
@@ -999,9 +996,9 @@ async fn clock_task() {
     let window = RawWindowBuilder::new()
         .size(window_size)
         .bg_color(bg_color)
-        .build("Clock");
+        .build("Retro Clock");
 
-    let mut shadow_bitmap = OperationalBitmap::new(window_size);
+    let mut work_bitmap = OperationalBitmap::new(window_size);
 
     window.create_timer(0, Duration::from_millis(1));
 
@@ -1018,31 +1015,35 @@ async fn clock_task() {
                 let m = time.secs as f64 / 60.0 % 60.0;
                 let s = seconds % 60.0;
 
-                shadow_bitmap.reset();
+                work_bitmap.reset();
 
                 for i in 0..60 {
-                    let radian = i as f64 * TAU / 60.0;
-                    match i {
-                        0 | 15 | 30 | 45 => {
-                            let mut polygon = [
-                                Vertex2d::new(0.0, 0.0 - radius),
-                                Vertex2d::new(1.0, 4.0 - radius),
-                                Vertex2d::new(0.0, 8.0 - radius),
-                                Vertex2d::new(-1.0, 4.0 - radius),
-                            ];
-                            AffineMatrix2d::new(center.into(), radian, scale)
-                                .transform_polygon(&mut polygon);
-                            draw_polygon(&mut shadow_bitmap, &polygon, 0x66);
-                        }
-                        _ => {
-                            let mut polygon = [
-                                Vertex2d::new(0.0, 0.0 - radius),
-                                Vertex2d::new(0.0, if i % 5 == 0 { 8.0 } else { 4.0 } - radius),
-                            ];
-                            AffineMatrix2d::new(center.into(), radian, scale)
-                                .transform_polygon(&mut polygon);
-                            draw_polygon(&mut shadow_bitmap, &polygon, 0x66);
-                        }
+                    let affine =
+                        AffineMatrix2d::new(center.into(), Radian::TAU * (i as f64 / 60.0), scale);
+
+                    if i % 15 == 0 {
+                        let mut polygon = [
+                            Vertex2d::new(0.0, 0.0 - radius),
+                            Vertex2d::new(2.0, 4.0 - radius),
+                            Vertex2d::new(0.0, 8.0 - radius),
+                            Vertex2d::new(-2.0, 4.0 - radius),
+                        ];
+                        polygon.transform(&affine);
+                        draw_polygon(&mut work_bitmap, &polygon, 0xFF);
+                    } else if i % 5 == 0 {
+                        let mut polygon = [
+                            Vertex2d::new(0.0, 1.0 - radius),
+                            Vertex2d::new(0.0, 7.0 - radius),
+                        ];
+                        polygon.transform(&affine);
+                        draw_polygon(&mut work_bitmap, &polygon, 0xFF);
+                    } else {
+                        let mut polygon = [
+                            Vertex2d::new(0.0, 2.0 - radius),
+                            Vertex2d::new(0.0, 6.0 - radius),
+                        ];
+                        polygon.transform(&affine);
+                        draw_polygon(&mut work_bitmap, &polygon, 0x55);
                     }
                 }
 
@@ -1052,9 +1053,12 @@ async fn clock_task() {
                     Vertex2d::new(0.0, 8.0),
                     Vertex2d::new(-4.0, 0.0),
                 ];
-                AffineMatrix2d::new(center.into(), h * TAU / 12.0, scale)
-                    .transform_polygon(&mut polygon);
-                draw_polygon(&mut shadow_bitmap, &polygon, 0x66);
+                polygon.transform(&AffineMatrix2d::new(
+                    center.into(),
+                    Radian::TAU * h / 12.0,
+                    scale,
+                ));
+                draw_polygon(&mut work_bitmap, &polygon, 0xCC);
 
                 let mut polygon = [
                     Vertex2d::new(0.0, 16.0 - radius),
@@ -1062,28 +1066,25 @@ async fn clock_task() {
                     Vertex2d::new(0.0, 4.0),
                     Vertex2d::new(-2.0, 0.0),
                 ];
-                AffineMatrix2d::new(center.into(), m * TAU / 60.0, scale)
-                    .transform_polygon(&mut polygon);
-                draw_polygon(&mut shadow_bitmap, &polygon, 0x66);
+                polygon.transform(&AffineMatrix2d::new(
+                    center.into(),
+                    Radian::TAU * m / 60.0,
+                    scale,
+                ));
+                draw_polygon(&mut work_bitmap, &polygon, 0xCC);
 
-                let mut polygon = [
-                    Vertex2d::new(0.0, 16.0 - radius),
-                    Vertex2d::new(0.0, 0.0),
-                    Vertex2d::new(0.0, 4.0),
-                ];
-                AffineMatrix2d::new(center.into(), s * TAU / 60.0, scale)
-                    .transform_polygon(&mut polygon);
-                draw_polygon(&mut shadow_bitmap, &polygon, 0x66);
+                let mut polygon = [Vertex2d::new(0.0, 16.0 - radius), Vertex2d::new(0.0, 4.0)];
+                polygon.transform(&AffineMatrix2d::new(
+                    center.into(),
+                    Radian::TAU * s / 60.0,
+                    scale,
+                ));
+                draw_polygon(&mut work_bitmap, &polygon, 0xEE);
 
                 window.draw(|bitmap| {
                     bitmap.fill_rect(bitmap.bounds(), bg_color);
 
-                    shadow_bitmap.draw_to(
-                        bitmap,
-                        Point::new(0, 0),
-                        shadow_bitmap.bounds(),
-                        Color::PRIMARY_BLACK,
-                    );
+                    work_bitmap.draw_to(bitmap, Point::new(0, 0), work_bitmap.bounds(), fg_color);
                 });
             }
             WindowMessage::Close => {
