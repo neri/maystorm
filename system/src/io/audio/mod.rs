@@ -5,13 +5,7 @@ use crate::{
     task::scheduler::{Priority, SpawnOption, Timer},
     *,
 };
-use alloc::{
-    boxed::Box,
-    collections::BTreeMap,
-    slice,
-    sync::{Arc, Weak},
-    vec::Vec,
-};
+use alloc::slice;
 use core::{
     f64::consts::TAU,
     mem::transmute,
@@ -20,6 +14,7 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
+use megstd::{Arc, BTreeMap, Box, Vec, Weak};
 
 pub type FreqType = f64;
 pub type SampleType = f64;

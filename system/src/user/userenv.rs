@@ -244,8 +244,8 @@ async fn slpash_task(f: fn()) {
         window.draw(|bitmap| {
             bitmap.clear();
             let Some(font) = FontDescriptor::new(FontFamily::SansSerif, 48) else {
-            return
-        };
+                return
+            };
             AttributedString::new()
                 .font(&font)
                 .color(Color::LIGHT_GRAY)
@@ -262,7 +262,7 @@ async fn slpash_task(f: fn()) {
         Scheduler::spawn_async(activity_monitor_main());
         Scheduler::spawn_async(_notification_task());
 
-        if let Ok(mut file) = FileManager::open("/boot/wall.png") {
+        if let Ok(mut file) = FileManager::open("/boot/wall.png", OpenOptions::new().read(true)) {
             let mut vec = Vec::new();
             file.read_to_end(&mut vec).unwrap();
             if let Ok(dib) = ImageLoader::load(vec.as_slice()) {

@@ -26,7 +26,7 @@ impl File {
 }
 
 bitflags! {
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Clone, Copy)]
     pub struct OpenOptions: u32 {
         const READ      = 0b0000_0001;
         const WRITE     = 0b0000_0010;
@@ -44,33 +44,39 @@ impl OpenOptions {
     }
 
     #[inline]
-    pub fn read(&mut self, read: bool) {
+    pub fn read(&mut self, read: bool) -> &mut Self {
         self.set(Self::READ, read);
+        self
     }
 
     #[inline]
-    pub fn write(&mut self, write: bool) {
+    pub fn write(&mut self, write: bool) -> &mut Self {
         self.set(Self::WRITE, write);
+        self
     }
 
     #[inline]
-    pub fn append(&mut self, append: bool) {
+    pub fn append(&mut self, append: bool) -> &mut Self {
         self.set(Self::APPEND, append);
+        self
     }
 
     #[inline]
-    pub fn truncate(&mut self, truncate: bool) {
+    pub fn truncate(&mut self, truncate: bool) -> &mut Self {
         self.set(Self::TRUNC, truncate);
+        self
     }
 
     #[inline]
-    pub fn create(&mut self, create: bool) {
+    pub fn create(&mut self, create: bool) -> &mut Self {
         self.set(Self::CREAT, create);
+        self
     }
 
     #[inline]
-    pub fn create_new(&mut self, create_new: bool) {
+    pub fn create_new(&mut self, create_new: bool) -> &mut Self {
         self.set(Self::EXCL, create_new);
+        self
     }
 
     pub fn build(&self) -> usize {
@@ -96,12 +102,6 @@ impl OpenOptions {
             f |= O_CREAT | O_EXCL;
         }
         f
-    }
-}
-
-impl Default for OpenOptions {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

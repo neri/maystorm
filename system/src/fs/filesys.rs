@@ -10,9 +10,11 @@ use alloc::{
 };
 use core::{fmt::Display, num::NonZeroU64};
 use megstd::{
-    fs::*,
+    fs::FileType,
     io::{ErrorKind, Read, Result, Write},
 };
+
+pub use megstd::sys::fs_imp::OpenOptions;
 
 static FS: FileManager = FileManager::new();
 
@@ -116,18 +118,6 @@ impl FileManager {
 
     /// Resolve all path components, including the last path component
     fn resolve_all(path: &str) -> Result<(Arc<dyn FsDriver>, INodeType)> {
-        let (fs, dir, lpc) = Self::resolve_dir(path)?;
-        match lpc {
-            Some(lpc) => {
-                let inode = fs.lookup(dir, lpc.as_str())?;
-                Ok((fs, inode))
-            }
-            None => Ok((fs, dir)),
-        }
-    }
-
-    /// Resolve path components except the last path component
-    fn resolve_dir(path: &str) -> Result<(Arc<dyn FsDriver>, INodeType, Option<String>)> {
         let shared = FileManager::shared();
         let mount_points = shared.mount_points.read().unwrap();
 
@@ -147,8 +137,38 @@ impl FileManager {
 
         let resolved = &fq_path[prefix.len() - 1..];
         let mut dir = fs.root_dir();
-        let mut components = Self::_canonical_path_components(Self::PATH_SEPARATOR, resolved);
-        let lpc = components.pop().map(|v| v.clone());
+        let components = Self::_canonical_path_components(Self::PATH_SEPARATOR, resolved);
+        for pc in components {
+            dir = fs.lookup(dir, pc.as_str())?;
+        }
+        Ok((fs, dir))
+    }
+
+    /// Resolve path components except the last path component
+    fn resolve_parent(path: &str) -> Result<(Arc<dyn FsDriver>, INodeType, Option<String>)> {
+        let shared = FileManager::shared();
+        let mount_points = shared.mount_points.read().unwrap();
+
+        let mut components = Self::canonical_path_components(path);
+        let lpc = components.pop();
+        let components = components.iter().map(|v| v.as_str()).collect::<Vec<_>>();
+        let fq_path = format!("{}{}", Self::_join_path(&components), Self::PATH_SEPARATOR);
+
+        let mut prefixes = mount_points.keys().collect::<Vec<_>>();
+        prefixes.sort();
+        let prefix = prefixes
+            .into_iter()
+            .rev()
+            .find(|&v| fq_path.starts_with(v))
+            .ok_or(megstd::io::Error::from(ErrorKind::NotFound))?;
+        let fs = mount_points
+            .get(prefix)
+            .map(|v| v.clone())
+            .ok_or(megstd::io::Error::from(ErrorKind::NotFound))?;
+
+        let resolved = &fq_path[prefix.len() - 1..];
+        let mut dir = fs.root_dir();
+        let components = Self::_canonical_path_components(Self::PATH_SEPARATOR, resolved);
         for pc in components {
             dir = fs.lookup(dir, pc.as_str())?;
         }
@@ -174,7 +194,7 @@ impl FileManager {
         Ok(FsRawReadDir::new(fs, dir))
     }
 
-    pub fn open(path: &str) -> Result<FsRawFileControlBlock> {
+    pub fn open(path: &str, options: &OpenOptions) -> Result<FsRawFileControlBlock> {
         let (fs, inode) = Self::resolve_all(path)?;
 
         let Some(stat) = fs.stat(inode) else {
@@ -188,12 +208,13 @@ impl FileManager {
 
         Ok(FsRawFileControlBlock::new(
             access_token,
+            options,
             stat.file_type().is_char_device() || stat.file_type().is_block_device(),
         ))
     }
 
     pub fn creat(path: &str) -> Result<FsRawFileControlBlock> {
-        let (fs, dir, lpc) = Self::resolve_dir(path)?;
+        let (fs, dir, lpc) = Self::resolve_parent(path)?;
         let Some(name) = lpc else {
             return Err(ErrorKind::NotFound.into())
         };
@@ -201,11 +222,15 @@ impl FileManager {
 
         let access_token = fs.creat(dir, name)?;
 
-        Ok(FsRawFileControlBlock::new(access_token, false))
+        Ok(FsRawFileControlBlock::new(
+            access_token,
+            OpenOptions::new().read(true).write(true).create(true),
+            false,
+        ))
     }
 
     pub fn mkdir(path: &str) -> Result<()> {
-        let (fs, dir, lpc) = Self::resolve_dir(path)?;
+        let (fs, dir, lpc) = Self::resolve_parent(path)?;
         let Some(name) = lpc else {
             return Err(ErrorKind::NotFound.into())
         };
@@ -214,7 +239,7 @@ impl FileManager {
     }
 
     pub fn unlink(path: &str) -> Result<()> {
-        let (fs, dir, lpc) = Self::resolve_dir(path)?;
+        let (fs, dir, lpc) = Self::resolve_parent(path)?;
         let Some(name) = lpc else {
             return Err(ErrorKind::NotFound.into())
         };
@@ -223,8 +248,46 @@ impl FileManager {
     }
 
     pub fn stat(path: &str) -> Result<FsRawMetaData> {
-        let (fs, inode) = Self::resolve_all(path)?;
+        let (fs, mut inode, lpc) = Self::resolve_parent(path)?;
+        if let Some(lpc) = lpc {
+            inode = fs.lookup(inode, &lpc)?;
+        }
         fs.stat(inode).ok_or(ErrorKind::NotFound.into())
+    }
+
+    pub fn rename(old_path: &str, new_path: &str) -> Result<()> {
+        let (fs1, old_dir, old_name) = Self::resolve_parent(old_path)?;
+        let Some(old_name) = old_name else { return Err(ErrorKind::NotFound.into()) };
+
+        let (fs2, mut new_dir, new_name) = Self::resolve_parent(new_path)?;
+        let new_name = match new_name {
+            Some(new_name) => match fs2.lookup(new_dir, &new_name) {
+                Ok(inode) => match fs2.stat(inode) {
+                    Some(stat) => {
+                        if stat.file_type().is_dir() {
+                            new_dir = inode;
+                            old_name.clone()
+                        } else {
+                            new_name
+                        }
+                    }
+                    None => new_name,
+                },
+                Err(_) => new_name,
+            },
+            None => old_name.clone(),
+        };
+
+        if Arc::ptr_eq(&fs1, &fs2) {
+            if old_dir == new_dir && old_name == new_name {
+                // do nothing
+                Ok(())
+            } else {
+                fs1.rename(old_dir, &old_name, new_dir, &new_name, true)
+            }
+        } else {
+            Err(ErrorKind::CrossesDevices.into())
+        }
     }
 
     pub fn mount_points<'a>() -> RwLockReadGuard<'a, BTreeMap<String, Arc<dyn FsDriver>>> {
@@ -286,6 +349,21 @@ pub trait FsDriver {
     fn mkdir(self: Arc<Self>, _dir: INodeType, _name: &str) -> Result<()> {
         Err(ErrorKind::ReadOnlyFilesystem.into())
     }
+
+    fn rename(
+        &self,
+        _old_dir: INodeType,
+        _old_name: &str,
+        _new_dir: INodeType,
+        _new_name: &str,
+        _replace: bool,
+    ) -> Result<()> {
+        Err(ErrorKind::ReadOnlyFilesystem.into())
+    }
+
+    // fn link(&self, _old_inode: INodeType, _new_dir: INodeType, _new_name: &str) -> Result<()> {
+    //     Err(ErrorKind::ReadOnlyFilesystem.into())
+    // }
 
     fn unlink(&self, _dir: INodeType, _name: &str) -> Result<()> {
         Err(ErrorKind::ReadOnlyFilesystem.into())
@@ -399,15 +477,17 @@ impl FsRawMetaData {
 
 pub struct FsRawFileControlBlock {
     access_token: Arc<dyn FsAccessToken>,
+    options: OpenOptions,
     is_device: bool,
     file_pos: OffsetType,
 }
 
 impl FsRawFileControlBlock {
     #[inline]
-    fn new(access_token: Arc<dyn FsAccessToken>, is_device: bool) -> Self {
+    fn new(access_token: Arc<dyn FsAccessToken>, options: &OpenOptions, is_device: bool) -> Self {
         Self {
             access_token,
+            options: options.clone(),
             is_device,
             file_pos: 0,
         }
@@ -417,15 +497,19 @@ impl FsRawFileControlBlock {
         if self.is_device {
             self.access_token.lseek(offset, whence)
         } else {
-            match whence {
-                Whence::SeekSet => self.file_pos = offset,
-                Whence::SeekCur => self.file_pos = self.file_pos + offset,
+            if let Some(new_pos) = match whence {
+                Whence::SeekSet => Some(offset),
+                Whence::SeekCur => self.file_pos.checked_add(offset),
                 Whence::SeekEnd => match self.access_token.stat() {
-                    Some(stat) => self.file_pos = stat.len() + offset,
-                    None => return Ok(0),
+                    Some(stat) => stat.len().checked_add(offset),
+                    None => Some(0),
                 },
+            } {
+                self.file_pos = new_pos;
+                Ok(new_pos)
+            } else {
+                Err(ErrorKind::InvalidInput.into())
             }
-            Ok(self.file_pos)
         }
     }
 
@@ -440,6 +524,9 @@ impl FsRawFileControlBlock {
 
 impl Read for FsRawFileControlBlock {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        if !self.options.contains(OpenOptions::READ) {
+            return Err(ErrorKind::InvalidInput.into());
+        }
         self.access_token.read_data(self.file_pos, buf).map(|v| {
             self.file_pos += v as OffsetType;
             v
@@ -482,6 +569,9 @@ impl Read for FsRawFileControlBlock {
 
 impl Write for FsRawFileControlBlock {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        if !self.options.contains(OpenOptions::WRITE) {
+            return Err(ErrorKind::InvalidInput.into());
+        }
         self.access_token.write_data(self.file_pos, buf).map(|v| {
             self.file_pos += v as OffsetType;
             v

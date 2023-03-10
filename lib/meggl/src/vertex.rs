@@ -6,6 +6,16 @@ use core::{
     ops::{Add, Div, Mul, Sub},
 };
 
+#[inline]
+fn cos(radian: Radian) -> FloatType {
+    libm::cos(radian.radian())
+}
+
+#[inline]
+fn sin(radian: Radian) -> FloatType {
+    libm::sin(radian.radian())
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vertex2d {
@@ -54,7 +64,7 @@ impl Vertex2d {
 
     #[inline]
     pub fn transformed(&self, affine_matrix: &AffineMatrix2d) -> Self {
-        affine_matrix.transformed(self)
+        affine_matrix.transformed(*self)
     }
 }
 
@@ -189,78 +199,233 @@ pub trait Transform<T: AffineMatrix> {
 /// Affine Transformation
 ///
 /// ```plain
-/// (x')   (a b c) (x)
-/// (y') = (d e f) (y)
-/// (1)    (0 0 1) (1) <- redundant
+/// (x')   (m11 m12 m13) (x)
+/// (y') = (m21 m22 m23) (y)
+/// (1)    (  0   0   1) (1) <- redundant
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AffineMatrix2d {
-    pub a: FloatType,
-    pub b: FloatType,
-    pub c: FloatType,
-    pub d: FloatType,
-    pub e: FloatType,
-    pub f: FloatType,
+    pub m11: FloatType,
+    pub m12: FloatType,
+    pub m13: FloatType,
+    pub m21: FloatType,
+    pub m22: FloatType,
+    pub m23: FloatType,
 }
 
 impl AffineMatrix2d {
     #[inline]
     pub fn new(translation: Movement, rotation: Radian, scale: FloatType) -> Self {
         Self {
-            a: libm::cos(rotation.radian()) * scale,
-            b: 0.0 - libm::sin(rotation.radian()) * scale,
-            c: translation.x as FloatType,
-            d: libm::sin(rotation.radian()) * scale,
-            e: libm::cos(rotation.radian()) * scale,
-            f: translation.y as FloatType,
+            m11: cos(rotation) * scale,
+            m12: 0.0 - libm::sin(rotation.radian()) * scale,
+            m13: translation.x as FloatType,
+            m21: sin(rotation) * scale,
+            m22: cos(rotation) * scale,
+            m23: translation.y as FloatType,
         }
     }
 
     #[inline]
-    pub fn transformed(&self, vertex: &Vertex2d) -> Vertex2d {
+    pub fn transformed(&self, vertex: Vertex2d) -> Vertex2d {
         let x1 = vertex.x;
         let y1 = vertex.y;
         Vertex2d::new(
-            self.a * x1 + self.b * y1 + self.c,
-            self.d * x1 + self.e * y1 + self.f,
+            self.m11 * x1 + self.m12 * y1 + self.m13,
+            self.m21 * x1 + self.m22 * y1 + self.m23,
         )
     }
 
     #[inline]
     pub fn translation(translation: Movement) -> Self {
         Self {
-            a: 0.0,
-            b: 0.0,
-            c: translation.x as FloatType,
-            d: 0.0,
-            e: 0.0,
-            f: translation.y as FloatType,
+            m11: 0.0,
+            m12: 0.0,
+            m13: translation.x as FloatType,
+            m21: 0.0,
+            m22: 0.0,
+            m23: translation.y as FloatType,
         }
     }
 
     #[inline]
     pub fn rotation(rotation: Radian) -> Self {
         Self {
-            a: libm::cos(rotation.radian()),
-            b: 0.0 - libm::sin(rotation.radian()),
-            c: 0.0,
-            d: libm::sin(rotation.radian()),
-            e: libm::cos(rotation.radian()),
-            f: 0.0,
+            m11: cos(rotation),
+            m12: 0.0 - sin(rotation),
+            m13: 0.0,
+            m21: sin(rotation),
+            m22: cos(rotation),
+            m23: 0.0,
         }
     }
 
     #[inline]
     pub fn scaling(scale: FloatType) -> Self {
         Self {
-            a: scale,
-            b: 0.0,
-            c: 0.0,
-            d: 0.0,
-            e: scale,
-            f: 0.0,
+            m11: scale,
+            m12: 0.0,
+            m13: 0.0,
+            m21: 0.0,
+            m22: scale,
+            m23: 0.0,
         }
     }
 }
 
 impl AffineMatrix for AffineMatrix2d {}
+
+impl Mul<AffineMatrix2d> for AffineMatrix2d {
+    type Output = Self;
+
+    fn mul(self, rhs: AffineMatrix2d) -> Self::Output {
+        Self {
+            m11: self.m11 * rhs.m11 + self.m12 * rhs.m21,
+            m12: self.m11 * rhs.m12 + self.m12 * rhs.m22,
+            m13: self.m11 * rhs.m13 + self.m12 * rhs.m23 + self.m13,
+            m21: self.m21 * rhs.m11 + self.m22 * rhs.m21,
+            m22: self.m21 * rhs.m12 + self.m22 * rhs.m22,
+            m23: self.m21 * rhs.m13 + self.m22 * rhs.m23 + self.m23,
+        }
+    }
+}
+
+/// 3D Affine Transformation
+///
+/// ```plain
+/// (x')   (m11 m12 m13 m14) (x)
+/// (y') = (m21 m22 m23 m24) (y)
+/// (z') = (m31 m32 m33 m34) (z)
+/// (1)    (  0   0   0   1) (1) <- redundant
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AffineMatrix3d {
+    pub m11: FloatType,
+    pub m12: FloatType,
+    pub m13: FloatType,
+    pub m14: FloatType,
+    pub m21: FloatType,
+    pub m22: FloatType,
+    pub m23: FloatType,
+    pub m24: FloatType,
+    pub m31: FloatType,
+    pub m32: FloatType,
+    pub m33: FloatType,
+    pub m34: FloatType,
+}
+
+impl AffineMatrix3d {
+    #[inline]
+    pub fn transformed(&self, vertex: &Vertex3d) -> Vertex3d {
+        let x1 = vertex.x;
+        let y1 = vertex.y;
+        let z1 = vertex.z;
+        Vertex3d::new(
+            self.m11 * x1 + self.m12 * y1 + self.m13 * z1 + self.m14,
+            self.m21 * x1 + self.m22 * y1 + self.m23 * z1 + self.m24,
+            self.m31 * x1 + self.m32 * y1 + self.m33 * z1 + self.m34,
+        )
+    }
+
+    #[inline]
+    pub fn x_axis_rotation(radian: Radian) -> Self {
+        Self {
+            m11: 1.0,
+            m12: 0.0,
+            m13: 0.0,
+            m14: 0.0,
+
+            m21: 0.0,
+            m22: cos(radian),
+            m23: -sin(radian),
+            m24: 0.0,
+
+            m31: 0.0,
+            m32: sin(radian),
+            m33: cos(radian),
+            m34: 0.0,
+        }
+    }
+
+    #[inline]
+    pub fn y_axis_rotation(radian: Radian) -> Self {
+        Self {
+            m11: cos(radian),
+            m12: 0.0,
+            m13: sin(radian),
+            m14: 0.0,
+
+            m21: 0.0,
+            m22: 1.0,
+            m23: 0.0,
+            m24: 0.0,
+
+            m31: -sin(radian),
+            m32: 0.0,
+            m33: cos(radian),
+            m34: 0.0,
+        }
+    }
+
+    #[inline]
+    pub fn z_axis_rotation(radian: Radian) -> Self {
+        Self {
+            m11: cos(radian),
+            m12: -sin(radian),
+            m13: 0.0,
+            m14: 0.0,
+
+            m21: sin(radian),
+            m22: cos(radian),
+            m23: 0.0,
+            m24: 0.0,
+
+            m31: 0.0,
+            m32: 0.0,
+            m33: 1.0,
+            m34: 0.0,
+        }
+    }
+
+    #[inline]
+    pub fn translation(x: FloatType, y: FloatType, z: FloatType) -> Self {
+        Self {
+            m11: 0.0,
+            m12: 0.0,
+            m13: 0.0,
+            m14: x,
+
+            m21: 0.0,
+            m22: 0.0,
+            m23: 0.0,
+            m24: y,
+
+            m31: 0.0,
+            m32: 0.0,
+            m33: 0.0,
+            m34: z,
+        }
+    }
+
+    #[inline]
+    pub fn scaling(scale: FloatType) -> Self {
+        Self {
+            m11: scale,
+            m12: 0.0,
+            m13: 0.0,
+            m14: 0.0,
+
+            m21: 0.0,
+            m22: scale,
+            m23: 0.0,
+            m24: 0.0,
+
+            m31: 0.0,
+            m32: 0.0,
+            m33: scale,
+            m34: 0.0,
+        }
+    }
+}
+
+impl AffineMatrix for AffineMatrix3d {}

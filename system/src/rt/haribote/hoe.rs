@@ -65,7 +65,8 @@ impl HoeManager {
     pub(super) unsafe fn init() {
         let mut shared = &mut *HOE_MANAGER.get();
 
-        if let Ok(mut file) = FileManager::open("/hari/nihongo.fnt") {
+        if let Ok(mut file) = FileManager::open("/hari/nihongo.fnt", OpenOptions::new().read(true))
+        {
             let mut buf = Vec::new();
             if let Ok(_) = file.read_to_end(&mut buf) {
                 shared.japanese_font.extend_from_slice(buf.as_slice());
@@ -522,7 +523,7 @@ impl Hoe {
     }
 
     fn alloc_file(&mut self, name: &str) -> Option<u32> {
-        HoeFile::open(name).map(|file| {
+        HoeFile::open(name, OpenOptions::new().read(true)).map(|file| {
             self.files.push(file);
             self.files.len() as u32
         })
@@ -918,8 +919,8 @@ impl HoeTimer {
 struct HoeFile(FsRawFileControlBlock);
 
 impl HoeFile {
-    fn open(name: &str) -> Option<Self> {
-        FileManager::open(name).ok().map(Self)
+    fn open(name: &str, options: &OpenOptions) -> Option<Self> {
+        FileManager::open(name, options).ok().map(Self)
     }
 
     fn seek(&mut self, offset: isize, whence: Whence) {

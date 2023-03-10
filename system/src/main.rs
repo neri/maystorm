@@ -9,8 +9,8 @@ extern crate alloc;
 use bootprot::*;
 use core::{fmt, fmt::Write, num::NonZeroU8};
 use kernel::{
-    drivers::pci, drivers::usb, fs::*, mem::*, rt::*, system::*, task::scheduler::*,
-    ui::window::WindowManager, user::userenv::UserEnv, *,
+    drivers::pci, drivers::usb, fs::OpenOptions, fs::*, mem::*, rt::*, system::*,
+    task::scheduler::*, ui::window::WindowManager, user::userenv::UserEnv, *,
 };
 use megstd::{io::Read, String, ToOwned, ToString, Vec};
 
@@ -248,7 +248,7 @@ impl Shell {
     }
 
     fn spawn_main(name: &str, argv: &[&str], wait_until: bool) -> Option<usize> {
-        FileManager::open(name)
+        FileManager::open(name, OpenOptions::new().read(true))
             .map(|mut fcb| {
                 let stat = fcb.fstat().unwrap();
                 if !stat.file_type().is_file() {
@@ -302,9 +302,12 @@ impl Shell {
         None
     }
 
-    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> (), &'static str); 14] = [
+    const COMMAND_TABLE: [(&'static str, fn(&[&str]) -> (), &'static str); 17] = [
         ("cd", Self::cmd_cd, ""),
         ("mkdir", Self::cmd_mkdir, ""),
+        ("rm", Self::cmd_rm, ""),
+        ("mv", Self::cmd_mv, ""),
+        ("touch", Self::cmd_touch, ""),
         ("pwd", Self::cmd_pwd, ""),
         ("ls", Self::cmd_ls, "Show directory"),
         ("cat", Self::cmd_cat, "Show file"),
@@ -347,6 +350,63 @@ impl Shell {
 
         for path in argv {
             match FileManager::mkdir(path) {
+                Ok(_) => (),
+                Err(err) => {
+                    println!("{}: {}: {:?}", arg0, path, err.kind());
+                }
+            }
+        }
+    }
+
+    fn cmd_rm(argv: &[&str]) {
+        let mut argv = argv.iter();
+        let arg0 = unsafe { argv.next().unwrap_unchecked() };
+
+        if argv.len() < 1 {
+            println!("usage: {} file", arg0);
+            return;
+        };
+
+        for path in argv {
+            match FileManager::unlink(path) {
+                Ok(_) => (),
+                Err(err) => {
+                    println!("{}: {}: {:?}", arg0, path, err.kind());
+                }
+            }
+        }
+    }
+
+    fn cmd_mv(argv: &[&str]) {
+        let mut argv = argv.iter();
+        let arg0 = unsafe { argv.next().unwrap_unchecked() };
+
+        if argv.len() < 2 {
+            println!("usage: {} source target", arg0);
+            return;
+        };
+
+        let old_path = argv.next().unwrap();
+        let new_path = argv.next().unwrap();
+        match FileManager::rename(old_path, new_path) {
+            Ok(_) => (),
+            Err(err) => {
+                println!("{}: {} to {}: {:?}", arg0, old_path, new_path, err.kind());
+            }
+        }
+    }
+
+    fn cmd_touch(argv: &[&str]) {
+        let mut argv = argv.iter();
+        let arg0 = unsafe { argv.next().unwrap_unchecked() };
+
+        if argv.len() < 1 {
+            println!("usage: {} file", arg0);
+            return;
+        };
+
+        for path in argv {
+            match FileManager::creat(path) {
                 Ok(_) => (),
                 Err(err) => {
                     println!("{}: {}: {:?}", arg0, path, err.kind());
@@ -505,7 +565,7 @@ impl Shell {
         let mut sb = Vec::with_capacity(len);
         sb.resize(len, 0);
         for path in args.iter().skip(1) {
-            let mut file = match FileManager::open(path) {
+            let mut file = match FileManager::open(path, OpenOptions::new().read(true)) {
                 Ok(v) => v,
                 Err(err) => {
                     println!("{}: {}: {:?}", arg0, path, err.kind());

@@ -12,6 +12,6 @@ pub(super) fn install_drivers() {
     null::Null::init();
     zero::Zero::init();
     full::Full::init();
-    random::Random::init();
+    // random::Random::init();
     // stdio::StdIo::init();
 }

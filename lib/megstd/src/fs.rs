@@ -66,7 +66,7 @@ impl Write for File {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct OpenOptions(fs_imp::OpenOptions);
 
 impl OpenOptions {

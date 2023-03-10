@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    fs::{FileManager, FsRawFileControlBlock, OffsetType, Whence},
+    fs::*,
     sync::Mutex,
     ui::theme::Theme,
     *,
@@ -229,7 +229,8 @@ impl MyosRuntime {
                     .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
                 let _options = params.get_u32()?;
                 return Self::encode_io_result(
-                    FileManager::open(path).and_then(|file| self.alloc_file(file)),
+                    FileManager::open(path, OpenOptions::new().read(true))
+                        .and_then(|file| self.alloc_file(file)),
                 );
             }
             Function::Close => {

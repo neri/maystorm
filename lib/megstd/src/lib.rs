@@ -33,7 +33,14 @@ pub use prelude::*;
 mod prelude {
     pub use crate::{osstr::*, sys::prelude::*};
     pub use alloc::{
-        borrow::ToOwned, boxed::Box, collections::btree_map::BTreeMap, format, rc::Rc,
-        string::String, string::ToString, sync::Arc, vec::Vec,
+        borrow::ToOwned,
+        boxed::Box,
+        collections::btree_map::BTreeMap,
+        format,
+        rc::Rc,
+        string::String,
+        string::ToString,
+        sync::{Arc, Weak},
+        vec::Vec,
     };
 }
