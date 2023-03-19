@@ -36,51 +36,51 @@ impl UserEnv {
     pub fn start(f: fn()) {
         assert_call_once!();
 
-        let point = 16;
-        let font = FontDescriptor::new(FontFamily::Monospace, point)
-            .unwrap_or(FontManager::monospace_font());
+        if !IS_GUI_BOOT {
+            let point = 16;
+            let font = FontDescriptor::new(FontFamily::Monospace, point)
+                .unwrap_or(FontManager::monospace_font());
 
-        let window = RawWindowBuilder::new()
-            .style(WindowStyle::NO_SHADOW)
-            .fullscreen()
-            .level(WindowLevel::DESKTOP_ITEMS)
-            .bg_color(Color::TRANSPARENT)
-            .build("Terminal");
+            let window = RawWindowBuilder::new()
+                .style(WindowStyle::NO_SHADOW)
+                .fullscreen()
+                .level(WindowLevel::DESKTOP_ITEMS)
+                .bg_color(Color::TRANSPARENT)
+                .build("Terminal");
 
-        unsafe {
-            BG_TERMINAL = Some(window);
-        }
+            unsafe {
+                BG_TERMINAL = Some(window);
+            }
 
-        // WindowManager::set_desktop_color(Color::BLACK);
-        let mut terminal = Terminal::from_window(
-            window,
-            Some(EdgeInsets::padding_each(4)),
-            font,
-            Alpha8::OPAQUE,
-            0x07,
-            Some(&[
-                IndexedColor::BLACK.into(),
-                IndexedColor::BLUE.into(),
-                IndexedColor::GREEN.into(),
-                IndexedColor::CYAN.into(),
-                IndexedColor::RED.into(),
-                IndexedColor::MAGENTA.into(),
-                IndexedColor::BROWN.into(),
-                IndexedColor::LIGHT_GRAY.into(),
-                IndexedColor::DARK_GRAY.into(),
-                IndexedColor::LIGHT_BLUE.into(),
-                IndexedColor::LIGHT_GREEN.into(),
-                IndexedColor::LIGHT_CYAN.into(),
-                IndexedColor::LIGHT_RED.into(),
-                IndexedColor::LIGHT_MAGENTA.into(),
-                IndexedColor::YELLOW.into(),
-                IndexedColor::WHITE.into(),
-            ]),
-        );
-        terminal.reset().unwrap();
-        System::set_stdout(Box::new(terminal));
+            // WindowManager::set_desktop_color(Color::BLACK);
+            let mut terminal = Terminal::from_window(
+                window,
+                Some(EdgeInsets::padding_each(4)),
+                font,
+                Alpha8::OPAQUE,
+                0x07,
+                Some(&[
+                    IndexedColor::BLACK.into(),
+                    IndexedColor::BLUE.into(),
+                    IndexedColor::GREEN.into(),
+                    IndexedColor::CYAN.into(),
+                    IndexedColor::RED.into(),
+                    IndexedColor::MAGENTA.into(),
+                    IndexedColor::BROWN.into(),
+                    IndexedColor::LIGHT_GRAY.into(),
+                    IndexedColor::DARK_GRAY.into(),
+                    IndexedColor::LIGHT_BLUE.into(),
+                    IndexedColor::LIGHT_GREEN.into(),
+                    IndexedColor::LIGHT_CYAN.into(),
+                    IndexedColor::LIGHT_RED.into(),
+                    IndexedColor::LIGHT_MAGENTA.into(),
+                    IndexedColor::YELLOW.into(),
+                    IndexedColor::WHITE.into(),
+                ]),
+            );
+            terminal.reset().unwrap();
+            System::set_stdout(Box::new(terminal));
 
-        if true {
             let device = System::current_device();
 
             let bytes = device.total_memory_size();

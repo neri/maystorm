@@ -208,6 +208,10 @@ impl FsDriver for RamFs {
                 None
             };
 
+            if let Some(ref new_) = new_ && old_.inode == new_.inode {
+                return Ok(());
+            }
+
             dir.force_rename(old_name, new_name).unwrap();
 
             drop(old_);
@@ -242,6 +246,10 @@ impl FsDriver for RamFs {
                 }
                 None
             };
+
+            if let Some(ref new_) = new_ && old_.inode == new_.inode {
+                return Ok(());
+            }
 
             let dir_ent = old_dir.remove(old_name, true).unwrap();
             new_dir.append_or_replace(new_name, dir_ent.entity);

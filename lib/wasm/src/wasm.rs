@@ -15,10 +15,11 @@ use num_traits::FromPrimitive;
 pub type WasmDynFunc =
     fn(&WasmModule, &[WasmUnsafeValue]) -> Result<WasmValue, WasmRuntimeErrorKind>;
 
-pub enum TriState<T, E, N> {
+pub enum ImportResult<T> {
     Ok(T),
-    Err(E),
-    Other(N),
+    NoModule,
+    NoMethod,
+    Later,
 }
 
 /// WebAssembly loader
@@ -52,7 +53,7 @@ impl WasmLoader {
     /// Instantiate wasm modules from slice
     pub fn instantiate<F>(blob: &[u8], resolver: F) -> Result<WasmModule, WasmDecodeErrorKind>
     where
-        F: FnMut(&str, &str, &WasmType) -> TriState<WasmDynFunc, WasmDecodeErrorKind, ()> + Copy,
+        F: FnMut(&str, &str, &WasmType) -> ImportResult<WasmDynFunc> + Copy,
     {
         if Self::identity(blob) {
             let mut loader = Self::new();
@@ -63,9 +64,9 @@ impl WasmLoader {
     }
 
     /// Load wasm from slice
-    pub fn load<F>(&mut self, blob: &[u8], resolver: F) -> Result<(), WasmDecodeErrorKind>
+    pub fn load<F>(&mut self, blob: &[u8], import_resolver: F) -> Result<(), WasmDecodeErrorKind>
     where
-        F: FnMut(&str, &str, &WasmType) -> TriState<WasmDynFunc, WasmDecodeErrorKind, ()> + Copy,
+        F: FnMut(&str, &str, &WasmType) -> ImportResult<WasmDynFunc> + Copy,
     {
         let mut blob = Leb128Stream::from_slice(&blob[8..]);
         while let Some(mut section) = blob.next_section()? {
@@ -80,7 +81,7 @@ impl WasmLoader {
                     Ok(())
                 }
                 WasmSectionType::Type => self.parse_sec_type(section),
-                WasmSectionType::Import => self.parse_sec_import(section, resolver),
+                WasmSectionType::Import => self.parse_sec_import(section, import_resolver),
                 WasmSectionType::Table => self.parse_sec_table(section),
                 WasmSectionType::Memory => self.parse_sec_memory(section),
                 WasmSectionType::Element => self.parse_sec_elem(section),
@@ -133,7 +134,7 @@ impl WasmLoader {
         mut resolver: F,
     ) -> Result<(), WasmDecodeErrorKind>
     where
-        F: FnMut(&str, &str, &WasmType) -> TriState<WasmDynFunc, WasmDecodeErrorKind, ()> + Copy,
+        F: FnMut(&str, &str, &WasmType) -> ImportResult<WasmDynFunc> + Copy,
     {
         let n_items = section.stream.read_unsigned()? as usize;
         for _ in 0..n_items {
@@ -147,9 +148,14 @@ impl WasmLoader {
                         .get(index)
                         .ok_or(WasmDecodeErrorKind::InvalidType)?;
                     let dlink = match resolver(import.mod_name(), import.name(), func_type) {
-                        TriState::Ok(v) => v,
-                        TriState::Err(err) => return Err(err),
-                        TriState::Other(_) => todo!(),
+                        ImportResult::Ok(v) => v,
+                        ImportResult::NoMethod => {
+                            return Err(WasmDecodeErrorKind::NoMethod(import.name().to_owned()))
+                        }
+                        ImportResult::NoModule => {
+                            return Err(WasmDecodeErrorKind::NoModule(import.mod_name().to_owned()))
+                        }
+                        ImportResult::Later => todo!(),
                     };
                     self.module.functions.push(WasmFunction::from_import(
                         self.module.n_ext_func,

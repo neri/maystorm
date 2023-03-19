@@ -6,7 +6,6 @@ use crate::{
     *,
     {io::hid_mgr::*, ui::text::*, ui::window::*},
 };
-use alloc::{borrow::ToOwned, collections::BTreeMap, sync::Arc};
 use byteorder::*;
 use core::{
     alloc::Layout, intrinsics::transmute, num::NonZeroU32, sync::atomic::*, time::Duration,
@@ -15,6 +14,7 @@ use megstd::{
     drawing::*,
     io::{Read, Write},
     rand::*,
+    Arc, BTreeMap,
 };
 use wasm::{intr::*, *};
 
@@ -50,17 +50,17 @@ impl BinaryLoader for MyosBinaryLoader {
             .load(blob, |mod_name, name, type_ref| {
                 let signature = type_ref.signature();
                 match mod_name {
-                    MyosRuntime::MOD_NAME => match (name, signature.as_ref()) {
-                        ("svc0", "ii") => TriState::Ok(MyosRuntime::syscall),
-                        ("svc1", "iii") => TriState::Ok(MyosRuntime::syscall),
-                        ("svc2", "iiii") => TriState::Ok(MyosRuntime::syscall),
-                        ("svc3", "iiiii") => TriState::Ok(MyosRuntime::syscall),
-                        ("svc4", "iiiiii") => TriState::Ok(MyosRuntime::syscall),
-                        ("svc5", "iiiiiii") => TriState::Ok(MyosRuntime::syscall),
-                        ("svc6", "iiiiiiii") => TriState::Ok(MyosRuntime::syscall),
-                        _ => TriState::Err(WasmDecodeErrorKind::NoMethod(name.to_owned())),
+                    MyosRuntime::MOD_NAME => match (name, signature.as_str()) {
+                        ("svc0", "ii") => ImportResult::Ok(MyosRuntime::syscall),
+                        ("svc1", "iii") => ImportResult::Ok(MyosRuntime::syscall),
+                        ("svc2", "iiii") => ImportResult::Ok(MyosRuntime::syscall),
+                        ("svc3", "iiiii") => ImportResult::Ok(MyosRuntime::syscall),
+                        ("svc4", "iiiiii") => ImportResult::Ok(MyosRuntime::syscall),
+                        ("svc5", "iiiiiii") => ImportResult::Ok(MyosRuntime::syscall),
+                        ("svc6", "iiiiiiii") => ImportResult::Ok(MyosRuntime::syscall),
+                        _ => ImportResult::NoMethod,
                     },
-                    _ => TriState::Err(WasmDecodeErrorKind::NoModule(mod_name.to_owned())),
+                    _ => ImportResult::NoModule,
                 }
             })
             .map_err(|v| {

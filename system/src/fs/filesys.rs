@@ -256,10 +256,19 @@ impl FileManager {
     }
 
     pub fn rename(old_path: &str, new_path: &str) -> Result<()> {
-        let (fs1, old_dir, old_name) = Self::resolve_parent(old_path)?;
+        let old_path = format!("{}{}", Self::canonical_path(old_path), Self::PATH_SEPARATOR);
+        let new_path = format!("{}{}", Self::canonical_path(new_path), Self::PATH_SEPARATOR);
+
+        if old_path == new_path {
+            return Ok(());
+        } else if new_path.starts_with(&old_path) {
+            return Err(ErrorKind::InvalidInput.into());
+        }
+
+        let (fs1, old_dir, old_name) = Self::resolve_parent(&old_path)?;
         let Some(old_name) = old_name else { return Err(ErrorKind::NotFound.into()) };
 
-        let (fs2, mut new_dir, new_name) = Self::resolve_parent(new_path)?;
+        let (fs2, mut new_dir, new_name) = Self::resolve_parent(&new_path)?;
         let new_name = match new_name {
             Some(new_name) => match fs2.lookup(new_dir, &new_name) {
                 Ok(inode) => match fs2.stat(inode) {
@@ -279,12 +288,7 @@ impl FileManager {
         };
 
         if Arc::ptr_eq(&fs1, &fs2) {
-            if old_dir == new_dir && old_name == new_name {
-                // do nothing
-                Ok(())
-            } else {
-                fs1.rename(old_dir, &old_name, new_dir, &new_name, true)
-            }
+            fs1.rename(old_dir, &old_name, new_dir, &new_name, true)
         } else {
             Err(ErrorKind::CrossesDevices.into())
         }
@@ -385,6 +389,10 @@ pub trait FsAccessToken {
 
     fn truncate(&self, _length: OffsetType) -> Result<()> {
         Err(ErrorKind::ReadOnlyFilesystem.into())
+    }
+
+    fn flush(&self) -> Result<()> {
+        Ok(())
     }
 }
 
@@ -579,7 +587,7 @@ impl Write for FsRawFileControlBlock {
     }
 
     fn flush(&mut self) -> Result<()> {
-        todo!()
+        self.access_token.flush()
     }
 }
 

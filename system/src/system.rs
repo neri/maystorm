@@ -14,98 +14,6 @@ use core::{
 };
 use megstd::{drawing::*, time::SystemTime, Arc, Box, String, Vec};
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Version<'a> {
-    versions: u32,
-    rel: &'a str,
-}
-
-impl Version<'_> {
-    #[inline]
-    pub const fn new<'a>(maj: u8, min: u8, patch: u16, rel: &'a str) -> Version<'a> {
-        let versions = ((maj as u32) << 24) | ((min as u32) << 16) | (patch as u32);
-        Version { versions, rel }
-    }
-
-    #[inline]
-    pub const fn as_u32(&self) -> u32 {
-        self.versions
-    }
-
-    #[inline]
-    pub const fn maj(&self) -> usize {
-        ((self.versions >> 24) & 0xFF) as usize
-    }
-
-    #[inline]
-    pub const fn min(&self) -> usize {
-        ((self.versions >> 16) & 0xFF) as usize
-    }
-
-    #[inline]
-    pub const fn patch(&self) -> usize {
-        (self.versions & 0xFFFF) as usize
-    }
-
-    #[inline]
-    pub const fn rel(&self) -> &str {
-        &self.rel
-    }
-}
-
-impl fmt::Display for Version<'_> {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.rel().len() > 0 {
-            write!(
-                f,
-                "{}.{}.{}-{}",
-                self.maj(),
-                self.min(),
-                self.patch(),
-                self.rel(),
-            )
-        } else {
-            write!(f, "{}.{}.{}", self.maj(), self.min(), self.patch())
-        }
-    }
-}
-
-#[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ProcessorIndex(pub usize);
-
-impl ProcessorIndex {
-    #[inline]
-    pub fn get<'a>(&self) -> Option<&'a Box<Cpu>> {
-        System::cpu_ref(*self)
-    }
-}
-
-impl const From<ProcessorIndex> for usize {
-    #[inline]
-    fn from(value: ProcessorIndex) -> Self {
-        value.0
-    }
-}
-
-impl const From<usize> for ProcessorIndex {
-    #[inline]
-    fn from(value: usize) -> Self {
-        Self(value)
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ProcessorCoreType {
-    /// Main Processor
-    Main,
-    /// Subprocessor of SMT enabled processor.
-    Sub,
-    /// High-efficiency processor
-    Efficient,
-}
-
 /// A Kernel of MEG-OS codename Maystorm
 #[allow(dead_code)]
 pub struct System {
@@ -474,4 +382,96 @@ impl DeviceInfo {
     pub fn num_of_main_cpus(&self) -> usize {
         self.num_of_main_cpus.load(Ordering::SeqCst)
     }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Version<'a> {
+    versions: u32,
+    rel: &'a str,
+}
+
+impl Version<'_> {
+    #[inline]
+    pub const fn new<'a>(maj: u8, min: u8, patch: u16, rel: &'a str) -> Version<'a> {
+        let versions = ((maj as u32) << 24) | ((min as u32) << 16) | (patch as u32);
+        Version { versions, rel }
+    }
+
+    #[inline]
+    pub const fn as_u32(&self) -> u32 {
+        self.versions
+    }
+
+    #[inline]
+    pub const fn maj(&self) -> usize {
+        ((self.versions >> 24) & 0xFF) as usize
+    }
+
+    #[inline]
+    pub const fn min(&self) -> usize {
+        ((self.versions >> 16) & 0xFF) as usize
+    }
+
+    #[inline]
+    pub const fn patch(&self) -> usize {
+        (self.versions & 0xFFFF) as usize
+    }
+
+    #[inline]
+    pub const fn rel(&self) -> &str {
+        &self.rel
+    }
+}
+
+impl fmt::Display for Version<'_> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.rel().len() > 0 {
+            write!(
+                f,
+                "{}.{}.{}-{}",
+                self.maj(),
+                self.min(),
+                self.patch(),
+                self.rel(),
+            )
+        } else {
+            write!(f, "{}.{}.{}", self.maj(), self.min(), self.patch())
+        }
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ProcessorIndex(pub usize);
+
+impl ProcessorIndex {
+    #[inline]
+    pub fn get<'a>(&self) -> Option<&'a Box<Cpu>> {
+        System::cpu_ref(*self)
+    }
+}
+
+impl const From<ProcessorIndex> for usize {
+    #[inline]
+    fn from(value: ProcessorIndex) -> Self {
+        value.0
+    }
+}
+
+impl const From<usize> for ProcessorIndex {
+    #[inline]
+    fn from(value: usize) -> Self {
+        Self(value)
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ProcessorCoreType {
+    /// Main Processor
+    Main,
+    /// Subprocessor of SMT enabled processor.
+    Sub,
+    /// High-efficiency processor
+    Efficient,
 }

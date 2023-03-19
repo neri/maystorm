@@ -167,21 +167,52 @@ macro_rules! without_interrupts {
     }};
 }
 
+#[cfg(target_pointer_width = "32")]
+pub type PhysicalAddressRepr = u32;
+#[cfg(target_pointer_width = "32")]
+pub type NonZeroPhysicalAddressRepr = NonZeroU32;
+#[cfg(target_pointer_width = "64")]
+pub type PhysicalAddressRepr = u64;
+#[cfg(target_pointer_width = "64")]
+pub type NonZeroPhysicalAddressRepr = NonZeroU64;
+
 #[repr(transparent)]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PhysicalAddress(u64);
+pub struct PhysicalAddress(PhysicalAddressRepr);
 
 impl PhysicalAddress {
     pub const NULL: Self = Self(0);
 
     #[inline]
-    pub const fn new(val: u64) -> Self {
-        Self(val)
+    pub const fn new(val: PhysicalAddressRepr) -> Self {
+        Self(val as PhysicalAddressRepr)
     }
 
     #[inline]
     pub const fn from_usize(val: usize) -> Self {
-        Self(val as u64)
+        Self(val as PhysicalAddressRepr)
+    }
+
+    #[cfg(target_pointer_width = "32")]
+    #[inline]
+    pub const fn from_u32(val: u32) -> Self {
+        Self(val as PhysicalAddressRepr)
+    }
+
+    #[inline]
+    pub const fn from_u64(val: u64) -> Self {
+        Self(val as PhysicalAddressRepr)
+    }
+
+    #[inline]
+    pub const fn as_repr(&self) -> PhysicalAddressRepr {
+        self.0 as PhysicalAddressRepr
+    }
+
+    #[cfg(target_pointer_width = "32")]
+    #[inline]
+    pub const fn as_u32(&self) -> u32 {
+        self.0 as u32
     }
 
     #[inline]
@@ -217,15 +248,15 @@ impl const Add<usize> for PhysicalAddress {
 
     #[inline]
     fn add(self, rhs: usize) -> Self::Output {
-        Self(self.0 + rhs as u64)
+        Self(self.0 + rhs as PhysicalAddressRepr)
     }
 }
 
-impl const Add<u64> for PhysicalAddress {
+impl const Add<PhysicalAddressRepr> for PhysicalAddress {
     type Output = Self;
 
     #[inline]
-    fn add(self, rhs: u64) -> Self::Output {
+    fn add(self, rhs: PhysicalAddressRepr) -> Self::Output {
         Self(self.0 + rhs)
     }
 }
@@ -244,7 +275,7 @@ impl const Sub<usize> for PhysicalAddress {
 
     #[inline]
     fn sub(self, rhs: usize) -> Self::Output {
-        Self(self.0 - rhs as u64)
+        Self(self.0 - rhs as PhysicalAddressRepr)
     }
 }
 
@@ -252,28 +283,28 @@ impl const Mul<usize> for PhysicalAddress {
     type Output = Self;
 
     fn mul(self, rhs: usize) -> Self::Output {
-        Self(self.0 * rhs as u64)
+        Self(self.0 * rhs as PhysicalAddressRepr)
     }
 }
 
-impl const Mul<u64> for PhysicalAddress {
+impl const Mul<PhysicalAddressRepr> for PhysicalAddress {
     type Output = Self;
 
-    fn mul(self, rhs: u64) -> Self::Output {
+    fn mul(self, rhs: PhysicalAddressRepr) -> Self::Output {
         Self(self.0 * rhs)
     }
 }
 
-impl const BitAnd<u64> for PhysicalAddress {
+impl const BitAnd<PhysicalAddressRepr> for PhysicalAddress {
     type Output = Self;
 
     #[inline]
-    fn bitand(self, rhs: u64) -> Self::Output {
+    fn bitand(self, rhs: PhysicalAddressRepr) -> Self::Output {
         Self(self.0 & rhs)
     }
 }
 
-impl const BitAnd<PhysicalAddress> for u64 {
+impl const BitAnd<PhysicalAddress> for PhysicalAddressRepr {
     type Output = Self;
 
     fn bitand(self, rhs: PhysicalAddress) -> Self::Output {
@@ -281,11 +312,11 @@ impl const BitAnd<PhysicalAddress> for u64 {
     }
 }
 
-impl const BitOr<u64> for PhysicalAddress {
+impl const BitOr<PhysicalAddressRepr> for PhysicalAddress {
     type Output = Self;
 
     #[inline]
-    fn bitor(self, rhs: u64) -> Self::Output {
+    fn bitor(self, rhs: PhysicalAddressRepr) -> Self::Output {
         Self(self.0 | rhs)
     }
 }
@@ -298,17 +329,17 @@ impl const Not for PhysicalAddress {
     }
 }
 
-impl const From<u64> for PhysicalAddress {
+impl const From<PhysicalAddressRepr> for PhysicalAddress {
     #[inline]
-    fn from(val: u64) -> Self {
+    fn from(val: PhysicalAddressRepr) -> Self {
         Self::new(val)
     }
 }
 
-impl const From<PhysicalAddress> for u64 {
+impl const From<PhysicalAddress> for PhysicalAddressRepr {
     #[inline]
     fn from(val: PhysicalAddress) -> Self {
-        val.as_u64()
+        val.as_repr()
     }
 }
 
@@ -337,7 +368,7 @@ impl Step for PhysicalAddress {
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct NonNullPhysicalAddress(NonZeroU64);
+pub struct NonNullPhysicalAddress(NonZeroPhysicalAddressRepr);
 
 impl NonNullPhysicalAddress {
     #[inline]
@@ -347,12 +378,12 @@ impl NonNullPhysicalAddress {
 
     #[inline]
     pub const fn new(val: PhysicalAddress) -> Option<Self> {
-        NonZeroU64::new(val.as_u64()).map(Self)
+        NonZeroPhysicalAddressRepr::new(val.as_repr()).map(Self)
     }
 
     #[inline]
     pub const unsafe fn new_unchecked(val: PhysicalAddress) -> Self {
-        Self(NonZeroU64::new_unchecked(val.as_u64()))
+        Self(NonZeroPhysicalAddressRepr::new_unchecked(val.as_repr()))
     }
 }
 
