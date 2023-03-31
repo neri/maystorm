@@ -21,7 +21,6 @@
 #![feature(naked_functions)]
 #![feature(negative_impls)]
 #![feature(new_uninit)]
-#![feature(option_result_contains)]
 #![feature(panic_info_message)]
 #![feature(trait_alias)]
 #![feature(let_chains)]

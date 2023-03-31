@@ -58,11 +58,9 @@ impl PageManager {
     }
 
     /// Second initialize after exit_boot_services
-    pub unsafe fn init_late(
-        info: &mut BootInfo,
-        mm: impl ExactSizeIterator<Item = &'static MemoryDescriptor>,
-    ) {
+    pub unsafe fn init_late(info: &mut BootInfo, mm: MemoryMap) {
         let shared = Self::shared();
+        let mm = mm.entries();
 
         let mm_len = mm.len();
         let buffer = Self::alloc_pages(

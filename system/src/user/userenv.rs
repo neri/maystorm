@@ -155,7 +155,7 @@ impl UserEnv {
                 .draw_text(bitmap, bitmap.bounds(), 0);
         });
 
-        let animation = AnimatedProp::new(0.0, 0.5, Duration::from_millis(500));
+        let animation = AnimatedProp::new(0.0, 0.75, Duration::from_millis(500));
 
         window.create_timer(0, Duration::from_millis(1));
         window.show();
@@ -841,18 +841,16 @@ async fn test_window_main() {
         {
             let mut rect = bitmap.bounds();
             rect.size.height = title_height;
-            bitmap
-                .view(rect, |bitmap| {
-                    let rect = bitmap.bounds();
-                    bitmap.fill_rect(rect, Color::LIGHT_BLUE);
-                    AttributedString::new()
-                        .font(&FontDescriptor::new(FontFamily::SansSerif, 32).unwrap())
-                        .middle_center()
-                        .color(Color::WHITE)
-                        .text("ようこそ MYOS!")
-                        .draw_text(bitmap, rect, 1);
-                })
-                .unwrap();
+            bitmap.view(rect).map(|mut bitmap| {
+                let rect = bitmap.bounds();
+                bitmap.fill_rect(rect, Color::LIGHT_BLUE);
+                AttributedString::new()
+                    .font(&FontDescriptor::new(FontFamily::SansSerif, 32).unwrap())
+                    .middle_center()
+                    .color(Color::WHITE)
+                    .text("ようこそ MYOS!")
+                    .draw_text(&mut bitmap, rect, 1);
+            });
         }
         {
             let rect = bitmap.bounds().insets_by(EdgeInsets::new(
@@ -861,21 +859,19 @@ async fn test_window_main() {
                 padding_bottom + padding + padding,
                 4,
             ));
-            bitmap
-                .view(rect, |bitmap| {
-                    let mut offset = 0;
-                    for family in [
-                        FontFamily::SansSerif,
-                        FontFamily::Serif,
-                        FontFamily::Monospace,
-                        // FontFamily::Cursive,
-                    ] {
-                        for point in [48, 32, 28, 24, 20, 16] {
-                            offset += font_test(bitmap, offset, Color::BLACK, family, point);
-                        }
+            bitmap.view(rect).map(|mut bitmap| {
+                let mut offset = 0;
+                for family in [
+                    FontFamily::SansSerif,
+                    FontFamily::Serif,
+                    FontFamily::Monospace,
+                    // FontFamily::Cursive,
+                ] {
+                    for point in [48, 32, 28, 24, 20, 16] {
+                        offset += font_test(&mut bitmap, offset, Color::BLACK, family, point);
                     }
-                })
-                .unwrap();
+                }
+            });
         }
         if true {
             let rect = Rect::new(
@@ -884,27 +880,25 @@ async fn test_window_main() {
                 button_width,
                 button_height,
             );
-            bitmap
-                .view(rect, |bitmap| {
-                    let rect = bitmap.bounds();
-                    bitmap.fill_round_rect(
-                        rect,
-                        button_radius,
-                        Theme::shared().button_default_background(),
-                    );
-                    // bitmap.draw_round_rect(
-                    //     rect,
-                    //     button_radius,
-                    //     Theme::shared().button_default_border(),
-                    // );
-                    AttributedString::new()
-                        .font(&font)
-                        .middle_center()
-                        .color(Theme::shared().button_default_foreground())
-                        .text("Ok")
-                        .draw_text(bitmap, rect, 1);
-                })
-                .unwrap();
+            bitmap.view(rect).map(|mut bitmap| {
+                let rect = bitmap.bounds();
+                bitmap.fill_round_rect(
+                    rect,
+                    button_radius,
+                    Theme::shared().button_default_background(),
+                );
+                // bitmap.draw_round_rect(
+                //     rect,
+                //     button_radius,
+                //     Theme::shared().button_default_border(),
+                // );
+                AttributedString::new()
+                    .font(&font)
+                    .middle_center()
+                    .color(Theme::shared().button_default_foreground())
+                    .text("Ok")
+                    .draw_text(&mut bitmap, rect, 1);
+            });
         }
         if true {
             let rect = Rect::new(
@@ -913,27 +907,25 @@ async fn test_window_main() {
                 button_width,
                 button_height,
             );
-            bitmap
-                .view(rect, |bitmap| {
-                    let rect = bitmap.bounds();
-                    bitmap.fill_round_rect(
-                        rect,
-                        button_radius,
-                        Theme::shared().button_destructive_background(),
-                    );
-                    // bitmap.draw_round_rect(
-                    //     rect,
-                    //     button_radius,
-                    //     Theme::shared().button_destructive_border(),
-                    // );
-                    AttributedString::new()
-                        .font(&font)
-                        .middle_center()
-                        .color(Theme::shared().button_destructive_foreground())
-                        .text("Cancel")
-                        .draw_text(bitmap, rect, 1);
-                })
-                .unwrap();
+            bitmap.view(rect).map(|mut bitmap| {
+                let rect = bitmap.bounds();
+                bitmap.fill_round_rect(
+                    rect,
+                    button_radius,
+                    Theme::shared().button_destructive_background(),
+                );
+                // bitmap.draw_round_rect(
+                //     rect,
+                //     button_radius,
+                //     Theme::shared().button_destructive_border(),
+                // );
+                AttributedString::new()
+                    .font(&font)
+                    .middle_center()
+                    .color(Theme::shared().button_destructive_foreground())
+                    .text("Cancel")
+                    .draw_text(&mut bitmap, rect, 1);
+            });
         }
     });
 

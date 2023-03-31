@@ -11,9 +11,10 @@ use uefi::{
     prelude::*,
     proto::console::gop,
     table::{
-        boot::MemoryType,
+        boot::{OpenProtocolAttributes, OpenProtocolParams, SearchType},
         cfg::{ACPI2_GUID, SMBIOS_GUID},
     },
+    Identify,
 };
 
 //#define EFI_DTB_TABLE_GUID  {0xb1b621d5, 0xf19c, 0x41a5, {0x83, 0x0b, 0xd9, 0x15, 0x2c, 0x69, 0xaa, 0xe0}}
@@ -61,29 +62,42 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
 
     // Init graphics
     let mut graphics_ok = false;
-    #[allow(deprecated)]
-    if let Ok(gop) = unsafe { bs.locate_protocol::<gop::GraphicsOutput>() } {
-        let gop = unsafe { &mut *gop.get() };
-        let gop_info = gop.current_mode_info();
-        let mut fb = gop.frame_buffer();
-        info.vram_base = fb.as_mut_ptr() as usize as u64;
+    if let Ok(handle_buffer) =
+        bs.locate_handle_buffer(SearchType::ByProtocol(&gop::GraphicsOutput::GUID))
+    {
+        if let Some(handle_gop) = handle_buffer.first() {
+            if let Ok(mut gop) = unsafe {
+                bs.open_protocol::<gop::GraphicsOutput>(
+                    OpenProtocolParams {
+                        handle: *handle_gop,
+                        agent: handle,
+                        controller: None,
+                    },
+                    OpenProtocolAttributes::GetProtocol,
+                )
+            } {
+                let gop_info = gop.current_mode_info();
+                let mut fb = gop.frame_buffer();
+                info.vram_base = fb.as_mut_ptr() as usize as u64;
 
-        let stride = gop_info.stride();
-        let (mut width, mut height) = gop_info.resolution();
+                let stride = gop_info.stride();
+                let (mut width, mut height) = gop_info.resolution();
 
-        if width > stride {
-            // GPD micro PC fake landscape mode
-            swap(&mut width, &mut height);
+                if width > stride {
+                    // GPD micro PC fake landscape mode
+                    swap(&mut width, &mut height);
+                }
+
+                info.vram_stride = stride as u16;
+                info.screen_width = width as u16;
+                info.screen_height = height as u16;
+
+                unsafe {
+                    debug::Console::init(info.vram_base as usize, width, height, stride);
+                }
+                graphics_ok = true;
+            }
         }
-
-        info.vram_stride = stride as u16;
-        info.screen_width = width as u16;
-        info.screen_height = height as u16;
-
-        unsafe {
-            debug::Console::init(info.vram_base as usize, width, height, stride);
-        }
-        graphics_ok = true;
     }
     if !graphics_ok && !info.flags.contains(BootFlags::HEADLESS) {
         writeln!(st.stdout(), "Error: GOP Not Found").unwrap();
@@ -141,14 +155,14 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
     //
 
     // because some UEFI implementations require an additional buffer during exit_boot_services
-    let mmap_size = st.boot_services().memory_map_size();
-    let buf_size = mmap_size.map_size * 2;
-    let buf_ptr = st
-        .boot_services()
-        .allocate_pool(MemoryType::LOADER_DATA, buf_size)
-        .unwrap();
-    let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr, buf_size) };
-    let (_st, mm) = st.exit_boot_services(handle, buf).unwrap();
+    // let mmap_size = st.boot_services().memory_map_size();
+    // let buf_size = mmap_size.map_size * 2;
+    // let buf_ptr = st
+    //     .boot_services()
+    //     .allocate_pool(MemoryType::LOADER_DATA, buf_size)
+    //     .unwrap();
+    // let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr, buf_size) };
+    let (_st, mm) = st.exit_boot_services();
 
     // ------------------------------------------------------------------------
 

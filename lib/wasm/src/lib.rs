@@ -1,5 +1,6 @@
 //! WebAssembly Runtime Library
-#![no_std]
+
+#![cfg_attr(not(test), no_std)]
 #![deny(unsafe_op_in_unsafe_fn)]
 #![feature(const_convert)]
 #![feature(const_mut_refs)]

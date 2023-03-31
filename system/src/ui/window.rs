@@ -1475,7 +1475,9 @@ impl RawWindow {
             self.draw_back_button();
 
             bitmap
-                .view(self.title_frame(), |bitmap| {
+                .view(self.title_frame())
+                .map(|mut bitmap| {
+                    let bitmap = &mut bitmap;
                     let rect = bitmap.bounds();
 
                     AttributedString::new()
@@ -1780,9 +1782,9 @@ impl RawWindow {
         self.title.as_str()
     }
 
-    fn draw_in_rect<F>(&self, rect: Rect, f: F) -> Result<(), WindowDrawingError>
+    fn draw_in_rect<'a, F>(&'a self, rect: Rect, f: F) -> Result<(), WindowDrawingError>
     where
-        F: FnOnce(&mut BitmapRefMut) -> (),
+        F: 'a + FnOnce(&mut BitmapRefMut) -> (),
     {
         let bitmap = self.bitmap();
         let bounds = self.frame.bounds().insets_by(self.content_insets);
@@ -1801,7 +1803,8 @@ impl RawWindow {
 
         let rect = coords.into();
         bitmap
-            .view(rect, |bitmap| f(bitmap))
+            .view(rect)
+            .map(|mut bitmap| f(&mut bitmap))
             .ok_or(WindowDrawingError::InconsistentCoordinates)
     }
 }
@@ -2570,7 +2573,7 @@ impl AtomicWindowHandle {
 
     #[inline]
     pub fn contains(&self, val: WindowHandle) -> bool {
-        self.get().contains(&val)
+        self.get().map(|v| v == val).unwrap_or(false)
     }
 
     #[inline]

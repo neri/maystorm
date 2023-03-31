@@ -7,6 +7,7 @@ use core::{
     intrinsics::copy_nonoverlapping,
     mem::{swap, transmute},
     num::NonZeroUsize,
+    slice,
 };
 use paste::paste;
 
@@ -536,8 +537,8 @@ macro_rules! define_bitmap {
                 }
 
                 #[inline]
-                pub fn clone(&self) -> [<BitmapRefMut $suffix>]<'a> {
-                    let slice = unsafe { self.slice.get().as_mut().unwrap() };
+                pub fn clone_mut(&'a mut self) -> Self {
+                    let slice = unsafe { &mut *self.slice.get() };
                     Self {
                         size: self.size(),
                         stride: self.stride(),
@@ -680,10 +681,8 @@ macro_rules! define_bitmap {
                 }
             }
 
-            impl [<BitmapRefMut $suffix>]<'_> {
-                pub fn view<F, R>(&mut self, rect: Rect, f: F) -> Option<R>
-                where
-                    F: FnOnce(&mut BitmapRefMut) -> R,
+            impl<'a> [<BitmapRefMut $suffix>]<'a> {
+                pub fn view(&mut self, rect: Rect) -> Option<[<BitmapRefMut $suffix>]<'a>>
                 {
                     let Ok(coords) = Coordinates::try_from(rect) else { return None };
                     let width = self.width() as isize;
@@ -702,17 +701,177 @@ macro_rules! define_bitmap {
 
                     let offset = rect.min_x() as usize + rect.min_y() as usize * stride;
                     let new_len = (rect.height() as usize - 1) * stride + rect.width() as usize;
-                    let r = {
-                        let slice = self.slice_mut();
-                        let view = [<BitmapRefMut $suffix>] {
+                    Some(unsafe {
+                        let p = self.slice_mut().as_mut_ptr();
+                        Self {
                             size: rect.size(),
                             stride,
-                            slice: UnsafeCell::new(&mut slice[offset..offset + new_len]),
-                        };
-                        let mut bitmap = BitmapRefMut::from(view);
-                        f(&mut bitmap)
-                    };
-                    Some(r)
+                            slice: UnsafeCell::new(slice::from_raw_parts_mut(p.add(offset), new_len)),
+                        }
+                    })
+                }
+            }
+
+            impl [<BitmapRefMut $suffix>]<'_> {
+                pub fn copy(&mut self, origin: Point, rect: Rect) {
+                    let (dx, dy, sx, sy, width, height) =
+                        _adjust_blt_coords(self.size(), self.size(), origin, rect);
+                    if width <= 0 || height <= 0 {
+                        return;
+                    }
+                    let width = width as usize;
+                    let height = height as usize;
+                    let stride = self.stride();
+
+                    // TODO: overlapping
+                    unsafe {
+                        let dest_fb = self.slice_mut().as_mut_ptr();
+                        let mut dest_ptr = dest_fb.add(dx as usize + dy as usize * stride);
+                        let mut src_ptr = dest_fb.add(sx as usize + sy as usize * stride) as *const _;
+
+                        if stride == width {
+                            dest_ptr.copy_from_nonoverlapping(src_ptr, width * height);
+                        } else {
+                            for _ in 0..height {
+                                dest_ptr.copy_from_nonoverlapping(src_ptr, width);
+                                dest_ptr = dest_ptr.add(stride);
+                                src_ptr = src_ptr.add(stride);
+                            }
+                        }
+                    }
+                }
+            }
+
+            impl<'a, 'b> Blt<[<BitmapRef $suffix>]<'b>> for [<BitmapRefMut $suffix>]<'a> {
+                fn blt(&mut self, src: &[<BitmapRef $suffix>]<'b>, origin: Point, rect: Rect) {
+                    let (dx, dy, sx, sy, width, height) =
+                        _adjust_blt_coords(self.size(), src.size(), origin, rect);
+                    if width <= 0 || height <= 0 {
+                        return;
+                    }
+                    let width = width as usize;
+                    let height = height as usize;
+
+                    let ds = self.stride();
+                    let ss = src.stride();
+                    unsafe {
+                        let mut dest_fb = self
+                            .slice_mut()
+                            .as_mut_ptr()
+                            .add(dx as usize + dy as usize * ds);
+                        let mut src_fb = src
+                            .slice()
+                            .as_ptr()
+                            .add(sx as usize + sy as usize * ss) as *const _;
+
+                        if ds == width && ss == width {
+                            dest_fb.copy_from_nonoverlapping(src_fb, width * height);
+                        } else {
+                            for _ in 0..height {
+                                dest_fb.copy_from_nonoverlapping(src_fb, width);
+                                dest_fb = dest_fb.add(ds);
+                                src_fb = src_fb.add(ss);
+                            }
+                        }
+                    }
+                }
+            }
+
+            impl DrawGlyph for [<BitmapRefMut $suffix>]<'_> {}
+
+            impl BasicDrawing for [<BitmapRefMut $suffix>]<'_> {
+                fn fill_rect(&mut self, rect: Rect, color: Self::ColorType) {
+                    let mut width = rect.width();
+                    let mut height = rect.height();
+                    let mut dx = rect.min_x();
+                    let mut dy = rect.min_y();
+
+                    if dx < 0 {
+                        width += dx;
+                        dx = 0;
+                    }
+                    if dy < 0 {
+                        height += dy;
+                        dy = 0;
+                    }
+                    let r = dx + width;
+                    let b = dy + height;
+                    if r >= self.size.width {
+                        width = self.size.width - dx;
+                    }
+                    if b >= self.size.height {
+                        height = self.size.height - dy;
+                    }
+                    if width <= 0 || height <= 0 {
+                        return;
+                    }
+
+                    let width = width as usize;
+                    let height = height as usize;
+                    let stride = self.stride;
+                    let mut cursor = dx as usize + dy as usize * stride;
+                    if stride == width {
+                        memory_colors::[<_memset_colors $suffix>](self.slice_mut(), cursor, width * height, color);
+                    } else {
+                        for _ in 0..height {
+                            memory_colors::[<_memset_colors $suffix>](self.slice_mut(), cursor, width, color);
+                            cursor += stride;
+                        }
+                    }
+                }
+
+                fn draw_hline(&mut self, origin: Point, width: isize, color: Self::ColorType) {
+                    let size = self.size();
+                    let mut dx = origin.x;
+                    let dy = origin.y;
+                    let mut w = width;
+
+                    if dy < 0 || dy >= size.height {
+                        return;
+                    }
+                    if dx < 0 {
+                        w += dx;
+                        dx = 0;
+                    }
+                    let r = dx + w;
+                    if r >= size.width {
+                        w = size.width - dx;
+                    }
+                    if w <= 0 {
+                        return;
+                    }
+
+                    let cursor = dx as usize + dy as usize * self.stride;
+                    memory_colors::[<_memset_colors $suffix>](self.slice_mut(), cursor, w as usize, color);
+                }
+
+                fn draw_vline(&mut self, origin: Point, height: isize, color: Self::ColorType) {
+                    let size = self.size();
+                    let dx = origin.x;
+                    let mut dy = origin.y;
+                    let mut h = height;
+
+                    if dx < 0 || dx >= size.width {
+                        return;
+                    }
+                    if dy < 0 {
+                        h += dy;
+                        dy = 0;
+                    }
+                    let b = dy + h;
+                    if h >= size.height || b >= size.height {
+                        h = size.height - dy - 1;
+                    }
+                    if h <= 0 {
+                        return;
+                    }
+
+                    let stride = self.stride;
+                    let mut cursor = dx as usize + dy as usize * stride;
+                    for _ in 0..h {
+                        self.slice_mut()[cursor] = color;
+                        cursor += stride;
+                    }
                 }
             }
 
@@ -731,45 +890,13 @@ macro_rules! define_bitmap {
 }
 
 define_bitmap!(8, u8, IndexedColor,);
+define_bitmap!(16, u16, RGB565,);
 define_bitmap!(32, u32, BGRA8888,);
 
 impl BltConvert<BGRA8888> for BitmapRefMut8<'_> {}
 impl BltConvert<IndexedColor> for BitmapRefMut8<'_> {}
 
-impl<'a> BitmapRefMut8<'a> {
-    pub fn blt(&mut self, src: &BitmapRef8, origin: Point, rect: Rect) {
-        let (dx, dy, sx, sy, width, height) =
-            _adjust_blt_coords(self.size(), src.size(), origin, rect);
-        if width <= 0 || height <= 0 {
-            return;
-        }
-        let width = width as usize;
-        let height = height as usize;
-
-        let ds = self.stride();
-        let ss = src.stride();
-        let mut dest_cursor = dx as usize + dy as usize * ds;
-        let mut src_cursor = sx as usize + sy as usize * ss;
-        let dest_fb = self.slice_mut();
-        let src_fb = src.slice();
-
-        if ds == width && ss == width {
-            memory_colors::_memcpy_colors8(
-                dest_fb,
-                dest_cursor,
-                src_fb,
-                src_cursor,
-                width * height,
-            );
-        } else {
-            for _ in 0..height {
-                memory_colors::_memcpy_colors8(dest_fb, dest_cursor, src_fb, src_cursor, width);
-                dest_cursor += ds;
-                src_cursor += ss;
-            }
-        }
-    }
-
+impl BitmapRefMut8<'_> {
     pub fn blt_with_key(
         &mut self,
         src: &BitmapRef8,
@@ -810,102 +937,8 @@ impl<'a> BitmapRefMut8<'a> {
     }
 }
 
-impl BasicDrawing for BitmapRefMut8<'_> {
-    fn fill_rect(&mut self, rect: Rect, color: Self::ColorType) {
-        let mut width = rect.width();
-        let mut height = rect.height();
-        let mut dx = rect.min_x();
-        let mut dy = rect.min_y();
-
-        if dx < 0 {
-            width += dx;
-            dx = 0;
-        }
-        if dy < 0 {
-            height += dy;
-            dy = 0;
-        }
-        let r = dx + width;
-        let b = dy + height;
-        if r >= self.size.width {
-            width = self.size.width - dx;
-        }
-        if b >= self.size.height {
-            height = self.size.height - dy;
-        }
-        if width <= 0 || height <= 0 {
-            return;
-        }
-
-        let width = width as usize;
-        let height = height as usize;
-        let stride = self.stride;
-        let mut cursor = dx as usize + dy as usize * stride;
-        if stride == width {
-            memory_colors::_memset_colors8(self.slice_mut(), cursor, width * height, color);
-        } else {
-            for _ in 0..height {
-                memory_colors::_memset_colors8(self.slice_mut(), cursor, width, color);
-                cursor += stride;
-            }
-        }
-    }
-
-    fn draw_hline(&mut self, origin: Point, width: isize, color: Self::ColorType) {
-        let mut dx = origin.x;
-        let dy = origin.y;
-        let mut w = width;
-
-        if dy < 0 || dy >= self.size.height {
-            return;
-        }
-        if dx < 0 {
-            w += dx;
-            dx = 0;
-        }
-        let r = dx + w;
-        if r >= self.size.width {
-            w = self.size.width - dx;
-        }
-        if w <= 0 {
-            return;
-        }
-
-        let cursor = dx as usize + dy as usize * self.stride;
-        memory_colors::_memset_colors8(self.slice_mut(), cursor, w as usize, color);
-    }
-
-    fn draw_vline(&mut self, origin: Point, height: isize, color: Self::ColorType) {
-        let size = self.size();
-        let dx = origin.x;
-        let mut dy = origin.y;
-        let mut h = height;
-
-        if dx < 0 || dx >= size.width {
-            return;
-        }
-        if dy < 0 {
-            h += dy;
-            dy = 0;
-        }
-        let b = dy + h;
-        if h >= size.height || b >= size.height {
-            h = size.height - dy - 1;
-        }
-        if h <= 0 {
-            return;
-        }
-
-        let stride = self.stride;
-        let mut cursor = dx as usize + dy as usize * stride;
-        for _ in 0..h {
-            self.slice_mut()[cursor] = color;
-            cursor += stride;
-        }
-    }
-}
-
-impl DrawGlyph for BitmapRefMut8<'_> {}
+impl BltConvert<BGRA8888> for BitmapRefMut32<'_> {}
+impl BltConvert<IndexedColor> for BitmapRefMut32<'_> {}
 
 impl BitmapRefMut32<'_> {
     pub fn blend_rect(&mut self, rect: Rect, color: BGRA8888) {
@@ -964,139 +997,6 @@ impl BitmapRefMut32<'_> {
                 cursor += 1;
             }
             cursor += stride;
-        }
-    }
-}
-
-impl BasicDrawing for BitmapRefMut32<'_> {
-    fn fill_rect(&mut self, rect: Rect, color: Self::ColorType) {
-        let mut width = rect.width();
-        let mut height = rect.height();
-        let mut dx = rect.min_x();
-        let mut dy = rect.min_y();
-
-        if dx < 0 {
-            width += dx;
-            dx = 0;
-        }
-        if dy < 0 {
-            height += dy;
-            dy = 0;
-        }
-        let r = dx + width;
-        let b = dy + height;
-        if r >= self.size.width {
-            width = self.size.width - dx;
-        }
-        if b >= self.size.height {
-            height = self.size.height - dy;
-        }
-        if width <= 0 || height <= 0 {
-            return;
-        }
-
-        let width = width as usize;
-        let height = height as usize;
-        let stride = self.stride;
-        let mut cursor = dx as usize + dy as usize * stride;
-        if stride == width {
-            memory_colors::_memset_colors32(self.slice_mut(), cursor, width * height, color);
-        } else {
-            for _ in 0..height {
-                memory_colors::_memset_colors32(self.slice_mut(), cursor, width, color);
-                cursor += stride;
-            }
-        }
-    }
-
-    fn draw_hline(&mut self, origin: Point, width: isize, color: Self::ColorType) {
-        let size = self.size();
-        let mut dx = origin.x;
-        let dy = origin.y;
-        let mut w = width;
-
-        if dy < 0 || dy >= size.height {
-            return;
-        }
-        if dx < 0 {
-            w += dx;
-            dx = 0;
-        }
-        let r = dx + w;
-        if r >= size.width {
-            w = size.width - dx;
-        }
-        if w <= 0 {
-            return;
-        }
-
-        let cursor = dx as usize + dy as usize * self.stride;
-        memory_colors::_memset_colors32(self.slice_mut(), cursor, w as usize, color);
-    }
-
-    fn draw_vline(&mut self, origin: Point, height: isize, color: Self::ColorType) {
-        let size = self.size();
-        let dx = origin.x;
-        let mut dy = origin.y;
-        let mut h = height;
-
-        if dx < 0 || dx >= size.width {
-            return;
-        }
-        if dy < 0 {
-            h += dy;
-            dy = 0;
-        }
-        let b = dy + h;
-        if h >= size.height || b >= size.height {
-            h = size.height - dy - 1;
-        }
-        if h <= 0 {
-            return;
-        }
-
-        let stride = self.stride;
-        let mut cursor = dx as usize + dy as usize * stride;
-        for _ in 0..h {
-            self.slice_mut()[cursor] = color;
-            cursor += stride;
-        }
-    }
-}
-
-impl DrawGlyph for BitmapRefMut32<'_> {}
-
-impl BltConvert<BGRA8888> for BitmapRefMut32<'_> {}
-impl BltConvert<IndexedColor> for BitmapRefMut32<'_> {}
-
-impl<'a> BitmapRefMut32<'a> {
-    pub fn blt(&mut self, src: &BitmapRef32, origin: Point, rect: Rect) {
-        let (dx, dy, sx, sy, width, height) =
-            _adjust_blt_coords(self.size(), src.size(), origin, rect);
-        if width <= 0 || height <= 0 {
-            return;
-        }
-        let width = width as usize;
-        let height = height as usize;
-
-        let ds = self.stride();
-        let ss = src.stride();
-        unsafe {
-            let mut dest_fb = self
-                .slice_mut()
-                .as_mut_ptr()
-                .add(dx as usize + dy as usize * ds) as *mut u32;
-            let mut src_fb = src.slice().as_ptr().add(sx as usize + sy as usize * ss) as *const u32;
-
-            if ds == width && ss == width {
-                dest_fb.copy_from(src_fb, width * height);
-            } else {
-                for _ in 0..height {
-                    dest_fb.copy_from(src_fb, width);
-                    dest_fb = dest_fb.add(ds);
-                    src_fb = src_fb.add(ss);
-                }
-            }
         }
     }
 
@@ -1172,9 +1072,9 @@ impl<'a> BitmapRefMut32<'a> {
     }
 
     #[inline]
-    pub fn blt_transparent<'b>(
+    pub fn blt_transparent(
         &mut self,
-        src: &'b BitmapRef<'b>,
+        src: &BitmapRef,
         origin: Point,
         rect: Rect,
         color_key: IndexedColor,
@@ -1279,18 +1179,46 @@ impl<'a> BitmapRefMut<'a> {
             BitmapRefMut::Argb32(v) => BitmapRef::Argb32(v.as_ref()),
         }
     }
+
+    /// Returns a subset of the specified range of bitmaps.
+    /// The function returns None if the rectangle points outside the range of the bitmap.
+    pub fn view(&mut self, rect: Rect) -> Option<Self> {
+        match self {
+            BitmapRefMut::Indexed(v) => v.view(rect).map(|v| BitmapRefMut::Indexed(v)),
+            BitmapRefMut::Argb32(v) => v.view(rect).map(|v| BitmapRefMut::Argb32(v)),
+        }
+    }
 }
 
 impl BitmapRefMut<'_> {
-    /// Make a bitmap view
     #[inline]
-    pub fn view<F, R>(&mut self, rect: Rect, f: F) -> Option<R>
-    where
-        F: FnOnce(&mut BitmapRefMut) -> R,
-    {
+    pub fn copy(&mut self, origin: Point, rect: Rect) {
         match self {
-            Self::Indexed(ref mut v) => v.view(rect, f),
-            Self::Argb32(ref mut v) => v.view(rect, f),
+            Self::Indexed(ref mut v) => v.copy(origin, rect),
+            Self::Argb32(ref mut v) => v.copy(origin, rect),
+        }
+    }
+
+    #[inline]
+    pub fn blt_transparent(
+        &mut self,
+        src: &BitmapRef,
+        origin: Point,
+        rect: Rect,
+        color_key: IndexedColor,
+    ) {
+        match self {
+            BitmapRefMut::Indexed(bitmap) => match src {
+                BitmapRef::Indexed(src) => bitmap.blt_with_key(src, origin, rect, color_key),
+                BitmapRef::Argb32(src) => bitmap.blt_convert_opt(*src, origin, rect, |c| {
+                    if c.is_transparent() {
+                        None
+                    } else {
+                        Some(c.into())
+                    }
+                }),
+            },
+            BitmapRefMut::Argb32(bitmap) => bitmap.blt_transparent(src, origin, rect, color_key),
         }
     }
 
@@ -1313,6 +1241,14 @@ impl BitmapRefMut<'_> {
         match self {
             Self::Indexed(_) => None,
             Self::Argb32(ref mut v) => Some(f(v)),
+        }
+    }
+
+    #[inline]
+    pub const fn color_mode(&self) -> usize {
+        match self {
+            Self::Indexed(_) => 8,
+            Self::Argb32(_) => 32,
         }
     }
 }
@@ -1376,49 +1312,6 @@ impl BasicDrawing for BitmapRefMut<'_> {
         match self {
             Self::Indexed(ref mut v) => v.draw_vline(origin, height, color.into()),
             Self::Argb32(ref mut v) => v.draw_vline(origin, height, color.into()),
-        }
-    }
-}
-
-impl BitmapRefMut<'_> {
-    #[inline]
-    pub const fn color_mode(&self) -> usize {
-        match self {
-            Self::Indexed(_) => 8,
-            Self::Argb32(_) => 32,
-        }
-    }
-
-    #[inline]
-    pub fn blt_itself<'a>(&'a mut self, origin: Point, rect: Rect) {
-        match self {
-            Self::Indexed(v) => v.blt(v.clone().as_ref(), origin, rect),
-            Self::Argb32(v) => v.blt(v.clone().as_ref(), origin, rect),
-        }
-    }
-}
-
-impl<'a> BitmapRefMut<'a> {
-    #[inline]
-    pub fn blt_transparent<'b>(
-        &mut self,
-        src: &'b BitmapRef<'b>,
-        origin: Point,
-        rect: Rect,
-        color_key: IndexedColor,
-    ) {
-        match self {
-            BitmapRefMut::Indexed(bitmap) => match src {
-                BitmapRef::Indexed(src) => bitmap.blt_with_key(src, origin, rect, color_key),
-                BitmapRef::Argb32(src) => bitmap.blt_convert_opt(*src, origin, rect, |c| {
-                    if c.is_transparent() {
-                        None
-                    } else {
-                        Some(c.into())
-                    }
-                }),
-            },
-            BitmapRefMut::Argb32(bitmap) => bitmap.blt_transparent(src, origin, rect, color_key),
         }
     }
 }
@@ -2029,7 +1922,6 @@ fn _adjust_blt_coords(
 mod memory_colors {
     use super::*;
 
-    /// Fast fill
     #[inline]
     pub fn _memset_colors8(
         slice: &mut [IndexedColor],
@@ -2076,63 +1968,13 @@ mod memory_colors {
         }
     }
 
-    /// Fast copy
     #[inline]
-    pub fn _memcpy_colors8(
-        dest: &mut [IndexedColor],
-        dest_cursor: usize,
-        src: &[IndexedColor],
-        src_cursor: usize,
-        size: usize,
-    ) {
-        unsafe {
-            let dest = dest.get_unchecked_mut(dest_cursor);
-            let src = src.get_unchecked(src_cursor);
-            let mut ptr_d: *mut u8 = transmute(dest);
-            let mut ptr_s: *const u8 = transmute(src);
-            let mut remain = size;
-
-            if ((ptr_d as usize) & 0x7) == ((ptr_s as usize) & 0x7) {
-                let prologue = usize::min(ptr_d as usize & 0x07, remain);
-                remain -= prologue;
-                for _ in 0..prologue {
-                    ptr_d.write_volatile(ptr_s.read_volatile());
-                    ptr_d = ptr_d.add(1);
-                    ptr_s = ptr_s.add(1);
-                }
-
-                if remain > 8 {
-                    let count = remain / 8;
-                    let mut ptr2d = ptr_d as *mut u64;
-                    let mut ptr2s = ptr_s as *const u64;
-
-                    for _ in 0..count {
-                        ptr2d.write_volatile(ptr2s.read_volatile());
-                        ptr2d = ptr2d.add(1);
-                        ptr2s = ptr2s.add(1);
-                    }
-
-                    ptr_d = ptr2d as *mut u8;
-                    ptr_s = ptr2s as *const u8;
-                    remain -= count * 8;
-                }
-
-                for _ in 0..remain {
-                    ptr_d.write_volatile(ptr_s.read_volatile());
-                    ptr_d = ptr_d.add(1);
-                    ptr_s = ptr_s.add(1);
-                }
-            } else {
-                for _ in 0..size {
-                    ptr_d.write_volatile(ptr_s.read_volatile());
-                    ptr_d = ptr_d.add(1);
-                    ptr_s = ptr_s.add(1);
-                }
-            }
+    pub fn _memset_colors16(slice: &mut [RGB565], cursor: usize, count: usize, color: RGB565) {
+        for v in unsafe { slice.get_unchecked_mut(cursor..cursor + count) }.iter_mut() {
+            *v = color;
         }
     }
 
-    /// Faster Fill
     #[inline]
     pub fn _memset_colors32(slice: &mut [BGRA8888], cursor: usize, count: usize, color: BGRA8888) {
         for v in unsafe { slice.get_unchecked_mut(cursor..cursor + count) }.iter_mut() {

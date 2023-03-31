@@ -223,7 +223,7 @@ impl Terminal {
         let rect2 = Rect::new(0, frame.height() - h, frame.width(), h);
         self.window
             .draw_in_rect(frame, |bitmap| {
-                bitmap.blt_itself(Point::default(), rect);
+                bitmap.copy(Point::default(), rect);
                 bitmap.fill_rect(rect2, self.bg_color);
             })
             .unwrap();
