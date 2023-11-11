@@ -425,21 +425,41 @@ impl Shell {
             println!("memory:\tShow memory information");
             return;
         }
+
+        fn print_cpu_type(device: &DeviceInfo, new_line: bool) {
+            let n_threads = device.num_of_logical_cpus();
+            let n_cores = device.num_of_physical_cpus();
+            let n_pcores = device.num_of_main_cpus();
+            let n_ecores = device.num_of_efficient_cpus();
+
+            match device.processor_system_type() {
+                ProcessorSystemType::Hybrid => {
+                    print!(
+                        "Hybrid {}P + {}E Core / {} Threads",
+                        n_pcores, n_ecores, n_threads,
+                    );
+                }
+                ProcessorSystemType::SMT => {
+                    print!("SMT {} Cores / {} Threads", n_cores, n_threads,);
+                }
+                ProcessorSystemType::SMP => {
+                    print!("SMP {} Processors", n_cores,);
+                }
+                ProcessorSystemType::Uniprocessor => {
+                    print!("Uniprocessor");
+                }
+            }
+
+            if new_line {
+                println!("");
+            }
+        }
+
         let subcmd = argv[1];
         match subcmd {
             "device" => {
                 let device = System::current_device();
-                let n_cores = device.num_of_main_cpus();
-                let n_threads = device.num_of_logical_cpus();
-                if n_threads > 1 {
-                    if n_cores != n_threads {
-                        print!("  {} Cores {} Threads", n_cores, n_threads,);
-                    } else {
-                        print!("  {} Processors", n_cores,);
-                    }
-                } else {
-                    print!("  Uniprocessor system");
-                }
+                print_cpu_type(device, false);
 
                 let bytes = device.total_memory_size();
                 let gb = bytes >> 30;
@@ -455,18 +475,7 @@ impl Shell {
             }
             "cpu" => {
                 let device = System::current_device();
-
-                let n_cores = device.num_of_main_cpus();
-                let n_threads = device.num_of_logical_cpus();
-                if n_threads > 1 {
-                    if n_cores != n_threads {
-                        println!("{} Cores {} Threads", n_cores, n_threads,);
-                    } else {
-                        println!("{} Processors", n_cores,);
-                    }
-                } else {
-                    println!("Uniprocessor system");
-                }
+                print_cpu_type(device, true);
 
                 for (index, cpu) in System::cpus().enumerate() {
                     println!(

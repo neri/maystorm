@@ -1,7 +1,10 @@
 use crate::{
     drivers::pci::*,
     io::audio::{AudioDriver, AudioManager},
-    mem::{mmio::MmioSlice, MemoryManager},
+    mem::{
+        mmio::{MmioRegU16, MmioRegU32, MmioRegU8, MmioSlice},
+        MemoryManager,
+    },
     sync::{semaphore::Semaphore, Mutex},
     task::scheduler::{Priority, SpawnOption, Timer},
     *,
@@ -13,7 +16,7 @@ use core::{
     num::{NonZeroU8, NonZeroUsize},
     ops::Add,
     slice,
-    sync::atomic::{fence, AtomicU16, AtomicU32, AtomicU8, AtomicUsize, Ordering},
+    sync::atomic::{fence, AtomicUsize, Ordering},
     time::Duration,
 };
 
@@ -219,7 +222,7 @@ impl HdAudioController {
             cmd.set_pcm_format(dac, stream_format).unwrap();
             cmd.set_stream_id(dac, stream_id).unwrap();
 
-            driver.global.ssync.store(1, Ordering::SeqCst);
+            driver.global.ssync.write_volatile(1);
 
             sd.run();
         } else {
@@ -246,6 +249,7 @@ impl HdAudioController {
                     config.default_device(),
                 );
             }
+            panic!("todo");
         }
 
         let driver = Arc::new(driver);
@@ -361,16 +365,37 @@ impl HdAudioController {
         if self.output_pins.len() < 2 {
             self.output_pins.first().map(|v| *v)
         } else {
-            for &pin in &self.output_pins {
-                let widget = self.widgets.get(&pin).unwrap();
-                let config = widget.configuration_default();
-                if config.sequence() == 0
-                    && config.default_device() == DefaultDevice::Speaker
-                    && config.port_connectivity() != PortConnectivity::NoPhysicalConnection
-                {
-                    return Some(pin);
+            for device in [
+                DefaultDevice::HPOut,
+                DefaultDevice::LineOut,
+                DefaultDevice::Speaker,
+            ] {
+                for &pin in &self.output_pins {
+                    let widget = self.widgets.get(&pin).unwrap();
+                    let config = widget.configuration_default();
+                    if config.sequence() == 0
+                        && config.port_connectivity() != PortConnectivity::NoPhysicalConnection
+                        && config.default_device() == device
+                    {
+                        return Some(pin);
+                    }
                 }
             }
+
+            for device in [
+                DefaultDevice::HPOut,
+                DefaultDevice::LineOut,
+                DefaultDevice::DigitalOtherOut,
+            ] {
+                for &pin in &self.output_pins {
+                    let widget = self.widgets.get(&pin).unwrap();
+                    let config = widget.configuration_default();
+                    if config.sequence() == 0 && config.default_device() == device {
+                        return Some(pin);
+                    }
+                }
+            }
+
             None
         }
     }
@@ -1005,113 +1030,113 @@ impl<T: Into<usize>> Add<T> for Nid {
 #[repr(C)]
 #[allow(dead_code)]
 pub struct GlobalRegisterSet {
-    gcap: AtomicU16,
-    vmin: AtomicU8,
-    vmaj: AtomicU8,
-    outpay: AtomicU16,
-    inpay: AtomicU16,
-    gctl: AtomicU32,
-    wakeen: AtomicU16,
-    statests: AtomicU16,
-    gsts: AtomicU16,
+    gcap: MmioRegU16,
+    vmin: MmioRegU8,
+    vmaj: MmioRegU8,
+    outpay: MmioRegU16,
+    inpay: MmioRegU16,
+    gctl: MmioRegU32,
+    wakeen: MmioRegU16,
+    statests: MmioRegU16,
+    gsts: MmioRegU16,
     _rsrv_12_17: [u8; 6],
-    outstrmpay: AtomicU16,
-    instrmpay: AtomicU16,
+    outstrmpay: MmioRegU16,
+    instrmpay: MmioRegU16,
     _rsrv_1c_1f: [u8; 4],
-    intcnt: AtomicU32,
-    intsts: AtomicU32,
+    intcnt: MmioRegU32,
+    intsts: MmioRegU32,
     _rsrc_28_2f: [u8; 8],
-    counter: AtomicU32,
-    ssync: AtomicU32,
+    counter: MmioRegU32,
+    ssync: MmioRegU32,
 }
 
 impl GlobalRegisterSet {
     #[inline]
     pub fn capabilities(&self) -> GlobalCapabilities {
-        self.gcap.load(Ordering::Relaxed).into()
+        self.gcap.read_volatile().into()
     }
 
     #[inline]
     pub fn version(&self) -> (usize, usize) {
         (
-            self.vmaj.load(Ordering::Relaxed) as usize,
-            self.vmin.load(Ordering::Relaxed) as usize,
+            self.vmaj.read_volatile() as usize,
+            self.vmin.read_volatile() as usize,
         )
     }
 
     #[inline]
     pub fn output_payload_capability(&self) -> usize {
-        self.outpay.load(Ordering::Relaxed) as usize
+        self.outpay.read_volatile() as usize
     }
 
     #[inline]
     pub fn input_payload_capability(&self) -> usize {
-        self.inpay.load(Ordering::Relaxed) as usize
+        self.inpay.read_volatile() as usize
     }
 
     #[inline]
     pub fn get_control(&self) -> GlobalControl {
-        GlobalControl::from_bits_retain(self.gctl.load(Ordering::SeqCst))
+        GlobalControl::from_bits_retain(self.gctl.read_volatile())
     }
 
     #[inline]
     pub fn set_control(&self, val: GlobalControl) {
-        self.gctl.store(val.bits(), Ordering::SeqCst);
+        self.gctl.write_volatile(val.bits());
     }
 
     #[inline]
     pub fn get_wake_enable(&self) -> u16 {
-        self.wakeen.load(Ordering::SeqCst)
+        self.wakeen.read_volatile()
     }
 
     #[inline]
     pub fn set_wake_enable(&self, val: u16) {
-        self.wakeen.store(val, Ordering::SeqCst);
+        self.wakeen.write_volatile(val);
     }
 
     #[inline]
     pub fn get_state_change_status(&self) -> u16 {
-        self.statests.load(Ordering::SeqCst)
+        self.statests.read_volatile()
     }
 
     #[inline]
     pub fn set_state_change_status(&self, val: u16) {
-        self.statests.store(val, Ordering::SeqCst);
+        self.statests.write_volatile(val);
     }
 
     #[inline]
     pub fn get_status(&self) -> GlobalStatus {
-        GlobalStatus::from_bits_retain(self.gsts.load(Ordering::SeqCst))
+        GlobalStatus::from_bits_retain(self.gsts.read_volatile())
     }
 
     #[inline]
     pub fn set_status(&self, val: GlobalStatus) {
-        self.gsts.store(val.bits(), Ordering::SeqCst);
+        self.gsts.write_volatile(val.bits());
     }
 
     #[inline]
     pub fn output_stream_payload_capability(&self) -> usize {
-        self.outstrmpay.load(Ordering::Relaxed) as usize
+        self.outstrmpay.read_volatile() as usize
     }
 
     #[inline]
     pub fn input_stream_payload_capability(&self) -> usize {
-        self.instrmpay.load(Ordering::Relaxed) as usize
+        self.instrmpay.read_volatile() as usize
     }
 
     #[inline]
     pub fn interrupt_control(&self) -> u32 {
-        self.intcnt.load(Ordering::SeqCst)
+        self.intcnt.read_volatile()
     }
 
     #[inline]
     pub fn set_interrupt_control(&self, val: u32) {
-        self.intcnt.store(val, Ordering::SeqCst)
+        self.intcnt.write_volatile(val);
     }
 
     #[inline]
     pub fn interrupt_status(&self) -> u32 {
-        self.intsts.load(Ordering::SeqCst)
+        self.intsts.read_volatile()
     }
 }
 
@@ -1170,13 +1195,13 @@ impl From<u16> for GlobalCapabilities {
 #[repr(C)]
 #[allow(dead_code)]
 pub struct CorbRegisterSet {
-    lbase: AtomicU32,
-    ubase: AtomicU32,
-    wp: AtomicU16,
-    rp: AtomicU16,
-    ctl: AtomicU8,
-    sts: AtomicU8,
-    size: AtomicU8,
+    lbase: MmioRegU32,
+    ubase: MmioRegU32,
+    wp: MmioRegU16,
+    rp: MmioRegU16,
+    ctl: MmioRegU8,
+    sts: MmioRegU8,
+    size: MmioRegU8,
 }
 
 my_bitflags! {
@@ -1203,7 +1228,7 @@ impl CorbRegisterSet {
 
         self.set_write_pointer(0);
 
-        self.rp.store(Self::CORBRPRST, Ordering::SeqCst);
+        self.rp.write_volatile(Self::CORBRPRST);
         Timer::sleep(Duration::from_millis(100));
         // self.rp.store(0, Ordering::SeqCst);
 
@@ -1225,48 +1250,48 @@ impl CorbRegisterSet {
     #[inline]
     pub fn set_base(&self, base: PhysicalAddress) {
         let base = base.as_u64();
-        self.lbase.store(base as u32, Ordering::SeqCst);
-        self.ubase.store((base >> 32) as u32, Ordering::SeqCst);
+        self.lbase.write_volatile(base as u32);
+        self.ubase.write_volatile((base >> 32) as u32);
     }
 
     #[inline]
     pub fn get_write_pointer(&self) -> usize {
-        (self.wp.load(Ordering::SeqCst) & 0xFF) as usize
+        (self.wp.read_volatile() & 0xFF) as usize
     }
 
     #[inline]
     pub fn set_write_pointer(&self, val: usize) {
-        self.wp.store((val & 0xFF) as u16, Ordering::SeqCst);
+        self.wp.write_volatile((val & 0xFF) as u16);
     }
 
     #[inline]
     pub fn get_read_pointer(&self) -> usize {
-        (self.rp.load(Ordering::SeqCst) & 0xFF) as usize
+        (self.rp.read_volatile() & 0xFF) as usize
     }
 
     #[inline]
     pub fn get_control(&self) -> CorbControl {
-        CorbControl::from_bits_retain(self.ctl.load(Ordering::SeqCst))
+        CorbControl::from_bits_retain(self.ctl.read_volatile())
     }
 
     #[inline]
     pub fn set_control(&self, val: CorbControl) {
-        self.ctl.store(val.bits(), Ordering::SeqCst);
+        self.ctl.write_volatile(val.bits());
     }
 
     #[inline]
     pub fn get_status(&self) -> CorbStatus {
-        CorbStatus::from_bits_retain(self.sts.load(Ordering::SeqCst))
+        CorbStatus::from_bits_retain(self.sts.read_volatile())
     }
 
     #[inline]
     pub fn set_status(&self, val: CorbStatus) {
-        self.sts.store(val.bits(), Ordering::SeqCst);
+        self.sts.write_volatile(val.bits());
     }
 
     #[inline]
     pub fn entries(&self) -> Option<NonZeroUsize> {
-        match self.size.load(Ordering::Relaxed) & 3 {
+        match self.size.read_volatile() & 3 {
             0 => NonZeroUsize::new(2),
             1 => NonZeroUsize::new(16),
             2 => NonZeroUsize::new(256),
@@ -1278,13 +1303,13 @@ impl CorbRegisterSet {
 #[repr(C)]
 #[allow(dead_code)]
 pub struct RirbRegisterSet {
-    lbase: AtomicU32,
-    ubase: AtomicU32,
-    wp: AtomicU16,
-    rintcnt: AtomicU16,
-    ctl: AtomicU8,
-    sts: AtomicU8,
-    size: AtomicU8,
+    lbase: MmioRegU32,
+    ubase: MmioRegU32,
+    wp: MmioRegU16,
+    rintcnt: MmioRegU16,
+    ctl: MmioRegU8,
+    sts: MmioRegU8,
+    size: MmioRegU8,
 }
 
 my_bitflags! {
@@ -1330,53 +1355,53 @@ impl RirbRegisterSet {
     #[inline]
     pub fn set_base(&self, base: PhysicalAddress) {
         let base = base.as_u64();
-        self.lbase.store(base as u32, Ordering::SeqCst);
-        self.ubase.store((base >> 32) as u32, Ordering::SeqCst);
+        self.lbase.write_volatile(base as u32);
+        self.ubase.write_volatile((base >> 32) as u32);
     }
 
     #[inline]
     pub fn get_write_pointer(&self) -> usize {
-        (self.wp.load(Ordering::SeqCst) & 0xFF) as usize
+        (self.wp.read_volatile() & 0xFF) as usize
     }
 
     #[inline]
     pub fn reset_write_pointer(&self) {
-        self.wp.store(Self::RIRBWPRST, Ordering::SeqCst);
+        self.wp.write_volatile(Self::RIRBWPRST);
     }
 
     #[inline]
     pub fn get_rintcnt(&self) -> usize {
-        (self.rintcnt.load(Ordering::SeqCst) & 0xFF) as usize
+        (self.rintcnt.read_volatile() & 0xFF) as usize
     }
 
     #[inline]
     pub fn set_rintcnt(&self, val: usize) {
-        self.rintcnt.store((val & 0xFF) as u16, Ordering::SeqCst);
+        self.rintcnt.write_volatile((val & 0xFF) as u16);
     }
 
     #[inline]
     pub fn get_control(&self) -> RirbControl {
-        RirbControl::from_bits_retain(self.ctl.load(Ordering::SeqCst))
+        RirbControl::from_bits_retain(self.ctl.read_volatile())
     }
 
     #[inline]
     pub fn set_control(&self, val: RirbControl) {
-        self.ctl.store(val.bits(), Ordering::SeqCst);
+        self.ctl.write_volatile(val.bits());
     }
 
     #[inline]
     pub fn get_status(&self) -> RirbStatus {
-        RirbStatus::from_bits_retain(self.sts.load(Ordering::SeqCst))
+        RirbStatus::from_bits_retain(self.sts.read_volatile())
     }
 
     #[inline]
     pub fn set_status(&self, val: RirbStatus) {
-        self.sts.store(val.bits(), Ordering::SeqCst);
+        self.sts.write_volatile(val.bits());
     }
 
     #[inline]
     pub fn entries(&self) -> Option<NonZeroUsize> {
-        match self.size.load(Ordering::Relaxed) & 3 {
+        match self.size.read_volatile() & 3 {
             0 => NonZeroUsize::new(2),
             1 => NonZeroUsize::new(16),
             2 => NonZeroUsize::new(256),
@@ -1388,9 +1413,9 @@ impl RirbRegisterSet {
 #[repr(C)]
 #[allow(dead_code)]
 pub struct ImmediateCommandRegisterSet {
-    ico: AtomicU32,
-    ici: AtomicU32,
-    ics: AtomicU16,
+    ico: MmioRegU32,
+    ici: MmioRegU32,
+    ics: MmioRegU16,
 }
 
 impl ImmediateCommandRegisterSet {
@@ -1405,7 +1430,7 @@ impl ImmediateCommandRegisterSet {
             return Err(ControllerError::CommandBusy);
         }
 
-        self.ico.store(cmd.bits(), Ordering::SeqCst);
+        self.ico.write_volatile(cmd.bits());
 
         self.set_status(ImmediateCommandStatus::ICB);
 
@@ -1418,8 +1443,7 @@ impl ImmediateCommandRegisterSet {
             return Err(ControllerError::CommandNotResponding);
         }
 
-        let res = self.ici.load(Ordering::SeqCst) as u64
-            | ((self.ici.load(Ordering::SeqCst) as u64) << 32);
+        let res = self.ici.read_volatile() as u64 | ((self.ici.read_volatile() as u64) << 32);
 
         self.set_status(ImmediateCommandStatus::IRV);
 
@@ -1428,12 +1452,12 @@ impl ImmediateCommandRegisterSet {
 
     #[inline]
     pub fn get_status(&self) -> ImmediateCommandStatus {
-        unsafe { transmute(self.ics.load(Ordering::SeqCst)) }
+        unsafe { transmute(self.ics.read_volatile()) }
     }
 
     #[inline]
     pub fn set_status(&self, val: ImmediateCommandStatus) {
-        self.ics.store(val.bits(), Ordering::SeqCst);
+        self.ics.write_volatile(val.bits());
     }
 }
 
@@ -1455,26 +1479,25 @@ my_bitflags! {
 #[repr(C)]
 #[allow(dead_code)]
 pub struct StreamDescriptorRegisterSet {
-    ctl_lo: AtomicU16,
-    ctl_hi: AtomicU8,
-    sts: AtomicU8,
-    lpib: AtomicU32,
-    cbl: AtomicU32,
-    lvi: AtomicU16,
+    ctl_lo: MmioRegU16,
+    ctl_hi: MmioRegU8,
+    sts: MmioRegU8,
+    lpib: MmioRegU32,
+    cbl: MmioRegU32,
+    lvi: MmioRegU16,
     _rsrv_8e_8f: [u8; 2],
-    fifos: AtomicU16,
-    fmt: AtomicU16,
+    fifos: MmioRegU16,
+    fmt: MmioRegU16,
     _rsrv_94_97: [u8; 4],
-    bdpl: AtomicU32,
-    bdpu: AtomicU32,
+    bdpl: MmioRegU32,
+    bdpu: MmioRegU32,
 }
 
 impl StreamDescriptorRegisterSet {
     #[inline]
     pub fn get_control(&self) -> StreamDescriptorControl {
         StreamDescriptorControl::from_bits_retain(
-            self.ctl_lo.load(Ordering::SeqCst) as u32
-                | ((self.ctl_hi.load(Ordering::SeqCst) as u32) << 16),
+            self.ctl_lo.read_volatile() as u32 | ((self.ctl_hi.read_volatile() as u32) << 16),
         )
     }
 
@@ -1487,19 +1510,18 @@ impl StreamDescriptorRegisterSet {
 
     #[inline]
     pub fn set_control(&self, val: StreamDescriptorControl) {
-        self.ctl_lo.store(val.bits() as u16, Ordering::SeqCst);
-        self.ctl_hi
-            .store((val.bits() >> 16) as u8, Ordering::SeqCst);
+        self.ctl_lo.write_volatile(val.bits() as u16);
+        self.ctl_hi.write_volatile((val.bits() >> 16) as u8);
     }
 
     #[inline]
     pub fn get_status(&self) -> StreamDescriptorStatus {
-        StreamDescriptorStatus::from_bits_retain(self.sts.load(Ordering::SeqCst))
+        StreamDescriptorStatus::from_bits_retain(self.sts.read_volatile())
     }
 
     #[inline]
     pub fn set_status(&self, val: StreamDescriptorStatus) {
-        self.sts.store(val.bits(), Ordering::SeqCst);
+        self.sts.write_volatile(val.bits());
     }
 
     #[inline]
@@ -1509,49 +1531,49 @@ impl StreamDescriptorRegisterSet {
 
     #[inline]
     pub fn link_position(&self) -> usize {
-        self.lpib.load(Ordering::SeqCst) as usize
+        self.lpib.read_volatile() as usize
     }
 
     #[inline]
     pub fn get_buffer_length(&self) -> usize {
-        self.cbl.load(Ordering::SeqCst) as usize
+        self.cbl.read_volatile() as usize
     }
 
     #[inline]
     pub fn set_buffer_length(&self, val: usize) {
-        self.cbl.store(val as u32, Ordering::SeqCst);
+        self.cbl.write_volatile(val as u32);
     }
 
     #[inline]
     pub fn get_last_valid_index(&self) -> usize {
-        self.lvi.load(Ordering::SeqCst) as usize
+        self.lvi.read_volatile() as usize
     }
 
     #[inline]
     pub fn set_last_valid_index(&self, val: usize) {
-        self.lvi.store(val as u16, Ordering::SeqCst);
+        self.lvi.write_volatile(val as u16);
     }
 
     #[inline]
     pub fn fifo_size(&self) -> usize {
-        self.fifos.load(Ordering::Relaxed) as usize
+        self.fifos.read_volatile() as usize
     }
 
     #[inline]
     pub fn set_pcm_format(&self, fmt: PcmFormat) {
-        self.fmt.store(fmt.bits(), Ordering::SeqCst);
+        self.fmt.write_volatile(fmt.bits());
     }
 
     #[inline]
     pub fn get_format(&self) -> PcmFormat {
-        PcmFormat::from_bits(self.fmt.load(Ordering::SeqCst))
+        PcmFormat::from_bits(self.fmt.read_volatile())
     }
 
     #[inline]
     pub fn set_base(&self, base: PhysicalAddress) {
         let base = base.as_u64();
-        self.bdpl.store(base as u32, Ordering::SeqCst);
-        self.bdpu.store((base >> 32) as u32, Ordering::SeqCst);
+        self.bdpl.write_volatile(base as u32);
+        self.bdpu.write_volatile((base >> 32) as u32);
     }
 }
 

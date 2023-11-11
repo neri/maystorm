@@ -1,7 +1,7 @@
 use super::*;
 use alloc::{borrow::ToOwned, boxed::Box, vec::Vec};
 use core::{
-    borrow::Borrow,
+    borrow::{Borrow, BorrowMut},
     cell::UnsafeCell,
     convert::TryFrom,
     intrinsics::copy_nonoverlapping,
@@ -15,7 +15,7 @@ pub trait Blt<T: Drawable>: Drawable {
     fn blt(&mut self, src: &T, origin: Point, rect: Rect);
 }
 
-pub trait BasicDrawing: SetPixel {
+pub trait DrawRect: SetPixel {
     fn fill_rect(&mut self, rect: Rect, color: Self::ColorType);
 
     fn draw_hline(&mut self, origin: Point, width: isize, color: Self::ColorType);
@@ -297,7 +297,7 @@ pub trait DrawGlyph: SetPixel {
     }
 }
 
-pub trait BltConvert<T: ColorTrait>: MutableRasterImage {
+pub trait BltConvert<T: PixelColor>: MutableRasterImage {
     #[inline]
     fn blt_convert<U, F>(&mut self, src: &U, origin: Point, rect: Rect, mut f: F)
     where
@@ -460,7 +460,7 @@ macro_rules! define_bitmap {
                     stride: Option<NonZeroUsize>,
                 ) -> Self
                 where
-                    <Self as Drawable>::ColorType: ~const ColorTrait,
+                    <Self as Drawable>::ColorType: ~const PixelColor,
                 {
                     Self {
                         size,
@@ -475,7 +475,7 @@ macro_rules! define_bitmap {
                 #[inline]
                 pub const fn from_bytes(bytes: &'a [$inner_type], size: Size) -> Self
                 where
-                    <Self as Drawable>::ColorType: ~const ColorTrait
+                    <Self as Drawable>::ColorType: ~const PixelColor
                 {
                     Self {
                         size,
@@ -496,23 +496,13 @@ macro_rules! define_bitmap {
 
             impl<'a> [<BitmapRefMut $suffix>]<'a> {
                 #[inline]
-                pub const fn as_const(&'a self) -> &'a [<BitmapRef $suffix>]<'a> {
-                    unsafe { transmute(self) }
-                }
-
-                #[inline]
-                pub const fn into_const(self) -> [<BitmapRef $suffix>]<'a> {
-                    unsafe { transmute(self) }
-                }
-
-                #[inline]
                 pub const fn from_slice(
                     slice: &'a mut [$slice_type],
                     size: Size,
                     stride: Option<NonZeroUsize>,
                 ) -> Self
                 where
-                    <Self as Drawable>::ColorType: ~const ColorTrait
+                    <Self as Drawable>::ColorType: ~const PixelColor
                 {
                     Self {
                         size,
@@ -527,7 +517,7 @@ macro_rules! define_bitmap {
                 #[inline]
                 pub const fn from_bytes(bytes: &'a mut [$inner_type], size: Size) -> Self
                 where
-                    <Self as Drawable>::ColorType: ~const ColorTrait
+                    <Self as Drawable>::ColorType: ~const PixelColor
                 {
                     Self {
                         size,
@@ -537,7 +527,17 @@ macro_rules! define_bitmap {
                 }
 
                 #[inline]
-                pub fn clone_mut(&'a mut self) -> Self {
+                pub const fn as_const(&'a self) -> &'a [<BitmapRef $suffix>]<'a> {
+                    unsafe { transmute(self) }
+                }
+
+                #[inline]
+                pub const fn into_const(self) -> [<BitmapRef $suffix>]<'a> {
+                    unsafe { transmute(self) }
+                }
+
+                #[inline]
+                pub fn clone_mut(&'a mut self) -> [<BitmapRefMut $suffix>]<'a> {
                     let slice = unsafe { &mut *self.slice.get() };
                     Self {
                         size: self.size(),
@@ -594,6 +594,13 @@ macro_rules! define_bitmap {
                 }
             }
 
+            impl<'a> Borrow<[<BitmapRef $suffix>]<'a>> for [<BitmapRefMut $suffix>]<'a> {
+                #[inline]
+                fn borrow(&self) -> &[<BitmapRef $suffix>]<'a> {
+                    unsafe { transmute(self) }
+                }
+            }
+
             impl ToOwned for [<BitmapRefMut $suffix>]<'_> {
                 type Owned = [<OwnedBitmap $suffix>];
 
@@ -618,9 +625,23 @@ macro_rules! define_bitmap {
                 }
             }
 
+            impl<'a> Borrow<[<BitmapRef $suffix>]<'a>> for [<OwnedBitmap $suffix>] {
+                #[inline]
+                fn borrow(&self) -> &[<BitmapRef $suffix>]<'a> {
+                    unsafe { transmute(self) }
+                }
+            }
+
             impl<'a> Borrow<[<BitmapRefMut $suffix>]<'a>> for [<OwnedBitmap $suffix>] {
                 #[inline]
                 fn borrow(&self) -> &[<BitmapRefMut $suffix>]<'a> {
+                    unsafe { transmute(self) }
+                }
+            }
+
+            impl<'a> BorrowMut<[<BitmapRefMut $suffix>]<'a>> for [<OwnedBitmap $suffix>] {
+                #[inline]
+                fn borrow_mut(&mut self) -> &mut [<BitmapRefMut $suffix>]<'a> {
                     unsafe { transmute(self) }
                 }
             }
@@ -779,7 +800,7 @@ macro_rules! define_bitmap {
 
             impl DrawGlyph for [<BitmapRefMut $suffix>]<'_> {}
 
-            impl BasicDrawing for [<BitmapRefMut $suffix>]<'_> {
+            impl DrawRect for [<BitmapRefMut $suffix>]<'_> {
                 fn fill_rect(&mut self, rect: Rect, color: Self::ColorType) {
                     let mut width = rect.width();
                     let mut height = rect.height();
@@ -891,9 +912,9 @@ macro_rules! define_bitmap {
 
 define_bitmap!(8, u8, IndexedColor,);
 define_bitmap!(16, u16, RGB565,);
-define_bitmap!(32, u32, BGRA8888,);
+define_bitmap!(32, u32, ARGB8888,);
 
-impl BltConvert<BGRA8888> for BitmapRefMut8<'_> {}
+impl BltConvert<ARGB8888> for BitmapRefMut8<'_> {}
 impl BltConvert<IndexedColor> for BitmapRefMut8<'_> {}
 
 impl BitmapRefMut8<'_> {
@@ -937,11 +958,11 @@ impl BitmapRefMut8<'_> {
     }
 }
 
-impl BltConvert<BGRA8888> for BitmapRefMut32<'_> {}
+impl BltConvert<ARGB8888> for BitmapRefMut32<'_> {}
 impl BltConvert<IndexedColor> for BitmapRefMut32<'_> {}
 
 impl BitmapRefMut32<'_> {
-    pub fn blend_rect(&mut self, rect: Rect, color: BGRA8888) {
+    pub fn blend_rect(&mut self, rect: Rect, color: ARGB8888) {
         let rhs = color.components();
         if rhs.is_opaque() {
             return self.fill_rect(rect, color);
@@ -1034,7 +1055,7 @@ impl BitmapRefMut32<'_> {
 
     pub fn blt8(&mut self, src: &BitmapRef8, origin: Point, rect: Rect, palette: &[u32; 256]) {
         self.blt_convert(src, origin, rect, |c| {
-            BGRA8888::from_argb(palette[c.0 as usize])
+            ARGB8888::from_argb(palette[c.0 as usize])
         });
     }
 
@@ -1290,7 +1311,7 @@ impl DrawGlyph for BitmapRefMut<'_> {
     }
 }
 
-impl BasicDrawing for BitmapRefMut<'_> {
+impl DrawRect for BitmapRefMut<'_> {
     #[inline]
     fn fill_rect(&mut self, rect: Rect, color: Self::ColorType) {
         match self {
@@ -1453,7 +1474,7 @@ pub struct OperationalBitmap {
     vec: Vec<u8>,
 }
 
-impl ColorTrait for u8 {}
+impl PixelColor for u8 {}
 
 impl const Drawable for OperationalBitmap {
     type ColorType = u8;
@@ -1976,7 +1997,7 @@ mod memory_colors {
     }
 
     #[inline]
-    pub fn _memset_colors32(slice: &mut [BGRA8888], cursor: usize, count: usize, color: BGRA8888) {
+    pub fn _memset_colors32(slice: &mut [ARGB8888], cursor: usize, count: usize, color: ARGB8888) {
         for v in unsafe { slice.get_unchecked_mut(cursor..cursor + count) }.iter_mut() {
             *v = color;
         }
@@ -1985,9 +2006,9 @@ mod memory_colors {
     // Alpha blending
     #[inline]
     pub fn _memcpy_blend32(
-        dest: &mut [BGRA8888],
+        dest: &mut [ARGB8888],
         dest_cursor: usize,
-        src: &[BGRA8888],
+        src: &[ARGB8888],
         src_cursor: usize,
         count: usize,
     ) {
@@ -1999,7 +2020,7 @@ mod memory_colors {
     }
 }
 
-define_bitmap!(1, u8, OneBitColor, Octet,);
+define_bitmap!(1, u8, Monochrome, Octet,);
 
 impl BitmapRef1<'_> {
     #[inline]

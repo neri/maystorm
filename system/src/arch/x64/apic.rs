@@ -24,7 +24,7 @@ pub type AffinityBits = usize;
 pub type AtomicAffinityBits = AtomicUsize;
 
 /// Maximum number of supported cpu cores
-const MAX_CPU: usize = size_of::<AffinityBits>();
+const MAX_CPU: usize = 8 * size_of::<AffinityBits>();
 
 const STACK_CHUNK_SIZE: usize = 0x4000;
 
@@ -70,6 +70,7 @@ unsafe extern "C" fn apic_start_ap() {
 
     Hal::cpu().enable_interrupt();
     loop {
+        // assert!(Hal::cpu().is_interrupt_enabled());
         Hal::cpu().wait_for_interrupt();
     }
 }
@@ -221,15 +222,7 @@ impl Apic {
         prepare_sipi(max_cpu, idle_stacks.as_ptr(), apic_start_ap);
 
         // start Application Processors
-        for (_index, lapic) in lapics.iter().enumerate() {
-            // log!(
-            //     "CPU #{} {:02x} {:02x} {:?}",
-            //     _index,
-            //     cpu.uid(),
-            //     cpu.apic_id(),
-            //     cpu.status(),
-            // );
-
+        for lapic in lapics.iter().take(max_cpu) {
             let apic_id = ApicId(lapic.apic_id());
             LocalApic::send_init_ipi(apic_id);
             Timer::new(Duration::from_millis(10)).repeat_until(|| Hal::cpu().wait_for_interrupt());
@@ -244,11 +237,10 @@ impl Apic {
             if !AP_BOOT_OK.load(Ordering::SeqCst) {
                 panic!("SMP: Some application processors are not responding");
             }
-
-            // log!("CPU #{} OK", index,);
         }
 
         drop(idle_stacks);
+        // core::mem::forget(idle_stacks);
 
         for (index, cpu) in System::cpus().enumerate() {
             CURRENT_PROCESSOR_INDEXES[cpu.apic_id().0 as usize] = index as u8;
@@ -346,6 +338,7 @@ impl Apic {
                 let global_irq = msi.as_irq();
                 shared.idt[global_irq.0 as usize] = f as usize;
                 shared.idt_params[global_irq.0 as usize] = arg;
+                fence(Ordering::SeqCst);
                 let vec = msi.as_vec();
                 let addr = Self::MSI_BASE;
                 let data = Self::MSI_DATA | vec.0 as u16;

@@ -172,19 +172,19 @@ impl PageManager {
         shared.pml2k = PageTableEntry::new(pml2kp, common_attributes);
         pml3k[kernel_base.index_of(3)] = shared.pml2k;
 
-        // vram (temp)
-        let vram_base = info.vram_base;
-        let vram_size = Self::pages(
-            info.vram_stride as u64 * info.screen_height as u64 * 4,
-            PageTableEntry::LARGE_PAGE_SIZE,
-        ) as u64;
-        let offset = vram_base / PageTableEntry::LARGE_PAGE_SIZE;
-        for i in 0..vram_size {
-            pml2[(offset + i) as usize] = PageTableEntry::new(
-                vram_base + i * PageTableEntry::LARGE_PAGE_SIZE,
-                common_attributes | PageAttributes::LARGE,
-            );
-        }
+        // // vram (temp)
+        // let vram_base = info.vram_base;
+        // let vram_size = Self::pages(
+        //     info.vram_stride as u64 * info.screen_height as u64 * 4,
+        //     PageTableEntry::LARGE_PAGE_SIZE,
+        // ) as u64;
+        // let offset = vram_base / PageTableEntry::LARGE_PAGE_SIZE;
+        // for i in 0..vram_size {
+        //     pml2[(offset + i) as usize] = PageTableEntry::new(
+        //         vram_base + i * PageTableEntry::LARGE_PAGE_SIZE,
+        //         common_attributes | PageAttributes::LARGE,
+        //     );
+        // }
     }
 
     #[allow(dead_code)]

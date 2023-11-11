@@ -19,12 +19,7 @@ use core::{
     mem::{transmute, MaybeUninit},
     time::Duration,
 };
-use megstd::{
-    drawing::{vertex::*, *},
-    io::Read,
-    string::*,
-    Arc, String, Vec,
-};
+use megstd::{drawing::*, io::Read, string::*, Arc, String, Vec};
 
 static IS_GUI_BOOT: bool = true;
 static mut SHUTDOWN_COMMAND: MaybeUninit<EventQueue<ShutdownCommand>> = MaybeUninit::uninit();
@@ -36,8 +31,10 @@ impl UserEnv {
     pub fn start(f: fn()) {
         assert_call_once!();
 
+        // sync::semaphore::Semaphore::new(0).wait();
+
         if !IS_GUI_BOOT {
-            let point = 16;
+            let point = 14;
             let font = FontDescriptor::new(FontFamily::Monospace, point)
                 .unwrap_or(FontManager::monospace_font());
 
@@ -262,13 +259,19 @@ async fn slpash_task(f: fn()) {
         Scheduler::spawn_async(activity_monitor_main());
         Scheduler::spawn_async(_notification_task());
 
-        if let Ok(mut file) = FileManager::open("/boot/wall.png", OpenOptions::new().read(true)) {
-            let mut vec = Vec::new();
-            file.read_to_end(&mut vec).unwrap();
-            if let Ok(dib) = ImageLoader::load(vec.as_slice()) {
-                WindowManager::set_desktop_bitmap(&dib.as_const());
+        let mut wall_loaded = false;
+        for path in ["/boot/wall.png", "/boot/wall.jpg"] {
+            if let Ok(mut file) = FileManager::open(path, OpenOptions::new().read(true)) {
+                let mut vec = Vec::new();
+                file.read_to_end(&mut vec).unwrap();
+                if let Ok(dib) = ImageLoader::load(vec.as_slice()) {
+                    WindowManager::set_desktop_bitmap(&dib.as_const());
+                    wall_loaded = true;
+                    break;
+                }
             }
-        } else {
+        }
+        if !wall_loaded {
             WindowManager::set_desktop_color(Theme::shared().default_desktop_color());
         }
 
@@ -403,9 +406,13 @@ fn format_bytes(sb: &mut dyn Write, val: usize) -> core::fmt::Result {
     let mb = (val >> 20) & 0x3FF;
     let gb = val >> 30;
 
-    if gb >= 10 {
-        // > 10G
+    if gb >= 100 {
+        // > 100G
         write!(sb, "{:4}G", gb)
+    } else if gb >= 10 {
+        // > 10G
+        let mb00 = (mb * 10) >> 10;
+        write!(sb, "{:2}.{}G", gb, mb00)
     } else if gb >= 1 {
         // 1G~10G
         let mb0 = (mb * 100) >> 10;
@@ -619,12 +626,22 @@ async fn activity_monitor_main() {
                             let usage1 = usage / 10;
                             write!(sb, "CPU: {:3}.{}%", usage1, usage0,).unwrap();
 
-                            let n_cores = device.num_of_main_cpus();
                             let n_threads = device.num_of_logical_cpus();
-                            if n_cores != n_threads {
-                                write!(sb, " {}Cores {}Threads", n_cores, n_threads,).unwrap();
-                            } else {
-                                write!(sb, " {}Cores", n_cores,).unwrap();
+                            let n_cores = device.num_of_physical_cpus();
+                            let n_pcores = device.num_of_main_cpus();
+                            let n_ecores = device.num_of_efficient_cpus();
+
+                            match device.processor_system_type() {
+                                ProcessorSystemType::Hybrid => {
+                                    write!(sb, " {}P + {}E / {}T", n_pcores, n_ecores, n_threads,)
+                                        .unwrap();
+                                }
+                                ProcessorSystemType::SMT => {
+                                    write!(sb, " {}C / {}T", n_cores, n_threads,).unwrap();
+                                }
+                                ProcessorSystemType::SMP | ProcessorSystemType::Uniprocessor => {
+                                    write!(sb, " {}Cores", n_cores,).unwrap();
+                                }
                             }
 
                             writeln!(sb, " {:?}", Scheduler::current_state()).unwrap();
@@ -970,149 +987,4 @@ fn font_test(
     ats.draw_text(bitmap, rect, max_lines);
 
     bounds.height()
-}
-
-#[allow(dead_code)]
-async fn clock_task() {
-    let bg_color = Color::WHITE;
-    let fg_color = Color::DARK_GRAY;
-
-    let width = 240;
-    let height = 240;
-    let window_size = Size::new(width, height);
-    let padding = 4;
-    let radius = ((isize::min(width, height) - padding) / 2) as f64;
-    let center = Point::new(width / 2, height / 2);
-    let scale = 1.0;
-
-    let window = RawWindowBuilder::new()
-        .size(window_size)
-        .bg_color(bg_color)
-        .build("Retro Clock");
-
-    let mut work_bitmap = OperationalBitmap::new(window_size);
-
-    window.create_timer(0, Duration::from_millis(1));
-
-    while let Some(message) = window.await_message().await {
-        match message {
-            WindowMessage::Timer(_id) => {
-                window.set_needs_display();
-                window.create_timer(0, Duration::from_millis(100));
-            }
-            WindowMessage::Draw => {
-                let time = System::system_time();
-                let seconds = time.secs as f64 + (time.nanos as f64 / 1_000_000_000.0);
-                let h = time.secs as f64 / 3600.0 % 12.0;
-                let m = time.secs as f64 / 60.0 % 60.0;
-                let s = seconds % 60.0;
-
-                work_bitmap.reset();
-
-                for i in 0..60 {
-                    let affine =
-                        AffineMatrix2d::new(center.into(), Radian::TAU * (i as f64 / 60.0), scale);
-
-                    if i % 15 == 0 {
-                        let mut polygon = [
-                            Vertex2d::new(0.0, 0.0 - radius),
-                            Vertex2d::new(2.0, 4.0 - radius),
-                            Vertex2d::new(0.0, 8.0 - radius),
-                            Vertex2d::new(-2.0, 4.0 - radius),
-                        ];
-                        polygon.transform(&affine);
-                        draw_polygon(&mut work_bitmap, &polygon, 0xFF);
-                    } else if i % 5 == 0 {
-                        let mut polygon = [
-                            Vertex2d::new(0.0, 1.0 - radius),
-                            Vertex2d::new(0.0, 7.0 - radius),
-                        ];
-                        polygon.transform(&affine);
-                        draw_polygon(&mut work_bitmap, &polygon, 0xFF);
-                    } else {
-                        let mut polygon = [
-                            Vertex2d::new(0.0, 2.0 - radius),
-                            Vertex2d::new(0.0, 6.0 - radius),
-                        ];
-                        polygon.transform(&affine);
-                        draw_polygon(&mut work_bitmap, &polygon, 0x55);
-                    }
-                }
-
-                let mut polygon = [
-                    Vertex2d::new(0.0, 0.0 - radius * 0.5),
-                    Vertex2d::new(4.0, 0.0),
-                    Vertex2d::new(0.0, 8.0),
-                    Vertex2d::new(-4.0, 0.0),
-                ];
-                polygon.transform(&AffineMatrix2d::new(
-                    center.into(),
-                    Radian::TAU * h / 12.0,
-                    scale,
-                ));
-                draw_polygon(&mut work_bitmap, &polygon, 0xCC);
-
-                let mut polygon = [
-                    Vertex2d::new(0.0, 16.0 - radius),
-                    Vertex2d::new(2.0, 0.0),
-                    Vertex2d::new(0.0, 4.0),
-                    Vertex2d::new(-2.0, 0.0),
-                ];
-                polygon.transform(&AffineMatrix2d::new(
-                    center.into(),
-                    Radian::TAU * m / 60.0,
-                    scale,
-                ));
-                draw_polygon(&mut work_bitmap, &polygon, 0xCC);
-
-                let mut polygon = [Vertex2d::new(0.0, 16.0 - radius), Vertex2d::new(0.0, 4.0)];
-                polygon.transform(&AffineMatrix2d::new(
-                    center.into(),
-                    Radian::TAU * s / 60.0,
-                    scale,
-                ));
-                draw_polygon(&mut work_bitmap, &polygon, 0xEE);
-
-                window.draw(|bitmap| {
-                    bitmap.fill_rect(bitmap.bounds(), bg_color);
-
-                    work_bitmap.draw_to(bitmap, Point::new(0, 0), work_bitmap.bounds(), fg_color);
-                });
-            }
-            WindowMessage::Close => {
-                window.close();
-            }
-            _ => window.handle_default_message(message),
-        }
-    }
-}
-
-fn draw_polygon(bitmap: &mut OperationalBitmap, polygon: &[Vertex2d], color: u8) {
-    let mut polygon = polygon.iter();
-    let len = polygon.len();
-    let Some(vertex0) = polygon.next() else { return };
-    let mut vertex1 = vertex0;
-    while let Some(vertex2) = polygon.next() {
-        bitmap.draw_line_anti_aliasing_f(
-            (*vertex1).into(),
-            (*vertex2).into(),
-            |bitmap, point, level| unsafe {
-                bitmap.process_pixel_unchecked(point, |c| {
-                    c.saturating_add((color as f64 * level) as u8)
-                });
-            },
-        );
-        vertex1 = vertex2;
-    }
-    if len > 2 {
-        bitmap.draw_line_anti_aliasing_f(
-            (*vertex0).into(),
-            (*vertex1).into(),
-            |bitmap, point, level| unsafe {
-                bitmap.process_pixel_unchecked(point, |c| {
-                    c.saturating_add((color as f64 * level) as u8)
-                });
-            },
-        );
-    }
 }

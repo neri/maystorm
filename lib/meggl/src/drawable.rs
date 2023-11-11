@@ -4,7 +4,7 @@ use core::mem::transmute;
 #[const_trait]
 pub trait Drawable
 where
-    Self::ColorType: ColorTrait,
+    Self::ColorType: PixelColor,
 {
     type ColorType;
 
@@ -32,6 +32,7 @@ pub trait GetPixel: Drawable {
     /// The point must be within the size range.
     unsafe fn get_pixel_unchecked(&self, point: Point) -> Self::ColorType;
 
+    #[inline]
     fn get_pixel(&self, point: Point) -> Option<Self::ColorType> {
         if self.bounds().contains(point) {
             Some(unsafe { self.get_pixel_unchecked(point) })
@@ -104,6 +105,7 @@ pub trait SetPixel: Drawable {
     /// The point must be within the size range.
     unsafe fn set_pixel_unchecked(&mut self, point: Point, pixel: Self::ColorType);
 
+    #[inline]
     fn set_pixel(&mut self, point: Point, pixel: Self::ColorType) {
         if self.bounds().contains(point) {
             unsafe {

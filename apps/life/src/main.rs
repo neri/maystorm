@@ -1,7 +1,7 @@
 #![no_main]
 #![no_std]
 
-use megstd::{drawing::OneBitColor, sys::syscall::*, window::*};
+use megstd::{drawing::Monochrome, sys::syscall::*, window::*};
 
 const BG_COLOR: WindowColor = WindowColor::BLACK;
 const FG_COLOR: WindowColor = WindowColor::YELLOW;
@@ -77,13 +77,13 @@ fn _start() {
 
                 let next_life = if life.into_bool() {
                     if count <= 1 || count >= 4 {
-                        OneBitColor::Zero
+                        Monochrome::Zero
                     } else {
                         life
                     }
                 } else {
                     if count == 3 {
-                        OneBitColor::One
+                        Monochrome::One
                     } else {
                         life
                     }

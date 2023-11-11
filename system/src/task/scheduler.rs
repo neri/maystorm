@@ -13,14 +13,17 @@ use crate::{
     ui::window::{WindowHandle, WindowMessage},
     *,
 };
-use alloc::format;
+// use alloc::format;
 use core::{
     cell::UnsafeCell, ffi::c_void, fmt, intrinsics::transmute, num::*, ops::*, sync::atomic::*,
     time::Duration,
 };
 use megstd::{string::*, Arc, BTreeMap, Box, String, ToOwned, Vec};
 
-const THRESHOLD_ENTER_MAX: usize = 950;
+const THRESHOLD_BUSY_THREAD: usize = 750;
+const THRESHOLD_ENTER_SAVING: usize = 500;
+const THRESHOLD_LEAVE_SAVING: usize = 750;
+const THRESHOLD_ENTER_MAX: usize = 850;
 const THRESHOLD_LEAVE_MAX: usize = 666;
 
 static SCHEDULER_STATE: AtomicWrapper<SchedulerState> = AtomicWrapper::default();
@@ -53,6 +56,8 @@ pub enum SchedulerState {
     Disabled = 0,
     /// The scheduler is running.
     Normal,
+    /// The scheduler is running in energy-saving mode.
+    Saving,
     /// The scheduler is running at full throttle.
     FullThrottle,
 }
@@ -129,12 +134,13 @@ impl Scheduler {
             }));
         }
         fence(Ordering::SeqCst);
-        SCHEDULER_STATE.store(SchedulerState::Normal);
+        SCHEDULER_STATE.store(SchedulerState::FullThrottle);
 
         SpawnOption::with_priority(Priority::High).start_process(f, args, "System");
 
         loop {
             unsafe {
+                assert!(Hal::cpu().is_interrupt_enabled());
                 Hal::cpu().wait_for_interrupt();
             }
         }
@@ -149,16 +155,16 @@ impl Scheduler {
             "Scheduler Statistics",
         );
 
-        for index in 0..System::current_device().num_of_logical_cpus() {
-            let cpuid = ProcessorIndex(index);
-            cpuid.get().map(|v| {
-                if v.processor_type() == ProcessorCoreType::Main {
-                    SpawnOption::with_priority(Priority::High)
-                        .strong_affinity(cpuid)
-                        .start(Self::_dispatch, index, &format!("dispatch_#{}", index));
-                }
-            });
-        }
+        // for index in 0..System::current_device().num_of_logical_cpus() {
+        //     let cpuid = ProcessorIndex(index);
+        //     cpuid.get().map(|v| {
+        //         if v.processor_type() == ProcessorCoreType::Main {
+        //             SpawnOption::with_priority(Priority::High)
+        //                 .strong_affinity(cpuid)
+        //                 .start(Self::_dispatch, index, &format!("dispatch_#{}", index));
+        //         }
+        //     });
+        // }
     }
 
     #[inline]
@@ -194,7 +200,7 @@ impl Scheduler {
 
     #[inline]
     fn set_current_state(val: SchedulerState) {
-        SCHEDULER_STATE.store(val)
+        SCHEDULER_STATE.store(val);
     }
 
     /// All threads will stop.
@@ -331,16 +337,28 @@ impl Scheduler {
 
     /// Returns whether the specified processor is stalled or not.
     fn is_stalled_processor(index: ProcessorIndex) -> bool {
-        let shared = Self::shared();
-        let state = Self::current_state();
-        if shared.is_frozen.load(Ordering::SeqCst)
-            || (state != SchedulerState::FullThrottle
-                && System::cpu(index).processor_type() == ProcessorCoreType::Sub)
-        {
-            true
-        } else {
-            false
+        if Self::shared().is_frozen.load(Ordering::SeqCst) {
+            return true;
         }
+        let is_hybrid = matches!(
+            System::current_device().processor_system_type(),
+            ProcessorSystemType::Hybrid
+        );
+        let processor_type = System::cpu(index).processor_type();
+        let allowed = match Self::current_state() {
+            SchedulerState::Disabled => false,
+            SchedulerState::Saving => {
+                if is_hybrid {
+                    processor_type.is_normal_processor() && processor_type.is_efficient_processor()
+                } else {
+                    processor_type.is_normal_processor()
+                }
+            }
+            SchedulerState::Normal => processor_type.is_normal_processor(),
+            SchedulerState::FullThrottle => true,
+        };
+
+        !allowed
     }
 
     /// Get the next executable thread from the thread queue
@@ -449,6 +467,7 @@ impl Scheduler {
             let actual = now.0 - measure.0;
             let actual1000 = actual as usize * 1000;
 
+            let mut n_busy_thread = 0;
             let mut usage = 0;
             for thread in ThreadPool::shared().data.lock().values() {
                 let thread = thread.clone();
@@ -458,6 +477,9 @@ impl Scheduler {
                 thread.load.store(load as u32, Ordering::SeqCst);
                 if thread.priority != Priority::Idle {
                     usage += load;
+                    if load >= THRESHOLD_BUSY_THREAD {
+                        n_busy_thread += 1;
+                    }
                 }
 
                 let process = thread.pid.get().unwrap();
@@ -472,27 +494,44 @@ impl Scheduler {
                 process.load.store(load, Ordering::SeqCst);
             }
 
-            let num_cpu = System::current_device().num_of_logical_cpus();
-            let usage_total = usize::min(usage, num_cpu * 1000);
-            let usage_per_cpu = usize::min(usage / num_cpu, 1000);
+            let device = System::current_device();
+            let num_physical_cpu = device.num_of_physical_cpus();
+            let num_logical_cpu = device.num_of_logical_cpus();
+
+            let usage_total = usize::min(usage, num_logical_cpu * 1000);
+            let usage_per_cpu = usize::min(usage / num_logical_cpu, 1000);
             shared.usage_total.store(usage_total, Ordering::SeqCst);
             shared.usage.store(usage_per_cpu, Ordering::SeqCst);
+            let num_low_cpu =
+                if matches!(device.processor_system_type(), ProcessorSystemType::Hybrid) {
+                    device.num_of_efficient_cpus()
+                } else {
+                    num_physical_cpu
+                };
 
-            match Self::current_state() {
-                SchedulerState::Disabled => (),
-                SchedulerState::Normal => {
-                    if usage_total
-                        > (System::current_device().num_of_main_cpus() - 1) * 1000
-                            + THRESHOLD_ENTER_MAX
-                    {
-                        Self::set_current_state(SchedulerState::FullThrottle);
+            if n_busy_thread >= num_physical_cpu {
+                Self::set_current_state(SchedulerState::FullThrottle);
+            } else if n_busy_thread >= num_low_cpu {
+                Self::set_current_state(SchedulerState::Normal);
+            } else {
+                match Self::current_state() {
+                    SchedulerState::Disabled => (),
+                    SchedulerState::Saving => {
+                        if usage_total > num_low_cpu * THRESHOLD_LEAVE_SAVING {
+                            Self::set_current_state(SchedulerState::Normal);
+                        }
                     }
-                }
-                SchedulerState::FullThrottle => {
-                    if usage_total
-                        < System::current_device().num_of_main_cpus() * THRESHOLD_LEAVE_MAX
-                    {
-                        Self::set_current_state(SchedulerState::Normal);
+                    SchedulerState::Normal => {
+                        if usage_total > num_physical_cpu * 1000 - 1000 + THRESHOLD_ENTER_MAX {
+                            Self::set_current_state(SchedulerState::FullThrottle);
+                        } else if usage_total < num_low_cpu * THRESHOLD_ENTER_SAVING {
+                            Self::set_current_state(SchedulerState::Saving);
+                        }
+                    }
+                    SchedulerState::FullThrottle => {
+                        if usage_total < num_physical_cpu * THRESHOLD_LEAVE_MAX {
+                            Self::set_current_state(SchedulerState::Normal);
+                        }
                     }
                 }
             }

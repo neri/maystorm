@@ -258,7 +258,7 @@ impl WindowManager<'_> {
                 while let Some(event) = shared.system_event.dequeue() {
                     match event {
                         WindowSystemEvent::Key(w, e) => {
-                            let _ = w.post(WindowMessage::Key(e));
+                            w.post(WindowMessage::Key(e)).unwrap();
                         }
                     }
                 }
@@ -824,7 +824,7 @@ impl WindowManager<'_> {
             // ctrl alt del
             UserEnv::system_reset(false);
         } else if let Some(window) = shared.active.get() {
-            let _ = Self::post_system_event(WindowSystemEvent::Key(window, event));
+            Self::post_system_event(WindowSystemEvent::Key(window, event)).unwrap();
         }
     }
 

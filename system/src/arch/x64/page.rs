@@ -68,13 +68,12 @@ impl PageManager {
         match request {
             MemoryMapRequest::Mmio(base, len) => {
                 let Some(len) = NonZeroUsize::new(len) else { return 0 };
-                let pa = base as PhysicalAddress;
                 let va = Self::direct_map(base);
                 match Self::_map(
                     va,
                     len,
                     PageTableEntry::new(
-                        pa,
+                        base,
                         PageAttribute::NO_EXECUTE
                             | PageAttribute::PAT_UC
                             | PageAttribute::WRITE
@@ -87,13 +86,12 @@ impl PageManager {
             }
             MemoryMapRequest::Framebuffer(base, len) => {
                 let Some(len) = NonZeroUsize::new(len) else { return 0 };
-                let pa = base as PhysicalAddress;
                 let va = Self::direct_map(base);
                 match Self::_map(
                     va,
                     len,
                     PageTableEntry::new(
-                        pa,
+                        base,
                         PageAttribute::NO_EXECUTE
                             | PageAttribute::LARGE_2M
                             | PageAttribute::PAT_WC
@@ -154,15 +152,15 @@ impl PageManager {
     #[track_caller]
     unsafe fn _map(va: usize, len: NonZeroUsize, template: PageTableEntry) -> Result<(), usize> {
         if template.contains(PageAttribute::LARGE_2M) {
+            // 2M Pages
             let page_size = Self::PAGE_SIZE_2M;
             let page_mask = page_size - 1;
-            // 2M Pages
             if (va & page_mask) != 0 {
                 return Err(va);
             }
             let count = (len.get() + page_mask) / page_size;
             let mut template = template;
-            let fva = va;
+            let base_va = va;
             let mut va = va;
             for _ in 0..count {
                 let mut parent_template = template;
@@ -177,24 +175,25 @@ impl PageManager {
                 {
                     panic!(
                         "INVALID PDT {:016x} {:016x} {:016x} {}",
-                        va, pdte.0, fva, count
+                        va, pdte.0, base_va, count
                     );
                 }
                 pdte_ptr.write_volatile(template);
+
                 Self::invalidate_tlb(va);
                 va += page_size;
                 template += page_size;
             }
         } else {
+            // 4K Pages
             let page_size = Self::PAGE_SIZE_4K;
             let page_mask = page_size - 1;
-            // 4K Pages
             if (va & page_mask) != 0 {
                 return Err(va);
             }
             let count = (len.get() + page_mask) / page_size;
             let mut template = template;
-            let fva = va;
+            let base_va = va;
             let mut va = va;
             for _ in 0..count {
                 let mut parent_template = template;
@@ -207,12 +206,13 @@ impl PageManager {
                 if pdte.contains(PageAttribute::LARGE_2M) {
                     panic!(
                         "LARGE PDT {:016x} {:016x} {:016x} {}",
-                        va, pdte.0, fva, count
+                        va, pdte.0, base_va, count
                     );
                 }
 
                 let pte_ptr = PageLevel::Level1.pte_of(va);
                 pte_ptr.write_volatile(template);
+
                 Self::invalidate_tlb(va);
                 va += page_size;
                 template += page_size;

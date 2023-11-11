@@ -28,6 +28,7 @@ libm = {}
 
 png-decoder = {default-features = false, git = "https://github.com/neri/png-decoder"}
 rapid-qoi = {default-features = false, features = ["alloc"]}
+zune-jpeg = {version = "0.3.17", default-features = false}
 
 [profile.release]
 lto = true

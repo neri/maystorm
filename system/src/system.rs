@@ -83,7 +83,7 @@ impl System {
             && info.screen_height > 0
         {
             let stride = info.vram_stride as usize;
-            let vram_size = stride * info.screen_height as usize;
+            let vram_size = 4 * stride * info.screen_height as usize;
             let base = mem::MemoryManager::mmap(mem::MemoryMapRequest::Framebuffer(
                 PhysicalAddress::new(info.vram_base),
                 vram_size,
@@ -125,18 +125,20 @@ impl System {
 
         let shared = Self::shared();
 
-        if false {
+        if true {
             let device = System::current_device();
 
             let bytes = device.total_memory_size();
             let gb = bytes >> 30;
             let mb = (100 * (bytes & 0x3FFF_FFFF)) / 0x4000_0000;
             log!(
-                "{} v{} (codename {}) {} Cores {}.{:02} GB Memory",
+                "\n{} v{} (codename {}) {:?} {}C/{}T Memory {}.{:02}GB",
                 System::name(),
                 System::version(),
                 System::codename(),
-                device.num_of_main_cpus(),
+                device.processor_system_type(),
+                device.num_of_physical_cpus(),
+                device.num_of_logical_cpus(),
                 gb,
                 mb
             );
@@ -230,9 +232,23 @@ impl System {
         shared.cpus.push(new_cpu);
         let device = &shared.current_device;
         device.num_of_logical_cpus.fetch_add(1, Ordering::AcqRel);
-        if processor_type == ProcessorCoreType::Main {
-            device.num_of_main_cpus.fetch_add(1, Ordering::AcqRel);
+        match processor_type {
+            ProcessorCoreType::Normal => {
+                device.num_of_main_cpus.fetch_add(1, Ordering::AcqRel);
+                device.num_of_physical_cpus.fetch_add(1, Ordering::AcqRel);
+            }
+            ProcessorCoreType::Efficient => {
+                device.num_of_effecient_cpus.fetch_add(1, Ordering::AcqRel);
+                device.num_of_physical_cpus.fetch_add(1, Ordering::AcqRel);
+                if device.num_of_main_cpus() > 0 {
+                    device.is_hybrid.store(true, Ordering::SeqCst);
+                }
+            }
+            ProcessorCoreType::Sub | ProcessorCoreType::EfficientSub => {
+                device.has_smt.store(true, Ordering::SeqCst);
+            }
         }
+
         fence(Ordering::SeqCst);
     }
 
@@ -336,7 +352,11 @@ pub struct DeviceInfo {
     manufacturer_name: Option<String>,
     model_name: Option<String>,
     num_of_logical_cpus: AtomicUsize,
+    num_of_physical_cpus: AtomicUsize,
     num_of_main_cpus: AtomicUsize,
+    num_of_effecient_cpus: AtomicUsize,
+    is_hybrid: AtomicBool,
+    has_smt: AtomicBool,
     total_memory_size: usize,
 }
 
@@ -347,7 +367,11 @@ impl DeviceInfo {
             manufacturer_name: None,
             model_name: None,
             num_of_logical_cpus: AtomicUsize::new(0),
+            num_of_physical_cpus: AtomicUsize::new(0),
             num_of_main_cpus: AtomicUsize::new(0),
+            num_of_effecient_cpus: AtomicUsize::new(0),
+            is_hybrid: AtomicBool::new(false),
+            has_smt: AtomicBool::new(false),
             total_memory_size: 0,
         }
     }
@@ -376,12 +400,46 @@ impl DeviceInfo {
         self.num_of_logical_cpus.load(Ordering::SeqCst)
     }
 
-    /// Returns the number of performance CPU cores.
+    /// Returns the number of physical CPU cores.
     /// Returns less than `num_of_logical_cpus` for SMT-enabled processors.
+    #[inline]
+    pub fn num_of_physical_cpus(&self) -> usize {
+        self.num_of_physical_cpus.load(Ordering::SeqCst)
+    }
+
+    /// Returns the number of performance CPU cores.
     #[inline]
     pub fn num_of_main_cpus(&self) -> usize {
         self.num_of_main_cpus.load(Ordering::SeqCst)
     }
+
+    /// Returns the number of Highly efficient CPU cores.
+    #[inline]
+    pub fn num_of_efficient_cpus(&self) -> usize {
+        self.num_of_effecient_cpus.load(Ordering::SeqCst)
+    }
+
+    #[inline]
+    pub fn processor_system_type(&self) -> ProcessorSystemType {
+        if self.is_hybrid.load(Ordering::Relaxed) {
+            ProcessorSystemType::Hybrid
+        } else if self.has_smt.load(Ordering::Relaxed) {
+            ProcessorSystemType::SMT
+        } else if self.num_of_logical_cpus() > 1 {
+            ProcessorSystemType::SMP
+        } else {
+            ProcessorSystemType::Uniprocessor
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ProcessorSystemType {
+    /// System is a hybrid of performance and high-efficiency cores
+    Hybrid,
+    SMT,
+    SMP,
+    Uniprocessor,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -468,10 +526,50 @@ impl const From<usize> for ProcessorIndex {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ProcessorCoreType {
-    /// Main Processor
-    Main,
+    /// Normal Processor
+    Normal,
     /// Subprocessor of SMT enabled processor.
     Sub,
-    /// High-efficiency processor
+    /// Highly Efficient Processor
     Efficient,
+    /// Highly Efficient Subprocessor
+    EfficientSub,
+}
+
+impl ProcessorCoreType {
+    #[inline]
+    pub fn new(is_normal: bool, is_efficient: bool) -> Self {
+        match (is_normal, is_efficient) {
+            (true, true) => Self::Efficient,
+            (true, false) => Self::Normal,
+            (false, true) => Self::EfficientSub,
+            (false, false) => Self::Sub,
+        }
+    }
+
+    #[inline]
+    pub const fn is_normal_processor(&self) -> bool {
+        match *self {
+            Self::Normal | Self::Efficient => true,
+            Self::Sub | Self::EfficientSub => false,
+        }
+    }
+
+    #[inline]
+    pub const fn is_sub_processor(&self) -> bool {
+        !self.is_normal_processor()
+    }
+
+    #[inline]
+    pub const fn is_performance_processor(&self) -> bool {
+        !self.is_efficient_processor()
+    }
+
+    #[inline]
+    pub const fn is_efficient_processor(&self) -> bool {
+        match *self {
+            Self::Efficient | Self::EfficientSub => true,
+            Self::Normal | Self::Sub => false,
+        }
+    }
 }

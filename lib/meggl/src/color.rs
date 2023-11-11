@@ -6,32 +6,43 @@ use core::{
 
 /// Common color trait
 #[const_trait]
-pub trait ColorTrait: Sized + Copy + Clone + PartialEq + Eq + Default {
-    // fn bits_per_pixel() -> usize;
-    // fn bits_per_channel() -> usize;
-
+pub trait PixelColor: Sized + Copy + Clone + PartialEq + Eq + Default {
+    /// This value is used to calculate the address of a raster image that supports this color format.
     #[inline]
     fn stride_for(width: isize) -> usize {
         width as usize
     }
 }
 
-pub trait Transparency: ColorTrait {
+#[const_trait]
+pub trait Translucent: PixelColor {
     const TRANSPARENT: Self;
+
+    fn is_transparent(&self) -> bool;
+
+    fn is_opaque(&self) -> bool;
 }
 
-pub trait KeyColor: ColorTrait {
+pub trait KeyColor: PixelColor {
     const KEY_COLOR: Self;
 }
 
-pub trait PrimaryColor: ColorTrait {
+pub trait PrimaryColor: PixelColor {
+    /// RGB (0, 0, 0)
     const PRIMARY_BLACK: Self;
+    /// RGB (0, 0, 1)
     const PRIMARY_BLUE: Self;
+    /// RGB (0, 1, 0)
     const PRIMARY_GREEN: Self;
+    /// RGB (0, 1, 1)
     const PRIMARY_CYAN: Self;
+    /// RGB (1, 0, 0)
     const PRIMARY_RED: Self;
+    /// RGB (1, 0, 1)
     const PRIMARY_MAGENTA: Self;
+    /// RGB (1, 1, 0)
     const PRIMARY_YELLOW: Self;
+    /// RGB (1, 1, 1)
     const PRIMARY_WHITE: Self;
 }
 
@@ -50,7 +61,7 @@ pub enum ColorFormat {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct IndexedColor(pub u8);
 
-impl const ColorTrait for IndexedColor {}
+impl const PixelColor for IndexedColor {}
 
 impl KeyColor for IndexedColor {
     const KEY_COLOR: Self = Self(u8::MAX);
@@ -144,8 +155,8 @@ impl IndexedColor {
     }
 
     #[inline]
-    pub const fn as_true_color(self) -> BGRA8888 {
-        BGRA8888::from_argb(self.as_argb())
+    pub const fn as_true_color(self) -> ARGB8888 {
+        ARGB8888::from_argb(self.as_argb())
     }
 
     #[inline]
@@ -161,7 +172,7 @@ impl const From<u8> for IndexedColor {
     }
 }
 
-impl const From<IndexedColor> for BGRA8888 {
+impl const From<IndexedColor> for ARGB8888 {
     #[inline]
     fn from(val: IndexedColor) -> Self {
         val.as_true_color()
@@ -172,29 +183,24 @@ impl const From<IndexedColor> for BGRA8888 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Alpha8(pub u8);
 
-impl Alpha8 {
-    pub const TRANSPARENT: Self = Self(0);
-    pub const OPAQUE: Self = Self(u8::MAX);
+impl PixelColor for Alpha8 {}
+
+impl const Translucent for Alpha8 {
+    const TRANSPARENT: Self = Self(0);
 
     #[inline]
-    pub const fn transparent() -> Self {
-        Self::TRANSPARENT
-    }
-
-    #[inline]
-    pub const fn opaque() -> Self {
-        Self::OPAQUE
-    }
-
-    #[inline]
-    pub const fn is_transparent(&self) -> bool {
+    fn is_transparent(&self) -> bool {
         self.0 == Self::TRANSPARENT.0
     }
 
     #[inline]
-    pub const fn is_opaque(&self) -> bool {
+    fn is_opaque(&self) -> bool {
         self.0 == Self::OPAQUE.0
     }
+}
+
+impl Alpha8 {
+    pub const OPAQUE: Self = Self(u8::MAX);
 
     #[inline]
     pub const fn into_f32(self) -> f32 {
@@ -352,21 +358,30 @@ impl const SubAssign<u8> for Alpha8 {
     }
 }
 
-#[cfg(target_endian = "little")]
-pub type TrueColor = BGRA8888;
+pub type TrueColor = ARGB8888;
 
 /// 32bit TrueColor
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
-pub struct BGRA8888(pub u32);
+pub struct ARGB8888(pub u32);
 
-impl ColorTrait for BGRA8888 {}
+impl PixelColor for ARGB8888 {}
 
-impl Transparency for BGRA8888 {
+impl const Translucent for ARGB8888 {
     const TRANSPARENT: Self = Self(0);
+
+    #[inline]
+    fn is_transparent(&self) -> bool {
+        self.opacity().is_transparent()
+    }
+
+    #[inline]
+    fn is_opaque(&self) -> bool {
+        self.opacity().is_opaque()
+    }
 }
 
-impl PrimaryColor for BGRA8888 {
+impl PrimaryColor for ARGB8888 {
     const PRIMARY_BLACK: Self = Self::from_rgb(0x00_00_00);
     const PRIMARY_BLUE: Self = Self::from_rgb(0x00_00_FF);
     const PRIMARY_GREEN: Self = Self::from_rgb(0x00_FF_00);
@@ -377,7 +392,7 @@ impl PrimaryColor for BGRA8888 {
     const PRIMARY_WHITE: Self = Self::from_rgb(0xFF_FF_FF);
 }
 
-impl BGRA8888 {
+impl ARGB8888 {
     pub const BLACK: Self = Self::from_rgb(0x212121);
     pub const BLUE: Self = Self::from_rgb(0x0D47A1);
     pub const GREEN: Self = Self::from_rgb(0x1B5E20);
@@ -452,16 +467,6 @@ impl BGRA8888 {
     }
 
     #[inline]
-    pub const fn is_opaque(&self) -> bool {
-        self.opacity().is_opaque()
-    }
-
-    #[inline]
-    pub const fn is_transparent(&self) -> bool {
-        self.opacity().is_transparent()
-    }
-
-    #[inline]
     pub fn blending<F1, F2>(&self, rhs: Self, f_rgb: F1, f_a: F2) -> Self
     where
         F1: Fn(u8, u8) -> u8,
@@ -505,16 +510,16 @@ impl BGRA8888 {
     }
 }
 
-impl const From<u32> for BGRA8888 {
+impl const From<u32> for ARGB8888 {
     #[inline]
     fn from(argb: u32) -> Self {
         Self::from_argb(argb)
     }
 }
 
-impl const From<BGRA8888> for IndexedColor {
+impl const From<ARGB8888> for IndexedColor {
     #[inline]
-    fn from(color: BGRA8888) -> Self {
+    fn from(color: ARGB8888) -> Self {
         Self::from_rgb(color.rgb())
     }
 }
@@ -546,13 +551,13 @@ impl ColorComponents {
 
     #[inline]
     #[cfg(target_endian = "little")]
-    pub const fn from_true_color(val: BGRA8888) -> Self {
+    pub const fn from_true_color(val: ARGB8888) -> Self {
         unsafe { transmute(val) }
     }
 
     #[inline]
     #[cfg(target_endian = "little")]
-    pub const fn into_true_color(self) -> BGRA8888 {
+    pub const fn into_true_color(self) -> ARGB8888 {
         unsafe { transmute(self) }
     }
 
@@ -582,15 +587,15 @@ impl ColorComponents {
 }
 
 #[cfg(target_endian = "little")]
-impl const From<BGRA8888> for ColorComponents {
+impl const From<ARGB8888> for ColorComponents {
     #[inline]
-    fn from(color: BGRA8888) -> Self {
+    fn from(color: ARGB8888) -> Self {
         unsafe { transmute(color) }
     }
 }
 
 #[cfg(target_endian = "little")]
-impl const From<ColorComponents> for BGRA8888 {
+impl const From<ColorComponents> for ARGB8888 {
     #[inline]
     fn from(components: ColorComponents) -> Self {
         unsafe { transmute(components) }
@@ -610,10 +615,20 @@ impl const Into<u32> for ColorComponents {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub struct RGBA8888(pub(super) u32);
 
-impl ColorTrait for RGBA8888 {}
+impl PixelColor for RGBA8888 {}
 
-impl Transparency for RGBA8888 {
+impl const Translucent for RGBA8888 {
     const TRANSPARENT: Self = Self(0);
+
+    #[inline]
+    fn is_transparent(&self) -> bool {
+        self.components().is_transparent()
+    }
+
+    #[inline]
+    fn is_opaque(&self) -> bool {
+        self.components().is_opaque()
+    }
 }
 
 impl PrimaryColor for RGBA8888 {
@@ -639,16 +654,6 @@ impl RGBA8888 {
     pub const fn opacity(&self) -> Alpha8 {
         self.components().a
     }
-
-    #[inline]
-    pub const fn is_transparent(&self) -> bool {
-        self.components().is_transparent()
-    }
-
-    #[inline]
-    pub const fn is_opaque(&self) -> bool {
-        self.components().is_opaque()
-    }
 }
 
 #[cfg(target_endian = "little")]
@@ -659,14 +664,14 @@ impl RGBA8888 {
     }
 }
 
-impl const From<BGRA8888> for RGBA8888 {
+impl const From<ARGB8888> for RGBA8888 {
     #[inline]
-    fn from(v: BGRA8888) -> Self {
+    fn from(v: ARGB8888) -> Self {
         Self::from(ColorComponentsRGBA::from(v.components()))
     }
 }
 
-impl const From<RGBA8888> for BGRA8888 {
+impl const From<RGBA8888> for ARGB8888 {
     #[inline]
     fn from(v: RGBA8888) -> Self {
         Self::from(ColorComponents::from(v.components()))
@@ -774,13 +779,37 @@ impl const From<[u8; 4]> for ColorComponentsRGBA {
 pub enum Color {
     Transparent,
     Indexed(IndexedColor),
-    Argb32(BGRA8888),
+    Argb32(ARGB8888),
 }
 
-impl ColorTrait for Color {}
+impl PixelColor for Color {}
 
-impl Transparency for Color {
+impl const Translucent for Color {
     const TRANSPARENT: Self = Self::Transparent;
+
+    #[inline]
+    fn is_transparent(&self) -> bool {
+        match self {
+            Color::Transparent => true,
+            Color::Indexed(c) => match *c {
+                IndexedColor::KEY_COLOR => true,
+                _ => false,
+            },
+            Color::Argb32(c) => c.is_transparent(),
+        }
+    }
+
+    #[inline]
+    fn is_opaque(&self) -> bool {
+        match self {
+            Color::Transparent => false,
+            Color::Indexed(c) => match *c {
+                IndexedColor::KEY_COLOR => false,
+                _ => true,
+            },
+            Color::Argb32(c) => c.is_opaque(),
+        }
+    }
 }
 
 impl KeyColor for Color {
@@ -799,31 +828,31 @@ impl PrimaryColor for Color {
 }
 
 impl Color {
-    pub const BLACK: Self = Self::Argb32(BGRA8888::BLACK);
-    pub const BLUE: Self = Self::Argb32(BGRA8888::BLUE);
-    pub const GREEN: Self = Self::Argb32(BGRA8888::GREEN);
-    pub const CYAN: Self = Self::Argb32(BGRA8888::CYAN);
-    pub const RED: Self = Self::Argb32(BGRA8888::RED);
-    pub const MAGENTA: Self = Self::Argb32(BGRA8888::MAGENTA);
-    pub const BROWN: Self = Self::Argb32(BGRA8888::BROWN);
-    pub const LIGHT_GRAY: Self = Self::Argb32(BGRA8888::LIGHT_GRAY);
-    pub const DARK_GRAY: Self = Self::Argb32(BGRA8888::DARK_GRAY);
-    pub const LIGHT_BLUE: Self = Self::Argb32(BGRA8888::LIGHT_BLUE);
-    pub const LIGHT_GREEN: Self = Self::Argb32(BGRA8888::LIGHT_GREEN);
-    pub const LIGHT_CYAN: Self = Self::Argb32(BGRA8888::LIGHT_CYAN);
-    pub const LIGHT_RED: Self = Self::Argb32(BGRA8888::LIGHT_RED);
-    pub const LIGHT_MAGENTA: Self = Self::Argb32(BGRA8888::LIGHT_MAGENTA);
-    pub const YELLOW: Self = Self::Argb32(BGRA8888::YELLOW);
-    pub const WHITE: Self = Self::Argb32(BGRA8888::WHITE);
+    pub const BLACK: Self = Self::Argb32(ARGB8888::BLACK);
+    pub const BLUE: Self = Self::Argb32(ARGB8888::BLUE);
+    pub const GREEN: Self = Self::Argb32(ARGB8888::GREEN);
+    pub const CYAN: Self = Self::Argb32(ARGB8888::CYAN);
+    pub const RED: Self = Self::Argb32(ARGB8888::RED);
+    pub const MAGENTA: Self = Self::Argb32(ARGB8888::MAGENTA);
+    pub const BROWN: Self = Self::Argb32(ARGB8888::BROWN);
+    pub const LIGHT_GRAY: Self = Self::Argb32(ARGB8888::LIGHT_GRAY);
+    pub const DARK_GRAY: Self = Self::Argb32(ARGB8888::DARK_GRAY);
+    pub const LIGHT_BLUE: Self = Self::Argb32(ARGB8888::LIGHT_BLUE);
+    pub const LIGHT_GREEN: Self = Self::Argb32(ARGB8888::LIGHT_GREEN);
+    pub const LIGHT_CYAN: Self = Self::Argb32(ARGB8888::LIGHT_CYAN);
+    pub const LIGHT_RED: Self = Self::Argb32(ARGB8888::LIGHT_RED);
+    pub const LIGHT_MAGENTA: Self = Self::Argb32(ARGB8888::LIGHT_MAGENTA);
+    pub const YELLOW: Self = Self::Argb32(ARGB8888::YELLOW);
+    pub const WHITE: Self = Self::Argb32(ARGB8888::WHITE);
 
     #[inline]
     pub const fn from_rgb(rgb: u32) -> Self {
-        Self::Argb32(BGRA8888::from_rgb(rgb))
+        Self::Argb32(ARGB8888::from_rgb(rgb))
     }
 
     #[inline]
     pub const fn from_argb(argb: u32) -> Self {
-        Self::Argb32(BGRA8888::from_argb(argb))
+        Self::Argb32(ARGB8888::from_argb(argb))
     }
 
     #[inline]
@@ -836,9 +865,9 @@ impl Color {
     }
 
     #[inline]
-    pub const fn into_true_color(&self) -> BGRA8888 {
+    pub const fn into_true_color(&self) -> ARGB8888 {
         match self {
-            Color::Transparent => BGRA8888::TRANSPARENT,
+            Color::Transparent => ARGB8888::TRANSPARENT,
             Color::Indexed(v) => v.as_true_color(),
             Color::Argb32(v) => *v,
         }
@@ -850,18 +879,6 @@ impl Color {
             Color::Transparent => None,
             Color::Indexed(c) => c.brightness(),
             Color::Argb32(c) => c.brightness(),
-        }
-    }
-
-    #[inline]
-    pub const fn is_transparent(&self) -> bool {
-        match self {
-            Color::Transparent => true,
-            Color::Indexed(c) => match *c {
-                IndexedColor::KEY_COLOR => true,
-                _ => false,
-            },
-            Color::Argb32(c) => c.is_transparent(),
         }
     }
 }
@@ -880,9 +897,9 @@ impl const Into<IndexedColor> for Color {
     }
 }
 
-impl const Into<BGRA8888> for Color {
+impl const Into<ARGB8888> for Color {
     #[inline]
-    fn into(self) -> BGRA8888 {
+    fn into(self) -> ARGB8888 {
         self.into_true_color()
     }
 }
@@ -894,9 +911,9 @@ impl const From<IndexedColor> for Color {
     }
 }
 
-impl const From<BGRA8888> for Color {
+impl const From<ARGB8888> for Color {
     #[inline]
-    fn from(val: BGRA8888) -> Self {
+    fn from(val: ARGB8888) -> Self {
         Self::Argb32(val)
     }
 }
@@ -908,21 +925,35 @@ impl const From<BGRA8888> for Color {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct PackedColor(pub u32);
 
-impl ColorTrait for PackedColor {}
+impl PixelColor for PackedColor {}
 
-impl Transparency for PackedColor {
+impl const Translucent for PackedColor {
     const TRANSPARENT: Self = Self(Self::INDEX_COLOR_MAX + 1);
+
+    #[inline]
+    fn is_transparent(&self) -> bool {
+        matches!(*self, Self::TRANSPARENT)
+    }
+
+    #[inline]
+    fn is_opaque(&self) -> bool {
+        match self.as_color() {
+            Color::Transparent => false,
+            Color::Indexed(_) => true,
+            Color::Argb32(c) => c.is_opaque(),
+        }
+    }
 }
 
 impl PrimaryColor for PackedColor {
-    const PRIMARY_BLACK: Self = Self::from_true_color(BGRA8888::PRIMARY_BLACK);
-    const PRIMARY_BLUE: Self = Self::from_true_color(BGRA8888::PRIMARY_BLUE);
-    const PRIMARY_GREEN: Self = Self::from_true_color(BGRA8888::PRIMARY_GREEN);
-    const PRIMARY_CYAN: Self = Self::from_true_color(BGRA8888::PRIMARY_CYAN);
-    const PRIMARY_RED: Self = Self::from_true_color(BGRA8888::PRIMARY_RED);
-    const PRIMARY_MAGENTA: Self = Self::from_true_color(BGRA8888::PRIMARY_MAGENTA);
-    const PRIMARY_YELLOW: Self = Self::from_true_color(BGRA8888::PRIMARY_YELLOW);
-    const PRIMARY_WHITE: Self = Self::from_true_color(BGRA8888::PRIMARY_WHITE);
+    const PRIMARY_BLACK: Self = Self::from_true_color(ARGB8888::PRIMARY_BLACK);
+    const PRIMARY_BLUE: Self = Self::from_true_color(ARGB8888::PRIMARY_BLUE);
+    const PRIMARY_GREEN: Self = Self::from_true_color(ARGB8888::PRIMARY_GREEN);
+    const PRIMARY_CYAN: Self = Self::from_true_color(ARGB8888::PRIMARY_CYAN);
+    const PRIMARY_RED: Self = Self::from_true_color(ARGB8888::PRIMARY_RED);
+    const PRIMARY_MAGENTA: Self = Self::from_true_color(ARGB8888::PRIMARY_MAGENTA);
+    const PRIMARY_YELLOW: Self = Self::from_true_color(ARGB8888::PRIMARY_YELLOW);
+    const PRIMARY_WHITE: Self = Self::from_true_color(ARGB8888::PRIMARY_WHITE);
 }
 
 impl PackedColor {
@@ -948,7 +979,7 @@ impl PackedColor {
 
     #[inline]
     pub const fn from_argb(argb: u32) -> Self {
-        Self::from_true_color(BGRA8888::from_argb(argb))
+        Self::from_true_color(ARGB8888::from_argb(argb))
     }
 
     #[inline]
@@ -957,7 +988,7 @@ impl PackedColor {
     }
 
     #[inline]
-    pub const fn from_true_color(argb: BGRA8888) -> Self {
+    pub const fn from_true_color(argb: ARGB8888) -> Self {
         match argb.is_transparent() {
             true => Self::TRANSPARENT,
             false => Self(argb.argb()),
@@ -993,7 +1024,7 @@ impl PackedColor {
     }
 
     #[inline]
-    pub const fn into_true_color(self) -> BGRA8888 {
+    pub const fn into_true_color(self) -> ARGB8888 {
         self.as_color().into_true_color()
     }
 
@@ -1003,9 +1034,9 @@ impl PackedColor {
     }
 }
 
-impl const From<BGRA8888> for PackedColor {
+impl const From<ARGB8888> for PackedColor {
     #[inline]
-    fn from(color: BGRA8888) -> Self {
+    fn from(color: ARGB8888) -> Self {
         Self::from_true_color(color)
     }
 }
@@ -1036,7 +1067,7 @@ impl const From<PackedColor> for Color {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct RGB555(pub u16);
 
-impl ColorTrait for RGB555 {}
+impl PixelColor for RGB555 {}
 
 impl PrimaryColor for RGB555 {
     const PRIMARY_BLACK: Self = Self::from_rgb(0x00_00_00);
@@ -1064,7 +1095,7 @@ impl RGB555 {
     }
 
     #[inline]
-    pub const fn as_true_color(&self) -> BGRA8888 {
+    pub const fn as_true_color(&self) -> ARGB8888 {
         let components = self.components();
         let components = ColorComponents {
             a: Alpha8::OPAQUE,
@@ -1082,11 +1113,11 @@ impl RGB555 {
 
     #[inline]
     const fn from_rgb(rgb: u32) -> Self {
-        Self::from_true_color(BGRA8888::from_rgb(rgb))
+        Self::from_true_color(ARGB8888::from_rgb(rgb))
     }
 
     #[inline]
-    pub const fn from_true_color(color: BGRA8888) -> Self {
+    pub const fn from_true_color(color: ARGB8888) -> Self {
         let components = color.components();
         Self(
             ((components.b >> 3) as u16)
@@ -1096,14 +1127,14 @@ impl RGB555 {
     }
 }
 
-impl const From<BGRA8888> for RGB555 {
+impl const From<ARGB8888> for RGB555 {
     #[inline]
-    fn from(color: BGRA8888) -> Self {
+    fn from(color: ARGB8888) -> Self {
         Self::from_true_color(color)
     }
 }
 
-impl const From<RGB555> for BGRA8888 {
+impl const From<RGB555> for ARGB8888 {
     #[inline]
     fn from(color: RGB555) -> Self {
         color.as_true_color()
@@ -1129,7 +1160,7 @@ impl const From<RGB555> for Color {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct RGB565(pub u16);
 
-impl ColorTrait for RGB565 {}
+impl PixelColor for RGB565 {}
 
 impl PrimaryColor for RGB565 {
     const PRIMARY_BLACK: Self = Self::from_rgb(0x00_00_00);
@@ -1157,7 +1188,7 @@ impl RGB565 {
     }
 
     #[inline]
-    pub const fn as_true_color(&self) -> BGRA8888 {
+    pub const fn as_true_color(&self) -> ARGB8888 {
         let components = self.components();
         let components = ColorComponents {
             a: Alpha8::OPAQUE,
@@ -1180,11 +1211,11 @@ impl RGB565 {
 
     #[inline]
     const fn from_rgb(rgb: u32) -> Self {
-        Self::from_true_color(BGRA8888::from_rgb(rgb))
+        Self::from_true_color(ARGB8888::from_rgb(rgb))
     }
 
     #[inline]
-    pub const fn from_true_color(color: BGRA8888) -> Self {
+    pub const fn from_true_color(color: ARGB8888) -> Self {
         let components = color.components();
         Self(
             ((components.b >> 3) as u16)
@@ -1194,14 +1225,14 @@ impl RGB565 {
     }
 }
 
-impl const From<BGRA8888> for RGB565 {
+impl const From<ARGB8888> for RGB565 {
     #[inline]
-    fn from(color: BGRA8888) -> Self {
+    fn from(color: ARGB8888) -> Self {
         Self::from_true_color(color)
     }
 }
 
-impl const From<RGB565> for BGRA8888 {
+impl const From<RGB565> for ARGB8888 {
     #[inline]
     fn from(color: RGB565) -> Self {
         color.as_true_color()
@@ -1243,7 +1274,7 @@ pub enum IndexedColor4 {
     Color1111,
 }
 
-impl const ColorTrait for IndexedColor4 {
+impl const PixelColor for IndexedColor4 {
     #[inline]
     fn stride_for(width: isize) -> usize {
         (width as usize + 1) / 2
@@ -1333,19 +1364,19 @@ impl IndexedColorPair44 {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum OneBitColor {
+pub enum Monochrome {
     Zero,
     One,
 }
 
-impl const ColorTrait for OneBitColor {
+impl const PixelColor for Monochrome {
     #[inline]
     fn stride_for(width: isize) -> usize {
         (width as usize + 7) / 8
     }
 }
 
-impl OneBitColor {
+impl Monochrome {
     #[inline]
     pub const fn new(value: u8) -> Self {
         match value {
@@ -1372,35 +1403,35 @@ impl OneBitColor {
     }
 }
 
-impl const From<OneBitColor> for u8 {
+impl const From<Monochrome> for u8 {
     #[inline]
-    fn from(value: OneBitColor) -> Self {
+    fn from(value: Monochrome) -> Self {
         value.into_bool() as u8
     }
 }
 
-impl const From<u8> for OneBitColor {
+impl const From<u8> for Monochrome {
     #[inline]
     fn from(value: u8) -> Self {
         Self::new(value)
     }
 }
 
-impl const From<OneBitColor> for bool {
+impl const From<Monochrome> for bool {
     #[inline]
-    fn from(value: OneBitColor) -> Self {
+    fn from(value: Monochrome) -> Self {
         value.into_bool()
     }
 }
 
-impl const From<bool> for OneBitColor {
+impl const From<bool> for Monochrome {
     #[inline]
     fn from(value: bool) -> Self {
         Self::new(value as u8)
     }
 }
 
-impl const Default for OneBitColor {
+impl const Default for Monochrome {
     #[inline]
     fn default() -> Self {
         Self::Zero
@@ -1423,12 +1454,12 @@ impl Octet {
     }
 
     #[inline]
-    pub fn get(&self, at: usize) -> OneBitColor {
-        OneBitColor::new(self.0 & 0x80u8 >> at)
+    pub fn get(&self, at: usize) -> Monochrome {
+        Monochrome::new(self.0 & (0x80u8 >> at))
     }
 
     #[inline]
-    pub fn set(&mut self, at: usize, value: OneBitColor) {
+    pub fn set(&mut self, at: usize, value: Monochrome) {
         let mask = 0x80u8 >> at;
         if value.into_bool() {
             self.0 |= mask;
@@ -1438,7 +1469,7 @@ impl Octet {
     }
 
     #[inline]
-    pub fn from_array(array: &[OneBitColor]) -> Self {
+    pub fn from_array(array: &[Monochrome]) -> Self {
         array
             .iter()
             .take(8)
@@ -1450,16 +1481,16 @@ impl Octet {
     }
 
     #[inline]
-    pub fn iter(&self) -> impl Iterator<Item = OneBitColor> {
+    pub fn iter(&self) -> impl Iterator<Item = Monochrome> {
         let raw = self.0;
         (0..8)
             .map(|v| 0x80u8 >> v)
-            .map(move |v| OneBitColor::new(raw & v))
+            .map(move |v| Monochrome::new(raw & v))
     }
 
     #[inline]
-    pub fn into_array(self) -> [OneBitColor; 8] {
-        let mut result = [OneBitColor::default(); 8];
+    pub fn into_array(self) -> [Monochrome; 8] {
+        let mut result = [Monochrome::default(); 8];
         result.iter_mut().zip(self.iter()).for_each(|(a, b)| *a = b);
         result
     }

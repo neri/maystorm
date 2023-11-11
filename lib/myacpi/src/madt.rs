@@ -214,6 +214,11 @@ impl LocalApic {
     }
 
     #[inline]
+    pub const fn flags(&self) -> u32 {
+        self.flags
+    }
+
+    #[inline]
     pub const fn status(&self) -> ApicStatus {
         unsafe { transmute(self.flags & 0x0000_0003) }
     }

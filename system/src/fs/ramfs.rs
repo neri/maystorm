@@ -453,9 +453,7 @@ impl ThisFsDirectoryContent {
     fn find_index(&self, name: &str) -> Result<usize> {
         self.content
             .iter()
-            .enumerate()
-            .find(|(_, v)| ThisFs::compare_name(v.name(), name))
-            .map(|(index, _)| index)
+            .position(|v| ThisFs::compare_name(v.name(), name))
             .ok_or(ErrorKind::NotFound.into())
     }
 
@@ -539,12 +537,10 @@ impl ThisFsDirectoryContent {
     fn append_or_replace(&mut self, name: &str, entity: Arc<ThisFsInodeEntity>) {
         match self
             .content
-            .iter()
-            .enumerate()
-            .find(|(_index, dir_ent)| ThisFs::compare_name(dir_ent.name(), name))
-            .map(|(index, _)| index)
+            .iter_mut()
+            .find(|dir_ent| ThisFs::compare_name(dir_ent.name(), name))
         {
-            Some(index) => self.content[index].entity = entity,
+            Some(dir_ent) => dir_ent.entity = entity,
             None => self.content.push(ThisFsDirEntry {
                 name: name.to_owned(),
                 entity,

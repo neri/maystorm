@@ -49,15 +49,15 @@ impl UsbHidDriver {
         class: UsbClass,
     ) -> Result<Task, UsbError> {
         let Some(interface) = device
-.device()
-.current_configuration()
-.find_interface(if_no, None)
-else {
-return Err(UsbError::InvalidParameter)
-};
+            .device()
+            .current_configuration()
+            .find_interface(if_no, None)
+        else {
+            return Err(UsbError::InvalidParameter)
+        };
         let Some(endpoint) = interface.endpoints().first() else {
-return Err(UsbError::InvalidDescriptor)
-};
+            return Err(UsbError::InvalidDescriptor)
+        };
         if !endpoint.is_dir_in() {
             return Err(UsbError::InvalidDescriptor);
         }
@@ -131,8 +131,10 @@ return Err(UsbError::InvalidDescriptor)
             .chain(report_desc.applications())
         {
             let mut data = Vec::new();
-            data.resize((app.bit_count_for_feature() + 7) / 8, 0);
-            let empty_data = [0; Self::BUFFER_LEN];
+            data.resize(
+                (app.bit_count_for_feature().max(app.bit_count_for_output()) + 7) / 8,
+                0,
+            );
             let mut writer = HidBitStreamWriter::new(data.as_mut_slice());
             match app.usage() {
                 HidUsage::KEYBOARD => {
@@ -151,16 +153,22 @@ return Err(UsbError::InvalidDescriptor)
                             }
                         }
 
-                        let _ = Self::set_report(
+                        match Self::set_report(
                             &device,
                             if_no,
                             HidReportType::Output,
                             app.report_id(),
                             len,
-                            &data,
+                            writer.data(),
                         )
-                        .await;
+                        .await
+                        {
+                            Ok(_) => (),
+                            Err(_) => break,
+                        }
                         Timer::sleep_async(Duration::from_millis(100)).await;
+
+                        writer.clear();
 
                         let _ = Self::set_report(
                             &device,
@@ -168,40 +176,43 @@ return Err(UsbError::InvalidDescriptor)
                             HidReportType::Output,
                             app.report_id(),
                             len,
-                            &empty_data,
+                            writer.data(),
                         )
-                        .await;
+                        .await
+                        .unwrap();
                         Timer::sleep_async(Duration::from_millis(50)).await;
                     }
                 }
+
                 // HidUsage::DEVICE_CONFIGURATION => {
                 //     let len = (app.bit_count_for_feature() + 7) / 8;
-                //         if len > 0 {
-                //             for item in app.features() {
-                //                 match item.usage_min() {
-                //                     HidUsage::DEVICE_MODE => {
-                //                         let _ = writer
-                //                             .write_item(item, DeviceMode::SingleInputDevice as u32);
-                //                     }
-                //                     HidUsage::SURFACE_SWITCH | HidUsage::BUTTON_SWITCH => {
-                //                         let _ = writer.write_item(item, 1);
-                //                     }
-                //                     _ => {
-                //                         writer.advance_by(item);
-                //                     }
+                //     if len > 0 {
+                //         for item in app.feature_items() {
+                //             match item.usage_min() {
+                //                 HidUsage::DEVICE_MODE => {
+                //                     let _ = writer
+                //                         .write_item(item, DeviceMode::MultiInputDevice as u32);
+                //                 }
+                //                 // HidUsage::SURFACE_SWITCH | HidUsage::BUTTON_SWITCH => {
+                //                 //     let _ = writer.write_item(item, 1);
+                //                 // }
+                //                 _ => {
+                //                     writer.advance_by(item);
                 //                 }
                 //             }
-
-                //             let _ = Self::set_report(
-                //                 &device,
-                //                 if_no,
-                //                 HidReportType::Feature,
-                //                 app.report_id(),
-                //                 len,
-                //                 data.as_slice(),
-                //             )
-                //             .await;
                 //         }
+
+                //         let _ = Self::set_report(
+                //             &device,
+                //             if_no,
+                //             HidReportType::Feature,
+                //             app.report_id(),
+                //             len,
+                //             data.as_slice(),
+                //         )
+                //         .await
+                //         .unwrap();
+                //     }
                 // }
                 _ => (),
             }
@@ -213,7 +224,7 @@ return Err(UsbError::InvalidDescriptor)
         loop {
             match device.read_vec(ep, &mut buffer, 1, ps).await {
                 Ok(_) => {
-                    // if report_desc.has_report_id() && buffer.iter().fold(0, |a, b| a | *b) > 0 {
+                    // if report_desc.has_report_id() && buffer.iter().fold(0, |a, b| a | *b) != 0 {
                     //     println!("HID {:?}", HexDump(&buffer));
                     // }
 
@@ -227,7 +238,9 @@ return Err(UsbError::InvalidDescriptor)
                     };
 
                     let Some(app) = app else { continue };
-                    if buffer.len() * 8 < app.bit_count_for_input() {
+                    if buffer.len() * 8
+                        < report_desc.initial_bit_position() + app.bit_count_for_input()
+                    {
                         // Some devices send smaller garbage data
                         continue;
                     }

@@ -1,6 +1,6 @@
 # MEG-OS
 
-***Note: It is currently not possible to build with the latest nightly version.***
+***NOTE: IT IS CURRENTLY NOT POSSIBLE TO BUILD WITH THE LATEST NIGHTLY VERSION.***
 
 ![GitHub](https://img.shields.io/github/license/neri/maystorm) ![GitHub top language](https://img.shields.io/github/languages/top/neri/maystorm)
 

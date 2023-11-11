@@ -2,12 +2,18 @@ use alloc::vec::Vec;
 use byteorder::*;
 use megstd::drawing::*;
 use png_decoder;
+use zune_jpeg::JpegDecoder;
 
 pub struct ImageLoader;
 
 impl ImageLoader {
     pub fn load(blob: &[u8]) -> Result<OwnedBitmap, DecodeError> {
-        let drivers = [Self::_from_qoi, Self::_from_png, Self::_from_msdib];
+        let drivers = [
+            Self::_from_jpeg,
+            Self::_from_msdib,
+            Self::_from_png,
+            Self::_from_qoi,
+        ];
         for driver in drivers {
             match driver(blob) {
                 Err(DecodeError::NotSupported) => continue,
@@ -33,8 +39,7 @@ impl ImageLoader {
             })
             .map_err(|err| match err {
                 png_decoder::DecodeError::InvalidMagicBytes => DecodeError::NotSupported,
-                png_decoder::DecodeError::Decompress(_) => DecodeError::General,
-                _ => DecodeError::InvalidParameter,
+                _ => DecodeError::InvalidData,
             })
     }
 
@@ -63,9 +68,7 @@ impl ImageLoader {
             .map_err(|err| match err {
                 rapid_qoi::DecodeError::NotEnoughData => DecodeError::OutOfMemory,
                 rapid_qoi::DecodeError::InvalidMagic => DecodeError::NotSupported,
-                rapid_qoi::DecodeError::InvalidChannelsValue
-                | rapid_qoi::DecodeError::InvalidColorSpaceValue
-                | rapid_qoi::DecodeError::OutputIsTooSmall => DecodeError::InvalidParameter,
+                _ => DecodeError::InvalidData,
             })
     }
 
@@ -158,6 +161,27 @@ impl ImageLoader {
         }
         Ok(OwnedBitmap32::from_vec(vec, Size::new(width as isize, height as isize)).into())
     }
+
+    #[inline]
+    fn _from_jpeg(blob: &[u8]) -> Result<OwnedBitmap, DecodeError> {
+        let mut decoder = JpegDecoder::new(blob);
+        decoder
+            .decode_headers()
+            .map_err(|_| DecodeError::NotSupported)?;
+        let info = decoder.info().ok_or(DecodeError::InvalidData)?;
+        let pixels = decoder.decode().map_err(|_| DecodeError::InvalidData)?;
+
+        let vec = pixels
+            .array_chunks::<3>()
+            .map(|v| (v[0], v[1], v[2], Alpha8::OPAQUE))
+            .map(|(r, g, b, a)| ColorComponents::from_rgba(r, g, b, a).into_true_color())
+            .collect::<Vec<_>>();
+
+        Ok(
+            OwnedBitmap32::from_vec(vec, Size::new(info.width as isize, info.height as isize))
+                .into(),
+        )
+    }
 }
 
 #[derive(Debug)]
@@ -166,4 +190,5 @@ pub enum DecodeError {
     OutOfMemory,
     NotSupported,
     InvalidParameter,
+    InvalidData,
 }

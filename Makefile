@@ -1,5 +1,5 @@
 .PHONY: love default all clean install iso run runs test apps doc kernel boot refresh
-.SUFFIXED: .wasm
+.SUFFIXES: .wasm
 
 MNT			= ./mnt/
 MISC		= ./misc/
@@ -39,6 +39,10 @@ default: $(TARGETS)
 all: $(ALL_TARGETS)
 
 clean:
+	(cd system; cargo clean)
+	(cd apps; cargo clean)
+	(cd boot; cargo clean)
+	(cd tools; cargo clean)
 	-rm -rf system/target apps/target boot/target tools/target
 
 refresh: clean
@@ -57,7 +61,6 @@ run:
 	$(QEMU_X64) -machine q35 -cpu SandyBridge -smp 4,cores=2,threads=2 \
 -bios $(OVMF_X64) \
 -rtc base=localtime,clock=host \
--vga virtio \
 -device virtio-net-pci \
 -device nec-usb-xhci,id=xhci \
 -device intel-hda -device hda-duplex \

@@ -65,7 +65,8 @@ impl HoeManager {
     pub(super) unsafe fn init() {
         let mut shared = &mut *HOE_MANAGER.get();
 
-        if let Ok(mut file) = FileManager::open("/hari/nihongo.fnt", OpenOptions::new().read(true))
+        if let Ok(mut file) =
+            FileManager::open("/boot/hari/nihongo.fnt", OpenOptions::new().read(true))
         {
             let mut buf = Vec::new();
             if let Ok(_) = file.read_to_end(&mut buf) {

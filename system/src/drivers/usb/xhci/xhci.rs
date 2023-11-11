@@ -135,6 +135,17 @@ impl Xhci {
                 .unwrap()
                 .get() as PhysicalAddress;
 
+        // log!(
+        //     "XHCI {}.{}.{} PORTS {} SLOTS {} CTX {} INT {}",
+        //     cap.version().0,
+        //     cap.version().1,
+        //     cap.version().2,
+        //     cap.max_ports(),
+        //     cap.max_device_slots(),
+        //     context_size,
+        //     cap.max_interrups(),
+        // );
+
         let driver = Arc::new(Self {
             addr: device.address(),
             mmio,
@@ -188,6 +199,7 @@ impl Xhci {
             let mut xecp_base = xecp.get() as *mut u32;
             loop {
                 let xecp = xecp_base.read_volatile();
+                // log!("XECP {:02x} {:02x}", xecp & 0xFF, (xecp >> 8) & 0xFF);
                 match xecp & 0xFF {
                     0x01 => {
                         // USB Legacy Support
@@ -195,6 +207,11 @@ impl Xhci {
                         const USBLEGSUP_OS_OWNED: u32 = 0x0100_0000;
                         let usb_leg_sup = xecp_base;
                         let usb_leg_ctl_sts = xecp_base.add(1);
+                        // log!(
+                        //     "USB leg_sup {:08x} {:08x}",
+                        //     usb_leg_sup.read_volatile(),
+                        //     usb_leg_ctl_sts.read_volatile()
+                        // );
 
                         // Hand over ownership from BIOS to OS
                         usb_leg_sup.write_volatile(xecp | USBLEGSUP_OS_OWNED);
@@ -220,6 +237,28 @@ impl Xhci {
                     0x02 => {
                         // Supported Protocol
                         let ecap = XhciSupportedProtocolCapability(xecp_base);
+                        // let psic = (xecp_base.add(2).read_volatile() >> 28) as usize;
+
+                        // let n = ecap.name();
+                        // let s = unsafe {
+                        //     core::str::from_utf8_unchecked(core::slice::from_raw_parts(
+                        //         n.as_ptr(),
+                        //         4,
+                        //     ))
+                        // };
+                        // log!(
+                        //     "XHCI_ECAP: {} {}.{:02x} {:2},{:2}",
+                        //     s,
+                        //     ecap.rev_major(),
+                        //     ecap.rev_minor(),
+                        //     ecap.compatible_port_offset(),
+                        //     ecap.compatible_port_count()
+                        // );
+                        // for i in 0..psic {
+                        //     let psi_base = xecp_base.add(4 + i);
+                        //     let psi = psi_base.read_volatile();
+                        //     log!("PSI {:08x}", psi);
+                        // }
 
                         match (ecap.name(), ecap.rev_major(), ecap.rev_minor()) {
                             (XhciSupportedProtocolCapability::NAME_USB, 2, 0) => {
@@ -333,10 +372,7 @@ impl Xhci {
     }
 
     pub fn ring_a_doorbell(&self, slot_id: Option<SlotId>, dci: Option<DCI>) {
-        self.doorbells
-            .get(slot_id.map(|v| v.0.get() as usize).unwrap_or_default())
-            .unwrap()
-            .set_target(dci);
+        self.doorbells[slot_id.map(|v| v.0.get() as usize).unwrap_or_default()].set_target(dci);
     }
 
     pub fn ring_a_doorbell_async(
@@ -444,12 +480,9 @@ impl Xhci {
     }
 
     /// wait for CNR (Controller Not Ready)
-    #[inline]
+    #[inline(never)]
     pub fn wait_cnr(&self, _: usize) {
-        let mut wait = Hal::cpu().spin_wait();
-        while self.opr.status().contains(UsbSts::CNR) {
-            wait.wait();
-        }
+        while self.opr.status().contains(UsbSts::CNR) {}
     }
 
     pub fn ep_ring_index(&self, slot_id: Option<SlotId>, dci: Option<DCI>) -> Option<usize> {
@@ -569,6 +602,15 @@ impl Xhci {
         &self,
         trb: &Trb,
     ) -> Result<TrbCommandCompletionEvent, TrbCommandCompletionEvent> {
+        // log!(
+        //     "EXEC {:?} {:08x} {:08x} {:08x} {:08x}",
+        //     trb.trb_type(),
+        //     trb.raw_data()[0].load(Ordering::Relaxed),
+        //     trb.raw_data()[1].load(Ordering::Relaxed),
+        //     trb.raw_data()[2].load(Ordering::Relaxed),
+        //     trb.raw_data()[3].load(Ordering::Relaxed),
+        // );
+
         let mut crb = DisposableRef::new(self.allocate_crb().unwrap());
         self.issue_trb(Some(crb.as_mut()), trb, None, None);
         self.wait_cnr(0);
@@ -946,6 +988,13 @@ impl Xhci {
         let port = self.port_by(port_id);
         self.wait_cnr(0);
 
+        // log!(
+        //     "ATTACH_ROOT {:?} {:08x} PS {:04x}",
+        //     port_id,
+        //     port.status().bits(),
+        //     port.status().speed_raw()
+        // );
+
         let trb = Trb::new(TrbType::ENABLE_SLOT_COMMAND);
         let slot_id = match self.execute_command(&trb) {
             Ok(result) => result.slot_id().unwrap(),
@@ -1141,6 +1190,16 @@ impl Xhci {
                 }
                 TrbEvent::CommandCompletion(event) => {
                     let event_trb = ScheduledTrb(event.ptr());
+
+                    // unsafe {
+                    //     log!(
+                    //         "CCE {} {:?} {:?}",
+                    //         event.slot_id().map(|v| v.0.get()).unwrap_or(0),
+                    //         event_trb.peek().trb_type(),
+                    //         event.completion_code()
+                    //     );
+                    // }
+
                     if let Some(crb) = self.find_crb(event_trb, Some(RequestState::Scheduled)) {
                         crb.set_response(event.as_trb());
                     } else {
@@ -1149,6 +1208,7 @@ impl Xhci {
                 }
                 TrbEvent::PortStatusChange(event) => {
                     let port_id = event.port_id().unwrap();
+                    // log!("PSC {:?}", port_id);
                     self.port_status_change_queue.post(port_id).unwrap();
                 }
                 TrbEvent::DeviceNotification(event) => {
@@ -1218,48 +1278,16 @@ impl Xhci {
     async fn _root_hub_task(self: Arc<Self>) {
         self.focus_hub(None);
 
-        for (port_id, port) in self.usb3_ports() {
+        for (_port_id, port) in self.usb3_ports() {
             self.wait_cnr(0);
-            let status = port.status();
-            if status.is_connected() {
-                self._process_port_change(port_id, true).await;
-                port.clear_changes();
-            } else {
-                port.clear_changes();
-                port.set(PortSc::PR);
-            }
+            port.set(PortSc::PR);
         }
-        for (port_id, port) in self.usb2_ports() {
+        for (_port_id, port) in self.usb2_ports() {
             self.wait_cnr(0);
-            let status = port.status();
-            if status.is_connected() {
-                self._process_port_change(port_id, true).await;
-                port.clear_changes();
-            } else {
-                port.clear_changes();
-                port.set(PortSc::PR);
-            }
+            port.set(PortSc::PR);
         }
-
-        Timer::sleep_async(Duration::from_millis(1000)).await;
-
-        // for (port_id, port) in self.ports() {
-        //     self.wait_cnr(0);
-        //     let status = port.status();
-        //     log!(
-        //         "STATUS2: {:?} {:08x} {:?} {:?}",
-        //         port_id,
-        //         status.bits(),
-        //         status.speed(),
-        //         status.link_state(),
-        //     );
-        // }
 
         self.unfocus_hub(None);
-
-        // log!("ALL PORT RESET DONE");
-
-        Timer::sleep_async(Duration::from_millis(1000)).await;
 
         while let Some(port_id) = self.port_status_change_queue.wait_event().await {
             let mut ports = Vec::new();

@@ -1,39 +1,45 @@
 //! xHCI MMIO Registers
 
 use super::*;
-use crate::{drivers::usb::*, mem::MemoryManager, *};
+use crate::{
+    drivers::usb::*,
+    mem::{
+        mmio::{MmioRegU32, MmioRegU64},
+        MemoryManager,
+    },
+    *,
+};
 use core::{
     ffi::c_void,
     mem::size_of,
     mem::transmute,
     num::{NonZeroU8, NonZeroUsize},
     slice,
-    sync::atomic::*,
 };
 
 /// xHC Capability Registers
 #[repr(C)]
 #[allow(dead_code)]
 pub struct CapabilityRegisters {
-    caplength: AtomicU32,
-    hcsparams1: AtomicU32,
-    hcsparams2: AtomicU32,
-    hcsparams3: AtomicU32,
-    hccparams1: AtomicU32,
-    dboff: AtomicU32,
-    rtsoff: AtomicU32,
-    hccparams2: AtomicU32,
+    caplength: MmioRegU32,
+    hcsparams1: MmioRegU32,
+    hcsparams2: MmioRegU32,
+    hcsparams3: MmioRegU32,
+    hccparams1: MmioRegU32,
+    dboff: MmioRegU32,
+    rtsoff: MmioRegU32,
+    hccparams2: MmioRegU32,
 }
 
 impl CapabilityRegisters {
     #[inline]
     pub fn length(&self) -> usize {
-        (self.caplength.load(Ordering::Relaxed) & 0xFF) as usize
+        (self.caplength.read_volatile() & 0xFF) as usize
     }
 
     #[inline]
     pub fn version(&self) -> (usize, usize, usize) {
-        let ver = self.caplength.load(Ordering::Relaxed) >> 16;
+        let ver = self.caplength.read_volatile() >> 16;
         let ver2 = (ver & 0x0F) as usize;
         let ver1 = ((ver >> 4) & 0x0F) as usize;
         let ver0 = (ver >> 8) as usize;
@@ -42,37 +48,37 @@ impl CapabilityRegisters {
 
     #[inline]
     pub fn hcs_params1(&self) -> u32 {
-        self.hcsparams1.load(Ordering::Relaxed)
+        self.hcsparams1.read_volatile()
     }
 
     #[inline]
     pub fn hcs_params2(&self) -> u32 {
-        self.hcsparams2.load(Ordering::Relaxed)
+        self.hcsparams2.read_volatile()
     }
 
     #[inline]
     pub fn hcs_params3(&self) -> u32 {
-        self.hcsparams3.load(Ordering::Relaxed)
+        self.hcsparams3.read_volatile()
     }
 
     #[inline]
     pub fn hcc_params1(&self) -> HccParams1 {
-        HccParams1::from_bits_retain(self.hccparams1.load(Ordering::Relaxed))
+        HccParams1::from_bits_retain(self.hccparams1.read_volatile())
     }
 
     #[inline]
     pub fn hcc_params2(&self) -> u32 {
-        self.hccparams2.load(Ordering::Relaxed)
+        self.hccparams2.read_volatile()
     }
 
     #[inline]
     pub fn db_off(&self) -> usize {
-        (self.dboff.load(Ordering::Relaxed) & !0x03) as usize
+        (self.dboff.read_volatile() & !0x03) as usize
     }
 
     #[inline]
     pub fn rts_off(&self) -> usize {
-        (self.rtsoff.load(Ordering::Relaxed) & !0x1F) as usize
+        (self.rtsoff.read_volatile() & !0x1F) as usize
     }
 
     #[inline]
@@ -189,20 +195,21 @@ impl HccParams1 {
 #[repr(C)]
 #[allow(dead_code)]
 pub struct OperationalRegisters {
-    usbcmd: AtomicU32,
-    usbsts: AtomicU32,
-    pagesize: AtomicU32,
+    usbcmd: MmioRegU32,
+    usbsts: MmioRegU32,
+    pagesize: MmioRegU32,
     _rsrv1: [u32; 2],
-    dnctrl: AtomicU32,
-    crcr: AtomicU64,
+    dnctrl: MmioRegU32,
+    crcr: MmioRegU64,
     _rsrv2: [u32; 4],
-    dcbaap: AtomicU64,
-    config: AtomicU32,
+    dcbaap: MmioRegU64,
+    config: MmioRegU32,
 }
 
 impl OperationalRegisters {
+    #[inline]
     pub fn page_size_raw(&self) -> u32 {
-        self.pagesize.load(Ordering::Relaxed) & 0xFFFF
+        self.pagesize.read_volatile() & 0xFFFF
     }
 
     #[inline]
@@ -213,12 +220,12 @@ impl OperationalRegisters {
 
     #[inline]
     pub fn read_cmd(&self) -> UsbCmd {
-        UsbCmd::from_bits_retain(self.usbcmd.load(Ordering::SeqCst))
+        UsbCmd::from_bits_retain(self.usbcmd.read_volatile())
     }
 
     #[inline]
     pub fn write_cmd(&self, val: UsbCmd) {
-        self.usbcmd.store(val.bits(), Ordering::SeqCst);
+        self.usbcmd.write_volatile(val.bits());
     }
 
     #[inline]
@@ -228,45 +235,45 @@ impl OperationalRegisters {
 
     #[inline]
     pub fn status(&self) -> UsbSts {
-        UsbSts::from_bits_retain(self.usbsts.load(Ordering::SeqCst))
+        UsbSts::from_bits_retain(self.usbsts.read_volatile())
     }
 
     #[inline]
     pub fn reset_status(&self, val: UsbSts) {
-        self.usbsts.store(val.bits(), Ordering::SeqCst);
+        self.usbsts.write_volatile(val.bits());
     }
 
     #[inline]
     pub fn set_crcr(&self, val: NonNullPhysicalAddress) {
-        self.crcr.store(val.get().as_u64(), Ordering::SeqCst);
+        self.crcr.write_volatile(val.get().as_u64());
     }
 
     #[inline]
     pub fn dcbaap(&self) -> PhysicalAddress {
-        self.dcbaap.load(Ordering::SeqCst).into()
+        self.dcbaap.read_volatile().into()
     }
 
     #[inline]
     pub fn set_dcbaap(&self, val: NonNullPhysicalAddress) {
-        self.dcbaap.store(val.get().as_u64(), Ordering::SeqCst);
+        self.dcbaap.write_volatile(val.get().as_u64());
     }
 
     #[inline]
-    pub fn set_config(&self, max_dev_slot: usize, u3e: bool, cie: bool) {
+    pub unsafe fn set_config(&self, max_dev_slot: usize, u3e: bool, cie: bool) {
         let val = (max_dev_slot & 0xFF) as u32
             | if u3e { 0x100 } else { 0 }
             | if cie { 0x200 } else { 0 };
-        self.config.store(val, Ordering::SeqCst);
+        self.config.write_volatile(val);
     }
 
     #[inline]
     pub fn device_notification_bitmap(&self) -> DeviceNotificationBitmap {
-        DeviceNotificationBitmap::from_bits_retain(self.dnctrl.load(Ordering::SeqCst))
+        DeviceNotificationBitmap::from_bits_retain(self.dnctrl.read_volatile())
     }
 
     #[inline]
-    pub fn set_device_notification_bitmap(&self, bitmap: DeviceNotificationBitmap) {
-        self.dnctrl.store(bitmap.bits(), Ordering::SeqCst);
+    pub unsafe fn set_device_notification_bitmap(&self, bitmap: DeviceNotificationBitmap) {
+        self.dnctrl.write_volatile(bitmap.bits());
     }
 }
 
@@ -317,16 +324,16 @@ impl DeviceNotificationBitmap {
 #[repr(C)]
 #[allow(dead_code)]
 pub struct PortRegisters {
-    portsc: AtomicU32,
-    portpmsc: AtomicU32,
-    portli: AtomicU32,
-    porthlpmc: AtomicU32,
+    portsc: MmioRegU32,
+    portpmsc: MmioRegU32,
+    portli: MmioRegU32,
+    porthlpmc: MmioRegU32,
 }
 
 impl PortRegisters {
     #[inline]
     pub fn status(&self) -> PortSc {
-        PortSc::from_bits_retain(self.portsc.load(Ordering::SeqCst))
+        PortSc::from_bits_retain(self.portsc.read_volatile())
     }
 
     #[inline]
@@ -348,7 +355,7 @@ impl PortRegisters {
 
     #[inline]
     pub fn write(&self, val: PortSc) {
-        self.portsc.store(val.bits(), Ordering::SeqCst);
+        self.portsc.write_volatile(val.bits());
     }
 }
 
@@ -480,7 +487,7 @@ impl PortSc {
 /// xHC Runtime Registers
 #[repr(C)]
 pub struct RuntimeRegisters {
-    mfindex: AtomicU32,
+    mfindex: MmioRegU32,
     _rsrv1: [u32; 7],
     irs: [InterrupterRegisterSet; 1],
 }
@@ -488,7 +495,7 @@ pub struct RuntimeRegisters {
 impl RuntimeRegisters {
     #[inline]
     pub fn mf_index(&self) -> u32 {
-        self.mfindex.load(Ordering::SeqCst) & 0x3FFF
+        self.mfindex.read_volatile() & 0x3FFF
     }
 
     #[inline]
@@ -506,12 +513,12 @@ impl RuntimeRegisters {
 #[repr(C)]
 #[allow(dead_code)]
 pub struct InterrupterRegisterSet {
-    iman: AtomicU32,
-    imod: AtomicU32,
-    erstsz: AtomicU32,
-    _rsrv: u32,
-    erstba: AtomicU64,
-    erdp: AtomicU64,
+    iman: MmioRegU32,
+    imod: MmioRegU32,
+    erstsz: MmioRegU32,
+    _rsrv: MmioRegU32,
+    erstba: MmioRegU64,
+    erdp: MmioRegU64,
 }
 
 impl InterrupterRegisterSet {
@@ -521,18 +528,18 @@ impl InterrupterRegisterSet {
         let count = 1;
         let (base, erst) = MemoryManager::alloc_dma(count).unwrap();
         *erst = EventRingSegmentTableEntry::new(initial_dp, len as u16);
-        self.erstsz.store(count as u32, Ordering::SeqCst);
-        self.erdp.store(initial_dp.as_u64(), Ordering::SeqCst);
-        self.erstba.store(base.as_u64(), Ordering::SeqCst);
+        self.erstsz.write_volatile(count as u32);
+        self.erdp.write_volatile(initial_dp.as_u64());
+        self.erstba.write_volatile(base.as_u64());
     }
 
     #[inline]
     pub fn set_iman(&self, val: u32) {
-        self.iman.store(val, Ordering::SeqCst);
+        self.iman.write_volatile(val);
     }
 
     pub fn dequeue_event<'a>(&'a self, event_cycle: &'a CycleBit) -> Option<&'a Trb> {
-        let erdp = PhysicalAddress::from(self.erdp.load(Ordering::SeqCst));
+        let erdp = PhysicalAddress::from(self.erdp.read_volatile());
         let cycle = event_cycle.value();
         let event = unsafe { &*(erdp & !15).direct_map::<Trb>() };
         if event.cycle_bit() == cycle {
@@ -543,7 +550,7 @@ impl InterrupterRegisterSet {
                 event_cycle.toggle();
             }
             let new_erdp = er_base.as_u64() | (index * size_of::<Trb>()) as u64 | 8;
-            self.erdp.store(new_erdp, Ordering::SeqCst);
+            self.erdp.write_volatile(new_erdp);
 
             Some(event)
         } else {
@@ -554,17 +561,17 @@ impl InterrupterRegisterSet {
 
 /// xHC Doorbell Register
 #[repr(transparent)]
-pub struct DoorbellRegister(AtomicU32);
+pub struct DoorbellRegister(MmioRegU32);
 
 impl DoorbellRegister {
     #[inline]
     pub fn raw(&self) -> u32 {
-        self.0.load(Ordering::SeqCst)
+        self.0.read_volatile()
     }
 
     #[inline]
     pub fn set_raw(&self, val: u32) {
-        self.0.store(val, Ordering::SeqCst);
+        self.0.write_volatile(val);
     }
 
     #[inline]

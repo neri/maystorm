@@ -16,7 +16,6 @@ pub use bitmap::*;
 pub use color::*;
 pub use coords::*;
 pub use drawable::*;
-pub mod vertex;
 
 #[cfg(test)]
 pub mod tests;

@@ -63,26 +63,23 @@ extern crate alloc;
 
 #[macro_export]
 macro_rules! print {
-    ($($arg:tt)*) => {
-        write!(system::System::stdout(), $($arg)*).unwrap()
-    };
+    ($($arg:tt)*) => {{
+        let _ = write!(system::System::stdout(), $($arg)*);
+    }};
 }
 
 #[macro_export]
 macro_rules! println {
-    ($fmt:expr) => {
-        print!(concat!($fmt, "\r\n"))
-    };
-    ($fmt:expr, $($arg:tt)*) => {
-        print!(concat!($fmt, "\r\n"), $($arg)*)
-    };
+    ($($arg:tt)*) => {{
+        let _ = writeln!(system::System::stdout(), $($arg)*);
+    }};
 }
 
 #[macro_export]
 macro_rules! log {
-    ($($arg:tt)*) => {
-        let _ = writeln!(log::Log::new(), $($arg)*).unwrap();
-    };
+    ($($arg:tt)*) => {{
+        let _ = writeln!(log::Log::new(), $($arg)*);
+    }};
 }
 
 static PANIC_GLOBAL_LOCK: Spinlock = Spinlock::new();

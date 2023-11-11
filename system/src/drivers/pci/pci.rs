@@ -141,7 +141,6 @@ impl Pci {
             for registrar in &shared.registrars {
                 match registrar.instantiate(&device) {
                     Some(v) => {
-                        // log!("PCI INIT {:?}", device.address());
                         shared.drivers.write().unwrap().insert(device.address(), v);
                     }
                     None => {}
@@ -416,6 +415,14 @@ impl PciDevice {
         Hal::pci().write_pci(base + 2, (msi_addr >> 32) as u32);
         Hal::pci().write_pci(base + 3, msi_data as u32);
         Hal::pci().write_pci(base, (Hal::pci().read_pci(base) & 0xFF8FFFFF) | 0x00010000);
+
+        // log!(
+        //     "MSI {:08x} {:04x} {:016x} {:016x}",
+        //     msi_addr,
+        //     msi_data,
+        //     f as usize,
+        //     arg
+        // );
 
         Ok(())
     }

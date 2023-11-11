@@ -560,7 +560,7 @@ impl ParsedReportApplication {
     }
 
     #[inline]
-    pub fn features(&self) -> impl Iterator<Item = &ParsedReportMainItem> {
+    pub fn feature_items(&self) -> impl Iterator<Item = &ParsedReportMainItem> {
         self.entries().flat_map(|v| match v {
             ParsedReportEntry::Feature(v) => Some(v),
             _ => None,
@@ -578,12 +578,7 @@ impl ParsedReportApplication {
     }
 
     pub fn bit_count_for_input(&self) -> usize {
-        let acc = self.bit_count(|v| matches!(v, ParsedReportEntry::Input(_)));
-        if acc > 0 && self.report_id.is_some() {
-            acc + 8
-        } else {
-            acc
-        }
+        self.bit_count(|v| matches!(v, ParsedReportEntry::Input(_)))
     }
 
     pub fn bit_count_for_output(&self) -> usize {
@@ -1162,6 +1157,22 @@ impl<'a> HidBitStreamWriter<'a> {
 }
 
 impl HidBitStreamWriter<'_> {
+    #[inline]
+    pub fn data(&self) -> &[u8] {
+        &self.slice
+    }
+
+    #[inline]
+    pub fn current_len(&self) -> usize {
+        (self.position + 7) / 8
+    }
+
+    #[inline]
+    pub fn clear(&mut self) {
+        self.position = 0;
+        self.slice.fill(0);
+    }
+
     fn _write_bits(
         &mut self,
         position: usize,

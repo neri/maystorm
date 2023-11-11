@@ -35,6 +35,7 @@ struct SharedCpu {
     max_cpuid_level_8: u32,
     smt_topology: u32,
     has_smt: AtomicBool,
+    is_hybrid: AtomicBool,
     max_physical_address_bits: usize,
     max_virtual_address_bits: usize,
     vram_base: PhysicalAddress,
@@ -48,6 +49,7 @@ impl SharedCpu {
             max_cpuid_level_8: 0,
             smt_topology: 0,
             has_smt: AtomicBool::new(false),
+            is_hybrid: AtomicBool::new(false),
             max_physical_address_bits: 36,
             max_virtual_address_bits: 48,
             vram_base: PhysicalAddress::new(0),
@@ -70,15 +72,20 @@ impl Cpu {
         shared.max_cpuid_level_0 = __cpuid_count(0, 0).eax;
         shared.max_cpuid_level_8 = __cpuid_count(0x8000_0000, 0).eax;
 
-        if shared.max_cpuid_level_0 >= 0x1F {
-            let cpuid1f = __cpuid_count(0x1F, 0);
-            if (cpuid1f.ecx & 0xFF00) == 0x0100 {
-                shared.smt_topology = (1 << (cpuid1f.eax & 0x1F)) - 1;
+        if shared.max_cpuid_level_0 >= 0x0B {
+            if Feature::F07D(F070D::HYBRID).has_feature() {
+                shared.is_hybrid.store(true, Ordering::SeqCst);
             }
-        } else if shared.max_cpuid_level_0 >= 0x0B {
-            let cpuid0b = __cpuid_count(0x0B, 0);
-            if (cpuid0b.ecx & 0xFF00) == 0x0100 {
-                shared.smt_topology = (1 << (cpuid0b.eax & 0x1F)) - 1;
+            if shared.max_cpuid_level_0 >= 0x1F {
+                let cpuid1f = __cpuid_count(0x1F, 0);
+                if (cpuid1f.ecx & 0xFF00) == 0x0100 {
+                    shared.smt_topology = (1 << (cpuid1f.eax & 0x1F)) - 1;
+                }
+            } else {
+                let cpuid0b = __cpuid_count(0x0B, 0);
+                if (cpuid0b.ecx & 0xFF00) == 0x0100 {
+                    shared.smt_topology = (1 << (cpuid0b.eax & 0x1F)) - 1;
+                }
             }
         }
 
@@ -101,14 +108,19 @@ impl Cpu {
         let gdt = GlobalDescriptorTable::new();
         InterruptDescriptorTable::load();
 
-        let core_type = if (apic_id.as_u32() & Self::shared().smt_topology) == 0 {
-            ProcessorCoreType::Main
+        let shared = &*SHARED_CPU.get();
+
+        let is_normal = if (apic_id.as_u32() & Self::shared().smt_topology) == 0 {
+            true
         } else {
             Self::shared().has_smt.store(true, Ordering::SeqCst);
-            ProcessorCoreType::Sub
+            false
         };
-
-        let shared = &*SHARED_CPU.get();
+        let is_efficient = matches!(
+            Cpu::native_model_core_type().unwrap_or(NativeModelCoreType::Performance),
+            NativeModelCoreType::Efficient
+        );
+        let core_type = ProcessorCoreType::new(is_normal, is_efficient);
 
         let mtrr_items = Mtrr::items().filter(|v| v.is_enabled).collect::<Vec<_>>();
         let mut mtrr_new = Vec::new();
@@ -212,6 +224,22 @@ impl Cpu {
     #[inline]
     fn shared<'a>() -> &'a SharedCpu {
         unsafe { &*SHARED_CPU.get() }
+    }
+
+    #[inline]
+    pub fn is_hybrid() -> bool {
+        let shared = Self::shared();
+        shared.is_hybrid.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn native_model_core_type() -> Option<NativeModelCoreType> {
+        if Self::is_hybrid() {
+            let cpuid_1a = unsafe { __cpuid_count(0x1A, 0) };
+            NativeModelCoreType::from_u8((cpuid_1a.eax >> 24) as u8)
+        } else {
+            None
+        }
     }
 
     #[inline]
@@ -1547,7 +1575,7 @@ pub enum F01C {
     HYPERVISOR = 31,
 }
 
-/// CPUID Feature Function 0000_0007, EBX
+/// CPUID Feature Function 0000_0007, 0, EBX
 #[allow(non_camel_case_types)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum F070B {
@@ -1585,7 +1613,7 @@ pub enum F070B {
     AVX512_VL = 31,
 }
 
-/// CPUID Feature Function 0000_0007, ECX
+/// CPUID Feature Function 0000_0007, 0, ECX
 #[allow(non_camel_case_types)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum F070C {
@@ -1613,7 +1641,7 @@ pub enum F070C {
     PKS = 31,
 }
 
-/// CPUID Feature Function 0000_0007, EDX
+/// CPUID Feature Function 0000_0007, 0, EDX
 #[allow(non_camel_case_types)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum F070D {
@@ -1683,6 +1711,27 @@ pub enum F81C {
     PCX_L2I = 28,
 }
 
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy)]
+pub enum NativeModelCoreType {
+    Performance,
+    Efficient,
+}
+
+impl NativeModelCoreType {
+    const CORE_TYPE_ATOM: u8 = 0x20;
+    const CORE_TYPE_CORE: u8 = 0x40;
+
+    #[inline]
+    pub const fn from_u8(value: u8) -> Option<Self> {
+        match value {
+            Self::CORE_TYPE_ATOM => Some(Self::Efficient),
+            Self::CORE_TYPE_CORE => Some(Self::Performance),
+            _ => None,
+        }
+    }
+}
+
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MSR(u32);
@@ -1701,6 +1750,11 @@ impl MSR {
     pub const IA32_SYSENTER_EIP: Self = Self(0x0000_0176);
     pub const IA32_PAT: Self = Self(0x0000_0277);
     pub const IA32_MTRR_DEF_TYPE: Self = Self(0x0000_02FF);
+    pub const IA32_HW_FEEDBACK_PTR: Self = Self(0x0000_17D0);
+    pub const IA32_HW_FEEDBACK_CONFIG: Self = Self(0x0000_17D1);
+    pub const IA32_THREAD_FEEDBACK_CHAR: Self = Self(0x0000_17D2);
+    pub const IA32_HW_FEEDBACK_THREAD_CONFIG: Self = Self(0x0000_17D4);
+
     pub const IA32_EFER: Self = Self(0xC000_0080);
     pub const IA32_STAR: Self = Self(0xC000_0081);
     pub const IA32_LSTAR: Self = Self(0xC000_0082);
