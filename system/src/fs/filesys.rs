@@ -198,7 +198,7 @@ impl FileManager {
         let (fs, inode) = Self::resolve_all(path)?;
 
         let Some(stat) = fs.stat(inode) else {
-            return Err(ErrorKind::NotFound.into())
+            return Err(ErrorKind::NotFound.into());
         };
         if stat.file_type().is_dir() {
             return Err(ErrorKind::IsADirectory.into());
@@ -216,7 +216,7 @@ impl FileManager {
     pub fn creat(path: &str) -> Result<FsRawFileControlBlock> {
         let (fs, dir, lpc) = Self::resolve_parent(path)?;
         let Some(name) = lpc else {
-            return Err(ErrorKind::NotFound.into())
+            return Err(ErrorKind::NotFound.into());
         };
         let name = name.as_str();
 
@@ -232,7 +232,7 @@ impl FileManager {
     pub fn mkdir(path: &str) -> Result<()> {
         let (fs, dir, lpc) = Self::resolve_parent(path)?;
         let Some(name) = lpc else {
-            return Err(ErrorKind::NotFound.into())
+            return Err(ErrorKind::NotFound.into());
         };
 
         fs.mkdir(dir, &name)
@@ -241,7 +241,7 @@ impl FileManager {
     pub fn unlink(path: &str) -> Result<()> {
         let (fs, dir, lpc) = Self::resolve_parent(path)?;
         let Some(name) = lpc else {
-            return Err(ErrorKind::NotFound.into())
+            return Err(ErrorKind::NotFound.into());
         };
 
         fs.unlink(dir, &name)
@@ -266,7 +266,9 @@ impl FileManager {
         }
 
         let (fs1, old_dir, old_name) = Self::resolve_parent(&old_path)?;
-        let Some(old_name) = old_name else { return Err(ErrorKind::NotFound.into()) };
+        let Some(old_name) = old_name else {
+            return Err(ErrorKind::NotFound.into());
+        };
 
         let (fs2, mut new_dir, new_name) = Self::resolve_parent(&new_path)?;
         let new_name = match new_name {
@@ -495,7 +497,7 @@ impl FsRawFileControlBlock {
     fn new(access_token: Arc<dyn FsAccessToken>, options: &OpenOptions, is_device: bool) -> Self {
         Self {
             access_token,
-            options: options.clone(),
+            options: *options,
             is_device,
             file_pos: 0,
         }

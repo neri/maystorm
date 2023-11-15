@@ -1,7 +1,5 @@
 # MEG-OS
 
-***NOTE: IT IS CURRENTLY NOT POSSIBLE TO BUILD WITH THE LATEST NIGHTLY VERSION.***
-
 ![GitHub](https://img.shields.io/github/license/neri/maystorm) ![GitHub top language](https://img.shields.io/github/languages/top/neri/maystorm)
 
 A hobby operating system written in Rust that supports WebAssembly.

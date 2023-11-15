@@ -11,7 +11,7 @@ pub struct FixedStack<'a, T> {
 
 impl<'a, T> FixedStack<'a, T> {
     #[inline]
-    pub const fn from_slice(slice: &'a mut [T]) -> Self {
+    pub fn from_slice(slice: &'a mut [T]) -> Self {
         Self {
             slice,
             stack_pointer: 0,

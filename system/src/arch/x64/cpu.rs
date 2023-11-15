@@ -1454,7 +1454,7 @@ impl InterruptDescriptorTable {
     #[track_caller]
     pub unsafe fn register(vec: InterruptVector, offset: usize, dpl: PrivilegeLevel) {
         let table_offset = vec.0 as usize * 2;
-        let mut idt = IDT.get_mut();
+        let idt = IDT.get_mut();
         if !idt.table[table_offset].is_null() {
             panic!("IDT entry #{} is already in use", vec.0);
         }

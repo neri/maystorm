@@ -2,7 +2,6 @@
 
 use super::syscall::*;
 use crate::{fs::*, io::Result, path::*, sys::fcntl::*, *};
-use bitflags::*;
 
 pub struct File {
     _phantom: (),
@@ -28,22 +27,39 @@ impl File {
     }
 }
 
-bitflags! {
-    #[derive(Debug, Clone, Copy)]
-    pub struct OpenOptions: u32 {
-        const READ      = 0b0000_0001;
-        const WRITE     = 0b0000_0010;
-        const APPEND    = 0b0001_0000;
-        const TRUNC     = 0b0010_0000;
-        const CREAT     = 0b0100_0000;
-        const EXCL      = 0b1000_0000;
-    }
-}
+#[derive(Debug, Copy, Clone)]
+pub struct OpenOptions(u32);
 
 impl OpenOptions {
+    pub const READ: Self = Self(0b0000_0001);
+    pub const WRITE: Self = Self(0b0000_0010);
+    pub const APPEND: Self = Self(0b0001_0000);
+    pub const TRUNC: Self = Self(0b0010_0000);
+    pub const CREAT: Self = Self(0b0100_0000);
+    pub const EXCL: Self = Self(0b1000_0000);
+
     #[inline]
     pub fn new() -> Self {
-        Self::empty()
+        Self(0)
+    }
+
+    #[inline]
+    pub fn set(&mut self, bit: Self, value: bool) {
+        if value {
+            self.0 |= bit.0;
+        } else {
+            self.0 &= !bit.0;
+        }
+    }
+
+    #[inline]
+    pub const fn bits(&self) -> u32 {
+        self.0
+    }
+
+    #[inline]
+    pub const fn contains(&self, bit: Self) -> bool {
+        (self.0 & bit.0) == self.0
     }
 
     #[inline]

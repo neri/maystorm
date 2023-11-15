@@ -11,14 +11,16 @@ use uefi::{
     prelude::*,
     proto::console::gop,
     table::{
-        boot::{OpenProtocolAttributes, OpenProtocolParams, SearchType},
+        boot::{MemoryType, OpenProtocolAttributes, OpenProtocolParams, SearchType},
         cfg::{ACPI2_GUID, SMBIOS_GUID},
     },
     Identify,
 };
 
 //#define EFI_DTB_TABLE_GUID  {0xb1b621d5, 0xf19c, 0x41a5, {0x83, 0x0b, 0xd9, 0x15, 0x2c, 0x69, 0xaa, 0xe0}}
-const DTB_GUID: Guid = Guid::from_values(0xb1b621d5, 0xf19c, 0x41a5, 0x830b, 0xd9152c69aae0);
+const DTB_GUID: Guid = Guid::from_bytes([
+    0xb1, 0xb6, 0x21, 0xd5, 0xf1, 0x9c, 0x41, 0xa5, 0x83, 0x0b, 0xd9, 0x15, 0x2c, 0x69, 0xaa, 0xe0,
+]);
 
 static KERNEL_PATH: &str = "/EFI/MEGOS/kernel.bin";
 static INITRD_PATH: &str = "/EFI/MEGOS/initrd.img";
@@ -154,7 +156,7 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
     // Exit Boot Services
     //
 
-    let (_st, mm) = st.exit_boot_services();
+    let (_st, mm) = st.exit_boot_services(MemoryType::LOADER_DATA);
 
     // ------------------------------------------------------------------------
 

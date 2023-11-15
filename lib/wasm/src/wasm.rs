@@ -751,8 +751,8 @@ impl Leb128Stream<'_> {
         }
         let section_type = self.read_byte()?;
         let Some(section_type) = FromPrimitive::from_u8(section_type) else {
-                    return Err(WasmDecodeErrorKind::UnexpectedToken)
-                };
+            return Err(WasmDecodeErrorKind::UnexpectedToken);
+        };
 
         let magic = 8;
         let length = self.read_unsigned()? as usize;
@@ -903,28 +903,28 @@ impl WasmValType {
     }
 }
 
-impl const From<i32> for WasmValType {
+impl From<i32> for WasmValType {
     #[inline]
     fn from(_: i32) -> Self {
         Self::I32
     }
 }
 
-impl const From<i64> for WasmValType {
+impl From<i64> for WasmValType {
     #[inline]
     fn from(_: i64) -> Self {
         Self::I64
     }
 }
 
-impl const From<f32> for WasmValType {
+impl From<f32> for WasmValType {
     #[inline]
     fn from(_: f32) -> Self {
         Self::F32
     }
 }
 
-impl const From<f64> for WasmValType {
+impl From<f64> for WasmValType {
     #[inline]
     fn from(_: f64) -> Self {
         Self::F64
@@ -1755,49 +1755,49 @@ impl WasmValue {
     }
 }
 
-impl const From<i32> for WasmValue {
+impl From<i32> for WasmValue {
     #[inline]
     fn from(v: i32) -> Self {
         Self::I32(v)
     }
 }
 
-impl const From<u32> for WasmValue {
+impl From<u32> for WasmValue {
     #[inline]
     fn from(v: u32) -> Self {
         Self::I32(v as i32)
     }
 }
 
-impl const From<i64> for WasmValue {
+impl From<i64> for WasmValue {
     #[inline]
     fn from(v: i64) -> Self {
         Self::I64(v)
     }
 }
 
-impl const From<u64> for WasmValue {
+impl From<u64> for WasmValue {
     #[inline]
     fn from(v: u64) -> Self {
         Self::I64(v as i64)
     }
 }
 
-impl const From<f32> for WasmValue {
+impl From<f32> for WasmValue {
     #[inline]
     fn from(v: f32) -> Self {
         Self::F32(v)
     }
 }
 
-impl const From<f64> for WasmValue {
+impl From<f64> for WasmValue {
     #[inline]
     fn from(v: f64) -> Self {
         Self::F64(v)
     }
 }
 
-impl const From<bool> for WasmValue {
+impl From<bool> for WasmValue {
     #[inline]
     fn from(v: bool) -> Self {
         Self::I32(v as i32)
@@ -2047,63 +2047,63 @@ impl WasmUnsafeValue {
     }
 }
 
-impl const Default for WasmUnsafeValue {
+impl Default for WasmUnsafeValue {
     #[inline]
     fn default() -> Self {
         Self::zero()
     }
 }
 
-impl const From<bool> for WasmUnsafeValue {
+impl From<bool> for WasmUnsafeValue {
     #[inline]
     fn from(v: bool) -> Self {
         Self::from_bool(v)
     }
 }
 
-impl const From<u32> for WasmUnsafeValue {
+impl From<u32> for WasmUnsafeValue {
     #[inline]
     fn from(v: u32) -> Self {
         Self::from_u32(v)
     }
 }
 
-impl const From<i32> for WasmUnsafeValue {
+impl From<i32> for WasmUnsafeValue {
     #[inline]
     fn from(v: i32) -> Self {
         Self::from_i32(v)
     }
 }
 
-impl const From<u64> for WasmUnsafeValue {
+impl From<u64> for WasmUnsafeValue {
     #[inline]
     fn from(v: u64) -> Self {
         Self::from_u64(v)
     }
 }
 
-impl const From<i64> for WasmUnsafeValue {
+impl From<i64> for WasmUnsafeValue {
     #[inline]
     fn from(v: i64) -> Self {
         Self::from_i64(v)
     }
 }
 
-impl const From<f32> for WasmUnsafeValue {
+impl From<f32> for WasmUnsafeValue {
     #[inline]
     fn from(v: f32) -> Self {
         Self::from_f32(v)
     }
 }
 
-impl const From<f64> for WasmUnsafeValue {
+impl From<f64> for WasmUnsafeValue {
     #[inline]
     fn from(v: f64) -> Self {
         Self::from_f64(v)
     }
 }
 
-impl const From<WasmValue> for WasmUnsafeValue {
+impl From<WasmValue> for WasmUnsafeValue {
     #[inline]
     fn from(v: WasmValue) -> Self {
         match v {
@@ -2209,8 +2209,8 @@ impl WasmName {
             let name_id = stream.read_byte()?;
             let blob = stream.read_bytes()?;
             let Some(name_id) = FromPrimitive::from_u8(name_id) else {
-                        continue
-                    };
+                continue;
+            };
             let mut stream = Leb128Stream::from_slice(blob);
             match name_id {
                 WasmNameSubsectionType::Module => {
@@ -4689,7 +4689,7 @@ impl StackLevel {
 }
 
 // TODO: Will be removed in the future
-impl const Add<usize> for StackLevel {
+impl Add<usize> for StackLevel {
     type Output = StackLevel;
 
     #[inline]
@@ -4698,7 +4698,7 @@ impl const Add<usize> for StackLevel {
     }
 }
 
-impl const Add<StackOffset> for StackLevel {
+impl Add<StackOffset> for StackLevel {
     type Output = StackLevel;
 
     #[inline]
@@ -4707,7 +4707,7 @@ impl const Add<StackOffset> for StackLevel {
     }
 }
 
-impl const Sub<StackOffset> for StackLevel {
+impl Sub<StackOffset> for StackLevel {
     type Output = StackLevel;
 
     #[inline]
@@ -4716,7 +4716,7 @@ impl const Sub<StackOffset> for StackLevel {
     }
 }
 
-impl const From<usize> for StackLevel {
+impl From<usize> for StackLevel {
     #[inline]
     fn from(value: usize) -> Self {
         Self(value)

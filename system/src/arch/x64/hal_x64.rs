@@ -15,6 +15,7 @@ use core::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
+#[derive(Clone, Copy)]
 pub struct Hal;
 
 impl HalTrait for Hal {
@@ -34,6 +35,7 @@ impl HalTrait for Hal {
     }
 }
 
+#[derive(Clone, Copy)]
 struct CpuImpl;
 
 impl HalCpu for CpuImpl {
@@ -105,7 +107,7 @@ impl HalCpu for CpuImpl {
     }
 
     #[inline]
-    fn spin_wait(&self) -> impl HalSpinLoopWait {
+    fn spin_wait<'a, 'b>(&'a self) -> impl HalSpinLoopWait + 'b {
         SpinLoopWait::new()
     }
 
@@ -144,6 +146,7 @@ impl Drop for InterruptGuard {
     }
 }
 
+#[derive(Clone, Copy)]
 struct HalSyncImpl;
 
 impl HalSync for HalSyncImpl {
@@ -174,6 +177,7 @@ impl HalSync for HalSyncImpl {
     }
 }
 
+#[derive(Clone, Copy)]
 struct HalPciImpl;
 
 impl HalPci for HalPciImpl {
@@ -272,6 +276,7 @@ impl HalSpinlock for Spinlock {
     }
 }
 
+#[derive(Clone, Copy)]
 struct SpinLoopWait(usize);
 
 impl SpinLoopWait {

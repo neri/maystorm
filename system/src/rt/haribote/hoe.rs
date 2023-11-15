@@ -63,7 +63,7 @@ impl HoeManager {
     }
 
     pub(super) unsafe fn init() {
-        let mut shared = &mut *HOE_MANAGER.get();
+        let shared = &mut *HOE_MANAGER.get();
 
         if let Ok(mut file) =
             FileManager::open("/boot/hari/nihongo.fnt", OpenOptions::new().read(true))
@@ -930,10 +930,10 @@ impl HoeFile {
 
     fn get_file_size(&mut self, whence: Whence) -> usize {
         let Ok(file_pos) = self.0.lseek(0, Whence::SeekCur) else {
-            return 0
+            return 0;
         };
-        let Ok(file_size) =  self.0.lseek(0, Whence::SeekEnd) else {
-            return 0
+        let Ok(file_size) = self.0.lseek(0, Whence::SeekEnd) else {
+            return 0;
         };
         match self.0.lseek(file_pos, Whence::SeekSet) {
             Ok(_) => match whence {

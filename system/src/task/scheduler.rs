@@ -763,7 +763,7 @@ impl LocalScheduler {
         if current.as_ref().handle != next.as_ref().handle {
             self.set_retired(current);
             self.current.store(next.as_usize(), Ordering::SeqCst);
-            drop(self);
+            // drop(self);
 
             {
                 let current = current._unsafe_weak().unwrap();

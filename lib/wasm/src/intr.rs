@@ -1273,7 +1273,7 @@ impl WasmRuntimeError {
     }
 }
 
-impl const From<WasmRuntimeErrorKind> for WasmRuntimeError {
+impl From<WasmRuntimeErrorKind> for WasmRuntimeError {
     #[inline]
     fn from(kind: WasmRuntimeErrorKind) -> Self {
         Self {

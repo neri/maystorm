@@ -95,21 +95,21 @@ impl core::fmt::Debug for WasmOpcode {
     }
 }
 
-impl const From<WasmSingleOpcode> for WasmOpcode {
+impl From<WasmSingleOpcode> for WasmOpcode {
     #[inline]
     fn from(value: WasmSingleOpcode) -> Self {
         Self::Single(value)
     }
 }
 
-impl const From<WasmOpcodeFC> for WasmOpcode {
+impl From<WasmOpcodeFC> for WasmOpcode {
     #[inline]
     fn from(value: WasmOpcodeFC) -> Self {
         Self::PrefixFC(value)
     }
 }
 
-impl const From<WasmOpcodeFD> for WasmOpcode {
+impl From<WasmOpcodeFD> for WasmOpcode {
     #[inline]
     fn from(value: WasmOpcodeFD) -> Self {
         Self::PrefixFD(value)

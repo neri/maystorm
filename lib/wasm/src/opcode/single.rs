@@ -967,7 +967,7 @@ impl WasmSingleOpcode {
     }
 }
 
-impl const TryFrom<u8> for WasmSingleOpcode {
+impl TryFrom<u8> for WasmSingleOpcode {
     type Error = ();
     #[inline]
     fn try_from(value: u8) -> Result<Self, Self::Error> {

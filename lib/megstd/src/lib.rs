@@ -20,6 +20,7 @@ pub mod time;
 pub mod uuid;
 
 #[cfg(feature = "window")]
+#[allow(unused_imports)]
 pub mod window {
     pub use crate::sys::window::*;
 }
@@ -27,6 +28,7 @@ pub mod window {
 extern crate alloc;
 
 pub use prelude::*;
+#[allow(unused_imports)]
 mod prelude {
     pub use crate::{osstr::*, sys::prelude::*};
     pub use alloc::{

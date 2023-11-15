@@ -5,6 +5,7 @@ use byteorder::*;
 use std::{
     cell::UnsafeCell,
     env,
+    ffi::{OsStr, OsString},
     fs::{read_dir, File},
     io::Read,
     io::Write,
@@ -29,7 +30,7 @@ fn main() {
 
     while let Some(arg) = args.next() {
         let arg = arg.as_str();
-        if arg.chars().next().unwrap_or_default() == '-' {
+        if arg.starts_with("-") {
             match arg {
                 "--" => {
                     path_output = args.next();
@@ -48,6 +49,17 @@ fn main() {
         None => usage(),
     };
 
+    // let mut files = Vec::new();
+    // for arg in args {
+    //     append_file(&mut files, OsStr::new(""), OsStr::new(&arg));
+    // }
+    // files.sort_by(
+    //     |a, b| Path::new(&a.0).components().cmp(&Path::new(&b.0)), // a.0.cmp(&b.0)
+    // );
+    // for file in files {
+    //     println!("{:?} <= {:?}", file.0.to_str(), file.1.to_str());
+    // }
+
     let mut fs = InitRamfs::new();
     println!("CREATING archive: {}", path_output);
 
@@ -58,6 +70,38 @@ fn main() {
 
     let mut os = File::create(path_output).unwrap();
     fs.flush(&mut os).unwrap();
+}
+
+#[allow(dead_code)]
+fn append_file(vec: &mut Vec<(OsString, OsString)>, prefix: &OsStr, path: &OsStr) {
+    let path = Path::new(path);
+    let lpc = path.file_name().unwrap();
+    if path.is_dir() {
+        for entry in read_dir(path).unwrap() {
+            let mut prefix = prefix.to_owned();
+            prefix.push("/");
+            prefix.push(lpc);
+            let entry = entry.unwrap();
+            let path = entry.path();
+            append_file(vec, &prefix, path.as_os_str());
+        }
+    } else if path.is_file() {
+        match lpc.to_str().unwrap() {
+            ".DS_Store" | "Thumb.db" => (),
+            _ => {
+                let mut vpath = prefix.to_owned();
+                vpath.push("/");
+                vpath.push(lpc);
+                vec.push((vpath, path.as_os_str().to_owned()))
+            }
+        }
+    } else {
+        if path.ends_with("*") {
+            //
+        } else {
+            todo!()
+        }
+    }
 }
 
 #[repr(C)]

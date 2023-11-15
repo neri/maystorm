@@ -5,13 +5,10 @@
 #![feature(async_closure)]
 #![feature(box_into_inner)]
 #![feature(cfg_target_has_atomic)]
-#![feature(const_maybe_uninit_zeroed)]
 #![feature(const_mut_refs)]
 #![feature(control_flow_enum)]
 #![feature(core_intrinsics)]
-#![feature(default_free_fn)]
 #![feature(iter_advance_by)]
-#![feature(lang_items)]
 #![feature(maybe_uninit_uninit_array)]
 #![feature(more_qualified_paths)]
 #![feature(naked_functions)]
@@ -22,9 +19,6 @@
 #![feature(let_chains)]
 #![feature(array_chunks)]
 #![feature(step_trait)]
-//-//-//-//
-#![allow(incomplete_features)]
-#![feature(return_position_impl_trait_in_trait)]
 
 #[macro_use]
 pub mod arch;
@@ -100,9 +94,6 @@ fn panic(info: &PanicInfo) -> ! {
         Hal::cpu().stop();
     }
 }
-
-#[lang = "eh_personality"]
-extern "C" fn eh_personality() {}
 
 #[repr(transparent)]
 pub struct HexDump<'a>(pub &'a [u8]);

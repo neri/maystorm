@@ -27,7 +27,9 @@ pub trait DrawRect: SetPixel {
     }
 
     fn draw_rect(&mut self, rect: Rect, color: Self::ColorType) {
-        let Ok(coords) = Coordinates::from_rect(rect) else { return };
+        let Ok(coords) = Coordinates::from_rect(rect) else {
+            return;
+        };
         let width = rect.width();
         let height = rect.height();
         self.draw_hline(coords.left_top(), width, color);
@@ -190,7 +192,9 @@ pub trait DrawGlyph: SetPixel {
     fn draw_glyph(&mut self, glyph: &[u8], size: Size, origin: Point, color: Self::ColorType) {
         let stride = (size.width as usize + 7) / 8;
 
-        let Ok(mut coords) = Coordinates::from_rect(Rect::from((origin, size))) else { return };
+        let Ok(mut coords) = Coordinates::from_rect(Rect::from((origin, size))) else {
+            return;
+        };
 
         let width = self.width() as isize;
         let height = self.height() as isize;
@@ -250,7 +254,9 @@ pub trait DrawGlyph: SetPixel {
             origin.x,
             size.height,
             size.width,
-        )) else { return };
+        )) else {
+            return;
+        };
 
         if coords.right > width {
             coords.right = width;
@@ -265,7 +271,7 @@ pub trait DrawGlyph: SetPixel {
         let new_rect = Rect::from(coords);
         let width = new_rect.height() as usize;
         let height = new_rect.width();
-        drop(new_rect);
+
         let w8 = width / 8;
         let w7 = width & 7;
         let mut cursor = 0;

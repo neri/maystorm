@@ -68,7 +68,7 @@ pub trait HalCpu {
     }
 
     #[must_use]
-    fn spin_wait(&self) -> impl HalSpinLoopWait;
+    fn spin_wait<'a, 'b>(&'a self) -> impl HalSpinLoopWait + 'b;
 
     fn broadcast_reschedule(&self);
 
