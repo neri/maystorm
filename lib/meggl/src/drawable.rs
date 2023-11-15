@@ -1,7 +1,6 @@
 use super::*;
 use core::mem::transmute;
 
-#[const_trait]
 pub trait Drawable
 where
     Self::ColorType: PixelColor,
@@ -186,21 +185,21 @@ impl Rotation {
     }
 }
 
-impl const Default for Rotation {
+impl Default for Rotation {
     #[inline]
     fn default() -> Self {
         Self::Default
     }
 }
 
-impl const From<usize> for Rotation {
+impl From<usize> for Rotation {
     #[inline]
     fn from(value: usize) -> Self {
         unsafe { transmute(value as u8) }
     }
 }
 
-impl const From<Rotation> for usize {
+impl From<Rotation> for usize {
     #[inline]
     fn from(value: Rotation) -> Self {
         value as usize

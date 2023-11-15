@@ -5,7 +5,6 @@ use core::{
 };
 
 /// Common color trait
-#[const_trait]
 pub trait PixelColor: Sized + Copy + Clone + PartialEq + Eq + Default {
     /// This value is used to calculate the address of a raster image that supports this color format.
     #[inline]
@@ -14,7 +13,6 @@ pub trait PixelColor: Sized + Copy + Clone + PartialEq + Eq + Default {
     }
 }
 
-#[const_trait]
 pub trait Translucent: PixelColor {
     const TRANSPARENT: Self;
 
@@ -61,7 +59,7 @@ pub enum ColorFormat {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct IndexedColor(pub u8);
 
-impl const PixelColor for IndexedColor {}
+impl PixelColor for IndexedColor {}
 
 impl KeyColor for IndexedColor {
     const KEY_COLOR: Self = Self(u8::MAX);
@@ -165,14 +163,14 @@ impl IndexedColor {
     }
 }
 
-impl const From<u8> for IndexedColor {
+impl From<u8> for IndexedColor {
     #[inline]
     fn from(val: u8) -> Self {
         Self(val)
     }
 }
 
-impl const From<IndexedColor> for ARGB8888 {
+impl From<IndexedColor> for ARGB8888 {
     #[inline]
     fn from(val: IndexedColor) -> Self {
         val.as_true_color()
@@ -185,7 +183,7 @@ pub struct Alpha8(pub u8);
 
 impl PixelColor for Alpha8 {}
 
-impl const Translucent for Alpha8 {
+impl Translucent for Alpha8 {
     const TRANSPARENT: Self = Self(0);
 
     #[inline]
@@ -243,58 +241,68 @@ impl Alpha8 {
     pub const fn saturating_sub(self, rhs: Self) -> Self {
         Self(self.0.saturating_sub(rhs.0))
     }
+
+    #[inline]
+    pub const fn is_transparent(&self) -> bool {
+        self.0 == Self::TRANSPARENT.0
+    }
+
+    #[inline]
+    pub const fn is_opaque(&self) -> bool {
+        self.0 == Self::OPAQUE.0
+    }
 }
 
-impl const Default for Alpha8 {
+impl Default for Alpha8 {
     #[inline]
     fn default() -> Self {
         Self::OPAQUE
     }
 }
 
-impl const From<u8> for Alpha8 {
+impl From<u8> for Alpha8 {
     #[inline]
     fn from(value: u8) -> Self {
         Alpha8(value)
     }
 }
 
-impl const From<Alpha8> for u8 {
+impl From<Alpha8> for u8 {
     #[inline]
     fn from(value: Alpha8) -> Self {
         value.0
     }
 }
 
-impl const From<f32> for Alpha8 {
+impl From<f32> for Alpha8 {
     #[inline]
     fn from(value: f32) -> Self {
         Self::from_f32(value)
     }
 }
 
-impl const From<Alpha8> for f32 {
+impl From<Alpha8> for f32 {
     #[inline]
     fn from(value: Alpha8) -> Self {
         value.into_f32()
     }
 }
 
-impl const From<f64> for Alpha8 {
+impl From<f64> for Alpha8 {
     #[inline]
     fn from(value: f64) -> Self {
         Self::from_f64(value)
     }
 }
 
-impl const From<Alpha8> for f64 {
+impl From<Alpha8> for f64 {
     #[inline]
     fn from(value: Alpha8) -> Self {
         value.into_f64()
     }
 }
 
-impl const Add<Self> for Alpha8 {
+impl Add<Self> for Alpha8 {
     type Output = Self;
 
     #[inline]
@@ -303,14 +311,14 @@ impl const Add<Self> for Alpha8 {
     }
 }
 
-impl const AddAssign<Self> for Alpha8 {
+impl AddAssign<Self> for Alpha8 {
     #[inline]
     fn add_assign(&mut self, rhs: Self) {
         *self = self.saturating_add(rhs);
     }
 }
 
-impl const Sub<Self> for Alpha8 {
+impl Sub<Self> for Alpha8 {
     type Output = Self;
 
     #[inline]
@@ -319,14 +327,14 @@ impl const Sub<Self> for Alpha8 {
     }
 }
 
-impl const SubAssign<Self> for Alpha8 {
+impl SubAssign<Self> for Alpha8 {
     #[inline]
     fn sub_assign(&mut self, rhs: Self) {
         *self = self.saturating_sub(rhs);
     }
 }
 
-impl const Add<u8> for Alpha8 {
+impl Add<u8> for Alpha8 {
     type Output = Self;
 
     #[inline]
@@ -335,14 +343,14 @@ impl const Add<u8> for Alpha8 {
     }
 }
 
-impl const AddAssign<u8> for Alpha8 {
+impl AddAssign<u8> for Alpha8 {
     #[inline]
     fn add_assign(&mut self, rhs: u8) {
         *self = self.saturating_add(Self(rhs));
     }
 }
 
-impl const Sub<u8> for Alpha8 {
+impl Sub<u8> for Alpha8 {
     type Output = Self;
 
     #[inline]
@@ -351,7 +359,7 @@ impl const Sub<u8> for Alpha8 {
     }
 }
 
-impl const SubAssign<u8> for Alpha8 {
+impl SubAssign<u8> for Alpha8 {
     #[inline]
     fn sub_assign(&mut self, rhs: u8) {
         *self = self.saturating_sub(Self(rhs));
@@ -367,7 +375,7 @@ pub struct ARGB8888(pub u32);
 
 impl PixelColor for ARGB8888 {}
 
-impl const Translucent for ARGB8888 {
+impl Translucent for ARGB8888 {
     const TRANSPARENT: Self = Self(0);
 
     #[inline]
@@ -508,16 +516,26 @@ impl ARGB8888 {
             Self::TRANSPARENT
         }
     }
+
+    #[inline]
+    pub const fn is_transparent(&self) -> bool {
+        self.opacity().is_transparent()
+    }
+
+    #[inline]
+    pub const fn is_opaque(&self) -> bool {
+        self.opacity().is_opaque()
+    }
 }
 
-impl const From<u32> for ARGB8888 {
+impl From<u32> for ARGB8888 {
     #[inline]
     fn from(argb: u32) -> Self {
         Self::from_argb(argb)
     }
 }
 
-impl const From<ARGB8888> for IndexedColor {
+impl From<ARGB8888> for IndexedColor {
     #[inline]
     fn from(color: ARGB8888) -> Self {
         Self::from_rgb(color.rgb())
@@ -587,7 +605,7 @@ impl ColorComponents {
 }
 
 #[cfg(target_endian = "little")]
-impl const From<ARGB8888> for ColorComponents {
+impl From<ARGB8888> for ColorComponents {
     #[inline]
     fn from(color: ARGB8888) -> Self {
         unsafe { transmute(color) }
@@ -595,7 +613,7 @@ impl const From<ARGB8888> for ColorComponents {
 }
 
 #[cfg(target_endian = "little")]
-impl const From<ColorComponents> for ARGB8888 {
+impl From<ColorComponents> for ARGB8888 {
     #[inline]
     fn from(components: ColorComponents) -> Self {
         unsafe { transmute(components) }
@@ -603,7 +621,7 @@ impl const From<ColorComponents> for ARGB8888 {
 }
 
 #[cfg(target_endian = "little")]
-impl const Into<u32> for ColorComponents {
+impl Into<u32> for ColorComponents {
     #[inline]
     fn into(self) -> u32 {
         unsafe { transmute(self) }
@@ -617,7 +635,7 @@ pub struct RGBA8888(pub(super) u32);
 
 impl PixelColor for RGBA8888 {}
 
-impl const Translucent for RGBA8888 {
+impl Translucent for RGBA8888 {
     const TRANSPARENT: Self = Self(0);
 
     #[inline]
@@ -646,12 +664,12 @@ impl RGBA8888 {
     pub const WHITE: Self = Self(0xFFFFFFFF);
 
     #[inline]
-    pub const fn components(&self) -> ColorComponentsRGBA {
+    pub fn components(&self) -> ColorComponentsRGBA {
         ColorComponentsRGBA::from(*self)
     }
 
     #[inline]
-    pub const fn opacity(&self) -> Alpha8 {
+    pub fn opacity(&self) -> Alpha8 {
         self.components().a
     }
 }
@@ -664,14 +682,14 @@ impl RGBA8888 {
     }
 }
 
-impl const From<ARGB8888> for RGBA8888 {
+impl From<ARGB8888> for RGBA8888 {
     #[inline]
     fn from(v: ARGB8888) -> Self {
         Self::from(ColorComponentsRGBA::from(v.components()))
     }
 }
 
-impl const From<RGBA8888> for ARGB8888 {
+impl From<RGBA8888> for ARGB8888 {
     #[inline]
     fn from(v: RGBA8888) -> Self {
         Self::from(ColorComponents::from(v.components()))
@@ -706,35 +724,35 @@ impl ColorComponentsRGBA {
 
     #[inline]
     pub const fn into_rgba(self) -> RGBA8888 {
-        RGBA8888::from(self)
+        unsafe { transmute(self) }
     }
 
     #[inline]
-    pub const fn is_opaque(self) -> bool {
+    pub fn is_opaque(self) -> bool {
         self.a.is_opaque()
     }
 
     #[inline]
-    pub const fn is_transparent(self) -> bool {
+    pub fn is_transparent(self) -> bool {
         self.a.is_transparent()
     }
 }
 
-impl const From<RGBA8888> for ColorComponentsRGBA {
+impl From<RGBA8888> for ColorComponentsRGBA {
     #[inline]
     fn from(color: RGBA8888) -> Self {
         unsafe { transmute(color) }
     }
 }
 
-impl const From<ColorComponentsRGBA> for RGBA8888 {
+impl From<ColorComponentsRGBA> for RGBA8888 {
     #[inline]
     fn from(components: ColorComponentsRGBA) -> Self {
         unsafe { transmute(components) }
     }
 }
 
-impl const From<ColorComponentsRGBA> for ColorComponents {
+impl From<ColorComponentsRGBA> for ColorComponents {
     #[inline]
     fn from(v: ColorComponentsRGBA) -> Self {
         Self {
@@ -746,7 +764,7 @@ impl const From<ColorComponentsRGBA> for ColorComponents {
     }
 }
 
-impl const From<ColorComponents> for ColorComponentsRGBA {
+impl From<ColorComponents> for ColorComponentsRGBA {
     #[inline]
     fn from(v: ColorComponents) -> Self {
         Self {
@@ -758,14 +776,14 @@ impl const From<ColorComponents> for ColorComponentsRGBA {
     }
 }
 
-impl const From<&[u8; 4]> for ColorComponentsRGBA {
+impl From<&[u8; 4]> for ColorComponentsRGBA {
     #[inline]
     fn from(value: &[u8; 4]) -> Self {
         unsafe { transmute(*value) }
     }
 }
 
-impl const From<[u8; 4]> for ColorComponentsRGBA {
+impl From<[u8; 4]> for ColorComponentsRGBA {
     #[inline]
     fn from(value: [u8; 4]) -> Self {
         unsafe { transmute(value) }
@@ -784,7 +802,7 @@ pub enum Color {
 
 impl PixelColor for Color {}
 
-impl const Translucent for Color {
+impl Translucent for Color {
     const TRANSPARENT: Self = Self::Transparent;
 
     #[inline]
@@ -874,7 +892,7 @@ impl Color {
     }
 
     #[inline]
-    pub const fn brightness(&self) -> Option<u8> {
+    pub fn brightness(&self) -> Option<u8> {
         match self {
             Color::Transparent => None,
             Color::Indexed(c) => c.brightness(),
@@ -883,35 +901,35 @@ impl Color {
     }
 }
 
-impl const Default for Color {
+impl Default for Color {
     #[inline]
     fn default() -> Self {
         Self::TRANSPARENT
     }
 }
 
-impl const Into<IndexedColor> for Color {
+impl Into<IndexedColor> for Color {
     #[inline]
     fn into(self) -> IndexedColor {
         self.into_indexed()
     }
 }
 
-impl const Into<ARGB8888> for Color {
+impl Into<ARGB8888> for Color {
     #[inline]
     fn into(self) -> ARGB8888 {
         self.into_true_color()
     }
 }
 
-impl const From<IndexedColor> for Color {
+impl From<IndexedColor> for Color {
     #[inline]
     fn from(val: IndexedColor) -> Self {
         Self::Indexed(val)
     }
 }
 
-impl const From<ARGB8888> for Color {
+impl From<ARGB8888> for Color {
     #[inline]
     fn from(val: ARGB8888) -> Self {
         Self::Argb32(val)
@@ -927,7 +945,7 @@ pub struct PackedColor(pub u32);
 
 impl PixelColor for PackedColor {}
 
-impl const Translucent for PackedColor {
+impl Translucent for PackedColor {
     const TRANSPARENT: Self = Self(Self::INDEX_COLOR_MAX + 1);
 
     #[inline]
@@ -1034,28 +1052,28 @@ impl PackedColor {
     }
 }
 
-impl const From<ARGB8888> for PackedColor {
+impl From<ARGB8888> for PackedColor {
     #[inline]
     fn from(color: ARGB8888) -> Self {
         Self::from_true_color(color)
     }
 }
 
-impl const From<IndexedColor> for PackedColor {
+impl From<IndexedColor> for PackedColor {
     #[inline]
     fn from(index: IndexedColor) -> Self {
         Self::from_indexed(index)
     }
 }
 
-impl const From<Color> for PackedColor {
+impl From<Color> for PackedColor {
     #[inline]
     fn from(color: Color) -> Self {
         Self::from_color(color)
     }
 }
 
-impl const From<PackedColor> for Color {
+impl From<PackedColor> for Color {
     #[inline]
     fn from(color: PackedColor) -> Self {
         color.as_color()
@@ -1127,28 +1145,28 @@ impl RGB555 {
     }
 }
 
-impl const From<ARGB8888> for RGB555 {
+impl From<ARGB8888> for RGB555 {
     #[inline]
     fn from(color: ARGB8888) -> Self {
         Self::from_true_color(color)
     }
 }
 
-impl const From<RGB555> for ARGB8888 {
+impl From<RGB555> for ARGB8888 {
     #[inline]
     fn from(color: RGB555) -> Self {
         color.as_true_color()
     }
 }
 
-impl const From<Color> for RGB555 {
+impl From<Color> for RGB555 {
     #[inline]
     fn from(color: Color) -> Self {
         Self::from_true_color(color.into_true_color())
     }
 }
 
-impl const From<RGB555> for Color {
+impl From<RGB555> for Color {
     #[inline]
     fn from(color: RGB555) -> Self {
         Color::Argb32(color.as_true_color())
@@ -1225,28 +1243,28 @@ impl RGB565 {
     }
 }
 
-impl const From<ARGB8888> for RGB565 {
+impl From<ARGB8888> for RGB565 {
     #[inline]
     fn from(color: ARGB8888) -> Self {
         Self::from_true_color(color)
     }
 }
 
-impl const From<RGB565> for ARGB8888 {
+impl From<RGB565> for ARGB8888 {
     #[inline]
     fn from(color: RGB565) -> Self {
         color.as_true_color()
     }
 }
 
-impl const From<Color> for RGB565 {
+impl From<Color> for RGB565 {
     #[inline]
     fn from(color: Color) -> Self {
         Self::from_true_color(color.into_true_color())
     }
 }
 
-impl const From<RGB565> for Color {
+impl From<RGB565> for Color {
     #[inline]
     fn from(color: RGB565) -> Self {
         Color::Argb32(color.as_true_color())
@@ -1274,7 +1292,7 @@ pub enum IndexedColor4 {
     Color1111,
 }
 
-impl const PixelColor for IndexedColor4 {
+impl PixelColor for IndexedColor4 {
     #[inline]
     fn stride_for(width: isize) -> usize {
         (width as usize + 1) / 2
@@ -1293,21 +1311,21 @@ impl IndexedColor4 {
     }
 }
 
-impl const From<IndexedColor> for IndexedColor4 {
+impl From<IndexedColor> for IndexedColor4 {
     #[inline]
     fn from(value: IndexedColor) -> Self {
         Self::from_u8(value.0)
     }
 }
 
-impl const From<IndexedColor4> for IndexedColor {
+impl From<IndexedColor4> for IndexedColor {
     #[inline]
     fn from(value: IndexedColor4) -> Self {
         Self(value.into_u8())
     }
 }
 
-impl const Default for IndexedColor4 {
+impl Default for IndexedColor4 {
     #[inline]
     fn default() -> Self {
         Self::Color0000
@@ -1369,7 +1387,7 @@ pub enum Monochrome {
     One,
 }
 
-impl const PixelColor for Monochrome {
+impl PixelColor for Monochrome {
     #[inline]
     fn stride_for(width: isize) -> usize {
         (width as usize + 7) / 8
@@ -1403,35 +1421,35 @@ impl Monochrome {
     }
 }
 
-impl const From<Monochrome> for u8 {
+impl From<Monochrome> for u8 {
     #[inline]
     fn from(value: Monochrome) -> Self {
         value.into_bool() as u8
     }
 }
 
-impl const From<u8> for Monochrome {
+impl From<u8> for Monochrome {
     #[inline]
     fn from(value: u8) -> Self {
         Self::new(value)
     }
 }
 
-impl const From<Monochrome> for bool {
+impl From<Monochrome> for bool {
     #[inline]
     fn from(value: Monochrome) -> Self {
         value.into_bool()
     }
 }
 
-impl const From<bool> for Monochrome {
+impl From<bool> for Monochrome {
     #[inline]
     fn from(value: bool) -> Self {
         Self::new(value as u8)
     }
 }
 
-impl const Default for Monochrome {
+impl Default for Monochrome {
     #[inline]
     fn default() -> Self {
         Self::Zero
@@ -1496,14 +1514,14 @@ impl Octet {
     }
 }
 
-impl const Default for Octet {
+impl Default for Octet {
     #[inline]
     fn default() -> Self {
         Self(0)
     }
 }
 
-impl const From<Octet> for u8 {
+impl From<Octet> for u8 {
     #[inline]
     fn from(value: Octet) -> Self {
         value.as_u8()

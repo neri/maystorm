@@ -417,7 +417,7 @@ impl Usage {
     }
 }
 
-impl const From<Usage> for HidUsage {
+impl From<Usage> for HidUsage {
     #[inline]
     fn from(v: Usage) -> Self {
         v.full_qualified_usage()
@@ -481,21 +481,21 @@ impl Modifier {
     }
 }
 
-impl const From<Modifier> for usize {
+impl From<Modifier> for usize {
     #[inline]
     fn from(v: Modifier) -> Self {
         v.bits() as Self
     }
 }
 
-impl const From<usize> for Modifier {
+impl From<usize> for Modifier {
     #[inline]
     fn from(v: usize) -> Self {
         Self(v as u8)
     }
 }
 
-impl const Default for Modifier {
+impl Default for Modifier {
     #[inline]
     fn default() -> Self {
         Self::empty()
@@ -578,21 +578,21 @@ impl MouseButton {
     }
 }
 
-impl const Default for MouseButton {
+impl Default for MouseButton {
     #[inline]
     fn default() -> Self {
         Self::empty()
     }
 }
 
-impl const BitOrAssign<Self> for MouseButton {
+impl BitOrAssign<Self> for MouseButton {
     #[inline]
     fn bitor_assign(&mut self, rhs: Self) {
         self.0 = self.0 | rhs.0;
     }
 }
 
-impl const BitOr<Self> for MouseButton {
+impl BitOr<Self> for MouseButton {
     type Output = Self;
 
     #[inline]
@@ -601,14 +601,14 @@ impl const BitOr<Self> for MouseButton {
     }
 }
 
-impl const BitAndAssign<Self> for MouseButton {
+impl BitAndAssign<Self> for MouseButton {
     #[inline]
     fn bitand_assign(&mut self, rhs: Self) {
         self.0 = self.0 & rhs.0;
     }
 }
 
-impl const BitAnd<Self> for MouseButton {
+impl BitAnd<Self> for MouseButton {
     type Output = Self;
 
     #[inline]
@@ -617,14 +617,14 @@ impl const BitAnd<Self> for MouseButton {
     }
 }
 
-impl const BitXorAssign<Self> for MouseButton {
+impl BitXorAssign<Self> for MouseButton {
     #[inline]
     fn bitxor_assign(&mut self, rhs: Self) {
         self.0 = self.0 ^ rhs.0;
     }
 }
 
-impl const BitXor<Self> for MouseButton {
+impl BitXor<Self> for MouseButton {
     type Output = Self;
 
     #[inline]
@@ -633,28 +633,28 @@ impl const BitXor<Self> for MouseButton {
     }
 }
 
-impl const From<u8> for MouseButton {
+impl From<u8> for MouseButton {
     #[inline]
     fn from(value: u8) -> Self {
         MouseButton(value)
     }
 }
 
-impl const From<MouseButton> for u8 {
+impl From<MouseButton> for u8 {
     #[inline]
     fn from(value: MouseButton) -> Self {
         value.0
     }
 }
 
-impl const From<usize> for MouseButton {
+impl From<usize> for MouseButton {
     #[inline]
     fn from(value: usize) -> Self {
         MouseButton(value as u8)
     }
 }
 
-impl const From<MouseButton> for usize {
+impl From<MouseButton> for usize {
     #[inline]
     fn from(value: MouseButton) -> Self {
         value.0 as usize
@@ -971,77 +971,77 @@ impl HidReportValue {
     }
 }
 
-impl const From<u8> for HidReportValue {
+impl From<u8> for HidReportValue {
     #[inline]
     fn from(val: u8) -> Self {
         Self::X8(val)
     }
 }
 
-impl const From<u16> for HidReportValue {
+impl From<u16> for HidReportValue {
     #[inline]
     fn from(val: u16) -> Self {
         Self::X16(val)
     }
 }
 
-impl const From<u32> for HidReportValue {
+impl From<u32> for HidReportValue {
     #[inline]
     fn from(val: u32) -> Self {
         Self::X32(val)
     }
 }
 
-impl const From<HidReportValue> for usize {
+impl From<HidReportValue> for usize {
     #[inline]
     fn from(val: HidReportValue) -> Self {
         val.as_usize()
     }
 }
 
-impl const From<HidReportValue> for isize {
+impl From<HidReportValue> for isize {
     #[inline]
     fn from(val: HidReportValue) -> Self {
         val.as_isize()
     }
 }
 
-impl const From<HidReportValue> for u8 {
+impl From<HidReportValue> for u8 {
     #[inline]
     fn from(val: HidReportValue) -> Self {
         val.as_usize() as u8
     }
 }
 
-impl const From<HidReportValue> for u16 {
+impl From<HidReportValue> for u16 {
     #[inline]
     fn from(val: HidReportValue) -> Self {
         val.as_usize() as u16
     }
 }
 
-impl const From<HidReportValue> for u32 {
+impl From<HidReportValue> for u32 {
     #[inline]
     fn from(val: HidReportValue) -> Self {
         val.as_u32()
     }
 }
 
-impl const From<HidReportValue> for i8 {
+impl From<HidReportValue> for i8 {
     #[inline]
     fn from(val: HidReportValue) -> Self {
         val.as_isize() as i8
     }
 }
 
-impl const From<HidReportValue> for i16 {
+impl From<HidReportValue> for i16 {
     #[inline]
     fn from(val: HidReportValue) -> Self {
         val.as_isize() as i16
     }
 }
 
-impl const From<HidReportValue> for i32 {
+impl From<HidReportValue> for i32 {
     #[inline]
     fn from(val: HidReportValue) -> Self {
         val.as_i32()

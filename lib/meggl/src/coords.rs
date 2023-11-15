@@ -25,7 +25,7 @@ impl Point {
     }
 
     #[inline]
-    pub const fn swap(&mut self) {
+    pub fn swap(&mut self) {
         swap(&mut self.x, &mut self.y);
     }
 
@@ -82,12 +82,12 @@ impl Point {
     }
 
     #[inline]
-    pub const fn distance2(&self, other: Point) -> Distance2 {
+    pub fn distance2(&self, other: Point) -> Distance2 {
         self.sub(other).distance2()
     }
 }
 
-impl const Add<isize> for Point {
+impl Add<isize> for Point {
     type Output = Self;
 
     #[inline]
@@ -99,14 +99,14 @@ impl const Add<isize> for Point {
     }
 }
 
-impl const AddAssign<isize> for Point {
+impl AddAssign<isize> for Point {
     #[inline]
     fn add_assign(&mut self, rhs: isize) {
         *self = self.add(rhs);
     }
 }
 
-impl const Sub<isize> for Point {
+impl Sub<isize> for Point {
     type Output = Self;
 
     #[inline]
@@ -118,14 +118,14 @@ impl const Sub<isize> for Point {
     }
 }
 
-impl const SubAssign<isize> for Point {
+impl SubAssign<isize> for Point {
     #[inline]
     fn sub_assign(&mut self, rhs: isize) {
         *self = self.sub(rhs);
     }
 }
 
-impl const Sub<Self> for Point {
+impl Sub<Self> for Point {
     type Output = Movement;
 
     #[inline]
@@ -161,7 +161,7 @@ impl Movement {
     }
 
     #[inline]
-    pub const fn swap(&mut self) {
+    pub fn swap(&mut self) {
         swap(&mut self.x, &mut self.y);
     }
 
@@ -191,21 +191,21 @@ impl Zero for Movement {
     }
 }
 
-impl const From<Point> for Movement {
+impl From<Point> for Movement {
     #[inline]
     fn from(v: Point) -> Self {
         Self { x: v.x, y: v.y }
     }
 }
 
-impl const From<Movement> for Point {
+impl From<Movement> for Point {
     #[inline]
     fn from(v: Movement) -> Self {
         Self { x: v.x, y: v.y }
     }
 }
 
-impl const Add<Self> for Movement {
+impl Add<Self> for Movement {
     type Output = Self;
     #[inline]
     fn add(self, rhs: Movement) -> Self {
@@ -216,14 +216,14 @@ impl const Add<Self> for Movement {
     }
 }
 
-impl const AddAssign<Self> for Movement {
+impl AddAssign<Self> for Movement {
     #[inline]
     fn add_assign(&mut self, rhs: Self) {
         *self = self.add(rhs);
     }
 }
 
-impl const Add<Movement> for Point {
+impl Add<Movement> for Point {
     type Output = Self;
     #[inline]
     fn add(self, rhs: Movement) -> Self::Output {
@@ -234,14 +234,14 @@ impl const Add<Movement> for Point {
     }
 }
 
-impl const AddAssign<Movement> for Point {
+impl AddAssign<Movement> for Point {
     #[inline]
     fn add_assign(&mut self, rhs: Movement) {
         *self = self.add(rhs);
     }
 }
 
-impl const Add<Movement> for Rect {
+impl Add<Movement> for Rect {
     type Output = Self;
     #[inline]
     fn add(self, rhs: Movement) -> Self::Output {
@@ -255,14 +255,14 @@ impl const Add<Movement> for Rect {
     }
 }
 
-impl const AddAssign<Movement> for Rect {
+impl AddAssign<Movement> for Rect {
     #[inline]
     fn add_assign(&mut self, rhs: Movement) {
         *self = self.add(rhs);
     }
 }
 
-impl const Sub<Self> for Movement {
+impl Sub<Self> for Movement {
     type Output = Self;
     #[inline]
     fn sub(self, rhs: Self) -> Self {
@@ -273,14 +273,14 @@ impl const Sub<Self> for Movement {
     }
 }
 
-impl const SubAssign<Self> for Movement {
+impl SubAssign<Self> for Movement {
     #[inline]
     fn sub_assign(&mut self, rhs: Self) {
         *self = self.sub(rhs);
     }
 }
 
-impl const Sub<Movement> for Point {
+impl Sub<Movement> for Point {
     type Output = Self;
     #[inline]
     fn sub(self, rhs: Movement) -> Self::Output {
@@ -291,14 +291,14 @@ impl const Sub<Movement> for Point {
     }
 }
 
-impl const SubAssign<Movement> for Point {
+impl SubAssign<Movement> for Point {
     #[inline]
     fn sub_assign(&mut self, rhs: Movement) {
         *self = self.sub(rhs);
     }
 }
 
-impl const Sub<Movement> for Rect {
+impl Sub<Movement> for Rect {
     type Output = Self;
     #[inline]
     fn sub(self, rhs: Movement) -> Self::Output {
@@ -312,7 +312,7 @@ impl const Sub<Movement> for Rect {
     }
 }
 
-impl const SubAssign<Movement> for Rect {
+impl SubAssign<Movement> for Rect {
     #[inline]
     fn sub_assign(&mut self, rhs: Movement) {
         *self = self.sub(rhs);
@@ -331,7 +331,7 @@ impl Distance2 {
     }
 }
 
-impl const From<Movement> for Distance2 {
+impl From<Movement> for Distance2 {
     #[inline]
     fn from(v: Movement) -> Self {
         v.distance2()
@@ -367,7 +367,7 @@ impl Size {
     }
 
     #[inline]
-    pub const fn swap(&mut self) {
+    pub fn swap(&mut self) {
         swap(&mut self.width, &mut self.height);
     }
 
@@ -395,7 +395,7 @@ impl Zero for Size {
     }
 }
 
-impl const Add<Self> for Size {
+impl Add<Self> for Size {
     type Output = Self;
 
     #[inline]
@@ -407,7 +407,7 @@ impl const Add<Self> for Size {
     }
 }
 
-impl const Add<EdgeInsets> for Size {
+impl Add<EdgeInsets> for Size {
     type Output = Self;
 
     #[inline]
@@ -419,21 +419,21 @@ impl const Add<EdgeInsets> for Size {
     }
 }
 
-impl const AddAssign<Self> for Size {
+impl AddAssign<Self> for Size {
     #[inline]
     fn add_assign(&mut self, rhs: Self) {
         *self = self.add(rhs);
     }
 }
 
-impl const AddAssign<EdgeInsets> for Size {
+impl AddAssign<EdgeInsets> for Size {
     #[inline]
     fn add_assign(&mut self, rhs: EdgeInsets) {
         *self = self.add(rhs);
     }
 }
 
-impl const Sub<Self> for Size {
+impl Sub<Self> for Size {
     type Output = Self;
 
     #[inline]
@@ -445,7 +445,7 @@ impl const Sub<Self> for Size {
     }
 }
 
-impl const Sub<EdgeInsets> for Size {
+impl Sub<EdgeInsets> for Size {
     type Output = Self;
 
     #[inline]
@@ -457,21 +457,21 @@ impl const Sub<EdgeInsets> for Size {
     }
 }
 
-impl const SubAssign<Self> for Size {
+impl SubAssign<Self> for Size {
     #[inline]
     fn sub_assign(&mut self, rhs: Self) {
         *self = self.sub(rhs);
     }
 }
 
-impl const SubAssign<EdgeInsets> for Size {
+impl SubAssign<EdgeInsets> for Size {
     #[inline]
     fn sub_assign(&mut self, rhs: EdgeInsets) {
         *self = self.sub(rhs);
     }
 }
 
-impl const Mul<Self> for Size {
+impl Mul<Self> for Size {
     type Output = Self;
 
     #[inline]
@@ -483,14 +483,14 @@ impl const Mul<Self> for Size {
     }
 }
 
-impl const MulAssign<Self> for Size {
+impl MulAssign<Self> for Size {
     #[inline]
     fn mul_assign(&mut self, rhs: Self) {
         *self = self.mul(rhs);
     }
 }
 
-impl const Mul<isize> for Size {
+impl Mul<isize> for Size {
     type Output = Self;
 
     #[inline]
@@ -502,14 +502,14 @@ impl const Mul<isize> for Size {
     }
 }
 
-impl const MulAssign<isize> for Size {
+impl MulAssign<isize> for Size {
     #[inline]
     fn mul_assign(&mut self, rhs: isize) {
         *self = self.mul(rhs);
     }
 }
 
-impl const Mul<usize> for Size {
+impl Mul<usize> for Size {
     type Output = Self;
 
     #[inline]
@@ -521,14 +521,14 @@ impl const Mul<usize> for Size {
     }
 }
 
-impl const MulAssign<usize> for Size {
+impl MulAssign<usize> for Size {
     #[inline]
     fn mul_assign(&mut self, rhs: usize) {
         *self = self.mul(rhs);
     }
 }
 
-impl const Div<isize> for Size {
+impl Div<isize> for Size {
     type Output = Self;
 
     #[inline]
@@ -540,14 +540,14 @@ impl const Div<isize> for Size {
     }
 }
 
-impl const DivAssign<isize> for Size {
+impl DivAssign<isize> for Size {
     #[inline]
     fn div_assign(&mut self, rhs: isize) {
         *self = self.div(rhs);
     }
 }
 
-impl const Div<usize> for Size {
+impl Div<usize> for Size {
     type Output = Self;
 
     #[inline]
@@ -559,7 +559,7 @@ impl const Div<usize> for Size {
     }
 }
 
-impl const DivAssign<usize> for Size {
+impl DivAssign<usize> for Size {
     #[inline]
     fn div_assign(&mut self, rhs: usize) {
         *self = self.div(rhs);
@@ -697,12 +697,11 @@ impl Rect {
     }
 }
 
-#[const_trait]
 pub trait Contains<T> {
     fn contains(&self, other: T) -> bool;
 }
 
-impl const Contains<Point> for Rect {
+impl Contains<Point> for Rect {
     #[inline]
     fn contains(&self, other: Point) -> bool {
         if let Ok(coords) = Coordinates::from_rect(*self) {
@@ -716,7 +715,7 @@ impl const Contains<Point> for Rect {
     }
 }
 
-impl const Contains<Rect> for Rect {
+impl Contains<Rect> for Rect {
     #[inline]
     fn contains(&self, other: Rect) -> bool {
         let Ok(cl) = Coordinates::from_rect(*self) else { return false };
@@ -726,21 +725,21 @@ impl const Contains<Rect> for Rect {
     }
 }
 
-impl const From<Size> for Rect {
+impl From<Size> for Rect {
     #[inline]
     fn from(size: Size) -> Self {
         size.bounds()
     }
 }
 
-impl const From<(Point, Size)> for Rect {
+impl From<(Point, Size)> for Rect {
     #[inline]
     fn from(value: (Point, Size)) -> Self {
         Self::new(value.0.x, value.0.y, value.1.width, value.1.height)
     }
 }
 
-impl const Add<Size> for Rect {
+impl Add<Size> for Rect {
     type Output = Self;
 
     #[inline]
@@ -752,14 +751,14 @@ impl const Add<Size> for Rect {
     }
 }
 
-impl const AddAssign<Size> for Rect {
+impl AddAssign<Size> for Rect {
     #[inline]
     fn add_assign(&mut self, rhs: Size) {
         self.size += rhs;
     }
 }
 
-impl const Sub<Size> for Rect {
+impl Sub<Size> for Rect {
     type Output = Self;
 
     #[inline]
@@ -771,14 +770,14 @@ impl const Sub<Size> for Rect {
     }
 }
 
-impl const SubAssign<Size> for Rect {
+impl SubAssign<Size> for Rect {
     #[inline]
     fn sub_assign(&mut self, rhs: Size) {
         self.size -= rhs;
     }
 }
 
-impl const Add<EdgeInsets> for Rect {
+impl Add<EdgeInsets> for Rect {
     type Output = Self;
 
     #[inline]
@@ -796,14 +795,14 @@ impl const Add<EdgeInsets> for Rect {
     }
 }
 
-impl const AddAssign<EdgeInsets> for Rect {
+impl AddAssign<EdgeInsets> for Rect {
     #[inline]
     fn add_assign(&mut self, rhs: EdgeInsets) {
         *self = self.add(rhs);
     }
 }
 
-impl const Sub<EdgeInsets> for Rect {
+impl Sub<EdgeInsets> for Rect {
     type Output = Self;
 
     #[inline]
@@ -812,14 +811,14 @@ impl const Sub<EdgeInsets> for Rect {
     }
 }
 
-impl const SubAssign<EdgeInsets> for Rect {
+impl SubAssign<EdgeInsets> for Rect {
     #[inline]
     fn sub_assign(&mut self, rhs: EdgeInsets) {
         *self = self.sub(rhs);
     }
 }
 
-impl const Mul<isize> for Rect {
+impl Mul<isize> for Rect {
     type Output = Self;
 
     #[inline]
@@ -833,14 +832,14 @@ impl const Mul<isize> for Rect {
     }
 }
 
-impl const MulAssign<isize> for Rect {
+impl MulAssign<isize> for Rect {
     #[inline]
     fn mul_assign(&mut self, rhs: isize) {
         *self = self.mul(rhs);
     }
 }
 
-impl const Mul<usize> for Rect {
+impl Mul<usize> for Rect {
     type Output = Self;
 
     #[inline]
@@ -854,7 +853,7 @@ impl const Mul<usize> for Rect {
     }
 }
 
-impl const MulAssign<usize> for Rect {
+impl MulAssign<usize> for Rect {
     #[inline]
     fn mul_assign(&mut self, rhs: usize) {
         *self = self.mul(rhs);
@@ -950,7 +949,7 @@ impl Coordinates {
     }
 
     #[inline]
-    pub const fn merge(&mut self, other: Self) {
+    pub fn merge(&mut self, other: Self) {
         *self = self.merged(other);
     }
 
@@ -1020,7 +1019,7 @@ impl Coordinates {
     }
 }
 
-impl const Add<Self> for Coordinates {
+impl Add<Self> for Coordinates {
     type Output = Self;
 
     #[inline]
@@ -1029,14 +1028,14 @@ impl const Add<Self> for Coordinates {
     }
 }
 
-impl const AddAssign<Self> for Coordinates {
+impl AddAssign<Self> for Coordinates {
     #[inline]
     fn add_assign(&mut self, rhs: Self) {
         self.merge(rhs)
     }
 }
 
-impl const TryFrom<Rect> for Coordinates {
+impl TryFrom<Rect> for Coordinates {
     type Error = ();
 
     #[inline]
@@ -1045,7 +1044,7 @@ impl const TryFrom<Rect> for Coordinates {
     }
 }
 
-impl const From<Coordinates> for Rect {
+impl From<Coordinates> for Rect {
     #[inline]
     fn from(coods: Coordinates) -> Rect {
         Rect {
@@ -1055,7 +1054,7 @@ impl const From<Coordinates> for Rect {
     }
 }
 
-impl const From<Size> for Coordinates {
+impl From<Size> for Coordinates {
     #[inline]
     fn from(size: Size) -> Self {
         Self::from_size(size)
@@ -1110,7 +1109,7 @@ impl Zero for EdgeInsets {
     }
 }
 
-impl const Add<Self> for EdgeInsets {
+impl Add<Self> for EdgeInsets {
     type Output = Self;
 
     #[inline]
@@ -1124,14 +1123,14 @@ impl const Add<Self> for EdgeInsets {
     }
 }
 
-impl const AddAssign<Self> for EdgeInsets {
+impl AddAssign<Self> for EdgeInsets {
     #[inline]
     fn add_assign(&mut self, rhs: Self) {
         *self = self.add(rhs);
     }
 }
 
-impl const Sub<Self> for EdgeInsets {
+impl Sub<Self> for EdgeInsets {
     type Output = Self;
 
     #[inline]
@@ -1145,7 +1144,7 @@ impl const Sub<Self> for EdgeInsets {
     }
 }
 
-impl const SubAssign<Self> for EdgeInsets {
+impl SubAssign<Self> for EdgeInsets {
     #[inline]
     fn sub_assign(&mut self, rhs: Self) {
         *self = self.sub(rhs);

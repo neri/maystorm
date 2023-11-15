@@ -32,21 +32,21 @@ macro_rules! le_type {
             }
         }
 
-        impl const From<$raw_type> for $class_name {
+        impl From<$raw_type> for $class_name {
             #[inline]
             fn from(value: $raw_type) -> $class_name {
                 <$class_name>::new(value)
             }
         }
 
-        impl const From<$class_name> for $ raw_type{
+        impl From<$class_name> for $ raw_type{
             #[inline]
             fn from(value: $class_name) -> $raw_type {
                 value.value()
             }
         }
 
-        impl const Default for $class_name {
+        impl Default for $class_name {
             #[inline]
             fn default() -> Self {
                 Self(0)
@@ -104,7 +104,7 @@ macro_rules! atomic_le {
             }
         }
 
-        impl const Default for $class_name {
+        impl Default for $class_name {
             #[inline]
             fn default() -> Self {
                 Self(<$atomic_type>::new(0))

@@ -38,7 +38,7 @@ impl UsbAddress {
     }
 }
 
-impl const From<NonZeroU8> for UsbAddress {
+impl From<NonZeroU8> for UsbAddress {
     #[inline]
     fn from(v: NonZeroU8) -> Self {
         Self::from_nonzero(v)
@@ -62,7 +62,7 @@ impl UsbWord {
     }
 }
 
-impl const From<UsbWord> for u16 {
+impl From<UsbWord> for u16 {
     #[inline]
     fn from(v: UsbWord) -> Self {
         v.as_u16()

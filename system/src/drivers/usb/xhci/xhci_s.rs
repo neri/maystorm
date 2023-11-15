@@ -10,7 +10,7 @@ use num_traits::FromPrimitive;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PortId(pub NonZeroU8);
 
-impl const From<UsbHubPortNumber> for PortId {
+impl From<UsbHubPortNumber> for PortId {
     #[inline]
     fn from(value: UsbHubPortNumber) -> Self {
         Self(value.0)
@@ -75,7 +75,7 @@ impl DCI {
     }
 }
 
-impl const From<UsbEndpointAddress> for DCI {
+impl From<UsbEndpointAddress> for DCI {
     #[inline]
     fn from(val: UsbEndpointAddress) -> Self {
         unsafe {
@@ -126,7 +126,7 @@ impl CycleBit {
     }
 }
 
-impl const From<bool> for CycleBit {
+impl From<bool> for CycleBit {
     #[inline]
     fn from(val: bool) -> Self {
         Self(AtomicBool::new(val))
@@ -529,7 +529,7 @@ pub enum TrbCompletionCode {
     SPLIT_TRANSACTION,
 }
 
-impl const From<TrbCompletionCode> for UsbError {
+impl From<TrbCompletionCode> for UsbError {
     #[inline]
     fn from(value: TrbCompletionCode) -> Self {
         match value {

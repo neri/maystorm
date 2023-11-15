@@ -20,6 +20,14 @@ macro_rules! atomic_wrapper {
             fn _bits(&self) -> $ty {
                 self.bits.load(Ordering::Acquire)
             }
+
+            #[inline]
+            pub const fn empty() -> Self {
+                Self {
+                    bits: <$atomic_type>::new(0),
+                    _phantom: PhantomData,
+                }
+            }
         }
 
         impl<T: From<$ty>> $class_name<T> {
@@ -36,10 +44,7 @@ macro_rules! atomic_wrapper {
 
         impl<T: Into<$ty>> $class_name<T> {
             #[inline]
-            pub const fn new(value: T) -> Self
-            where
-                T: ~const Into<$ty>,
-            {
+            pub fn new(value: T) -> Self {
                 Self {
                     bits: <$atomic_type>::new(value.into()),
                     _phantom: PhantomData,
@@ -72,7 +77,7 @@ macro_rules! atomic_wrapper {
             }
         }
 
-        impl<T: ~const Into<$ty> + ~const Default> const Default for $class_name<T> {
+        impl<T: Into<$ty> + Default> Default for $class_name<T> {
             #[inline]
             fn default() -> Self {
                 Self::new(T::default())
@@ -149,11 +154,6 @@ impl<T: Into<usize>> AtomicFlags<T> {
         bits: AtomicUsize::new(0),
         _phantom: PhantomData,
     };
-
-    #[inline]
-    pub const fn empty() -> Self {
-        Self::EMPTY
-    }
 
     #[inline]
     pub fn bits(&self) -> usize {

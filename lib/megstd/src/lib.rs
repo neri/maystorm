@@ -2,9 +2,6 @@
 #![no_std]
 #![feature(alloc_error_handler)]
 #![feature(asm_experimental_arch)]
-#![feature(const_mut_refs)]
-#![feature(const_swap)]
-#![feature(const_trait_impl)]
 
 #[macro_use]
 pub mod sys;

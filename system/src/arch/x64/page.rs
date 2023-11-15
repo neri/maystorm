@@ -339,12 +339,13 @@ my_bitflags! {
 }
 
 impl PageAttribute {
-    pub const ACCESS_RIGHTS: Self = Self::WRITE | Self::USER | Self::NO_EXECUTE;
+    pub const ACCESS_RIGHTS: Self =
+        Self::from_bits_retain(Self::WRITE.bits() | Self::USER.bits() | Self::NO_EXECUTE.bits());
 
     pub const PAT_000: Self = Self::empty();
     pub const PAT_001: Self = Self::PWT;
     pub const PAT_010: Self = Self::PCD;
-    pub const PAT_011: Self = Self::PAT_010 | Self::PAT_001;
+    pub const PAT_011: Self = Self::from_bits_retain(Self::PAT_010.bits() | Self::PAT_001.bits());
 
     pub const PAT_WB: Self = Self::PAT_000;
     pub const PAT_WT: Self = Self::PAT_001;
@@ -506,28 +507,28 @@ impl PageTableEntry {
     }
 }
 
-impl const AddAssign<PageAttribute> for PageTableEntry {
+impl AddAssign<PageAttribute> for PageTableEntry {
     #[inline]
     fn add_assign(&mut self, rhs: PageAttribute) {
         self.insert(rhs);
     }
 }
 
-impl const SubAssign<PageAttribute> for PageTableEntry {
+impl SubAssign<PageAttribute> for PageTableEntry {
     #[inline]
     fn sub_assign(&mut self, rhs: PageAttribute) {
         self.remove(rhs);
     }
 }
 
-impl const BitOrAssign<PageAttribute> for PageTableEntry {
+impl BitOrAssign<PageAttribute> for PageTableEntry {
     #[inline]
     fn bitor_assign(&mut self, rhs: PageAttribute) {
         self.insert(rhs);
     }
 }
 
-impl const AddAssign<usize> for PageTableEntry {
+impl AddAssign<usize> for PageTableEntry {
     #[inline]
     fn add_assign(&mut self, rhs: usize) {
         let pa = self.frame_address() + rhs;
@@ -535,7 +536,7 @@ impl const AddAssign<usize> for PageTableEntry {
     }
 }
 
-impl const From<PhysicalAddress> for PageTableEntry {
+impl From<PhysicalAddress> for PageTableEntry {
     #[inline]
     fn from(value: PhysicalAddress) -> Self {
         Self(value.as_u64())

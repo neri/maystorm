@@ -198,8 +198,8 @@ impl MouseState {
     #[inline]
     pub const fn empty() -> Self {
         Self {
-            current_buttons: AtomicWrapperU8::default(),
-            prev_buttons: AtomicWrapperU8::default(),
+            current_buttons: AtomicWrapperU8::empty(),
+            prev_buttons: AtomicWrapperU8::empty(),
             x: AtomicIsize::new(0),
             y: AtomicIsize::new(0),
             wheel: AtomicIsize::new(0),

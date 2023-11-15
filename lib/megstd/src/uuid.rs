@@ -81,7 +81,7 @@ impl Uuid {
     }
 
     #[inline]
-    pub const fn is_null(&self) -> bool {
+    pub fn is_null(&self) -> bool {
         self.eq(&Self::NULL)
     }
 
@@ -106,7 +106,7 @@ impl Uuid {
     }
 }
 
-impl const PartialEq for Uuid {
+impl PartialEq for Uuid {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         unsafe { *self.as_u128() == *other.as_u128() }

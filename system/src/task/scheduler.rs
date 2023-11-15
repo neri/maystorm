@@ -26,7 +26,7 @@ const THRESHOLD_LEAVE_SAVING: usize = 750;
 const THRESHOLD_ENTER_MAX: usize = 850;
 const THRESHOLD_LEAVE_MAX: usize = 666;
 
-static SCHEDULER_STATE: AtomicWrapper<SchedulerState> = AtomicWrapper::default();
+static SCHEDULER_STATE: AtomicWrapper<SchedulerState> = AtomicWrapper::empty();
 static mut SCHEDULER: Option<Box<Scheduler>> = None;
 static mut THREAD_POOL: ThreadPool = ThreadPool::new();
 static PROCESS_POOL: ProcessPool = ProcessPool::new();
@@ -62,7 +62,7 @@ pub enum SchedulerState {
     FullThrottle,
 }
 
-impl const Default for SchedulerState {
+impl Default for SchedulerState {
     #[inline]
     fn default() -> Self {
         Self::Disabled
@@ -81,14 +81,14 @@ impl SchedulerState {
     }
 }
 
-impl const From<SchedulerState> for usize {
+impl From<SchedulerState> for usize {
     #[inline]
     fn from(val: SchedulerState) -> Self {
         val.as_raw()
     }
 }
 
-impl const From<usize> for SchedulerState {
+impl From<usize> for SchedulerState {
     #[inline]
     fn from(val: usize) -> Self {
         Self::from_raw(val)
@@ -1132,14 +1132,14 @@ impl Timer {
     }
 }
 
-impl const From<usize> for Timer {
+impl From<usize> for Timer {
     #[inline]
     fn from(value: usize) -> Self {
         Timer::from_isize(value as isize)
     }
 }
 
-impl const From<Timer> for usize {
+impl From<Timer> for usize {
     #[inline]
     fn from(value: Timer) -> Self {
         value.into_isize() as usize
@@ -1164,7 +1164,7 @@ impl TimeSpec {
     }
 }
 
-impl const Add<Self> for TimeSpec {
+impl Add<Self> for TimeSpec {
     type Output = Self;
     #[inline]
     fn add(self, rhs: Self) -> Self::Output {
@@ -1320,7 +1320,7 @@ impl Quantum {
     }
 }
 
-impl const From<Priority> for Quantum {
+impl From<Priority> for Quantum {
     fn from(priority: Priority) -> Self {
         match priority {
             Priority::High => Quantum::new(25),
@@ -1446,7 +1446,7 @@ impl ProcessId {
     }
 }
 
-impl const From<ProcessId> for usize {
+impl From<ProcessId> for usize {
     #[inline]
     fn from(val: ProcessId) -> Self {
         val.0

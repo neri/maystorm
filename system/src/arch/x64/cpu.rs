@@ -745,12 +745,12 @@ impl DescriptorEntry {
     }
 
     #[inline]
-    pub const fn flat_code_segment(dpl: PrivilegeLevel, size: DefaultSize) -> DescriptorEntry {
+    pub fn flat_code_segment(dpl: PrivilegeLevel, size: DefaultSize) -> DescriptorEntry {
         Self::code_segment(Linear32(0), Limit32::MAX, dpl, size)
     }
 
     #[inline]
-    pub const fn code_segment(
+    pub fn code_segment(
         base: Linear32,
         limit: Limit32,
         dpl: PrivilegeLevel,
@@ -767,16 +767,12 @@ impl DescriptorEntry {
     }
 
     #[inline]
-    pub const fn flat_data_segment(dpl: PrivilegeLevel) -> DescriptorEntry {
+    pub fn flat_data_segment(dpl: PrivilegeLevel) -> DescriptorEntry {
         Self::data_segment(Linear32(0), Limit32::MAX, dpl)
     }
 
     #[inline]
-    pub const fn data_segment(
-        base: Linear32,
-        limit: Limit32,
-        dpl: PrivilegeLevel,
-    ) -> DescriptorEntry {
+    pub fn data_segment(base: Linear32, limit: Limit32, dpl: PrivilegeLevel) -> DescriptorEntry {
         DescriptorEntry(
             0x0000_1200_0000_0000u64
                 | base.as_segment_base()
@@ -788,7 +784,7 @@ impl DescriptorEntry {
     }
 
     #[inline]
-    pub const fn tss_descriptor(base: Linear64, limit: Limit16) -> DescriptorPair {
+    pub fn tss_descriptor(base: Linear64, limit: Limit16) -> DescriptorPair {
         let (base_low, base_high) = base.as_segment_base_pair();
         let low = DescriptorEntry(
             DescriptorType::Tss.as_descriptor_entry()
@@ -801,7 +797,7 @@ impl DescriptorEntry {
     }
 
     #[inline]
-    pub const fn gate_descriptor(
+    pub fn gate_descriptor(
         offset: Offset64,
         sel: Selector,
         dpl: PrivilegeLevel,
@@ -848,15 +844,11 @@ impl DescriptorEntry {
     }
 }
 
-#[const_trait]
 pub trait AsDescriptorEntry {
     fn as_descriptor_entry(&self) -> u64;
 }
 
-impl<T: AsDescriptorEntry> const AsDescriptorEntry for Option<T>
-where
-    T: ~const AsDescriptorEntry,
-{
+impl<T: AsDescriptorEntry> AsDescriptorEntry for Option<T> {
     fn as_descriptor_entry(&self) -> u64 {
         match self {
             Some(v) => v.as_descriptor_entry(),
@@ -994,7 +986,7 @@ impl GlobalDescriptorTable {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Limit16(pub u16);
 
-impl const AsDescriptorEntry for Limit16 {
+impl AsDescriptorEntry for Limit16 {
     #[inline]
     fn as_descriptor_entry(&self) -> u64 {
         self.0 as u64
@@ -1010,7 +1002,7 @@ impl Limit32 {
     pub const MAX: Self = Self(u32::MAX);
 }
 
-impl const AsDescriptorEntry for Limit32 {
+impl AsDescriptorEntry for Limit32 {
     #[inline]
     fn as_descriptor_entry(&self) -> u64 {
         let limit = self.0;
@@ -1112,7 +1104,7 @@ impl Selector {
     }
 }
 
-impl const AsDescriptorEntry for Selector {
+impl AsDescriptorEntry for Selector {
     #[inline]
     fn as_descriptor_entry(&self) -> u64 {
         (self.0 as u64) << 16
@@ -1145,14 +1137,14 @@ impl PrivilegeLevel {
     }
 }
 
-impl const AsDescriptorEntry for PrivilegeLevel {
+impl AsDescriptorEntry for PrivilegeLevel {
     #[inline]
     fn as_descriptor_entry(&self) -> u64 {
         (*self as u64) << 45
     }
 }
 
-impl const From<usize> for PrivilegeLevel {
+impl From<usize> for PrivilegeLevel {
     #[inline]
     fn from(value: usize) -> Self {
         Self::from_usize(value)
@@ -1169,7 +1161,7 @@ pub enum DescriptorType {
     TrapGate = 15,
 }
 
-impl const AsDescriptorEntry for DescriptorType {
+impl AsDescriptorEntry for DescriptorType {
     #[inline]
     fn as_descriptor_entry(&self) -> u64 {
         let ty = *self as u64;
@@ -1291,7 +1283,7 @@ impl ExceptionType {
     }
 }
 
-impl const From<ExceptionType> for InterruptVector {
+impl From<ExceptionType> for InterruptVector {
     #[inline]
     fn from(ex: ExceptionType) -> Self {
         InterruptVector(ex as u8)
@@ -1345,7 +1337,7 @@ pub enum DefaultSize {
     Use64 = 0x0020_0000_0000_0000,
 }
 
-impl const AsDescriptorEntry for DefaultSize {
+impl AsDescriptorEntry for DefaultSize {
     #[inline]
     fn as_descriptor_entry(&self) -> u64 {
         *self as u64
@@ -1353,6 +1345,11 @@ impl const AsDescriptorEntry for DefaultSize {
 }
 
 impl DefaultSize {
+    #[inline]
+    pub const fn as_descriptor_entry(&self) -> u64 {
+        *self as u64
+    }
+
     #[inline]
     pub const fn from_descriptor(value: DescriptorEntry) -> Option<Self> {
         if value.is_code_segment() {
@@ -1388,7 +1385,7 @@ pub enum InterruptStackTable {
     IST7,
 }
 
-impl const AsDescriptorEntry for InterruptStackTable {
+impl AsDescriptorEntry for InterruptStackTable {
     #[inline]
     fn as_descriptor_entry(&self) -> u64 {
         (*self as u64) << 32

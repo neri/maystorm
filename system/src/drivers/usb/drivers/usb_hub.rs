@@ -705,7 +705,7 @@ impl UsbHub2PortFeatureSel {
     }
 }
 
-impl const From<UsbHub2PortFeatureSel> for u16 {
+impl From<UsbHub2PortFeatureSel> for u16 {
     #[inline]
     fn from(val: UsbHub2PortFeatureSel) -> Self {
         val as u16
@@ -749,7 +749,7 @@ impl UsbHub3PortFeatureSel {
     }
 }
 
-impl const From<UsbHub3PortFeatureSel> for u16 {
+impl From<UsbHub3PortFeatureSel> for u16 {
     #[inline]
     fn from(val: UsbHub3PortFeatureSel) -> Self {
         val as u16

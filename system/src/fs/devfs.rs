@@ -220,7 +220,7 @@ impl From<&ThisFsInodeEntry> for FsRawMetaData {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MajorDevNo(NonZeroU32);
 
-impl const From<MajorDevNo> for INodeType {
+impl From<MajorDevNo> for INodeType {
     #[inline]
     fn from(value: MajorDevNo) -> Self {
         unsafe { INodeType::new_unchecked((value.0.get() as u64) << 48) }
@@ -244,7 +244,7 @@ impl TryFrom<INodeType> for MajorDevNo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MinorDevNo(NonZeroU32);
 
-impl const From<MinorDevNo> for INodeType {
+impl From<MinorDevNo> for INodeType {
     #[inline]
     fn from(value: MinorDevNo) -> Self {
         unsafe { INodeType::new_unchecked(value.0.get() as u64) }
@@ -278,9 +278,9 @@ pub struct DeviceCharacteristics {
     pub size: usize,
 }
 
-impl const Default for DeviceCharacteristics {
+impl DeviceCharacteristics {
     #[inline]
-    fn default() -> Self {
+    pub const fn default() -> Self {
         Self {
             file_type: FileType::CharDev,
             size: 0,
@@ -288,7 +288,14 @@ impl const Default for DeviceCharacteristics {
     }
 }
 
-static DEFAULT_DEV_INFO: DeviceCharacteristics = Default::default();
+impl Default for DeviceCharacteristics {
+    #[inline]
+    fn default() -> Self {
+        Self::default()
+    }
+}
+
+static DEFAULT_DEV_INFO: DeviceCharacteristics = DeviceCharacteristics::default();
 
 pub trait DeviceAccessToken {
     fn info(&self) -> &DeviceCharacteristics {

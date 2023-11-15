@@ -53,7 +53,7 @@ impl<T: ?Sized> SpinMutex<T> {
     }
 }
 
-impl<T> const From<T> for SpinMutex<T> {
+impl<T> From<T> for SpinMutex<T> {
     #[inline]
     fn from(t: T) -> Self {
         Self::new(t)

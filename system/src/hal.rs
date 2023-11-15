@@ -15,7 +15,6 @@ impl !Send for InterruptGuard {}
 
 impl !Sync for InterruptGuard {}
 
-#[const_trait]
 pub trait HalTrait {
     fn cpu() -> impl HalCpu;
 
@@ -243,7 +242,7 @@ impl Default for PhysicalAddress {
     }
 }
 
-impl const Add<usize> for PhysicalAddress {
+impl Add<usize> for PhysicalAddress {
     type Output = Self;
 
     #[inline]
@@ -252,7 +251,7 @@ impl const Add<usize> for PhysicalAddress {
     }
 }
 
-impl const Add<PhysicalAddressRepr> for PhysicalAddress {
+impl Add<PhysicalAddressRepr> for PhysicalAddress {
     type Output = Self;
 
     #[inline]
@@ -261,7 +260,7 @@ impl const Add<PhysicalAddressRepr> for PhysicalAddress {
     }
 }
 
-impl const Sub<PhysicalAddress> for PhysicalAddress {
+impl Sub<PhysicalAddress> for PhysicalAddress {
     type Output = usize;
 
     #[inline]
@@ -270,7 +269,7 @@ impl const Sub<PhysicalAddress> for PhysicalAddress {
     }
 }
 
-impl const Sub<usize> for PhysicalAddress {
+impl Sub<usize> for PhysicalAddress {
     type Output = Self;
 
     #[inline]
@@ -279,7 +278,7 @@ impl const Sub<usize> for PhysicalAddress {
     }
 }
 
-impl const Mul<usize> for PhysicalAddress {
+impl Mul<usize> for PhysicalAddress {
     type Output = Self;
 
     fn mul(self, rhs: usize) -> Self::Output {
@@ -287,7 +286,7 @@ impl const Mul<usize> for PhysicalAddress {
     }
 }
 
-impl const Mul<PhysicalAddressRepr> for PhysicalAddress {
+impl Mul<PhysicalAddressRepr> for PhysicalAddress {
     type Output = Self;
 
     fn mul(self, rhs: PhysicalAddressRepr) -> Self::Output {
@@ -295,7 +294,7 @@ impl const Mul<PhysicalAddressRepr> for PhysicalAddress {
     }
 }
 
-impl const BitAnd<PhysicalAddressRepr> for PhysicalAddress {
+impl BitAnd<PhysicalAddressRepr> for PhysicalAddress {
     type Output = Self;
 
     #[inline]
@@ -304,7 +303,7 @@ impl const BitAnd<PhysicalAddressRepr> for PhysicalAddress {
     }
 }
 
-impl const BitAnd<PhysicalAddress> for PhysicalAddressRepr {
+impl BitAnd<PhysicalAddress> for PhysicalAddressRepr {
     type Output = Self;
 
     fn bitand(self, rhs: PhysicalAddress) -> Self::Output {
@@ -312,7 +311,7 @@ impl const BitAnd<PhysicalAddress> for PhysicalAddressRepr {
     }
 }
 
-impl const BitOr<PhysicalAddressRepr> for PhysicalAddress {
+impl BitOr<PhysicalAddressRepr> for PhysicalAddress {
     type Output = Self;
 
     #[inline]
@@ -321,7 +320,7 @@ impl const BitOr<PhysicalAddressRepr> for PhysicalAddress {
     }
 }
 
-impl const Not for PhysicalAddress {
+impl Not for PhysicalAddress {
     type Output = Self;
 
     fn not(self) -> Self::Output {
@@ -329,14 +328,14 @@ impl const Not for PhysicalAddress {
     }
 }
 
-impl const From<PhysicalAddressRepr> for PhysicalAddress {
+impl From<PhysicalAddressRepr> for PhysicalAddress {
     #[inline]
     fn from(val: PhysicalAddressRepr) -> Self {
         Self::new(val)
     }
 }
 
-impl const From<PhysicalAddress> for PhysicalAddressRepr {
+impl From<PhysicalAddress> for PhysicalAddressRepr {
     #[inline]
     fn from(val: PhysicalAddress) -> Self {
         val.as_repr()
@@ -377,7 +376,7 @@ impl NonNullPhysicalAddress {
     }
 
     #[inline]
-    pub const fn new(val: PhysicalAddress) -> Option<Self> {
+    pub fn new(val: PhysicalAddress) -> Option<Self> {
         NonZeroPhysicalAddressRepr::new(val.as_repr()).map(Self)
     }
 
@@ -387,7 +386,7 @@ impl NonNullPhysicalAddress {
     }
 }
 
-impl const From<NonNullPhysicalAddress> for PhysicalAddress {
+impl From<NonNullPhysicalAddress> for PhysicalAddress {
     #[inline]
     fn from(val: NonNullPhysicalAddress) -> Self {
         val.get()

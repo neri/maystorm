@@ -90,7 +90,7 @@ pub struct BitmapScreen<'a> {
 
 impl<'a> BitmapScreen<'a> {
     #[inline]
-    pub const fn new(bitmap: BitmapRefMut32<'a>) -> Self {
+    pub fn new(bitmap: BitmapRefMut32<'a>) -> Self {
         Self {
             dims: bitmap.size(),
             fb: UnsafeCell::new(bitmap),

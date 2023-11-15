@@ -425,7 +425,7 @@ macro_rules! define_bitmap {
                 slice: UnsafeCell<Box<[$slice_type]>>,
             }
 
-            impl const Drawable for [<BitmapRef $suffix>]<'_> {
+            impl Drawable for [<BitmapRef $suffix>]<'_> {
                 type ColorType = $color_type;
 
                 #[inline]
@@ -434,7 +434,7 @@ macro_rules! define_bitmap {
                 }
             }
 
-            impl const Drawable for [<BitmapRefMut $suffix>]<'_> {
+            impl Drawable for [<BitmapRefMut $suffix>]<'_> {
                 type ColorType = $color_type;
 
                 #[inline]
@@ -443,7 +443,7 @@ macro_rules! define_bitmap {
                 }
             }
 
-            impl const Drawable for [<OwnedBitmap $suffix>] {
+            impl Drawable for [<OwnedBitmap $suffix>] {
                 type ColorType = $color_type;
 
                 #[inline]
@@ -454,13 +454,11 @@ macro_rules! define_bitmap {
 
             impl<'a> [<BitmapRef $suffix>]<'a> {
                 #[inline]
-                pub const fn from_slice(
+                pub fn from_slice(
                     slice: &'a [$slice_type],
                     size: Size,
                     stride: Option<NonZeroUsize>,
                 ) -> Self
-                where
-                    <Self as Drawable>::ColorType: ~const PixelColor,
                 {
                     Self {
                         size,
@@ -473,9 +471,7 @@ macro_rules! define_bitmap {
                 }
 
                 #[inline]
-                pub const fn from_bytes(bytes: &'a [$inner_type], size: Size) -> Self
-                where
-                    <Self as Drawable>::ColorType: ~const PixelColor
+                pub fn from_bytes(bytes: &'a [$inner_type], size: Size) -> Self
                 {
                     Self {
                         size,
@@ -496,13 +492,11 @@ macro_rules! define_bitmap {
 
             impl<'a> [<BitmapRefMut $suffix>]<'a> {
                 #[inline]
-                pub const fn from_slice(
+                pub fn from_slice(
                     slice: &'a mut [$slice_type],
                     size: Size,
                     stride: Option<NonZeroUsize>,
                 ) -> Self
-                where
-                    <Self as Drawable>::ColorType: ~const PixelColor
                 {
                     Self {
                         size,
@@ -515,9 +509,7 @@ macro_rules! define_bitmap {
                 }
 
                 #[inline]
-                pub const fn from_bytes(bytes: &'a mut [$inner_type], size: Size) -> Self
-                where
-                    <Self as Drawable>::ColorType: ~const PixelColor
+                pub fn from_bytes(bytes: &'a mut [$inner_type], size: Size) -> Self
                 {
                     Self {
                         size,
@@ -573,21 +565,21 @@ macro_rules! define_bitmap {
                 }
             }
 
-            impl<'a> const AsRef<[<BitmapRef $suffix>]<'a>> for [<BitmapRef $suffix>]<'a> {
+            impl<'a> AsRef<[<BitmapRef $suffix>]<'a>> for [<BitmapRef $suffix>]<'a> {
                 #[inline]
                 fn as_ref(&self) -> &Self {
                     self
                 }
             }
 
-            impl<'a> const AsRef<[<BitmapRef $suffix>]<'a>> for [<BitmapRefMut $suffix>]<'a> {
+            impl<'a> AsRef<[<BitmapRef $suffix>]<'a>> for [<BitmapRefMut $suffix>]<'a> {
                 #[inline]
                 fn as_ref(&self) -> &[<BitmapRef $suffix>]<'a> {
                     unsafe { transmute(self) }
                 }
             }
 
-            impl<'a> const AsMut<[<BitmapRefMut $suffix>]<'a>> for [<BitmapRefMut $suffix>]<'a> {
+            impl<'a> AsMut<[<BitmapRefMut $suffix>]<'a>> for [<BitmapRefMut $suffix>]<'a> {
                 #[inline]
                 fn as_mut(&mut self) -> &mut [<BitmapRefMut $suffix>]<'a> {
                     self
@@ -611,14 +603,14 @@ macro_rules! define_bitmap {
                 }
             }
 
-            impl<'a> const AsRef<[<BitmapRef $suffix>]<'a>> for [<OwnedBitmap $suffix>] {
+            impl<'a> AsRef<[<BitmapRef $suffix>]<'a>> for [<OwnedBitmap $suffix>] {
                 #[inline]
                 fn as_ref(&self) -> &[<BitmapRef $suffix>]<'a> {
                     unsafe { transmute(self) }
                 }
             }
 
-            impl<'a> const AsMut<[<BitmapRefMut $suffix>]<'a>> for [<OwnedBitmap $suffix>] {
+            impl<'a> AsMut<[<BitmapRefMut $suffix>]<'a>> for [<OwnedBitmap $suffix>] {
                 #[inline]
                 fn as_mut(&mut self) -> &mut [<BitmapRefMut $suffix>]<'a> {
                     unsafe { transmute(self) }
@@ -1119,7 +1111,7 @@ pub enum BitmapRef<'a> {
     Argb32(&'a BitmapRef32<'a>),
 }
 
-impl const Drawable for BitmapRef<'_> {
+impl Drawable for BitmapRef<'_> {
     type ColorType = Color;
 
     #[inline]
@@ -1141,35 +1133,35 @@ impl GetPixel for BitmapRef<'_> {
     }
 }
 
-impl<'a> const From<&'a BitmapRef8<'a>> for BitmapRef<'a> {
+impl<'a> From<&'a BitmapRef8<'a>> for BitmapRef<'a> {
     #[inline]
     fn from(val: &'a BitmapRef8<'a>) -> BitmapRef<'a> {
         BitmapRef::Indexed(val)
     }
 }
 
-impl<'a> const From<&'a BitmapRefMut8<'a>> for BitmapRef<'a> {
+impl<'a> From<&'a BitmapRefMut8<'a>> for BitmapRef<'a> {
     #[inline]
     fn from(val: &'a BitmapRefMut8<'a>) -> Self {
         BitmapRef::Indexed(unsafe { transmute(val) })
     }
 }
 
-impl<'a> const From<&'a BitmapRef32<'a>> for BitmapRef<'a> {
+impl<'a> From<&'a BitmapRef32<'a>> for BitmapRef<'a> {
     #[inline]
     fn from(val: &'a BitmapRef32<'a>) -> BitmapRef {
         BitmapRef::Argb32(val)
     }
 }
 
-impl<'a> const From<&'a BitmapRefMut32<'a>> for BitmapRef<'a> {
+impl<'a> From<&'a BitmapRefMut32<'a>> for BitmapRef<'a> {
     #[inline]
     fn from(val: &'a BitmapRefMut32<'a>) -> Self {
         BitmapRef::Argb32(unsafe { transmute(val) })
     }
 }
 
-impl<'a> const AsRef<BitmapRef<'a>> for BitmapRef<'a> {
+impl<'a> AsRef<BitmapRef<'a>> for BitmapRef<'a> {
     fn as_ref(&self) -> &BitmapRef<'a> {
         self
     }
@@ -1180,7 +1172,7 @@ pub enum BitmapRefMut<'a> {
     Argb32(BitmapRefMut32<'a>),
 }
 
-impl const Drawable for BitmapRefMut<'_> {
+impl Drawable for BitmapRefMut<'_> {
     type ColorType = Color;
 
     #[inline]
@@ -1194,7 +1186,7 @@ impl const Drawable for BitmapRefMut<'_> {
 
 impl<'a> BitmapRefMut<'a> {
     #[inline]
-    pub const fn as_const(&'a self) -> BitmapRef<'a> {
+    pub fn as_const(&'a self) -> BitmapRef<'a> {
         match self {
             BitmapRefMut::Indexed(v) => BitmapRef::Indexed(v.as_ref()),
             BitmapRefMut::Argb32(v) => BitmapRef::Argb32(v.as_ref()),
@@ -1374,21 +1366,21 @@ impl<'a, 'b> Blt<BitmapRef32<'b>> for BitmapRefMut<'a> {
     }
 }
 
-impl<'a> const From<BitmapRefMut8<'a>> for BitmapRefMut<'a> {
+impl<'a> From<BitmapRefMut8<'a>> for BitmapRefMut<'a> {
     #[inline]
     fn from(val: BitmapRefMut8<'a>) -> BitmapRefMut<'a> {
         Self::Indexed(val)
     }
 }
 
-impl<'a> const From<BitmapRefMut32<'a>> for BitmapRefMut<'a> {
+impl<'a> From<BitmapRefMut32<'a>> for BitmapRefMut<'a> {
     #[inline]
     fn from(val: BitmapRefMut32<'a>) -> BitmapRefMut<'a> {
         Self::Argb32(val)
     }
 }
 
-impl<'a> const AsMut<BitmapRefMut<'a>> for BitmapRefMut<'a> {
+impl<'a> AsMut<BitmapRefMut<'a>> for BitmapRefMut<'a> {
     #[inline]
     fn as_mut(&mut self) -> &mut BitmapRefMut<'a> {
         self
@@ -1400,7 +1392,7 @@ pub enum OwnedBitmap {
     Argb32(OwnedBitmap32),
 }
 
-impl const Drawable for OwnedBitmap {
+impl Drawable for OwnedBitmap {
     type ColorType = Color;
 
     #[inline]
@@ -1447,14 +1439,14 @@ impl OwnedBitmap {
     }
 }
 
-impl const From<OwnedBitmap8> for OwnedBitmap {
+impl From<OwnedBitmap8> for OwnedBitmap {
     #[inline]
     fn from(val: OwnedBitmap8) -> Self {
         Self::Indexed(val)
     }
 }
 
-impl const From<OwnedBitmap32> for OwnedBitmap {
+impl From<OwnedBitmap32> for OwnedBitmap {
     #[inline]
     fn from(val: OwnedBitmap32) -> Self {
         Self::Argb32(val)
@@ -1476,7 +1468,7 @@ pub struct OperationalBitmap {
 
 impl PixelColor for u8 {}
 
-impl const Drawable for OperationalBitmap {
+impl Drawable for OperationalBitmap {
     type ColorType = u8;
 
     #[inline]

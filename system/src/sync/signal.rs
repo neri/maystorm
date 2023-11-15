@@ -9,6 +9,11 @@ pub struct SignallingObject {
 
 impl SignallingObject {
     #[inline]
+    pub const fn new() -> Self {
+        Self::_new(None)
+    }
+
+    #[inline]
     const fn _new(t: Option<ThreadHandle>) -> Self {
         Self {
             data: AtomicUsize::new(Self::_from_t(t)),
@@ -93,9 +98,9 @@ impl SignallingObject {
     }
 }
 
-impl const Default for SignallingObject {
+impl Default for SignallingObject {
     #[inline]
     fn default() -> Self {
-        Self::_new(None)
+        Self::new()
     }
 }

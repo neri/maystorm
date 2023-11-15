@@ -132,7 +132,7 @@ impl System {
             let gb = bytes >> 30;
             let mb = (100 * (bytes & 0x3FFF_FFFF)) / 0x4000_0000;
             log!(
-                "\n{} v{} (codename {}) {:?} {}C/{}T Memory {}.{:02}GB",
+                "{} v{} (codename {}) {:?} {}C/{}T Memory {}.{:02}GB",
                 System::name(),
                 System::version(),
                 System::codename(),
@@ -510,14 +510,14 @@ impl ProcessorIndex {
     }
 }
 
-impl const From<ProcessorIndex> for usize {
+impl From<ProcessorIndex> for usize {
     #[inline]
     fn from(value: ProcessorIndex) -> Self {
         value.0
     }
 }
 
-impl const From<usize> for ProcessorIndex {
+impl From<usize> for ProcessorIndex {
     #[inline]
     fn from(value: usize) -> Self {
         Self(value)

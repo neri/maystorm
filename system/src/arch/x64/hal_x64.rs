@@ -17,7 +17,7 @@ use core::{
 
 pub struct Hal;
 
-impl const HalTrait for Hal {
+impl HalTrait for Hal {
     #[inline]
     fn cpu() -> impl HalCpu {
         CpuImpl

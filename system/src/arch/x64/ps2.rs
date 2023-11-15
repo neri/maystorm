@@ -23,10 +23,10 @@ impl Ps2 {
 
     const fn new() -> Self {
         Self {
-            key_state: AtomicWrapperU8::default(),
-            mouse_phase: AtomicWrapperU8::default(),
-            mouse_buf_lead: AtomicWrapperU8::new(MouseLeadByte::empty()),
-            mouse_buf_x: AtomicWrapperU8::new(Ps2Data(0)),
+            key_state: AtomicWrapperU8::empty(),
+            mouse_phase: AtomicWrapperU8::empty(),
+            mouse_buf_lead: AtomicWrapperU8::empty(),
+            mouse_buf_x: AtomicWrapperU8::empty(),
             mouse_state: MouseState::empty(),
         }
     }
@@ -232,20 +232,20 @@ enum Ps2KeyState {
     PrefixE0,
 }
 
-impl const Default for Ps2KeyState {
+impl Default for Ps2KeyState {
     fn default() -> Self {
         Self::Default
     }
 }
 
-impl const From<u8> for Ps2KeyState {
+impl From<u8> for Ps2KeyState {
     #[inline]
     fn from(value: u8) -> Self {
         unsafe { transmute(value) }
     }
 }
 
-impl const From<Ps2KeyState> for u8 {
+impl From<Ps2KeyState> for u8 {
     #[inline]
     fn from(value: Ps2KeyState) -> Self {
         value as u8
@@ -275,13 +275,13 @@ impl MouseLeadByte {
     }
 }
 
-impl const From<Ps2Data> for MouseLeadByte {
+impl From<Ps2Data> for MouseLeadByte {
     fn from(data: Ps2Data) -> Self {
         MouseLeadByte::from_bits_retain(data.0)
     }
 }
 
-impl const Into<MouseButton> for MouseLeadByte {
+impl Into<MouseButton> for MouseLeadByte {
     fn into(self) -> MouseButton {
         MouseButton::from_bits_retain(self.bits() & MouseLeadByte::BUTTONS.bits())
     }
@@ -312,21 +312,21 @@ impl AtomicWrapperU8<Ps2MousePhase> {
     }
 }
 
-impl const Default for Ps2MousePhase {
+impl Default for Ps2MousePhase {
     #[inline]
     fn default() -> Self {
         Self::Ack
     }
 }
 
-impl const From<u8> for Ps2MousePhase {
+impl From<u8> for Ps2MousePhase {
     #[inline]
     fn from(value: u8) -> Self {
         unsafe { transmute(value) }
     }
 }
 
-impl const From<Ps2MousePhase> for u8 {
+impl From<Ps2MousePhase> for u8 {
     #[inline]
     fn from(value: Ps2MousePhase) -> Self {
         value as u8
@@ -359,14 +359,14 @@ impl Ps2Data {
     }
 }
 
-impl const From<u8> for Ps2Data {
+impl From<u8> for Ps2Data {
     #[inline]
     fn from(value: u8) -> Self {
         Self(value)
     }
 }
 
-impl const From<Ps2Data> for u8 {
+impl From<Ps2Data> for u8 {
     #[inline]
     fn from(value: Ps2Data) -> Self {
         value.0

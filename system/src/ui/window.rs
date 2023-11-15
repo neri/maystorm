@@ -1031,7 +1031,7 @@ my_bitflags! {
     }
 }
 
-impl const Default for WindowManagerAttributes {
+impl Default for WindowManagerAttributes {
     #[inline]
     fn default() -> Self {
         Self::POINTER_VISIBLE
@@ -1046,7 +1046,7 @@ pub enum ViewActionState {
     Disabled,
 }
 
-impl const Default for ViewActionState {
+impl Default for ViewActionState {
     #[inline]
     fn default() -> Self {
         Self::Normal
@@ -1112,7 +1112,7 @@ my_bitflags! {
     }
 }
 
-impl const Default for WindowStyle {
+impl Default for WindowStyle {
     #[inline]
     fn default() -> Self {
         Self::DEFAULT
@@ -1120,7 +1120,9 @@ impl const Default for WindowStyle {
 }
 
 impl WindowStyle {
-    pub const DEFAULT: Self = Self::BORDER | Self::TITLE | Self::CLOSE_BUTTON;
+    pub const DEFAULT: Self = Self::from_bits_retain(
+        Self::BORDER.bits() | Self::TITLE.bits() | Self::CLOSE_BUTTON.bits(),
+    );
 
     fn as_content_insets(self) -> EdgeInsets {
         let insets = if self.contains(Self::BORDER) {

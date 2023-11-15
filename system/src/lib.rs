@@ -5,12 +5,8 @@
 #![feature(async_closure)]
 #![feature(box_into_inner)]
 #![feature(cfg_target_has_atomic)]
-#![feature(const_convert)]
 #![feature(const_maybe_uninit_zeroed)]
 #![feature(const_mut_refs)]
-#![feature(const_option_ext)]
-#![feature(const_refs_to_cell)]
-#![feature(const_trait_impl)]
 #![feature(control_flow_enum)]
 #![feature(core_intrinsics)]
 #![feature(default_free_fn)]
@@ -254,7 +250,7 @@ macro_rules! my_bitflags {
             }
         }
 
-        impl const core::ops::Not for $class {
+        impl core::ops::Not for $class {
             type Output = Self;
 
             #[inline]
@@ -263,7 +259,7 @@ macro_rules! my_bitflags {
             }
         }
 
-        impl const core::ops::BitAnd<Self> for $class {
+        impl core::ops::BitAnd<Self> for $class {
             type Output = Self;
 
             #[inline]
@@ -272,14 +268,14 @@ macro_rules! my_bitflags {
             }
         }
 
-        impl const core::ops::BitAndAssign<Self> for $class {
+        impl core::ops::BitAndAssign<Self> for $class {
             #[inline]
             fn bitand_assign(&mut self, rhs: Self) {
                 self.0 &= rhs.0;
             }
         }
 
-        impl const core::ops::BitOr<Self> for $class {
+        impl core::ops::BitOr<Self> for $class {
             type Output = Self;
 
             #[inline]
@@ -288,14 +284,14 @@ macro_rules! my_bitflags {
             }
         }
 
-        impl const core::ops::BitOrAssign<Self> for $class {
+        impl core::ops::BitOrAssign<Self> for $class {
             #[inline]
             fn bitor_assign(&mut self, rhs: Self) {
                 self.0 |= rhs.0;
             }
         }
 
-        impl const core::ops::BitXor<Self> for $class {
+        impl core::ops::BitXor<Self> for $class {
             type Output = Self;
 
             #[inline]
@@ -304,14 +300,14 @@ macro_rules! my_bitflags {
             }
         }
 
-        impl const core::ops::BitXorAssign<Self> for $class {
+        impl core::ops::BitXorAssign<Self> for $class {
             #[inline]
             fn bitxor_assign(&mut self, rhs: Self) {
                 self.0 ^= rhs.0;
             }
         }
 
-        impl const core::ops::Sub<Self> for $class {
+        impl core::ops::Sub<Self> for $class {
             type Output = Self;
 
             #[inline]
@@ -320,21 +316,21 @@ macro_rules! my_bitflags {
             }
         }
 
-        impl const core::ops::SubAssign<Self> for $class {
+        impl core::ops::SubAssign<Self> for $class {
             #[inline]
             fn sub_assign(&mut self, rhs: Self) {
                 self.0 &= !rhs.0;
             }
         }
 
-        impl const From<$ty> for $class {
+        impl From<$ty> for $class {
             #[inline]
             fn from(val: $ty) -> $class {
                 $class::from_bits_retain(val)
             }
         }
 
-        impl const From<$class> for $ty {
+        impl From<$class> for $ty {
             #[inline]
             fn from(val: $class) -> $ty {
                 val.0

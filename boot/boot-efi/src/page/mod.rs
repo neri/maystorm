@@ -25,28 +25,28 @@ impl VirtualAddress {
     }
 }
 
-impl const Add<u32> for VirtualAddress {
+impl Add<u32> for VirtualAddress {
     type Output = Self;
     fn add(self, rhs: u32) -> Self {
         VirtualAddress(self.0 + rhs as IntPtr)
     }
 }
 
-impl const Add<u64> for VirtualAddress {
+impl Add<u64> for VirtualAddress {
     type Output = Self;
     fn add(self, rhs: u64) -> Self {
         VirtualAddress(self.0 + rhs as IntPtr)
     }
 }
 
-impl const Add<usize> for VirtualAddress {
+impl Add<usize> for VirtualAddress {
     type Output = Self;
     fn add(self, rhs: usize) -> Self {
         VirtualAddress(self.0 + rhs as IntPtr)
     }
 }
 
-impl const Sub<usize> for VirtualAddress {
+impl Sub<usize> for VirtualAddress {
     type Output = Self;
     fn sub(self, rhs: usize) -> Self {
         VirtualAddress(self.0 - rhs as IntPtr)

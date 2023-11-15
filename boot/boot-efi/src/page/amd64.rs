@@ -392,7 +392,7 @@ impl PageTableEntry {
     }
 }
 
-impl const From<PhysicalAddress> for PageTableEntry {
+impl From<PhysicalAddress> for PageTableEntry {
     #[inline]
     fn from(value: PhysicalAddress) -> Self {
         Self { repr: value }

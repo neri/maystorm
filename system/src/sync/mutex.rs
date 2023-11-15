@@ -59,7 +59,7 @@ impl<T: ?Sized> Mutex<T> {
     }
 }
 
-impl<T> const From<T> for Mutex<T> {
+impl<T> From<T> for Mutex<T> {
     #[inline]
     fn from(t: T) -> Self {
         Self::new(t)

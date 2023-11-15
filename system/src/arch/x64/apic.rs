@@ -446,21 +446,21 @@ impl ApicId {
     }
 }
 
-impl const From<u8> for ApicId {
+impl From<u8> for ApicId {
     #[inline]
     fn from(val: u8) -> Self {
         Self(val)
     }
 }
 
-impl const From<u32> for ApicId {
+impl From<u32> for ApicId {
     #[inline]
     fn from(val: u32) -> Self {
         Self(val as u8)
     }
 }
 
-impl const From<usize> for ApicId {
+impl From<usize> for ApicId {
     #[inline]
     fn from(val: usize) -> Self {
         Self(val as u8)
@@ -508,7 +508,7 @@ impl Irq {
     }
 }
 
-impl const From<Irq> for InterruptVector {
+impl From<Irq> for InterruptVector {
     #[inline]
     fn from(irq: Irq) -> InterruptVector {
         irq.as_vec()
@@ -532,7 +532,7 @@ impl Msi {
     }
 }
 
-impl const From<Msi> for InterruptVector {
+impl From<Msi> for InterruptVector {
     #[inline]
     fn from(msi: Msi) -> Self {
         msi.as_vec()
