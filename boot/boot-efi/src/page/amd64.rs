@@ -69,7 +69,7 @@ impl PageManager {
         ) as usize as *const BootMemoryMapDescriptor
             as *mut BootMemoryMapDescriptor;
         info.mmap_base = buffer as usize as u32;
-        let buffer = slice::from_raw_parts_mut(buffer, mm_len);
+        let buffer = unsafe { slice::from_raw_parts_mut(buffer, mm_len) };
         let mut write_cursor = 0;
         let mut read_cursor = 0;
 

@@ -154,14 +154,6 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
     // Exit Boot Services
     //
 
-    // because some UEFI implementations require an additional buffer during exit_boot_services
-    // let mmap_size = st.boot_services().memory_map_size();
-    // let buf_size = mmap_size.map_size * 2;
-    // let buf_ptr = st
-    //     .boot_services()
-    //     .allocate_pool(MemoryType::LOADER_DATA, buf_size)
-    //     .unwrap();
-    // let buf = unsafe { core::slice::from_raw_parts_mut(buf_ptr, buf_size) };
     let (_st, mm) = st.exit_boot_services();
 
     // ------------------------------------------------------------------------
@@ -174,7 +166,7 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
         let new_sp = VirtualAddress(info.kernel_base + 0x3FFFF000);
         PageManager::valloc(new_sp - stack_size, stack_size);
 
-        // println!("hello, world");
+        println!("Starting kernel...");
         invocation.invoke_kernel(&info, entry, new_sp);
     }
 }

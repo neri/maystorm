@@ -1,9 +1,31 @@
 //! Kernel Invocation for x86-64
 
 use super::*;
-use core::arch::{asm, x86_64::__cpuid};
+use core::{
+    arch::{asm, global_asm, x86_64::__cpuid},
+    ffi::c_void,
+};
 
 pub struct Invocation();
+
+extern "C" {
+    fn _invoke_kernel_stub() -> !;
+    fn _end_invoke_kernel_stub() -> !;
+}
+
+global_asm!(
+    "
+.global _invoke_kernel_stub
+.global _end_invoke_kernel_stub
+_invoke_kernel_stub:
+    mov cr3, r8
+    .byte 0xEB, 0x00
+    lea rsp, [r10 - 0x20]
+    call r9
+    ud2
+_end_invoke_kernel_stub:
+"
+);
 
 impl Invocation {
     const IA32_EFER_MSR: u32 = 0xC000_0080;
@@ -38,40 +60,48 @@ impl Invoke for Invocation {
         entry: VirtualAddress,
         new_sp: VirtualAddress,
     ) -> ! {
-        // For Intel processors, unlock NXE disable. (Surface 3)
-        if self.is_intel_processor() {
+        unsafe {
+            // For Intel processors, unlock NXE disable. (Surface 3)
+            if self.is_intel_processor() {
+                asm!("
+                    rdmsr
+                    btr edx, 2
+                    wrmsr
+                    ",in("ecx") Self::IA32_MISC_ENABLE_MSR,
+                    out("eax")_,
+                    out("edx") _,
+                );
+            }
+
+            // Enable NXE
             asm!("
                 rdmsr
-                btr edx, 2
+                bts eax, 11
                 wrmsr
-                ",in("ecx") Self::IA32_MISC_ENABLE_MSR, out("eax")_, out("edx") _);
+                ", in("ecx") Self::IA32_EFER_MSR,
+                out("eax") _,
+                out("edx") _,
+            );
+
+            // Jump to Trampoline Code to avoid problems over 4GB
+            let base = _invoke_kernel_stub as usize;
+            let end = _end_invoke_kernel_stub as usize;
+            let count = end - base;
+            let kernel_stub = (0x0800usize) as *mut c_void;
+            kernel_stub.copy_from_nonoverlapping(base as *const _, count);
+
+            asm!(
+                "jmp rax",
+                in("rax") kernel_stub,
+                in("rcx") info,
+                in("rdx") 0,
+                in("rsi") 0,
+                in("rdi") info,
+                in("r8") info.master_cr3,
+                in("r9") entry.0,
+                in("r10") new_sp.0,
+                options(noreturn)
+            );
         }
-
-        // Enable NXE
-        asm!("
-            rdmsr
-            bts eax, 11
-            wrmsr
-            ", in("ecx") Self::IA32_EFER_MSR, out("eax") _, out("edx") _,);
-
-        // Sets up a new CR3
-        asm!("
-            mov cr3, {0}
-            .byte 0xEB, 0x00
-            ", in(reg) info.master_cr3);
-
-        asm!("
-            lea rsp, [{1} - 0x20]
-            call {0}
-            ud2
-            ",
-            in(reg) entry.0,
-            in(reg) new_sp.0,
-            in("rcx") info,
-            in("rdx") 0,
-            in("rsi") 0,
-            in("rdi") info,
-            options(noreturn)
-        );
     }
 }

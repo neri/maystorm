@@ -46,70 +46,75 @@ impl Invoke for Invocation {
         entry: VirtualAddress,
         new_sp: VirtualAddress,
     ) -> ! {
-        // Disable paging before entering Long Mode.
-        asm!("
-            mov {0}, cr0
-            btr {0}, 31
-            mov cr0, {0}
-            ", out(reg) _);
+        unsafe {
+            // Disable paging before entering Long Mode.
+            asm!("
+                mov {0}, cr0
+                btr {0}, 31
+                mov cr0, {0}
+                ", out(reg) _);
 
-        // For Intel processors, unlock NXE disable. (Surface 3)
-        if self.is_intel_processor() {
+            // For Intel processors, unlock NXE disable. (Surface 3)
+            if self.is_intel_processor() {
+                asm!("
+                    rdmsr
+                    btr edx, 2
+                    wrmsr
+                    ",in("ecx") Self::IA32_MISC_ENABLE_MSR,
+                    out("eax")_,
+                    out("edx") _,
+                );
+            }
+
+            // Set up a GDT for Long Mode
+            GDT.fix_up();
+            asm!("lgdt [{0}]", in(reg) &GDT);
+
+            // Set up a CR3 for Long Mode
+            asm!("mov cr3, {0}", in(reg) info.master_cr3 as usize);
+
+            // Enable NXE & LME
             asm!("
                 rdmsr
-                btr edx, 2
+                bts eax, 8
+                bts eax, 11
                 wrmsr
-                ",in("ecx") Self::IA32_MISC_ENABLE_MSR, out("eax")_, out("edx") _);
+                ", in("ecx") Self::IA32_EFER_MSR, out("eax") _, out("edx") _,);
+
+            // Enable PAE
+            asm!("
+                mov {0}, cr4
+                bts {0}, 5
+                mov cr4, {0}
+                ", out(reg) _);
+
+            // Enter to Long Mode
+            asm!("
+                mov {0}, cr0
+                bts {0}, 31
+                mov cr0, {0}
+                ", out(reg) _);
+
+            let params = [entry.0, new_sp.0 - 0x20];
+
+            // Trampoline code to jump to 64-bit kernel
+            asm!("
+                                                // [bits 32]
+                .byte 0x6a, 0x08                //      push 0x08
+                .byte 0xe8, 0x08, 0, 0, 0       //      call _jmpf
+                                                // [bits 64]
+                .byte 0x48, 0x8b, 0x60, 0x08    //      mov rsp, [rax + 8]
+                .byte 0xff, 0x10                //      call [rax + 0]
+                .byte 0x0f, 0x0b                //      ud2
+                                                // [bits 32]
+                                                // _jmpf:
+                .byte 0xff, 0x2c, 0x24          //      jmp far [esp]
+                ",
+                in("eax") &params,
+                in("edi") info,
+                options(noreturn),
+            );
         }
-
-        // Set up a GDT for Long Mode
-        GDT.fix_up();
-        asm!("lgdt [{0}]", in(reg) &GDT);
-
-        // Set up a CR3 for Long Mode
-        asm!("mov cr3, {0}", in(reg) info.master_cr3 as usize);
-
-        // Enable NXE & LME
-        asm!("
-            rdmsr
-            bts eax, 8
-            bts eax, 11
-            wrmsr
-            ", in("ecx") Self::IA32_EFER_MSR, out("eax") _, out("edx") _,);
-
-        // Enable PAE
-        asm!("
-            mov {0}, cr4
-            bts {0}, 5
-            mov cr4, {0}
-            ", out(reg) _);
-
-        // Enter to Long Mode
-        asm!("
-            mov {0}, cr0
-            bts {0}, 31
-            mov cr0, {0}
-            ", out(reg) _);
-
-        let params = [entry.0, new_sp.0 - 0x20];
-
-        // Trampoline code to jump to 64-bit kernel
-        asm!("
-                                            // [bits 32]
-            .byte 0x6a, 0x08                //      push 0x08
-            .byte 0xe8, 0x08, 0, 0, 0       //      call _jmpf
-                                            // [bits 64]
-            .byte 0x48, 0x8b, 0x60, 0x08    //      mov rsp, [rax + 8]
-            .byte 0xff, 0x10                //      call [rax + 0]
-            .byte 0x0f, 0x0b                //      ud2
-                                            // [bits 32]
-                                            // _jmpf:
-            .byte 0xff, 0x2c, 0x24          //      jmp far [esp]
-            ",
-            in("eax") &params,
-            in("edi") info,
-            options(noreturn)
-        );
     }
 }
 

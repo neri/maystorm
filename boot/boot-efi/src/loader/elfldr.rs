@@ -77,41 +77,43 @@ impl ImageLoader for ElfLoader<'_> {
     }
 
     unsafe fn locate(&self, _base: VirtualAddress) -> VirtualAddress {
-        let elf_hdr = self.elf_hdr;
-        let image_base = self.image_base;
-        let image_size = self.image_size;
+        unsafe {
+            let elf_hdr = self.elf_hdr;
+            let image_base = self.image_base;
+            let image_size = self.image_size;
 
-        // Step 1 - allocate memory
-        let page_mask = UEFI_PAGE_SIZE - 1;
-        let vmem = PageManager::valloc(image_base, image_size);
-        vmem.write_bytes(0, image_size);
+            // Step 1 - allocate memory
+            let page_mask = UEFI_PAGE_SIZE - 1;
+            let vmem = PageManager::valloc(image_base, image_size);
+            vmem.write_bytes(0, image_size);
 
-        // Step 2 - locate segments
-        for item in self.program_header() {
-            if item.p_type == SegmentType::LOAD {
-                let rva = (item.p_vaddr - image_base.as_u64()) as usize;
-                let p = vmem.add(rva);
-                let q: *const u8 = self.blob.as_ptr().add(item.p_offset as usize);
-                let z = item.p_filesz as usize;
-                copy_nonoverlapping(q, p, z);
+            // Step 2 - locate segments
+            for item in self.program_header() {
+                if item.p_type == SegmentType::LOAD {
+                    let rva = (item.p_vaddr - image_base.as_u64()) as usize;
+                    let p = vmem.add(rva);
+                    let q: *const u8 = self.blob.as_ptr().add(item.p_offset as usize);
+                    let z = item.p_filesz as usize;
+                    copy_nonoverlapping(q, p, z);
+                }
             }
-        }
 
-        // Step 3 - relocation
-        // nothing to do
+            // Step 3 - relocation
+            // nothing to do
 
-        // Step 4 - attributes
-        for item in self.program_header() {
-            if item.p_type == SegmentType::LOAD {
-                let va = VirtualAddress(item.p_vaddr & !page_mask);
-                let size =
-                    ((item.p_memsz + item.p_vaddr - va.as_u64() + page_mask) & !page_mask) as usize;
-                let prot = MProtect::from_bits_truncate(item.p_flags as u64);
-                PageManager::vprotect(va, size, prot);
+            // Step 4 - attributes
+            for item in self.program_header() {
+                if item.p_type == SegmentType::LOAD {
+                    let va = VirtualAddress(item.p_vaddr & !page_mask);
+                    let size = ((item.p_memsz + item.p_vaddr - va.as_u64() + page_mask)
+                        & !page_mask) as usize;
+                    let prot = MProtect::from_bits_truncate(item.p_flags as u64);
+                    PageManager::vprotect(va, size, prot);
+                }
             }
-        }
 
-        VirtualAddress(elf_hdr.e_entry)
+            VirtualAddress(elf_hdr.e_entry)
+        }
     }
 }
 
