@@ -432,6 +432,11 @@ impl PortSc {
     }
 
     #[inline]
+    pub const fn is_disabled(&self) -> bool {
+        !self.is_enabled()
+    }
+
+    #[inline]
     pub const fn is_powered(&self) -> bool {
         self.contains(Self::PP)
     }

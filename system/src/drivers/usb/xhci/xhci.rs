@@ -135,16 +135,18 @@ impl Xhci {
                 .unwrap()
                 .get() as PhysicalAddress;
 
-        // log!(
-        //     "XHCI {}.{}.{} PORTS {} SLOTS {} CTX {} INT {}",
-        //     cap.version().0,
-        //     cap.version().1,
-        //     cap.version().2,
-        //     cap.max_ports(),
-        //     cap.max_device_slots(),
-        //     context_size,
-        //     cap.max_interrups(),
-        // );
+        if false {
+            log!(
+                "XHCI {}.{}.{} PORTS {} SLOTS {} CTX {} INT {}",
+                cap.version().0,
+                cap.version().1,
+                cap.version().2,
+                cap.max_ports(),
+                cap.max_device_slots(),
+                context_size,
+                cap.max_interrups(),
+            );
+        }
 
         let driver = Arc::new(Self {
             addr: device.address(),
@@ -372,6 +374,8 @@ impl Xhci {
     }
 
     pub fn ring_a_doorbell(&self, slot_id: Option<SlotId>, dci: Option<DCI>) {
+        self.wait_cnr(0);
+        fence(Ordering::SeqCst);
         self.doorbells[slot_id.map(|v| v.0.get() as usize).unwrap_or_default()].set_target(dci);
     }
 
@@ -613,9 +617,9 @@ impl Xhci {
 
         let mut crb = DisposableRef::new(self.allocate_crb().unwrap());
         self.issue_trb(Some(crb.as_mut()), trb, None, None);
-        self.wait_cnr(0);
         self.ring_a_doorbell(None, None);
         crb.wait();
+        fence(Ordering::SeqCst);
         let result = match crb.response.as_event() {
             Some(TrbEvent::CommandCompletion(v)) => Some(v.copied()),
             _ => None,
@@ -985,14 +989,15 @@ impl Xhci {
     }
 
     pub async fn attach_root_device(self: &Arc<Self>, port_id: PortId) -> Option<UsbAddress> {
-        let port = self.port_by(port_id);
         self.wait_cnr(0);
+        let port = self.port_by(port_id);
 
         // log!(
-        //     "ATTACH_ROOT {:?} {:08x} PS {:04x}",
+        //     "ATTACH_ROOT {:?} {:08x} {:?} {:?}",
         //     port_id,
         //     port.status().bits(),
-        //     port.status().speed_raw()
+        //     port.status().link_state(),
+        //     port.status().speed(),
         // );
 
         let trb = Trb::new(TrbType::ENABLE_SLOT_COMMAND);
@@ -1028,7 +1033,7 @@ impl Xhci {
 
         self.configure_endpoint(slot_id, DCI::CONTROL, EpType::Control, 0, 0, false);
 
-        Timer::sleep(Duration::from_millis(10));
+        Timer::sleep_async(Duration::from_millis(10)).await;
 
         let trb = TrbAddressDeviceCommand::new(slot_id, input_context_pa);
         match self.execute_command(trb.as_trb()) {
@@ -1240,7 +1245,6 @@ impl Xhci {
                                 || locked_hub == Some(hub)
                                 || locked_hub == Some(slot_id)
                             {
-                                self.wait_cnr(0);
                                 self.ring_a_doorbell(slot_id, dci);
                             } else {
                                 retired.push_back(task);
@@ -1278,13 +1282,59 @@ impl Xhci {
     async fn _root_hub_task(self: Arc<Self>) {
         self.focus_hub(None);
 
-        for (_port_id, port) in self.usb3_ports() {
+        for (port_id, port) in self.usb3_ports() {
             self.wait_cnr(0);
-            port.set(PortSc::PR);
+            let status = port.status();
+            // log!(
+            //     "USB3 {:?} {:08x} {:?} {:?}",
+            //     port_id,
+            //     status.bits(),
+            //     status.link_state(),
+            //     status.speed(),
+            // );
+            if status.is_connected() {
+                if status.is_disabled() {
+                    let deadline = Timer::new(Duration::from_millis(100));
+                    loop {
+                        self.wait_cnr(0);
+                        if port.status().is_enabled() || deadline.is_expired() {
+                            break;
+                        }
+                        Timer::sleep_async(Duration::from_millis(1)).await;
+                    }
+
+                    // let status = port.status();
+                    // log!(
+                    //     "NEW_STAT {:08x} {:?} {:?}",
+                    //     status.bits(),
+                    //     status.link_state(),
+                    //     status.speed(),
+                    // );
+
+                    if port.status().is_enabled() {
+                        self._attach_root_port(port_id).await;
+                    } else {
+                        self.wait_cnr(0);
+                        port.set(PortSc::PR);
+                        // Timer::sleep_async(Duration::from_millis(10)).await;
+                    }
+                } else {
+                    self._attach_root_port(port_id).await;
+                }
+            }
         }
         for (_port_id, port) in self.usb2_ports() {
             self.wait_cnr(0);
+            // let status = port.status();
+            // log!(
+            //     "USB2 {:?} {:08x} {:?} {:?}",
+            //     _port_id,
+            //     status.bits(),
+            //     status.link_state(),
+            //     status.speed(),
+            // );
             port.set(PortSc::PR);
+            // Timer::sleep_async(Duration::from_millis(10)).await;
         }
 
         self.unfocus_hub(None);
@@ -1301,6 +1351,38 @@ impl Xhci {
                 self.port_by(port_id).clear_changes();
             }
             self.unfocus_hub(None);
+        }
+    }
+
+    pub async fn _attach_root_port(self: &Arc<Self>, port_id: PortId) {
+        let port = self.port_by(port_id);
+        self.wait_cnr(0);
+        let status = port.status();
+
+        if status.is_connected() && status.is_enabled() {
+            port.clear_changes();
+            self.attach_root_device(port_id).await;
+
+            self.slot_by_port(port_id)
+                    .and_then(|v| UsbManager::device_by_addr(UsbAddress::from(v.0)))
+                // .map(|device| {
+                //     log!(
+                //         "{:03}.{:03} VID {} PID {} class {} {}{}",
+                //         device.parent().map(|v| v.as_u8()).unwrap_or_default(),
+                //         device.addr().as_u8(),
+                //         device.vid(),
+                //         device.pid(),
+                //         device.class(),
+                //         if device.is_configured() { "" } else { "? " },
+                //         device.preferred_device_name().unwrap_or("Unknown Device"),
+                //     );
+                // })
+                ;
+        } else {
+            port.power_off();
+            Timer::sleep_async(Duration::from_millis(100)).await;
+            port.set(PortSc::PP | PortSc::PR);
+            log!("XHCI: PORT RESET TIMED OUT {}", port_id.0.get());
         }
     }
 
@@ -1331,34 +1413,7 @@ impl Xhci {
                     return;
                 }
 
-                let status = port.status();
-                if status.is_connected() && status.is_enabled() {
-                    port.clear_changes();
-                    self.attach_root_device(port_id).await;
-
-                    self.slot_by_port(port_id)
-                        .and_then(|v| UsbManager::device_by_addr(UsbAddress::from(v.0)))
-                    // .map(|device| {
-                    //     log!(
-                    //         "{:03}.{:03} VID {} PID {} class {} {}{}",
-                    //         device.parent().map(|v| v.as_u8()).unwrap_or_default(),
-                    //         device.addr().as_u8(),
-                    //         device.vid(),
-                    //         device.pid(),
-                    //         device.class(),
-                    //         if device.is_configured() { "" } else { "? " },
-                    //         device.preferred_device_name().unwrap_or("Unknown Device"),
-                    //     );
-                    // })
-                    ;
-                } else {
-                    port.power_off();
-                    Timer::sleep_async(Duration::from_millis(100)).await;
-                    port.set(PortSc::PP | PortSc::PR);
-                    log!("XHCI: PORT RESET TIMED OUT {}", port_id.0.get());
-                }
-
-                return;
+                self._attach_root_port(port_id).await;
             } else {
                 // log!("PORT {} is_disconnected", port_id.0.get());
 

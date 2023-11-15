@@ -170,7 +170,7 @@ pub trait TrbBase {
         let dest = self.raw_data();
         let src = src.raw_data();
         for index in 0..3 {
-            dest[index].store(src[index].load(Ordering::SeqCst), Ordering::SeqCst);
+            dest[index].store(src[index].load(Ordering::Acquire), Ordering::Release);
         }
         dest[3].store(
             src[3].load(Ordering::SeqCst) & 0xFFFF_FFFE | cycle.trb_value(),
@@ -185,7 +185,7 @@ pub trait TrbBase {
         let dest = self.raw_data();
         let src = src.raw_data();
         for index in 0..3 {
-            dest[index].store(src[index].load(Ordering::SeqCst), Ordering::SeqCst);
+            dest[index].store(src[index].load(Ordering::Acquire), Ordering::Release);
         }
         dest[3].store(
             (src[3].load(Ordering::SeqCst) & 0xFFFF_FFFE)
