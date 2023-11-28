@@ -752,18 +752,13 @@ impl LocalScheduler {
     }
 
     #[inline(never)]
-    unsafe fn switch_context(scheduler: &'static mut Self, next: ThreadHandle) {
-        scheduler._switch_context(next);
-    }
-
-    #[inline]
-    unsafe fn _switch_context(&mut self, next: ThreadHandle) {
-        let old_irql = self.raise_irql(Irql::Dispatch);
-        let current = self.current_thread();
+    unsafe fn switch_context(_self: &'static mut Self, next: ThreadHandle) {
+        let old_irql = _self.raise_irql(Irql::Dispatch);
+        let current = _self.current_thread();
         if current.as_ref().handle != next.as_ref().handle {
-            self.set_retired(current);
-            self.current.store(next.as_usize(), Ordering::SeqCst);
-            // drop(self);
+            _self.set_retired(current);
+            _self.current.store(next.as_usize(), Ordering::SeqCst);
+            let _self = ();
 
             {
                 let current = current._unsafe_weak().unwrap();
@@ -775,7 +770,7 @@ impl LocalScheduler {
                 .unwrap()
                 ._switch_context_after(old_irql);
         } else {
-            self.lower_irql(old_irql);
+            _self.lower_irql(old_irql);
         }
     }
 

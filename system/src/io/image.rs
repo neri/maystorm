@@ -7,12 +7,13 @@ use zune_jpeg::JpegDecoder;
 pub struct ImageLoader;
 
 impl ImageLoader {
-    pub fn load(blob: &[u8]) -> Result<OwnedBitmap, DecodeError> {
+    pub fn load(blob: &[u8]) -> Result<OwnedBitmap32, DecodeError> {
         let drivers = [
-            Self::_from_jpeg,
-            Self::_from_msdib,
             Self::_from_png,
+            Self::_from_jpeg,
             Self::_from_qoi,
+            Self::_from_mpic,
+            Self::_from_msdib,
         ];
         for driver in drivers {
             match driver(blob) {
@@ -25,55 +26,67 @@ impl ImageLoader {
     }
 
     #[inline]
-    fn _from_png(blob: &[u8]) -> Result<OwnedBitmap, DecodeError> {
+    fn _from_png(blob: &[u8]) -> Result<OwnedBitmap32, DecodeError> {
         png_decoder::decode(blob)
-            .map(|(header, pixels)| {
-                let width = header.width as usize;
-                let height = header.height as usize;
-                let vec = pixels
-                    .array_chunks::<4>()
-                    .map(|v| (v[0], v[1], v[2], Alpha8(v[3])))
-                    .map(|(r, g, b, a)| ColorComponents::from_rgba(r, g, b, a).into_true_color())
-                    .collect::<Vec<_>>();
-                OwnedBitmap32::from_vec(vec, Size::new(width as isize, height as isize)).into()
-            })
             .map_err(|err| match err {
                 png_decoder::DecodeError::InvalidMagicBytes => DecodeError::NotSupported,
                 _ => DecodeError::InvalidData,
             })
+            .map(|(header, pixels)| {
+                let size = Size::new(header.width as isize, header.height as isize);
+                OwnedBitmap32::from_vec_rgba(pixels, size)
+            })
     }
 
     #[inline]
-    fn _from_qoi(blob: &[u8]) -> Result<OwnedBitmap, DecodeError> {
+    fn _from_jpeg(blob: &[u8]) -> Result<OwnedBitmap32, DecodeError> {
+        let mut decoder = JpegDecoder::new(blob);
+        decoder
+            .decode_headers()
+            .map_err(|_| DecodeError::NotSupported)?;
+        let info = decoder.info().ok_or(DecodeError::InvalidData)?;
+        let pixels = decoder.decode().map_err(|_| DecodeError::InvalidData)?;
+        OwnedBitmap32::from_bytes_rgb(
+            &pixels,
+            Size::new(info.width as isize, info.height as isize),
+        )
+        .ok_or(DecodeError::InvalidData)
+    }
+
+    #[inline]
+    fn _from_qoi(blob: &[u8]) -> Result<OwnedBitmap32, DecodeError> {
         rapid_qoi::Qoi::decode_alloc(blob)
-            .map(|(qoi, pixels)| {
-                let vec = if qoi.colors.has_alpha() {
-                    pixels
-                        .array_chunks::<4>()
-                        .map(|v| (v[0], v[1], v[2], Alpha8(v[3])))
-                        .map(|(r, g, b, a)| {
-                            ColorComponents::from_rgba(r, g, b, a).into_true_color()
-                        })
-                        .collect::<Vec<_>>()
-                } else {
-                    pixels
-                        .array_chunks::<3>()
-                        .map(|v| (v[0], v[1], v[2]))
-                        .map(|(r, g, b)| ColorComponents::from_rgb(r, g, b).into_true_color())
-                        .collect::<Vec<_>>()
-                };
-                let size = Size::new(qoi.width as isize, qoi.height as isize);
-                OwnedBitmap32::from_vec(vec, size).into()
-            })
             .map_err(|err| match err {
                 rapid_qoi::DecodeError::NotEnoughData => DecodeError::OutOfMemory,
                 rapid_qoi::DecodeError::InvalidMagic => DecodeError::NotSupported,
                 _ => DecodeError::InvalidData,
             })
+            .and_then(|(qoi, pixels)| {
+                let size = Size::new(qoi.width as isize, qoi.height as isize);
+                if qoi.colors.has_alpha() {
+                    Some(OwnedBitmap32::from_vec_rgba(pixels, size))
+                } else {
+                    OwnedBitmap32::from_bytes_rgb(&pixels, size)
+                }
+                .ok_or(DecodeError::InvalidData)
+            })
     }
 
     #[inline]
-    fn _from_msdib(blob: &[u8]) -> Result<OwnedBitmap, DecodeError> {
+    fn _from_mpic(blob: &[u8]) -> Result<OwnedBitmap32, DecodeError> {
+        let decoder = mpic::Decoder::<()>::new(blob).ok_or(DecodeError::NotSupported)?;
+        let info = decoder.info();
+        let pixels = decoder
+            .decode_rgba()
+            .map_err(|_| DecodeError::InvalidData)?;
+        Ok(OwnedBitmap32::from_vec_rgba(
+            pixels,
+            Size::new(info.width() as isize, info.height() as isize),
+        ))
+    }
+
+    #[inline]
+    fn _from_msdib(blob: &[u8]) -> Result<OwnedBitmap32, DecodeError> {
         (LE::read_u16(blob) == 0x4D42)
             .then(|| ())
             .ok_or(DecodeError::NotSupported)?;
@@ -81,7 +94,7 @@ impl ImageLoader {
         let bpp = LE::read_u16(&blob[0x1C..0x1E]) as usize;
         matches!(bpp, 4 | 8 | 24 | 32)
             .then(|| ())
-            .ok_or(DecodeError::InvalidParameter)?;
+            .ok_or(DecodeError::InvalidData)?;
 
         let offset = LE::read_u32(&blob[0x0A..0x0E]) as usize;
         let pal_offset = LE::read_u32(&blob[0x0E..0x12]) as usize + 0x0E;
@@ -106,20 +119,14 @@ impl ImageLoader {
                         let c4 = blob[src] as usize;
                         let cl = c4 >> 4;
                         let cr = c4 & 0x0F;
-                        vec.push(TrueColor::from_rgb(LE::read_u32(
-                            &palette[cl * 4..cl * 4 + 4],
-                        )));
-                        vec.push(TrueColor::from_rgb(LE::read_u32(
-                            &palette[cr * 4..cr * 4 + 4],
-                        )));
+                        vec.push(TrueColor::from_rgb(LE::read_u32(&palette[cl * 4..cl * 4 + 4])));
+                        vec.push(TrueColor::from_rgb(LE::read_u32(&palette[cr * 4..cr * 4 + 4])));
                         src += bpp8;
                     }
                     if width2_f < width2_c {
                         let c4 = blob[src] as usize;
                         let cl = c4 >> 4;
-                        vec.push(TrueColor::from_rgb(LE::read_u32(
-                            &palette[cl * 4..cl * 4 + 4],
-                        )));
+                        vec.push(TrueColor::from_rgb(LE::read_u32(&palette[cl * 4..cl * 4 + 4])));
                     }
                 }
             }
@@ -129,9 +136,7 @@ impl ImageLoader {
                     let mut src = offset + (height - y - 1) * stride;
                     for _ in 0..width {
                         let ic = blob[src] as usize;
-                        vec.push(TrueColor::from_rgb(LE::read_u32(
-                            &palette[ic * 4..ic * 4 + 4],
-                        )));
+                        vec.push(TrueColor::from_rgb(LE::read_u32(&palette[ic * 4..ic * 4 + 4])));
                         src += bpp8;
                     }
                 }
@@ -140,10 +145,10 @@ impl ImageLoader {
                 for y in 0..height {
                     let mut src = offset + (height - y - 1) * stride;
                     for _ in 0..width {
-                        let b = blob[src] as u32;
-                        let g = blob[src + 1] as u32;
-                        let r = blob[src + 2] as u32;
-                        vec.push(TrueColor::from_rgb(b + g * 0x100 + r * 0x10000));
+                        let b = blob[src];
+                        let g = blob[src + 1];
+                        let r = blob[src + 2];
+                        vec.push(ColorComponents::from_rgb(r, g, b).into_true_color());
                         src += bpp8;
                     }
                 }
@@ -159,28 +164,7 @@ impl ImageLoader {
             }
             _ => unreachable!(),
         }
-        Ok(OwnedBitmap32::from_vec(vec, Size::new(width as isize, height as isize)).into())
-    }
-
-    #[inline]
-    fn _from_jpeg(blob: &[u8]) -> Result<OwnedBitmap, DecodeError> {
-        let mut decoder = JpegDecoder::new(blob);
-        decoder
-            .decode_headers()
-            .map_err(|_| DecodeError::NotSupported)?;
-        let info = decoder.info().ok_or(DecodeError::InvalidData)?;
-        let pixels = decoder.decode().map_err(|_| DecodeError::InvalidData)?;
-
-        let vec = pixels
-            .array_chunks::<3>()
-            .map(|v| (v[0], v[1], v[2], Alpha8::OPAQUE))
-            .map(|(r, g, b, a)| ColorComponents::from_rgba(r, g, b, a).into_true_color())
-            .collect::<Vec<_>>();
-
-        Ok(
-            OwnedBitmap32::from_vec(vec, Size::new(info.width as isize, info.height as isize))
-                .into(),
-        )
+        Ok(OwnedBitmap32::from_vec(vec, Size::new(width as isize, height as isize)))
     }
 }
 

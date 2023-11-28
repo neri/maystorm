@@ -233,6 +233,7 @@ impl LocalApic {
 }
 
 #[repr(u32)]
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ApicStatus {
     /// This processor is unusable.
@@ -241,7 +242,7 @@ pub enum ApicStatus {
     Enabled = 1,
     /// The system hardware supports enabling this processor while the OS is running.
     Usable = 2,
-    _Reserved,
+    // _Reserved,
 }
 
 /// I/O APIC

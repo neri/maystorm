@@ -120,7 +120,7 @@ impl FsDriver for RamFs {
 
     fn read_dir(&self, dir: INodeType, index: usize) -> Option<FsRawDirEntry> {
         let Some(dir) = self.get_entity(dir) else {
-            return None
+            return None;
         };
         match dir.content {
             ThisFsContent::File(_) => None,
@@ -130,7 +130,7 @@ impl FsDriver for RamFs {
 
     fn lookup(&self, dir: INodeType, lpc: &str) -> Result<INodeType> {
         let Some(dir) = self.get_entity(dir) else {
-            return Err(ErrorKind::NotFound.into())
+            return Err(ErrorKind::NotFound.into());
         };
 
         match dir.content {
@@ -208,7 +208,9 @@ impl FsDriver for RamFs {
                 None
             };
 
-            if let Some(ref new_) = new_ && old_.inode == new_.inode {
+            if let Some(ref new_) = new_
+                && old_.inode == new_.inode
+            {
                 return Ok(());
             }
 
@@ -247,7 +249,9 @@ impl FsDriver for RamFs {
                 None
             };
 
-            if let Some(ref new_) = new_ && old_.inode == new_.inode {
+            if let Some(ref new_) = new_
+                && old_.inode == new_.inode
+            {
                 return Ok(());
             }
 
@@ -359,7 +363,9 @@ impl ThisFsFile {
 
     pub fn write(&self, offset: usize, buf: &[u8]) -> Result<usize> {
         let mut content = self.content.lock().unwrap();
-        let new_size = offset + buf.len();
+        let Some(new_size) = offset.checked_add(buf.len()) else {
+            return Err(ErrorKind::FilesystemQuotaExceeded.into());
+        };
         if new_size > FILE_SIZE_MAX {
             return Err(ErrorKind::FilesystemQuotaExceeded.into());
         }

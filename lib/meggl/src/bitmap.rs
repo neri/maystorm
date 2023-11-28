@@ -5,8 +5,9 @@ use core::{
     cell::UnsafeCell,
     convert::TryFrom,
     intrinsics::copy_nonoverlapping,
-    mem::{swap, transmute},
+    mem::{swap, transmute, ManuallyDrop},
     num::NonZeroUsize,
+    ptr::slice_from_raw_parts_mut,
     slice,
 };
 use paste::paste;
@@ -412,23 +413,23 @@ macro_rules! define_bitmap {
             // The memory layouts of BitmapRefXX, BitmapRefMutXX and OwnedBitmapXX are guaranteed to be identical.
             #[repr(C)]
             pub struct [<BitmapRef $suffix>]<'a> {
+                slice: &'a [$slice_type],
                 size: Size,
                 stride: usize,
-                slice: &'a [$slice_type],
             }
 
             #[repr(C)]
             pub struct [<BitmapRefMut $suffix>]<'a> {
+                slice: UnsafeCell<&'a mut [$slice_type]>,
                 size: Size,
                 stride: usize,
-                slice: UnsafeCell<&'a mut [$slice_type]>,
             }
 
             #[repr(C)]
             pub struct [<OwnedBitmap $suffix>] {
+                slice: UnsafeCell<Box<[$slice_type]>>,
                 size: Size,
                 stride: usize,
-                slice: UnsafeCell<Box<[$slice_type]>>,
             }
 
             impl Drawable for [<BitmapRef $suffix>]<'_> {
@@ -562,12 +563,17 @@ macro_rules! define_bitmap {
 
             impl [<OwnedBitmap $suffix>] {
                 #[inline]
-                pub fn from_vec(vec: Vec<$slice_type>, size: Size) -> Self {
+                pub fn from_boxed_slice(slice: Box<[$slice_type]>, size: Size) -> Self {
                     Self {
                         size: size,
                         stride: <Self as Drawable>::ColorType::stride_for(size.width()),
-                        slice: UnsafeCell::new(vec.into_boxed_slice()),
+                        slice: UnsafeCell::new(slice),
                     }
+                }
+
+                #[inline]
+                pub fn from_vec(vec: Vec<$slice_type>, size: Size) -> Self {
+                    Self::from_boxed_slice(vec.into_boxed_slice(), size)
                 }
             }
 
@@ -1108,6 +1114,65 @@ impl BitmapRefMut32<'_> {
             }),
             BitmapRef::Argb32(src) => self.blt_blend(src, origin, rect, Alpha8::OPAQUE),
         }
+    }
+}
+
+impl OwnedBitmap32 {
+    pub fn from_vec_rgba(mut vec: Vec<u8>, size: Size) -> Self {
+        const MAGIC_NUMBER: usize = 4;
+        let stride = size.width() as usize;
+        let count = stride * size.height() as usize;
+        let slice = unsafe {
+            vec.resize(count * MAGIC_NUMBER, 0);
+            let slice = vec.into_boxed_slice();
+            let mut slice = ManuallyDrop::new(slice);
+            let mut slice =
+                Box::from_raw(slice_from_raw_parts_mut(
+                    slice.as_mut_ptr() as *mut u32,
+                    count,
+                ));
+            for pixel in slice.iter_mut() {
+                let rgba: [u8; 4] = transmute(*pixel);
+                let bgra = [rgba[2], rgba[1], rgba[0], rgba[3]];
+                *pixel = transmute(bgra);
+            }
+            transmute::<_, Box<[ARGB8888]>>(slice)
+        };
+        Self::from_boxed_slice(slice, size)
+    }
+
+    pub fn from_bytes_rgba(bytes: &[u8], size: Size) -> Option<Self> {
+        const MAGIC_NUMBER: usize = 4;
+        let stride = size.width() as usize;
+        let count = stride * size.height() as usize;
+        if bytes.len() < count * MAGIC_NUMBER {
+            return None;
+        }
+        let mut vec = Vec::with_capacity(count);
+        for rgba in bytes.chunks_exact(MAGIC_NUMBER).take(count) {
+            let rgba: [u8; MAGIC_NUMBER] = rgba.try_into().unwrap();
+            let argb = ColorComponents::from_rgba(rgba[0], rgba[1], rgba[2], Alpha8(rgba[3]))
+                .into_true_color();
+            vec.push(argb);
+        }
+        Some(Self::from_vec(vec, size))
+    }
+
+    pub fn from_bytes_rgb(bytes: &[u8], size: Size) -> Option<Self> {
+        const MAGIC_NUMBER: usize = 3;
+        let stride = size.width() as usize;
+        let count = stride * size.height() as usize;
+        if bytes.len() < count * MAGIC_NUMBER {
+            return None;
+        }
+        let mut vec = Vec::with_capacity(count);
+        for rgb in bytes.chunks_exact(MAGIC_NUMBER).take(count) {
+            let rgb: [u8; MAGIC_NUMBER] = rgb.try_into().unwrap();
+            let argb = ColorComponents::from_rgba(rgb[0], rgb[1], rgb[2], Alpha8::OPAQUE)
+                .into_true_color();
+            vec.push(argb);
+        }
+        Some(Self::from_vec(vec, size))
     }
 }
 

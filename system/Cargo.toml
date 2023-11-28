@@ -26,6 +26,7 @@ seq-macro = {}
 ab_glyph = {default-features = false, features = ["libm"]}
 libm = {}
 
+mpic = {git = "https://github.com/neri/mpic", default-features = false, features = ["alloc"]}
 png-decoder = {default-features = false, git = "https://github.com/neri/png-decoder"}
 rapid-qoi = {default-features = false, features = ["alloc"]}
 zune-jpeg = {version = "0.3.17", default-features = false}

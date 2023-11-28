@@ -698,10 +698,10 @@ impl ParamsDecoder<'_> {
         let base = self.get_u32()? as usize;
         let array = memory.slice(base as usize, SIZE_OF_BITMAP)?;
 
-        let width = LE::read_u32(&array[0..4]) as usize;
-        let height = LE::read_u32(&array[4..8]) as usize;
-        let _stride = LE::read_u32(&array[8..12]) as usize;
-        let base = LE::read_u32(&array[12..16]) as usize;
+        let base = LE::read_u32(&array[0..4]) as usize;
+        let width = LE::read_u32(&array[8..12]) as usize;
+        let height = LE::read_u32(&array[12..16]) as usize;
+        let _stride = LE::read_u32(&array[16..20]) as usize;
 
         let len = width * height;
         let slice = memory.slice(base, len)?;
@@ -720,10 +720,10 @@ impl ParamsDecoder<'_> {
         let base = self.get_u32()? as usize;
         let array = memory.slice(base as usize, SIZE_OF_BITMAP)?;
 
-        let width = LE::read_u32(&array[0..4]) as usize;
-        let height = LE::read_u32(&array[4..8]) as usize;
-        let _stride = LE::read_u32(&array[8..12]) as usize;
-        let base = LE::read_u32(&array[12..16]) as usize;
+        let base = LE::read_u32(&array[0..4]) as usize;
+        let width = LE::read_u32(&array[8..12]) as usize;
+        let height = LE::read_u32(&array[12..16]) as usize;
+        let _stride = LE::read_u32(&array[16..20]) as usize;
 
         let len = width * height;
         let slice = memory.read_u32_array(base, len)?;

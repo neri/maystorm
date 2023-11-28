@@ -3,7 +3,7 @@
 use bitflags::*;
 use core::mem::transmute;
 
-#[repr(packed)]
+#[repr(C, packed)]
 #[derive(Clone, Copy, Default)]
 pub struct DosBpb {
     pub bytes_per_sector: u16,
@@ -18,7 +18,7 @@ pub struct DosBpb {
     pub n_heads: u16,
 }
 
-#[repr(packed)]
+#[repr(C, packed)]
 pub struct DosExtendedBpb {
     pub bpb: DosBpb,
     pub hidden_sectors_count: u32,
@@ -32,6 +32,7 @@ pub struct DosExtendedBpb {
 }
 
 impl DosBpb {
+    #[inline]
     pub const fn new(
         bytes_per_sector: u16,
         sectors_per_cluster: u8,
@@ -75,12 +76,14 @@ impl DosBpb {
 impl DosExtendedBpb {
     pub const EXTENDED_BOOT_SIGN: u8 = 0x29;
 
+    #[inline]
     pub const fn is_valid(&self) -> bool {
         self.extended_boot_sign == Self::EXTENDED_BOOT_SIGN
     }
 }
 
 impl Default for DosExtendedBpb {
+    #[inline]
     fn default() -> Self {
         Self {
             bpb: DosBpb::default(),
@@ -96,7 +99,7 @@ impl Default for DosExtendedBpb {
     }
 }
 
-#[repr(packed)]
+#[repr(C, packed)]
 pub struct BootSector {
     pub jumps: [u8; 3],
     pub oem_name: [u8; 8],
@@ -109,16 +112,19 @@ impl BootSector {
     pub const PREFERRED_SIZE: usize = 512;
     pub const BOOT_SIGNATURE: [u8; 2] = [0x55, 0xAA];
 
+    #[inline]
     pub fn from_bytes(bytes: [u8; Self::PREFERRED_SIZE]) -> Self {
         unsafe { transmute(bytes) }
     }
 
+    #[inline]
     pub fn as_bytes(&self) -> &[u8; Self::PREFERRED_SIZE] {
         unsafe { transmute(self) }
     }
 }
 
 impl Default for BootSector {
+    #[inline]
     fn default() -> Self {
         Self {
             jumps: [0xEB, 0xFE, 0x90],
@@ -130,7 +136,7 @@ impl Default for BootSector {
     }
 }
 
-#[repr(packed)]
+#[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub struct DosDirEnt {
     pub name: [u8; 11],
@@ -166,6 +172,7 @@ pub struct DosFileTime(pub u16);
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DosFileDate(pub u16);
 
+#[repr(C)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DosFileTimeStamp {
     pub time: DosFileTime,
@@ -188,6 +195,7 @@ impl DosFileTimeStamp {
 }
 
 impl DosDirEnt {
+    #[inline]
     pub const fn new() -> Self {
         Self {
             name: [0x20; 11],
@@ -343,6 +351,7 @@ impl DosDirEnt {
 }
 
 impl Default for DosDirEnt {
+    #[inline]
     fn default() -> Self {
         Self::new()
     }

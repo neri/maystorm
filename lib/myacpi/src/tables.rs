@@ -107,7 +107,29 @@ pub struct Gas {
 
 impl Gas {
     #[inline]
-    pub const fn from_u64(address: u64) -> Self {
+    pub fn is_empty(&self) -> bool {
+        matches!(self.id, GasAddressSpaceId::SystemMemory)
+            && self.bit_width == 0
+            && self.bit_offset == 0
+            && matches!(self.access_size, GasAccessSize::Undefined)
+            && self.address == 0
+    }
+}
+
+#[repr(C, packed)]
+#[allow(unused)]
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct UncheckedGas {
+    id: GasAddressSpaceId,
+    bit_width: u8,
+    bit_offset: u8,
+    access_size: GasAccessSize,
+    address: u64,
+}
+
+impl UncheckedGas {
+    #[inline]
+    pub unsafe fn from_u64(address: u64) -> Self {
         Self {
             id: GasAddressSpaceId::SystemMemory,
             bit_width: 0,
@@ -118,12 +140,17 @@ impl Gas {
     }
 
     #[inline]
-    pub const fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         matches!(self.id, GasAddressSpaceId::SystemMemory)
             && self.bit_width == 0
             && self.bit_offset == 0
             && matches!(self.access_size, GasAccessSize::Undefined)
             && self.address == 0
+    }
+
+    #[inline]
+    pub fn checked(&self) -> Option<Gas> {
+        self.is_empty().then(|| unsafe { transmute(*self) })
     }
 }
 

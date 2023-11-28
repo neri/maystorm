@@ -14,3 +14,4 @@ cfg-if = {}
 lib-efi = {path = "../lib-efi"}
 uefi = {features = ['alloc']}
 uefi-services = {default-features = false}
+myelf = {path="../../lib/myelf"}

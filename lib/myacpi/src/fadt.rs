@@ -43,22 +43,22 @@ pub struct Fadt {
     iapc_boot_arch: u16,
     _reserved2: u8,
     flags: u32,
-    reset_reg: Gas,
+    reset_reg: UncheckedGas,
     reset_value: u8,
     arm_boot_arch: u16,
     fadt_minor_version: u8,
     x_firmware_ctrl: u64,
     x_dsdt: u64,
-    x_pm1a_evt_blk: Gas,
-    x_pm1b_evt_blk: Gas,
-    x_pm1a_cnt_blk: Gas,
-    x_pm1b_cnt_blk: Gas,
-    x_pm2_cnt_blk: Gas,
-    x_pm_tmr_blk: Gas,
-    x_gpe0_blk: Gas,
-    x_gpe1_blk: Gas,
-    sleep_control_reg: Gas,
-    sleep_status_reg: Gas,
+    x_pm1a_evt_blk: UncheckedGas,
+    x_pm1b_evt_blk: UncheckedGas,
+    x_pm1a_cnt_blk: UncheckedGas,
+    x_pm1b_cnt_blk: UncheckedGas,
+    x_pm2_cnt_blk: UncheckedGas,
+    x_pm_tmr_blk: UncheckedGas,
+    x_gpe0_blk: UncheckedGas,
+    x_gpe1_blk: UncheckedGas,
+    sleep_control_reg: UncheckedGas,
+    sleep_status_reg: UncheckedGas,
     hyper_visor_vendor_identity: u64,
 }
 
@@ -67,6 +67,25 @@ unsafe impl AcpiTable for Fadt {
 }
 
 impl Fadt {
+    #[inline]
+    fn _blk(gas: UncheckedGas, val: u64) -> Option<Gas> {
+        if gas.is_empty() {
+            unsafe { UncheckedGas::from_u64(val) }
+        } else {
+            gas
+        }
+        .checked()
+    }
+
+    #[inline]
+    fn _x_value(x_value: u64, value: u32) -> u64 {
+        if x_value != 0 {
+            x_value
+        } else {
+            value as u64
+        }
+    }
+
     #[inline]
     pub const fn sci_int(&self) -> u16 {
         self.sci_int
@@ -78,38 +97,92 @@ impl Fadt {
     }
 
     #[inline]
-    fn _blk(gas: &Gas, raw: u64) -> Option<Gas> {
-        if gas.is_empty() {
-            if raw == 0 {
-                None
-            } else {
-                Some(Gas::from_u64(raw))
-            }
-        } else {
-            Some(*gas)
-        }
+    pub fn reset(&self) -> Option<(Gas, u8)> {
+        self.reset_reg.checked().map(|v| (v, self.reset_value))
     }
 
     #[inline]
-    fn _x_value(v1: u64, v2: u32) -> u64 {
-        if v1 != 0 {
-            v1
-        } else {
-            v2 as u64
-        }
-    }
-
     pub fn dsdt(&self) -> u64 {
         Self::_x_value(self.x_dsdt, self.dsdt)
     }
 
     #[inline]
+    pub const fn pm1_evt_len(&self) -> usize {
+        self.pm1_evt_len as usize
+    }
+
+    #[inline]
+    pub const fn pm1_cnt_len(&self) -> usize {
+        self.pm1_cnt_len as usize
+    }
+
+    #[inline]
+    pub const fn pm2_cnt_len(&self) -> usize {
+        self.pm2_cnt_len as usize
+    }
+
+    #[inline]
+    pub fn pm1a_cnt_blk(&self) -> Option<Gas> {
+        Self::_blk(self.x_pm1a_cnt_blk, self.pm1a_cnt_blk as u64)
+    }
+
+    #[inline]
+    pub fn pm1b_cnt_blk(&self) -> Option<Gas> {
+        Self::_blk(self.x_pm1b_cnt_blk, self.pm1b_cnt_blk as u64)
+    }
+
+    #[inline]
+    pub fn pm1a_evt_blk(&self) -> Option<Gas> {
+        Self::_blk(self.x_pm1a_evt_blk, self.pm1a_evt_blk as u64)
+    }
+
+    #[inline]
+    pub fn pm1b_evt_blk(&self) -> Option<Gas> {
+        Self::_blk(self.x_pm1b_evt_blk, self.pm1b_evt_blk as u64)
+    }
+
+    #[inline]
+    pub fn pm2_cnt_blk(&self) -> Option<Gas> {
+        Self::_blk(self.x_pm2_cnt_blk, self.pm2_cnt_blk as u64)
+    }
+
+    #[inline]
+    pub fn pm_tmr_blk(&self) -> Option<Gas> {
+        Self::_blk(self.x_pm_tmr_blk, self.pm_tmr_blk as u64)
+    }
+
+    #[inline]
+    pub const fn pm_tmr_len(&self) -> usize {
+        self.pm_tmr_len as usize
+    }
+
+    #[inline]
     pub fn gpe0_blk(&self) -> Option<Gas> {
-        Self::_blk(&self.x_gpe0_blk, self.gpe0_blk as u64)
+        Self::_blk(self.x_gpe0_blk, self.gpe0_blk as u64)
+    }
+
+    #[inline]
+    pub fn gpe1_blk(&self) -> Option<Gas> {
+        Self::_blk(self.x_gpe1_blk, self.gpe1_blk as u64)
     }
 
     #[inline]
     pub const fn gpe0_blk_len(&self) -> usize {
         self.gpe0_blk_len as usize
+    }
+
+    #[inline]
+    pub const fn gpe1_blk_len(&self) -> usize {
+        self.gpe1_blk_len as usize
+    }
+
+    #[inline]
+    pub fn sleep_control_reg(&self) -> Option<Gas> {
+        self.sleep_control_reg.checked()
+    }
+
+    #[inline]
+    pub fn sleep_status_reg(&self) -> Option<Gas> {
+        self.sleep_status_reg.checked()
     }
 }

@@ -141,7 +141,7 @@ impl UserEnv {
         window.draw(|bitmap| {
             bitmap.clear();
             let Some(font) = FontDescriptor::new(FontFamily::SansSerif, 36) else {
-                return
+                return;
             };
             AttributedString::new()
                 .font(&font)
@@ -241,7 +241,7 @@ async fn slpash_task(f: fn()) {
         window.draw(|bitmap| {
             bitmap.clear();
             let Some(font) = FontDescriptor::new(FontFamily::SansSerif, 48) else {
-                return
+                return;
             };
             AttributedString::new()
                 .font(&font)
@@ -260,12 +260,13 @@ async fn slpash_task(f: fn()) {
         Scheduler::spawn_async(_notification_task());
 
         let mut wall_loaded = false;
-        for path in ["/boot/wall.png", "/boot/wall.jpg"] {
+        for path in ["/boot/wall.mpic", "/boot/wall.jpg", "/boot/wall.png"] {
             if let Ok(mut file) = FileManager::open(path, OpenOptions::new().read(true)) {
                 let mut vec = Vec::new();
                 file.read_to_end(&mut vec).unwrap();
                 if let Ok(dib) = ImageLoader::load(vec.as_slice()) {
-                    WindowManager::set_desktop_bitmap(&dib.as_const());
+                    let dib = BitmapRef::from(dib.as_ref());
+                    WindowManager::set_desktop_bitmap(&dib);
                     wall_loaded = true;
                     break;
                 }
@@ -488,12 +489,13 @@ async fn activity_monitor_main() {
     let spacing = 4;
     let graph_rect = Rect::new(spacing, spacing, n_items as isize, 32);
     let graph_size = graph_rect.size();
-    let meter_rect = Rect::new(
-        graph_rect.max_x() + spacing,
-        spacing,
-        width - graph_rect.width() - 12,
-        32,
-    );
+    let meter_rect =
+        Rect::new(
+            graph_rect.max_x() + spacing,
+            spacing,
+            width - graph_rect.width() - 12,
+            32,
+        );
     let mut opr_bitmap = OperationalBitmap::new(graph_size);
 
     let interval = Duration::from_secs(1);
@@ -870,12 +872,13 @@ async fn test_window_main() {
             });
         }
         {
-            let rect = bitmap.bounds().insets_by(EdgeInsets::new(
-                title_height + padding,
-                4,
-                padding_bottom + padding + padding,
-                4,
-            ));
+            let rect =
+                bitmap.bounds().insets_by(EdgeInsets::new(
+                    title_height + padding,
+                    4,
+                    padding_bottom + padding + padding,
+                    4,
+                ));
             bitmap.view(rect).map(|mut bitmap| {
                 let mut offset = 0;
                 for family in [
@@ -918,12 +921,13 @@ async fn test_window_main() {
             });
         }
         if true {
-            let rect = Rect::new(
-                button_center_top.x() + padding / 2,
-                button_center_top.y(),
-                button_width,
-                button_height,
-            );
+            let rect =
+                Rect::new(
+                    button_center_top.x() + padding / 2,
+                    button_center_top.y(),
+                    button_width,
+                    button_height,
+                );
             bitmap.view(rect).map(|mut bitmap| {
                 let rect = bitmap.bounds();
                 bitmap.fill_round_rect(

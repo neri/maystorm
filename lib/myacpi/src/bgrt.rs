@@ -45,6 +45,7 @@ impl Bgrt {
 }
 
 #[repr(u8)]
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ImageType {
     Bitmap = 0,

@@ -34,7 +34,7 @@ fn main() {
 
     while let Some(arg) = args.next() {
         let arg = arg.as_str();
-        if arg.chars().next().unwrap_or_default() == '-' {
+        if arg.starts_with("-") {
             match arg {
                 "--" => {
                     path_output = args.next();
@@ -296,7 +296,7 @@ impl VirtualDisk {
     pub fn new(boot_sector: &BootSector, sector_size: usize, total_sector: usize) -> Self {
         let capacity = sector_size * total_sector;
         let mut vec = Vec::with_capacity(capacity);
-        vec.extend(boot_sector.as_bytes().iter());
+        vec.extend_from_slice(boot_sector.as_bytes());
         vec.resize(capacity, 0);
         Self {
             vec,

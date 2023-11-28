@@ -54,7 +54,7 @@ impl Invoke for Invocation {
                 mov cr0, {0}
                 ", out(reg) _);
 
-            // For Intel processors, unlock NXE disable. (Surface 3)
+            // For Intel processors, unlock NXE disable. (ex: Surface 3)
             if self.is_intel_processor() {
                 asm!("
                     rdmsr

@@ -1,8 +1,9 @@
 //! Minimal ELF File Loader
 
-use super::{elf::*, *};
+use super::*;
 use crate::page::*;
 use core::{intrinsics::transmute, ptr::copy_nonoverlapping};
+use myelf::*;
 
 pub struct ElfLoader<'a> {
     elf_hdr: &'a elf64::Header,
@@ -25,25 +26,22 @@ impl<'a> ElfLoader<'a> {
 
     fn _recognize(&mut self) -> bool {
         #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
-        let preferred_machine = Machine::X86_64;
+        let preferred_machine = EM_X86_64;
         #[cfg(target_arch = "aarch64")]
-        let preferred_machine = Machine::AArch64;
+        let preferred_machine = EM_AARCH64;
 
         let elf_hdr = self.elf_hdr;
-        if elf_hdr.is_valid()
-            && elf_hdr.e_type == ElfType::EXEC
-            && elf_hdr.e_machine == preferred_machine
-        {
+        if elf_hdr.is_valid(ET_EXEC, preferred_machine) {
             let page_mask = UEFI_PAGE_SIZE - 1;
             let image_base = VirtualAddress(
                 self.program_header()
-                    .filter(|v| v.p_type == SegmentType::LOAD)
+                    .filter(|v| v.p_type == PT_LOAD)
                     .fold(u64::MAX, |a, v| u64::min(a, v.p_vaddr))
                     & !page_mask,
             );
             let image_size = ((self
                 .program_header()
-                .filter(|v| v.p_type == SegmentType::LOAD)
+                .filter(|v| v.p_type == PT_LOAD)
                 .fold(0, |a, v| u64::max(a, v.p_vaddr + v.p_memsz))
                 - image_base.as_u64()
                 + page_mask)
@@ -89,7 +87,7 @@ impl ImageLoader for ElfLoader<'_> {
 
             // Step 2 - locate segments
             for item in self.program_header() {
-                if item.p_type == SegmentType::LOAD {
+                if item.p_type == PT_LOAD {
                     let rva = (item.p_vaddr - image_base.as_u64()) as usize;
                     let p = vmem.add(rva);
                     let q: *const u8 = self.blob.as_ptr().add(item.p_offset as usize);
@@ -103,7 +101,7 @@ impl ImageLoader for ElfLoader<'_> {
 
             // Step 4 - attributes
             for item in self.program_header() {
-                if item.p_type == SegmentType::LOAD {
+                if item.p_type == PT_LOAD {
                     let va = VirtualAddress(item.p_vaddr & !page_mask);
                     let size = ((item.p_memsz + item.p_vaddr - va.as_u64() + page_mask)
                         & !page_mask) as usize;
