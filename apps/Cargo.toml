@@ -2,7 +2,7 @@
 [workspace]
 members = [
   "bball",
-  "hello",
+  "hello1",
   "hello2",
   "life",
   "noiz2bg",
