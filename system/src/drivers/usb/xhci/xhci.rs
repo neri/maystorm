@@ -11,7 +11,6 @@ use alloc::{boxed::Box, collections::VecDeque, format, string::String, sync::Arc
 use core::{
     cell::UnsafeCell,
     ffi::c_void,
-    fmt::Write,
     marker::PhantomData,
     mem::transmute,
     mem::{size_of, MaybeUninit},

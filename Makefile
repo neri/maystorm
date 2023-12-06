@@ -106,7 +106,7 @@ install: test $(EFI_VENDOR) $(EFI_BOOT) $(ALL_TARGETS) tools/mkinitrd/src/*.rs $
 	cp $(TARGET_BOOT_EFI2) $(BOOT_EFI_BOOT2)
 	cp $(TARGET_BOOT_EFI2) $(BOOT_EFI_VENDOR2)
 	cp $(TARGET_KERNEL) $(KERNEL_BIN)
-	cargo run --manifest-path ./tools/mkinitrd/Cargo.toml -- $(INITRD_IMG) $(INITRD_FILES)
+	cargo run --manifest-path ./tools/mkinitrd/Cargo.toml -- -v $(INITRD_IMG) $(INITRD_FILES)
 
 iso: install
 	mkisofs -r -J -o $(TARGET_ISO) $(MNT)
@@ -120,6 +120,7 @@ test:
 	cargo test --manifest-path lib/megstd/Cargo.toml
 	cargo test --manifest-path lib/meggl/Cargo.toml
 	cargo test --manifest-path lib/wasm/Cargo.toml
+	cargo test --manifest-path lib/mar/Cargo.toml
 
 doc:
 	(cd system; cargo doc --all --target $(KRNL_ARCH).json)

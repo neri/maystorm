@@ -68,6 +68,7 @@ macro_rules! println {
 #[macro_export]
 macro_rules! log {
     ($($arg:tt)*) => {{
+        use core::fmt::Write;
         let _ = writeln!(log::Log::new(), $($arg)*);
     }};
 }

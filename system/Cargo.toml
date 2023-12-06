@@ -13,6 +13,7 @@ bootprot = {path = "../lib/bootprot"}
 megstd = {path = "../lib/megstd", default-features = false, features = ["kernel"]}
 myacpi = {path = "../lib/myacpi"}
 wasm = {path = "../lib/wasm"}
+myos-archive = { path = "../lib/mar/" }
 
 # aml = {git = "https://github.com/rust-osdev/acpi"}
 byteorder = {default-features = false}

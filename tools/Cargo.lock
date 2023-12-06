@@ -32,8 +32,12 @@ dependencies = [
 name = "mkinitrd"
 version = "0.1.0"
 dependencies = [
- "byteorder",
+ "myos-archive",
 ]
+
+[[package]]
+name = "myos-archive"
+version = "0.1.0"
 
 [[package]]
 name = "wasm-strip"

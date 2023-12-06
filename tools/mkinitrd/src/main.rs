@@ -1,10 +1,9 @@
 // Make an initrd image
 // Copyright(c) 2021 The MEG-OS Project
 
-use byteorder::*;
+use myos_archive::*;
 use std::{
-    cell::UnsafeCell,
-    env,
+    cmp, env,
     ffi::{OsStr, OsString},
     fs::{read_dir, File},
     io::Read,
@@ -27,11 +26,13 @@ fn main() {
     let _ = args.next().unwrap();
 
     let mut path_output = None;
+    let mut is_verbose = false;
 
     while let Some(arg) = args.next() {
         let arg = arg.as_str();
         if arg.starts_with("-") {
             match arg {
+                "-v" => is_verbose = true,
                 "--" => {
                     path_output = args.next();
                     break;
@@ -49,49 +50,94 @@ fn main() {
         None => usage(),
     };
 
-    // let mut files = Vec::new();
-    // for arg in args {
-    //     append_file(&mut files, OsStr::new(""), OsStr::new(&arg));
-    // }
-    // files.sort_by(
-    //     |a, b| Path::new(&a.0).components().cmp(&Path::new(&b.0)), // a.0.cmp(&b.0)
-    // );
-    // for file in files {
-    //     println!("{:?} <= {:?}", file.0.to_str(), file.1.to_str());
-    // }
-
-    let mut fs = InitRamfs::new();
     println!("CREATING archive: {}", path_output);
 
+    let mut files = Vec::new();
     for arg in args {
-        let path = Path::new(&arg);
-        fs.append_file(path);
+        append_path(&mut files, "", OsStr::new(&arg));
+    }
+    files.sort_by(|a, b| {
+        let lhs = Path::new(&a.0);
+        let rhs = Path::new(&b.0);
+        match lhs
+            .parent()
+            .unwrap_or(Path::new(""))
+            .cmp(rhs.parent().unwrap_or(Path::new("")))
+        {
+            cmp::Ordering::Equal => lhs.cmp(&rhs),
+            result => result,
+        }
+    });
+
+    let mut writer = ArchiveWriter::new();
+    let mut cwd = "".to_owned();
+    let mut n_ns = 0;
+    for (path, os_path) in &files {
+        let path = Path::new(&path);
+        let lpc = path.file_name().unwrap().to_str().unwrap();
+        let dir = path
+            .parent()
+            .and_then(|v| v.to_str())
+            .map(|v| &v[1..])
+            .unwrap_or("");
+        if cwd != dir {
+            if is_verbose {
+                let old = cwd;
+                println!("NAMESPACE: [{dir}] <= [{old}]");
+            }
+            writer
+                .write(Entry::Namespace(&dir, ExtendedAttributes::empty()))
+                .unwrap();
+            cwd = dir.to_owned();
+            n_ns += 1;
+        }
+
+        if is_verbose {
+            println!(
+                "FILE: {} ({})",
+                &path.to_str().unwrap()[1..],
+                os_path.to_str().unwrap()
+            );
+        }
+
+        let mut buf = Vec::new();
+        let mut is = File::open(os_path).expect("cannot open file");
+        is.read_to_end(&mut buf).expect("read file error");
+
+        writer
+            .write(Entry::File(lpc, ExtendedAttributes::empty(), &buf))
+            .unwrap();
     }
 
+    let vec = writer.finalize(&[]).unwrap();
     let mut os = File::create(path_output).unwrap();
-    fs.flush(&mut os).unwrap();
+    os.write_all(&vec).unwrap();
+
+    println!(
+        " - TOTAL: {} files, {} bytes, {} namespaces",
+        files.len(),
+        vec.len(),
+        n_ns
+    );
 }
 
 #[allow(dead_code)]
-fn append_file(vec: &mut Vec<(OsString, OsString)>, prefix: &OsStr, path: &OsStr) {
+fn append_path(vec: &mut Vec<(String, OsString)>, prefix: &str, path: &OsStr) {
     let path = Path::new(path);
-    let lpc = path.file_name().unwrap();
+    let lpc = path.file_name().unwrap().to_str().unwrap();
     if path.is_dir() {
         for entry in read_dir(path).unwrap() {
-            let mut prefix = prefix.to_owned();
-            prefix.push("/");
-            prefix.push(lpc);
+            let prefix = format!("{prefix}/{lpc}");
             let entry = entry.unwrap();
             let path = entry.path();
-            append_file(vec, &prefix, path.as_os_str());
+            append_path(vec, &prefix, path.as_os_str());
         }
     } else if path.is_file() {
-        match lpc.to_str().unwrap() {
-            ".DS_Store" | "Thumb.db" => (),
+        match lpc {
+            // Bad files
+            ".DS_Store" | "Thumbs.db" => (),
             _ => {
-                let mut vpath = prefix.to_owned();
-                vpath.push("/");
-                vpath.push(lpc);
+                let vpath = format!("{prefix}/{lpc}");
                 vec.push((vpath, path.as_os_str().to_owned()))
             }
         }
@@ -102,210 +148,4 @@ fn append_file(vec: &mut Vec<(OsString, OsString)>, prefix: &OsStr, path: &OsStr
             todo!()
         }
     }
-}
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct DirEnt {
-    flag: u8,
-    name: [u8; Self::MAX_NANE_LEN],
-    _reserved: (u32, u32),
-    offset: u32,
-    file_size: u32,
-}
-
-impl DirEnt {
-    const MAX_NANE_LEN: usize = 15;
-    const FLAG_DIR: u8 = 0x80;
-
-    #[inline]
-    pub fn file(name: &str) -> Option<Self> {
-        Self::make_ent(name, 0)
-    }
-
-    #[inline]
-    pub fn dir(name: &str) -> Option<Self> {
-        Self::make_ent(name, Self::FLAG_DIR)
-    }
-
-    pub fn make_ent(name: &str, flag: u8) -> Option<Self> {
-        if name.len() > Self::MAX_NANE_LEN {
-            return None;
-        }
-        let flag = flag | name.len() as u8;
-        let mut array = [0; Self::MAX_NANE_LEN];
-        for (index, c) in name.char_indices() {
-            array[index] = c as u8;
-        }
-
-        Some(Self {
-            flag,
-            name: array,
-            _reserved: (0, 0),
-            offset: 0,
-            file_size: 0,
-        })
-    }
-
-    pub fn as_bytes(&self) -> &[u8; 32] {
-        unsafe { core::mem::transmute(self) }
-    }
-}
-
-pub struct InitRamfs {
-    vec: UnsafeCell<Vec<u8>>,
-    dir: Vec<DirEnt>,
-    path: String,
-}
-
-impl InitRamfs {
-    const PADDING: usize = 16;
-
-    #[inline]
-    pub fn new() -> Self {
-        Self {
-            vec: UnsafeCell::new(Vec::new()),
-            dir: Vec::new(),
-            path: "".to_string(),
-        }
-    }
-
-    #[inline]
-    pub fn path(&self) -> &str {
-        self.path.as_str()
-    }
-
-    #[inline]
-    pub fn appending_path(&self, lpc: &str) -> String {
-        format!("{}/{lpc}", self.path)
-    }
-
-    #[inline]
-    #[track_caller]
-    pub fn child_dir<F, R>(&mut self, lpc: &str, f: F) -> R
-    where
-        F: FnOnce(&mut Self) -> R,
-    {
-        let mut dir_ent = DirEnt::dir(lpc).unwrap();
-
-        let new_path = self.appending_path(lpc);
-        println!("MAKE_DIR {new_path}");
-
-        let Self {
-            vec,
-            dir: _,
-            path: _,
-        } = self;
-
-        let vec = unsafe {
-            let dummy = Vec::new();
-            vec.get().replace(dummy)
-        };
-
-        let mut child = Self {
-            vec: UnsafeCell::new(vec),
-            dir: Vec::new(),
-            path: new_path,
-        };
-        let result = f(&mut child);
-        let vec = child._finalize_child_dir(&mut dir_ent);
-
-        unsafe {
-            self.vec.get().replace(vec);
-        }
-
-        self.dir.push(dir_ent);
-
-        result
-    }
-
-    pub fn append_file(&mut self, path: &Path) {
-        let lpc = path.file_name().unwrap().to_str().unwrap();
-        if path.is_dir() {
-            self.child_dir(lpc, |child| {
-                for entry in read_dir(path).unwrap() {
-                    let entry = entry.unwrap();
-                    let path = entry.path();
-                    if !path.file_name().unwrap().to_str().unwrap().starts_with(".") {
-                        child.append_file(&path);
-                    }
-                }
-            });
-        } else if path.is_file() {
-            println!(
-                "APPEND FILE {} <= {}",
-                self.appending_path(lpc),
-                path.to_str().unwrap()
-            );
-            let dir_ent = DirEnt::file(lpc).expect("file name");
-            let mut buf = Vec::new();
-            let mut is = File::open(path).expect("cannot open file");
-            is.read_to_end(&mut buf).expect("read file error");
-            self._append_data(&dir_ent, buf.as_slice());
-        } else {
-            if path.ends_with("*") {
-                //
-            } else {
-                todo!();
-            }
-        }
-    }
-
-    fn _finalize_child_dir(mut self, dir_ent: &mut DirEnt) -> Vec<u8> {
-        let mut data = Vec::new();
-        for dir_ent in self.dir {
-            data.extend_from_slice(dir_ent.as_bytes());
-        }
-        let blob = self.vec.get_mut();
-        dir_ent.offset = blob.len() as u32;
-        dir_ent.file_size = data.len() as u32;
-        blob.extend_from_slice(data.as_slice());
-        match blob.len() % Self::PADDING {
-            0 => (),
-            remain => blob.resize(blob.len() + Self::PADDING - remain, 0),
-        }
-
-        self.vec.into_inner()
-    }
-
-    fn _append_data(&mut self, dir_ent: &DirEnt, data: &[u8]) {
-        let mut dir_ent = *dir_ent;
-        let blob = self.vec.get_mut();
-        dir_ent.offset = blob.len() as u32;
-        dir_ent.file_size = data.len() as u32;
-        self.dir.push(dir_ent);
-        blob.extend_from_slice(data);
-        match blob.len() % Self::PADDING {
-            0 => (),
-            remain => blob.resize(blob.len() + Self::PADDING - remain, 0),
-        }
-    }
-
-    pub fn flush(self, os: &mut dyn Write) -> Result<(), VirtualDiskError> {
-        let blob = unsafe { &*self.vec.get() };
-        let mut dir = Vec::with_capacity(self.dir.len());
-        for dir_ent in &self.dir {
-            dir.extend_from_slice(dir_ent.as_bytes());
-        }
-        const HEADER_SIZE: usize = 16;
-        let mut header = [0u8; HEADER_SIZE];
-        LE::write_u32(&mut header[0..4], 0x0001beef);
-        LE::write_u32(&mut header[4..8], (HEADER_SIZE + blob.len()) as u32);
-        LE::write_u32(&mut header[8..12], self.dir.len() as u32);
-        LE::write_u32(
-            &mut header[12..16],
-            (HEADER_SIZE + blob.len() + dir.len()) as u32,
-        );
-
-        os.write_all(&header)
-            .and_then(|_| os.write_all(blob.as_slice()))
-            .and_then(|_| os.write_all(dir.as_slice()))
-            .map_err(|_| VirtualDiskError::IoError)
-    }
-}
-
-#[derive(Debug)]
-pub enum VirtualDiskError {
-    OutOfBounds,
-    IoError,
 }

@@ -1,4 +1,4 @@
-use super::{devfs::DevFs, initramfs::*};
+use super::devfs::DevFs;
 use crate::{
     fs::ramfs::RamFs,
     sync::{RwLock, RwLockReadGuard},
@@ -13,6 +13,7 @@ use megstd::{
     fs::FileType,
     io::{ErrorKind, Read, Result, Write},
 };
+use myos_archive::ArchiveReader;
 
 pub use megstd::sys::fs_imp::OpenOptions;
 
@@ -52,7 +53,7 @@ impl FileManager {
             mount!(mount_points, Self::PATH_SEPARATOR, RamFs::new());
             drop(mount_points);
 
-            for path in &["boot", "system", "home", "bin", "dev", "etc", "tmp", "var"] {
+            for path in ["boot", "system", "home", "bin", "dev", "etc", "tmp", "var"] {
                 match Self::mkdir(path) {
                     Ok(_) => (),
                     Err(err) => {
@@ -60,15 +61,44 @@ impl FileManager {
                     }
                 }
             }
+
+            let mut mount_points = Self::shared().mount_points.write().unwrap();
+            mount!(mount_points, "/dev/", DevFs::init());
         }
 
         {
-            let mut mount_points = Self::shared().mount_points.write().unwrap();
-            let bootfs =
-                InitRamfs::from_static(initrd_base, initrd_size).expect("Unable to access bootfs");
+            let path_initramfs = "/boot/";
+            let reader = ArchiveReader::from_static(initrd_base, initrd_size)
+                .expect("Unable to access initramfs");
 
-            mount!(mount_points, "/dev/", DevFs::init());
-            mount!(mount_points, "/boot/", bootfs.clone());
+            let mut cwd = path_initramfs.to_owned();
+            for entry in reader {
+                match entry {
+                    myos_archive::Entry::Namespace(path, _xattr) => {
+                        let path = Self::_join_path(&Self::_canonical_path_components(
+                            path_initramfs,
+                            path,
+                        ));
+                        Self::mkdir2(&path).unwrap_or_else(|err| {
+                            panic!("Unable to create path {path} ({err:?})");
+                        });
+                        cwd = path;
+                    }
+                    myos_archive::Entry::File(name, _xattr, content) => {
+                        let path = Self::_join_path(&Self::_canonical_path_components(&cwd, name));
+                        // log!("FILE {path}");
+                        let mut file = Self::creat(&path).unwrap_or_else(|err| {
+                            panic!("Unable to create file {path} ({err:?})");
+                        });
+                        file.write(content).unwrap_or_else(|err| {
+                            panic!("Unable to write to file {path} ({err:?})");
+                        });
+                    }
+
+                    myos_archive::Entry::End => break,
+                    _ => unreachable!(),
+                }
+            }
         }
     }
 
@@ -77,8 +107,7 @@ impl FileManager {
         &FS
     }
 
-    #[inline]
-    fn _join_path(path_components: &Vec<&str>) -> String {
+    fn _join_path(path_components: &Vec<String>) -> String {
         format!(
             "{}{}",
             Self::PATH_SEPARATOR,
@@ -111,9 +140,14 @@ impl FileManager {
     }
 
     pub fn canonical_path(path: &str) -> String {
-        let path_components = Self::canonical_path_components(path);
-        let path_components = path_components.iter().map(|v| v.as_str()).collect();
-        Self::_join_path(&path_components)
+        Self::_join_path(&Self::canonical_path_components(path))
+    }
+
+    fn _parent_path(path: &str) -> Option<String> {
+        let mut path_components = Self::_canonical_path_components("", path);
+        path_components
+            .pop()
+            .map(|_| Self::_join_path(&path_components))
     }
 
     /// Resolve all path components, including the last path component
@@ -151,7 +185,6 @@ impl FileManager {
 
         let mut components = Self::canonical_path_components(path);
         let lpc = components.pop();
-        let components = components.iter().map(|v| v.as_str()).collect::<Vec<_>>();
         let fq_path = format!("{}{}", Self::_join_path(&components), Self::PATH_SEPARATOR);
 
         let mut prefixes = mount_points.keys().collect::<Vec<_>>();
@@ -183,7 +216,6 @@ impl FileManager {
             return Err(ErrorKind::NotADirectory.into());
         }
 
-        let path_components = path_components.iter().map(|v| v.as_str()).collect();
         Scheduler::current_pid().set_cwd(Self::_join_path(&path_components).as_str());
 
         Ok(())
@@ -231,11 +263,27 @@ impl FileManager {
 
     pub fn mkdir(path: &str) -> Result<()> {
         let (fs, dir, lpc) = Self::resolve_parent(path)?;
-        let Some(name) = lpc else {
-            return Err(ErrorKind::NotFound.into());
-        };
+        if let Some(name) = lpc {
+            fs.mkdir(dir, &name)
+        } else {
+            Err(ErrorKind::NotFound.into())
+        }
+    }
 
-        fs.mkdir(dir, &name)
+    pub fn mkdir2(path: &str) -> Result<()> {
+        match Self::mkdir(path) {
+            Ok(v) => Ok(v),
+            Err(err) => match err.kind() {
+                ErrorKind::NotFound => {
+                    if let Some(parent) = Self::_parent_path(path) {
+                        Self::mkdir2(&parent).and_then(|_| Self::mkdir(path))
+                    } else {
+                        Err(err)
+                    }
+                }
+                _ => Err(err),
+            },
+        }
     }
 
     pub fn unlink(path: &str) -> Result<()> {

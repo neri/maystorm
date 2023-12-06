@@ -56,7 +56,7 @@ impl OpenOptions {
 
     #[inline]
     pub const fn contains(&self, bit: Self) -> bool {
-        (self.0 & bit.0) == self.0
+        (self.0 & bit.0) == bit.0
     }
 
     #[inline]
