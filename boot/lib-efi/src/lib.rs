@@ -1,5 +1,4 @@
 #![no_std]
-#![feature(core_intrinsics)]
 #![feature(alloc_error_handler)]
 
 use alloc::{boxed::Box, vec::Vec};
@@ -34,7 +33,7 @@ macro_rules! println {
 
 pub fn get_file(handle: Handle, bs: &BootServices, path: &str) -> Result<Box<[u8]>, Status> {
     let Ok(mut fs) = bs.get_image_file_system(handle) else {
-        return Err(Status::LOAD_ERROR)
+        return Err(Status::LOAD_ERROR);
     };
     let mut root = match fs.open_volume() {
         Ok(val) => val,

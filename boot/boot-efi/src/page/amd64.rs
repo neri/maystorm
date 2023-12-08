@@ -4,7 +4,7 @@ use super::*;
 use crate::*;
 use bitflags::*;
 use core::{
-    intrinsics::*,
+    mem::size_of,
     ptr, slice,
     sync::atomic::{AtomicU64, Ordering},
 };

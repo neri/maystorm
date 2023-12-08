@@ -11,7 +11,7 @@
 //! size: leb128
 //! payload: Array of u8
 //!
-//! str:
+//! str: utf8 string
 //! size: leb128
 //! payload: Array of u8
 //!
@@ -20,15 +20,15 @@
 //! payload: Array of TBD
 //!
 //! end:
-//! tag: TAG_END
+//! tag: TAG_END(1)
 //!
-//! namespace: sub-directory
-//! tag: TAG_NAMESPACE
+//! namespace: sub directory
+//! tag: TAG_NAMESPACE(2)
 //! name: str
 //! xattr: xattr
 //!
 //! file:
-//! tag: TAG_FILE
+//! tag: TAG_FILE(3)
 //! name: str
 //! xattr: xattr
 //! content: blob
@@ -100,7 +100,7 @@ impl ArchiveWriter {
     }
 
     pub fn write(&mut self, value: Entry) -> Result<(), WriteError> {
-        self.writer.write(value)
+        value._write_to(&mut self.writer)
     }
 
     pub fn finalize(mut self, additional: &[u8]) -> Result<Vec<u8>, WriteError> {
@@ -170,20 +170,6 @@ impl Entry<'_> {
     }
 }
 
-impl WriteLeb128<Entry<'_>> for Leb128Writer {
-    #[inline]
-    fn write(&mut self, value: Entry<'_>) -> Result<(), WriteError> {
-        value._write_to(self)
-    }
-}
-
-impl WriteLeb128<&Entry<'_>> for Leb128Writer {
-    #[inline]
-    fn write(&mut self, value: &Entry<'_>) -> Result<(), WriteError> {
-        value._write_to(self)
-    }
-}
-
 pub struct ExtendedAttributes<'a>(&'a [u8]);
 
 impl<'a> ExtendedAttributes<'a> {
@@ -191,17 +177,19 @@ impl<'a> ExtendedAttributes<'a> {
     pub fn empty() -> Self {
         Self(&[])
     }
-
-    #[inline]
-    pub fn from_slice(slice: &'a [u8]) -> Self {
-        Self(slice)
-    }
 }
 
 impl WriteLeb128<&ExtendedAttributes<'_>> for Leb128Writer {
     #[inline]
     fn write(&mut self, value: &ExtendedAttributes) -> Result<(), WriteError> {
         self.write_blob(value.0)
+    }
+}
+
+impl<'a, 'b> ReadLeb128<'a, ExtendedAttributes<'b>> for Leb128Reader<'b> {
+    #[inline]
+    fn read(&'a mut self) -> Result<ExtendedAttributes<'b>, ReadError> {
+        self.read_blob().map(|v| ExtendedAttributes(v))
     }
 }
 
@@ -258,20 +246,14 @@ impl<'a> Iterator for ArchiveReader<'a> {
                 let blob = self.reader.read_blob().ok()?;
                 let mut reader = Leb128Reader::from_slice(blob);
                 let name: &str = reader.read().ok()?;
-                let xattr = reader
-                    .read_blob()
-                    .map(|v| ExtendedAttributes::from_slice(v))
-                    .ok()?;
+                let xattr: ExtendedAttributes = reader.read().ok()?;
                 Some(Entry::Namespace(name, xattr))
             }
             TAG_FILE => {
                 let blob = self.reader.read_blob().ok()?;
                 let mut reader = Leb128Reader::from_slice(blob);
                 let name: &str = reader.read().ok()?;
-                let xattr = reader
-                    .read_blob()
-                    .map(|v| ExtendedAttributes::from_slice(v))
-                    .ok()?;
+                let xattr: ExtendedAttributes = reader.read().ok()?;
                 let content = reader.read_blob().ok()?;
                 Some(Entry::File(name, xattr, content))
             }

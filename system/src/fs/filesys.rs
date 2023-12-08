@@ -11,7 +11,7 @@ use alloc::{
 use core::{fmt::Display, num::NonZeroU64};
 use megstd::{
     fs::FileType,
-    io::{ErrorKind, Read, Result, Write},
+    io::{Error, ErrorKind, Read, Result, Write},
 };
 use myos_archive::ArchiveReader;
 
@@ -39,6 +39,16 @@ impl FileManager {
         }
     }
 
+    #[inline]
+    fn _unable_to_create(path: &str, err: Error) -> ! {
+        panic!("Unable to create {path}: {err:?}");
+    }
+
+    #[inline]
+    fn _unable_to_write_to(path: &str, err: Error) -> ! {
+        panic!("Unable to write to {path}: {err:?}");
+    }
+
     pub unsafe fn init(initrd_base: *mut u8, initrd_size: usize) {
         assert_call_once!();
 
@@ -54,12 +64,7 @@ impl FileManager {
             drop(mount_points);
 
             for path in ["boot", "system", "home", "bin", "dev", "etc", "tmp", "var"] {
-                match Self::mkdir(path) {
-                    Ok(_) => (),
-                    Err(err) => {
-                        panic!("mkdir: {}: {:?}", path, err);
-                    }
-                }
+                Self::mkdir(path).unwrap_or_else(|err| Self::_unable_to_create(path, err))
             }
 
             let mut mount_points = Self::shared().mount_points.write().unwrap();
@@ -79,19 +84,17 @@ impl FileManager {
                             path_initramfs,
                             path,
                         ));
-                        Self::mkdir2(&path).unwrap_or_else(|err| {
-                            panic!("Unable to create path {path} ({err:?})");
-                        });
+                        Self::mkdir2(&path)
+                            .unwrap_or_else(|err| Self::_unable_to_create(&path, err));
                         cwd = path;
                     }
                     myos_archive::Entry::File(name, _xattr, content) => {
                         let path = Self::_join_path(&Self::_canonical_path_components(&cwd, name));
                         // log!("FILE {path}");
-                        let mut file = Self::creat(&path).unwrap_or_else(|err| {
-                            panic!("Unable to create file {path} ({err:?})");
-                        });
+                        let mut file = Self::creat(&path)
+                            .unwrap_or_else(|err| Self::_unable_to_create(&path, err));
                         file.write(content).unwrap_or_else(|err| {
-                            panic!("Unable to write to file {path} ({err:?})");
+                            Self::_unable_to_write_to(&path, err);
                         });
                     }
 

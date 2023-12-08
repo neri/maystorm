@@ -1,7 +1,6 @@
 //! MEG-OS Standard Graphics Drawing Library
 #![no_std]
 #![feature(const_fn_floating_point_arithmetic)]
-#![feature(core_intrinsics)]
 
 extern crate alloc;
 

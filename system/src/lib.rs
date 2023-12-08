@@ -7,7 +7,6 @@
 #![feature(cfg_target_has_atomic)]
 #![feature(const_mut_refs)]
 #![feature(control_flow_enum)]
-#![feature(core_intrinsics)]
 #![feature(iter_advance_by)]
 #![feature(maybe_uninit_uninit_array)]
 #![feature(more_qualified_paths)]
@@ -32,7 +31,6 @@ pub mod fw;
 pub mod io;
 pub mod log;
 pub mod mem;
-pub mod num;
 pub mod r;
 pub mod res;
 pub mod rt;

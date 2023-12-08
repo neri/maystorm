@@ -60,20 +60,22 @@ impl Leb128Writer {
     }
 
     pub fn write_unsigned(&mut self, value: u64) -> Result<(), WriteError> {
-        if value < (1 << 7) {
+        let bits = (size_of_val(&value) * 8) - value.leading_zeros() as usize;
+
+        if bits <= 7 {
             let bytes = [value as u8];
             self.write_bytes(&bytes)
-        } else if value < (1 << 14) {
+        } else if bits <= 14 {
             let bytes = [(value | 0x80) as u8, (value >> 7) as u8];
             self.write_bytes(&bytes)
-        } else if value < (1 >> 21) {
+        } else if bits <= 21 {
             let bytes = [
                 (value | 0x80) as u8,
                 ((value >> 7) | 0x80) as u8,
                 (value >> 14) as u8,
             ];
             self.write_bytes(&bytes)
-        } else if value < (1 << 28) {
+        } else if bits <= 28 {
             let bytes = [
                 (value | 0x80) as u8,
                 ((value >> 7) | 0x80) as u8,
@@ -81,7 +83,7 @@ impl Leb128Writer {
                 (value >> 21) as u8,
             ];
             self.write_bytes(&bytes)
-        } else if value < (1 << 35) {
+        } else if bits <= 35 {
             let bytes = [
                 (value | 0x80) as u8,
                 ((value >> 7) | 0x80) as u8,
@@ -90,7 +92,7 @@ impl Leb128Writer {
                 (value >> 28) as u8,
             ];
             self.write_bytes(&bytes)
-        } else if value < (1 << 42) {
+        } else if bits <= 42 {
             let bytes = [
                 (value | 0x80) as u8,
                 ((value >> 7) | 0x80) as u8,
@@ -100,7 +102,7 @@ impl Leb128Writer {
                 (value >> 35) as u8,
             ];
             self.write_bytes(&bytes)
-        } else if value < (1 << 49) {
+        } else if bits <= 49 {
             let bytes = [
                 (value | 0x80) as u8,
                 ((value >> 7) | 0x80) as u8,
@@ -111,7 +113,7 @@ impl Leb128Writer {
                 (value >> 42) as u8,
             ];
             self.write_bytes(&bytes)
-        } else if value < (1 << 56) {
+        } else if bits <= 56 {
             let bytes = [
                 (value | 0x80) as u8,
                 ((value >> 7) | 0x80) as u8,
@@ -123,7 +125,7 @@ impl Leb128Writer {
                 (value >> 49) as u8,
             ];
             self.write_bytes(&bytes)
-        } else if value < (1 << 63) {
+        } else if bits <= 63 {
             let bytes = [
                 (value | 0x80) as u8,
                 ((value >> 7) | 0x80) as u8,
@@ -161,20 +163,20 @@ impl Leb128Writer {
                 value.leading_zeros() as usize
             };
 
-        if bits < 6 {
+        if bits < 7 {
             let bytes = [(value & 0x7F) as u8];
             self.write_bytes(&bytes)
-        } else if bits < 13 {
+        } else if bits < 14 {
             let bytes = [(value | 0x80) as u8, ((value >> 7) & 0x7F) as u8];
             self.write_bytes(&bytes)
-        } else if bits < 20 {
+        } else if bits < 21 {
             let bytes = [
                 (value | 0x80) as u8,
                 ((value >> 7) | 0x80) as u8,
                 ((value >> 14) & 0x7F) as u8,
             ];
             self.write_bytes(&bytes)
-        } else if bits < 27 {
+        } else if bits < 28 {
             let bytes = [
                 (value | 0x80) as u8,
                 ((value >> 7) | 0x80) as u8,
@@ -182,7 +184,7 @@ impl Leb128Writer {
                 ((value >> 21) & 0x7F) as u8,
             ];
             self.write_bytes(&bytes)
-        } else if bits < 34 {
+        } else if bits < 35 {
             let bytes = [
                 (value | 0x80) as u8,
                 ((value >> 7) | 0x80) as u8,
@@ -191,7 +193,7 @@ impl Leb128Writer {
                 ((value >> 28) & 0x7F) as u8,
             ];
             self.write_bytes(&bytes)
-        } else if bits < 41 {
+        } else if bits < 42 {
             let bytes = [
                 (value | 0x80) as u8,
                 ((value >> 7) | 0x80) as u8,
@@ -201,7 +203,7 @@ impl Leb128Writer {
                 ((value >> 35) & 0x7F) as u8,
             ];
             self.write_bytes(&bytes)
-        } else if bits < 48 {
+        } else if bits < 49 {
             let bytes = [
                 (value | 0x80) as u8,
                 ((value >> 7) | 0x80) as u8,
@@ -212,7 +214,7 @@ impl Leb128Writer {
                 ((value >> 42) & 0x7F) as u8,
             ];
             self.write_bytes(&bytes)
-        } else if bits < 55 {
+        } else if bits < 56 {
             let bytes = [
                 (value | 0x80) as u8,
                 ((value >> 7) | 0x80) as u8,
@@ -224,7 +226,7 @@ impl Leb128Writer {
                 ((value >> 49) & 0x7F) as u8,
             ];
             self.write_bytes(&bytes)
-        } else if bits < 62 {
+        } else if bits < 63 {
             let bytes = [
                 (value | 0x80) as u8,
                 ((value >> 7) | 0x80) as u8,
@@ -405,34 +407,6 @@ pub trait WriteLeb128<T> {
     fn write(&mut self, value: T) -> Result<(), WriteError>;
 }
 
-impl<'a> ReadLeb128<'a, u64> for Leb128Reader<'_> {
-    #[inline]
-    fn read(&'a mut self) -> Result<u64, ReadError> {
-        self.read_unsigned()
-    }
-}
-
-impl<'a> ReadLeb128<'a, i64> for Leb128Reader<'_> {
-    #[inline]
-    fn read(&'a mut self) -> Result<i64, ReadError> {
-        self.read_signed()
-    }
-}
-
-impl WriteLeb128<u64> for Leb128Writer {
-    #[inline]
-    fn write(&mut self, value: u64) -> Result<(), WriteError> {
-        self.write_unsigned(value)
-    }
-}
-
-impl WriteLeb128<i64> for Leb128Writer {
-    #[inline]
-    fn write(&mut self, value: i64) -> Result<(), WriteError> {
-        self.write_signed(value)
-    }
-}
-
 impl<'a, 'b> ReadLeb128<'a, &'b str> for Leb128Reader<'b> {
     #[inline]
     fn read(&'a mut self) -> Result<&'b str, ReadError> {
@@ -446,13 +420,6 @@ impl WriteLeb128<&str> for Leb128Writer {
     fn write(&mut self, value: &str) -> Result<(), WriteError> {
         self.write(value.len())?;
         self.write_bytes(value.as_bytes())
-    }
-}
-
-impl WriteLeb128<&[u8]> for Leb128Writer {
-    #[inline]
-    fn write(&mut self, value: &[u8]) -> Result<(), WriteError> {
-        self.write_blob(value)
     }
 }
 
@@ -497,11 +464,13 @@ macro_rules! leb128_serialize_s {
 leb128_serialize_u!(u8);
 leb128_serialize_u!(u16);
 leb128_serialize_u!(u32);
+leb128_serialize_u!(u64);
 leb128_serialize_u!(usize);
 
 leb128_serialize_s!(i8);
 leb128_serialize_s!(i16);
 leb128_serialize_s!(i32);
+leb128_serialize_s!(i64);
 leb128_serialize_s!(isize);
 
 #[cfg(test)]
@@ -548,8 +517,32 @@ mod tests {
         assert_eq!(writer.as_slice(), &[0]);
 
         writer.clear();
+        assert_eq!(writer.len(), 0);
+        writer.write(0i32).unwrap();
+        assert_eq!(writer.as_slice(), &[0]);
+
+        for i in 0..64 {
+            let value1 = 1u64 << i;
+            let mut writer = Leb128Writer::new();
+            writer.write(value1).unwrap();
+
+            let byte_cnt = (i + 7) / 7;
+            assert_eq!(writer.as_slice().len(), byte_cnt);
+
+            assert_ne!(*writer.as_slice().last().unwrap(), 0);
+
+            let mut reader = Leb128Reader::from_slice(writer.as_slice());
+            let test1 = reader.read().unwrap();
+            assert_eq!(value1, test1);
+        }
+
+        writer.clear();
         writer.write(127u32).unwrap();
         assert_eq!(writer.as_slice(), &[0x7F]);
+
+        writer.clear();
+        writer.write(128u32).unwrap();
+        assert_eq!(writer.as_slice(), &[0x80, 0x01]);
 
         writer.clear();
         writer.write(0xdeadbeefu32).unwrap();
@@ -560,17 +553,24 @@ mod tests {
         assert_eq!(writer.as_slice(), &[0xEF, 0xFD, 0xB6, 0xF5, 0x7D]);
 
         writer.clear();
-        assert_eq!(writer.len(), 0);
-        writer.write(0i32).unwrap();
-        assert_eq!(writer.as_slice(), &[0]);
-
-        writer.clear();
         writer.write(127i32).unwrap();
         assert_eq!(writer.as_slice(), &[0xFF, 0x00]);
 
         writer.clear();
+        writer.write(63i32).unwrap();
+        assert_eq!(writer.as_slice(), &[0x3F]);
+
+        writer.clear();
+        writer.write(64i32).unwrap();
+        assert_eq!(writer.as_slice(), &[0xC0, 0x00]);
+
+        writer.clear();
         writer.write(-1i32).unwrap();
         assert_eq!(writer.as_slice(), &[0x7F]);
+
+        writer.clear();
+        writer.write(-64i32).unwrap();
+        assert_eq!(writer.as_slice(), &[0x40]);
 
         writer.clear();
         writer.write(0xdeadbeefi64).unwrap();
@@ -583,9 +583,9 @@ mod tests {
 
     #[test]
     fn leb128_read_write() {
-        for i in 1..64 {
+        for i in 0..64 {
             let value1u = 1u64 << i;
-            let value2u = value1u.wrapping_sub(1);
+            let value2u = value1u - 1;
             let value3u = !value2u;
 
             let value1i = value1u as i64;
@@ -593,7 +593,7 @@ mod tests {
             let value3i = value3u as i64;
 
             let value5 = value2u & 0x5555_5555_5555_5555;
-            let value6 = value2u & 0x1234_5678_1234_5678;
+            let value6 = value2u & 0x1234_5678_9ABC_DEF0;
             let value7 = value2u & 0xDEAD_BEEF_F00D_BAAD;
 
             let mut writer = Leb128Writer::new();
