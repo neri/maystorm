@@ -15,8 +15,8 @@ use crate::{
 };
 // use alloc::format;
 use core::{
-    cell::UnsafeCell, ffi::c_void, fmt, intrinsics::transmute, num::*, ops::*, sync::atomic::*,
-    time::Duration,
+    cell::UnsafeCell, ffi::c_void, fmt, intrinsics::transmute, num::*, ops::*, ptr::addr_of,
+    sync::atomic::*, time::Duration,
 };
 use megstd::{string::*, Arc, BTreeMap, Box, String, ToOwned, Vec};
 
@@ -1383,7 +1383,7 @@ impl ThreadPool {
 
     #[inline]
     fn shared<'a>() -> &'a Self {
-        unsafe { &THREAD_POOL }
+        unsafe { &*addr_of!(THREAD_POOL) }
     }
 
     #[inline]

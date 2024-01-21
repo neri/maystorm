@@ -5,7 +5,8 @@ use crate::*;
 use bitflags::*;
 use core::{
     mem::size_of,
-    ptr, slice,
+    ptr::{self, addr_of_mut},
+    slice,
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -199,8 +200,8 @@ impl PageManager {
     }
 
     #[inline]
-    fn shared() -> &'static mut Self {
-        unsafe { &mut PM }
+    fn shared<'a>() -> &'a mut Self {
+        unsafe { &mut *addr_of_mut!(PM) }
     }
 
     fn alloc_pages(pages: usize) -> PhysicalAddress {

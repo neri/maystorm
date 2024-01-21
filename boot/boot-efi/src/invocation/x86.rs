@@ -1,7 +1,10 @@
 //! Kernel Invocation for 32-bit UEFI running on x86-64 processors
 
 use super::*;
-use core::arch::{asm, x86::__cpuid};
+use core::{
+    arch::{asm, x86::__cpuid},
+    ptr::addr_of,
+};
 
 pub struct Invocation;
 
@@ -68,7 +71,7 @@ impl Invoke for Invocation {
 
             // Set up a GDT for Long Mode
             GDT.fix_up();
-            asm!("lgdt [{0}]", in(reg) &GDT);
+            asm!("lgdt [{0}]", in(reg) addr_of!(GDT));
 
             // Set up a CR3 for Long Mode
             asm!("mov cr3, {0}", in(reg) info.master_cr3 as usize);

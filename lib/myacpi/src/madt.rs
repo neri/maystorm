@@ -35,7 +35,7 @@ impl Madt {
     }
 
     #[inline]
-    pub fn entries<T: RawEntry>(&self) -> impl Iterator<Item = &T> {
+    pub fn entries<'a, T: RawEntry + 'a>(&'a self) -> impl Iterator<Item = &'a T> {
         self.raw_entries().filter_map(|v| v.assume())
     }
 

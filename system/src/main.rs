@@ -7,7 +7,7 @@
 
 extern crate alloc;
 use bootprot::*;
-use core::{fmt, fmt::Write, num::NonZeroU8};
+use core::{fmt, fmt::Write, num::NonZeroU8, ptr::addr_of_mut};
 use kernel::{
     drivers::pci, drivers::usb, fs::OpenOptions, fs::*, mem::*, rt::*, system::*,
     task::scheduler::*, ui::window::WindowManager, user::userenv::UserEnv, *,
@@ -32,14 +32,16 @@ enum ParsedCmdLine {
 }
 
 impl Shell {
+    #[inline]
     const fn new() -> Self {
         Self {
             path_ext: Vec::new(),
         }
     }
 
+    #[inline]
     fn shared<'a>() -> &'a mut Self {
-        unsafe { &mut MAIN }
+        unsafe { &mut *addr_of_mut!(MAIN) }
     }
 
     // Shell entry point
