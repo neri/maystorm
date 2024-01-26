@@ -41,7 +41,7 @@ impl UsbInterfaceDriverStarter for UsbHidStarter {
 pub struct UsbHidDriver;
 
 impl UsbHidDriver {
-    const BUFFER_LEN: usize = 64;
+    const BUFFER_LEN: UsbLength = UsbLength(64);
 
     async fn _instantiate(
         device: Arc<UsbDeviceContext>,
@@ -53,16 +53,16 @@ impl UsbHidDriver {
             .current_configuration()
             .find_interface(if_no, None)
         else {
-            return Err(UsbError::InvalidParameter)
+            return Err(UsbError::InvalidParameter);
         };
         let Some(endpoint) = interface.endpoints().first() else {
-            return Err(UsbError::InvalidDescriptor)
+            return Err(UsbError::InvalidDescriptor);
         };
         if !endpoint.is_dir_in() {
             return Err(UsbError::InvalidDescriptor);
         }
         let ep = endpoint.address();
-        let ps = endpoint.descriptor().max_packet_size() as usize;
+        let ps = endpoint.descriptor().max_packet_size();
         if ps > Self::BUFFER_LEN {
             return Err(UsbError::InvalidDescriptor);
         }
@@ -98,7 +98,7 @@ impl UsbHidDriver {
         device: Arc<UsbDeviceContext>,
         if_no: UsbInterfaceNumber,
         ep: UsbEndpointAddress,
-        ps: usize,
+        ps: UsbLength,
         report_desc: HidParsedReport,
     ) {
         let addr = device.device().addr();
@@ -139,8 +139,8 @@ impl UsbHidDriver {
             match app.usage() {
                 HidUsage::KEYBOARD => {
                     // Flashing LED on the keyboard
-                    let len = (app.bit_count_for_output() + 7) / 8;
-                    if len > 0 {
+                    let len = UsbLength(((app.bit_count_for_output() + 7) / 8) as u16);
+                    if !len.is_empty() {
                         for item in app.output_items() {
                             if item.report_size() == 1
                                 && item.usage_min().usage_page() == UsagePage::LED
@@ -222,7 +222,7 @@ impl UsbHidDriver {
         let mut mouse_state = MouseState::empty();
         let mut buffer = Vec::new();
         loop {
-            match device.read_vec(ep, &mut buffer, 1, ps).await {
+            match device.read_to_vec(ep, &mut buffer, UsbLength(1), ps).await {
                 Ok(_) => {
                     // if report_desc.has_report_id() && buffer.iter().fold(0, |a, b| a | *b) != 0 {
                     //     println!("HID {:?}", HexDump(&buffer));
@@ -399,7 +399,7 @@ impl UsbHidDriver {
         if_no: UsbInterfaceNumber,
         report_type: HidReportType,
         report_id: Option<HidReportId>,
-        len: usize,
+        len: UsbLength,
         vec: &mut Vec<u8>,
     ) -> Result<(), UsbError> {
         device
@@ -426,7 +426,7 @@ impl UsbHidDriver {
         if_no: UsbInterfaceNumber,
         report_type: HidReportType,
         report_id: Option<HidReportId>,
-        max_len: usize,
+        max_len: UsbLength,
         data: &[u8],
     ) -> Result<(), UsbError> {
         device

@@ -71,7 +71,7 @@ impl XInputDriver {
         device: Arc<UsbDeviceContext>,
         _if_no: UsbInterfaceNumber,
         ep: UsbEndpointAddress,
-        ps: u16,
+        ps: UsbLength,
     ) {
         let addr = device.device().addr();
         let input = Arc::new(RwLock::new(GameInput::empty()));
@@ -79,7 +79,7 @@ impl XInputDriver {
         let mut buffer = [0u8; 512];
         loop {
             match device
-                .read_slice(ep, &mut buffer, XInputMsg14::MIN_LEN as usize, ps as usize)
+                .read_slice(ep, &mut buffer, XInputMsg14::MIN_LEN, ps)
                 .await
             {
                 Ok(_) => {
@@ -115,5 +115,5 @@ pub struct XInputMsg14 {
 impl XInputMsg14 {
     pub const VALID_TYPE: u8 = 0;
     pub const VALID_LEN: u8 = 0x14;
-    pub const MIN_LEN: usize = 14;
+    pub const MIN_LEN: UsbLength = UsbLength(14);
 }
