@@ -49,9 +49,7 @@ The latest version is recommended whenever possible.
 
 ## HOE: Haribote-OS Emulation Subsystem
 
-* We have confirmed that about half of the apps work at this point. Some APIs are not yet implemented.
-* This subsystem may be unsupported in the future, or may be replaced by another implementation.
-* If the haribote application is launched with insufficient 32-bit memory, it will not operate properly.
+* This subsystem may be replaced by another implementation in the future.
 
 ## History
 
