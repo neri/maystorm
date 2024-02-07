@@ -1,21 +1,16 @@
 use super::*;
-use crate::{
-    r,
-    sync::{fifo::AsyncEventQueue, spinlock::SpinMutex, RwLock},
-    task::{scheduler::*, Task},
-    *,
-};
-use alloc::{boxed::Box, collections::BTreeMap, string::String, sync::Arc, vec::Vec};
-use core::{
-    mem::{size_of, MaybeUninit},
-    num::NonZeroU8,
-    ops::Deref,
-    pin::Pin,
-    ptr::null_mut,
-    slice,
-    sync::atomic::*,
-    time::Duration,
-};
+use crate::r;
+use crate::sync::{fifo::AsyncEventQueue, spinlock::SpinMutex, RwLock};
+use crate::task::{scheduler::*, Task};
+use crate::*;
+use core::mem::{size_of, MaybeUninit};
+use core::num::NonZeroU8;
+use core::ops::Deref;
+use core::pin::Pin;
+use core::ptr::null_mut;
+use core::slice;
+use core::sync::atomic::*;
+use core::time::Duration;
 use futures_util::Future;
 use megstd::uuid::Uuid;
 
@@ -649,10 +644,12 @@ impl UsbDeviceContext {
         Ok(Self { host, device })
     }
 
+    #[inline]
     fn host(&self) -> &dyn UsbDeviceInterface {
         self.host.as_ref()
     }
 
+    #[inline]
     fn host_clone(&self) -> Arc<dyn UsbDeviceInterface> {
         self.host.clone()
     }

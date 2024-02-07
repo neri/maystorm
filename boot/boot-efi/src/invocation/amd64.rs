@@ -1,10 +1,8 @@
 //! Kernel Invocation for x86-64
 
 use super::*;
-use core::{
-    arch::{asm, global_asm, x86_64::__cpuid},
-    ffi::c_void,
-};
+use core::arch::{asm, global_asm, x86_64::__cpuid};
+use core::ffi::c_void;
 
 pub struct Invocation();
 

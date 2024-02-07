@@ -1,7 +1,9 @@
 #![no_main]
 #![no_std]
 
-use megstd::{drawing::Monochrome, sys::syscall::*, window::*};
+use megstd::drawing::Monochrome;
+use megstd::sys::syscall::*;
+use megstd::window::*;
 
 const BG_COLOR: WindowColor = WindowColor::BLACK;
 const FG_COLOR: WindowColor = WindowColor::YELLOW;
@@ -21,6 +23,7 @@ fn _start() {
         ))
         .bg_color(BG_COLOR)
         .build("LIFE");
+    window.set_max_fps(10);
 
     let mut curr_data = [0u8; SIZE_BITMAP];
     let mut next_data = [0u8; SIZE_BITMAP];
@@ -42,10 +45,8 @@ fn _start() {
             ctx.blt1(&current, Point::new(0, 0), FG_COLOR, DRAW_SCALE as usize);
         });
 
-        let w = BITMAP_WIDTH - 1;
-        let h = BITMAP_HEIGHT - 1;
-        for y in 1..h {
-            for x in 1..w {
+        for y in 1..(BITMAP_HEIGHT - 1) {
+            for x in 1..(BITMAP_WIDTH - 1) {
                 let center = Point::new(x, y);
                 let life = unsafe { current.get_pixel_unchecked(center) };
 
@@ -61,18 +62,12 @@ fn _start() {
                 ]
                 .iter()
                 .fold(0, |acc, coords| {
-                    if unsafe {
+                    acc + usize::from(unsafe {
                         current.get_pixel_unchecked(Point::new(
                             center.x + coords.0,
                             center.y + coords.1,
                         ))
-                    }
-                    .into_bool()
-                    {
-                        acc + 1
-                    } else {
-                        acc
-                    }
+                    })
                 });
 
                 let next_life = if life.into_bool() {

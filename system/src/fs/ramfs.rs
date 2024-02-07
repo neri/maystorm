@@ -1,15 +1,11 @@
 // use crate::*;
 use super::*;
 use crate::sync::Mutex;
-use core::{
-    ops::DerefMut,
-    sync::atomic::{AtomicUsize, Ordering},
-};
-use megstd::{
-    fs::FileType,
-    io::{ErrorKind, Result},
-    Arc, BTreeMap, String, ToOwned, Vec, Weak,
-};
+use crate::*;
+use core::ops::DerefMut;
+use core::sync::atomic::{AtomicUsize, Ordering};
+use megstd::fs::FileType;
+use megstd::io::{ErrorKind, Result};
 
 type ThisFs = RamFs;
 

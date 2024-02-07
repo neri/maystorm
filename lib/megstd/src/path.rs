@@ -1,14 +1,14 @@
 // impl Path for MEG-OS
 // Most of them are clones of Rust's original definition.
 
+use crate::prelude::*;
 use crate::sys::path::MAIN_SEP_STR;
-use crate::*;
-use core::{
-    cmp, fmt,
-    hash::{Hash, Hasher},
-    iter::FusedIterator,
-    ops, str,
-};
+use core::cmp;
+use core::fmt;
+use core::hash::{Hash, Hasher};
+use core::iter::FusedIterator;
+use core::ops;
+use core::str;
 
 #[repr(transparent)]
 pub struct Path {

@@ -1,9 +1,8 @@
 use super::*;
-use crate::{drivers::pci::PciBar, *};
-use core::{
-    mem::{size_of, transmute},
-    num::NonZeroUsize,
-};
+use crate::drivers::pci::PciBar;
+use crate::*;
+use core::mem::{size_of, transmute};
+use core::num::NonZeroUsize;
 
 macro_rules! mmio_reg_declare {
     (

@@ -1,14 +1,15 @@
 // impl OsString for MEG-OS
 // Most of them are clones of Rust's original definition.
 
-use crate::*;
+use crate::prelude::*;
 use alloc::borrow::{Cow, ToOwned};
 use alloc::collections::TryReserveError;
-use core::{
-    cmp, fmt,
-    hash::{Hash, Hasher},
-    mem, ops, str,
-};
+use core::cmp;
+use core::fmt;
+use core::hash::{Hash, Hasher};
+use core::mem;
+use core::ops;
+use core::str;
 
 #[repr(transparent)]
 pub struct OsStr {

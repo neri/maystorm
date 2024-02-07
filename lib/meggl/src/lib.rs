@@ -13,5 +13,7 @@ pub use color::*;
 pub use coords::*;
 pub use drawable::*;
 
+pub mod vec;
+
 #[cfg(test)]
 pub mod tests;

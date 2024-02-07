@@ -1,27 +1,22 @@
 use super::*;
-use crate::{
-    drivers::{pci::*, usb::*},
-    mem::mmio::*,
-    mem::MemoryManager,
-    sync::{fifo::AsyncEventQueue, semaphore::*, RwLock},
-    task::{scheduler::*, Task},
-    *,
-};
-use alloc::{boxed::Box, collections::VecDeque, format, string::String, sync::Arc, vec::Vec};
-use core::{
-    cell::UnsafeCell,
-    ffi::c_void,
-    marker::PhantomData,
-    mem::transmute,
-    mem::{size_of, MaybeUninit},
-    num::NonZeroU8,
-    ops::{Deref, DerefMut},
-    pin::Pin,
-    slice,
-    sync::atomic::*,
-    task::Poll,
-    time::Duration,
-};
+use crate::drivers::{pci::*, usb::*};
+use crate::mem::mmio::*;
+use crate::mem::MemoryManager;
+use crate::sync::{fifo::AsyncEventQueue, semaphore::*, RwLock};
+use crate::task::{scheduler::*, Task};
+use crate::*;
+use alloc::collections::VecDeque;
+use core::cell::UnsafeCell;
+use core::ffi::c_void;
+use core::marker::PhantomData;
+use core::mem::{size_of, transmute, MaybeUninit};
+use core::num::NonZeroU8;
+use core::ops::{Deref, DerefMut};
+use core::pin::Pin;
+use core::slice;
+use core::sync::atomic::*;
+use core::task::Poll;
+use core::time::Duration;
 use futures_util::Future;
 use megstd::mem::dispose::*;
 use num_derive::FromPrimitive;

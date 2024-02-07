@@ -39,14 +39,10 @@ default: $(TARGETS)
 all: $(ALL_TARGETS)
 
 clean:
-	(cd system; cargo clean)
-	(cd apps; cargo clean)
-	(cd boot; cargo clean)
-	(cd tools; cargo clean)
-	-rm -rf system/target apps/target boot/target tools/target
+	-rm -rf system/target apps/target boot/target tools/target lib/*/target
 
 refresh: clean
-	-rm system/Cargo.lock apps/Cargo.lock boot/Cargo.lock tools/Cargo.lock lib/**/Cargo.lock
+	-rm system/Cargo.lock apps/Cargo.lock boot/Cargo.lock tools/Cargo.lock lib/*/Cargo.lock
 
 # $(RUST_ARCH).json:
 # 	rustc +nightly -Z unstable-options --print target-spec-json --target $(RUST_ARCH) | sed -e 's/-sse,+/+sse,-/' > $@
@@ -119,7 +115,7 @@ apps:
 test:
 	cargo test --manifest-path lib/megstd/Cargo.toml
 	cargo test --manifest-path lib/meggl/Cargo.toml
-	cargo test --manifest-path lib/wasm/Cargo.toml
+	# cargo test --manifest-path lib/wami/Cargo.toml
 	cargo test --manifest-path lib/mar/Cargo.toml
 
 doc:

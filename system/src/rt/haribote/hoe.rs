@@ -1,19 +1,14 @@
 //! Haribote-OS Emulator Subsystem
 
 use super::*;
-use crate::{
-    arch::cpu::LegacySyscallContext,
-    fs::*,
-    io::audio::{AudioContext, FreqType, NoteControl, NoteOnParams, OscType},
-    mem::MemoryManager,
-    ui::window::*,
-};
-use alloc::{boxed::Box, sync::Arc};
-use core::{alloc::Layout, slice, str, time::Duration};
-use megstd::{
-    drawing::*,
-    io::{hid::Usage, Read},
-};
+use crate::arch::cpu::LegacySyscallContext;
+use crate::io::audio::{AudioContext, FreqType, NoteControl, NoteOnParams, OscType};
+use crate::ui::window::*;
+use core::slice;
+use core::str;
+use core::time::Duration;
+use megstd::drawing::*;
+use megstd::io::{hid::Usage, Error, ErrorKind, Read};
 
 #[allow(dead_code)]
 mod fonts {
@@ -89,6 +84,9 @@ pub struct Hoe {
     lang_mode: HoeLangMode,
     malloc_start: u32,
     malloc_free: u32,
+
+    #[allow(dead_code)]
+    app_image: Box<[u8]>,
 }
 
 unsafe impl Identify for Hoe {
@@ -150,9 +148,10 @@ impl Hoe {
         0xFFFFFFFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
 
-    fn new(context: LegacyAppContext, cmdline: String) -> PersonalityContext {
+    fn new(context: LegacyAppContext, app_image: Box<[u8]>, cmdline: String) -> PersonalityContext {
         PersonalityContext::new(Self {
             context,
+            app_image,
             cmdline,
             windows: Vec::new(),
             timers: Vec::new(),
@@ -182,7 +181,7 @@ impl Hoe {
         match regs.edx {
             1 => {
                 // putchar(eax)
-                System::stdout().write_char(regs.eax as u8 as char).unwrap();
+                print!("{}", regs.eax as u8 as char);
             }
             2 => {
                 // putstring(ebx)
@@ -579,28 +578,23 @@ impl HrbExecutable {
     const MINIMAL_BIN_SIZE: usize = 0x24;
 }
 
-pub struct HrbBinaryLoader {
-    lio: LoadedImageOption,
-    ctx: LegacyAppContext,
+pub struct HrbBinaryLoader;
+
+impl HrbBinaryLoader {
+    #[inline]
+    pub fn new() -> Box<Self> {
+        unsafe {
+            HoeManager::init();
+        }
+        Box::new(Self {})
+    }
 }
 
 impl HrbBinaryLoader {
-    fn new() -> Self {
-        Self {
-            lio: LoadedImageOption::default(),
-            ctx: LegacyAppContext::default(),
-        }
-    }
-
-    pub fn identity(blob: &[u8]) -> Option<Self> {
-        if blob.len() > HrbExecutable::MINIMAL_BIN_SIZE
+    pub fn identify(blob: &[u8]) -> bool {
+        blob.len() > HrbExecutable::MINIMAL_BIN_SIZE
             && &blob[HrbExecutable::OFFSET_SIGN_1..HrbExecutable::OFFSET_SIGN_2]
                 == HrbExecutable::SIGNATURE
-        {
-            Some(HrbBinaryLoader::new())
-        } else {
-            None
-        }
     }
 
     fn start(_: usize) {
@@ -615,14 +609,17 @@ impl HrbBinaryLoader {
 }
 
 impl BinaryLoader for HrbBinaryLoader {
-    fn option(&mut self) -> &mut LoadedImageOption {
-        &mut self.lio
+    fn preferred_extension<'a>(&self) -> &'a str {
+        "hrb"
     }
 
-    fn load(&mut self, blob: &[u8]) -> Result<(), ()> {
-        unsafe {
-            let blob_ptr = &blob[0] as *const u8;
-            let header = (blob_ptr as *const HrbExecutable).as_ref().unwrap();
+    fn recognize(&self, blob: &[u8]) -> bool {
+        HrbBinaryLoader::identify(blob)
+    }
+
+    fn spawn(&self, blob: &[u8], lio: LoadedImageOption) -> Result<ProcessId, Error> {
+        let (ctx, app_image) = unsafe {
+            let header: &HrbExecutable = &*(blob.as_ptr() as *const HrbExecutable);
             let size_of_code = header.start_data as usize;
             let rva_data = (size_of_code + 0xFFF) & !0xFFF;
             let size_of_ds = header.size_of_ds as usize;
@@ -630,38 +627,44 @@ impl BinaryLoader for HrbBinaryLoader {
             let image_size = rva_data + size_of_ds;
             let stack_pointer = header.esp as usize;
 
-            let image_base = MemoryManager::zalloc(Layout::from_size_align_unchecked(
-                image_size,
-                MemoryManager::PAGE_SIZE_MIN,
-            ))
-            .unwrap()
-            .get() as *mut u8;
-            image_base.write_bytes(0, image_size);
+            let mut app_image = Vec::new();
+            app_image
+                .try_reserve(image_size)
+                .map_err(|_| ErrorKind::OutOfMemory)?;
+            app_image.resize(image_size, 0);
 
-            let base_code = image_base;
-            base_code.copy_from_nonoverlapping(blob_ptr, size_of_code);
-            let base_data = image_base.add(rva_data);
-            base_data
+            let image_base = (PhysicalAddress::direct_unmap(app_image.as_ptr())
+                .unwrap()
+                .as_u64())
+            .try_into()
+            .map_err(|_| ErrorKind::OutOfMemory)?;
+
+            app_image
+                .as_mut_ptr()
+                .copy_from_nonoverlapping(blob.as_ptr(), size_of_code);
+
+            app_image
+                .as_mut_ptr()
+                .add(rva_data)
                 .add(stack_pointer)
-                .copy_from_nonoverlapping(blob_ptr.add(size_of_code), size_of_data);
+                .copy_from_nonoverlapping(blob.as_ptr().add(size_of_code), size_of_data);
 
-            self.ctx.image_base = image_base as u32;
-            self.ctx.image_size = image_size as u32;
-            self.ctx.base_of_code = base_code as u32;
-            self.ctx.size_of_code = size_of_code as u32;
-            self.ctx.base_of_data = base_data as u32;
-            self.ctx.size_of_data = size_of_ds as u32;
-            self.ctx.start = HrbExecutable::START;
-            self.ctx.stack_pointer = stack_pointer as u32;
-        }
-        Ok(())
-    }
+            let mut ctx = LegacyAppContext::default();
+            ctx.image_base = image_base;
+            ctx.image_size = image_size as u32;
+            ctx.base_of_code = image_base;
+            ctx.size_of_code = size_of_code as u32;
+            ctx.base_of_data = image_base + rva_data as u32;
+            ctx.size_of_data = size_of_ds as u32;
+            ctx.start = HrbExecutable::START;
+            ctx.stack_pointer = stack_pointer as u32;
 
-    fn invoke_start(self: Box<Self>) -> Option<ProcessId> {
-        let cmdline = self.lio.argv.join(" ");
+            (ctx, app_image.into_boxed_slice())
+        };
+
         SpawnOption::new()
-            .personality(Hoe::new(self.ctx, cmdline))
-            .start_process(Self::start, 0, self.lio.name.as_ref())
+            .personality(Hoe::new(ctx, app_image, lio.argv.join(" ")))
+            .start_process(Self::start, 0, lio.name.as_ref())
     }
 }
 

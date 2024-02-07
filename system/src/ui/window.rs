@@ -1,12 +1,12 @@
 use super::{font::*, text::*, theme::Theme};
 use crate::{
+    init::SysInit,
     io::{hid_mgr::*, screen::Screen},
     res::icon::IconManager,
     sync::atomic::AtomicFlags,
     sync::RwLock,
     sync::{fifo::*, semaphore::*, spinlock::SpinMutex},
     task::scheduler::*,
-    user::userenv::UserEnv,
     *,
 };
 use core::{
@@ -21,7 +21,7 @@ use core::{
     time::Duration,
 };
 use futures_util::task::AtomicWaker;
-use megstd::{drawing::*, io::hid::*, sys::megos, Arc, BTreeMap, Box, String, ToOwned, Vec};
+use megstd::{drawing::*, io::hid::*, sys::megos};
 
 const MAX_WINDOWS: usize = 255;
 const WINDOW_SYSTEM_EVENT_QUEUE_SIZE: usize = 100;
@@ -187,7 +187,9 @@ impl WindowManager<'static> {
             }));
         }
 
-        SpawnOption::with_priority(Priority::High).start(Self::window_thread, 0, "Window Manager");
+        SpawnOption::with_priority(Priority::High)
+            .start(Self::window_thread, 0, "Window Manager")
+            .unwrap();
     }
 
     #[track_caller]
@@ -525,7 +527,9 @@ impl WindowManager<'_> {
         }
         let mut errors = None;
         if !down.is_empty() {
-            match target.post(WindowMessage::MouseDown(MouseEvent::new(point, buttons, down))) {
+            match target.post(WindowMessage::MouseDown(MouseEvent::new(
+                point, buttons, down,
+            ))) {
                 Ok(_) => (),
                 Err(err) => errors = Some(err),
             };
@@ -550,12 +554,16 @@ impl WindowManager<'_> {
         buttons: MouseButton,
     ) -> Result<(), WindowPostError> {
         self.entered.set(new);
-        old.post(
-            WindowMessage::MouseLeave(MouseEvent::new(position, buttons, MouseButton::empty()))
-        )?;
-        new.post(
-            WindowMessage::MouseEnter(MouseEvent::new(position, buttons, MouseButton::empty()))
-        )?;
+        old.post(WindowMessage::MouseLeave(MouseEvent::new(
+            position,
+            buttons,
+            MouseButton::empty(),
+        )))?;
+        new.post(WindowMessage::MouseEnter(MouseEvent::new(
+            position,
+            buttons,
+            MouseButton::empty(),
+        )))?;
 
         Ok(())
     }
@@ -813,7 +821,7 @@ impl WindowManager<'_> {
             && event.modifier().has_alt()
         {
             // ctrl alt del
-            UserEnv::system_reset(false);
+            SysInit::system_reset(false);
         } else if let Some(window) = shared.active.get() {
             Self::post_system_event(WindowSystemEvent::Key(window, event)).unwrap();
         }
@@ -1317,15 +1325,14 @@ impl RawWindow {
 
         let window_orders = WindowManager::shared().window_orders.read().unwrap();
 
-        let first_index =
-            if is_opaque {
-                window_orders
-                    .iter()
-                    .position(|&v| v == self.handle)
-                    .unwrap_or(0)
-            } else {
-                0
-            };
+        let first_index = if is_opaque {
+            window_orders
+                .iter()
+                .position(|&v| v == self.handle)
+                .unwrap_or(0)
+        } else {
+            0
+        };
 
         for handle in window_orders[first_index..].iter() {
             let window = handle.as_ref();
@@ -1623,11 +1630,10 @@ impl RawWindow {
             return;
         }
         let bitmap = self.bitmap();
-        let state =
-            match self.back_button_state {
-                ViewActionState::Disabled => return,
-                other => other,
-            };
+        let state = match self.back_button_state {
+            ViewActionState::Disabled => return,
+            other => other,
+        };
         let shared = WindowManager::shared();
         let button_frame = self.back_button_frame();
         let is_active = self.is_active();
@@ -1897,33 +1903,32 @@ impl RawWindowBuilder {
 
         let screen_bounds = WindowManager::user_screen_bounds();
         let content_insets = self.style.as_content_insets();
-        let frame =
-            if self.style.contains(WindowStyle::FULLSCREEN) {
-                if self.level >= WindowLevel::FLOATING {
-                    WindowManager::main_screen_bounds()
-                } else {
-                    WindowManager::user_screen_bounds()
-                }
+        let frame = if self.style.contains(WindowStyle::FULLSCREEN) {
+            if self.level >= WindowLevel::FLOATING {
+                WindowManager::main_screen_bounds()
             } else {
-                let mut frame = self.frame;
-                frame.size += content_insets;
-                if frame.min_x() == isize::MIN {
-                    frame.origin.x = (screen_bounds.max_x() - frame.width()) / 2;
-                } else if frame.min_x() < 0 {
-                    frame.origin.x +=
-                        screen_bounds.max_x() - (content_insets.left + content_insets.right);
-                }
-                if frame.min_y() == isize::MIN {
-                    frame.origin.y = isize::max(
-                        screen_bounds.min_y(),
-                        (screen_bounds.max_y() - frame.height()) / 2,
-                    );
-                } else if frame.min_y() < 0 {
-                    frame.origin.y +=
-                        screen_bounds.max_y() - (content_insets.top + content_insets.bottom);
-                }
-                frame
-            };
+                WindowManager::user_screen_bounds()
+            }
+        } else {
+            let mut frame = self.frame;
+            frame.size += content_insets;
+            if frame.min_x() == isize::MIN {
+                frame.origin.x = (screen_bounds.max_x() - frame.width()) / 2;
+            } else if frame.min_x() < 0 {
+                frame.origin.x +=
+                    screen_bounds.max_x() - (content_insets.left + content_insets.right);
+            }
+            if frame.min_y() == isize::MIN {
+                frame.origin.y = isize::max(
+                    screen_bounds.min_y(),
+                    (screen_bounds.max_y() - frame.height()) / 2,
+                );
+            } else if frame.min_y() < 0 {
+                frame.origin.y +=
+                    screen_bounds.max_y() - (content_insets.top + content_insets.bottom);
+            }
+            frame
+        };
 
         let attributes = if self.level == WindowLevel::ROOT {
             AtomicFlags::new(WindowAttributes::VISIBLE)
@@ -1966,8 +1971,10 @@ impl RawWindowBuilder {
             _ => Some(ConcurrentFifo::with_capacity(self.queue_size)),
         };
 
-        let bitmap =
-            UnsafeCell::new(OwnedBitmap::Argb32(OwnedBitmap32::new(frame.size(), bg_color.into())));
+        let bitmap = UnsafeCell::new(OwnedBitmap::Argb32(OwnedBitmap32::new(
+            frame.size(),
+            bg_color.into(),
+        )));
 
         let shadow_bitmap = if self.style.contains(WindowStyle::NO_SHADOW) {
             None
@@ -1987,7 +1994,10 @@ impl RawWindowBuilder {
 
         let back_buffer = if let Some(ref shadow_bitmap) = shadow_bitmap {
             let shadow_bitmap = unsafe { &*shadow_bitmap.get() };
-            UnsafeCell::new(OwnedBitmap32::new(shadow_bitmap.size(), TrueColor::TRANSPARENT))
+            UnsafeCell::new(OwnedBitmap32::new(
+                shadow_bitmap.size(),
+                TrueColor::TRANSPARENT,
+            ))
         } else {
             UnsafeCell::new(OwnedBitmap32::new(frame.size(), TrueColor::TRANSPARENT))
         };

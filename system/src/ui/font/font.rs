@@ -2,7 +2,7 @@ use crate::{fs::*, *};
 use ab_glyph::{self, Font as AbFont};
 use alloc::collections::BTreeMap;
 use core::{cell::UnsafeCell, mem::MaybeUninit};
-use megstd::{drawing::*, io::Read, Arc, Vec};
+use megstd::{drawing::*, io::Read, prelude::*};
 
 #[allow(dead_code)]
 mod embedded {
@@ -363,7 +363,7 @@ impl TrueTypeFont {
     #[inline]
     pub fn new(font_data: Vec<u8>) -> Option<Self> {
         let Ok(font) = ab_glyph::FontVec::try_from_vec(font_data) else {
-            return None
+            return None;
         };
         let units_per_em = font.units_per_em().unwrap();
         let line_height = (Self::BASE_HEIGHT as f32
@@ -413,7 +413,9 @@ impl FontDriver for TrueTypeFont {
         height: isize,
         color: Color,
     ) {
-        let BitmapRefMut::Argb32(bitmap) = bitmap else { return };
+        let BitmapRefMut::Argb32(bitmap) = bitmap else {
+            return;
+        };
 
         let scale = height as f32 * self.font.height_unscaled() / self.units_per_em;
         let ascent = (height as f32 * self.font.ascent_unscaled() / self.units_per_em) as isize;

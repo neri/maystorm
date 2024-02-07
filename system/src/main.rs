@@ -7,12 +7,20 @@
 
 extern crate alloc;
 use bootprot::*;
-use core::{fmt, fmt::Write, num::NonZeroU8, ptr::addr_of_mut};
-use kernel::{
-    drivers::pci, drivers::usb, fs::OpenOptions, fs::*, mem::*, rt::*, system::*,
-    task::scheduler::*, ui::window::WindowManager, user::userenv::UserEnv, *,
-};
-use megstd::{io::Read, String, ToOwned, ToString, Vec};
+use core::fmt::{self, Write};
+use core::num::NonZeroU8;
+use core::ptr::addr_of_mut;
+use kernel::drivers::pci;
+use kernel::drivers::usb;
+use kernel::fs::*;
+use kernel::init::SysInit;
+use kernel::mem::*;
+use kernel::rt::*;
+use kernel::system::*;
+use kernel::task::scheduler::*;
+use kernel::ui::window::WindowManager;
+use kernel::*;
+use megstd::io::Read;
 
 /// Kernel entry point
 #[no_mangle]
@@ -91,10 +99,10 @@ impl Shell {
                         )
                     }
                     "reboot" => {
-                        UserEnv::system_reset(false);
+                        SysInit::system_reset(false);
                     }
                     "shutdown" => {
-                        UserEnv::system_reset(true);
+                        SysInit::system_reset(true);
                     }
                     "uptime" => {
                         let systime = System::system_time();
@@ -232,67 +240,39 @@ impl Shell {
         }
     }
 
-    fn spawn(name: &str, argv: &[&str], wait_until: bool) -> usize {
-        Self::spawn_main(name, argv, wait_until).unwrap_or_else(|| {
+    fn spawn(path: &str, argv: &[&str], wait_until: bool) -> usize {
+        Self::spawn_main(path, argv, wait_until).unwrap_or_else(|| {
             let mut sb = String::new();
             let shared = Self::shared();
             for ext in &shared.path_ext {
                 sb.clear();
-                write!(sb, "{}.{}", name, ext).unwrap();
+                write!(sb, "{}.{}", path, ext).unwrap();
                 match Self::spawn_main(sb.as_str(), argv, wait_until) {
                     Some(v) => return v,
                     None => (),
                 }
             }
-            println!("Command not found: {}", name);
+            println!("Command not found: {}", path);
             1
         })
     }
 
-    fn spawn_main(name: &str, argv: &[&str], wait_until: bool) -> Option<usize> {
-        FileManager::open(name, OpenOptions::new().read(true))
-            .map(|mut fcb| {
-                let stat = fcb.fstat().unwrap();
-                if !stat.file_type().is_file() {
-                    println!("permission denied: {}", name);
-                    return 1;
+    fn spawn_main(path: &str, argv: &[&str], wait_until: bool) -> Option<usize> {
+        match RuntimeEnvironment::spawn(path, argv) {
+            Ok(child) => {
+                if wait_until {
+                    child.join();
                 }
-                let file_size = stat.len() as usize;
-                if file_size > 0 {
-                    let mut vec = Vec::with_capacity(file_size);
-                    match fcb.read_to_end(&mut vec) {
-                        Ok(_v) => (),
-                        Err(err) => {
-                            println!("{}: File read error {:?}", name, err);
-                            return 1;
-                        }
-                    };
-                    let blob = vec.as_slice();
-                    if let Some(mut loader) = RuntimeEnvironment::recognize(blob) {
-                        loader.option().name = name.to_string();
-                        loader.option().argv = argv.iter().map(|v| v.to_string()).collect();
-                        match loader.load(blob) {
-                            Ok(_) => {
-                                let child = loader.invoke_start();
-                                if wait_until {
-                                    child.map(|thread| thread.join());
-                                }
-                            }
-                            Err(_) => {
-                                println!("Load error");
-                                return 1;
-                            }
-                        }
-                    } else {
-                        println!("Bad executable");
-                        return 1;
-                    }
-                } else {
-                    unreachable!()
+                Some(0)
+            }
+            Err(err) => match err.kind() {
+                megstd::io::ErrorKind::NotFound => None,
+                _ => {
+                    println!("error {:?}", err);
+                    Some(1)
                 }
-                0
-            })
-            .ok()
+            },
+        }
     }
 
     fn command(cmd: &str) -> Option<&'static fn(&[&str]) -> ()> {
@@ -648,7 +628,13 @@ impl Shell {
 
     fn cmd_lsusb(argv: &[&str]) {
         if let Some(addr) = argv.get(1).and_then(|v| v.parse::<NonZeroU8>().ok()) {
-            let addr = usb::UsbAddress::from(addr);
+            let addr = match usb::UsbAddress::from_nonzero(addr) {
+                Some(v) => v,
+                None => {
+                    println!("Error: Bad usb address");
+                    return;
+                }
+            };
             let device = match usb::UsbManager::device_by_addr(addr) {
                 Some(v) => v,
                 None => {
@@ -700,7 +686,7 @@ impl Shell {
                             "  endpoint {:02x} {:?} size {} interval {}",
                             endpoint.address().0,
                             endpoint.ep_type(),
-                            endpoint.descriptor().max_packet_size(),
+                            endpoint.descriptor().max_packet_size().0,
                             endpoint.descriptor().interval(),
                         );
                     }

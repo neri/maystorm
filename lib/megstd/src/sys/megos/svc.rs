@@ -46,6 +46,8 @@ pub enum Function {
     ReadChar,
     /// Draw a shape in a window
     DrawShape,
+    /// Set the number of frames drawn per second
+    WindowFpsThrottle,
 
     /// Returns a simple pseudo-random number
     Rand = 100,

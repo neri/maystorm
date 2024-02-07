@@ -1,18 +1,12 @@
 use super::devfs::DevFs;
-use crate::{
-    fs::ramfs::RamFs,
-    sync::{RwLock, RwLockReadGuard},
-    task::scheduler::Scheduler,
-    *,
-};
-use alloc::{
-    borrow::ToOwned, collections::BTreeMap, fmt, format, string::String, sync::Arc, vec::Vec,
-};
-use core::{fmt::Display, num::NonZeroU64};
-use megstd::{
-    fs::FileType,
-    io::{Error, ErrorKind, Read, Result, Write},
-};
+use crate::fs::ramfs::RamFs;
+use crate::sync::{RwLock, RwLockReadGuard};
+use crate::task::scheduler::Scheduler;
+use crate::*;
+use core::fmt::{self, Display};
+use core::num::NonZeroU64;
+use megstd::fs::FileType;
+use megstd::io::{Error, ErrorKind, Read, Result, Write};
 use myos_archive::ArchiveReader;
 
 pub use megstd::sys::fs_imp::OpenOptions;

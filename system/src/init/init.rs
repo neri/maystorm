@@ -1,33 +1,32 @@
-use crate::{
-    fs::*,
-    io::{image::ImageLoader, tty::*},
-    log::{EventManager, SimpleMessagePayload},
-    mem::*,
-    res::icon::IconManager,
-    sync::fifo::{ConcurrentFifo, EventQueue},
-    system::*,
-    task::scheduler::*,
-    ui::font::*,
-    ui::terminal::Terminal,
-    ui::text::*,
-    ui::theme::Theme,
-    ui::window::*,
-    *,
-};
-use core::{
-    fmt::Write,
-    mem::{transmute, MaybeUninit},
-    time::Duration,
-};
-use megstd::{drawing::*, io::Read, string::*, Arc, String, Vec};
+//! Pseudo-processes launched first at startup
+use crate::fs::*;
+use crate::io::{image::ImageLoader, tty::*};
+use crate::mem::*;
+use crate::res::icon::IconManager;
+use crate::sync::fifo::{ConcurrentFifo, EventQueue};
+use crate::system::*;
+use crate::task::scheduler::*;
+use crate::ui::font::*;
+use crate::ui::terminal::Terminal;
+use crate::ui::text::*;
+use crate::ui::theme::Theme;
+use crate::ui::window::*;
+use crate::utils::{EventManager, SimpleMessagePayload};
+use crate::*;
+use core::fmt::Write;
+use core::mem::{transmute, MaybeUninit};
+use core::time::Duration;
+use megstd::drawing::*;
+use megstd::io::Read;
+use megstd::string::*;
 
 static IS_GUI_BOOT: bool = true;
 static mut SHUTDOWN_COMMAND: MaybeUninit<EventQueue<ShutdownCommand>> = MaybeUninit::uninit();
 static mut BG_TERMINAL: Option<WindowHandle> = None;
 
-pub struct UserEnv;
+pub struct SysInit;
 
-impl UserEnv {
+impl SysInit {
     pub fn start(f: fn()) {
         assert_call_once!();
 
@@ -328,7 +327,9 @@ async fn shell_launcher(f: fn()) {
 
         // Scheduler::spawn_async(clock_task());
     }
-    SpawnOption::new().start_process(unsafe { core::mem::transmute(f) }, 0, "shell");
+    SpawnOption::new()
+        .start_process(unsafe { core::mem::transmute(f) }, 0, "shell")
+        .unwrap();
 }
 
 #[allow(dead_code)]
@@ -489,13 +490,12 @@ async fn activity_monitor_main() {
     let spacing = 4;
     let graph_rect = Rect::new(spacing, spacing, n_items as isize, 32);
     let graph_size = graph_rect.size();
-    let meter_rect =
-        Rect::new(
-            graph_rect.max_x() + spacing,
-            spacing,
-            width - graph_rect.width() - 12,
-            32,
-        );
+    let meter_rect = Rect::new(
+        graph_rect.max_x() + spacing,
+        spacing,
+        width - graph_rect.width() - 12,
+        32,
+    );
     let mut opr_bitmap = OperationalBitmap::new(graph_size);
 
     let interval = Duration::from_secs(1);
@@ -872,13 +872,12 @@ async fn test_window_main() {
             });
         }
         {
-            let rect =
-                bitmap.bounds().insets_by(EdgeInsets::new(
-                    title_height + padding,
-                    4,
-                    padding_bottom + padding + padding,
-                    4,
-                ));
+            let rect = bitmap.bounds().insets_by(EdgeInsets::new(
+                title_height + padding,
+                4,
+                padding_bottom + padding + padding,
+                4,
+            ));
             bitmap.view(rect).map(|mut bitmap| {
                 let mut offset = 0;
                 for family in [
@@ -921,13 +920,12 @@ async fn test_window_main() {
             });
         }
         if true {
-            let rect =
-                Rect::new(
-                    button_center_top.x() + padding / 2,
-                    button_center_top.y(),
-                    button_width,
-                    button_height,
-                );
+            let rect = Rect::new(
+                button_center_top.x() + padding / 2,
+                button_center_top.y(),
+                button_width,
+                button_height,
+            );
             bitmap.view(rect).map(|mut bitmap| {
                 let rect = bitmap.bounds();
                 bitmap.fill_round_rect(

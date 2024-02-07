@@ -1,6 +1,10 @@
 use super::*;
-use ::alloc::{boxed::Box, vec::Vec};
-use core::{alloc::Layout, intrinsics::transmute, num::*, ptr::NonNull, sync::atomic::*};
+use crate::*;
+use core::alloc::Layout;
+use core::intrinsics::transmute;
+use core::num::*;
+use core::ptr::NonNull;
+use core::sync::atomic::*;
 
 type UsizeSmall = u16;
 

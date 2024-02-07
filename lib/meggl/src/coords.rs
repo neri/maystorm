@@ -1,4 +1,6 @@
-use core::{convert::TryFrom, mem::swap, ops::*};
+use core::convert::TryFrom;
+use core::mem::swap;
+use core::ops::*;
 pub use num_traits::Zero;
 
 #[repr(C)]
@@ -677,8 +679,12 @@ impl Rect {
 
     #[inline]
     pub const fn overlaps(self, rhs: Self) -> bool {
-        let Ok(cl) = Coordinates::from_rect(self) else { return false };
-        let Ok(cr) = Coordinates::from_rect(rhs) else { return false };
+        let Ok(cl) = Coordinates::from_rect(self) else {
+            return false;
+        };
+        let Ok(cr) = Coordinates::from_rect(rhs) else {
+            return false;
+        };
 
         cl.left < cr.right && cr.left < cl.right && cl.top < cr.bottom && cr.top < cl.bottom
     }
@@ -718,8 +724,12 @@ impl Contains<Point> for Rect {
 impl Contains<Rect> for Rect {
     #[inline]
     fn contains(&self, other: Rect) -> bool {
-        let Ok(cl) = Coordinates::from_rect(*self) else { return false };
-        let Ok(cr) = Coordinates::from_rect(other) else { return false };
+        let Ok(cl) = Coordinates::from_rect(*self) else {
+            return false;
+        };
+        let Ok(cr) = Coordinates::from_rect(other) else {
+            return false;
+        };
 
         cl.left <= cr.left && cl.right >= cr.right && cl.top <= cr.top && cl.bottom >= cr.bottom
     }

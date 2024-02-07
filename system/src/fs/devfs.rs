@@ -1,15 +1,11 @@
 use super::*;
-use crate::{sync::RwLock, *};
-use alloc::{borrow::ToOwned, collections::BTreeMap, string::String, sync::Arc};
-use core::{
-    mem::MaybeUninit,
-    num::NonZeroU32,
-    sync::atomic::{AtomicUsize, Ordering},
-};
-use megstd::{
-    fs::FileType,
-    io::{ErrorKind, Result},
-};
+use crate::sync::RwLock;
+use crate::*;
+use core::mem::MaybeUninit;
+use core::num::NonZeroU32;
+use core::sync::atomic::{AtomicUsize, Ordering};
+use megstd::fs::FileType;
+use megstd::io::{ErrorKind, Result};
 
 const ROOT_INODE: INodeType = unsafe { INodeType::new_unchecked(1) };
 
@@ -163,7 +159,7 @@ impl FsDriver for DevFsDriver {
 
     fn open(self: Arc<Self>, inode: INodeType) -> Result<Arc<dyn FsAccessToken>> {
         let Ok(dev_no) = inode.try_into() else {
-            return Err(ErrorKind::NotFound.into())
+            return Err(ErrorKind::NotFound.into());
         };
         DevFs::get_file(dev_no)
             .ok_or(ErrorKind::NotFound.into())

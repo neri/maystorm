@@ -1,16 +1,20 @@
 //! Log Event Manager
 
-use crate::{r, sync::fifo::AsyncEventQueue, system::System, *};
-use core::{fmt::Write, mem::MaybeUninit, pin::Pin};
+use crate::r;
+use crate::sync::fifo::AsyncEventQueue;
+use crate::system::System;
+use crate::*;
+use core::fmt::Write;
+use core::mem::MaybeUninit;
+use core::pin::Pin;
 use futures_util::Future;
-use megstd::{Box, String, ToString};
 
 #[macro_export]
 macro_rules! notify {
     ($icon:expr, $($arg:tt)*) => {
         let mut sb = megstd::string::Sb255::new();
         write!(sb, $($arg)*).unwrap();
-        log::EventManager::notify_simple_message($icon, sb.as_str());
+        utils::EventManager::notify_simple_message($icon, sb.as_str());
     };
 }
 

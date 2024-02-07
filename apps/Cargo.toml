@@ -2,10 +2,12 @@
 [workspace]
 members = [
   "bball",
+  "cube",
   "hello1",
   "hello2",
   "life",
   "noiz2bg",
+  "tube",
 ]
 
 [profile.release]

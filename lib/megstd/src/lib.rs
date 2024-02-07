@@ -2,6 +2,10 @@
 #![no_std]
 #![feature(alloc_error_handler)]
 #![feature(asm_experimental_arch)]
+#![feature(error_in_core)]
+//----
+#![allow(internal_features)]
+#![feature(core_intrinsics)]
 
 #[macro_use]
 pub mod sys;
@@ -27,19 +31,18 @@ pub mod window {
 
 extern crate alloc;
 
-pub use prelude::*;
 #[allow(unused_imports)]
-mod prelude {
-    pub use crate::{osstr::*, sys::prelude::*};
-    pub use alloc::{
-        borrow::ToOwned,
-        boxed::Box,
-        collections::btree_map::BTreeMap,
-        format,
-        rc::Rc,
-        string::String,
-        string::ToString,
-        sync::{Arc, Weak},
-        vec::Vec,
-    };
+pub mod prelude {
+    pub use crate::osstr::*;
+    pub use crate::sys::prelude::*;
+    pub use crate::*;
+    pub use alloc::borrow::ToOwned;
+    pub use alloc::boxed::Box;
+    pub use alloc::collections::btree_map::BTreeMap;
+    pub use alloc::format;
+    pub use alloc::rc::Rc;
+    pub use alloc::string::String;
+    pub use alloc::string::ToString;
+    pub use alloc::sync::{Arc, Weak};
+    pub use alloc::vec::Vec;
 }

@@ -6,12 +6,10 @@
 //! ┗■
 //! ```
 
-use core::{
-    fmt,
-    mem::{transmute, transmute_copy},
-    num::NonZeroU8,
-    time::Duration,
-};
+use core::fmt;
+use core::mem::{transmute, transmute_copy};
+use core::num::NonZeroU8;
+use core::time::Duration;
 
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

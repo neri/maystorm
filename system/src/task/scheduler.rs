@@ -18,7 +18,11 @@ use core::{
     cell::UnsafeCell, ffi::c_void, fmt, intrinsics::transmute, num::*, ops::*, ptr::addr_of,
     sync::atomic::*, time::Duration,
 };
-use megstd::{string::*, Arc, BTreeMap, Box, String, ToOwned, Vec};
+use megstd::{
+    io::{Error, ErrorKind},
+    prelude::*,
+    string::*,
+};
 
 const THRESHOLD_BUSY_THREAD: usize = 750;
 const THRESHOLD_ENTER_SAVING: usize = 500;
@@ -136,7 +140,9 @@ impl Scheduler {
         fence(Ordering::SeqCst);
         SCHEDULER_STATE.store(SchedulerState::FullThrottle);
 
-        SpawnOption::with_priority(Priority::High).start_process(f, args, "System");
+        SpawnOption::with_priority(Priority::High)
+            .start_process(f, args, "System")
+            .unwrap();
 
         loop {
             unsafe {
@@ -149,11 +155,9 @@ impl Scheduler {
     pub unsafe fn init_second() {
         assert_call_once!();
 
-        SpawnOption::with_priority(Priority::Realtime).start(
-            Self::_statistics_thread,
-            0,
-            "Scheduler Statistics",
-        );
+        SpawnOption::with_priority(Priority::Realtime)
+            .start(Self::_statistics_thread, 0, "Scheduler Statistics")
+            .unwrap();
 
         // for index in 0..System::current_device().num_of_logical_cpus() {
         //     let cpuid = ProcessorIndex(index);
@@ -558,7 +562,7 @@ impl Scheduler {
         arg: usize,
         name: &str,
         options: SpawnOption,
-    ) -> Option<ThreadHandle> {
+    ) -> Result<ThreadHandle, Error> {
         let current_pid = Self::current_pid();
         let pid = if options.new_process {
             let child = ProcessContextData::new(
@@ -574,10 +578,7 @@ impl Scheduler {
             current_pid
         };
         let target_process = pid.get().unwrap();
-        let priority = match options.priority {
-            Some(v) => v,
-            None => target_process.priority,
-        };
+        let priority = options.priority.unwrap_or(target_process.priority);
         target_process.n_threads.fetch_add(1, Ordering::SeqCst);
         let thread = ThreadContextData::new(
             pid,
@@ -589,7 +590,7 @@ impl Scheduler {
         )
         .unwrap();
         Self::add(thread);
-        Some(thread)
+        Ok(thread)
     }
 
     /// Spawning asynchronous tasks
@@ -900,17 +901,23 @@ impl SpawnOption {
 
     /// Start the specified function in a new thread.
     #[inline]
-    pub fn start(self, start: fn(usize), arg: usize, name: &str) -> Option<ThreadHandle> {
+    pub fn start(self, start: fn(usize), arg: usize, name: &str) -> Result<ThreadHandle, Error> {
         Scheduler::spawn_thread(start, arg, name, self)
     }
 
     /// Start the specified function in a new process.
     #[inline]
-    pub fn start_process(mut self, start: fn(usize), arg: usize, name: &str) -> Option<ProcessId> {
+    pub fn start_process(
+        mut self,
+        start: fn(usize),
+        arg: usize,
+        name: &str,
+    ) -> Result<ProcessId, Error> {
         self.new_process = true;
-        Scheduler::spawn_thread(start, arg, name, self)
-            .and_then(|v| v.get())
-            .map(|v| v.pid)
+        match Scheduler::spawn_thread(start, arg, name, self) {
+            Ok(v) => v.get().map(|v| v.pid).ok_or(ErrorKind::OutOfMemory.into()),
+            Err(err) => Err(err),
+        }
     }
 
     /// Start the closure in a new thread.
@@ -1032,9 +1039,13 @@ impl Timer {
 
     #[inline]
     pub fn new(duration: Duration) -> Self {
-        let timer = Self::timer_source();
-        Timer {
-            deadline: timer.measure() + duration.into(),
+        if duration.is_zero() {
+            Timer::JUST
+        } else {
+            let timer = Self::timer_source();
+            Timer {
+                deadline: timer.measure() + duration.into(),
+            }
         }
     }
 
@@ -1470,7 +1481,7 @@ impl ProcessContextData {
     fn new(parent: ProcessId, priority: Priority, name: &str, cwd: &str) -> ProcessContextData {
         let pid = Self::next_pid();
         Self {
-            name: name.to_owned(),
+            name: name.to_string(),
             parent,
             pid,
             n_threads: AtomicUsize::new(0),
@@ -1612,7 +1623,7 @@ struct ThreadContextData {
     executor: Option<Executor>,
 
     // Thread Name
-    name: Sb255,
+    name: String,
 }
 
 my_bitflags! {
@@ -1652,12 +1663,6 @@ impl ThreadContextData {
     ) -> Result<ThreadHandle, ()> {
         let handle = ThreadHandle::next();
 
-        let name = {
-            let mut sb = Sb255::new();
-            sb.write_str(name).unwrap();
-            sb
-        };
-
         let mut thread = Self {
             context: CpuContextData::new(),
             stack: None,
@@ -1675,7 +1680,7 @@ impl ThreadContextData {
             load: AtomicU32::new(0),
             executor: None,
             personality: personality.map(|v| UnsafeCell::new(v)),
-            name,
+            name: name.to_string(),
         };
         if let Some((start, arg)) = start {
             unsafe {
@@ -1708,7 +1713,7 @@ impl ThreadContextData {
         }
 
         self.attribute.insert(ThreadAttribute::ZOMBIE);
-        Scheduler::sleep_thread();
+        Scheduler::yield_thread();
         unreachable!();
     }
 

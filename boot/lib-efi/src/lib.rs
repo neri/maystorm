@@ -1,9 +1,14 @@
 #![no_std]
 #![feature(alloc_error_handler)]
 
-use alloc::{boxed::Box, vec::Vec};
-use core::{fmt::Write, panic::PanicInfo};
-use uefi::{prelude::*, proto::media::file::*, CStr16};
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use core::fmt::Write;
+use core::panic::PanicInfo;
+use uefi::prelude::*;
+use uefi::proto::media::file::*;
+use uefi::CStr16;
+
 extern crate alloc;
 
 pub mod debug;

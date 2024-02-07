@@ -1,7 +1,5 @@
-use core::{
-    ops::{Deref, DerefMut, Range},
-    ptr,
-};
+use core::ops::{Deref, DerefMut, Range};
+use core::ptr;
 
 pub struct FixedVec<T, const N: usize> {
     data: [T; N],

@@ -1,20 +1,20 @@
-use crate::{
-    arch::cpu::*,
-    io::{screen::*, tty::*},
-    task::scheduler::*,
-    *,
-};
-use bootprot::BootInfo;
-use core::{
-    cell::UnsafeCell,
-    ffi::c_void,
-    fmt,
-    mem::{transmute, MaybeUninit},
-    sync::atomic::*,
-};
-use megstd::{drawing::*, time::SystemTime, Arc, Box, String, Vec};
+//! MEG-OS Kernel
+// (c) 2020 Nerry
+// License: MIT
 
-/// A Kernel of MEG-OS codename Maystorm
+use crate::arch::cpu::*;
+use crate::io::{screen::*, tty::*};
+use crate::task::scheduler::*;
+use crate::*;
+use bootprot::BootInfo;
+use core::cell::UnsafeCell;
+use core::ffi::c_void;
+use core::fmt;
+use core::mem::{transmute, MaybeUninit};
+use core::sync::atomic::*;
+use megstd::drawing::*;
+use megstd::time::SystemTime;
+
 #[allow(dead_code)]
 pub struct System {
     /// Current device information
@@ -145,7 +145,7 @@ impl System {
         }
 
         unsafe {
-            log::EventManager::init();
+            utils::EventManager::init();
             Scheduler::init_second();
             mem::MemoryManager::init_second();
             fs::FileManager::init(shared.initrd_base.direct_map(), shared.initrd_size);
@@ -164,7 +164,7 @@ impl System {
 
             rt::RuntimeEnvironment::init();
 
-            user::userenv::UserEnv::start(transmute(args));
+            init::SysInit::start(transmute(args));
         }
     }
 

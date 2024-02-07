@@ -1,19 +1,15 @@
-use crate::{
-    arch::{
-        apic::Apic,
-        cpu::{Cpu, Rflags},
-        page::PageManager,
-    },
-    drivers::pci::PciConfigAddress,
-    hal::*,
-    system::ProcessorIndex,
-    *,
+use crate::arch::{
+    apic::Apic,
+    cpu::{Cpu, Rflags},
+    page::PageManager,
 };
-use core::{
-    arch::asm,
-    fmt,
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
-};
+use crate::drivers::pci::PciConfigAddress;
+use crate::hal::*;
+use crate::system::ProcessorIndex;
+use crate::*;
+use core::arch::asm;
+use core::fmt;
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 #[derive(Clone, Copy)]
 pub struct Hal;
@@ -311,8 +307,8 @@ impl PhysicalAddress {
     }
 
     #[inline]
-    pub const fn direct_unmap(va: usize) -> PhysicalAddress {
-        PageManager::direct_unmap(va)
+    pub fn direct_unmap<T>(ptr: *const T) -> Option<PhysicalAddress> {
+        PageManager::direct_unmap(ptr as usize)
     }
 }
 

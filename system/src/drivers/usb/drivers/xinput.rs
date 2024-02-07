@@ -1,13 +1,10 @@
 //! XInput Class Driver (FF_5D_01)
 
 use super::super::*;
-use crate::{
-    io::hid_mgr::{GameInput, GameInputManager},
-    sync::RwLock,
-    task::Task,
-    *,
-};
-use alloc::sync::Arc;
+use crate::io::hid_mgr::{GameInput, GameInputManager};
+use crate::sync::RwLock;
+use crate::task::Task;
+use crate::*;
 use core::pin::Pin;
 use futures_util::Future;
 

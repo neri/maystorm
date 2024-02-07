@@ -2,20 +2,21 @@
 #![no_std]
 #![no_main]
 
-use boot_efi::{invocation::*, loader::*, page::*};
+use boot_efi::invocation::*;
+use boot_efi::loader::*;
+use boot_efi::page::*;
 use bootprot::*;
-use core::{fmt::Write, mem::*};
+use core::fmt::Write;
+use core::mem::*;
 use lib_efi::*;
-use uefi::{
-    data_types::Guid,
-    prelude::*,
-    proto::console::gop,
-    table::{
-        boot::{MemoryType, OpenProtocolAttributes, OpenProtocolParams, SearchType},
-        cfg::{ACPI2_GUID, SMBIOS_GUID},
-    },
-    Identify,
+use uefi::data_types::Guid;
+use uefi::prelude::*;
+use uefi::proto::console::gop;
+use uefi::table::{
+    boot::{MemoryType, OpenProtocolAttributes, OpenProtocolParams, SearchType},
+    cfg::{ACPI2_GUID, SMBIOS_GUID},
 };
+use uefi::Identify;
 
 //#define EFI_DTB_TABLE_GUID  {0xb1b621d5, 0xf19c, 0x41a5, {0x83, 0x0b, 0xd9, 0x15, 0x2c, 0x69, 0xaa, 0xe0}}
 const DTB_GUID: Guid = Guid::from_bytes([

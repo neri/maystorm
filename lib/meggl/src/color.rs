@@ -1,8 +1,6 @@
-use core::{
-    fmt,
-    mem::transmute,
-    ops::{Add, AddAssign, Sub, SubAssign},
-};
+use core::fmt;
+use core::mem::transmute;
+use core::ops::{Add, AddAssign, Sub, SubAssign};
 
 /// Common color trait
 pub trait PixelColor: Sized + Copy + Clone + PartialEq + Eq + Default {
@@ -1390,7 +1388,7 @@ pub enum Monochrome {
 impl PixelColor for Monochrome {
     #[inline]
     fn stride_for(width: isize) -> usize {
-        (width as usize + 7) / 8
+        (width as usize + 7) >> 3
     }
 }
 
@@ -1415,8 +1413,8 @@ impl Monochrome {
     #[inline]
     pub const fn into_bool(self) -> bool {
         match self {
-            Self::Zero => false,
-            Self::One => true,
+            Monochrome::Zero => false,
+            Monochrome::One => true,
         }
     }
 }
@@ -1424,7 +1422,20 @@ impl Monochrome {
 impl From<Monochrome> for u8 {
     #[inline]
     fn from(value: Monochrome) -> Self {
-        value.into_bool() as u8
+        match value {
+            Monochrome::Zero => 0,
+            Monochrome::One => 1,
+        }
+    }
+}
+
+impl From<Monochrome> for usize {
+    #[inline]
+    fn from(value: Monochrome) -> Self {
+        match value {
+            Monochrome::Zero => 0,
+            Monochrome::One => 1,
+        }
     }
 }
 
@@ -1473,13 +1484,13 @@ impl Octet {
 
     #[inline]
     pub fn get(&self, at: usize) -> Monochrome {
-        Monochrome::new(self.0 & (0x80u8 >> at))
+        Monochrome::new(self.0 & (0x80u8.wrapping_shr(at as u32)))
     }
 
     #[inline]
     pub fn set(&mut self, at: usize, value: Monochrome) {
-        let mask = 0x80u8 >> at;
-        if value.into_bool() {
+        let mask = 0x80u8.wrapping_shr(at as u32);
+        if value == Monochrome::One {
             self.0 |= mask;
         } else {
             self.0 &= !mask;

@@ -70,7 +70,9 @@ pub fn os_exit() -> ! {
 /// Display a string.
 #[inline]
 pub fn os_print(s: &str) {
-    unsafe { syscall!(PrintString, s.as_ptr(), s.len()) };
+    unsafe {
+        let _ = syscall!(PrintString, s.as_ptr(), s.len());
+    }
 }
 
 /// Get the value of the monotonic timer in microseconds.
@@ -87,7 +89,9 @@ pub fn os_time_of_day() -> u32 {
 /// Blocks a thread for the specified microseconds.
 #[inline]
 pub fn os_usleep(us: u32) {
-    unsafe { syscall!(Usleep, us) };
+    unsafe {
+        let _ = syscall!(Usleep, us);
+    }
 }
 
 /// Get the system version information.
@@ -129,7 +133,9 @@ pub fn os_new_window2(
 /// Close a window.
 #[inline]
 pub fn os_close_window(window: usize) {
-    unsafe { syscall!(CloseWindow, window) };
+    unsafe {
+        let _ = syscall!(CloseWindow, window);
+    }
 }
 
 /// Create a drawing context
@@ -141,13 +147,17 @@ pub fn os_begin_draw(window: usize) -> usize {
 /// Discard the drawing context and reflect it to the screen
 #[inline]
 pub fn os_end_draw(ctx: usize) {
-    unsafe { syscall!(EndDraw, ctx) };
+    unsafe {
+        let _ = syscall!(EndDraw, ctx);
+    }
 }
 
 /// Draw a string in a window.
 #[inline]
 pub fn os_win_draw_string(ctx: usize, x: usize, y: usize, s: &str, color: usize) {
-    unsafe { syscall!(DrawString, ctx, x, y, s.as_ptr(), s.len(), color) };
+    unsafe {
+        let _ = syscall!(DrawString, ctx, x, y, s.as_ptr(), s.len(), color);
+    }
 }
 
 #[inline]
@@ -159,7 +169,16 @@ pub fn os_draw_shape(
     height: usize,
     params: &OsDrawShape,
 ) {
-    unsafe { syscall!(DrawShape, ctx, x, y, width, height, params as *const _) };
+    unsafe {
+        let _ = syscall!(DrawShape, ctx, x, y, width, height, params as *const _);
+    }
+}
+
+#[inline]
+pub fn os_window_max_fps(window: usize, fps: usize) {
+    unsafe {
+        let _ = syscall!(WindowFpsThrottle, window, fps);
+    }
 }
 
 #[allow(dead_code)]
@@ -173,12 +192,16 @@ pub struct OsDrawShape {
 /// Fill a rectangle in a window.
 #[inline]
 pub fn os_win_fill_rect(ctx: usize, x: usize, y: usize, width: usize, height: usize, color: usize) {
-    unsafe { syscall!(FillRect, ctx, x, y, width, height, color) };
+    unsafe {
+        let _ = syscall!(FillRect, ctx, x, y, width, height, color);
+    }
 }
 
 #[inline]
 pub fn os_win_draw_line(ctx: usize, x1: usize, y1: usize, x2: usize, y2: usize, color: usize) {
-    unsafe { syscall!(DrawLine, ctx, x1, y1, x2, y2, color) };
+    unsafe {
+        let _ = syscall!(DrawLine, ctx, x1, y1, x2, y2, color);
+    }
 }
 
 /// Wait for key event
@@ -196,24 +219,32 @@ pub fn os_read_char(window: usize) -> u32 {
 /// Draw a bitmap in a window
 #[inline]
 pub fn os_blt8(ctx: usize, x: usize, y: usize, bitmap: usize) {
-    unsafe { syscall!(Blt8, ctx, x, y, bitmap) };
+    unsafe {
+        let _ = syscall!(Blt8, ctx, x, y, bitmap);
+    }
 }
 
 #[inline]
 pub fn os_blt32(ctx: usize, x: usize, y: usize, bitmap: usize) {
-    unsafe { syscall!(Blt32, ctx, x, y, bitmap) };
+    unsafe {
+        let _ = syscall!(Blt32, ctx, x, y, bitmap);
+    }
 }
 
 /// Draw a bitmap in a window
 #[inline]
 pub fn os_blt1(ctx: usize, x: usize, y: usize, bitmap: usize, color: u32, mode: usize) {
-    unsafe { syscall!(Blt1, ctx, x, y, bitmap, color, mode) };
+    unsafe {
+        let _ = syscall!(Blt1, ctx, x, y, bitmap, color, mode);
+    }
 }
 
 /// TEST
 #[inline]
 pub fn os_blend_rect(bitmap: usize, x: usize, y: usize, width: usize, height: usize, color: u32) {
-    unsafe { syscall!(BlendRect, bitmap, x, y, width, height, color) };
+    unsafe {
+        let _ = syscall!(BlendRect, bitmap, x, y, width, height, color);
+    }
 }
 
 /// Returns a simple pseudo-random number
@@ -243,7 +274,7 @@ pub unsafe fn os_alloc(size: usize, align: usize) -> *mut u8 {
 /// Frees an allocated memory block
 #[inline]
 pub unsafe fn os_dealloc(ptr: *mut u8, size: usize, align: usize) {
-    syscall!(Dealloc, ptr, size, align);
+    let _ = syscall!(Dealloc, ptr, size, align);
 }
 
 #[inline]
@@ -270,4 +301,10 @@ pub fn os_write(handle: usize, buf: &[u8]) -> isize {
 #[inline]
 pub fn os_lseek(handle: usize, offset: i32, whence: usize) -> isize {
     unsafe { syscall!(LSeek, handle, offset, whence) as isize }
+}
+
+/// intrinsics sqrt
+#[inline]
+pub fn sqrt(v: f64) -> f64 {
+    unsafe { core::intrinsics::sqrtf64(v) }
 }

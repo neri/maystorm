@@ -1,22 +1,19 @@
 //! Advanced Programmable Interrupt Controller
 
-use super::{cpu::*, hpet::*, page::PageManager};
-use crate::{
-    mem::mmio::*,
-    mem::*,
-    sync::{semaphore::BinarySemaphore, spinlock::SpinMutex},
-    system::*,
-    task::scheduler::*,
-    *,
-};
-use ::alloc::vec::Vec;
-use core::{
-    cell::UnsafeCell,
-    mem::{size_of, transmute, ManuallyDrop},
-    ptr::{copy_nonoverlapping, null_mut},
-    sync::atomic::*,
-    time::Duration,
-};
+use super::cpu::*;
+use super::hpet::*;
+use super::page::PageManager;
+use crate::mem::mmio::*;
+use crate::mem::*;
+use crate::sync::{semaphore::BinarySemaphore, spinlock::SpinMutex};
+use crate::system::*;
+use crate::task::scheduler::*;
+use crate::*;
+use core::cell::UnsafeCell;
+use core::mem::{size_of, transmute, ManuallyDrop};
+use core::ptr::{copy_nonoverlapping, null_mut};
+use core::sync::atomic::*;
+use core::time::Duration;
 use myacpi::madt;
 use seq_macro::seq;
 

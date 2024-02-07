@@ -1,13 +1,11 @@
 //! TeleTypewriter
 
-use alloc::{boxed::Box, string::String, vec::Vec};
-use core::{
-    cell::UnsafeCell,
-    fmt::Write,
-    future::Future,
-    pin::Pin,
-    task::{Context, Poll},
-};
+use crate::*;
+use core::cell::UnsafeCell;
+use core::fmt::Write;
+use core::future::Future;
+use core::pin::Pin;
+use core::task::{Context, Poll};
 
 pub trait TtyWrite: Write {
     fn reset(&mut self) -> Result<(), TtyError>;

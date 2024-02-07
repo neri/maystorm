@@ -1,17 +1,13 @@
 //! Human Interface Device Manager
 
-use crate::{
-    sync::atomic::{AtomicFlags, AtomicWrapperU8},
-    sync::RwLock,
-    ui::window::*,
-    *,
-};
-use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
-use core::{
-    num::*,
-    sync::atomic::{AtomicIsize, AtomicUsize, Ordering},
-};
-use megstd::{drawing::*, io::hid::*};
+use crate::sync::atomic::{AtomicFlags, AtomicWrapperU8};
+use crate::sync::RwLock;
+use crate::ui::window::*;
+use crate::*;
+use core::num::*;
+use core::sync::atomic::{AtomicIsize, AtomicUsize, Ordering};
+use megstd::drawing::*;
+use megstd::io::hid::*;
 use num_traits::FromPrimitive;
 
 const INVALID_UNICHAR: char = '\u{FEFF}';

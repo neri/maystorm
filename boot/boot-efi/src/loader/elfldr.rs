@@ -2,7 +2,8 @@
 
 use super::*;
 use crate::page::*;
-use core::{intrinsics::transmute, ptr::copy_nonoverlapping};
+use core::intrinsics::transmute;
+use core::ptr::copy_nonoverlapping;
 use myelf::*;
 
 pub struct ElfLoader<'a> {

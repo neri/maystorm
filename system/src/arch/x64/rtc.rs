@@ -1,9 +1,7 @@
 // Real Time Clock
 
-use crate::{
-    sync::spinlock::{SpinMutex, SpinMutexGuard},
-    task::scheduler::*,
-};
+use crate::sync::spinlock::{SpinMutex, SpinMutexGuard};
+use crate::task::scheduler::*;
 use core::arch::asm;
 use megstd::time::SystemTime;
 

@@ -1,14 +1,13 @@
 //! USB HID Class Driver (03_xx_xx)
 
 use super::super::*;
-use crate::{
-    io::hid_mgr::*,
-    task::{scheduler::Timer, Task},
-    *,
-};
-use core::{pin::Pin, time::Duration};
+use crate::io::hid_mgr::*;
+use crate::task::{scheduler::Timer, Task};
+use crate::*;
+use core::pin::Pin;
+use core::time::Duration;
 use futures_util::Future;
-use megstd::{io::hid::*, Arc, Box, Vec};
+use megstd::io::hid::*;
 
 pub struct UsbHidStarter;
 

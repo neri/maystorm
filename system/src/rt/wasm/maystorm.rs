@@ -1,34 +1,31 @@
+//! Maystorm2020 Subsystem
+
 use super::*;
-use crate::{
-    fs::*,
-    sync::Mutex,
-    ui::theme::Theme,
-    *,
-    {io::hid_mgr::*, ui::text::*, ui::window::*},
-};
+use crate::io::hid_mgr::*;
+use crate::sync::Mutex;
+use crate::ui::text::*;
+use crate::ui::theme::Theme;
+use crate::ui::window::*;
+// use crate::*;
 use byteorder::*;
-use core::{
-    alloc::Layout, intrinsics::transmute, num::NonZeroU32, sync::atomic::*, time::Duration,
-};
-use megstd::{
-    drawing::*,
-    io::{Read, Write},
-    rand::*,
-    Arc, BTreeMap,
-};
-use wasm::{intr::*, *};
+use core::alloc::Layout;
+use core::intrinsics::transmute;
+use core::num::NonZeroU32;
+use core::slice;
+use core::sync::atomic::*;
+use core::time::Duration;
+use megstd::drawing::*;
+use megstd::io::{Read, Write};
+use megstd::rand::*;
+use wami::cg::intr::{WasmInvocation, WasmRuntimeError};
+use wami::memory::WasmMemory;
 
-pub struct MyosBinaryLoader {
-    loader: WasmLoader,
-    lio: LoadedImageOption,
-}
+pub struct MyosLoader;
 
-impl MyosBinaryLoader {
-    pub fn new() -> Self {
-        Self {
-            loader: WasmLoader::new(),
-            lio: LoadedImageOption::default(),
-        }
+impl MyosLoader {
+    #[inline]
+    pub fn new() -> Box<dyn WasmMiniLoader> {
+        Box::new(Self {})
     }
 
     fn start(_: usize) {
@@ -40,54 +37,54 @@ impl MyosBinaryLoader {
     }
 }
 
-impl BinaryLoader for MyosBinaryLoader {
-    fn option(&mut self) -> &mut LoadedImageOption {
-        &mut self.lio
+impl WasmMiniLoader for MyosLoader {
+    fn recognize(&self, module: &WasmModule) -> bool {
+        module
+            .imports()
+            .find(|item| {
+                item.kind == ImportExportKind::Function && item.module == MyosRuntime::MOD_NAME
+            })
+            .and_then(|_| {
+                module.exports().find(|item| {
+                    item.kind == ImportExportKind::Function
+                        && item.name == MyosRuntime::ENTRY_FUNC_NAME
+                })
+            })
+            .is_some()
     }
 
-    fn load(&mut self, blob: &[u8]) -> Result<(), ()> {
-        self.loader
-            .load(blob, |mod_name, name, type_ref| {
-                let signature = type_ref.signature();
-                match mod_name {
-                    MyosRuntime::MOD_NAME => match (name, signature.as_str()) {
-                        ("svc0", "ii") => ImportResult::Ok(MyosRuntime::syscall),
-                        ("svc1", "iii") => ImportResult::Ok(MyosRuntime::syscall),
-                        ("svc2", "iiii") => ImportResult::Ok(MyosRuntime::syscall),
-                        ("svc3", "iiiii") => ImportResult::Ok(MyosRuntime::syscall),
-                        ("svc4", "iiiiii") => ImportResult::Ok(MyosRuntime::syscall),
-                        ("svc5", "iiiiiii") => ImportResult::Ok(MyosRuntime::syscall),
-                        ("svc6", "iiiiiiii") => ImportResult::Ok(MyosRuntime::syscall),
-                        _ => ImportResult::NoMethod,
-                    },
-                    _ => ImportResult::NoModule,
-                }
-            })
-            .map_err(|v| {
-                println!("Load error: {:?}", v);
-                ()
-            })
-    }
+    fn instantiate(
+        &self,
+        module: WasmModule,
+        lio: LoadedImageOption,
+    ) -> Result<ProcessId, Box<dyn core::error::Error>> {
+        let instance = module.instantiate(|mod_name, name, type_ref| {
+            let signature = type_ref.signature();
+            match mod_name {
+                MyosRuntime::MOD_NAME => match (name, signature.as_str()) {
+                    ("svc0", "ii") => ImportResult::Ok(MyosRuntime::syscall),
+                    ("svc1", "iii") => ImportResult::Ok(MyosRuntime::syscall),
+                    ("svc2", "iiii") => ImportResult::Ok(MyosRuntime::syscall),
+                    ("svc3", "iiiii") => ImportResult::Ok(MyosRuntime::syscall),
+                    ("svc4", "iiiiii") => ImportResult::Ok(MyosRuntime::syscall),
+                    ("svc5", "iiiiiii") => ImportResult::Ok(MyosRuntime::syscall),
+                    ("svc6", "iiiiiiii") => ImportResult::Ok(MyosRuntime::syscall),
+                    _ => ImportResult::NoMethod,
+                },
+                _ => ImportResult::NoModule,
+            }
+        })?;
 
-    fn invoke_start(self: Box<Self>) -> Option<ProcessId> {
-        match self.loader.module().func(MyosRuntime::ENTRY_FUNC_NAME) {
-            Ok(_) => {
-                let module = self.loader.into_module();
-                SpawnOption::new()
-                    .personality(MyosRuntime::new(module))
-                    .start_process(Self::start, 0, self.lio.name.as_ref())
-            }
-            Err(err) => {
-                println!("error: {:?}", err);
-                None
-            }
-        }
+        SpawnOption::new()
+            .personality(MyosRuntime::new(instance))
+            .start_process(Self::start, 0, lio.name.as_ref())
+            .map_err(|err| Box::new(err) as Box<dyn core::error::Error>)
     }
 }
 
 #[allow(dead_code)]
 pub struct MyosRuntime {
-    module: WasmModule,
+    instance: WasmInstance,
     next_handle: AtomicUsize,
     windows: Mutex<BTreeMap<usize, UnsafeCell<OsWindow>>>,
     files: Mutex<Vec<Option<Arc<Mutex<FsRawFileControlBlock>>>>>,
@@ -95,6 +92,8 @@ pub struct MyosRuntime {
     key_buffer: Mutex<Vec<KeyEvent>>,
     malloc: Mutex<SimpleAllocator>,
     has_to_exit: AtomicBool,
+    throttle_timer_expired: AtomicBool,
+    fps_throttle: Mutex<Option<ThrottleState>>,
 }
 
 unsafe impl Identify for MyosRuntime {
@@ -120,9 +119,9 @@ impl MyosRuntime {
 
     const SIZE_KEYBUFFER: usize = 32;
 
-    fn new(module: WasmModule) -> PersonalityContext {
+    fn new(instance: WasmInstance) -> PersonalityContext {
         PersonalityContext::new(Self {
-            module,
+            instance,
             next_handle: AtomicUsize::new(1),
             windows: Mutex::new(BTreeMap::new()),
             files: Mutex::new(Vec::new()),
@@ -130,6 +129,8 @@ impl MyosRuntime {
             key_buffer: Mutex::new(Vec::with_capacity(Self::SIZE_KEYBUFFER)),
             malloc: Mutex::new(SimpleAllocator::default()),
             has_to_exit: AtomicBool::new(false),
+            throttle_timer_expired: AtomicBool::new(false),
+            fps_throttle: Mutex::new(None),
         })
     }
 
@@ -139,7 +140,7 @@ impl MyosRuntime {
     }
 
     fn start(&self) -> ! {
-        let function = match self.module.func(Self::ENTRY_FUNC_NAME) {
+        let function = match self.instance.function(Self::ENTRY_FUNC_NAME) {
             Ok(v) => v,
             Err(err) => {
                 println!("error: {:?}", err);
@@ -159,8 +160,8 @@ impl MyosRuntime {
     }
 
     fn syscall(
-        _: &WasmModule,
-        params: &[WasmUnsafeValue],
+        _: &WasmInstance,
+        params: &[WasmUnionValue],
     ) -> Result<WasmValue, WasmRuntimeErrorKind> {
         Scheduler::current_personality()
             .unwrap()
@@ -171,13 +172,13 @@ impl MyosRuntime {
 
     fn dispatch_syscall(
         &mut self,
-        params: &[WasmUnsafeValue],
+        params: &[WasmUnionValue],
     ) -> Result<WasmValue, WasmRuntimeErrorKind> {
         use megstd::sys::megos::svc::Function;
 
         let mut params = ParamsDecoder::new(params);
         let memory = self
-            .module
+            .instance
             .memory(0)
             .ok_or(WasmRuntimeErrorKind::OutOfMemory)?;
         let func_no = params
@@ -295,6 +296,7 @@ impl MyosRuntime {
             Function::EndDraw => match params.get_window(self) {
                 Ok(window) => {
                     window.end_draw();
+                    self.wait_throttle(window.native())?;
                 }
                 Err(err) => return Err(err),
             },
@@ -355,7 +357,8 @@ impl MyosRuntime {
 
                 let offset = params.get_usize()?;
                 let len = 3;
-                let params = memory.read_u32_array(offset, len)?;
+                let memory = memory.try_borrow()?;
+                let params = memory.slice(offset, len)?;
                 let radius = unsafe { *params.get_unchecked(0) as isize };
                 let bg_color = PackedColor(unsafe { *params.get_unchecked(1) }).as_color();
                 let border_color = PackedColor(unsafe { *params.get_unchecked(2) }).as_color();
@@ -370,6 +373,17 @@ impl MyosRuntime {
                     }
                 });
             }
+            Function::WindowFpsThrottle => {
+                let window = params.get_window(self)?;
+                let fps = params.get_usize()?;
+                window.fps = fps;
+                if fps > 0 {
+                    *self.fps_throttle.lock().unwrap() = Some(ThrottleState::new(fps));
+                } else {
+                    *self.fps_throttle.lock().unwrap() = None;
+                }
+            }
+
             Function::WaitChar => {
                 let window = params.get_window(self)?;
                 return self
@@ -459,13 +473,16 @@ impl MyosRuntime {
                     .map_err(|_| WasmRuntimeErrorKind::InvalidParameter)?;
 
                 println!("dealloc {:08x} {:?}", base, layout);
-                memory.write_bytes(base as usize, 0xCC, size)?;
+                let memory = memory.try_borrow()?;
+                memory
+                    .slice_mut(base as usize, size)
+                    .map(|v| v.fill(0xCC))?;
 
                 self.malloc.lock().unwrap().dealloc(base, layout);
             }
 
             #[allow(unreachable_patterns)]
-            _ => return Err(WasmRuntimeErrorKind::NotSupprted),
+            _ => return Err(WasmRuntimeErrorKind::NotSupported),
         }
 
         Ok(WasmValue::I32(0))
@@ -517,15 +534,15 @@ impl MyosRuntime {
             println!("alloc1 {:?} => {:08x}", layout, result);
             return Ok(result);
         } else {
-            let min_alloc = WasmMemory::PAGE_SIZE;
-            let delta = (((layout.size() + min_alloc - 1) / min_alloc) * min_alloc
-                / WasmMemory::PAGE_SIZE) as i32;
-            let new_page = memory.grow(delta);
+            let min_alloc = WebAssembly::PAGE_SIZE;
+            let delta =
+                ((layout.size() + min_alloc - 1) / min_alloc) * min_alloc / WebAssembly::PAGE_SIZE;
+            let new_page = memory.grow(delta as u32)?;
             if new_page > 0 {
                 println!("grow {} => {}", delta, new_page);
                 malloc.append_block(
-                    new_page as u32 * WasmMemory::PAGE_SIZE as u32,
-                    delta as u32 * WasmMemory::PAGE_SIZE as u32,
+                    new_page as u32 * WebAssembly::PAGE_SIZE as u32,
+                    delta as u32 * WebAssembly::PAGE_SIZE as u32,
                 );
             } else {
                 return Err(WasmRuntimeErrorKind::OutOfMemory);
@@ -573,6 +590,32 @@ impl MyosRuntime {
         }
     }
 
+    fn wait_throttle(&self, window: WindowHandle) -> Result<(), WasmRuntimeErrorKind> {
+        if let Some(throttle) = self.fps_throttle.lock().unwrap().as_mut() {
+            if self.throttle_timer_expired.swap(false, Ordering::Acquire) {
+                return Ok(());
+            }
+
+            let next = throttle.next();
+            if next.is_zero() {
+                return Ok(());
+            }
+            window.create_timer(0, next);
+
+            while let Some(message) = window.wait_message() {
+                self.process_message(window, message);
+                if self.has_to_exit.load(Ordering::Relaxed) {
+                    return Err(WasmRuntimeErrorKind::Exit);
+                }
+
+                if self.throttle_timer_expired.swap(false, Ordering::Acquire) {
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn process_message(&self, window: WindowHandle, message: WindowMessage) {
         match message {
             WindowMessage::Close => {
@@ -588,48 +631,110 @@ impl MyosRuntime {
                     .key_data()
                     .map(|data| self.key_buffer.lock().unwrap().push(data));
             }
+            WindowMessage::Timer(timer) => {
+                let _ = timer;
+                self.throttle_timer_expired.store(true, Ordering::Release);
+            }
             _ => window.handle_default_message(message),
         }
     }
 }
 
+pub struct ThrottleState {
+    fps: usize,
+    tick: Duration,
+    tick2: Duration,
+    last: Duration,
+    next_min: Duration,
+    fps_count: usize,
+    fps_actual: usize,
+}
+
+impl ThrottleState {
+    #[inline]
+    pub fn new(fps: usize) -> Self {
+        let now = Timer::monotonic();
+        let tick = Duration::from_micros(1000_000u64.checked_div(fps as u64).unwrap_or(0));
+        let tick2 = Duration::from_micros(1000_000u64.checked_div(fps as u64 / 2).unwrap_or(0));
+        let next_min = now + Duration::from_secs(1);
+        Self {
+            fps,
+            tick,
+            tick2,
+            last: now,
+            next_min,
+            fps_count: 0,
+            fps_actual: 0,
+        }
+    }
+
+    #[inline]
+    #[allow(dead_code)]
+    pub fn fps_actual(&self) -> usize {
+        self.fps_actual
+    }
+
+    pub fn next(&mut self) -> Duration {
+        let now = Timer::monotonic();
+        let diff = if self.next_min > now {
+            self.fps_count += 1;
+            if self.fps_count >= self.fps {
+                self.next_min - now
+            } else {
+                let expected = self.last + self.tick2;
+                let diff = if expected > now {
+                    expected - now
+                } else {
+                    Duration::ZERO
+                };
+                diff
+            }
+        } else {
+            let expected = self.next_min + self.tick;
+            self.fps_actual = self.fps_count;
+            self.fps_count = 0;
+            self.next_min += Duration::from_secs(1);
+            let diff = if expected > now {
+                expected - now
+            } else {
+                Duration::ZERO
+            };
+            diff
+        };
+        self.last = now;
+
+        diff
+    }
+}
+
 struct ParamsDecoder<'a> {
-    params: &'a [WasmUnsafeValue],
-    index: usize,
+    params: slice::Iter<'a, WasmUnionValue>,
 }
 
 impl<'a> ParamsDecoder<'a> {
     #[inline]
-    pub const fn new(params: &'a [WasmUnsafeValue]) -> Self {
-        Self { params, index: 0 }
+    pub fn new(params: &'a [WasmUnionValue]) -> Self {
+        Self {
+            params: params.iter(),
+        }
     }
 }
 
 impl ParamsDecoder<'_> {
     #[inline]
     fn get_u32(&mut self) -> Result<u32, WasmRuntimeErrorKind> {
-        let index = self.index;
         self.params
-            .get(index)
+            .next()
             .ok_or(WasmRuntimeErrorKind::InvalidParameter)
             .map(|v| unsafe { v.get_u32() })
-            .map(|v| {
-                self.index += 1;
-                v
-            })
     }
 
     #[inline]
     fn get_i32(&mut self) -> Result<i32, WasmRuntimeErrorKind> {
-        let index = self.index;
         self.params
-            .get(index)
+            .next()
             .ok_or(WasmRuntimeErrorKind::InvalidParameter)
             .map(|v| unsafe { v.get_i32() })
-            .map(|v| {
-                self.index += 1;
-                v
-            })
     }
 
     #[inline]
@@ -649,26 +754,31 @@ impl ParamsDecoder<'_> {
         &mut self,
         memory: &'a WasmMemory,
     ) -> Result<&'a mut [u8], WasmRuntimeErrorKind> {
-        self.get_memarg()
-            .and_then(|memarg| unsafe { memory.slice_mut(memarg.base(), memarg.len()) })
+        let memarg = self.get_memarg()?;
+        memory
+            .try_borrow()
+            .and_then(|v| v.slice_mut(memarg.base(), memarg.len()))
     }
 
     #[inline]
     fn get_string<'a>(&mut self, memory: &'a WasmMemory) -> Option<&'a str> {
-        self.get_memarg()
+        let memarg = self.get_memarg().ok()?;
+        memory
+            .try_borrow()
             .ok()
-            .and_then(|memarg| memory.slice(memarg.base(), memarg.len()).ok())
+            .and_then(|v| v.slice(memarg.base(), memarg.len()).ok())
             .and_then(|v| core::str::from_utf8(v).ok())
     }
 
     #[allow(dead_code)]
     #[inline]
     fn get_string16(&mut self, memory: &WasmMemory) -> Option<String> {
-        self.get_memarg()
+        let memarg = self.get_memarg().ok()?;
+        memory
+            .try_borrow()
             .ok()
-            .and_then(|memarg| memory.slice(memarg.base(), memarg.len() * 2).ok())
-            .and_then(|v| unsafe { core::mem::transmute(v) })
-            .and_then(|p| String::from_utf16(p).ok())
+            .and_then(|v| v.slice::<u16>(memarg.base(), memarg.len()).ok())
+            .and_then(|v| String::from_utf16(v).ok())
     }
 
     #[inline]
@@ -696,6 +806,7 @@ impl ParamsDecoder<'_> {
     ) -> Result<BitmapRef8<'a>, WasmRuntimeErrorKind> {
         const SIZE_OF_BITMAP: usize = 20;
         let base = self.get_u32()? as usize;
+        let memory = memory.try_borrow()?;
         let array = memory.slice(base as usize, SIZE_OF_BITMAP)?;
 
         let base = LE::read_u32(&array[0..4]) as usize;
@@ -718,6 +829,7 @@ impl ParamsDecoder<'_> {
     ) -> Result<BitmapRef32<'a>, WasmRuntimeErrorKind> {
         const SIZE_OF_BITMAP: usize = 20;
         let base = self.get_u32()? as usize;
+        let memory = memory.try_borrow()?;
         let array = memory.slice(base as usize, SIZE_OF_BITMAP)?;
 
         let base = LE::read_u32(&array[0..4]) as usize;
@@ -726,7 +838,7 @@ impl ParamsDecoder<'_> {
         let _stride = LE::read_u32(&array[16..20]) as usize;
 
         let len = width * height;
-        let slice = memory.read_u32_array(base, len)?;
+        let slice = memory.slice(base, len)?;
 
         Ok(BitmapRef32::from_bytes(
             slice,
@@ -770,6 +882,7 @@ impl ParamsDecoder<'_> {
     }
 }
 
+#[derive(Debug)]
 struct MemArg {
     base: usize,
     len: usize,
@@ -800,13 +913,14 @@ struct OsBitmap1<'a> {
 
 impl<'a> OsBitmap1<'a> {
     fn from_memory(memory: &'a WasmMemory, base: u32) -> Result<Self, WasmRuntimeErrorKind> {
-        const SIZE_OF_BITMAP: usize = 16;
+        const SIZE_OF_BITMAP: usize = 20;
+        let memory = memory.try_borrow()?;
         let array = memory.slice(base as usize, SIZE_OF_BITMAP)?;
 
-        let width = LE::read_u32(&array[0..4]) as usize;
-        let height = LE::read_u32(&array[4..8]) as usize;
-        let stride = LE::read_u32(&array[8..12]) as usize;
-        let base = LE::read_u32(&array[12..16]) as usize;
+        let base = LE::read_u32(&array[0..4]) as usize;
+        let width = LE::read_u32(&array[8..12]) as usize;
+        let height = LE::read_u32(&array[12..16]) as usize;
+        let stride = LE::read_u32(&array[16..20]) as usize;
 
         let dim = Size::new(width as isize, height as isize);
         let size = stride * height;
@@ -874,6 +988,7 @@ struct OsWindow {
     native: WindowHandle,
     handle: usize,
     draw_region: Coordinates,
+    fps: usize,
 }
 
 impl OsWindow {
@@ -883,6 +998,7 @@ impl OsWindow {
             native,
             handle,
             draw_region: Coordinates::void(),
+            fps: 0,
         }
     }
 
@@ -916,8 +1032,9 @@ impl OsWindow {
 
     #[inline]
     fn add_region(&mut self, rect: Rect) {
-        let coords = Coordinates::from_rect(rect).unwrap();
-        self.draw_region.merge(coords);
+        if let Ok(coords) = Coordinates::from_rect(rect) {
+            self.draw_region.merge(coords);
+        }
     }
 
     #[inline]
@@ -937,11 +1054,13 @@ impl Drop for OsWindow {
     }
 }
 
+#[allow(dead_code)]
 pub struct SimpleAllocator {
     data: Vec<SimpleFreePair>,
     strategy: AllocationStrategy,
 }
 
+#[allow(dead_code)]
 impl SimpleAllocator {
     const MIN_MASK: u32 = 0x0000_000F;
 
@@ -1072,6 +1191,7 @@ impl Default for SimpleAllocator {
 
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[allow(dead_code)]
 pub enum AllocationStrategy {
     FirstFit,
     BestFit,

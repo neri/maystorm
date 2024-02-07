@@ -1,7 +1,8 @@
 //! USB Mass Storage Device (Bulk Only Transfer) (08_06_50)
 
 use super::super::*;
-use crate::{task::Task, *};
+use crate::task::Task;
+use crate::*;
 use alloc::sync::Arc;
 use core::pin::Pin;
 use futures_util::Future;
@@ -91,8 +92,7 @@ impl UsbMsdDriver {
                     UsbControlRequestBitmap(0xA1),
                     UsbControlRequest(0xFE),
                 )
-                .index_if(if_no)
-                .length(UsbLength(1)),
+                .index_if(if_no),
                 &mut result,
             )
             .await

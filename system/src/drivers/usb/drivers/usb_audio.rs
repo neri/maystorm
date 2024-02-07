@@ -2,9 +2,9 @@
 
 use super::super::*;
 use crate::task::Task;
+use crate::*;
 use core::pin::Pin;
 use futures_util::Future;
-use megstd::{Arc, Box};
 
 pub struct UsbAudioStarter;
 

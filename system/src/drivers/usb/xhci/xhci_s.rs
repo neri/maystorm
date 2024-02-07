@@ -1,7 +1,10 @@
 //! xHC Data Structures
 
-use crate::{drivers::usb::*, *};
-use core::{mem::transmute, num::NonZeroU8, sync::atomic::*};
+use crate::drivers::usb::*;
+use crate::*;
+use core::mem::transmute;
+use core::num::NonZeroU8;
+use core::sync::atomic::*;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 

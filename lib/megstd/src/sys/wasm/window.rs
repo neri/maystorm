@@ -35,6 +35,7 @@ impl Window {
     }
 
     #[inline]
+    #[must_use]
     pub fn begin_draw(&self) -> DrawingContext {
         unsafe { DrawingContext::from_raw(syscall::os_begin_draw(self.handle.0)) }
     }
@@ -45,7 +46,9 @@ impl Window {
         F: FnOnce(&mut DrawingContext) -> R,
     {
         let mut context = self.begin_draw();
-        f(&mut context)
+        let result = f(&mut context);
+        drop(context);
+        result
     }
 
     #[inline]
@@ -59,6 +62,11 @@ impl Window {
             megos::OPTION_CHAR_NONE => None,
             c => Some(unsafe { core::char::from_u32_unchecked(c as u32) }),
         }
+    }
+
+    #[inline]
+    pub fn set_max_fps(&self, fps: usize) {
+        syscall::os_window_max_fps(self.handle.0, fps);
     }
 }
 

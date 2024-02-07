@@ -3,8 +3,10 @@
 use super::tty::{NullTty, Tty, TtyRead, TtyReadResult, TtyWrite};
 use crate::system::*;
 use crate::ui::font::*;
-use alloc::boxed::Box;
-use core::{fmt, future::Future, pin::Pin};
+use crate::*;
+use core::fmt;
+use core::future::Future;
+use core::pin::Pin;
 use megstd::drawing::*;
 
 pub struct EmConsole {

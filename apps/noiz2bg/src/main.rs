@@ -1,4 +1,7 @@
 /*
+Ported
+Original: UNKNOWN
+
 License
 -------
 Copyright 2002 Kenta Cho. All rights reserved.
@@ -29,8 +32,8 @@ ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #![no_std]
 
 use core::cell::UnsafeCell;
-
-use megstd::{sys::syscall::*, window::*};
+use megstd::sys::syscall::*;
+use megstd::window::*;
 
 #[no_mangle]
 fn _start() {
@@ -125,7 +128,7 @@ impl App<'_> {
         let osx = (0 - self.board_repx) * (self.board_rep_xn / 2);
         let osy = (0 - self.board_repy) * (self.board_rep_yn / 2);
         for board in &self.boards {
-            let Some(board) =  board else { break };
+            let Some(board) = board else { break };
             let mut ox = osx;
             for _ in 0..self.board_rep_xn {
                 let mut oy = osy;

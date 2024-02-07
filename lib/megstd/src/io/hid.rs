@@ -502,7 +502,6 @@ impl Default for Modifier {
     }
 }
 
-#[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct MouseReport<T> {
     pub buttons: MouseButton,

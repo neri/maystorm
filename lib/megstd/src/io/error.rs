@@ -176,6 +176,8 @@ pub enum ErrorKind {
     /// New [`ErrorKind`]s might be added in the future for some of those.
     Other,
 
+    ExecFormatError,
+
     /// Any I/O error from the standard library that's not part of this list.
     ///
     /// Errors that are `Uncategorized` now may move to a different or a new
@@ -192,6 +194,18 @@ pub struct Error {
 impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&self.repr, f)
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (self as &dyn fmt::Debug).fmt(f)
+    }
+}
+
+impl core::error::Error for Error {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        Some(self)
     }
 }
 
@@ -273,6 +287,7 @@ impl Error {
 }
 
 impl From<ErrorKind> for Error {
+    #[inline]
     fn from(val: ErrorKind) -> Self {
         Self {
             repr: Repr::Simple(val),

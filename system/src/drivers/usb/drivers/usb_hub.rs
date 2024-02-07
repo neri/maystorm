@@ -1,12 +1,11 @@
 //! USB Hub Class Driver (09_xx_xx)
 
 use super::super::*;
-use crate::{
-    task::{scheduler::Timer, Task},
-    *,
-};
-use alloc::sync::Arc;
-use core::{mem::transmute, pin::Pin, time::Duration};
+use crate::task::{scheduler::Timer, Task};
+use crate::*;
+use core::mem::transmute;
+use core::pin::Pin;
+use core::time::Duration;
 use futures_util::Future;
 
 pub struct UsbHubStarter;

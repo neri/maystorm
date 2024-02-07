@@ -1,20 +1,14 @@
 use super::apic::*;
-use crate::{
-    rt::{LegacyAppContext, RuntimeEnvironment},
-    system::{ProcessorCoreType, ProcessorIndex},
-    task::scheduler::Scheduler,
-    *,
-};
-use alloc::boxed::Box;
-use core::{
-    arch::{asm, x86_64::__cpuid_count},
-    cell::UnsafeCell,
-    convert::TryFrom,
-    ffi::c_void,
-    mem::{size_of, transmute},
-    sync::atomic::*,
-};
-use megstd::Vec;
+use crate::rt::{LegacyAppContext, RuntimeEnvironment};
+use crate::system::{ProcessorCoreType, ProcessorIndex};
+use crate::task::scheduler::Scheduler;
+use crate::*;
+use core::arch::{asm, x86_64::__cpuid_count};
+use core::cell::UnsafeCell;
+use core::convert::TryFrom;
+use core::ffi::c_void;
+use core::mem::{size_of, transmute};
+use core::sync::atomic::*;
 use paste::paste;
 
 static mut SHARED_CPU: UnsafeCell<SharedCpu> = UnsafeCell::new(SharedCpu::new());
@@ -467,7 +461,6 @@ impl Cpu {
 #[repr(C, align(64))]
 pub struct CpuContextData {
     _regs: [u64; ContextIndex::Max as usize],
-    _fpu: [u8; 512],
 }
 
 macro_rules! context_index {
@@ -486,18 +479,16 @@ impl CpuContextData {
     pub const SIZE_OF_CONTEXT: usize = 1024;
     pub const SIZE_OF_STACK: usize = 0x10000;
 
-    context_index! { RSP, RBP, RBX, R12, R13, R14, R15, USER_CS_DESC, USER_DS_DESC, TSS_RSP0 }
+    context_index! { RSP, RBP, RBX, R12, R13, R14, R15, USER_CS_DESC, USER_DS_DESC, TSS_RSP0, FPU }
     pub const CTX_DS: usize = ContextIndex::Segs.to_offset() + 0;
     pub const CTX_ES: usize = ContextIndex::Segs.to_offset() + 2;
     pub const CTX_FS: usize = ContextIndex::Segs.to_offset() + 4;
     pub const CTX_GS: usize = ContextIndex::Segs.to_offset() + 6;
-    pub const CTX_FPU: usize = ContextIndex::Max.to_offset();
 
     #[inline]
     pub const fn new() -> Self {
         Self {
             _regs: [0; ContextIndex::Max as usize],
-            _fpu: [0; 512],
         }
     }
 
@@ -508,12 +499,12 @@ impl CpuContextData {
             mov [{new_sp}], {new_thread}
             mov [{new_sp} + 0x08], {start}
             mov [{new_sp} + 0x10], {arg}
-            mov [{0} + {CTX_RSP}], {new_sp}
+            mov [{self} + {CTX_RSP}], {new_sp}
             xor {temp:e}, {temp:e}
-            mov [{0} + {CTX_USER_CS}], {temp}
-            mov [{0} + {CTX_USER_DS}], {temp}
+            mov [{self} + {CTX_USER_CS}], {temp}
+            mov [{self} + {CTX_USER_DS}], {temp}
             ",
-            in(reg) self,
+            self = in(reg) self,
             new_sp = in(reg) new_sp,
             start = in(reg) start,
             arg = in(reg) arg,
@@ -652,6 +643,7 @@ impl CpuContextData {
 
 #[allow(dead_code)]
 #[allow(non_camel_case_types)]
+#[repr(usize)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum ContextIndex {
     USER_CS_DESC = 2,
@@ -665,7 +657,8 @@ enum ContextIndex {
     R15,
     TSS_RSP0,
     Segs,
-    Max = 32,
+    FPU = 32,
+    Max = (Self::FPU as usize) + (512 / size_of::<usize>()),
 }
 
 impl ContextIndex {
@@ -1116,10 +1109,10 @@ impl AsDescriptorEntry for Selector {
 pub enum PrivilegeLevel {
     /// Ring 0, Kernel mode
     Kernel = 0,
-    /// Ring 1, Useless in 64bit mode
-    Ring1 = 1,
-    /// Ring 2, Useless in 64bit mode
-    Ring2 = 2,
+    /// Useless in 64bit mode
+    _Ring1 = 1,
+    /// Useless in 64bit mode
+    _Ring2 = 2,
     /// Ring 3, User mode
     User = 3,
 }
@@ -1129,8 +1122,8 @@ impl PrivilegeLevel {
     pub const fn from_usize(value: usize) -> Self {
         match value & 3 {
             0 => PrivilegeLevel::Kernel,
-            1 => PrivilegeLevel::Ring1,
-            2 => PrivilegeLevel::Ring2,
+            1 => PrivilegeLevel::_Ring1,
+            2 => PrivilegeLevel::_Ring2,
             3 => PrivilegeLevel::User,
             _ => unreachable!(),
         }
@@ -2054,8 +2047,8 @@ unsafe extern "C" fn handle_default_exception(ctx: &X64ExceptionContext) {
         let cs_desc = GlobalDescriptorTable::current().item(ctx.cs()).unwrap();
         let ex = ExceptionType::from_vec(ctx.vector());
 
-        match cs_desc.default_operand_size().unwrap() {
-            DefaultSize::Use16 | DefaultSize::Use32 => {
+        match cs_desc.default_operand_size() {
+            Some(DefaultSize::Use16) |Some( DefaultSize::Use32) => {
                 let mask32 = u32::MAX as u64;
                 match ex {
                     ExceptionType::PageFault => {
@@ -2105,7 +2098,8 @@ unsafe extern "C" fn handle_default_exception(ctx: &X64ExceptionContext) {
                     ctx.gs().0,
                 );
             }
-            DefaultSize::Use64 => {
+            _ => {
+                // use64
                 let va_mask = 0xFFFF_FFFF_FFFF;
                 match ex {
                     ExceptionType::PageFault => {

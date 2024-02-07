@@ -1,9 +1,7 @@
 use super::*;
-use core::{
-    alloc::{GlobalAlloc, Layout},
-    num::NonZeroUsize,
-    ptr::null_mut,
-};
+use core::alloc::{GlobalAlloc, Layout};
+use core::num::NonZeroUsize;
+use core::ptr::null_mut;
 
 #[global_allocator]
 static mut ALLOCATOR: CustomAlloc = CustomAlloc::new();

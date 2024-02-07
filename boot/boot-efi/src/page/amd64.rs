@@ -3,12 +3,10 @@
 use super::*;
 use crate::*;
 use bitflags::*;
-use core::{
-    mem::size_of,
-    ptr::{self, addr_of_mut},
-    slice,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use core::mem::size_of;
+use core::ptr::{self, addr_of_mut};
+use core::slice;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 const N_DIRECT_MAP_GIGA: usize = 4;
 const MAX_REAL_MEMORY: u64 = 0x0000A_0000;

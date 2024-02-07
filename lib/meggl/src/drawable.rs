@@ -26,6 +26,8 @@ where
 }
 
 pub trait GetPixel: Drawable {
+    /// Faster but unsafe version of get_pixel
+    ///
     /// # Safety
     ///
     /// The point must be within the size range.
@@ -99,6 +101,8 @@ where
 }
 
 pub trait SetPixel: Drawable {
+    /// Faster but unsafe version of set_pixel
+    ///
     /// # Safety
     ///
     /// The point must be within the size range.

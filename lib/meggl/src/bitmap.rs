@@ -1,15 +1,13 @@
 use super::*;
 use alloc::{borrow::ToOwned, boxed::Box, vec::Vec};
-use core::{
-    borrow::{Borrow, BorrowMut},
-    cell::UnsafeCell,
-    convert::TryFrom,
-    intrinsics::copy_nonoverlapping,
-    mem::{swap, transmute, ManuallyDrop},
-    num::NonZeroUsize,
-    ptr::slice_from_raw_parts_mut,
-    slice,
-};
+use core::borrow::{Borrow, BorrowMut};
+use core::cell::UnsafeCell;
+use core::convert::TryFrom;
+use core::intrinsics::copy_nonoverlapping;
+use core::mem::{swap, transmute, ManuallyDrop};
+use core::num::NonZeroUsize;
+use core::ptr::slice_from_raw_parts_mut;
+use core::slice;
 use paste::paste;
 
 pub trait Blt<T: Drawable>: Drawable {
@@ -1126,11 +1124,10 @@ impl OwnedBitmap32 {
             vec.resize(count * MAGIC_NUMBER, 0);
             let slice = vec.into_boxed_slice();
             let mut slice = ManuallyDrop::new(slice);
-            let mut slice =
-                Box::from_raw(slice_from_raw_parts_mut(
-                    slice.as_mut_ptr() as *mut u32,
-                    count,
-                ));
+            let mut slice = Box::from_raw(slice_from_raw_parts_mut(
+                slice.as_mut_ptr() as *mut u32,
+                count,
+            ));
             for pixel in slice.iter_mut() {
                 let rgba: [u8; 4] = transmute(*pixel);
                 let bgra = [rgba[2], rgba[1], rgba[0], rgba[3]];
@@ -2100,7 +2097,7 @@ impl BitmapRef1<'_> {
 impl GetPixel for BitmapRef1<'_> {
     unsafe fn get_pixel_unchecked(&self, point: Point) -> Self::ColorType {
         let bit_position = point.x as usize & 7;
-        let index = (point.x as usize / 8) + self.stride * point.y as usize;
+        let index = ((point.x as usize) >> 3) + self.stride * point.y as usize;
         self.slice.get_unchecked(index).get(bit_position)
     }
 }
@@ -2140,7 +2137,7 @@ impl GetPixel for BitmapRefMut1<'_> {
 impl SetPixel for BitmapRefMut1<'_> {
     unsafe fn set_pixel_unchecked(&mut self, point: Point, pixel: Self::ColorType) {
         let bit_position = point.x as usize & 7;
-        let index = (point.x as usize / 8) + self.stride * point.y as usize;
+        let index = ((point.x as usize) >> 3) + self.stride * point.y as usize;
         self.slice
             .get_mut()
             .get_unchecked_mut(index)

@@ -1,10 +1,8 @@
 //! Kernel Invocation for 32-bit UEFI running on x86-64 processors
 
 use super::*;
-use core::{
-    arch::{asm, x86::__cpuid},
-    ptr::addr_of,
-};
+use core::arch::{asm, x86::__cpuid};
+use core::ptr::addr_of;
 
 pub struct Invocation;
 
@@ -141,7 +139,7 @@ impl GlobalDescriptorTable {
     }
 
     fn fix_up(&mut self) {
-        let base = &self.table as *const _ as usize;
+        let base = self.table.as_ptr() as usize;
         self.table[1] = (base & 0xFFFF) as u16;
         self.table[2] = ((base >> 16) & 0xFFFF) as u16;
     }

@@ -9,28 +9,30 @@ version = "0.1.0"
 # [features]
 
 [dependencies]
-bootprot = {path = "../lib/bootprot"}
-megstd = {path = "../lib/megstd", default-features = false, features = ["kernel"]}
-myacpi = {path = "../lib/myacpi"}
-wasm = {path = "../lib/wasm"}
+bootprot = { path = "../lib/bootprot" }
+megstd = { path = "../lib/megstd", default-features = false, features = ["kernel"] }
+myacpi = { path = "../lib/myacpi" }
 myos-archive = { path = "../lib/mar/" }
 
-# aml = {git = "https://github.com/rust-osdev/acpi"}
-byteorder = {default-features = false}
+# wami = { git = "https://github.com/neri/wami" }
+wami = { path = "../../wasm", default-features = false }
+
+# aml = { git = "https://github.com/rust-osdev/acpi" }
+byteorder = { default-features = false }
 cfg-if = {}
-futures-util = {default-features = false, features = ["alloc"]}
-num-derive = {default-features = false}
-num-traits = {default-features = false}
+futures-util = { default-features = false, features = ["alloc"] }
+num-derive = { default-features = false }
+num-traits = { default-features = false }
 paste = {}
 seq-macro = {}
 
-ab_glyph = {default-features = false, features = ["libm"]}
+ab_glyph = { default-features = false, features = ["libm"] }
 libm = {}
 
-mpic = {git = "https://github.com/neri/mpic", default-features = false, features = ["alloc"]}
-png-decoder = {default-features = false, git = "https://github.com/neri/png-decoder"}
-rapid-qoi = {default-features = false, features = ["alloc"]}
-zune-jpeg = {version = "0.3.17", default-features = false}
+mpic = { git = "https://github.com/neri/mpic", default-features = false, features = ["alloc"] }
+png-decoder = { default-features = false, git = "https://github.com/neri/png-decoder" }
+rapid-qoi = { default-features = false, features = ["alloc"] }
+zune-jpeg = { default-features = false }
 
 [profile.release]
 lto = true

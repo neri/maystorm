@@ -1,25 +1,19 @@
-use super::{fixedvec::FixedVec, slab::*};
-use crate::{
-    arch::page::*,
-    sync::{fifo::EventQueue, semaphore::Semaphore, spinlock::SpinMutex},
-    system::System,
-    task::scheduler::*,
-    *,
-};
-use alloc::{boxed::Box, sync::Arc};
+use super::fixedvec::FixedVec;
+use super::slab::*;
+use crate::arch::page::*;
+use crate::sync::{fifo::EventQueue, semaphore::Semaphore, spinlock::SpinMutex};
+use crate::system::System;
+use crate::task::scheduler::*;
+use crate::*;
 use bootprot::*;
-use core::{
-    alloc::Layout,
-    cell::UnsafeCell,
-    ffi::c_void,
-    fmt::Write,
-    mem::MaybeUninit,
-    mem::{size_of, transmute},
-    num::*,
-    slice,
-    sync::atomic::*,
-};
-use megstd::String;
+use core::alloc::Layout;
+use core::cell::UnsafeCell;
+use core::ffi::c_void;
+use core::fmt::Write;
+use core::mem::{size_of, transmute, MaybeUninit};
+use core::num::*;
+use core::slice;
+use core::sync::atomic::*;
 
 static mut MM: UnsafeCell<MemoryManager> = UnsafeCell::new(MemoryManager::new());
 
@@ -96,7 +90,9 @@ impl MemoryManager {
 
     pub unsafe fn init_second() {
         PageManager::init_late();
-        SpawnOption::with_priority(Priority::Realtime).start(Self::_page_thread, 0, "Page Manager");
+        SpawnOption::with_priority(Priority::Realtime)
+            .start(Self::_page_thread, 0, "Page Manager")
+            .unwrap();
     }
 
     fn _page_thread(_args: usize) {
@@ -256,7 +252,8 @@ impl MemoryManager {
         layout: Layout,
     ) -> Result<(), DeallocationError> {
         if let Some(base) = base {
-            (base.get() as *mut u8).write_bytes(0xCC, layout.size());
+            let base_ptr = base.get() as *mut u8;
+            base_ptr.write_bytes(0xCC, layout.size());
 
             let shared = Self::shared();
             if let Some(slab) = &shared.slab {
@@ -264,8 +261,10 @@ impl MemoryManager {
                     return Ok(());
                 }
             }
-            Self::pg_dealloc(PhysicalAddress::direct_unmap(base.get()), layout);
-            Ok(())
+
+            PhysicalAddress::direct_unmap(base_ptr)
+                .map(|v| Self::pg_dealloc(v, layout))
+                .ok_or(DeallocationError::InvalidArgument)
         } else {
             Ok(())
         }
