@@ -294,13 +294,21 @@ impl MemoryManager {
         let n_fragments = shared.n_fragments.load(Ordering::Relaxed);
         let total = shared.free_pages.load(Ordering::Relaxed);
 
+        let mut max_free_area = 0;
+        let list = shared.mem_list.lock();
+        for pair in list.as_slice() {
+            max_free_area = max_free_area.max(pair.size());
+        }
+        drop(list);
+
         writeln!(
             sb,
-            "Total {} MB, Free Pages {}, Fragments {}, Lost {} MB",
+            "Total {} MB, Free Pages {}, Fragments {}, Max Free {} MB, Lost {} MB",
             System::current_device().total_memory_size() >> 20,
             total / Self::PAGE_SIZE_MIN,
             n_fragments,
-            (lost_size >> 20),
+            max_free_area >> 20,
+            ((lost_size + 0xFFFFF) >> 20),
         )
         .unwrap();
 

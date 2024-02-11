@@ -1,4 +1,4 @@
-//! Maystorm2020 Subsystem
+//! MEG-OS Maystorm2020 Subsystem
 
 use super::*;
 use crate::io::hid_mgr::*;
@@ -150,9 +150,14 @@ impl MyosRuntime {
 
         match function.invoke(&[]) {
             Ok(_v) => (),
-            Err(err) => match err.kind() {
-                WasmRuntimeErrorKind::Exit => (),
-                _ => println!("error: {:?}", err),
+            Err(err) => match err.downcast_ref::<WasmRuntimeError>() {
+                Some(err) => match err.kind() {
+                    WasmRuntimeErrorKind::Exit => (),
+                    _ => println!("error: {:?}", err),
+                },
+                None => {
+                    println!("error: {:?}", err)
+                }
             },
         }
 
@@ -308,8 +313,8 @@ impl MyosRuntime {
                 let color = params.get_color()?;
                 let mut rect = window.content_rect().bounds();
                 rect.origin = origin;
-                rect.size.width -= origin.x;
-                rect.size.height -= origin.y;
+                rect.size.width -= origin.x as u32;
+                rect.size.height -= origin.y as u32;
                 window.draw_in_rect(rect, |bitmap| {
                     AttributedString::new()
                         .align(TextAlignment::Left)
@@ -356,12 +361,15 @@ impl MyosRuntime {
                 let size = params.get_size()?;
 
                 let offset = params.get_usize()?;
-                let len = 3;
+                const LEN: usize = 3;
                 let memory = memory.try_borrow()?;
-                let params = memory.slice(offset, len)?;
-                let radius = unsafe { *params.get_unchecked(0) as isize };
-                let bg_color = PackedColor(unsafe { *params.get_unchecked(1) }).as_color();
-                let border_color = PackedColor(unsafe { *params.get_unchecked(2) }).as_color();
+                let params: &[u32; LEN] = memory.slice(offset, LEN).and_then(|v: &[u32]| {
+                    v.try_into()
+                        .map_err(|_| WasmRuntimeErrorKind::InvalidParameter)
+                })?;
+                let radius = params[0];
+                let bg_color = PackedColor::from_raw(params[1]).as_color();
+                let border_color = PackedColor::from_raw(params[2]).as_color();
 
                 let rect = Rect { origin, size };
                 window.draw_in_rect(rect, |bitmap| {
@@ -374,9 +382,8 @@ impl MyosRuntime {
                 });
             }
             Function::WindowFpsThrottle => {
-                let window = params.get_window(self)?;
+                let _window = params.get_window(self)?;
                 let fps = params.get_usize()?;
-                window.fps = fps;
                 if fps > 0 {
                     *self.fps_throttle.lock().unwrap() = Some(ThrottleState::new(fps));
                 } else {
@@ -783,21 +790,21 @@ impl ParamsDecoder<'_> {
 
     #[inline]
     fn get_point(&mut self) -> Result<Point, WasmRuntimeErrorKind> {
-        let x = self.get_i32()? as isize;
-        let y = self.get_i32()? as isize;
+        let x = self.get_i32()?;
+        let y = self.get_i32()?;
         Ok(Point::new(x, y))
     }
 
     #[inline]
     fn get_size(&mut self) -> Result<Size, WasmRuntimeErrorKind> {
-        let width = self.get_i32()? as isize;
-        let height = self.get_i32()? as isize;
+        let width = self.get_u32()?;
+        let height = self.get_u32()?;
         Ok(Size::new(width, height))
     }
 
     #[inline]
     fn get_color(&mut self) -> Result<Color, WasmRuntimeErrorKind> {
-        self.get_u32().map(|v| PackedColor(v).into())
+        self.get_u32().map(|v| PackedColor::from_raw(v).into())
     }
 
     fn get_bitmap8<'a>(
@@ -810,17 +817,14 @@ impl ParamsDecoder<'_> {
         let array = memory.slice(base as usize, SIZE_OF_BITMAP)?;
 
         let base = LE::read_u32(&array[0..4]) as usize;
-        let width = LE::read_u32(&array[8..12]) as usize;
-        let height = LE::read_u32(&array[12..16]) as usize;
+        let width = LE::read_u32(&array[8..12]);
+        let height = LE::read_u32(&array[12..16]);
         let _stride = LE::read_u32(&array[16..20]) as usize;
 
-        let len = width * height;
+        let len = width as usize * height as usize;
         let slice = memory.slice(base, len)?;
 
-        Ok(BitmapRef8::from_bytes(
-            slice,
-            Size::new(width as isize, height as isize),
-        ))
+        Ok(BitmapRef8::from_bytes(slice, Size::new(width, height)))
     }
 
     fn get_bitmap32<'a>(
@@ -833,17 +837,14 @@ impl ParamsDecoder<'_> {
         let array = memory.slice(base as usize, SIZE_OF_BITMAP)?;
 
         let base = LE::read_u32(&array[0..4]) as usize;
-        let width = LE::read_u32(&array[8..12]) as usize;
-        let height = LE::read_u32(&array[12..16]) as usize;
+        let width = LE::read_u32(&array[8..12]);
+        let height = LE::read_u32(&array[12..16]);
         let _stride = LE::read_u32(&array[16..20]) as usize;
 
-        let len = width * height;
+        let len = width as usize * height as usize;
         let slice = memory.slice(base, len)?;
 
-        Ok(BitmapRef32::from_bytes(
-            slice,
-            Size::new(width as isize, height as isize),
-        ))
+        Ok(BitmapRef32::from_bytes(slice, Size::new(width, height)))
     }
 
     fn get_bitmap1<'a>(
@@ -918,12 +919,12 @@ impl<'a> OsBitmap1<'a> {
         let array = memory.slice(base as usize, SIZE_OF_BITMAP)?;
 
         let base = LE::read_u32(&array[0..4]) as usize;
-        let width = LE::read_u32(&array[8..12]) as usize;
-        let height = LE::read_u32(&array[12..16]) as usize;
+        let width = LE::read_u32(&array[8..12]);
+        let height = LE::read_u32(&array[12..16]);
         let stride = LE::read_u32(&array[16..20]) as usize;
 
-        let dim = Size::new(width as isize, height as isize);
-        let size = stride * height;
+        let dim = Size::new(width, height);
+        let size = stride as usize * height as usize;
         let slice = memory.slice(base, size)?;
 
         Ok(Self { slice, dim, stride })
@@ -933,7 +934,7 @@ impl<'a> OsBitmap1<'a> {
 impl OsBitmap1<'_> {
     #[inline]
     const fn rect(&self, origin: Point, mode: usize) -> Rect {
-        let scale = mode as isize;
+        let scale = mode as u32;
         Rect {
             origin,
             size: Size::new(self.dim.width * scale, self.dim.height * scale),
@@ -942,18 +943,18 @@ impl OsBitmap1<'_> {
 
     fn blt(&self, to: &mut BitmapRefMut, origin: Point, color: Color, mode: usize) {
         // TODO: clipping
-        let scale = mode as isize;
+        let scale = mode as i32;
         let stride = self.stride;
         let mut cursor = 0;
         let w8 = self.dim.width as usize / 8;
         let w7 = self.dim.width as usize & 7;
-        for y in 0..self.dim.height {
+        for y in 0..self.dim.height as i32 {
             for i in 0..w8 {
                 let data = unsafe { self.slice.get_unchecked(cursor + i) };
                 for j in 0..8 {
                     let position = 0x80u8 >> j;
                     if (data & position) != 0 {
-                        let x = scale * (i * 8 + j) as isize;
+                        let x = scale * (i * 8 + j) as i32;
                         let y = y * scale;
                         for offset in &[(0, 0), (0, 1), (1, 0), (1, 1)] {
                             let point =
@@ -969,7 +970,7 @@ impl OsBitmap1<'_> {
                 for i in 0..w7 {
                     let position = 0x80u8 >> i;
                     if (data & position) != 0 {
-                        let x = scale * (i + base_x) as isize;
+                        let x = scale * (i + base_x) as i32;
                         let y = y * scale;
                         for offset in &[(0, 0), (0, 1), (1, 0), (1, 1)] {
                             let point =
@@ -988,7 +989,6 @@ struct OsWindow {
     native: WindowHandle,
     handle: usize,
     draw_region: Coordinates,
-    fps: usize,
 }
 
 impl OsWindow {
@@ -998,7 +998,6 @@ impl OsWindow {
             native,
             handle,
             draw_region: Coordinates::void(),
-            fps: 0,
         }
     }
 

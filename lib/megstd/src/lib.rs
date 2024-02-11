@@ -1,5 +1,5 @@
 //! MEG-OS standard library like `std`
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 #![feature(alloc_error_handler)]
 #![feature(asm_experimental_arch)]
 #![feature(error_in_core)]

@@ -54,6 +54,6 @@ impl IconManager {
     pub fn mask(icon: r::Icons) -> Option<OperationalBitmap> {
         Self::bitmap(icon)
             .ok()
-            .map(|v| v.as_ref().to_operational(|c| c.opacity().0))
+            .map(|v| v.as_ref().to_operational(|c| c.opacity().as_u8()))
     }
 }

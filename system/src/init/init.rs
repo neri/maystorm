@@ -262,10 +262,12 @@ async fn slpash_task(f: fn()) {
         for path in ["/boot/wall.mpic", "/boot/wall.jpg", "/boot/wall.png"] {
             if let Ok(mut file) = FileManager::open(path, OpenOptions::new().read(true)) {
                 let mut vec = Vec::new();
-                file.read_to_end(&mut vec).unwrap();
-                if let Ok(dib) = ImageLoader::load(vec.as_slice()) {
-                    let dib = BitmapRef::from(dib.as_ref());
-                    WindowManager::set_desktop_bitmap(&dib);
+                if file.read_to_end(&mut vec).is_err() {
+                    continue;
+                };
+                if let Ok(bitmap) = ImageLoader::load(vec.as_slice()) {
+                    let bitmap = BitmapRef::from(bitmap.as_ref());
+                    WindowManager::set_desktop_bitmap(&bitmap);
                     wall_loaded = true;
                     break;
                 }
@@ -334,7 +336,7 @@ async fn shell_launcher(f: fn()) {
 
 #[allow(dead_code)]
 async fn status_bar_main() {
-    const STATUS_BAR_HEIGHT: isize = 32;
+    const STATUS_BAR_HEIGHT: u32 = 32;
     const STATUS_BAR_PADDING: EdgeInsets = EdgeInsets::new(0, 0, 0, 0);
     const INNER_PADDING: EdgeInsets = EdgeInsets::new(1, 24, 1, 24);
 
@@ -347,7 +349,7 @@ async fn status_bar_main() {
         .frame(Rect::new(0, 0, screen_bounds.width(), STATUS_BAR_HEIGHT))
         .bg_color(bg_color)
         .build("Status Bar");
-    WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT, 0, 0, 0));
+    WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT as i32, 0, 0, 0));
 
     let font = FontManager::monospace_font();
     let mut sb0 = Sb255::new();
@@ -374,11 +376,9 @@ async fn status_bar_main() {
                     let bounds = Rect::from(window.content_size())
                         .insets_by(STATUS_BAR_PADDING)
                         .insets_by(INNER_PADDING);
-                    let width = ats
-                        .bounding_size(Size::new(isize::MAX, isize::MAX), 1)
-                        .width;
+                    let width = ats.bounding_size(Size::new(u32::MAX, u32::MAX), 1).width;
                     let rect = Rect::new(
-                        bounds.max_x() - width,
+                        bounds.max_x() - width as i32,
                         bounds.min_y(),
                         width,
                         bounds.height(),
@@ -461,7 +461,7 @@ async fn activity_monitor_main() {
     let window = RawWindowBuilder::new()
         .style_sub(WindowStyle::CLOSE_BUTTON)
         .frame(Rect::new(
-            -width - 16,
+            -(width as i32) - 16,
             screen_bounds.min_y() + 16,
             width,
             height,
@@ -488,7 +488,7 @@ async fn activity_monitor_main() {
     let mut sb = String::new();
 
     let spacing = 4;
-    let graph_rect = Rect::new(spacing, spacing, n_items as isize, 32);
+    let graph_rect = Rect::new(spacing, spacing, n_items as u32, 32);
     let graph_size = graph_rect.size();
     let meter_rect = Rect::new(
         graph_rect.max_x() + spacing,
@@ -522,13 +522,13 @@ async fn activity_monitor_main() {
                                 for i in 1..h_lines {
                                     let point = Point::new(
                                         graph_rect.min_x(),
-                                        graph_rect.min_y() + i * graph_size.height / h_lines,
+                                        graph_rect.min_y() + i * graph_size.height as i32 / h_lines,
                                     );
                                     bitmap.draw_hline(point, graph_size.width, graph_sub_color);
                                 }
                                 for i in 1..v_lines {
                                     let point = Point::new(
-                                        graph_rect.min_x() + i * graph_size.width / v_lines,
+                                        graph_rect.min_x() + i * graph_size.width as i32 / v_lines,
                                         graph_rect.min_y(),
                                     );
                                     bitmap.draw_vline(point, graph_size.height, graph_sub_color);
@@ -539,16 +539,16 @@ async fn activity_monitor_main() {
                                 for i in 0..limit {
                                     let scale = graph_size.height - 2;
                                     let value1 = usage_history[(usage_cursor + i - limit) % n_items]
-                                        as isize
-                                        * scale
+                                        as i32
+                                        * scale as i32
                                         / 255;
                                     let value2 = usage_history
                                         [(usage_cursor + i - 1 - limit) % n_items]
-                                        as isize
-                                        * scale
+                                        as i32
+                                        * scale as i32
                                         / 255;
-                                    let c1 = Point::new(i as isize + 1, 1 + value1);
-                                    let c2 = Point::new(i as isize, 1 + value2);
+                                    let c1 = Point::new(i as i32 + 1, 1 + value1);
+                                    let c2 = Point::new(i as i32, 1 + value2);
                                     opr_bitmap.draw_line_anti_aliasing_f(
                                         c1,
                                         c2,
@@ -559,12 +559,14 @@ async fn activity_monitor_main() {
                                         },
                                     );
                                     opr_bitmap.draw_line(
-                                        Point::new(i as isize + 1, 1 + (value1 + value2) / 2),
-                                        Point::new(i as isize + 1, graph_size.height - 1),
+                                        Point::new(i as i32 + 1, 1 + (value1 + value2) / 2),
+                                        Point::new(i as i32 + 1, graph_size.height as i32 - 1),
                                         |bitmap, point| unsafe {
                                             bitmap.process_pixel_unchecked(point, |c| {
                                                 c.saturating_add(
-                                                    0x20 + (graph_size.height - point.y) as u8 * 3,
+                                                    0x20 + (graph_size.height as i32 - point.y)
+                                                        as u8
+                                                        * 3,
                                                 )
                                             });
                                         },
@@ -583,7 +585,7 @@ async fn activity_monitor_main() {
 
                             for cpu_index in 0..num_of_cpus {
                                 let rect = Rect::new(
-                                    meter_rect.min_x() + cpu_index as isize * 8,
+                                    meter_rect.min_x() + cpu_index as i32 * 8,
                                     meter_rect.min_y(),
                                     6,
                                     meter_rect.height(),
@@ -599,7 +601,8 @@ async fn activity_monitor_main() {
                                 };
 
                                 let mut coords = Coordinates::from_rect(rect).unwrap();
-                                coords.top += ((rect.height() - 1) * value as isize + 500) / 1000;
+                                coords.top +=
+                                    ((rect.height() as i32 - 1) * value as i32 + 500) / 1000;
 
                                 bitmap.fill_rect(coords.into(), graph_color);
                                 bitmap.draw_rect(rect, graph_border_color);
@@ -725,7 +728,7 @@ async fn _notification_task() {
         let main_screen_bounds = WindowManager::main_screen_bounds();
         let user_screen_bounds = WindowManager::user_screen_bounds();
         let rect = Rect::new(
-            main_screen_bounds.width() - position as isize,
+            main_screen_bounds.width() as i32 - position as i32,
             user_screen_bounds.min_y(),
             window_width,
             window_height,
@@ -775,10 +778,10 @@ async fn _notification_task() {
                             let rect = bitmap.bounds().insets_by(padding);
 
                             if let Some(ref icon) = IconManager::mask(payload.icon()) {
-                                let long_side = usize::max(icon.width(), icon.height()) as isize;
+                                let long_side = icon.width().max(icon.height()) as i32;
                                 let origin = Point::new(
-                                    rect.min_x() + (long_side - icon.width() as isize) / 2,
-                                    rect.min_y() + (rect.height() - long_side) / 2,
+                                    rect.min_x() + (long_side - icon.width() as i32) / 2,
+                                    rect.min_y() + (rect.height() as i32 - long_side) / 2,
                                 );
                                 icon.draw_to(bitmap, origin, icon.bounds(), fg_color);
 
@@ -848,11 +851,11 @@ async fn test_window_main() {
 
         let font = FontManager::title_font();
         let title_height = 48;
-        let button_width = 120;
-        let button_height = 28;
-        let button_radius = 8;
-        let padding = 4;
-        let padding_bottom = button_height;
+        let button_width = 120u32;
+        let button_height = 28u32;
+        let button_radius = 8u32;
+        let padding = 4i32;
+        let padding_bottom = button_height as i32;
         let button_center_top = Point::new(
             bitmap.bounds().mid_x(),
             bitmap.bounds().max_y() - padding_bottom - padding,
@@ -873,7 +876,7 @@ async fn test_window_main() {
         }
         {
             let rect = bitmap.bounds().insets_by(EdgeInsets::new(
-                title_height + padding,
+                title_height as i32 + padding,
                 4,
                 padding_bottom + padding + padding,
                 4,
@@ -894,7 +897,7 @@ async fn test_window_main() {
         }
         if true {
             let rect = Rect::new(
-                button_center_top.x() - button_width - padding / 2,
+                button_center_top.x() - button_width as i32 - padding / 2,
                 button_center_top.y(),
                 button_width,
                 button_height,
@@ -966,14 +969,14 @@ async fn test_window_main() {
 
 fn font_test(
     bitmap: &mut BitmapRefMut,
-    offset: isize,
+    offset: i32,
     color: Color,
     family: FontFamily,
-    point: isize,
-) -> isize {
+    point: u32,
+) -> i32 {
     let max_lines = 0;
     let font = FontDescriptor::new(family, point).unwrap();
-    let rect = Rect::new(0, offset, bitmap.width() as isize, isize::MAX);
+    let rect = Rect::new(0, offset, bitmap.width(), u32::MAX);
 
     let ats = AttributedString::new()
         .font(&font)
@@ -988,5 +991,5 @@ fn font_test(
     let bounds = ats.bounding_size(rect.size(), max_lines);
     ats.draw_text(bitmap, rect, max_lines);
 
-    bounds.height()
+    bounds.height() as i32
 }

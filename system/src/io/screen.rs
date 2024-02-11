@@ -1,10 +1,10 @@
 use crate::sync::atomic::AtomicWrapper;
 use core::cell::UnsafeCell;
-use megstd::drawing::*;
+use megstd::drawing::{rotation::Rotation, *};
 
-pub trait Screen<T>: Drawable
+pub trait Screen<T>: Image
 where
-    T: Drawable<ColorType = Self::ColorType>,
+    T: Image<ColorType = Self::ColorType>,
 {
     fn blt(&self, src: &T, origin: Point, rect: Rect);
 
@@ -114,7 +114,7 @@ impl<'a> BitmapScreen<'a> {
     }
 }
 
-impl Drawable for BitmapScreen<'_> {
+impl Image for BitmapScreen<'_> {
     type ColorType = TrueColor;
 
     fn size(&self) -> Size {
@@ -144,7 +144,7 @@ impl Screen<BitmapRef32<'_>> for BitmapScreen<'_> {
             self.bitmap().fill_rect(rect, color.into());
         } else {
             let rect = Rect::new(
-                self.dims.width() - rect.min_y() - rect.height(),
+                self.dims.width() as i32 - rect.min_y() - rect.height() as i32,
                 rect.min_x(),
                 rect.height(),
                 rect.width(),

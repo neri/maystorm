@@ -1,28 +1,28 @@
 use super::{executor::Executor, *};
-use crate::{
-    arch::cpu::*,
-    rt::PersonalityContext,
-    sync::{
-        atomic::{AtomicFlags, AtomicWrapper},
-        fifo::*,
-        semaphore::*,
-        spinlock::*,
-        LockResult, Mutex, RwLock, RwLockReadGuard,
-    },
-    system::*,
-    ui::window::{WindowHandle, WindowMessage},
-    *,
+use crate::arch::cpu::*;
+use crate::rt::PersonalityContext;
+use crate::sync::{
+    atomic::{AtomicFlags, AtomicWrapper},
+    fifo::*,
+    semaphore::*,
+    spinlock::*,
+    LockResult, Mutex, RwLock, RwLockReadGuard,
 };
-// use alloc::format;
-use core::{
-    cell::UnsafeCell, ffi::c_void, fmt, intrinsics::transmute, num::*, ops::*, ptr::addr_of,
-    sync::atomic::*, time::Duration,
-};
-use megstd::{
-    io::{Error, ErrorKind},
-    prelude::*,
-    string::*,
-};
+use crate::system::*;
+use crate::ui::window::{WindowHandle, WindowMessage};
+use crate::*;
+use core::cell::UnsafeCell;
+use core::ffi::c_void;
+use core::fmt;
+use core::intrinsics::transmute;
+use core::num::*;
+use core::ops::*;
+use core::ptr::addr_of;
+use core::sync::atomic::*;
+use core::time::Duration;
+use megstd::io::{Error, ErrorKind};
+use megstd::prelude::*;
+use megstd::string::*;
 
 const THRESHOLD_BUSY_THREAD: usize = 750;
 const THRESHOLD_ENTER_SAVING: usize = 500;
@@ -1245,7 +1245,7 @@ impl TimerEvent {
             TimerType::Async(sem) => sem.signal(),
             TimerType::Window(window, timer_id) => {
                 let _ = window
-                    .is_valid()
+                    .validate()
                     .map(|v| v.post(WindowMessage::Timer(timer_id)).unwrap());
             }
         }

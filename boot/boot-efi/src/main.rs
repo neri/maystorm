@@ -169,7 +169,7 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
         let new_sp = VirtualAddress(info.kernel_base + 0x3FFFF000);
         PageManager::valloc(new_sp - stack_size, stack_size);
 
-        println!("Starting kernel...");
+        // println!("Starting kernel...");
         invocation.invoke_kernel(&info, entry, new_sp);
     }
 }

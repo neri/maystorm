@@ -21,6 +21,7 @@ use kernel::task::scheduler::*;
 use kernel::ui::window::WindowManager;
 use kernel::*;
 use megstd::io::Read;
+use megstd::path::Path;
 
 /// Kernel entry point
 #[no_mangle]
@@ -59,13 +60,20 @@ impl Shell {
             shared.path_ext.push(ext.to_string());
         }
 
+        Self::exec_cmd("cd boot");
+
         Scheduler::spawn_async(Self::repl_main());
         Scheduler::perform_tasks();
     }
 
     async fn repl_main() {
         loop {
-            print!("# ");
+            let cwd = Scheduler::current_pid().cwd();
+            let lpc = match Path::new(&cwd).file_name() {
+                Some(v) => v,
+                None => OsStr::new("/"),
+            };
+            print!("{}> ", lpc.to_str().unwrap());
             if let Ok(cmdline) = System::stdout().read_line_async(120).await {
                 Self::exec_cmd(&cmdline);
             }
@@ -313,10 +321,11 @@ impl Shell {
     }
 
     fn cmd_cd(argv: &[&str]) {
-        match FileManager::chdir(argv.get(1).unwrap_or(&"/")) {
+        let path = argv.get(1).unwrap_or(&"/");
+        match FileManager::chdir(path) {
             Ok(_) => (),
             Err(err) => {
-                println!("{:?}", err.kind());
+                println!("cd: {}: {:?}", path, err.kind());
             }
         }
     }
@@ -599,7 +608,7 @@ impl Shell {
                 stat.inode(),
                 stat.file_type(),
                 stat.len(),
-                FileManager::canonical_path(path),
+                FileManager::canonicalize(path),
             )
         }
     }

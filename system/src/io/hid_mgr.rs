@@ -186,8 +186,8 @@ pub struct MouseState {
     pub x: AtomicIsize,
     pub y: AtomicIsize,
     pub wheel: AtomicIsize,
-    pub max_x: isize,
-    pub max_y: isize,
+    pub max_x: i32,
+    pub max_y: i32,
 }
 
 impl MouseState {
@@ -251,8 +251,8 @@ impl MouseEvent {
     #[inline]
     pub const fn point(&self) -> Point {
         Point {
-            x: self.x as isize,
-            y: self.y as isize,
+            x: self.x as i32,
+            y: self.y as i32,
         }
     }
 

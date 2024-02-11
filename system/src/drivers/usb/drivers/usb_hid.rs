@@ -300,7 +300,7 @@ impl UsbHidDriver {
                                                 reader.read_value_signed(item).unwrap() as isize;
                                         } else {
                                             is_absolute = true;
-                                            mouse_state.max_x = item.logical_max() as isize;
+                                            mouse_state.max_x = item.logical_max() as i32;
                                             report.x = reader.read_value(item).unwrap() as isize;
                                         }
                                     }
@@ -310,7 +310,7 @@ impl UsbHidDriver {
                                                 reader.read_value_signed(item).unwrap() as isize;
                                         } else {
                                             is_absolute = true;
-                                            mouse_state.max_y = item.logical_max() as isize;
+                                            mouse_state.max_y = item.logical_max() as i32;
                                             report.y = reader.read_value(item).unwrap() as isize;
                                         }
                                     }

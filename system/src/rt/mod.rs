@@ -6,6 +6,7 @@ use crate::*;
 use core::cell::UnsafeCell;
 use core::ffi::c_void;
 use megstd::io::{Error, ErrorKind, Read};
+use megstd::path::Path;
 use megstd::uuid::{Identify, Uuid};
 
 pub mod arle;
@@ -77,7 +78,11 @@ impl RuntimeEnvironment {
             let shared = Self::shared();
             for loader in &shared.image_loaders {
                 if loader.recognize(blob) {
-                    return loader.spawn(blob, LoadedImageOption::new(path, args));
+                    let lpc = Path::new(path)
+                        .file_name()
+                        .and_then(|v| v.to_str())
+                        .unwrap_or_default();
+                    return loader.spawn(blob, LoadedImageOption::new(lpc, args));
                 }
             }
             return Err(ErrorKind::ExecFormatError.into());

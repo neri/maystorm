@@ -44,10 +44,10 @@ static mut SYSTEM: UnsafeCell<System> = UnsafeCell::new(System::new());
 
 impl System {
     const SYSTEM_NAME: &'static str = "MEG-OS";
-    const SYSTEM_CODENAME: &'static str = "Cherry";
+    const SYSTEM_CODENAME: &'static str = "Maystorm-13";
     const SYSTEM_SHORT_NAME: &'static str = "myos";
     const RELEASE: &'static str = "alpha";
-    const VERSION: Version<'static> = Version::new(0, 12, 0, Self::RELEASE);
+    const VERSION: Version<'static> = Version::new(0, 12, 999, Self::RELEASE);
 
     #[inline]
     const fn new() -> Self {
@@ -90,7 +90,7 @@ impl System {
             ))
             .unwrap()
             .get() as *mut TrueColor;
-            let size = Size::new(info.screen_width as isize, info.screen_height as isize);
+            let size = Size::new(info.screen_width as u32, info.screen_height as u32);
             let screen = BitmapScreen::new(BitmapRefMut32::from_static(base, size, stride));
             screen
                 .set_orientation(ScreenOrientation::Landscape)

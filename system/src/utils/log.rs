@@ -48,7 +48,7 @@ impl EventManager {
         }
     }
 
-    pub(crate) fn init() {
+    pub fn init() {
         assert_call_once!();
 
         unsafe {

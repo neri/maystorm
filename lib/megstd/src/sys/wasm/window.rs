@@ -92,7 +92,7 @@ impl DrawingContext {
             origin.x as usize,
             origin.y as usize,
             s,
-            color.0 as usize,
+            color.into_raw() as usize,
         );
     }
 
@@ -104,7 +104,7 @@ impl DrawingContext {
             c1.y as usize,
             c2.x as usize,
             c2.y as usize,
-            color.0 as usize,
+            color.into_raw() as usize,
         )
     }
 
@@ -116,7 +116,7 @@ impl DrawingContext {
             rect.min_y() as usize,
             rect.width() as usize,
             rect.height() as usize,
-            color.0 as usize,
+            color.into_raw() as usize,
         )
     }
 
@@ -130,8 +130,8 @@ impl DrawingContext {
     ) {
         let params = OsDrawShape {
             radius: radius as u32,
-            bg_color: bg_color.0,
-            border_color: border_color.0,
+            bg_color: bg_color.into_raw(),
+            border_color: border_color.into_raw(),
         };
         syscall::os_draw_shape(
             self.ctx,
@@ -156,7 +156,7 @@ impl DrawingContext {
             origin.x as usize,
             origin.y as usize,
             bitmap as *const _ as usize,
-            color.0 as u32,
+            color.into_raw(),
             mode,
         );
     }
@@ -193,6 +193,7 @@ pub struct WindowBuilder {
     size: Size,
     bg_color: WindowColor,
     options: u32,
+    max_fps: usize,
 }
 
 impl WindowBuilder {
@@ -202,6 +203,7 @@ impl WindowBuilder {
             size: Size::new(300, 400),
             bg_color: WindowColor::WHITE,
             options: 0,
+            max_fps: 0,
         }
     }
 
@@ -212,9 +214,12 @@ impl WindowBuilder {
             title,
             self.size.width() as usize,
             self.size.height() as usize,
-            self.bg_color.0 as usize,
+            self.bg_color.into_raw() as usize,
             self.options as usize,
         ));
+        if self.max_fps > 0 {
+            syscall::os_window_max_fps(handle.0, self.max_fps);
+        }
         Window { handle }
     }
 
@@ -263,6 +268,12 @@ impl WindowBuilder {
     #[inline]
     pub const fn with_options(mut self, options: u32) -> Self {
         self.options = options;
+        self
+    }
+
+    #[inline]
+    pub const fn max_fps(mut self, fps: usize) -> Self {
+        self.max_fps = fps;
         self
     }
 }

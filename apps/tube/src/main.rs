@@ -17,13 +17,12 @@ use megstd::window::*;
 
 #[no_mangle]
 fn _start() {
-    os_srand(os_monotonic());
     App::new().run();
 }
 
-const BITMAP_WIDTH: isize = 240;
-const BITMAP_HEIGHT: isize = 240;
-const BITMAP_SIZE: usize = (BITMAP_WIDTH * BITMAP_HEIGHT) as usize;
+const BITMAP_WIDTH: u32 = 240;
+const BITMAP_HEIGHT: u32 = 240;
+const BITMAP_SIZE: usize = BITMAP_WIDTH as usize * BITMAP_HEIGHT as usize;
 static mut DATA: UnsafeCell<[u32; BITMAP_SIZE]> = UnsafeCell::new([0; BITMAP_SIZE]);
 static mut SCREEN: UnsafeCell<[i8; BITMAP_SIZE]> = UnsafeCell::new([0; BITMAP_SIZE]);
 static mut TEXTURE: UnsafeCell<[u8; 65536]> = UnsafeCell::new([0; 65536]);
@@ -40,6 +39,7 @@ struct App<'a> {
 impl<'a> App<'a> {
     #[inline]
     fn new() -> Self {
+        os_srand(os_monotonic());
         let window = WindowBuilder::new()
             .size(Size::new(BITMAP_WIDTH, BITMAP_HEIGHT))
             .opaque()
@@ -64,7 +64,6 @@ impl<'a> App<'a> {
 }
 
 impl App<'_> {
-    #[inline]
     fn run(&mut self) {
         while self.window.read_char().is_none() {
             self.update();
@@ -74,7 +73,6 @@ impl App<'_> {
         }
     }
 
-    #[inline]
     fn make_palettes() -> [TrueColor; 256] {
         let mut palettes = [TrueColor::TRANSPARENT; 256];
 
@@ -94,8 +92,7 @@ impl App<'_> {
         palettes
     }
 
-    #[inline]
-    fn make_texture<'a>() {
+    fn make_texture() {
         let texture = unsafe { TEXTURE.get_mut() };
 
         for (i, p) in texture.iter_mut().enumerate() {
@@ -111,18 +108,17 @@ impl App<'_> {
         }
     }
 
-    #[inline]
     fn update(&mut self) {
         let s = sin(self.angle);
         let c = cos(self.angle);
         let step = self.step;
         let texture = unsafe { TEXTURE.get_mut() };
 
-        let pi_min = (-BITMAP_WIDTH / 2) as f64;
+        let pi_min = (-(BITMAP_WIDTH as isize) / 2) as f64;
         let pi_max = (BITMAP_WIDTH / 2) as f64;
 
         let mut pi = pi_min;
-        let mut pj = (-BITMAP_HEIGHT / 2) as f64;
+        let mut pj = (-(BITMAP_HEIGHT as isize) / 2) as f64;
         for p in self.screen.iter_mut() {
             // 回転～(x-y)
             let x = (pj * c) - (pi * s);
@@ -170,7 +166,6 @@ impl App<'_> {
         self.step = self.step.wrapping_add(8);
     }
 
-    #[inline]
     fn draw(&mut self) {
         let screen = unsafe { SCREEN.get_mut() };
         let p = unsafe { DATA.get_mut() };

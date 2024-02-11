@@ -1,43 +1,40 @@
-use super::{font::*, text::*, theme::Theme};
-use crate::{
-    init::SysInit,
-    io::{hid_mgr::*, screen::Screen},
-    res::icon::IconManager,
-    sync::atomic::AtomicFlags,
-    sync::RwLock,
-    sync::{fifo::*, semaphore::*, spinlock::SpinMutex},
-    task::scheduler::*,
-    *,
+use super::font::*;
+use super::text::*;
+use super::theme::Theme;
+use crate::init::SysInit;
+use crate::io::{hid_mgr::*, screen::Screen};
+use crate::res::icon::IconManager;
+use crate::sync::{
+    atomic::AtomicFlags,
+    RwLock,
+    {fifo::*, semaphore::*, spinlock::SpinMutex},
 };
-use core::{
-    cell::UnsafeCell,
-    cmp,
-    future::Future,
-    num::*,
-    ops::Deref,
-    pin::Pin,
-    sync::atomic::*,
-    task::{Context, Poll},
-    time::Duration,
-};
+use crate::task::scheduler::*;
+use crate::*;
+use core::cell::UnsafeCell;
+use core::future::Future;
+use core::num::*;
+use core::ops::Deref;
+use core::pin::Pin;
+use core::sync::atomic::*;
+use core::task::{Context, Poll};
+use core::time::Duration;
 use futures_util::task::AtomicWaker;
 use megstd::{drawing::*, io::hid::*, sys::megos};
 
 const MAX_WINDOWS: usize = 255;
 const WINDOW_SYSTEM_EVENT_QUEUE_SIZE: usize = 100;
 
-const WINDOW_BORDER_WIDTH: isize = 1;
-const WINDOW_CORNER_RADIUS: isize = 8;
-const WINDOW_THICK_BORDER_WIDTH_V: isize = WINDOW_CORNER_RADIUS / 2;
-const WINDOW_THICK_BORDER_WIDTH_H: isize = WINDOW_CORNER_RADIUS / 2;
-const WINDOW_TITLE_HEIGHT: isize = 26;
-const WINDOW_TITLE_BORDER: isize = 0;
-const WINDOW_SHADOW_PADDING: isize = 16;
-const SHADOW_RADIUS: isize = 12;
+const WINDOW_BORDER_WIDTH: u32 = 1;
+const WINDOW_CORNER_RADIUS: u32 = 8;
+const WINDOW_THICK_BORDER_WIDTH_V: u32 = WINDOW_CORNER_RADIUS / 2;
+const WINDOW_THICK_BORDER_WIDTH_H: u32 = WINDOW_CORNER_RADIUS / 2;
+const WINDOW_TITLE_HEIGHT: u32 = 26;
+const WINDOW_TITLE_BORDER: u32 = 0;
+const WINDOW_SHADOW_PADDING: u32 = 16;
+const SHADOW_RADIUS: u32 = 12;
 const SHADOW_OFFSET: Movement = Movement::new(2, 2);
 const SHADOW_LEVEL: usize = 96;
-
-const POINTER_HOTSPOT: Movement = Movement::new(10, 6);
 
 const CORNER_MASK: [u8; WINDOW_CORNER_RADIUS as usize] = [6, 4, 3, 2, 1, 1, 0, 0];
 
@@ -48,7 +45,7 @@ pub struct WindowManager<'a> {
     attributes: AtomicFlags<WindowManagerAttributes>,
     system_event: ConcurrentFifo<WindowSystemEvent>,
 
-    pointer_hotspot: Movement,
+    pointer_hotspot: Point,
     pointer_x: AtomicIsize,
     pointer_y: AtomicIsize,
     buttons: AtomicFlags<MouseButton>,
@@ -74,7 +71,7 @@ pub struct WindowManager<'a> {
 
 #[allow(dead_code)]
 struct Resources<'a> {
-    window_button_width: isize,
+    window_button_width: u32,
     close_button: OperationalBitmap,
     back_button: OperationalBitmap,
     title_font: FontDescriptor,
@@ -87,8 +84,8 @@ impl WindowManager<'static> {
         assert_call_once!();
 
         let screen_size = main_screen.size();
-        let pointer_x = screen_size.width / 2;
-        let pointer_y = screen_size.height / 2;
+        let pointer_x = (screen_size.width / 2) as i32;
+        let pointer_y = (screen_size.height / 2) as i32;
         let mut window_pool = BTreeMap::new();
         let mut window_orders = Vec::with_capacity(MAX_WINDOWS);
 
@@ -136,7 +133,7 @@ impl WindowManager<'static> {
 
             let handle = window.handle;
             window_pool.insert(handle, Arc::new(UnsafeCell::new(window)));
-            (handle, POINTER_HOTSPOT)
+            (handle, Point::new(10, 6))
         };
 
         let barrier = {
@@ -159,8 +156,8 @@ impl WindowManager<'static> {
                 sem_event: Semaphore::new(0),
                 attributes: AtomicFlags::default(),
                 pointer_hotspot,
-                pointer_x: AtomicIsize::new(pointer_x),
-                pointer_y: AtomicIsize::new(pointer_y),
+                pointer_x: AtomicIsize::new(pointer_x as isize),
+                pointer_y: AtomicIsize::new(pointer_y as isize),
                 buttons: AtomicFlags::empty(),
                 buttons_down: AtomicFlags::empty(),
                 buttons_up: AtomicFlags::empty(),
@@ -324,16 +321,15 @@ impl WindowManager<'_> {
                                 } else {
                                     0
                                 };
-                                let bottom = shared.screen_size.height()
-                                    - WINDOW_TITLE_HEIGHT / 2
+                                let bottom = (shared.screen_size.height() - WINDOW_TITLE_HEIGHT / 2)
+                                    as i32
                                     - if captured.as_ref().level < WindowLevel::FLOATING {
                                         screen_insets.bottom
                                     } else {
                                         0
                                     };
                                 let x = position.x - captured_offset.x;
-                                let y =
-                                    cmp::min(cmp::max(position.y - captured_offset.y, top), bottom);
+                                let y = (position.y - captured_offset.y).max(top).min(bottom);
                                 captured.move_to(Point::new(x, y));
                             } else {
                                 let _ = Self::make_mouse_events(
@@ -687,20 +683,22 @@ impl WindowManager<'_> {
 
     fn pointer(&self) -> Point {
         Point::new(
-            self.pointer_x.load(Ordering::Relaxed),
-            self.pointer_y.load(Ordering::Relaxed),
+            self.pointer_x.load(Ordering::Relaxed) as i32,
+            self.pointer_y.load(Ordering::Relaxed) as i32,
         )
     }
 
     fn _update_relative_coord(
         coord: &AtomicIsize,
-        movement: isize,
-        min_value: isize,
-        max_value: isize,
+        delta: i32,
+        min_value: i32,
+        max_value: i32,
     ) -> bool {
-        match coord.fetch_update(Ordering::SeqCst, Ordering::Relaxed, |value| {
-            let new_value = cmp::min(cmp::max(value + movement, min_value), max_value);
-            if value == new_value {
+        match coord.fetch_update(Ordering::SeqCst, Ordering::Relaxed, |old_value| {
+            let new_value = (old_value + delta as isize)
+                .max(min_value as isize)
+                .min(max_value as isize);
+            if old_value == new_value {
                 None
             } else {
                 Some(new_value)
@@ -713,12 +711,14 @@ impl WindowManager<'_> {
 
     fn _update_absolute_coord(
         coord: &AtomicIsize,
-        new_value: isize,
-        min_value: isize,
-        max_value: isize,
+        new_value: i32,
+        min_value: i32,
+        max_value: i32,
     ) -> bool {
         match coord.fetch_update(Ordering::SeqCst, Ordering::Relaxed, |old_value| {
-            let new_value = cmp::min(cmp::max(new_value, min_value), max_value);
+            let new_value = (new_value as isize)
+                .max(min_value as isize)
+                .min(max_value as isize);
             if old_value == new_value {
                 None
             } else {
@@ -761,20 +761,20 @@ impl WindowManager<'_> {
         let screen_bounds: Rect = shared.screen_size.into();
 
         let pointer = Point::new(
-            pointer_state.x.swap(0, Ordering::SeqCst),
-            pointer_state.y.swap(0, Ordering::SeqCst),
+            pointer_state.x.swap(0, Ordering::SeqCst) as i32,
+            pointer_state.y.swap(0, Ordering::SeqCst) as i32,
         );
 
         let moved = Self::_update_relative_coord(
             &shared.pointer_x,
             pointer.x,
             screen_bounds.min_x(),
-            screen_bounds.width() - 1,
+            screen_bounds.width() as i32 - 1,
         ) | Self::_update_relative_coord(
             &shared.pointer_y,
             pointer.y,
             screen_bounds.min_y(),
-            screen_bounds.height() - 1,
+            screen_bounds.height() as i32 - 1,
         );
 
         if button_changed | moved {
@@ -790,21 +790,23 @@ impl WindowManager<'_> {
 
         let screen_bounds: Rect = shared.screen_size.into();
 
-        let pointer_x =
-            screen_bounds.width() * pointer_state.x.load(Ordering::Relaxed) / pointer_state.max_x;
-        let pointer_y =
-            screen_bounds.height() * pointer_state.y.load(Ordering::Relaxed) / pointer_state.max_y;
+        let pointer_x = screen_bounds.width() as i32
+            * pointer_state.x.load(Ordering::Relaxed) as i32
+            / pointer_state.max_x;
+        let pointer_y = screen_bounds.height() as i32
+            * pointer_state.y.load(Ordering::Relaxed) as i32
+            / pointer_state.max_y;
 
         let moved = Self::_update_absolute_coord(
             &shared.pointer_x,
             pointer_x,
             screen_bounds.min_x(),
-            screen_bounds.width() - 1,
+            screen_bounds.width() as i32 - 1,
         ) | Self::_update_absolute_coord(
             &shared.pointer_y,
             pointer_y,
             screen_bounds.min_y(),
-            screen_bounds.height() - 1,
+            screen_bounds.height() as i32 - 1,
         );
 
         if button_changed | moved {
@@ -848,23 +850,55 @@ impl WindowManager<'_> {
                 r += c.r as usize;
                 g += c.g as usize;
                 b += c.b as usize;
-                a += c.a.0 as usize;
+                a += c.a.as_usize();
             }
-            let total_pixels = bitmap.width() * bitmap.height();
+            let total_pixels = bitmap.width() as usize * bitmap.height() as usize;
             let tint_color = Color::Argb32(TrueColor::from(ColorComponents::from_rgba(
                 r.checked_div(total_pixels).unwrap_or_default() as u8,
                 g.checked_div(total_pixels).unwrap_or_default() as u8,
                 b.checked_div(total_pixels).unwrap_or_default() as u8,
-                Alpha8(a.checked_div(total_pixels).unwrap_or_default() as u8),
+                Alpha8::new(a.checked_div(total_pixels).unwrap_or_default() as u8),
             )));
 
             root.set_bg_color(tint_color);
             let target = root.bitmap();
-            let origin = Point::new(
-                (target.bounds().width() - bitmap.bounds().width()) / 2,
-                (target.bounds().height() - bitmap.bounds().height()) / 2,
-            );
-            target.blt_transparent(bitmap, origin, bitmap.bounds(), IndexedColor::KEY_COLOR);
+            if target.size() == bitmap.size() {
+                target.blt_transparent(
+                    bitmap,
+                    Point::zero(),
+                    bitmap.bounds(),
+                    IndexedColor::KEY_COLOR,
+                );
+            } else {
+                match bitmap {
+                    BitmapRef::Indexed(_) => (),
+                    BitmapRef::Argb32(bitmap) => {
+                        let target_width = target.width() as f64;
+                        let target_height = target.height() as f64;
+                        let mut new_width = target_width;
+                        let mut new_height =
+                            new_width * bitmap.height() as f64 / bitmap.width() as f64;
+                        if new_height > target_height {
+                            new_height = target_height;
+                            new_width = new_height * bitmap.width() as f64 / bitmap.height() as f64;
+                        }
+                        let new_size = Size::new(new_width as u32, new_height as u32);
+                        let Ok(new_bitmap) = bitmap.scale(new_size) else {
+                            return;
+                        };
+                        let origin = Point::new(
+                            ((target.bounds().width() - new_size.width()) / 2) as i32,
+                            ((target.bounds().height() - new_size.height()) / 2) as i32,
+                        );
+                        target.blt_transparent(
+                            &BitmapRef::from(new_bitmap.as_ref()),
+                            origin,
+                            new_size.bounds(),
+                            IndexedColor::KEY_COLOR,
+                        );
+                    }
+                }
+            }
 
             root.set_needs_display();
         });
@@ -1128,28 +1162,29 @@ impl WindowStyle {
             if self.contains(Self::THIN_FRAME) {
                 if self.contains(Self::TITLE) {
                     EdgeInsets::new(
-                        WINDOW_BORDER_WIDTH + WINDOW_TITLE_HEIGHT + WINDOW_TITLE_BORDER,
-                        WINDOW_BORDER_WIDTH,
-                        WINDOW_BORDER_WIDTH,
-                        WINDOW_BORDER_WIDTH,
+                        (WINDOW_BORDER_WIDTH + WINDOW_TITLE_HEIGHT + WINDOW_TITLE_BORDER) as i32,
+                        (WINDOW_BORDER_WIDTH) as i32,
+                        (WINDOW_BORDER_WIDTH) as i32,
+                        (WINDOW_BORDER_WIDTH) as i32,
                     )
                 } else {
-                    EdgeInsets::padding_each(WINDOW_BORDER_WIDTH)
+                    EdgeInsets::padding_each(WINDOW_BORDER_WIDTH as i32)
                 }
             } else {
                 if self.contains(Self::TITLE) {
                     EdgeInsets::new(
-                        WINDOW_THICK_BORDER_WIDTH_V + WINDOW_TITLE_HEIGHT + WINDOW_TITLE_BORDER,
-                        WINDOW_THICK_BORDER_WIDTH_H,
-                        WINDOW_THICK_BORDER_WIDTH_V,
-                        WINDOW_THICK_BORDER_WIDTH_H,
+                        (WINDOW_THICK_BORDER_WIDTH_V + WINDOW_TITLE_HEIGHT + WINDOW_TITLE_BORDER)
+                            as i32,
+                        (WINDOW_THICK_BORDER_WIDTH_H) as i32,
+                        (WINDOW_THICK_BORDER_WIDTH_V) as i32,
+                        (WINDOW_THICK_BORDER_WIDTH_H) as i32,
                     )
                 } else {
                     EdgeInsets::new(
-                        WINDOW_THICK_BORDER_WIDTH_V,
-                        WINDOW_THICK_BORDER_WIDTH_H,
-                        WINDOW_THICK_BORDER_WIDTH_V,
-                        WINDOW_THICK_BORDER_WIDTH_H,
+                        (WINDOW_THICK_BORDER_WIDTH_V) as i32,
+                        (WINDOW_THICK_BORDER_WIDTH_H) as i32,
+                        (WINDOW_THICK_BORDER_WIDTH_V) as i32,
+                        (WINDOW_THICK_BORDER_WIDTH_H) as i32,
                     )
                 }
             }
@@ -1183,7 +1218,7 @@ impl RawWindow {
         if self.style.contains(WindowStyle::NO_SHADOW) {
             self.frame
         } else {
-            self.frame + EdgeInsets::padding_each(WINDOW_SHADOW_PADDING)
+            self.frame + EdgeInsets::padding_each(WINDOW_SHADOW_PADDING as i32)
         }
     }
 
@@ -1342,15 +1377,14 @@ impl RawWindow {
             };
             if frame2.overlaps(frame1) {
                 let adjust_point = window.frame.origin() - coords2.left_top();
-                let blt_origin = Point::new(
-                    cmp::max(coords1.left, coords2.left),
-                    cmp::max(coords1.top, coords2.top),
-                ) - offset;
+                let blt_origin =
+                    Point::new(coords1.left.max(coords2.left), coords1.top.max(coords2.top))
+                        - offset;
                 let target_rect = Rect::new(
-                    isize::max(coords1.left - coords2.left, 0),
-                    isize::max(coords1.top - coords2.top, 0),
-                    cmp::min(coords1.right, coords2.right) - cmp::max(coords1.left, coords2.left),
-                    cmp::min(coords1.bottom, coords2.bottom) - cmp::max(coords1.top, coords2.top),
+                    (coords1.left - coords2.left).max(0),
+                    (coords1.top - coords2.top).max(0),
+                    (coords1.right.min(coords2.right) - coords1.left.max(coords2.left)) as u32,
+                    (coords1.bottom.min(coords2.bottom) - coords1.top.max(coords2.top)) as u32,
                 );
 
                 let bitmap = window.bitmap32();
@@ -1398,8 +1432,8 @@ impl RawWindow {
     fn title_frame(&self) -> Rect {
         if self.style.contains(WindowStyle::TITLE) {
             Rect::new(
-                WINDOW_BORDER_WIDTH,
-                WINDOW_BORDER_WIDTH,
+                WINDOW_BORDER_WIDTH as i32,
+                WINDOW_BORDER_WIDTH as i32,
                 self.frame.width() - WINDOW_BORDER_WIDTH * 2,
                 WINDOW_TITLE_HEIGHT,
             )
@@ -1413,7 +1447,7 @@ impl RawWindow {
         let rect = self.title_frame();
         let window_button_width = shared.resources.window_button_width;
         Rect::new(
-            rect.max_x() - window_button_width - WINDOW_CORNER_RADIUS,
+            rect.max_x() - window_button_width as i32 - WINDOW_CORNER_RADIUS as i32,
             rect.min_y(),
             window_button_width,
             rect.height(),
@@ -1425,7 +1459,7 @@ impl RawWindow {
         let rect = self.title_frame();
         let window_button_width = shared.resources.window_button_width;
         Rect::new(
-            WINDOW_CORNER_RADIUS,
+            WINDOW_CORNER_RADIUS as i32,
             rect.min_y(),
             window_button_width,
             rect.height(),
@@ -1460,7 +1494,7 @@ impl RawWindow {
                 bitmap.fill_rect(
                     Rect::new(
                         0,
-                        WINDOW_BORDER_WIDTH + WINDOW_TITLE_HEIGHT,
+                        WINDOW_BORDER_WIDTH as i32 + WINDOW_TITLE_HEIGHT as i32,
                         frame.width(),
                         WINDOW_TITLE_BORDER,
                     ),
@@ -1525,16 +1559,16 @@ impl RawWindow {
                     let lb = coord.left_bottom();
                     let rb = coord.right_bottom();
 
-                    for (i, len) in CORNER_MASK.into_iter().enumerate() {
-                        let y = i as isize;
-                        let w = len as isize;
+                    for (i, w) in CORNER_MASK.iter().enumerate() {
+                        let y = i as i32;
+                        let w = *w as i32;
                         for origin in [
                             lt + Movement::new(0, y),
                             rt + Movement::new(-w, y),
                             lb + Movement::new(0, -y - 1),
                             rb + Movement::new(-w, -y - 1),
                         ] {
-                            bitmap.draw_hline(origin, w, Color::TRANSPARENT);
+                            bitmap.draw_hline(origin, w as u32, Color::TRANSPARENT);
                         }
                     }
                 }
@@ -1619,8 +1653,8 @@ impl RawWindow {
 
         let button = &shared.resources.close_button;
         let origin = Point::new(
-            button_frame.min_x() + (button_frame.width() - button.width() as isize) / 2,
-            button_frame.min_y() + (button_frame.height() - button.height() as isize) / 2,
+            button_frame.min_x() + ((button_frame.width() - button.width()) / 2) as i32,
+            button_frame.min_y() + ((button_frame.height() - button.height()) / 2) as i32,
         );
         button.draw_to(bitmap, origin, button.bounds(), foreground.into());
     }
@@ -1662,8 +1696,8 @@ impl RawWindow {
 
         let button = &shared.resources.back_button;
         let origin = Point::new(
-            button_frame.min_x() + (button_frame.width() - button.width() as isize) / 2,
-            button_frame.min_y() + (button_frame.height() - button.height() as isize) / 2,
+            button_frame.min_x() + ((button_frame.width() - button.width()) / 2) as i32,
+            button_frame.min_y() + ((button_frame.height() - button.height()) / 2) as i32,
         );
         button.draw_to(bitmap, origin, button.bounds(), foreground.into());
     }
@@ -1741,22 +1775,22 @@ impl RawWindow {
 
         let content_rect = Rect::from(self.frame.size());
         let origin = Point::new(
-            WINDOW_SHADOW_PADDING - SHADOW_RADIUS,
-            WINDOW_SHADOW_PADDING - SHADOW_RADIUS,
+            WINDOW_SHADOW_PADDING as i32 - SHADOW_RADIUS as i32,
+            WINDOW_SHADOW_PADDING as i32 - SHADOW_RADIUS as i32,
         ) + SHADOW_OFFSET;
         shadow.blt_from(bitmap, origin, content_rect, |a, _| {
             let a = a.into_true_color().opacity();
-            a.saturating_add(a).0
+            a.saturating_add(a).as_u8()
         });
 
         shadow.blur(SHADOW_RADIUS, SHADOW_LEVEL);
 
         shadow.blt_from(
             bitmap,
-            Point::new(WINDOW_SHADOW_PADDING, WINDOW_SHADOW_PADDING),
+            Point::new(WINDOW_SHADOW_PADDING as i32, WINDOW_SHADOW_PADDING as i32),
             bitmap.bounds(),
             |a, b| {
-                if a.into_true_color().opacity().0 >= b {
+                if a.into_true_color().opacity().as_u8() >= b {
                     0
                 } else {
                     b
@@ -1789,12 +1823,12 @@ impl RawWindow {
     {
         let bitmap = self.bitmap();
         let bounds = self.frame.bounds().insets_by(self.content_insets);
-        let origin = Point::new(isize::max(0, rect.min_x()), isize::max(0, rect.min_y()));
+        let origin = Point::new(rect.min_x().max(0), rect.min_y().max(0));
         let Ok(coords) = Coordinates::from_rect(Rect::new(
             origin.x + bounds.min_x(),
             origin.y + bounds.min_y(),
-            isize::min(rect.width(), bounds.width() - origin.x),
-            isize::min(rect.height(), bounds.height() - origin.y),
+            rect.width().min(bounds.width() - origin.x as u32),
+            rect.height().min(bounds.height() - origin.y as u32),
         )) else {
             return Err(WindowDrawingError::InconsistentCoordinates);
         };
@@ -1849,7 +1883,7 @@ impl RawWindowBuilder {
     #[inline]
     pub fn new() -> Self {
         Self {
-            frame: Rect::new(isize::MIN, isize::MIN, 300, 300),
+            frame: Rect::new(i32::MIN, i32::MIN, 300, 300),
             level: WindowLevel::NORMAL,
             style: WindowStyle::default(),
             options: 0,
@@ -1912,17 +1946,16 @@ impl RawWindowBuilder {
         } else {
             let mut frame = self.frame;
             frame.size += content_insets;
-            if frame.min_x() == isize::MIN {
-                frame.origin.x = (screen_bounds.max_x() - frame.width()) / 2;
+            if frame.min_x() == i32::MIN {
+                frame.origin.x = (screen_bounds.max_x() - frame.width() as i32) / 2;
             } else if frame.min_x() < 0 {
                 frame.origin.x +=
                     screen_bounds.max_x() - (content_insets.left + content_insets.right);
             }
-            if frame.min_y() == isize::MIN {
-                frame.origin.y = isize::max(
-                    screen_bounds.min_y(),
-                    (screen_bounds.max_y() - frame.height()) / 2,
-                );
+            if frame.min_y() == i32::MIN {
+                frame.origin.y = screen_bounds
+                    .min_y()
+                    .max((screen_bounds.max_y() - frame.height() as i32) / 2);
             } else if frame.min_y() < 0 {
                 frame.origin.y +=
                     screen_bounds.max_y() - (content_insets.top + content_insets.bottom);
@@ -2060,7 +2093,7 @@ impl RawWindowBuilder {
 
     #[inline]
     pub const fn center(mut self) -> Self {
-        self.frame.origin = Point::new(isize::MIN, isize::MIN);
+        self.frame.origin = Point::new(i32::MIN, i32::MIN);
         self
     }
 
@@ -2184,7 +2217,7 @@ impl WindowHandle {
     }
 
     #[inline]
-    pub fn is_valid(&self) -> Option<Self> {
+    pub fn validate(&self) -> Option<Self> {
         self.get().map(|v| v.handle)
     }
 

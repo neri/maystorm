@@ -10,11 +10,11 @@ use core::task::{Context, Poll};
 pub trait TtyWrite: Write {
     fn reset(&mut self) -> Result<(), TtyError>;
 
-    fn dims(&self) -> (isize, isize);
+    fn dims(&self) -> (u32, u32);
 
-    fn cursor_position(&self) -> (isize, isize);
+    fn cursor_position(&self) -> (u32, u32);
 
-    fn set_cursor_position(&mut self, x: isize, y: isize);
+    fn set_cursor_position(&mut self, x: u32, y: u32);
 
     fn is_cursor_enabled(&self) -> bool;
 
@@ -121,15 +121,15 @@ impl TtyWrite for NullTty {
         Ok(())
     }
 
-    fn dims(&self) -> (isize, isize) {
+    fn dims(&self) -> (u32, u32) {
         (0, 0)
     }
 
-    fn cursor_position(&self) -> (isize, isize) {
+    fn cursor_position(&self) -> (u32, u32) {
         (0, 0)
     }
 
-    fn set_cursor_position(&mut self, _x: isize, _y: isize) {}
+    fn set_cursor_position(&mut self, _x: u32, _y: u32) {}
 
     fn is_cursor_enabled(&self) -> bool {
         false

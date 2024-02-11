@@ -136,7 +136,7 @@ impl FileManager {
         Self::_canonical_path_components(Scheduler::current_pid().cwd().as_str(), path)
     }
 
-    pub fn canonical_path(path: &str) -> String {
+    pub fn canonicalize(path: &str) -> String {
         Self::_join_path(&Self::canonical_path_components(path))
     }
 
@@ -152,7 +152,7 @@ impl FileManager {
         let shared = FileManager::shared();
         let mount_points = shared.mount_points.read().unwrap();
 
-        let fq_path = format!("{}{}", Self::canonical_path(path), Self::PATH_SEPARATOR);
+        let fq_path = format!("{}{}", Self::canonicalize(path), Self::PATH_SEPARATOR);
 
         let mut prefixes = mount_points.keys().collect::<Vec<_>>();
         prefixes.sort();
@@ -301,8 +301,8 @@ impl FileManager {
     }
 
     pub fn rename(old_path: &str, new_path: &str) -> Result<()> {
-        let old_path = format!("{}{}", Self::canonical_path(old_path), Self::PATH_SEPARATOR);
-        let new_path = format!("{}{}", Self::canonical_path(new_path), Self::PATH_SEPARATOR);
+        let old_path = format!("{}{}", Self::canonicalize(old_path), Self::PATH_SEPARATOR);
+        let new_path = format!("{}{}", Self::canonicalize(new_path), Self::PATH_SEPARATOR);
 
         if old_path == new_path {
             return Ok(());

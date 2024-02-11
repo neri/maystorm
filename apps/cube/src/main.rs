@@ -25,6 +25,7 @@ use core::cell::UnsafeCell;
 use core::f64::consts::PI;
 use libm::{ceil, cos, floor, sin};
 use megstd::drawing::vec::*;
+use megstd::drawing::PrimaryColor;
 use megstd::drawing::TrueColor;
 use megstd::window::*;
 
@@ -33,11 +34,11 @@ fn _start() {
     App::new().run();
 }
 
-const SCALE: isize = 50;
+const SCALE: i32 = 50;
 const SCALE_F: f64 = SCALE as f64;
-const MARGIN: isize = 10;
-const CANVAS_SIZE: isize = 3 * SCALE + MARGIN;
-const CANVAS_SIZE_U: usize = CANVAS_SIZE as usize;
+const MARGIN: i32 = 10;
+const CANVAS_SIZE: i32 = 3 * SCALE + MARGIN;
+const CANVAS_SIZE_U: u32 = CANVAS_SIZE as u32;
 
 const N_VERTICES: usize = 8;
 const N_SURFACES: usize = 6;
@@ -61,7 +62,7 @@ const SURFACES: [[usize; 4]; N_SURFACES] = [
 ];
 const COLORS: [u32; N_SURFACES] = [0xff0000, 0x00ff00, 0xffff00, 0x0000ff, 0xff00ff, 0x00ffff];
 
-const BITMAP_SIZE: usize = (CANVAS_SIZE * CANVAS_SIZE) as usize;
+const BITMAP_SIZE: usize = CANVAS_SIZE as usize * CANVAS_SIZE as usize;
 static mut DATA: UnsafeCell<[u32; BITMAP_SIZE]> = UnsafeCell::new([0; BITMAP_SIZE]);
 
 struct App<'a> {
@@ -70,20 +71,22 @@ struct App<'a> {
     thx: isize,
     thy: isize,
     thz: isize,
-    scr: [Vec2<isize>; N_VERTICES],
+    scr: [Vec2<i32>; N_VERTICES],
 }
 
 impl<'a> App<'a> {
     #[inline]
     fn new() -> Self {
         let window = WindowBuilder::new()
-            .size(Size::new(CANVAS_SIZE, CANVAS_SIZE))
+            .size(Size::new(CANVAS_SIZE_U, CANVAS_SIZE_U))
+            .bg_color(WindowColor::BLACK)
             .opaque()
             .bitmap_argb32()
+            .max_fps(20)
             .build("cube");
         let bitmap = BitmapRefMut32::from_bytes(
             unsafe { DATA.get_mut() },
-            Size::new(CANVAS_SIZE, CANVAS_SIZE),
+            Size::new(CANVAS_SIZE_U, CANVAS_SIZE_U),
         );
         Self {
             window,
@@ -97,9 +100,7 @@ impl<'a> App<'a> {
 }
 
 impl App<'_> {
-    #[inline]
     fn run(&mut self) {
-        self.window.set_max_fps(20);
         while self.window.read_char().is_none() {
             self.update();
             self.window
@@ -107,7 +108,6 @@ impl App<'_> {
         }
     }
 
-    #[inline]
     fn update(&mut self) {
         // 立方体を X, Y, Z 軸回りに回転
         self.thx = (self.thx + 182) & 0xffff;
@@ -135,8 +135,8 @@ impl App<'_> {
         // オブジェクト座標 vert を スクリーン座標 scr に変換（画面奥が Z+）
         for (vert, scr) in vert.iter().zip(self.scr.iter_mut()) {
             let t = 6.0 * SCALE_F / (vert.z + 8.0 * SCALE_F);
-            scr.x = (vert.x * t) as isize + CANVAS_SIZE / 2;
-            scr.y = (vert.y * t) as isize + CANVAS_SIZE / 2;
+            scr.x = (vert.x * t) as i32 + CANVAS_SIZE / 2;
+            scr.y = (vert.y * t) as i32 + CANVAS_SIZE / 2;
         }
 
         // 面中心の Z 座標（を 4 倍した値）を 6 面について計算
@@ -158,7 +158,7 @@ impl App<'_> {
         });
 
         self.bitmap
-            .fill_rect(self.bitmap.bounds(), TrueColor::BLACK);
+            .fill_rect(self.bitmap.bounds(), TrueColor::PRIMARY_BLACK);
 
         // 法線ベクトルがこっちを向いてる面だけ描画
         for (surface_index, _) in centerz4 {
@@ -182,8 +182,8 @@ impl App<'_> {
         let mut ymin = CANVAS_SIZE;
         let mut ymax = 0;
         // Y, X 座標の組
-        let mut y2x_up = [0; CANVAS_SIZE_U];
-        let mut y2x_down = [0; CANVAS_SIZE_U];
+        let mut y2x_up = [0; CANVAS_SIZE as usize];
+        let mut y2x_down = [0; CANVAS_SIZE as usize];
 
         for (i, p1) in surface.iter().enumerate() {
             let p0 = self.scr[surface[(i + 3) % 4]];
@@ -209,11 +209,11 @@ impl App<'_> {
             let m = dx / (y1 - y0);
             if dx >= 0.0 {
                 for y in (y0 as usize)..=(y1 as usize) {
-                    y2x[y as usize] = floor(m * (y as f64 - y0) + x0) as isize;
+                    y2x[y as usize] = floor(m * (y as f64 - y0) + x0) as i32;
                 }
             } else {
                 for y in (y0 as usize)..=(y1 as usize) {
-                    y2x[y as usize] = ceil(m * (y as f64 - y0) + x0) as isize;
+                    y2x[y as usize] = ceil(m * (y as f64 - y0) + x0) as i32;
                 }
             }
         }
@@ -223,7 +223,7 @@ impl App<'_> {
             let p1x = y2x_up[y as usize].max(y2x_down[y as usize]);
             self.bitmap.draw_hline(
                 Point::new(p0x, y),
-                p1x - p0x + 1,
+                (p1x - p0x + 1).max(0) as u32,
                 TrueColor::from_rgb(color),
             );
         }

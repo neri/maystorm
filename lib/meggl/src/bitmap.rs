@@ -8,18 +8,183 @@ use core::mem::{swap, transmute, ManuallyDrop};
 use core::num::NonZeroUsize;
 use core::ptr::slice_from_raw_parts_mut;
 use core::slice;
+use libm::{ceil, floor};
 use paste::paste;
 
-pub trait Blt<T: Drawable>: Drawable {
+pub trait Image
+where
+    Self::ColorType: PixelColor,
+{
+    type ColorType;
+
+    fn size(&self) -> Size;
+
+    #[inline]
+    fn width(&self) -> GlUInt {
+        self.size().width()
+    }
+
+    #[inline]
+    fn height(&self) -> GlUInt {
+        self.size().height()
+    }
+
+    #[inline]
+    fn bounds(&self) -> Rect {
+        Rect::from(self.size())
+    }
+}
+
+pub trait GetPixel: Image {
+    /// Faster but unsafe version of get_pixel
+    ///
+    /// # Safety
+    ///
+    /// The point must be within the size range.
+    unsafe fn get_pixel_unchecked(&self, point: Point) -> Self::ColorType;
+
+    #[inline]
+    fn get_pixel(&self, point: Point) -> Option<Self::ColorType> {
+        if self.bounds().contains(point) {
+            Some(unsafe { self.get_pixel_unchecked(point) })
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    fn to_operational<F>(&self, kernel: F) -> OperationalBitmap
+    where
+        F: FnMut(<Self as Image>::ColorType) -> u8,
+    {
+        OperationalBitmap::from_pixels(self, kernel)
+    }
+
+    /// Returns an iterator that enumerates all pixels of the bitmap in order from left to right and top to bottom.
+    #[inline]
+    fn all_pixels<'a>(&'a self) -> AllPixels<'a, Self> {
+        AllPixels::new(self)
+    }
+}
+
+pub struct AllPixels<'a, T>
+where
+    T: GetPixel + ?Sized,
+{
+    inner: &'a T,
+    x: GlUInt,
+    y: GlUInt,
+}
+
+impl<'a, T> AllPixels<'a, T>
+where
+    T: GetPixel + ?Sized,
+{
+    #[inline]
+    pub const fn new(inner: &'a T) -> Self {
+        Self { inner, x: 0, y: 0 }
+    }
+}
+
+impl<T> Iterator for AllPixels<'_, T>
+where
+    T: GetPixel + ?Sized,
+{
+    type Item = T::ColorType;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.y < self.inner.height() {
+            if self.x >= self.inner.width() {
+                self.x = 0;
+                self.y += 1;
+            }
+            let result = unsafe {
+                self.inner
+                    .get_pixel_unchecked(Point::new(self.x as GlSInt, self.y as GlSInt))
+            };
+            self.x += 1;
+            Some(result)
+        } else {
+            None
+        }
+    }
+}
+
+pub trait SetPixel: Image {
+    /// Faster but unsafe version of set_pixel
+    ///
+    /// # Safety
+    ///
+    /// The point must be within the size range.
+    unsafe fn set_pixel_unchecked(&mut self, point: Point, pixel: Self::ColorType);
+
+    #[inline]
+    fn set_pixel(&mut self, point: Point, pixel: Self::ColorType) {
+        if self.bounds().contains(point) {
+            unsafe {
+                self.set_pixel_unchecked(point, pixel);
+            }
+        }
+    }
+}
+
+pub trait RasterImage: Image {
+    fn slice(&self) -> &[Self::ColorType];
+
+    fn stride(&self) -> usize {
+        self.width() as usize
+    }
+}
+
+impl<T> GetPixel for T
+where
+    Self: RasterImage,
+{
+    unsafe fn get_pixel_unchecked(&self, point: Point) -> Self::ColorType {
+        *self
+            .slice()
+            .get_unchecked(point.x as usize + point.y as usize * self.stride())
+    }
+}
+
+pub trait MutableRasterImage: RasterImage {
+    fn slice_mut(&mut self) -> &mut [Self::ColorType];
+
+    #[inline]
+    unsafe fn process_pixel_unchecked<F>(&mut self, point: Point, kernel: F)
+    where
+        F: FnOnce(Self::ColorType) -> Self::ColorType,
+    {
+        let stride = self.stride();
+        let pixel = self
+            .slice_mut()
+            .get_unchecked_mut(point.x as usize + point.y as usize * stride);
+        *pixel = kernel(*pixel);
+    }
+}
+
+impl<T> SetPixel for T
+where
+    Self: MutableRasterImage,
+{
+    unsafe fn set_pixel_unchecked(&mut self, point: Point, pixel: Self::ColorType) {
+        let stride = self.stride();
+        *self
+            .slice_mut()
+            .get_unchecked_mut(point.x as usize + point.y as usize * stride) = pixel;
+    }
+}
+
+pub trait Blt<T: Image>: Image {
     fn blt(&mut self, src: &T, origin: Point, rect: Rect);
 }
 
 pub trait DrawRect: SetPixel {
     fn fill_rect(&mut self, rect: Rect, color: Self::ColorType);
 
-    fn draw_hline(&mut self, origin: Point, width: isize, color: Self::ColorType);
+    fn draw_hline(&mut self, origin: Point, width: GlUInt, color: Self::ColorType);
 
-    fn draw_vline(&mut self, origin: Point, height: isize, color: Self::ColorType);
+    fn draw_vline(&mut self, origin: Point, height: GlUInt, color: Self::ColorType);
 
     fn clear(&mut self) {
         self.fill_rect(self.bounds(), Default::default());
@@ -41,17 +206,17 @@ pub trait DrawRect: SetPixel {
         }
     }
 
-    fn draw_circle(&mut self, origin: Point, radius: isize, color: Self::ColorType) {
-        let rect = Rect::from((origin - radius, Size::new(radius * 2, radius * 2)));
+    fn draw_circle(&mut self, origin: Point, radius: GlUInt, color: Self::ColorType) {
+        let rect = Rect::from((origin - radius as GlSInt, Size::new(radius * 2, radius * 2)));
         self.draw_round_rect(rect, radius, color);
     }
 
-    fn fill_circle(&mut self, origin: Point, radius: isize, color: Self::ColorType) {
-        let rect = Rect::from((origin - radius, Size::new(radius * 2, radius * 2)));
+    fn fill_circle(&mut self, origin: Point, radius: GlUInt, color: Self::ColorType) {
+        let rect = Rect::from((origin - radius as GlSInt, Size::new(radius * 2, radius * 2)));
         self.fill_round_rect(rect, radius, color);
     }
 
-    fn fill_round_rect(&mut self, rect: Rect, radius: isize, color: Self::ColorType) {
+    fn fill_round_rect(&mut self, rect: Rect, radius: GlUInt, color: Self::ColorType) {
         let width = rect.width();
         let height = rect.height();
         let dx = rect.min_x();
@@ -67,20 +232,21 @@ pub trait DrawRect: SetPixel {
 
         let lh = height - radius * 2;
         if lh > 0 {
-            let rect_line = Rect::new(dx, dy + radius, width, lh);
+            let rect_line = Rect::new(dx, dy + radius as GlSInt, width, lh);
             self.fill_rect(rect_line, color);
         }
 
+        let radius = radius as GlSInt;
         let mut cx = radius;
         let mut cy = 0;
         let mut f = -2 * radius + 3;
-        let qh = height - 1;
+        let qh = height as GlSInt - 1;
 
         while cx >= cy {
             {
                 let bx = radius - cy;
                 let by = radius - cx;
-                let dw = width - bx * 2;
+                let dw = width - bx as GlUInt * 2;
                 self.draw_hline(Point::new(dx + bx, dy + by), dw, color);
                 self.draw_hline(Point::new(dx + bx, dy + qh - by), dw, color);
             }
@@ -88,7 +254,7 @@ pub trait DrawRect: SetPixel {
             {
                 let bx = radius - cx;
                 let by = radius - cy;
-                let dw = width - bx * 2;
+                let dw = width - bx as GlUInt * 2;
                 self.draw_hline(Point::new(dx + bx, dy + by), dw, color);
                 self.draw_hline(Point::new(dx + bx, dy + qh - by), dw, color);
             }
@@ -102,7 +268,7 @@ pub trait DrawRect: SetPixel {
         }
     }
 
-    fn draw_round_rect(&mut self, rect: Rect, radius: isize, color: Self::ColorType) {
+    fn draw_round_rect(&mut self, rect: Rect, radius: GlUInt, color: Self::ColorType) {
         let width = rect.width();
         let height = rect.height();
         let dx = rect.min_x();
@@ -118,25 +284,34 @@ pub trait DrawRect: SetPixel {
 
         let lh = height - radius * 2;
         if lh > 0 {
-            self.draw_vline(Point::new(dx, dy + radius), lh, color);
-            self.draw_vline(Point::new(dx + width - 1, dy + radius), lh, color);
+            self.draw_vline(Point::new(dx, dy + radius as GlSInt), lh, color);
+            self.draw_vline(
+                Point::new(dx + width as GlSInt - 1, dy + radius as GlSInt),
+                lh,
+                color,
+            );
         }
         let lw = width - radius * 2;
         if lw > 0 {
-            self.draw_hline(Point::new(dx + radius, dy), lw, color);
-            self.draw_hline(Point::new(dx + radius, dy + height - 1), lw, color);
+            self.draw_hline(Point::new(dx + radius as GlSInt, dy), lw, color);
+            self.draw_hline(
+                Point::new(dx + radius as GlSInt, dy + height as GlSInt - 1),
+                lw,
+                color,
+            );
         }
 
+        let radius = radius as GlSInt;
         let mut cx = radius;
         let mut cy = 0;
         let mut f = -2 * radius + 3;
-        let qh = height - 1;
+        let qh = height as GlSInt - 1;
 
         while cx >= cy {
             {
                 let bx = radius - cy;
                 let by = radius - cx;
-                let dw = width - bx * 2 - 1;
+                let dw = width as GlSInt - bx * 2 - 1;
                 self.set_pixel(Point::new(dx + bx, dy + by), color);
                 self.set_pixel(Point::new(dx + bx, dy + qh - by), color);
                 self.set_pixel(Point::new(dx + bx + dw, dy + by), color);
@@ -146,7 +321,7 @@ pub trait DrawRect: SetPixel {
             {
                 let bx = radius - cx;
                 let by = radius - cy;
-                let dw = width - bx * 2 - 1;
+                let dw = width as GlSInt - bx * 2 - 1;
                 self.set_pixel(Point::new(dx + bx, dy + by), color);
                 self.set_pixel(Point::new(dx + bx, dy + qh - by), color);
                 self.set_pixel(Point::new(dx + bx + dw, dy + by), color);
@@ -166,18 +341,18 @@ pub trait DrawRect: SetPixel {
         if c1.x() == c2.x() {
             if c1.y() < c2.y() {
                 let height = 1 + c2.y() - c1.y();
-                self.draw_vline(c1, height, color);
+                self.draw_vline(c1, height as GlUInt, color);
             } else {
                 let height = 1 + c1.y() - c2.y();
-                self.draw_vline(c2, height, color);
+                self.draw_vline(c2, height as GlUInt, color);
             }
         } else if c1.y() == c2.y() {
             if c1.x() < c2.x() {
                 let width = 1 + c2.x() - c1.x();
-                self.draw_hline(c1, width, color);
+                self.draw_hline(c1, width as GlUInt, color);
             } else {
                 let width = 1 + c1.x() - c2.x();
-                self.draw_hline(c2, width, color);
+                self.draw_hline(c2, width as GlUInt, color);
             }
         } else {
             c1.line_to(c2, |point| {
@@ -195,8 +370,8 @@ pub trait DrawGlyph: SetPixel {
             return;
         };
 
-        let width = self.width() as isize;
-        let height = self.height() as isize;
+        let width = self.width() as GlSInt;
+        let height = self.height() as GlSInt;
         if coords.right > width {
             coords.right = width;
         }
@@ -219,9 +394,9 @@ pub trait DrawGlyph: SetPixel {
                 for j in 0..8 {
                     let position = 0x80u8 >> j;
                     if (data & position) != 0 {
-                        let x = (i * 8 + j) as isize;
+                        let x = (i * 8 + j) as GlSInt;
                         let y = y;
-                        let point = Point::new(origin.x + x, origin.y + y);
+                        let point = Point::new(origin.x + x, origin.y + y as GlSInt);
                         self.set_pixel(point, color);
                     }
                 }
@@ -232,9 +407,9 @@ pub trait DrawGlyph: SetPixel {
                 for i in 0..w7 {
                     let position = 0x80u8 >> i;
                     if (data & position) != 0 {
-                        let x = (i + base_x) as isize;
+                        let x = (i + base_x) as GlSInt;
                         let y = y;
-                        let point = Point::new(origin.x + x, origin.y + y);
+                        let point = Point::new(origin.x + x, origin.y + y as GlSInt);
                         self.set_pixel(point, color);
                     }
                 }
@@ -245,11 +420,11 @@ pub trait DrawGlyph: SetPixel {
 
     fn draw_glyph_cw(&mut self, glyph: &[u8], size: Size, origin: Point, color: Self::ColorType) {
         let stride = (size.width as usize + 7) / 8;
-        let width = self.width() as isize;
-        let height = self.height() as isize;
+        let width = self.width() as GlSInt;
+        let height = self.height() as GlSInt;
 
         let Ok(mut coords) = Coordinates::from_rect(Rect::new(
-            width - origin.y - size.height,
+            width - origin.y - size.height as GlSInt,
             origin.x,
             size.height,
             size.width,
@@ -280,7 +455,10 @@ pub trait DrawGlyph: SetPixel {
                 for k in 0..8 {
                     let position = 0x80u8 >> k;
                     if (data & position) != 0 {
-                        let point = Point::new(coords.right - i, coords.top + (j * 8 + k) as isize);
+                        let point = Point::new(
+                            coords.right - i as GlSInt,
+                            coords.top + (j * 8 + k) as GlSInt,
+                        );
                         self.set_pixel(point, color);
                     }
                 }
@@ -291,8 +469,10 @@ pub trait DrawGlyph: SetPixel {
                 for k in 0..w7 {
                     let position = 0x80u8 >> k;
                     if (data & position) != 0 {
-                        let point =
-                            Point::new(coords.right - i, coords.top + (base_x + k) as isize);
+                        let point = Point::new(
+                            coords.right - i as GlSInt,
+                            coords.top + (base_x + k) as GlSInt,
+                        );
                         self.set_pixel(point, color);
                     }
                 }
@@ -430,7 +610,7 @@ macro_rules! define_bitmap {
                 stride: usize,
             }
 
-            impl Drawable for [<BitmapRef $suffix>]<'_> {
+            impl Image for [<BitmapRef $suffix>]<'_> {
                 type ColorType = $color_type;
 
                 #[inline]
@@ -439,7 +619,7 @@ macro_rules! define_bitmap {
                 }
             }
 
-            impl Drawable for [<BitmapRefMut $suffix>]<'_> {
+            impl Image for [<BitmapRefMut $suffix>]<'_> {
                 type ColorType = $color_type;
 
                 #[inline]
@@ -448,7 +628,7 @@ macro_rules! define_bitmap {
                 }
             }
 
-            impl Drawable for [<OwnedBitmap $suffix>] {
+            impl Image for [<OwnedBitmap $suffix>] {
                 type ColorType = $color_type;
 
                 #[inline]
@@ -469,7 +649,7 @@ macro_rules! define_bitmap {
                         size,
                         stride: match stride {
                             Some(v) => v.get(),
-                            None => <Self as Drawable>::ColorType::stride_for(size.width()),
+                            None => <Self as Image>::ColorType::stride_for(size.width()),
                         },
                         slice,
                     }
@@ -480,7 +660,7 @@ macro_rules! define_bitmap {
                 {
                     Self {
                         size,
-                        stride: <Self as Drawable>::ColorType::stride_for(size.width()),
+                        stride: <Self as Image>::ColorType::stride_for(size.width()),
                         slice: unsafe { transmute(bytes) },
                     }
                 }
@@ -507,7 +687,7 @@ macro_rules! define_bitmap {
                         size,
                         stride: match stride {
                             Some(v) => v.get(),
-                            None => <Self as Drawable>::ColorType::stride_for(size.width()),
+                            None => <Self as Image>::ColorType::stride_for(size.width()),
                         },
                         slice: UnsafeCell::new(slice),
                     }
@@ -518,7 +698,7 @@ macro_rules! define_bitmap {
                 {
                     Self {
                         size,
-                        stride: <Self as Drawable>::ColorType::stride_for(size.width()),
+                        stride: <Self as Image>::ColorType::stride_for(size.width()),
                         slice: unsafe { transmute(bytes) },
                     }
                 }
@@ -564,7 +744,7 @@ macro_rules! define_bitmap {
                 pub fn from_boxed_slice(slice: Box<[$slice_type]>, size: Size) -> Self {
                     Self {
                         size: size,
-                        stride: <Self as Drawable>::ColorType::stride_for(size.width()),
+                        stride: <Self as Image>::ColorType::stride_for(size.width()),
                         slice: UnsafeCell::new(slice),
                     }
                 }
@@ -708,8 +888,8 @@ macro_rules! define_bitmap {
                 pub fn view(&mut self, rect: Rect) -> Option<[<BitmapRefMut $suffix>]<'a>>
                 {
                     let Ok(coords) = Coordinates::try_from(rect) else { return None };
-                    let width = self.width() as isize;
-                    let height = self.height() as isize;
+                    let width = self.width() as GlSInt;
+                    let height = self.height() as GlSInt;
                     let stride = self.stride();
 
                     if coords.left < 0
@@ -804,8 +984,8 @@ macro_rules! define_bitmap {
 
             impl DrawRect for [<BitmapRefMut $suffix>]<'_> {
                 fn fill_rect(&mut self, rect: Rect, color: Self::ColorType) {
-                    let mut width = rect.width();
-                    let mut height = rect.height();
+                    let mut width = rect.width() as GlSInt;
+                    let mut height = rect.height() as GlSInt;
                     let mut dx = rect.min_x();
                     let mut dy = rect.min_y();
 
@@ -819,11 +999,11 @@ macro_rules! define_bitmap {
                     }
                     let r = dx + width;
                     let b = dy + height;
-                    if r >= self.size.width {
-                        width = self.size.width - dx;
+                    if r >= self.size.width as GlSInt {
+                        width = self.size.width as GlSInt - dx;
                     }
-                    if b >= self.size.height {
-                        height = self.size.height - dy;
+                    if b >= self.size.height as GlSInt {
+                        height = self.size.height as GlSInt - dy;
                     }
                     if width <= 0 || height <= 0 {
                         return;
@@ -843,13 +1023,13 @@ macro_rules! define_bitmap {
                     }
                 }
 
-                fn draw_hline(&mut self, origin: Point, width: isize, color: Self::ColorType) {
+                fn draw_hline(&mut self, origin: Point, width: GlUInt, color: Self::ColorType) {
                     let size = self.size();
                     let mut dx = origin.x;
                     let dy = origin.y;
-                    let mut w = width;
+                    let mut w = width as GlSInt;
 
-                    if dy < 0 || dy >= size.height {
+                    if dy < 0 || dy >= size.height as GlSInt {
                         return;
                     }
                     if dx < 0 {
@@ -857,8 +1037,8 @@ macro_rules! define_bitmap {
                         dx = 0;
                     }
                     let r = dx + w;
-                    if r >= size.width {
-                        w = size.width - dx;
+                    if r >= size.width as GlSInt {
+                        w = size.width as GlSInt - dx;
                     }
                     if w <= 0 {
                         return;
@@ -868,13 +1048,13 @@ macro_rules! define_bitmap {
                     memory_colors::[<_memset_colors $suffix>](self.slice_mut(), cursor, w as usize, color);
                 }
 
-                fn draw_vline(&mut self, origin: Point, height: isize, color: Self::ColorType) {
+                fn draw_vline(&mut self, origin: Point, height: GlUInt, color: Self::ColorType) {
                     let size = self.size();
                     let dx = origin.x;
                     let mut dy = origin.y;
-                    let mut h = height;
+                    let mut h = height as GlSInt;
 
-                    if dx < 0 || dx >= size.width {
+                    if dx < 0 || dx >= size.width as GlSInt {
                         return;
                     }
                     if dy < 0 {
@@ -882,8 +1062,8 @@ macro_rules! define_bitmap {
                         dy = 0;
                     }
                     let b = dy + h;
-                    if h >= size.height || b >= size.height {
-                        h = size.height - dy - 1;
+                    if h >= size.height as GlSInt || b >= size.height as GlSInt {
+                        h = size.height as GlSInt - dy - 1;
                     }
                     if h <= 0 {
                         return;
@@ -900,7 +1080,7 @@ macro_rules! define_bitmap {
 
             impl [<OwnedBitmap $suffix>] {
                 #[inline]
-                pub fn new(size: Size, bg_color: <Self as Drawable>::ColorType) -> Self {
+                pub fn new(size: Size, bg_color: <Self as Image>::ColorType) -> Self {
                     let len = size.width() as usize * size.height() as usize;
                     let mut vec = Vec::with_capacity(len);
                     vec.resize(len, bg_color);
@@ -925,7 +1105,7 @@ impl BitmapRefMut8<'_> {
         src: &BitmapRef8,
         origin: Point,
         rect: Rect,
-        color_key: <Self as Drawable>::ColorType,
+        color_key: <Self as Image>::ColorType,
     ) {
         let (dx, dy, sx, sy, width, height) =
             _adjust_blt_coords(self.size(), src.size(), origin, rect);
@@ -971,11 +1151,11 @@ impl BitmapRefMut32<'_> {
         } else if rhs.is_transparent() {
             return;
         }
-        let alpha = rhs.a.0 as usize;
+        let alpha = rhs.a.as_usize();
         let alpha_n = 255 - alpha;
 
-        let mut width = rect.width();
-        let mut height = rect.height();
+        let mut width = rect.width() as GlSInt;
+        let mut height = rect.height() as GlSInt;
         let mut dx = rect.min_x();
         let mut dy = rect.min_y();
 
@@ -989,11 +1169,11 @@ impl BitmapRefMut32<'_> {
         }
         let r = dx + width;
         let b = dy + height;
-        if r >= self.size().width {
-            width = self.size().width - dx;
+        if r >= self.size().width as GlSInt {
+            width = self.size().width as GlSInt - dx;
         }
-        if b >= self.size().height {
-            height = self.size().height - dy;
+        if b >= self.size().height as GlSInt {
+            height = self.size().height as GlSInt - dy;
         }
         if width <= 0 || height <= 0 {
             return;
@@ -1062,7 +1242,7 @@ impl BitmapRefMut32<'_> {
     }
 
     pub fn blt_cw(&mut self, src: &BitmapRef32, origin: Point, rect: Rect) {
-        let self_size = Size::new(self.height() as isize, self.width() as isize);
+        let self_size = Size::new(self.height(), self.width());
         let (mut dx, mut dy, sx, sy, width, height) =
             _adjust_blt_coords(self_size, src.size(), origin, rect);
         if width <= 0 || height <= 0 {
@@ -1074,7 +1254,7 @@ impl BitmapRefMut32<'_> {
         let ds = self.stride();
         let ss = src.stride();
         let temp = dx;
-        dx = self_size.height() - dy;
+        dx = self_size.height() as GlSInt - dy;
         dy = temp;
         let mut p = dx as usize + dy as usize * ds - height as usize;
         let q0 = sx as usize + (sy as usize + height - 1) * ss;
@@ -1115,6 +1295,303 @@ impl BitmapRefMut32<'_> {
     }
 }
 
+impl BitmapRef32<'_> {
+    pub fn scale(&self, target_size: Size) -> Result<OwnedBitmap32, ()> {
+        if self.width() > target_size.width() && self.height() > target_size.height() {
+            self.scale_reduction(target_size)
+        } else {
+            self.scale_linear(target_size)
+        }
+    }
+
+    /// Resize a image using nearest neighbor interpolation
+    pub fn scale_nn(&self, target_size: Size) -> Result<OwnedBitmap32, ()> {
+        let mut vec = Vec::new();
+        vec.try_reserve(target_size.width_height_usize())
+            .map_err(|_| ())?;
+
+        let sw = self.width() as f64;
+        let sh = self.height() as f64;
+        let dw = target_size.width() as f64;
+        let dh = target_size.height() as f64;
+
+        for y in 0..target_size.height() {
+            let vy = y as f64 * sh / dh;
+            for x in 0..target_size.width() {
+                let vx = x as f64 * sw / dw;
+                let new_pixel = unsafe {
+                    self.get_pixel_unchecked(Point::new(floor(vx) as i32, floor(vy) as i32))
+                };
+                vec.push(new_pixel);
+            }
+        }
+
+        let target = OwnedBitmap32::from_vec(vec, target_size);
+        Ok(target)
+    }
+
+    #[inline(always)]
+    fn _scale_main<COLOR, F>(
+        source_size: Size,
+        target_size: Size,
+        mut kernel: F,
+    ) -> Option<Vec<COLOR>>
+    where
+        F: FnMut(f64, f64, f64, f64) -> COLOR,
+    {
+        let mut vec = Vec::new();
+        vec.try_reserve(target_size.width_height_usize()).ok()?;
+
+        let sw = source_size.width() as f64;
+        let sh = source_size.height() as f64;
+        let dw = target_size.width() as f64 - 1.0;
+        let dh = target_size.height() as f64 - 1.0;
+
+        for y in 0..target_size.height() {
+            let vy = y as f64 * sh / dh;
+            for x in 0..target_size.width() {
+                let vx = x as f64 * sw / dw;
+                vec.push(kernel(vx, vy, sw, sh));
+            }
+        }
+
+        Some(vec)
+    }
+
+    /// Resize a image using bilinear interpolation
+    pub fn scale_linear(&self, target_size: Size) -> Result<OwnedBitmap32, ()> {
+        let vec = Self::_scale_main(self.size(), target_size, |vx, vy, sw, sh| {
+            let vx = (vx - 0.5).max(0.0);
+            let vy = (vy - 0.5).max(0.0);
+
+            let lx = floor(vx);
+            let ly = floor(vy);
+            let x_frac = vx - lx;
+            let y_frac = vy - ly;
+
+            let hx = floor(lx + 1.0).clamp(0.0, sw - 1.0) as i32;
+            let hy = floor(ly + 1.0).clamp(0.0, sh - 1.0) as i32;
+            let lx = lx as i32;
+            let ly = ly as i32;
+
+            let vll = unsafe { self.get_pixel_unchecked(Point::new(lx, ly)) }
+                .components()
+                .into_array();
+            let vlh = unsafe { self.get_pixel_unchecked(Point::new(lx, hy)) }
+                .components()
+                .into_array();
+            let vhl = unsafe { self.get_pixel_unchecked(Point::new(hx, ly)) }
+                .components()
+                .into_array();
+            let vhh = unsafe { self.get_pixel_unchecked(Point::new(hx, hy)) }
+                .components()
+                .into_array();
+
+            let mut result = [0u8; 4];
+            for i in 0..4 {
+                let a = vll[i] as f64;
+                let b = vhl[i] as f64;
+                let c = vlh[i] as f64;
+                let d = vhh[i] as f64;
+
+                let q = a * (1.0 - x_frac) * (1.0 - y_frac)
+                    + b * (x_frac) * (1.0 - y_frac)
+                    + c * (y_frac) * (1.0 - x_frac)
+                    + d * (x_frac * y_frac);
+
+                result[i] = q.clamp(0.0, 255.0) as u8;
+            }
+
+            ColorComponents::from_array(result).into_true_color()
+        })
+        .ok_or(())?;
+        let target = OwnedBitmap32::from_vec(vec, target_size);
+        Ok(target)
+    }
+
+    /// Resize a image using bicubic interpolation
+    pub fn scale_cubic(&self, target_size: Size) -> Result<OwnedBitmap32, ()> {
+        let vec = Self::_scale_main(self.size(), target_size, |vx, vy, sw, sh| {
+            let vx = vx - 0.5;
+            let vy = vy - 0.5;
+
+            let lx = floor(vx);
+            let ly = floor(vy);
+            let x_frac = vx - lx;
+            let y_frac = vy - ly;
+
+            let lxm1 = (lx - 1.0).clamp(0.0, sw - 1.0) as i32;
+            let lx_0 = (lx).clamp(0.0, sw - 1.0) as i32;
+            let lxp1 = (lx + 1.0).clamp(0.0, sw - 1.0) as i32;
+            let lxp2 = (lx + 2.0).clamp(0.0, sw - 1.0) as i32;
+
+            let lym1 = (ly - 1.0).clamp(0.0, sh - 1.0) as i32;
+            let ly_0 = (ly).clamp(0.0, sh - 1.0) as i32;
+            let lyp1 = (ly + 1.0).clamp(0.0, sh - 1.0) as i32;
+            let lyp2 = (ly + 2.0).clamp(0.0, sh - 1.0) as i32;
+
+            let p00 = unsafe { self.get_pixel_unchecked(Point::new(lxm1, lym1)) }
+                .components()
+                .into_array();
+            let p10 = unsafe { self.get_pixel_unchecked(Point::new(lx_0, lym1)) }
+                .components()
+                .into_array();
+            let p20 = unsafe { self.get_pixel_unchecked(Point::new(lxp1, lym1)) }
+                .components()
+                .into_array();
+            let p30 = unsafe { self.get_pixel_unchecked(Point::new(lxp2, lym1)) }
+                .components()
+                .into_array();
+
+            let p01 = unsafe { self.get_pixel_unchecked(Point::new(lxm1, ly_0)) }
+                .components()
+                .into_array();
+            let p11 = unsafe { self.get_pixel_unchecked(Point::new(lx_0, ly_0)) }
+                .components()
+                .into_array();
+            let p21 = unsafe { self.get_pixel_unchecked(Point::new(lxp1, ly_0)) }
+                .components()
+                .into_array();
+            let p31 = unsafe { self.get_pixel_unchecked(Point::new(lxp2, ly_0)) }
+                .components()
+                .into_array();
+
+            let p02 = unsafe { self.get_pixel_unchecked(Point::new(lxm1, lyp1)) }
+                .components()
+                .into_array();
+            let p12 = unsafe { self.get_pixel_unchecked(Point::new(lx_0, lyp1)) }
+                .components()
+                .into_array();
+            let p22 = unsafe { self.get_pixel_unchecked(Point::new(lxp1, lyp1)) }
+                .components()
+                .into_array();
+            let p32 = unsafe { self.get_pixel_unchecked(Point::new(lxp2, lyp1)) }
+                .components()
+                .into_array();
+
+            let p03 = unsafe { self.get_pixel_unchecked(Point::new(lxm1, lyp2)) }
+                .components()
+                .into_array();
+            let p13 = unsafe { self.get_pixel_unchecked(Point::new(lx_0, lyp2)) }
+                .components()
+                .into_array();
+            let p23 = unsafe { self.get_pixel_unchecked(Point::new(lxp1, lyp2)) }
+                .components()
+                .into_array();
+            let p33 = unsafe { self.get_pixel_unchecked(Point::new(lxp2, lyp2)) }
+                .components()
+                .into_array();
+
+            let mut result = [0u8; 4];
+            #[inline]
+            fn cubic_hermite(a: f64, b: f64, c: f64, d: f64, t: f64) -> f64 {
+                let c0 = -a / 2.0 + (3.0 * b) / 2.0 - (3.0 * c) / 2.0 + d / 2.0;
+                let c1 = a - (5.0 * b) / 2.0 + 2.0 * c - d / 2.0;
+                let c2 = -a / 2.0 + c / 2.0;
+
+                c0 * t * t * t + c1 * t * t + c2 * t + b
+            }
+            for i in 0..4 {
+                let c0 = cubic_hermite(
+                    p00[i] as f64,
+                    p10[i] as f64,
+                    p20[i] as f64,
+                    p30[i] as f64,
+                    x_frac,
+                );
+                let c1 = cubic_hermite(
+                    p01[i] as f64,
+                    p11[i] as f64,
+                    p21[i] as f64,
+                    p31[i] as f64,
+                    x_frac,
+                );
+                let c2 = cubic_hermite(
+                    p02[i] as f64,
+                    p12[i] as f64,
+                    p22[i] as f64,
+                    p32[i] as f64,
+                    x_frac,
+                );
+                let c3 = cubic_hermite(
+                    p03[i] as f64,
+                    p13[i] as f64,
+                    p23[i] as f64,
+                    p33[i] as f64,
+                    x_frac,
+                );
+                let q = cubic_hermite(c0, c1, c2, c3, y_frac);
+
+                result[i] = q.clamp(0.0, 255.0) as u8;
+            }
+
+            ColorComponents::from_array(result).into_true_color()
+        })
+        .ok_or(())?;
+        let target = OwnedBitmap32::from_vec(vec, target_size);
+        Ok(target)
+    }
+
+    pub fn scale_reduction(&self, target_size: Size) -> Result<OwnedBitmap32, ()> {
+        let mut vec = Vec::new();
+        vec.try_reserve(target_size.width_height_usize())
+            .map_err(|_| ())?;
+
+        let sw = self.size.width() as f64;
+        let sh = self.size.height() as f64;
+        let dw = target_size.width() as f64 - 1.0;
+        let dh = target_size.height() as f64 - 1.0;
+
+        #[inline(always)]
+        fn kernel(
+            ctx: &BitmapRef32,
+            x: u32,
+            y: u32,
+            sw: f64,
+            sh: f64,
+            dw: f64,
+            dh: f64,
+        ) -> TrueColor {
+            let vx = x as f64 * sw / dw;
+            let vy = y as f64 * sh / dh;
+
+            let lx = floor(vx) as i32;
+            let ly = floor(vy) as i32;
+            let hx = ceil(vx + sw / dw).min(sw - 1.0) as i32;
+            let hy = ceil(vy + sh / dh).min(sh - 1.0) as i32;
+
+            let mut acc = [0.0; 4];
+            for y in ly..hy {
+                for x in lx..hx {
+                    let p = unsafe { ctx.get_pixel_unchecked(Point::new(x, y)) }
+                        .components()
+                        .into_array();
+                    for ch in 0..4 {
+                        acc[ch] += p[ch] as f64;
+                    }
+                }
+            }
+
+            let mut result = [0; 4];
+            let count = (hy as f64 - ly as f64) * (hx as f64 - lx as f64);
+            for i in 0..4 {
+                result[i] = (acc[i] / count).clamp(0.0, 255.0) as u8
+            }
+            ColorComponents::from_array(result).into_true_color()
+        }
+
+        for y in 0..target_size.height() {
+            for x in 0..target_size.width() {
+                let new_pixel = kernel(self, x, y, sw, sh, dw, dh);
+                vec.push(new_pixel);
+            }
+        }
+
+        let target = OwnedBitmap32::from_vec(vec, target_size);
+        Ok(target)
+    }
+}
+
 impl OwnedBitmap32 {
     pub fn from_vec_rgba(mut vec: Vec<u8>, size: Size) -> Self {
         const MAGIC_NUMBER: usize = 4;
@@ -1148,7 +1625,7 @@ impl OwnedBitmap32 {
         let mut vec = Vec::with_capacity(count);
         for rgba in bytes.chunks_exact(MAGIC_NUMBER).take(count) {
             let rgba: [u8; MAGIC_NUMBER] = rgba.try_into().unwrap();
-            let argb = ColorComponents::from_rgba(rgba[0], rgba[1], rgba[2], Alpha8(rgba[3]))
+            let argb = ColorComponents::from_rgba(rgba[0], rgba[1], rgba[2], Alpha8::new(rgba[3]))
                 .into_true_color();
             vec.push(argb);
         }
@@ -1179,7 +1656,7 @@ pub enum BitmapRef<'a> {
     Argb32(&'a BitmapRef32<'a>),
 }
 
-impl Drawable for BitmapRef<'_> {
+impl Image for BitmapRef<'_> {
     type ColorType = Color;
 
     #[inline]
@@ -1240,7 +1717,7 @@ pub enum BitmapRefMut<'a> {
     Argb32(BitmapRefMut32<'a>),
 }
 
-impl Drawable for BitmapRefMut<'_> {
+impl Image for BitmapRefMut<'_> {
     type ColorType = Color;
 
     #[inline]
@@ -1381,7 +1858,7 @@ impl DrawRect for BitmapRefMut<'_> {
     }
 
     #[inline]
-    fn draw_hline(&mut self, origin: Point, width: isize, color: Self::ColorType) {
+    fn draw_hline(&mut self, origin: Point, width: GlUInt, color: Self::ColorType) {
         match self {
             Self::Indexed(ref mut v) => v.draw_hline(origin, width, color.into()),
             Self::Argb32(ref mut v) => v.draw_hline(origin, width, color.into()),
@@ -1389,7 +1866,7 @@ impl DrawRect for BitmapRefMut<'_> {
     }
 
     #[inline]
-    fn draw_vline(&mut self, origin: Point, height: isize, color: Self::ColorType) {
+    fn draw_vline(&mut self, origin: Point, height: GlUInt, color: Self::ColorType) {
         match self {
             Self::Indexed(ref mut v) => v.draw_vline(origin, height, color.into()),
             Self::Argb32(ref mut v) => v.draw_vline(origin, height, color.into()),
@@ -1460,7 +1937,7 @@ pub enum OwnedBitmap {
     Argb32(OwnedBitmap32),
 }
 
-impl Drawable for OwnedBitmap {
+impl Image for OwnedBitmap {
     type ColorType = Color;
 
     #[inline]
@@ -1536,7 +2013,7 @@ pub struct OperationalBitmap {
 
 impl PixelColor for u8 {}
 
-impl Drawable for OperationalBitmap {
+impl Image for OperationalBitmap {
     type ColorType = u8;
 
     #[inline]
@@ -1548,7 +2025,7 @@ impl Drawable for OperationalBitmap {
 impl RasterImage for OperationalBitmap {
     #[inline]
     fn stride(&self) -> usize {
-        self.width()
+        self.width() as usize
     }
 
     #[inline]
@@ -1586,7 +2063,7 @@ impl OperationalBitmap {
     pub fn from_pixels<F, T>(data: &T, mut kernel: F) -> OperationalBitmap
     where
         T: GetPixel + ?Sized,
-        F: FnMut(<T as Drawable>::ColorType) -> u8,
+        F: FnMut(<T as Image>::ColorType) -> u8,
     {
         let size = data.size();
         let vec = data.all_pixels().map(|v| kernel(v)).collect();
@@ -1622,7 +2099,7 @@ impl OperationalBitmap {
         F: FnMut(&mut OperationalBitmap, Point, f64),
     {
         let mut plot = |bitmap: &mut OperationalBitmap, x: f64, y: f64, level: f64| {
-            kernel(bitmap, Point::new(x as isize, y as isize), level);
+            kernel(bitmap, Point::new(x as GlSInt, y as GlSInt), level);
         };
         #[inline]
         fn ipart(v: f64) -> f64 {
@@ -1707,18 +2184,18 @@ impl OperationalBitmap {
         &mut self,
         c1: Point,
         c2: Point,
-        scale: isize,
+        scale: GlSInt,
         mut kernel: F,
     ) where
         F: FnMut(&mut OperationalBitmap, Point, u8),
     {
-        const FRAC_SHIFT: isize = 6;
-        const ONE: isize = 1 << FRAC_SHIFT;
-        const FRAC_MASK: isize = ONE - 1;
-        const FRAC_HALF: isize = ONE / 2;
-        const IPART_MASK: isize = !FRAC_MASK;
+        const FRAC_SHIFT: u32 = 6;
+        const ONE: GlSInt = 1 << FRAC_SHIFT;
+        const FRAC_MASK: GlSInt = ONE - 1;
+        const FRAC_HALF: GlSInt = ONE / 2;
+        const IPART_MASK: GlSInt = !FRAC_MASK;
 
-        let mut plot = |bitmap: &mut OperationalBitmap, x: isize, y: isize, level: isize| {
+        let mut plot = |bitmap: &mut OperationalBitmap, x: GlSInt, y: GlSInt, level: GlSInt| {
             kernel(
                 bitmap,
                 Point::new(x >> FRAC_SHIFT, y >> FRAC_SHIFT),
@@ -1726,27 +2203,27 @@ impl OperationalBitmap {
             );
         };
         #[inline]
-        fn ipart(v: isize) -> isize {
+        fn ipart(v: GlSInt) -> GlSInt {
             v & IPART_MASK
         }
         #[inline]
-        fn round(v: isize) -> isize {
+        fn round(v: GlSInt) -> GlSInt {
             ipart(v + FRAC_HALF)
         }
         #[inline]
-        fn fpart(v: isize) -> isize {
+        fn fpart(v: GlSInt) -> GlSInt {
             v & FRAC_MASK
         }
         #[inline]
-        fn rfpart(v: isize) -> isize {
+        fn rfpart(v: GlSInt) -> GlSInt {
             ONE - fpart(v)
         }
         #[inline]
-        fn mul(a: isize, b: isize) -> isize {
+        fn mul(a: GlSInt, b: GlSInt) -> GlSInt {
             (a * b) >> FRAC_SHIFT
         }
         #[inline]
-        fn div(a: isize, b: isize) -> Option<isize> {
+        fn div(a: GlSInt, b: GlSInt) -> Option<GlSInt> {
             (a << FRAC_SHIFT).checked_div(b)
         }
 
@@ -1755,8 +2232,8 @@ impl OperationalBitmap {
         let mut y1 = (c1.y() << FRAC_SHIFT) / scale;
         let mut y2 = (c2.y() << FRAC_SHIFT) / scale;
 
-        let width = isize::max(x1, x2) - isize::min(x1, x2);
-        let height = isize::max(y1, y2) - isize::min(y1, y2);
+        let width = x1.max(x2) - x1.min(x2);
+        let height = y1.max(y2) - y1.min(y2);
         let steep = height > width;
 
         if steep {
@@ -1817,7 +2294,7 @@ impl OperationalBitmap {
     }
 
     /// Like box linear filter
-    pub fn blur(&mut self, radius: isize, level: usize) {
+    pub fn blur(&mut self, radius: GlUInt, level: usize) {
         let bounds = self.bounds();
         let length = radius * 2 + 1;
 
@@ -1825,10 +2302,16 @@ impl OperationalBitmap {
             for x in 0..bounds.width() {
                 let mut acc = 0;
                 for r in 0..length {
-                    acc += unsafe { self.get_pixel_unchecked(Point::new(x, y - r)) as usize };
+                    acc += unsafe {
+                        self.get_pixel_unchecked(Point::new(x as GlSInt, (y - r) as GlSInt))
+                            as usize
+                    };
                 }
                 unsafe {
-                    self.set_pixel_unchecked(Point::new(x, y), (acc / length as usize) as u8);
+                    self.set_pixel_unchecked(
+                        Point::new(x as GlSInt, y as GlSInt),
+                        (acc / length as usize) as u8,
+                    );
                 }
             }
         }
@@ -1836,10 +2319,16 @@ impl OperationalBitmap {
             for x in 0..bounds.width() {
                 let mut acc = 0;
                 for r in 0..y {
-                    acc += unsafe { self.get_pixel_unchecked(Point::new(x, y - r)) as usize };
+                    acc += unsafe {
+                        self.get_pixel_unchecked(Point::new(x as GlSInt, (y - r) as GlSInt))
+                            as usize
+                    };
                 }
                 unsafe {
-                    self.set_pixel_unchecked(Point::new(x, y), (acc / length as usize) as u8);
+                    self.set_pixel_unchecked(
+                        Point::new(x as GlSInt, y as GlSInt),
+                        (acc / length as usize) as u8,
+                    );
                 }
             }
         }
@@ -1848,11 +2337,14 @@ impl OperationalBitmap {
             for x in (length..bounds.width()).rev() {
                 let mut acc = 0;
                 for r in 0..length {
-                    acc += unsafe { self.get_pixel_unchecked(Point::new(x - r, y)) as usize };
+                    acc += unsafe {
+                        self.get_pixel_unchecked(Point::new((x - r) as GlSInt, y as GlSInt))
+                            as usize
+                    };
                 }
                 unsafe {
                     self.set_pixel_unchecked(
-                        Point::new(x, y),
+                        Point::new(x as GlSInt, y as GlSInt),
                         usize::min(255, (acc / length as usize) * level / 256) as u8,
                     );
                 }
@@ -1860,11 +2352,14 @@ impl OperationalBitmap {
             for x in (0..length).rev() {
                 let mut acc = 0;
                 for r in 0..x {
-                    acc += unsafe { self.get_pixel_unchecked(Point::new(x - r, y)) as usize };
+                    acc += unsafe {
+                        self.get_pixel_unchecked(Point::new((x - r) as GlSInt, y as GlSInt))
+                            as usize
+                    };
                 }
                 unsafe {
                     self.set_pixel_unchecked(
-                        Point::new(x, y),
+                        Point::new(x as GlSInt, y as GlSInt),
                         usize::min(255, (acc / length as usize) * level / 256) as u8,
                     );
                 }
@@ -1874,8 +2369,8 @@ impl OperationalBitmap {
 
     pub fn blt_to<T, F>(&self, dest: &mut T, origin: Point, rect: Rect, mut kernel: F)
     where
-        T: Drawable + GetPixel + SetPixel,
-        F: FnMut(u8, <T as Drawable>::ColorType) -> <T as Drawable>::ColorType,
+        T: Image + GetPixel + SetPixel,
+        F: FnMut(u8, <T as Image>::ColorType) -> <T as Image>::ColorType,
     {
         let (dx, dy, sx, sy, width, height) =
             _adjust_blt_coords(dest.size(), self.size(), origin, rect);
@@ -1905,7 +2400,7 @@ impl OperationalBitmap {
     pub fn blt_from<T, F>(&mut self, src: &T, origin: Point, rect: Rect, mut kernel: F)
     where
         T: GetPixel,
-        F: FnMut(<T as Drawable>::ColorType, u8) -> u8,
+        F: FnMut(<T as Image>::ColorType, u8) -> u8,
     {
         let (dx, dy, sx, sy, width, height) =
             _adjust_blt_coords(self.size(), src.size(), origin, rect);
@@ -1936,7 +2431,7 @@ impl OperationalBitmap {
                 let color = color.into_true_color();
                 self.blt_to(bitmap, origin, rect, |a, b| {
                     let mut c = color.components();
-                    c.a = Alpha8(a);
+                    c.a = Alpha8::new(a);
                     b.blend_draw(c.into())
                 });
             }
@@ -1952,17 +2447,17 @@ fn _adjust_blt_coords(
     src_size: Size,
     origin: Point,
     rect: Rect,
-) -> (isize, isize, isize, isize, isize, isize) {
+) -> (GlSInt, GlSInt, GlSInt, GlSInt, GlSInt, GlSInt) {
     let mut dx = origin.x;
     let mut dy = origin.y;
     let mut sx = rect.min_x();
     let mut sy = rect.min_y();
-    let mut width = rect.width();
-    let mut height = rect.height();
-    let dw = dest_size.width();
-    let dh = dest_size.height();
-    let sw = src_size.width();
-    let sh = src_size.height();
+    let mut width = rect.width() as GlSInt;
+    let mut height = rect.height() as GlSInt;
+    let dw = dest_size.width() as GlSInt;
+    let dh = dest_size.height() as GlSInt;
+    let sw = src_size.width() as GlSInt;
+    let sh = src_size.height() as GlSInt;
 
     if sx < 0 {
         dx -= sx;
