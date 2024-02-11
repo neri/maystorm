@@ -15,16 +15,11 @@ A hobby operating system written in Rust that supports WebAssembly.
 
 ## Requirements
 
-### IBM PC Compatibles in the 2020s
-
-* UEFI v2.X+
-* ACPI v2.X+
-* SMBIOS v2.X+ (optional)
-* x64 processor with up to 64 cores
-* ??? GB of system memory
-* 800 x 600 pixels or higher resolution
-* XHCI (optional)
-* HD Audio (optional)
+* Platform: IBM PC Compatibles in the 2020s
+* Processor: x64 processor with up to 64 cores
+* RAM: ??? GB
+* Storage: ???
+* Display: 800 x 600
 
 ## Build Environment
 
@@ -54,9 +49,7 @@ The latest version is recommended whenever possible.
 
 ## HOE: Haribote-OS Emulation Subsystem
 
-* We have confirmed that about half of the apps work at this point. Some APIs are not yet implemented.
-* This subsystem may be unsupported in the future, or may be replaced by another implementation.
-* If the haribote application is launched with insufficient 32-bit memory, it will not operate properly.
+* This subsystem may be replaced by another implementation in the future.
 
 ## History
 
