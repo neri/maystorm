@@ -67,13 +67,19 @@ impl Shell {
     }
 
     async fn repl_main() {
+        let stdout = System::stdout();
         loop {
             let cwd = Scheduler::current_pid().cwd();
             let lpc = match Path::new(&cwd).file_name() {
                 Some(v) => v,
                 None => OsStr::new("/"),
             };
-            print!("{}> ", lpc.to_str().unwrap());
+            let attributes = stdout.attributes();
+            let text_bg = attributes & 0xF0;
+            stdout.set_attribute(text_bg | 0x09);
+            print!("{}", lpc.to_str().unwrap());
+            stdout.set_attribute(0);
+            print!("> ");
             if let Ok(cmdline) = System::stdout().read_line_async(120).await {
                 Self::exec_cmd(&cmdline);
             }
@@ -81,10 +87,16 @@ impl Shell {
     }
 
     fn exec_cmd(cmdline: &str) {
+        let mut cmdline = cmdline;
+        let mut wait_until = true;
+        if cmdline.ends_with("&") {
+            wait_until = false;
+            cmdline = &cmdline[..cmdline.len() - 1];
+        }
         match Self::parse_cmd(cmdline) {
             Ok((cmd, args)) => {
                 let name = cmd.as_str();
-                let mut args = args.iter().map(|v| v.as_str()).collect::<Vec<&str>>();
+                let args = args.iter().map(|v| v.as_str()).collect::<Vec<&str>>();
                 match name {
                     "clear" | "cls" | "reset" => System::stdout().reset().unwrap(),
                     "exit" => println!("Feature not available"),
@@ -153,12 +165,7 @@ impl Shell {
                             exec(args.as_slice());
                         }
                         None => {
-                            if args.len() > 1 && args.last() == Some(&"&") {
-                                args.remove(args.len() - 1);
-                                Self::spawn(name, args.as_slice(), false);
-                            } else {
-                                Self::spawn(name, args.as_slice(), true);
-                            }
+                            Self::spawn(name, args.as_slice(), wait_until);
                         }
                     },
                 }
@@ -480,6 +487,11 @@ impl Shell {
             "memory" => {
                 let mut sb = String::new();
                 MemoryManager::statistics(&mut sb);
+                print!("{}", sb.as_str());
+            }
+            "memmap" => {
+                let mut sb = String::new();
+                MemoryManager::get_memory_map(&mut sb);
                 print!("{}", sb.as_str());
             }
             "windows" => {

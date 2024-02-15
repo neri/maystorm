@@ -2067,7 +2067,8 @@ unsafe extern "C" fn handle_default_exception(ctx: &X64ExceptionContext) {
                     _ => {
                         writeln!(
                             stdout,
-                            "\n#### EXCEPTION {} err {:04x} EIP {:02x}:{:08x} ESP {:02x}:{:08x}",
+                            "\n#### EXCEPTION {:?} ({}) err {:04x} EIP {:02x}:{:08x} ESP {:02x}:{:08x}",
+                            ex,
                             ex.mnemonic(),
                             ctx.error_code(),
                             ctx.cs().0,
@@ -2103,17 +2104,36 @@ unsafe extern "C" fn handle_default_exception(ctx: &X64ExceptionContext) {
                 let va_mask = 0xFFFF_FFFF_FFFF;
                 match ex {
                     ExceptionType::PageFault => {
-                        writeln!(
-                        stdout,
-                        "\n#### PAGE FAULT {:04x} {:012x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
-                        ctx.error_code(),
-                        ctx.cr2 & va_mask,
-                        ctx.cs().0,
-                        ctx.rip & va_mask,
-                        ctx.ss().0,
-                        ctx.rsp & va_mask,
-                    )
-                        .unwrap();
+                        match ctx.cr2 >> 47 {
+                            0x0_0000 | 0x1_FFFF => {
+                                // Canonical Address
+                                writeln!(
+                                    stdout,
+                                    "\n#### PAGE FAULT {:04x} {:012x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
+                                    ctx.error_code(),
+                                    ctx.cr2 & 0xFFFF_FFFF_FFFF,
+                                    ctx.cs().0,
+                                    ctx.rip & va_mask,
+                                    ctx.ss().0,
+                                    ctx.rsp & va_mask,
+                                )
+                                    .unwrap();
+                                    }
+                            _ => {
+                                // Non Canonical Address (BUG?)
+                                writeln!(
+                                    stdout,
+                                    "\n#### PAGE FAULT {:04x} {:016x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
+                                    ctx.error_code(),
+                                    ctx.cr2,
+                                    ctx.cs().0,
+                                    ctx.rip & va_mask,
+                                    ctx.ss().0,
+                                    ctx.rsp & va_mask,
+                                )
+                                    .unwrap();
+                                    }
+                        }
                     }
                     ExceptionType::SimdException => {
                         writeln!(
@@ -2131,7 +2151,8 @@ unsafe extern "C" fn handle_default_exception(ctx: &X64ExceptionContext) {
                         if ex.has_error_code() {
                             writeln!(
                                 stdout,
-                                "\n#### EXCEPTION {} err {:04x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
+                                "\n#### EXCEPTION {:?} ({}) err {:04x} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
+                                ex,
                                 ex.mnemonic(),
                                 ctx.error_code(),
                                 ctx.cs().0,
@@ -2143,7 +2164,8 @@ unsafe extern "C" fn handle_default_exception(ctx: &X64ExceptionContext) {
                         } else {
                             writeln!(
                                 stdout,
-                                "\n#### EXCEPTION {} rip {:02x}:{:012x} rsp {:02x}:{:012x}",
+                                "\n#### EXCEPTION {:?} ({}) rip {:02x}:{:012x} rsp {:02x}:{:012x}",
+                                ex,
                                 ex.mnemonic(),
                                 ctx.cs().0,
                                 ctx.rip & va_mask,
@@ -2225,8 +2247,11 @@ macro_rules! exception_handler {
                 push rax
                 mov ecx, es
                 push rcx
-                push fs
-                push gs
+
+                // To avoid push fs/gs bugs
+                .byte 0x0F, 0xA0
+                .byte 0x0F, 0xA8
+
                 mov rax, cr2
                 push rax
                 xor eax, eax
@@ -2294,8 +2319,11 @@ macro_rules! exception_handler_noerr {
                 push rax
                 mov ecx, es
                 push rcx
-                push fs
-                push gs
+
+                // To avoid push fs/gs bugs
+                .byte 0x0F, 0xA0
+                .byte 0x0F, 0xA8
+
                 mov rax, cr2
                 push rax
                 xor eax, eax

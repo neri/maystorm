@@ -29,7 +29,7 @@ const WINDOW_BORDER_WIDTH: u32 = 1;
 const WINDOW_CORNER_RADIUS: u32 = 8;
 const WINDOW_THICK_BORDER_WIDTH_V: u32 = WINDOW_CORNER_RADIUS / 2;
 const WINDOW_THICK_BORDER_WIDTH_H: u32 = WINDOW_CORNER_RADIUS / 2;
-const WINDOW_TITLE_HEIGHT: u32 = 26;
+const WINDOW_TITLE_HEIGHT: u32 = 28;
 const WINDOW_TITLE_BORDER: u32 = 0;
 const WINDOW_SHADOW_PADDING: u32 = 16;
 const SHADOW_RADIUS: u32 = 12;
@@ -887,8 +887,8 @@ impl WindowManager<'_> {
                             return;
                         };
                         let origin = Point::new(
-                            ((target.bounds().width() - new_size.width()) / 2) as i32,
-                            ((target.bounds().height() - new_size.height()) / 2) as i32,
+                            (target.bounds().width() as i32 - new_size.width() as i32) / 2,
+                            (target.bounds().height() as i32 - new_size.height() as i32) / 2,
                         );
                         target.blt_transparent(
                             &BitmapRef::from(new_bitmap.as_ref()),

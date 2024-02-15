@@ -23,3 +23,13 @@ pub mod vec;
 
 #[cfg(test)]
 pub mod tests;
+
+#[inline]
+pub fn safe_to_int(val: GlUInt) -> GlSInt {
+    safe_clip(val, GlSInt::MAX) as GlSInt
+}
+
+#[inline]
+pub fn safe_clip(val: GlUInt, limit: GlSInt) -> GlUInt {
+    val.min(limit as GlUInt)
+}

@@ -17,8 +17,6 @@ use core::sync::atomic::*;
 
 static mut MM: UnsafeCell<MemoryManager> = UnsafeCell::new(MemoryManager::new());
 
-static LAST_ALLOC_PTR: AtomicUsize = AtomicUsize::new(0);
-
 /// Memory Manager
 pub struct MemoryManager {
     reserved_memory_size: usize,
@@ -182,20 +180,41 @@ impl MemoryManager {
 
         let mut list = shared.mem_list.lock();
         shared.n_fragments.store(list.len(), Ordering::Release);
+        let mut needs_append = true;
         for pair in list.as_slice() {
             if pair.try_merge(new_entry).is_ok() {
-                return;
+                needs_append = false;
+                break;
             }
         }
-        match list.push(new_entry) {
-            Ok(_) => {
-                drop(list);
-                return;
-            }
-            Err(_) => {
-                shared.lost_size.fetch_add(size, Ordering::SeqCst);
+        if needs_append {
+            match list.push(new_entry) {
+                Ok(_) => (),
+                Err(_) => {
+                    shared.lost_size.fetch_add(size, Ordering::SeqCst);
+                }
             }
         }
+
+        list.sort_by(|a, b| {
+            if a.size() > 0 && b.size() > 0 {
+                a.base().cmp(&b.base())
+            } else {
+                b.size().cmp(&a.size())
+            }
+        });
+
+        loop {
+            let Some(last) = list.last() else {
+                break;
+            };
+            if last.size() > 0 {
+                break;
+            }
+            list.pop();
+        }
+
+        drop(list);
     }
 
     #[must_use]
@@ -235,15 +254,6 @@ impl MemoryManager {
     pub unsafe fn zalloc2(layout: Layout) -> Option<NonZeroUsize> {
         Self::pg_alloc(layout)
             .and_then(|v| NonZeroUsize::new(v.get().direct_map::<c_void>() as usize))
-            .map(|v| {
-                LAST_ALLOC_PTR.store(v.get(), core::sync::atomic::Ordering::SeqCst);
-                v
-            })
-    }
-
-    #[inline]
-    pub fn last_alloc_ptr() -> usize {
-        LAST_ALLOC_PTR.load(core::sync::atomic::Ordering::Relaxed)
     }
 
     /// Deallocate kernel memory
@@ -276,10 +286,8 @@ impl MemoryManager {
         let max_real = 0xA0;
         let shared = Self::shared();
         for i in 1..max_real {
-            let result = Hal::sync().fetch_reset(
-                &*(&shared.real_bitmap[0] as *const _ as *const AtomicUsize),
-                i,
-            );
+            let result =
+                Hal::sync().fetch_reset(&*(shared.real_bitmap.as_ptr() as *const AtomicUsize), i);
             if result {
                 return NonZeroU8::new(i as u8);
             }
@@ -289,6 +297,7 @@ impl MemoryManager {
 
     pub fn statistics(sb: &mut String) {
         let shared = Self::shared();
+        sb.reserve(4096);
 
         let lost_size = shared.lost_size.load(Ordering::Relaxed);
         let n_fragments = shared.n_fragments.load(Ordering::Relaxed);
@@ -319,6 +328,25 @@ impl MemoryManager {
             }
             writeln!(sb, "").unwrap();
         }
+    }
+
+    pub fn get_memory_map(sb: &mut String) {
+        let shared = Self::shared();
+        sb.reserve(4096);
+
+        let list = shared.mem_list.lock();
+        for (index, pair) in list.as_slice().iter().enumerate() {
+            writeln!(
+                sb,
+                "MEM: {:2} {:08x}-{:08x} ({:08x})",
+                index,
+                pair.base(),
+                pair.base() + pair.size(),
+                pair.size(),
+            )
+            .unwrap();
+        }
+        drop(list);
     }
 }
 
@@ -382,9 +410,11 @@ impl MemFreePair {
         p.fetch_update(Ordering::SeqCst, Ordering::Relaxed, |data| {
             let (base0, size0) = Self::split(data);
             let (base1, size1) = Self::split(other.raw());
-            if base0 + size0 == base1 {
+            let end0 = base0 + size0;
+            let end1 = base1 + size1;
+            if end0 == base1 {
                 Some((base0.as_u64()) | (((size0 + size1) as u64) << 32))
-            } else if base1 + size1 == base0 {
+            } else if end1 == base0 {
                 Some((base1.as_u64()) | (((size0 + size1) as u64) << 32))
             } else {
                 None

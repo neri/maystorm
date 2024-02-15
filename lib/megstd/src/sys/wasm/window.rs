@@ -180,6 +180,23 @@ impl DrawingContext {
             bitmap as *const _ as usize,
         )
     }
+
+    #[inline]
+    pub fn blt32_sub<'a, T: AsRef<BitmapRef32<'a>>>(
+        &mut self,
+        bitmap: &T,
+        origin: Point,
+        size: Size,
+    ) {
+        syscall::os_blt32_sub(
+            self.ctx,
+            origin.x as usize,
+            origin.y as usize,
+            bitmap as *const _ as usize,
+            size.width as usize,
+            size.height as usize,
+        )
+    }
 }
 
 impl Drop for DrawingContext {

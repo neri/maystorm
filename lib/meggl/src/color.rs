@@ -2,6 +2,7 @@ use core::fmt;
 use core::mem::transmute;
 use core::ops::{Add, AddAssign, Sub, SubAssign};
 
+use crate::vec::{Vec3, Vec4};
 use crate::GlUInt;
 
 /// Common color trait
@@ -238,13 +239,7 @@ impl Alpha8 {
 
     #[inline]
     pub fn from_f64(value: f64) -> Self {
-        if value >= 1.0 {
-            Self::OPAQUE
-        } else if value > 0.0 {
-            Self((value * Self::OPAQUE.0 as f64) as u8)
-        } else {
-            Self::TRANSPARENT
-        }
+        Self((value * 255.0).clamp(0.0, 255.0) as u8)
     }
 
     #[inline]
@@ -479,7 +474,7 @@ impl ARGB8888 {
 
     #[inline]
     pub const fn opacity(&self) -> Alpha8 {
-        Alpha8((self.0 >> 24) as u8)
+        ColorComponents::from_true_color(*self).a
     }
 
     #[inline]
@@ -510,26 +505,31 @@ impl ARGB8888 {
 
     #[inline]
     pub fn blend_draw(&self, rhs: Self) -> Self {
-        if rhs.is_opaque() {
+        let rhs_ = rhs.components();
+        if rhs_.a.is_opaque() {
             return rhs;
-        } else if rhs.is_transparent() {
+        }
+        if rhs_.a.is_transparent() {
             return *self;
         }
-        let rhs = rhs.components();
-        let lhs = self.components();
-        let alpha_r = rhs.a.0 as usize;
-        let alpha_l = lhs.a.0 as usize * (256 - alpha_r) / 256;
+        let lhs_ = self.components();
+        let alpha_r = rhs_.a.0 as usize;
+        let alpha_l = lhs_.a.0 as usize * (256 - alpha_r) / 256;
         let alpha_s = alpha_r + alpha_l;
-        if alpha_s > 0 {
-            lhs.blending(
-                rhs,
-                |l, r| ((l as usize * alpha_l + r as usize * alpha_r) / alpha_s) as u8,
-                |_, _| Alpha8(alpha_s as u8),
-            )
-            .into()
-        } else {
-            Self::TRANSPARENT
-        }
+        let alpha_ls = (alpha_l * 256).checked_div(alpha_s).unwrap_or(0) as u32;
+        let alpha_rs = (alpha_r * 256).checked_div(alpha_s).unwrap_or(0) as u32;
+
+        let l_rb = self.0 & 0xFF00FF;
+        let l_g = self.0 & 0x00FF00;
+        let r_rb = rhs.0 & 0xFF00FF;
+        let r_g = rhs.0 & 0x00FF00;
+
+        Self(
+            (((((l_rb * alpha_ls) + (r_rb * alpha_rs)) & 0xFF00FF00)
+                + (((l_g * alpha_ls) + (r_g * alpha_rs)) & 0x00FF0000))
+                >> 8)
+                + ((alpha_s as u32) << 24),
+        )
     }
 
     #[inline]
@@ -554,6 +554,46 @@ impl From<ARGB8888> for IndexedColor {
     #[inline]
     fn from(color: ARGB8888) -> Self {
         Self::from_rgb(color.rgb())
+    }
+}
+
+impl From<Vec3<u8>> for ARGB8888 {
+    #[inline]
+    fn from(value: Vec3<u8>) -> Self {
+        ColorComponents::from_rgb(value.x, value.y, value.z).into_true_color()
+    }
+}
+
+impl From<Vec4<u8>> for ARGB8888 {
+    #[inline]
+    fn from(value: Vec4<u8>) -> Self {
+        ColorComponents::from_rgba(value.x, value.y, value.z, Alpha8::new(value.w))
+            .into_true_color()
+    }
+}
+
+impl From<Vec3<f64>> for ARGB8888 {
+    #[inline]
+    fn from(value: Vec3<f64>) -> Self {
+        ColorComponents::from_rgb(
+            (value.x * 255.99).clamp(0.0, 255.0) as u8,
+            (value.y * 255.99).clamp(0.0, 255.0) as u8,
+            (value.z * 255.99).clamp(0.0, 255.0) as u8,
+        )
+        .into_true_color()
+    }
+}
+
+impl From<Vec4<f64>> for ARGB8888 {
+    #[inline]
+    fn from(value: Vec4<f64>) -> Self {
+        ColorComponents::from_rgba(
+            (value.x * 255.99).clamp(0.0, 255.0) as u8,
+            (value.y * 255.99).clamp(0.0, 255.0) as u8,
+            (value.z * 255.99).clamp(0.0, 255.0) as u8,
+            Alpha8::from_f64(value.w),
+        )
+        .into_true_color()
     }
 }
 

@@ -207,22 +207,30 @@ pub trait DrawRect: SetPixel {
     }
 
     fn draw_circle(&mut self, origin: Point, radius: GlUInt, color: Self::ColorType) {
-        let rect = Rect::from((origin - radius as GlSInt, Size::new(radius * 2, radius * 2)));
+        let radius = safe_clip(radius, GlSInt::MAX / 2);
+        let rect = Rect::from((
+            origin - (radius as GlSInt),
+            Size::new(radius * 2, radius * 2),
+        ));
         self.draw_round_rect(rect, radius, color);
     }
 
     fn fill_circle(&mut self, origin: Point, radius: GlUInt, color: Self::ColorType) {
-        let rect = Rect::from((origin - radius as GlSInt, Size::new(radius * 2, radius * 2)));
+        let radius = safe_clip(radius, GlSInt::MAX / 2);
+        let rect = Rect::from((
+            origin - (radius as GlSInt),
+            Size::new(radius * 2, radius * 2),
+        ));
         self.fill_round_rect(rect, radius, color);
     }
 
     fn fill_round_rect(&mut self, rect: Rect, radius: GlUInt, color: Self::ColorType) {
-        let width = rect.width();
-        let height = rect.height();
+        let width = safe_clip(rect.width(), GlSInt::MAX);
+        let height = safe_clip(rect.height(), GlSInt::MAX);
         let dx = rect.min_x();
         let dy = rect.min_y();
 
-        let mut radius = radius;
+        let mut radius = safe_clip(radius, GlSInt::MAX / 2);
         if radius * 2 > width {
             radius = width / 2;
         }
@@ -269,12 +277,12 @@ pub trait DrawRect: SetPixel {
     }
 
     fn draw_round_rect(&mut self, rect: Rect, radius: GlUInt, color: Self::ColorType) {
-        let width = rect.width();
-        let height = rect.height();
+        let width = safe_clip(rect.width(), GlSInt::MAX);
+        let height = safe_clip(rect.height(), GlSInt::MAX);
         let dx = rect.min_x();
         let dy = rect.min_y();
 
-        let mut radius = radius;
+        let mut radius = safe_clip(radius, GlSInt::MAX / 2);
         if radius * 2 > width {
             radius = width / 2;
         }
@@ -370,8 +378,8 @@ pub trait DrawGlyph: SetPixel {
             return;
         };
 
-        let width = self.width() as GlSInt;
-        let height = self.height() as GlSInt;
+        let width = safe_to_int(self.width());
+        let height = safe_to_int(self.height());
         if coords.right > width {
             coords.right = width;
         }
@@ -887,9 +895,11 @@ macro_rules! define_bitmap {
             impl<'a> [<BitmapRefMut $suffix>]<'a> {
                 pub fn view(&mut self, rect: Rect) -> Option<[<BitmapRefMut $suffix>]<'a>>
                 {
-                    let Ok(coords) = Coordinates::try_from(rect) else { return None };
-                    let width = self.width() as GlSInt;
-                    let height = self.height() as GlSInt;
+                    let Ok(coords) = Coordinates::try_from(rect) else {
+                        return None;
+                    };
+                    let width = safe_to_int(self.width());
+                    let height = safe_to_int(self.height());
                     let stride = self.stride();
 
                     if coords.left < 0
@@ -984,10 +994,12 @@ macro_rules! define_bitmap {
 
             impl DrawRect for [<BitmapRefMut $suffix>]<'_> {
                 fn fill_rect(&mut self, rect: Rect, color: Self::ColorType) {
-                    let mut width = rect.width() as GlSInt;
-                    let mut height = rect.height() as GlSInt;
+                    let mut width = safe_to_int(rect.width());
+                    let mut height = safe_to_int(rect.height());
                     let mut dx = rect.min_x();
                     let mut dy = rect.min_y();
+                    let sw = safe_to_int(self.size.width());
+                    let sh = safe_to_int(self.size.height());
 
                     if dx < 0 {
                         width += dx;
@@ -999,11 +1011,11 @@ macro_rules! define_bitmap {
                     }
                     let r = dx + width;
                     let b = dy + height;
-                    if r >= self.size.width as GlSInt {
-                        width = self.size.width as GlSInt - dx;
+                    if r >= sw {
+                        width = sw - dx;
                     }
-                    if b >= self.size.height as GlSInt {
-                        height = self.size.height as GlSInt - dy;
+                    if b >= sh {
+                        height = sh - dy;
                     }
                     if width <= 0 || height <= 0 {
                         return;
@@ -1148,14 +1160,15 @@ impl BitmapRefMut32<'_> {
         let rhs = color.components();
         if rhs.is_opaque() {
             return self.fill_rect(rect, color);
-        } else if rhs.is_transparent() {
+        }
+        if rhs.is_transparent() {
             return;
         }
         let alpha = rhs.a.as_usize();
         let alpha_n = 255 - alpha;
 
-        let mut width = rect.width() as GlSInt;
-        let mut height = rect.height() as GlSInt;
+        let mut width = safe_to_int(rect.width());
+        let mut height = safe_to_int(rect.height());
         let mut dx = rect.min_x();
         let mut dy = rect.min_y();
 
@@ -2452,44 +2465,44 @@ fn _adjust_blt_coords(
     let mut dy = origin.y;
     let mut sx = rect.min_x();
     let mut sy = rect.min_y();
-    let mut width = rect.width() as GlSInt;
-    let mut height = rect.height() as GlSInt;
-    let dw = dest_size.width() as GlSInt;
-    let dh = dest_size.height() as GlSInt;
-    let sw = src_size.width() as GlSInt;
-    let sh = src_size.height() as GlSInt;
+    let mut width = safe_to_int(rect.width());
+    let mut height = safe_to_int(rect.height());
+    let dw = safe_to_int(dest_size.width());
+    let dh = safe_to_int(dest_size.height());
+    let sw = safe_to_int(src_size.width());
+    let sh = safe_to_int(src_size.height());
 
     if sx < 0 {
-        dx -= sx;
-        width += sx;
+        dx = dx.saturating_sub(sx);
+        width = width.saturating_add(sx);
         sx = 0;
     }
     if sy < 0 {
-        dy -= sy;
-        height += sy;
+        dy = dy.saturating_sub(sy);
+        height = height.saturating_add(sy);
         sy = 0;
     }
     if dx < 0 {
-        sx -= dx;
-        width += dx;
+        sx = sx.saturating_sub(dx);
+        width = width.saturating_add(dx);
         dx = 0;
     }
     if dy < 0 {
-        sy -= dy;
-        height += dy;
+        sy = sy.saturating_sub(dy);
+        height = height.saturating_add(dy);
         dy = 0;
     }
-    if sx + width > sw {
-        width = sw - sx;
+    if sx.saturating_add(width) > sw {
+        width = sw.saturating_sub(sx);
     }
-    if sy + height > sh {
-        height = sh - sy;
+    if sy.saturating_add(height) > sh {
+        height = sh.saturating_sub(sy);
     }
-    if dx + width >= dw {
-        width = dw - dx;
+    if dx.saturating_add(width) >= dw {
+        width = dw.saturating_sub(dx);
     }
-    if dy + height >= dh {
-        height = dh - dy;
+    if dy.saturating_add(height) >= dh {
+        height = dh.saturating_sub(dy);
     }
 
     (dx, dy, sx, sy, width, height)
@@ -2502,64 +2515,30 @@ mod memory_colors {
     pub fn _memset_colors8(
         slice: &mut [IndexedColor],
         cursor: usize,
-        size: usize,
+        count: usize,
         color: IndexedColor,
     ) {
         unsafe {
-            let slice = slice.get_unchecked_mut(cursor);
-            let color = color.0;
-            let mut ptr: *mut u8 = transmute(slice);
-            let mut remain = size;
-
-            let prologue = usize::min(ptr as usize & 0x0F, remain);
-            remain -= prologue;
-            for _ in 0..prologue {
-                ptr.write_volatile(color);
-                ptr = ptr.add(1);
-            }
-
-            if remain > 16 {
-                let color32 = color as u32
-                    | (color as u32) << 8
-                    | (color as u32) << 16
-                    | (color as u32) << 24;
-                let color64 = color32 as u64 | (color32 as u64) << 32;
-                let color128 = color64 as u128 | (color64 as u128) << 64;
-                let count = remain / 16;
-                let mut ptr2 = ptr as *mut u128;
-
-                for _ in 0..count {
-                    ptr2.write_volatile(color128);
-                    ptr2 = ptr2.add(1);
-                }
-
-                ptr = ptr2 as *mut u8;
-                remain -= count * 16;
-            }
-
-            for _ in 0..remain {
-                ptr.write_volatile(color);
-                ptr = ptr.add(1);
-            }
+            slice.get_unchecked_mut(cursor..cursor + count).fill(color);
         }
     }
 
     #[inline]
     pub fn _memset_colors16(slice: &mut [RGB565], cursor: usize, count: usize, color: RGB565) {
-        for v in unsafe { slice.get_unchecked_mut(cursor..cursor + count) }.iter_mut() {
-            *v = color;
+        unsafe {
+            slice.get_unchecked_mut(cursor..cursor + count).fill(color);
         }
     }
 
     #[inline]
     pub fn _memset_colors32(slice: &mut [ARGB8888], cursor: usize, count: usize, color: ARGB8888) {
-        for v in unsafe { slice.get_unchecked_mut(cursor..cursor + count) }.iter_mut() {
-            *v = color;
+        unsafe {
+            slice.get_unchecked_mut(cursor..cursor + count).fill(color);
         }
     }
 
     // Alpha blending
-    #[inline]
+    #[inline(never)]
     pub fn _memcpy_blend32(
         dest: &mut [ARGB8888],
         dest_cursor: usize,

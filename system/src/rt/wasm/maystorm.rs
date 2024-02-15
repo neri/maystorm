@@ -427,13 +427,20 @@ impl MyosRuntime {
                 let window = params.get_window(self)?;
                 let origin = params.get_point()?;
                 let src = params.get_bitmap32(memory)?;
-                let rect = Rect {
-                    origin,
-                    size: src.size(),
-                };
-                window.draw_in_rect(rect, |bitmap| {
-                    bitmap.blt(&BitmapRef::from(&src), Point::default(), src.size().into());
-                });
+                if let Ok(size) = params.get_size() {
+                    let rect = Rect { origin, size };
+                    window.draw_in_rect(rect, |bitmap| {
+                        bitmap.blt(&BitmapRef::from(&src), Point::default(), rect)
+                    })
+                } else {
+                    let rect = Rect {
+                        origin,
+                        size: src.size(),
+                    };
+                    window.draw_in_rect(rect, |bitmap| {
+                        bitmap.blt(&BitmapRef::from(&src), Point::default(), src.size().into());
+                    });
+                }
             }
             Function::BlendRect => {
                 let bitmap = params.get_bitmap32(memory)?;

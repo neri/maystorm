@@ -749,18 +749,18 @@ impl Coordinates {
     }
 
     #[inline]
-    pub const fn from_size(size: Size) -> Self {
+    pub fn from_size(size: Size) -> Self {
         Self {
             left: 0,
             top: 0,
-            right: size.width() as GlSInt,
-            bottom: size.height() as GlSInt,
+            right: safe_to_int(size.width()),
+            bottom: safe_to_int(size.height()),
         }
     }
 
     #[inline]
     pub const fn from_rect(rect: Rect) -> Result<Coordinates, ()> {
-        if rect.size.width == 0 || rect.size.height == 0 {
+        if (rect.size.width as GlSInt) <= 0 || (rect.size.height as GlSInt) <= 0 {
             Err(())
         } else {
             Ok(unsafe { Self::from_rect_unchecked(rect) })

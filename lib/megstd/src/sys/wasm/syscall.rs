@@ -231,6 +231,13 @@ pub fn os_blt32(ctx: usize, x: usize, y: usize, bitmap: usize) {
     }
 }
 
+#[inline]
+pub fn os_blt32_sub(ctx: usize, x: usize, y: usize, bitmap: usize, w: usize, h: usize) {
+    unsafe {
+        let _ = syscall!(Blt32, ctx, x, y, bitmap, w, h);
+    }
+}
+
 /// Draw a bitmap in a window
 #[inline]
 pub fn os_blt1(ctx: usize, x: usize, y: usize, bitmap: usize, color: u32, mode: usize) {
@@ -307,4 +314,14 @@ pub fn os_lseek(handle: usize, offset: i32, whence: usize) -> isize {
 #[inline]
 pub fn sqrt(v: f64) -> f64 {
     unsafe { core::intrinsics::sqrtf64(v) }
+}
+
+#[inline]
+pub fn floor(v: f64) -> f64 {
+    unsafe { core::intrinsics::floorf64(v) }
+}
+
+#[inline]
+pub fn fabs(v: f64) -> f64 {
+    unsafe { core::intrinsics::fabsf64(v) }
 }

@@ -17,17 +17,27 @@ static SLABS: [SlabCache; 8] = [
     SlabCache::new(512),
     SlabCache::new(1024),
     SlabCache::new(2048),
+    // SlabCache::new(0x1000),
+    // SlabCache::new(0x2000),
+    // SlabCache::new(0x4000),
+    // SlabCache::new(0x8000),
+    // SlabCache::new(0x10_000),
+    // SlabCache::new(0x20_000),
+    // SlabCache::new(0x40_000),
+    // SlabCache::new(0x80_000),
+    // SlabCache::new(0x100_000),
+    // SlabCache::new(0x200_000),
 ];
 
-pub(super) struct SlabAllocator {
-    _phantom: (),
-}
+pub(super) struct SlabAllocator;
 
 impl SlabAllocator {
-    pub unsafe fn new() -> Self {
-        Self { _phantom: () }
+    #[inline]
+    pub fn new() -> Self {
+        Self {}
     }
 
+    #[must_use]
     pub unsafe fn alloc(&self, layout: Layout) -> Result<NonZeroUsize, AllocationError> {
         let size = usize::max(layout.size(), layout.align());
         if size > UsizeSmall::MAX as usize {
@@ -39,7 +49,7 @@ impl SlabAllocator {
                 return slab.alloc();
             }
         }
-        return Err(AllocationError::Unsupported);
+        Err(AllocationError::Unsupported)
     }
 
     pub unsafe fn free(&self, base: NonZeroUsize, layout: Layout) -> Result<(), DeallocationError> {
@@ -92,14 +102,14 @@ impl Node16 {
         self.next.load(Ordering::Relaxed)
     }
 
-    #[inline]
-    pub fn next(&self) -> Option<NonNull<Self>> {
-        unsafe { transmute(self.next_raw()) }
-    }
+    // #[inline]
+    // pub fn next(&self) -> Option<NonNull<Self>> {
+    //     unsafe { transmute(self.next_raw()) }
+    // }
 
     #[inline]
     pub fn element_ptr(&self) -> NonZeroUsize {
-        unsafe { NonZeroUsize::new_unchecked(self as *const _ as usize) }
+        unsafe { NonZeroUsize::new_unchecked(self.element.as_ptr() as usize) }
     }
 }
 

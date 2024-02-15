@@ -346,10 +346,16 @@ async fn status_bar_main() {
     let screen_bounds = WindowManager::main_screen_bounds();
     let window = RawWindowBuilder::new()
         .style(WindowStyle::NO_SHADOW | WindowStyle::FLOATING)
-        .frame(Rect::new(0, 0, screen_bounds.width(), STATUS_BAR_HEIGHT))
+        .frame(Rect::new(
+            0,
+            (screen_bounds.height() - STATUS_BAR_HEIGHT) as i32,
+            screen_bounds.width(),
+            STATUS_BAR_HEIGHT,
+        ))
         .bg_color(bg_color)
         .build("Status Bar");
-    WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT as i32, 0, 0, 0));
+    // WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT as i32, 0, 0, 0));
+    WindowManager::add_screen_insets(EdgeInsets::new(0, 0, STATUS_BAR_HEIGHT as i32, 0));
 
     let font = FontManager::monospace_font();
     let mut sb0 = Sb255::new();
