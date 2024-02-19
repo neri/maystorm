@@ -5,6 +5,9 @@ use core::mem::transmute;
 use core::ops::{Add, AddAssign, Index, IndexMut, Mul, MulAssign, Sub, SubAssign};
 use num_traits::Zero;
 
+// use core::f64::consts::{FRAC_PI_2, PI, TAU};
+// use libm::{cos, sin, sqrt, sqrtf};
+
 macro_rules! vec_mat_impl {
     { $vis:vis struct $class:ident ( $n_elements:literal, $($param:ident,)* ); } => {
         #[repr(C)]
@@ -116,7 +119,7 @@ macro_rules! vec_mat_impl {
 }
 
 macro_rules! vec_impl {
-    { $vis:vis struct $class:ident ($n_elements:literal, $($param:ident,)* ); } => {
+    { $($vis:vis struct $class:ident ($n_elements:literal, $($param:ident,)* );)* } => {$(
         vec_mat_impl! {
             $vis struct $class (
                 $n_elements,
@@ -124,12 +127,10 @@ macro_rules! vec_impl {
             );
         }
 
-        impl<T> $class<T> {
+        impl<T: Add<Output = T> + Mul<Output = T> + Copy> $class<T> {
+            /// Dot Product
             #[inline]
-            pub fn dot(self, rhs: &Self) -> T
-            where
-                T: Add<Output = T> + Mul<Output = T> + Copy,
-            {
+            pub fn dot(self, rhs: &Self) -> T {
                 vec_impl!(fn dot, self, rhs, $($param,)*)
             }
         }
@@ -226,7 +227,7 @@ macro_rules! vec_impl {
                 slice.index_mut(index)
             }
         }
-    };
+    )*};
     (fn dot, $self:ident, $rhs:ident, $param1:ident, $($param:ident,)*) => {
         $self.$param1.mul($rhs.$param1)
         $(
@@ -236,42 +237,109 @@ macro_rules! vec_impl {
 }
 
 macro_rules! mat_impl {
-    { $vis:vis struct $class:ident ($n_elements:literal, $($param:ident,)* ); } => {
+    { $($vis:vis struct $class:ident ($n_elements:literal, $($param:ident,)* );)* } => {$(
         vec_mat_impl! {
             $vis struct $class (
                 $n_elements,
                 $($param,)*
             );
         }
-    };
+    )*};
 }
 
 vec_impl! {
     pub struct Vec2 ( 2, x, y, );
+
+    pub struct Vec3 ( 3, x, y, z, );
+
+    pub struct Vec4 ( 4, x, y, z, w, );
 }
-
-vec_impl! { pub struct Vec3 ( 3,x, y, z, ); }
-
-vec_impl! { pub struct Vec4 ( 4, x, y, z, w, ); }
 
 mat_impl! {
     pub struct Mat2 ( 4,
         m00, m01,
         m10, m11,
     );
-}
-mat_impl! {
+
     pub struct Mat3 ( 9,
         m00, m01, m02,
         m10, m11, m12,
         m20, m21, m22,
     );
-}
-mat_impl! {
+
     pub struct Mat4 ( 16,
         m00, m01, m02, m03,
         m10, m11, m12, m13,
         m20, m21, m22, m23,
         m30, m31, m32, m33,
     );
+}
+
+pub trait Cross {
+    /// Cross Product
+    fn cross(&self, rhs: Self) -> Self;
+}
+
+pub trait Length<T> {
+    fn length(&self) -> T;
+}
+
+impl<T: Mul<Output = T> + Sub<Output = T> + Copy> Cross for Vec3<T> {
+    #[inline]
+    fn cross(&self, rhs: Self) -> Self {
+        let x = self.y.mul(rhs.z).sub(self.z.mul(rhs.y));
+        let y = self.z.mul(rhs.x).sub(self.x.mul(rhs.z));
+        let z = self.x.mul(rhs.y).sub(self.y.mul(rhs.x));
+        Self { x, y, z }
+    }
+}
+
+impl<T: Zero> From<Vec2<T>> for Vec3<T> {
+    #[inline]
+    fn from(value: Vec2<T>) -> Self {
+        Vec3::new(value.x, value.y, T::zero())
+    }
+}
+
+impl<T> From<Vec3<T>> for Vec2<T> {
+    #[inline]
+    fn from(value: Vec3<T>) -> Self {
+        Vec2::new(value.x, value.y)
+    }
+}
+
+impl<T: Zero> From<Vec3<T>> for Vec4<T> {
+    #[inline]
+    fn from(value: Vec3<T>) -> Self {
+        Vec4::new(value.x, value.y, value.z, T::zero())
+    }
+}
+
+impl<T> From<Vec4<T>> for Vec3<T> {
+    #[inline]
+    fn from(value: Vec4<T>) -> Self {
+        Vec3::new(value.x, value.y, value.z)
+    }
+}
+
+impl<T: Zero> From<Vec2<T>> for Vec4<T> {
+    #[inline]
+    fn from(value: Vec2<T>) -> Self {
+        Vec4::new(value.x, value.y, T::zero(), T::zero())
+    }
+}
+
+impl<T> From<Vec4<T>> for Vec2<T> {
+    #[inline]
+    fn from(value: Vec4<T>) -> Self {
+        Vec2::new(value.x, value.y)
+    }
+}
+
+pub trait AffineMatrix {}
+
+pub trait Transform<T: AffineMatrix> {
+    fn transformed(&self, affine_matrix: &T) -> Self;
+
+    fn transform(&mut self, affine_matrix: &T);
 }

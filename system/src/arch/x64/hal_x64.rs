@@ -1,8 +1,6 @@
-use crate::arch::{
-    apic::Apic,
-    cpu::{Cpu, Rflags},
-    page::PageManager,
-};
+use crate::arch::apic::Apic;
+use crate::arch::cpu::{Cpu, Rflags};
+use crate::arch::page::PageManager;
 use crate::drivers::pci::PciConfigAddress;
 use crate::hal::*;
 use crate::system::ProcessorIndex;
@@ -227,6 +225,11 @@ impl Spinlock {
 }
 
 impl HalSpinlock for Spinlock {
+    #[inline]
+    fn is_locked(&self) -> bool {
+        self.value.load(Ordering::Relaxed) == Self::LOCKED_VALUE
+    }
+
     #[inline]
     #[must_use]
     fn try_lock(&self) -> bool {

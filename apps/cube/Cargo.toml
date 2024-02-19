@@ -8,4 +8,4 @@ version = "0.1.0"
 
 [dependencies]
 megstd.workspace = true
-libm = {}
+libm.workspace = true

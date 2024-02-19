@@ -1,6 +1,5 @@
 #![no_std]
 #![deny(unsafe_op_in_unsafe_fn)]
-#![feature(generic_arg_infer)]
 
 // use crate::debug::console::DebugConsole;
 // use core::fmt::Write;

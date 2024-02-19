@@ -4,13 +4,10 @@
 
 A hobby operating system written in Rust that supports WebAssembly.
 
-* [Documentation for megstd](https://neri.github.io/maystorm/megstd/)
-
 ## Feature
 
 * A hobby operating system written in Rust
 * Not a POSIX clone system
-  * For example, the contents of the path /dev/ are dynamically generated on this operating system.
 * Supports applications in WebAssembly format
 
 ## Requirements

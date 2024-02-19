@@ -1,6 +1,6 @@
 /*
-Ported
-Original: https://github.com/uchan-nos/mikanos/blob/master/apps/cube/cube.cpp
+Ported From: https://github.com/uchan-nos/mikanos/blob/master/apps/cube/cube.cpp
+From?: https://essen.osask.jp/?aclib12
 
 Copyright 2018-2022 Kota Uchida
 

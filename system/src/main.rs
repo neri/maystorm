@@ -22,6 +22,7 @@ use kernel::ui::window::WindowManager;
 use kernel::*;
 use megstd::io::Read;
 use megstd::path::Path;
+use megstd::time::SystemTime;
 
 /// Kernel entry point
 #[no_mangle]
@@ -60,6 +61,7 @@ impl Shell {
             shared.path_ext.push(ext.to_string());
         }
 
+        // Self::exec_cmd("ver");
         Self::exec_cmd("cd boot");
 
         Scheduler::spawn_async(Self::repl_main());
@@ -126,7 +128,8 @@ impl Shell {
                     }
                     "uptime" => {
                         let systime = System::system_time();
-                        let sec = systime.secs;
+                        let systime = systime.duration_since(SystemTime::UNIX_EPOCH).unwrap();
+                        let sec = systime.as_secs();
                         // let time_s = sec % 60;
                         let time_m = (sec / 60) % 60;
                         let time_h = (sec / 3600) % 24;

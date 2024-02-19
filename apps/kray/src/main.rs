@@ -1,7 +1,7 @@
 /*
-Ported
-Original: https://essen.osask.jp/?aclib20
-From: https://gist.github.com/yhara/ea0e66e0d8bdd114d2401dd133539fa3
+Ported From: https://essen.osask.jp/?aclib20
+Ported From: https://gist.github.com/yhara/ea0e66e0d8bdd114d2401dd133539fa3
+Ported From: https://qiita.com/doxas/items/477fda867da467116f8d
 
 */
 
@@ -10,9 +10,8 @@ From: https://gist.github.com/yhara/ea0e66e0d8bdd114d2401dd133539fa3
 
 extern crate libm;
 use core::cell::UnsafeCell;
-use libm::cos;
+use libm::{cos, fabs, floor, sqrt};
 use megstd::drawing::{vec::*, DrawRect};
-use megstd::sys::syscall::*;
 use megstd::window::*;
 
 const EPS: f64 = 1.0e-4;
@@ -50,7 +49,6 @@ fn _start() {
         Vec3::new(0.0, 1.0, 0.0),
         Vec3::new(1.0, 1.0, 1.0),
     );
-
     let items = [
         &s1 as &dyn Intersect,
         &s2 as &dyn Intersect,
@@ -62,27 +60,22 @@ fn _start() {
         objects: &items,
     };
 
-    let step = 32;
-    for y in (0..BITMAP_HEIGHT).step_by(step as usize) {
-        for x in (0..BITMAP_WIDTH).step_by(step as usize) {
-            render(&mut bitmap, &objects, x, y, step);
+    let chunk_size = 32;
+    for y in (0..BITMAP_HEIGHT as i32).step_by(chunk_size as usize) {
+        for x in (0..BITMAP_WIDTH as i32).step_by(chunk_size as usize) {
+            render(&mut bitmap, &objects, x, y, chunk_size);
         }
     }
     window.draw(|ctx| ctx.blt32(&bitmap, Point::zero()));
-    for yb in (0..BITMAP_HEIGHT).step_by(step as usize) {
-        for xb in (0..BITMAP_WIDTH).step_by(step as usize) {
-            for y0 in 0..step {
-                for x0 in 0..step {
+
+    for yb in (0..BITMAP_HEIGHT as i32).step_by(chunk_size as usize) {
+        for xb in (0..BITMAP_WIDTH as i32).step_by(chunk_size as usize) {
+            for y0 in 0..chunk_size as i32 {
+                for x0 in 0..chunk_size as i32 {
                     render(&mut bitmap, &objects, xb + x0, yb + y0, 1);
                 }
             }
-            window.draw(|ctx| {
-                ctx.blt32_sub(
-                    &bitmap,
-                    Point::new(xb as i32, yb as i32),
-                    Size::new(step, step),
-                )
-            })
+            window.draw(|ctx| ctx.blt32_sub(&bitmap, Rect::new(xb, yb, chunk_size, chunk_size)))
         }
     }
 
@@ -90,7 +83,7 @@ fn _start() {
 }
 
 #[inline]
-fn render(bitmap: &mut BitmapRefMut32, objects: &Objects, x: u32, y: u32, w: u32) {
+fn render(bitmap: &mut BitmapRefMut32, objects: &Objects, x: i32, y: i32, size: u32) {
     let dest_col = {
         let mut isect = Isect::default();
         let x = x as f64 * (1.0 / 256.0) - 1.0;
@@ -101,7 +94,7 @@ fn render(bitmap: &mut BitmapRefMut32, objects: &Objects, x: u32, y: u32, w: u32
             let mut dest_col = isect.color;
             let mut temp_col = isect.color;
             for _ in 0..4 {
-                let ray_dir = vec_refrect(&ray_dir, &isect.normal);
+                let ray_dir = vec_refrect(ray_dir, isect.normal);
                 objects.intersect(&isect.hit_point.clone(), &ray_dir, &mut isect);
                 if isect.distance >= 1.0e+30 {
                     break;
@@ -114,21 +107,21 @@ fn render(bitmap: &mut BitmapRefMut32, objects: &Objects, x: u32, y: u32, w: u32
             Vec3::new(1.0, 1.0, 1.0) * ray_dir.y
         }
     };
-    if w > 1 {
-        bitmap.fill_rect(Rect::new(x as i32, y as i32, w, w), dest_col.into());
+    if size > 1 {
+        bitmap.fill_rect(Rect::new(x, y, size, size), dest_col.into());
     } else {
-        bitmap.set_pixel(Point::new(x as i32, y as i32), dest_col.into());
+        bitmap.set_pixel(Point::new(x, y), dest_col.into());
     }
 }
 
 #[inline]
-fn vec_length(val: &Vec3<f64>) -> f64 {
-    sqrt(val.dot(&val))
+fn vec_length(vec: Vec3<f64>) -> f64 {
+    sqrt(vec.dot(&vec))
 }
 
 #[inline]
 fn vec_normalize(vec: Vec3<f64>) -> Vec3<f64> {
-    let len = vec_length(&vec);
+    let len = vec_length(vec);
     if len > 1.0e-17 {
         vec * (1.0 / len)
     } else {
@@ -137,8 +130,8 @@ fn vec_normalize(vec: Vec3<f64>) -> Vec3<f64> {
 }
 
 #[inline]
-fn vec_refrect(vec: &Vec3<f64>, normal: &Vec3<f64>) -> Vec3<f64> {
-    *vec + (*normal * (-2.0 * normal.dot(&vec)))
+fn vec_refrect(vec: Vec3<f64>, normal: Vec3<f64>) -> Vec3<f64> {
+    vec + (normal * (-2.0 * normal.dot(&vec)))
 }
 
 #[inline]
@@ -165,6 +158,7 @@ struct Objects<'a> {
 }
 
 impl Objects<'_> {
+    #[inline]
     fn intersect(&self, ray_origin: &Vec3<f64>, ray_dir: &Vec3<f64>, isect: &mut Isect) {
         isect.distance = 1.0e+30;
         for object in self.objects {

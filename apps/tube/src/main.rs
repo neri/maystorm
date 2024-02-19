@@ -10,7 +10,7 @@ Original: UNKNOWN
 extern crate libm;
 use core::cell::UnsafeCell;
 use core::f64::consts::PI;
-use libm::{atan2, cos, sin};
+use libm::{atan2, cos, sin, sqrt};
 use megstd::drawing::{ColorComponents, Translucent, TrueColor};
 use megstd::sys::syscall::*;
 use megstd::window::*;

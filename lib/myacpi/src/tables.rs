@@ -232,8 +232,9 @@ impl Xsdt {
     }
 
     #[inline]
-    pub fn fadt(&self) -> Option<&Fadt> {
-        self.find_first()
+    #[track_caller]
+    pub fn fadt(&self) -> &Fadt {
+        self.find_first().unwrap()
     }
 }
 

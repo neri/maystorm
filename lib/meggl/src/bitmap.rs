@@ -1619,9 +1619,8 @@ impl OwnedBitmap32 {
                 count,
             ));
             for pixel in slice.iter_mut() {
-                let rgba: [u8; 4] = transmute(*pixel);
-                let bgra = [rgba[2], rgba[1], rgba[0], rgba[3]];
-                *pixel = transmute(bgra);
+                let rgba = pixel.to_le_bytes();
+                *pixel = u32::from_le_bytes([rgba[2], rgba[1], rgba[0], rgba[3]]);
             }
             transmute::<_, Box<[ARGB8888]>>(slice)
         };
@@ -1638,9 +1637,10 @@ impl OwnedBitmap32 {
         let mut vec = Vec::with_capacity(count);
         for rgba in bytes.chunks_exact(MAGIC_NUMBER).take(count) {
             let rgba: [u8; MAGIC_NUMBER] = rgba.try_into().unwrap();
-            let argb = ColorComponents::from_rgba(rgba[0], rgba[1], rgba[2], Alpha8::new(rgba[3]))
-                .into_true_color();
-            vec.push(argb);
+            vec.push(
+                ColorComponents::from_rgba(rgba[0], rgba[1], rgba[2], Alpha8::new(rgba[3]))
+                    .into_true_color(),
+            );
         }
         Some(Self::from_vec(vec, size))
     }

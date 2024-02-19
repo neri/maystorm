@@ -146,10 +146,10 @@ impl App<'_> {
                     } else {
                         os_blend_rect(
                             &self.bitmap as *const _ as usize,
-                            x as usize,
-                            y as usize,
-                            width as usize,
-                            height as usize,
+                            x,
+                            y,
+                            width,
+                            height,
                             board.color.argb(),
                         );
                     }

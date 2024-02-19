@@ -88,7 +88,7 @@ impl AudioManager {
 
     #[inline]
     pub fn reinterpret_i16(src: SampleType) -> i16 {
-        (src * i16::MAX as SampleType) as i16
+        (src * i16::MAX as SampleType).clamp(i16::MIN as SampleType, i16::MAX as SampleType) as i16
     }
 
     #[inline]

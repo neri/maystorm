@@ -17,6 +17,7 @@ use core::time::Duration;
 use megstd::drawing::*;
 use megstd::io::{Read, Write};
 use megstd::rand::*;
+use megstd::time::SystemTime;
 use wami::cg::intr::{WasmInvocation, WasmRuntimeError};
 use wami::memory::WasmMemory;
 
@@ -206,8 +207,19 @@ impl MyosRuntime {
                 let sub_func_no = params.get_usize()?;
                 match sub_func_no {
                     0 => {
-                        let time = System::system_time();
-                        return Ok(WasmValue::from((time.secs % 86400) as u32));
+                        let memory = memory.try_borrow()?;
+                        let offset = params.get_usize()?;
+                        let result: &mut SystemTime =
+                            unsafe { memory.transmute_mut(offset as u64) }?;
+                        *result = System::system_time();
+                        return Ok(WasmValue::from(0i32));
+                    }
+                    1 => {
+                        let memory = memory.try_borrow()?;
+                        let offset = params.get_usize()?;
+                        let result: &mut Duration = unsafe { memory.transmute_mut(offset as u64) }?;
+                        *result = Timer::monotonic();
+                        return Ok(WasmValue::from(0i32));
                     }
                     _ => (),
                 }
@@ -410,18 +422,30 @@ impl MyosRuntime {
                 let window = params.get_window(self)?;
                 let origin = params.get_point()?;
                 let src = params.get_bitmap8(memory)?;
-                let rect = Rect {
-                    origin,
-                    size: src.size(),
-                };
-                window.draw_in_rect(rect, |bitmap| {
-                    bitmap.blt_transparent(
-                        &BitmapRef::from(&src),
-                        Point::default(),
-                        src.size().into(),
-                        IndexedColor::KEY_COLOR,
-                    );
-                });
+                if let Ok(size) = params.get_size() {
+                    let rect = Rect { origin, size };
+                    window.draw_in_rect(rect, |bitmap| {
+                        bitmap.blt_transparent(
+                            &BitmapRef::from(&src),
+                            Point::default(),
+                            rect,
+                            IndexedColor::KEY_COLOR,
+                        )
+                    })
+                } else {
+                    let rect = Rect {
+                        origin,
+                        size: src.size(),
+                    };
+                    window.draw_in_rect(rect, |bitmap| {
+                        bitmap.blt_transparent(
+                            &BitmapRef::from(&src),
+                            Point::default(),
+                            src.size().into(),
+                            IndexedColor::KEY_COLOR,
+                        );
+                    });
+                }
             }
             Function::Blt32 => {
                 let window = params.get_window(self)?;
@@ -572,8 +596,8 @@ impl MyosRuntime {
     }
 
     fn wait_key(&self, window: WindowHandle) -> Result<Option<char>, WasmRuntimeErrorKind> {
-        while let Some(message) = window.wait_message() {
-            self.process_message(window, message);
+        while let Some(message) = window.clone().wait_message() {
+            self.process_message(window.clone(), message);
             if self.has_to_exit.load(Ordering::Relaxed) {
                 return Err(WasmRuntimeErrorKind::Exit);
             }
@@ -589,8 +613,8 @@ impl MyosRuntime {
     }
 
     fn read_key(&self, window: WindowHandle) -> Option<char> {
-        while let Some(message) = window.read_message() {
-            self.process_message(window, message);
+        while let Some(message) = window.clone().read_message() {
+            self.process_message(window.clone(), message);
         }
         self.read_key_buffer().map(|v| v.into_char())
     }
@@ -616,8 +640,8 @@ impl MyosRuntime {
             }
             window.create_timer(0, next);
 
-            while let Some(message) = window.wait_message() {
-                self.process_message(window, message);
+            while let Some(message) = window.clone().wait_message() {
+                self.process_message(window.clone(), message);
                 if self.has_to_exit.load(Ordering::Relaxed) {
                     return Err(WasmRuntimeErrorKind::Exit);
                 }
@@ -1009,8 +1033,8 @@ impl OsWindow {
     }
 
     #[inline]
-    const fn native(&self) -> WindowHandle {
-        self.native
+    fn native(&self) -> WindowHandle {
+        self.native.clone()
     }
 
     #[inline]

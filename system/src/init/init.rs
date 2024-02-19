@@ -19,8 +19,9 @@ use core::time::Duration;
 use megstd::drawing::*;
 use megstd::io::Read;
 use megstd::string::*;
+use megstd::time::SystemTime;
 
-static IS_GUI_BOOT: bool = true;
+static IS_GUI_BOOT: bool = false;
 static mut SHUTDOWN_COMMAND: MaybeUninit<EventQueue<ShutdownCommand>> = MaybeUninit::uninit();
 static mut BG_TERMINAL: Option<WindowHandle> = None;
 
@@ -45,7 +46,7 @@ impl SysInit {
                 .build("Terminal");
 
             unsafe {
-                BG_TERMINAL = Some(window);
+                BG_TERMINAL = Some(window.clone());
             }
 
             // WindowManager::set_desktop_color(Color::BLACK);
@@ -77,19 +78,15 @@ impl SysInit {
             terminal.reset().unwrap();
             System::set_stdout(Box::new(terminal));
 
-            let device = System::current_device();
-
-            let bytes = device.total_memory_size();
-            let gb = bytes >> 30;
-            let mb = (100 * (bytes & 0x3FFF_FFFF)) / 0x4000_0000;
+            // let device = System::current_device();
+            // let bytes = device.total_memory_size();
+            // let gb = bytes >> 30;
+            // let mb = (100 * (bytes & 0x3FFF_FFFF)) / 0x4000_0000;
             println!(
-                "{} v{} (codename {}) {} Cores {}.{:02} GB Memory",
+                "{} v{} (codename {})",
                 System::name(),
                 System::version(),
                 System::codename(),
-                device.num_of_main_cpus(),
-                gb,
-                mb
             );
         }
 
@@ -366,11 +363,12 @@ async fn status_bar_main() {
         match message {
             WindowMessage::Timer(_) => {
                 let time = System::system_time();
-                let tod = time.secs % 86400;
+                let epoch = time.duration_since(SystemTime::UNIX_EPOCH).unwrap();
+                let tod = epoch.as_secs() % 86400;
                 let min = tod / 60 % 60;
                 let hour = tod / 3600;
                 sb0.clear();
-                write!(sb0, "{:2}:{:02}", hour, min).unwrap();
+                write!(sb0, "{:02}:{:02}", hour, min).unwrap();
 
                 if sb0 != sb1 {
                     let ats = AttributedString::new()
@@ -476,7 +474,7 @@ async fn activity_monitor_main() {
         .build("Activity Monitor");
 
     unsafe {
-        ACTIVITY_WINDOW = Some(window);
+        ACTIVITY_WINDOW = Some(window.clone());
     }
 
     let font = FontDescriptor::new(FontFamily::SmallFixed, 8).unwrap_or(FontManager::ui_font());
@@ -717,7 +715,10 @@ async fn _notification_task() {
         .build("Notification Center");
 
     let message_buffer = Arc::new(ConcurrentFifo::with_capacity(100));
-    Scheduler::spawn_async(_notification_observer(window, message_buffer.clone()));
+    Scheduler::spawn_async(_notification_observer(
+        window.clone(),
+        message_buffer.clone(),
+    ));
 
     let dismiss_time = Duration::from_millis(5000);
     let mut last_timer = Timer::new(dismiss_time);
@@ -730,7 +731,7 @@ async fn _notification_task() {
     let mut open_animation = AnimatedProp::empty();
     let mut close_animation = AnimatedProp::empty();
 
-    let apply_frame = |window: WindowHandle, position: f64| {
+    let apply_frame = |window: &WindowHandle, position: f64| {
         let main_screen_bounds = WindowManager::main_screen_bounds();
         let user_screen_bounds = WindowManager::user_screen_bounds();
         let rect = Rect::new(
@@ -743,7 +744,7 @@ async fn _notification_task() {
         window.set_frame(rect);
     };
 
-    while let Some(message) = window.await_message().await {
+    while let Some(message) = window.clone().await_message().await {
         match message {
             WindowMessage::Timer(DISMISS_TIMER_ID) => {
                 if last_timer.is_expired() {
@@ -753,13 +754,13 @@ async fn _notification_task() {
                 }
             }
             WindowMessage::Timer(OPEN_ANIMATION_TIMER_ID) => {
-                apply_frame(window, open_animation.progress());
+                apply_frame(&window, open_animation.progress());
                 if open_animation.is_alive() {
                     window.create_timer(OPEN_ANIMATION_TIMER_ID, Duration::from_millis(10));
                 }
             }
             WindowMessage::Timer(CLOSE_ANIMATION_TIMER_ID) => {
-                apply_frame(window, close_animation.progress());
+                apply_frame(&window, close_animation.progress());
                 if close_animation.is_alive() {
                     window.create_timer(CLOSE_ANIMATION_TIMER_ID, Duration::from_millis(10));
                 } else {
@@ -771,7 +772,7 @@ async fn _notification_task() {
                     open_animation =
                         AnimatedProp::new(0.0, window_width as f64, animation_duration);
                     window.create_timer(OPEN_ANIMATION_TIMER_ID, Duration::from_millis(1));
-                    apply_frame(window, open_animation.progress());
+                    apply_frame(&window, open_animation.progress());
 
                     window
                         .draw_in_rect(Rect::from(window.content_size()), |bitmap| {

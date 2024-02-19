@@ -1,5 +1,8 @@
 use crate::sys::megos::svc::Function;
+use crate::time::SystemTime;
 use core::arch::asm;
+use core::mem::MaybeUninit;
+use core::time::Duration;
 
 #[allow(dead_code)]
 #[link(wasm_import_module = "megos-canary")]
@@ -82,8 +85,21 @@ pub fn os_monotonic() -> u32 {
 }
 
 #[inline]
-pub fn os_time_of_day() -> u32 {
-    unsafe { syscall!(Time, 0) as u32 }
+pub fn os_time_now() -> SystemTime {
+    let mut result = MaybeUninit::<SystemTime>::zeroed();
+    unsafe {
+        syscall!(Time, 0, result.as_mut_ptr());
+        result.assume_init()
+    }
+}
+
+#[inline]
+pub fn os_time_monotonic() -> Duration {
+    let mut result = MaybeUninit::<Duration>::zeroed();
+    unsafe {
+        syscall!(Time, 1, result.as_mut_ptr());
+        result.assume_init()
+    }
 }
 
 /// Blocks a thread for the specified microseconds.
@@ -103,7 +119,7 @@ pub fn os_version() -> u32 {
 /// Create a new window.
 #[inline]
 #[must_use]
-pub fn os_new_window1(title: &str, width: usize, height: usize) -> usize {
+pub fn os_new_window1(title: &str, width: u32, height: u32) -> usize {
     unsafe { syscall!(NewWindow, title.as_ptr(), title.len(), width, height) }
 }
 
@@ -112,9 +128,9 @@ pub fn os_new_window1(title: &str, width: usize, height: usize) -> usize {
 #[must_use]
 pub fn os_new_window2(
     title: &str,
-    width: usize,
-    height: usize,
-    bg_color: usize,
+    width: u32,
+    height: u32,
+    bg_color: u32,
     options: usize,
 ) -> usize {
     unsafe {
@@ -154,21 +170,14 @@ pub fn os_end_draw(ctx: usize) {
 
 /// Draw a string in a window.
 #[inline]
-pub fn os_win_draw_string(ctx: usize, x: usize, y: usize, s: &str, color: usize) {
+pub fn os_win_draw_string(ctx: usize, x: i32, y: i32, s: &str, color: u32) {
     unsafe {
         let _ = syscall!(DrawString, ctx, x, y, s.as_ptr(), s.len(), color);
     }
 }
 
 #[inline]
-pub fn os_draw_shape(
-    ctx: usize,
-    x: usize,
-    y: usize,
-    width: usize,
-    height: usize,
-    params: &OsDrawShape,
-) {
+pub fn os_draw_shape(ctx: usize, x: i32, y: i32, width: u32, height: u32, params: &OsDrawShape) {
     unsafe {
         let _ = syscall!(DrawShape, ctx, x, y, width, height, params as *const _);
     }
@@ -191,14 +200,14 @@ pub struct OsDrawShape {
 
 /// Fill a rectangle in a window.
 #[inline]
-pub fn os_win_fill_rect(ctx: usize, x: usize, y: usize, width: usize, height: usize, color: usize) {
+pub fn os_win_fill_rect(ctx: usize, x: i32, y: i32, width: u32, height: u32, color: u32) {
     unsafe {
         let _ = syscall!(FillRect, ctx, x, y, width, height, color);
     }
 }
 
 #[inline]
-pub fn os_win_draw_line(ctx: usize, x1: usize, y1: usize, x2: usize, y2: usize, color: usize) {
+pub fn os_win_draw_line(ctx: usize, x1: i32, y1: i32, x2: i32, y2: i32, color: u32) {
     unsafe {
         let _ = syscall!(DrawLine, ctx, x1, y1, x2, y2, color);
     }
@@ -218,21 +227,28 @@ pub fn os_read_char(window: usize) -> u32 {
 
 /// Draw a bitmap in a window
 #[inline]
-pub fn os_blt8(ctx: usize, x: usize, y: usize, bitmap: usize) {
+pub fn os_blt8(ctx: usize, x: i32, y: i32, bitmap: usize) {
     unsafe {
         let _ = syscall!(Blt8, ctx, x, y, bitmap);
     }
 }
 
 #[inline]
-pub fn os_blt32(ctx: usize, x: usize, y: usize, bitmap: usize) {
+pub fn os_blt8_sub(ctx: usize, x: i32, y: i32, bitmap: usize, w: u32, h: u32) {
+    unsafe {
+        let _ = syscall!(Blt8, ctx, x, y, bitmap, w, h);
+    }
+}
+
+#[inline]
+pub fn os_blt32(ctx: usize, x: i32, y: i32, bitmap: usize) {
     unsafe {
         let _ = syscall!(Blt32, ctx, x, y, bitmap);
     }
 }
 
 #[inline]
-pub fn os_blt32_sub(ctx: usize, x: usize, y: usize, bitmap: usize, w: usize, h: usize) {
+pub fn os_blt32_sub(ctx: usize, x: i32, y: i32, bitmap: usize, w: u32, h: u32) {
     unsafe {
         let _ = syscall!(Blt32, ctx, x, y, bitmap, w, h);
     }
@@ -240,7 +256,7 @@ pub fn os_blt32_sub(ctx: usize, x: usize, y: usize, bitmap: usize, w: usize, h: 
 
 /// Draw a bitmap in a window
 #[inline]
-pub fn os_blt1(ctx: usize, x: usize, y: usize, bitmap: usize, color: u32, mode: usize) {
+pub fn os_blt1(ctx: usize, x: i32, y: i32, bitmap: usize, color: u32, mode: usize) {
     unsafe {
         let _ = syscall!(Blt1, ctx, x, y, bitmap, color, mode);
     }
@@ -248,7 +264,7 @@ pub fn os_blt1(ctx: usize, x: usize, y: usize, bitmap: usize, color: u32, mode: 
 
 /// TEST
 #[inline]
-pub fn os_blend_rect(bitmap: usize, x: usize, y: usize, width: usize, height: usize, color: u32) {
+pub fn os_blend_rect(bitmap: usize, x: i32, y: i32, width: u32, height: u32, color: u32) {
     unsafe {
         let _ = syscall!(BlendRect, bitmap, x, y, width, height, color);
     }
@@ -308,20 +324,4 @@ pub fn os_write(handle: usize, buf: &[u8]) -> isize {
 #[inline]
 pub fn os_lseek(handle: usize, offset: i32, whence: usize) -> isize {
     unsafe { syscall!(LSeek, handle, offset, whence) as isize }
-}
-
-/// intrinsics sqrt
-#[inline]
-pub fn sqrt(v: f64) -> f64 {
-    unsafe { core::intrinsics::sqrtf64(v) }
-}
-
-#[inline]
-pub fn floor(v: f64) -> f64 {
-    unsafe { core::intrinsics::floorf64(v) }
-}
-
-#[inline]
-pub fn fabs(v: f64) -> f64 {
-    unsafe { core::intrinsics::fabsf64(v) }
 }

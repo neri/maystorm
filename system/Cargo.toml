@@ -15,11 +15,10 @@ myacpi = { path = "../lib/myacpi" }
 myos-archive = { path = "../lib/mar/" }
 
 # wami = { git = "https://github.com/neri/wami" }
-wami = { path = "../../wasm", default-features = false }
+wami = { path = "../../wami", default-features = false }
 
 # aml = { git = "https://github.com/rust-osdev/acpi" }
 byteorder = { default-features = false }
-cfg-if = {}
 futures-util = { default-features = false, features = ["alloc"] }
 num-derive = { default-features = false }
 num-traits = { default-features = false }

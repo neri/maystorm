@@ -66,7 +66,7 @@ impl System {
     }
 
     /// Initialize the system
-    pub unsafe fn init(info: &BootInfo, f: fn() -> ()) -> ! {
+    pub unsafe fn init(info: &BootInfo, main: fn() -> ()) -> ! {
         assert_call_once!();
 
         let shared = SYSTEM.get_mut();
@@ -116,33 +116,14 @@ impl System {
 
         arch::Arch::init_first(info);
 
-        Scheduler::start(Self::init_second, f as usize);
+        Scheduler::start(Self::_init_second, main as usize);
     }
 
     /// The second half of the system initialization
-    fn init_second(args: usize) {
+    fn _init_second(args: usize) {
         assert_call_once!();
 
         let shared = Self::shared();
-
-        if true {
-            let device = System::current_device();
-
-            let bytes = device.total_memory_size();
-            let gb = bytes >> 30;
-            let mb = (100 * (bytes & 0x3FFF_FFFF)) / 0x4000_0000;
-            log!(
-                "{} v{} (codename {}) {:?} {}C/{}T Memory {}.{:02}GB",
-                System::name(),
-                System::version(),
-                System::codename(),
-                device.processor_system_type(),
-                device.num_of_physical_cpus(),
-                device.num_of_logical_cpus(),
-                gb,
-                mb
-            );
-        }
 
         unsafe {
             utils::EventManager::init();
@@ -336,6 +317,65 @@ impl System {
             .is_err()
         {
             panic!("Multiple calls are not allowed");
+        }
+    }
+
+    pub fn date_to_integer(y: u16, m: u8, d: u8) -> u32 {
+        if y < 1970 {
+            return 0;
+        }
+        let m = match Month::try_from(m) {
+            Some(v) => v,
+            None => return 0,
+        };
+
+        let mut acc = (y as u32 * 365) + ((y / 4) - (y / 100) + (y / 400)) as u32;
+
+        let md_tbl = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+        acc += md_tbl[m as usize];
+        if m > Month::Feb && ((y % 400) == 0 || (y % 4) == 0 && (y % 100) != 0) {
+            acc += 1;
+        }
+
+        acc += d as u32;
+
+        acc - 719528 - 1
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Month {
+    Jan,
+    Feb,
+    Mar,
+    Apr,
+    May,
+    Jun,
+    Jul,
+    Aug,
+    Sep,
+    Oct,
+    Nov,
+    Dec,
+}
+
+impl Month {
+    #[inline]
+    fn try_from(v: u8) -> Option<Self> {
+        match v {
+            1 => Some(Self::Jan),
+            2 => Some(Self::Feb),
+            3 => Some(Self::Mar),
+            4 => Some(Self::Apr),
+            5 => Some(Self::May),
+            6 => Some(Self::Jun),
+            7 => Some(Self::Jul),
+            8 => Some(Self::Aug),
+            9 => Some(Self::Sep),
+            10 => Some(Self::Oct),
+            11 => Some(Self::Nov),
+            12 => Some(Self::Dec),
+            _ => None,
         }
     }
 }

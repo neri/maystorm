@@ -309,7 +309,7 @@ impl Hoe {
             18 => {
                 // set timer
                 let window = match self.windows.first() {
-                    Some(v) => v.handle,
+                    Some(v) => v.handle.clone(),
                     None => return,
                 };
                 let timer_id = match self.get_timer(regs.ebx) {

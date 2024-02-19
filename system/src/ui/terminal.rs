@@ -359,7 +359,7 @@ impl TtyRead for Terminal {
         &self,
     ) -> core::pin::Pin<Box<dyn core::future::Future<Output = TtyReadResult> + '_>> {
         Box::pin(ConsoleReader {
-            window: self.window,
+            window: self.window.clone(),
         })
     }
 }

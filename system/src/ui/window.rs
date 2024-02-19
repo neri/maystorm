@@ -103,11 +103,11 @@ impl WindowManager<'static> {
                 .bitmap_strategy(BitmapStrategy::NonBitmap)
                 .build_inner("Desktop");
 
-            let handle = window.handle;
-            window_pool.insert(handle, Arc::new(UnsafeCell::new(window)));
+            let handle = window.handle.clone();
+            window_pool.insert(handle.clone(), Arc::new(UnsafeCell::new(window)));
             handle
         };
-        window_orders.push(root);
+        window_orders.push(root.clone());
 
         let (pointer, pointer_hotspot) = {
             let pointer_image =
@@ -131,8 +131,8 @@ impl WindowManager<'static> {
                 })
                 .unwrap();
 
-            let handle = window.handle;
-            window_pool.insert(handle, Arc::new(UnsafeCell::new(window)));
+            let handle = window.handle.clone();
+            window_pool.insert(handle.clone(), Arc::new(UnsafeCell::new(window)));
             (handle, Point::new(10, 6))
         };
 
@@ -146,8 +146,8 @@ impl WindowManager<'static> {
                 .bitmap_strategy(BitmapStrategy::NonBitmap)
                 .build_inner("Barrier");
 
-            let handle = window.handle;
-            window_pool.insert(handle, Arc::new(UnsafeCell::new(window)));
+            let handle = window.handle.clone();
+            window_pool.insert(handle.clone(), Arc::new(UnsafeCell::new(window)));
             handle
         };
 
@@ -191,7 +191,7 @@ impl WindowManager<'static> {
 
     #[track_caller]
     fn add(window: RawWindow) {
-        let handle = window.handle;
+        let handle = window.handle.clone();
         WindowManager::shared()
             .window_pool
             .write()
@@ -203,13 +203,13 @@ impl WindowManager<'static> {
         window.hide();
         let shared = WindowManager::shared();
         let window_orders = shared.window_orders.write().unwrap();
-        let handle = window.handle;
+        let handle = window.handle.clone();
         shared.window_pool.write().unwrap().remove(&handle);
         drop(window_orders);
     }
 
     #[inline]
-    fn get(&self, key: &WindowHandle) -> Option<WindowRef> {
+    fn _get(&self, key: &WindowHandle) -> Option<WindowRef> {
         WindowManager::shared()
             .window_pool
             .read()
@@ -363,7 +363,7 @@ impl WindowManager<'_> {
                                 });
                             } else {
                                 let _ = Self::make_mouse_events(
-                                    captured,
+                                    captured.clone(),
                                     position,
                                     current_buttons,
                                     buttons_down,
@@ -371,7 +371,7 @@ impl WindowManager<'_> {
                                 );
                             }
 
-                            shared.captured.reset();
+                            shared.captured.clear();
                             shared.attributes.remove(
                                 WindowManagerAttributes::MOVING
                                     | WindowManagerAttributes::CLOSE_DOWN
@@ -400,18 +400,18 @@ impl WindowManager<'_> {
                             }
                         }
                     } else {
-                        let target = Self::window_at_point(position);
+                        let target = Self::window_at_point(position).clone();
 
                         if buttons_down.contains(MouseButton::PRIMARY) {
                             if let Some(active) = shared.active.get() {
                                 if active != target {
-                                    WindowManager::set_active(Some(target));
+                                    WindowManager::set_active(Some(target.clone()));
                                 }
                             } else {
-                                WindowManager::set_active(Some(target));
+                                WindowManager::set_active(Some(target.clone()));
                             }
 
-                            let target_window = target.as_ref();
+                            let target_window = target.clone().as_ref();
                             if target_window.close_button_state != ViewActionState::Disabled
                                 && target_window
                                     .test_frame(position, target_window.close_button_frame())
@@ -437,7 +437,7 @@ impl WindowManager<'_> {
                                     shared.attributes.insert(WindowManagerAttributes::MOVING);
                                 } else {
                                     let _ = Self::make_mouse_events(
-                                        target,
+                                        target.clone(),
                                         position,
                                         current_buttons,
                                         buttons_down,
@@ -445,11 +445,11 @@ impl WindowManager<'_> {
                                     );
                                 }
                             }
-                            shared.captured.set(target);
+                            shared.captured.set(target.clone());
                             captured_offset = position - target_window.visible_frame().origin();
                         } else {
                             let _ = Self::make_mouse_events(
-                                target,
+                                target.clone(),
                                 position,
                                 current_buttons,
                                 buttons_down,
@@ -549,7 +549,7 @@ impl WindowManager<'_> {
         position: Point,
         buttons: MouseButton,
     ) -> Result<(), WindowPostError> {
-        self.entered.set(new);
+        self.entered.set(new.clone());
         old.post(WindowMessage::MouseLeave(MouseEvent::new(
             position,
             buttons,
@@ -578,7 +578,7 @@ impl WindowManager<'_> {
     fn add_hierarchy(window: WindowHandle) {
         let Some(window) = window.get() else { return };
 
-        Self::remove_hierarchy(window.handle);
+        Self::remove_hierarchy(window.handle.clone());
         let mut window_orders = WindowManager::shared().window_orders.write().unwrap();
 
         let mut insert_position = None;
@@ -589,9 +589,9 @@ impl WindowManager<'_> {
             }
         }
         if let Some(insert_position) = insert_position {
-            window_orders.insert(insert_position, window.handle);
+            window_orders.insert(insert_position, window.handle.clone());
         } else {
-            window_orders.push(window.handle);
+            window_orders.push(window.handle.clone());
         }
 
         window.attributes.insert(WindowAttributes::VISIBLE);
@@ -658,10 +658,10 @@ impl WindowManager<'_> {
         let shared = WindowManager::shared();
         if let Some(old_active) = shared.active.get() {
             let _ = old_active.post(WindowMessage::Deactivated);
-            shared.active.write(window);
+            shared.active.write(window.clone());
             let _ = old_active.update_opt(|window| window.refresh_title());
         } else {
-            shared.active.write(window);
+            shared.active.write(window.clone());
         }
         if let Some(active) = window {
             let _ = active.post(WindowMessage::Activated);
@@ -675,10 +675,10 @@ impl WindowManager<'_> {
         for handle in window_orders.iter().rev().skip(1) {
             let window = handle.as_ref();
             if window.frame.contains(point) {
-                return *handle;
+                return handle.clone();
             }
         }
-        shared.root
+        shared.root.clone()
     }
 
     fn pointer(&self) -> Point {
@@ -831,11 +831,11 @@ impl WindowManager<'_> {
 
     #[inline]
     pub fn current_desktop_window() -> WindowHandle {
-        Self::shared().root
+        Self::shared().root.clone()
     }
 
     pub fn set_desktop_color(color: Color) {
-        let desktop = Self::shared().root;
+        let desktop = Self::shared().root.clone();
         desktop.update(|window| {
             window.set_bg_color(color);
         });
@@ -1032,7 +1032,7 @@ impl WindowManager<'_> {
 
     pub fn set_barrier_opacity(opacity: Alpha8) {
         let shared = Self::shared();
-        let barrier = shared.barrier;
+        let barrier = shared.barrier.clone();
         if opacity.is_transparent() {
             barrier.hide();
         } else {
@@ -1225,7 +1225,7 @@ impl RawWindow {
     fn show(&mut self) {
         self.draw_frame();
         self.update_shadow();
-        WindowManager::add_hierarchy(self.handle);
+        WindowManager::add_hierarchy(self.handle.clone());
 
         let frame = self.shadow_frame();
         self.draw_outer_to_screen(frame.origin().into(), frame.bounds(), false);
@@ -1234,20 +1234,20 @@ impl RawWindow {
     fn hide(&self) {
         let shared = WindowManager::shared();
         let frame = self.shadow_frame();
-        let next_active = if shared.active.contains(self.handle) {
+        let next_active = if shared.active.contains(self.handle.clone()) {
             let window_orders = shared.window_orders.read().unwrap();
             window_orders
                 .iter()
                 .position(|v| *v == self.handle)
                 .and_then(|v| window_orders.get(v - 1))
-                .map(|&v| v)
+                .map(|v| v.clone())
         } else {
             None
         };
-        if shared.captured.contains(self.handle) {
-            shared.captured.reset();
+        if shared.captured.contains(self.handle.clone()) {
+            shared.captured.clear();
         }
-        WindowManager::remove_hierarchy(self.handle);
+        WindowManager::remove_hierarchy(self.handle.clone());
         WindowManager::invalidate_screen(frame);
         if next_active.is_some() {
             WindowManager::set_active(next_active);
@@ -1299,7 +1299,7 @@ impl RawWindow {
             let window_orders = shared.window_orders.read().unwrap();
             let first_index = 1 + window_orders
                 .iter()
-                .position(|&v| v == self.handle)
+                .position(|v| *v == self.handle)
                 .unwrap_or(0);
             let screen_rect = rect + Movement::from(self.frame.origin());
 
@@ -1363,7 +1363,7 @@ impl RawWindow {
         let first_index = if is_opaque {
             window_orders
                 .iter()
-                .position(|&v| v == self.handle)
+                .position(|v| *v == self.handle)
                 .unwrap_or(0)
         } else {
             0
@@ -1468,7 +1468,7 @@ impl RawWindow {
 
     #[inline]
     fn is_active(&self) -> bool {
-        WindowManager::shared().active.contains(self.handle)
+        WindowManager::shared().active.contains(self.handle.clone())
     }
 
     fn refresh_title(&mut self) {
@@ -1897,7 +1897,7 @@ impl RawWindowBuilder {
 
     pub fn build(self, title: &str) -> WindowHandle {
         let window = self.build_inner(title);
-        let handle = window.handle;
+        let handle = window.handle.clone();
         let style = window.style.value();
         WindowManager::add(window);
         if !style.contains(WindowStyle::SUSPENDED) {
@@ -2199,8 +2199,8 @@ impl Deref for WindowRef {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct WindowHandle(pub NonZeroUsize);
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct WindowHandle(NonZeroUsize);
 
 impl WindowHandle {
     #[inline]
@@ -2218,13 +2218,13 @@ impl WindowHandle {
 
     #[inline]
     pub fn validate(&self) -> Option<Self> {
-        self.get().map(|v| v.handle)
+        self.get().map(|v| v.handle.clone())
     }
 
     #[inline]
     #[track_caller]
     fn get<'a>(&self) -> Option<WindowRef> {
-        WindowManager::shared().get(self)
+        WindowManager::shared()._get(self)
     }
 
     #[inline]
@@ -2353,7 +2353,7 @@ impl WindowHandle {
 
     #[inline]
     pub fn make_active(&self) {
-        WindowManager::set_active(Some(*self));
+        WindowManager::set_active(Some(self.clone()));
     }
 
     #[inline]
@@ -2492,7 +2492,9 @@ impl WindowHandle {
 
     /// Get the window message asynchronously.
     pub fn await_message(&self) -> Pin<Box<dyn Future<Output = Option<WindowMessage>>>> {
-        Box::pin(WindowMessageConsumer { handle: *self })
+        Box::pin(WindowMessageConsumer {
+            handle: self.clone(),
+        })
     }
 
     /// Supports asynchronous reading of window messages.
@@ -2536,8 +2538,15 @@ impl WindowHandle {
 
     /// Create a timer associated with a window
     pub fn create_timer(&self, timer_id: usize, duration: Duration) {
-        let event = TimerEvent::window(*self, timer_id, Timer::new(duration));
+        let event = TimerEvent::window(self.clone(), timer_id, Timer::new(duration));
         event.schedule();
+    }
+}
+
+impl Clone for WindowHandle {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
     }
 }
 
@@ -2579,7 +2588,7 @@ impl AtomicWindowHandle {
     }
 
     #[inline]
-    pub fn reset(&self) {
+    pub fn clear(&self) {
         self.write(None);
     }
 
@@ -2674,7 +2683,7 @@ pub enum WindowMessage {
 }
 
 #[non_exhaustive]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug)]
 pub enum WindowSystemEvent {
     /// Raw Keyboard event
     Key(WindowHandle, KeyEvent),

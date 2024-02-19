@@ -1,9 +1,8 @@
+use crate::vec::{Vec3, Vec4};
+use crate::*;
 use core::fmt;
 use core::mem::transmute;
 use core::ops::{Add, AddAssign, Sub, SubAssign};
-
-use crate::vec::{Vec3, Vec4};
-use crate::GlUInt;
 
 /// Common color trait
 pub trait PixelColor: Sized + Copy + Clone + PartialEq + Eq + Default {
@@ -228,13 +227,7 @@ impl Alpha8 {
 
     #[inline]
     pub fn from_f32(value: f32) -> Self {
-        if value >= 1.0 {
-            Self::OPAQUE
-        } else if value > 0.0 {
-            Self((value * Self::OPAQUE.0 as f32) as u8)
-        } else {
-            Self::TRANSPARENT
-        }
+        Self((value * 255.0).clamp(0.0, 255.0) as u8)
     }
 
     #[inline]

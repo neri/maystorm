@@ -1,8 +1,9 @@
 //! MEG-OS Standard Graphics Drawing Library
 #![no_std]
-// #![feature(const_fn_floating_point_arithmetic)]
+#![feature(cfg_match)]
 
 extern crate alloc;
+extern crate libm;
 
 /// Preferred Signed Integer
 pub type GlSInt = i32;
