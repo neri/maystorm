@@ -1,7 +1,6 @@
 //! Arlequin Subsystem (expr)
 
 use super::*;
-use megstd::io::ErrorKind;
 
 /// Load .bin file
 pub struct ArleBinaryLoader;

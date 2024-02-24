@@ -1,7 +1,7 @@
 #![no_main]
 #![no_std]
 
-use megstd::{drawing::IndexedColor, window::*};
+use megstd::window::*;
 
 #[no_mangle]
 fn _start() {

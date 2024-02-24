@@ -17,6 +17,5 @@ window = []
 meggl = {path = "../meggl/"}
 
 bitflags = {default-features = false}
-cfg-if = {}
 num-derive = {default-features = false}
 num-traits = {default-features = false}

@@ -35,7 +35,7 @@ struct CpuImpl;
 impl HalCpu for CpuImpl {
     #[inline]
     fn current_processor_index(&self) -> ProcessorIndex {
-        ProcessorIndex(unsafe { Cpu::rdtscp().1 } as usize)
+        ProcessorIndex(Cpu::rdtscp().1 as usize)
     }
 
     #[inline]

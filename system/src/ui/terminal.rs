@@ -2,7 +2,6 @@ use crate::io::tty::*;
 use crate::ui::font::*;
 use crate::ui::window::*;
 use crate::*;
-use core::fmt::Write;
 use core::future::Future;
 use core::pin::Pin;
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -67,7 +66,6 @@ pub struct Terminal {
     fg_color: Color,
     bg_color: Color,
     is_cursor_enabled: bool,
-    font_cache: Option<OwnedBitmap32>,
     palette: [TrueColor; 16],
 }
 
@@ -105,11 +103,6 @@ impl Terminal {
         } else {
             DEFAULT_ATTRIBUTE
         };
-        let alpha = if alpha.is_transparent() {
-            BG_ALPHA
-        } else {
-            alpha
-        };
         let palette = *palette.unwrap_or(&Self::DEFAULT_PALETTE);
         let (fg_color, bg_color) = Self::_split_attr(&palette, attribute, alpha);
 
@@ -131,7 +124,6 @@ impl Terminal {
             fg_color,
             bg_color,
             is_cursor_enabled: true,
-            font_cache: Self::_fill_cache(&font),
             palette,
         }
     }
@@ -177,28 +169,8 @@ impl Terminal {
             fg_color,
             bg_color,
             is_cursor_enabled: true,
-            font_cache: Self::_fill_cache(&font),
             palette,
         }
-    }
-
-    fn _fill_cache(_font: &FontDescriptor) -> Option<OwnedBitmap32> {
-        return None;
-        // if font.is_scalable() {
-        //     let font_size = Size::new(font.em_width(), font.line_height());
-        //     let mut bitmap =
-        //         OwnedBitmap32::new(font_size * Size::new(256, 1), TrueColor::TRANSPARENT);
-        //     {
-        //         let mut bitmap = Bitmap::from(bitmap.as_mut());
-        //         for i in 32..128 {
-        //             let origin = Point::new(font_size.width * i, 0);
-        //             font.draw_char(i as u8 as char, &mut bitmap, origin, Color::LIGHT_BLUE);
-        //         }
-        //     }
-        //     Some(bitmap)
-        // } else {
-        //     None
-        // }
     }
 
     fn split_attr(&self, val: u8, alpha: Alpha8) -> (Color, Color) {
@@ -276,20 +248,8 @@ impl Terminal {
                 self.window
                     .draw_in_rect(rect, |bitmap| {
                         bitmap.fill_rect(bitmap.bounds(), self.bg_color);
-
-                        if let Some(font_cache) = self.font_cache.as_ref() {
-                            let font_cache = BitmapRef::from(font_cache.as_ref());
-                            let rect = Rect::new(w as i32 * c as i32, 0, w, h);
-                            bitmap.blt_transparent(
-                                &font_cache,
-                                Point::default(),
-                                rect,
-                                IndexedColor::KEY_COLOR,
-                            );
-                        } else {
-                            self.font
-                                .draw_char(c, bitmap, Point::default(), self.fg_color);
-                        }
+                        self.font
+                            .draw_char(c, bitmap, Point::default(), self.fg_color);
                     })
                     .unwrap();
 

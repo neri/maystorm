@@ -1,5 +1,6 @@
 /// MEG-OS Maystorm System Call Function Numbers
 #[repr(u32)]
+#[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Function {
     /// Terminate the process normally

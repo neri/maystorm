@@ -9,7 +9,7 @@ use crate::sync::{
     LockResult, Mutex, RwLock, RwLockReadGuard,
 };
 use crate::system::*;
-use crate::ui::window::{WindowHandle, WindowMessage};
+use crate::ui::window::{WindowManager, WindowTimerEvent};
 use crate::*;
 use core::cell::UnsafeCell;
 use core::ffi::c_void;
@@ -1200,7 +1200,7 @@ pub struct TimerEvent {
 enum TimerType {
     Async(Pin<Arc<AsyncSemaphore>>),
     OneShot(ThreadHandle),
-    Window(WindowHandle, usize),
+    Window(Box<WindowTimerEvent>),
 }
 
 #[allow(dead_code)]
@@ -1222,10 +1222,10 @@ impl TimerEvent {
     }
 
     #[inline]
-    pub fn window(window: WindowHandle, timer_id: usize, timer: Timer) -> Self {
+    pub fn window(payload: WindowTimerEvent, timer: Timer) -> Self {
         Self {
             timer,
-            timer_type: TimerType::Window(window, timer_id),
+            timer_type: TimerType::Window(Box::new(payload)),
         }
     }
 
@@ -1243,11 +1243,7 @@ impl TimerEvent {
         match self.timer_type {
             TimerType::OneShot(thread) => thread.wake(),
             TimerType::Async(sem) => sem.signal(),
-            TimerType::Window(window, timer_id) => {
-                let _ = window
-                    .validate()
-                    .map(|v| v.post(WindowMessage::Timer(timer_id)).unwrap());
-            }
+            TimerType::Window(payload) => WindowManager::post_timer_event(*payload),
         }
     }
 }
@@ -1605,6 +1601,7 @@ struct ThreadContextData {
     handle: ThreadHandle,
 
     // Properties
+    name: String,
     sem: Semaphore,
     personality: Option<UnsafeCell<PersonalityContext>>,
     attribute: AtomicFlags<ThreadAttribute>,
@@ -1621,9 +1618,6 @@ struct ThreadContextData {
 
     // Executor
     executor: Option<Executor>,
-
-    // Thread Name
-    name: String,
 }
 
 my_bitflags! {

@@ -84,7 +84,7 @@ impl ScreenOrientation {
 
 pub struct BitmapScreen<'a> {
     fb: UnsafeCell<BitmapRefMut32<'a>>,
-    dims: Size,
+    native_size: Size,
     rotation: AtomicWrapper<Rotation>,
 }
 
@@ -92,7 +92,7 @@ impl<'a> BitmapScreen<'a> {
     #[inline]
     pub fn new(bitmap: BitmapRefMut32<'a>) -> Self {
         Self {
-            dims: bitmap.size(),
+            native_size: bitmap.size(),
             fb: UnsafeCell::new(bitmap),
             rotation: AtomicWrapper::default(),
         }
@@ -110,7 +110,7 @@ impl<'a> BitmapScreen<'a> {
 
     #[inline]
     fn is_portrait_native(&self) -> bool {
-        self.dims.width < self.dims.height
+        self.native_size.width < self.native_size.height
     }
 }
 
@@ -119,16 +119,16 @@ impl Image for BitmapScreen<'_> {
 
     fn size(&self) -> Size {
         if self.is_natural_orientation() {
-            self.dims
+            self.native_size
         } else {
-            Size::new(self.dims.height, self.dims.width)
+            Size::new(self.native_size.height, self.native_size.width)
         }
     }
 }
 
 impl Screen<BitmapRef32<'_>> for BitmapScreen<'_> {
     fn native_size(&self) -> Size {
-        self.dims
+        self.native_size
     }
 
     fn blt(&self, src: &BitmapRef32, origin: Point, rect: Rect) {
@@ -144,7 +144,7 @@ impl Screen<BitmapRef32<'_>> for BitmapScreen<'_> {
             self.bitmap().fill_rect(rect, color.into());
         } else {
             let rect = Rect::new(
-                self.dims.width() as i32 - rect.min_y() - rect.height() as i32,
+                self.native_size.width() as i32 - rect.min_y() - rect.height() as i32,
                 rect.min_x(),
                 rect.height(),
                 rect.width(),
@@ -181,10 +181,8 @@ impl Screen<BitmapRef32<'_>> for BitmapScreen<'_> {
 
     fn rotate(&self) -> Result<Rotation, Rotation> {
         let new_val = match self.rotation.value() {
-            Rotation::Default => Rotation::ClockWise,
-            Rotation::ClockWise => Rotation::Default,
-            Rotation::UpsideDown => Rotation::ClockWise,
-            Rotation::CounterClockWise => Rotation::Default,
+            Rotation::Default | Rotation::UpsideDown => Rotation::ClockWise,
+            Rotation::ClockWise | Rotation::CounterClockWise => Rotation::Default,
         };
         self.rotation.store(new_val);
         Ok(self.rotation())

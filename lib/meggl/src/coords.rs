@@ -1,6 +1,5 @@
 use super::*;
 use crate::vec::Vec2;
-use core::convert::TryFrom;
 use core::mem::swap;
 use core::ops::*;
 pub use num_traits::Zero;

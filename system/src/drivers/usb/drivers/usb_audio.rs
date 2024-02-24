@@ -22,7 +22,7 @@ impl UsbInterfaceDriverStarter for UsbAudioStarter {
         if_no: UsbInterfaceNumber,
         class: UsbClass,
     ) -> Option<Pin<Box<dyn Future<Output = Result<Task, UsbError>>>>> {
-        if class.base() == UsbBaseClass::AUDIO {
+        if class.base_class() == UsbBaseClass::AUDIO {
             Some(Box::pin(UsbAudioDriver::_instantiate(
                 device.clone(),
                 if_no,

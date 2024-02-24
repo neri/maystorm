@@ -1,8 +1,7 @@
 //! Error
 //! Most of them are clones of Rust's original definition.
 
-use crate::error;
-use alloc::boxed::Box;
+use crate::prelude::*;
 use core::fmt;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -199,7 +198,13 @@ impl fmt::Debug for Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        (self as &dyn fmt::Debug).fmt(f)
+        match self.repr {
+            Repr::Os(err) => {
+                write!(f, "OsError({})", err)
+            }
+            Repr::Simple(ref repr) => (repr as &dyn fmt::Debug).fmt(f),
+            Repr::Custom(ref repr) => (repr as &dyn fmt::Debug).fmt(f),
+        }
     }
 }
 

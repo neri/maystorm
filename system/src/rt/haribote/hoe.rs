@@ -8,7 +8,7 @@ use core::slice;
 use core::str;
 use core::time::Duration;
 use megstd::drawing::*;
-use megstd::io::{hid::Usage, Error, ErrorKind, Read};
+use megstd::io::hid::Usage;
 
 #[allow(dead_code)]
 mod fonts {

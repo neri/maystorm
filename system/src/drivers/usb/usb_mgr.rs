@@ -1,5 +1,4 @@
 use super::*;
-use crate::r;
 use crate::sync::{fifo::AsyncEventQueue, spinlock::SpinMutex, RwLock};
 use crate::task::{scheduler::*, Task};
 use crate::*;

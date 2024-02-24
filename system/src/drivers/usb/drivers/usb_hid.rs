@@ -25,7 +25,7 @@ impl UsbInterfaceDriverStarter for UsbHidStarter {
         if_no: UsbInterfaceNumber,
         class: UsbClass,
     ) -> Option<Pin<Box<dyn Future<Output = Result<Task, UsbError>>>>> {
-        if class.base() == UsbBaseClass::HID {
+        if class.base_class() == UsbBaseClass::HID {
             Some(Box::pin(UsbHidDriver::_instantiate(
                 device.clone(),
                 if_no,
@@ -80,7 +80,7 @@ impl UsbHidDriver {
         device.configure_endpoint(endpoint.descriptor()).unwrap();
 
         // disable boot protocol
-        if class.sub() == UsbSubClass(1) {
+        if class.sub_class() == UsbSubClass(1) {
             let _result = Self::set_boot_protocol(&device, if_no, false).await.is_ok();
         }
 

@@ -1,10 +1,8 @@
 //! Log Event Manager
 
-use crate::r;
 use crate::sync::fifo::AsyncEventQueue;
 use crate::system::System;
 use crate::*;
-use core::fmt::Write;
 use core::mem::MaybeUninit;
 use core::pin::Pin;
 use futures_util::Future;

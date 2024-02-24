@@ -1,5 +1,8 @@
+//! 4-level paging (48bit)
+
 use super::cpu::{MSR, PAT};
 use crate::{mem::*, *};
+use bootprot::BootInfo;
 use core::alloc::Layout;
 use core::arch::asm;
 use core::ffi::c_void;
@@ -19,12 +22,11 @@ impl PageManager {
     const PAGE_SIZE_M1: PageTableRepr = 0xFFF;
 
     const PAGE_USER_MIN: usize = 0x000;
-    const PAGE_USER_MAX: usize = 0x100;
-    const PAGE_DIRECT_MAP: usize = 0x180;
+    const PAGE_USER_MAX: usize = 0x0FF;
+    const PAGE_DIRECT_MAP: usize = 0x140;
     const PAGE_HEAP_MIN: usize = 0x1FC;
     const PAGE_HEAP_MAX: usize = 0x1FD;
     const PAGE_RECURSIVE: usize = 0x1FE;
-    // const PAGE_KERNEL_HEAP: usize = 0x1FC;
 
     const DIRECT_BASE: usize = PageLevel::MAX.addr(Self::PAGE_DIRECT_MAP);
     const SIZE_DIRECT_MAP: u64 = PageLevel::Level3.size_of_page();
@@ -34,7 +36,7 @@ impl PageManager {
         let base = Self::read_pdbr() & !Self::PAGE_SIZE_M1;
         let p = base as usize as *mut PageTableEntry;
 
-        MSR::set_pat(&PageAttribute::PREFERRED_PAT_SETTINGS);
+        MSR::set_pat(PageAttribute::PREFERRED_PAT_SETTINGS);
 
         // FFFF_FF00_0000_0000 - FFFF_FF7F_FFFF_FFFF RECURSIVE PAGE TABLE AREA
         p.add(Self::PAGE_RECURSIVE)
@@ -129,9 +131,9 @@ impl PageManager {
             }
             MemoryMapRequest::User(va, len, attr) => {
                 if PageLevel::MAX.component(va) < Self::PAGE_USER_MIN
-                    || PageLevel::MAX.component(va) >= Self::PAGE_USER_MAX
-                    || PageLevel::MAX.component(len) >= (Self::PAGE_USER_MAX - Self::PAGE_USER_MIN)
-                    || PageLevel::MAX.component(va + len) >= Self::PAGE_USER_MAX
+                    || PageLevel::MAX.component(va) > Self::PAGE_USER_MAX
+                    || PageLevel::MAX.component(len) > (Self::PAGE_USER_MAX - Self::PAGE_USER_MIN)
+                    || PageLevel::MAX.component(va + len) > Self::PAGE_USER_MAX
                 {
                     return 0;
                 }

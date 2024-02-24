@@ -128,8 +128,8 @@ impl FsDriver for DevFsDriver {
         "devfs".to_owned()
     }
 
-    fn description(&self) -> String {
-        "".to_owned()
+    fn description(&self) -> Option<String> {
+        None
     }
 
     fn root_dir(&self) -> INodeType {
@@ -219,7 +219,7 @@ pub struct MajorDevNo(NonZeroU32);
 impl From<MajorDevNo> for INodeType {
     #[inline]
     fn from(value: MajorDevNo) -> Self {
-        unsafe { INodeType::new_unchecked((value.0.get() as u64) << 48) }
+        unsafe { INodeType::new_unchecked((value.0.get() as u128) << 64) }
     }
 }
 
@@ -228,7 +228,7 @@ impl TryFrom<INodeType> for MajorDevNo {
 
     #[inline]
     fn try_from(value: INodeType) -> core::result::Result<Self, Self::Error> {
-        let value = value.get() >> 48;
+        let value = value.get() >> 64;
         ((value as usize) < DevFs::MAX_MINOR_DEVICE)
             .then(|| NonZeroU32::new(value as u32))
             .flatten()
@@ -243,7 +243,7 @@ pub struct MinorDevNo(NonZeroU32);
 impl From<MinorDevNo> for INodeType {
     #[inline]
     fn from(value: MinorDevNo) -> Self {
-        unsafe { INodeType::new_unchecked(value.0.get() as u64) }
+        unsafe { INodeType::new_unchecked(value.0.get() as u128) }
     }
 }
 

@@ -1,6 +1,6 @@
 //! Real Time Clock
 
-use super::System;
+use crate::system::System;
 use crate::task::scheduler::*;
 use crate::*;
 use core::arch::asm;

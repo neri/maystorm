@@ -2,7 +2,6 @@ use super::*;
 use alloc::{borrow::ToOwned, boxed::Box, vec::Vec};
 use core::borrow::{Borrow, BorrowMut};
 use core::cell::UnsafeCell;
-use core::convert::TryFrom;
 use core::intrinsics::copy_nonoverlapping;
 use core::mem::{swap, transmute, ManuallyDrop};
 use core::num::NonZeroUsize;

@@ -635,12 +635,8 @@ impl Shell {
 
         for key in keys {
             let mount_point = mount_points.get(key).unwrap();
-            println!(
-                "{} on {} {}",
-                mount_point.device_name(),
-                key,
-                mount_point.description()
-            );
+            let description = mount_point.description().unwrap_or_default();
+            println!("{} on {} {}", mount_point.device_name(), key, description);
         }
     }
 

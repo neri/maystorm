@@ -11,7 +11,7 @@ Ported From: https://qiita.com/doxas/items/477fda867da467116f8d
 extern crate libm;
 use core::cell::UnsafeCell;
 use libm::{cos, fabs, floor, sqrt};
-use megstd::drawing::{vec::*, DrawRect};
+use megstd::drawing::vec::*;
 use megstd::window::*;
 
 const EPS: f64 = 1.0e-4;

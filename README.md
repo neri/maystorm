@@ -8,6 +8,7 @@ A hobby operating system written in Rust that supports WebAssembly.
 
 * A hobby operating system written in Rust
 * Not a POSIX clone system
+  * Designed for use by a single user
 * Supports applications in WebAssembly format
 
 ## Requirements
@@ -21,6 +22,8 @@ A hobby operating system written in Rust that supports WebAssembly.
 ## Build Environment
 
 * Rust nightly
+  * `rustup component add rust-src --toolchain nightly-aarch64-unknown-linux-gnu`
+  * `rustup target add wasm32-unknown-unknown`
 * nasm
 * qemu + ovmf (optional)
 

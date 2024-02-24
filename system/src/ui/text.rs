@@ -2,7 +2,7 @@
 
 use super::font::*;
 use crate::*;
-use alloc::{borrow::Cow, vec::Vec};
+use alloc::borrow::Cow;
 use core::num::NonZeroUsize;
 use megstd::drawing::*;
 

@@ -34,8 +34,8 @@
 //! * content: blob
 //!
 #![cfg_attr(not(test), no_std)]
-
 extern crate alloc;
+#[allow(unused_imports)]
 use alloc::vec::Vec;
 use core::mem::transmute;
 

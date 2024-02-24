@@ -25,8 +25,6 @@ use core::cell::UnsafeCell;
 use core::f64::consts::PI;
 use libm::{ceil, cos, floor, sin};
 use megstd::drawing::vec::*;
-use megstd::drawing::PrimaryColor;
-use megstd::drawing::TrueColor;
 use megstd::window::*;
 
 #[no_mangle]

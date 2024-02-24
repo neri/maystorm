@@ -54,7 +54,7 @@ impl Invoke for Invocation {
 
     unsafe fn invoke_kernel(
         &self,
-        info: &BootInfo,
+        info: BootInfo,
         entry: VirtualAddress,
         new_sp: VirtualAddress,
     ) -> ! {
@@ -91,11 +91,11 @@ impl Invoke for Invocation {
             asm!(
                 "jmp rax",
                 in("rax") kernel_stub,
-                in("rcx") info,
+                in("rcx") &info,
                 in("rdx") 0,
                 in("rsi") 0,
-                in("rdi") info,
-                in("r8") info.master_cr3,
+                in("rdi") &info,
+                in("r8") info.master_page_table,
                 in("r9") entry.0,
                 in("r10") new_sp.0,
                 options(noreturn)

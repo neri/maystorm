@@ -75,7 +75,7 @@ impl RamFs {
             .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |v| {
                 (self.inodes.lock().unwrap().len() < INODE_MAX).then(|| v + 1)
             })
-            .map(|v| unsafe { INodeType::new(1 + v as u64).unwrap_unchecked() })
+            .map(|v| unsafe { INodeType::new((1 + v) as u128).unwrap_unchecked() })
             .ok()
     }
 
@@ -106,8 +106,8 @@ impl FsDriver for RamFs {
         "ramfs".to_owned()
     }
 
-    fn description(&self) -> String {
-        "".to_owned()
+    fn description(&self) -> Option<String> {
+        None
     }
 
     fn root_dir(&self) -> INodeType {

@@ -9,7 +9,6 @@ use bootprot::*;
 use core::alloc::Layout;
 use core::cell::UnsafeCell;
 use core::ffi::c_void;
-use core::fmt::Write;
 use core::mem::{size_of, transmute, MaybeUninit};
 use core::num::*;
 use core::slice;

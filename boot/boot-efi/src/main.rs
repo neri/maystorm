@@ -31,7 +31,7 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
     uefi_services::init(&mut st).unwrap();
 
     let mut info = BootInfo {
-        platform: PlatformType::UEFI,
+        platform: PlatformType::UefiNative,
         color_mode: ColorMode::Argb32,
         ..Default::default()
     };
@@ -64,7 +64,7 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
     }
 
     // Init graphics
-    let mut graphics_ok = false;
+    // let mut graphics_ok = false;
     if let Ok(handle_buffer) =
         bs.locate_handle_buffer(SearchType::ByProtocol(&gop::GraphicsOutput::GUID))
     {
@@ -98,14 +98,14 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
                 unsafe {
                     debug::Console::init(info.vram_base as usize, width, height, stride);
                 }
-                graphics_ok = true;
+                // graphics_ok = true;
             }
         }
     }
-    if !graphics_ok && !info.flags.contains(BootFlags::HEADLESS) {
-        writeln!(st.stdout(), "Error: GOP Not Found").unwrap();
-        return Status::LOAD_ERROR;
-    }
+    // if !graphics_ok && !info.flags.contains(BootFlags::HEADLESS) {
+    //     writeln!(st.stdout(), "Error: GOP Not Found").unwrap();
+    //     return Status::LOAD_ERROR;
+    // }
 
     // println!("ACPI: {:012x}", info.acpi_rsdptr);
     // println!("SMBIOS: {:012x}", info.smbios);
@@ -166,11 +166,11 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
         let entry = kernel.locate(VirtualAddress(info.kernel_base));
 
         let stack_size: usize = 0x4000;
-        let new_sp = VirtualAddress(info.kernel_base + 0x3FFFF000);
+        let new_sp = VirtualAddress(info.kernel_base | 0x3FFFF000);
         PageManager::valloc(new_sp - stack_size, stack_size);
 
         // println!("Starting kernel...");
-        invocation.invoke_kernel(&info, entry, new_sp);
+        invocation.invoke_kernel(info, entry, new_sp);
     }
 }
 

@@ -1,11 +1,11 @@
 use super::apic::*;
 use crate::rt::{LegacyAppContext, RuntimeEnvironment};
-use crate::system::{ProcessorCoreType, ProcessorIndex};
+use crate::system::{ProcessorCoreType, System};
 use crate::task::scheduler::Scheduler;
 use crate::*;
+use bootprot::BootInfo;
 use core::arch::{asm, x86_64::__cpuid_count};
 use core::cell::UnsafeCell;
-use core::convert::TryFrom;
 use core::ffi::c_void;
 use core::mem::{size_of, transmute};
 use core::sync::atomic::*;
@@ -67,7 +67,7 @@ impl Cpu {
         shared.max_cpuid_level_8 = __cpuid_count(0x8000_0000, 0).eax;
 
         if shared.max_cpuid_level_0 >= 0x0B {
-            if Feature::F07D(F070D::HYBRID).has_feature() {
+            if Feature::HYBRID.exists() {
                 shared.is_hybrid.store(true, Ordering::SeqCst);
             }
             if shared.max_cpuid_level_0 >= 0x1F {
@@ -175,33 +175,6 @@ impl Cpu {
             }
         }
 
-        // log!(
-        //     "MTRR {:04x} {:04x} VRAM {:012x} {:012x} BITS {} {}",
-        //     MSR::IA32_MTRRCAP.read(),
-        //     MSR::IA32_MTRR_DEF_TYPE.read(),
-        //     shared.vram_base,
-        //     shared.vram_size_min - 1,
-        //     shared.max_physical_address_bits,
-        //     shared.max_virtual_address_bits,
-        // );
-        // for (index, mtrr) in Mtrr::items().filter(|v| v.is_enabled).enumerate() {
-        //     log!(
-        //         "MTRR {:02x}.{} {:012x}-{:012x} {:012x} {:?} {}",
-        //         apic_id.0,
-        //         index,
-        //         mtrr.base,
-        //         mtrr.base + (Cpu::physical_address_mask() & !mtrr.mask),
-        //         mtrr.mask,
-        //         mtrr.mem_type,
-        //         mtrr.is_enabled
-        //     );
-        // }
-        // todo!();
-
-        // if Feature::F81C(F81C::WDT).has_feature() {
-        //     MSR::CPU_WATCHDOG_TIMER.write(0);
-        // }
-
         Box::new(Cpu {
             apic_id,
             core_type,
@@ -295,7 +268,7 @@ impl Cpu {
 
     #[allow(dead_code)]
     #[inline]
-    pub unsafe fn out32(port: u16, value: u32) {
+    pub(super) unsafe fn out32(port: u16, value: u32) {
         asm!("out dx, eax", in("dx") port, in("eax") value);
     }
 
@@ -312,36 +285,29 @@ impl Cpu {
         let eax: u32;
         let edx: u32;
         unsafe {
-            asm!("rdtsc", lateout("edx") edx, lateout("eax") eax, options(nomem, nostack));
+            asm!("rdtsc",
+                lateout("edx") edx,
+                lateout("eax") eax,
+                options(nomem, nostack)
+            );
         }
         eax as u64 + edx as u64 * 0x10000_0000
     }
 
     #[inline]
-    pub(super) unsafe fn rdtscp() -> (u64, u32) {
+    pub(super) fn rdtscp() -> (u64, u32) {
         let eax: u32;
         let edx: u32;
         let ecx: u32;
-        asm!(
-            "rdtscp",
-            lateout("eax") eax,
-            lateout("ecx") ecx,
-            lateout("edx") edx,
-            options(nomem, nostack),
-        );
+        unsafe {
+            asm!("rdtscp",
+                lateout("eax") eax,
+                lateout("ecx") ecx,
+                lateout("edx") edx,
+                options(nomem, nostack),
+            );
+        }
         (eax as u64 + edx as u64 * 0x10000_0000, ecx)
-    }
-
-    #[allow(dead_code)]
-    #[inline]
-    pub(super) unsafe fn read_tsc() -> u64 {
-        let (tsc_raw, index) = Self::rdtscp();
-        tsc_raw
-            - ProcessorIndex(index as usize)
-                .get()
-                .unwrap()
-                .tsc_base
-                .load(Ordering::Relaxed)
     }
 
     /// Launch the user mode application.
@@ -404,8 +370,8 @@ impl Cpu {
             DescriptorEntry::code_segment(
                 Linear32(ctx.base_of_code),
                 Limit32(ctx.size_of_code - 1),
-                PrivilegeLevel::User,
-                DefaultSize::Use32,
+                DPL3,
+                USE32,
             ),
         )
         .unwrap();
@@ -414,7 +380,7 @@ impl Cpu {
             DescriptorEntry::data_segment(
                 Linear32(ctx.base_of_data),
                 Limit32(ctx.size_of_data - 1),
-                PrivilegeLevel::User,
+                DPL3,
             ),
         )
         .unwrap();
@@ -464,14 +430,12 @@ pub struct CpuContextData {
 }
 
 macro_rules! context_index {
-    ($name:ident) => {
-        paste! {
-            pub const [<CTX_ $name>] : usize = ContextIndex::$name.to_offset();
-        }
-    };
-    ($name:ident, $($name2:ident),+) => {
-        context_index!{ $name }
-        context_index!{ $($name2),+ }
+    { $( $name:ident , )* } => {
+        $(
+            paste! {
+                pub const [<CTX_ $name>] : usize = ContextIndex::$name.to_offset();
+            }
+        )*
     };
 }
 
@@ -479,7 +443,7 @@ impl CpuContextData {
     pub const SIZE_OF_CONTEXT: usize = 1024;
     pub const SIZE_OF_STACK: usize = 0x10000;
 
-    context_index! { RSP, RBP, RBX, R12, R13, R14, R15, USER_CS_DESC, USER_DS_DESC, TSS_RSP0, FPU }
+    context_index! { RSP, RBP, RBX, R12, R13, R14, R15, USER_CS_DESC, USER_DS_DESC, TSS_RSP0, FPU, }
     pub const CTX_DS: usize = ContextIndex::Segs.to_offset() + 0;
     pub const CTX_ES: usize = ContextIndex::Segs.to_offset() + 2;
     pub const CTX_FS: usize = ContextIndex::Segs.to_offset() + 4;
@@ -713,14 +677,13 @@ my_bitflags! {
 
 impl Rflags {
     #[inline]
-    pub const fn iopl(&self) -> PrivilegeLevel {
-        PrivilegeLevel::from_usize((self.bits() & Self::IOPL3.bits()) as usize >> 12)
+    pub const fn iopl(&self) -> IOPL {
+        IOPL::from_flags(self.bits())
     }
 
     #[inline]
-    pub const fn set_iopl(&mut self, iopl: PrivilegeLevel) {
-        *self =
-            Self::from_bits_retain((self.bits() & !Self::IOPL3.bits()) | ((iopl as usize) << 12));
+    pub fn set_iopl(&mut self, iopl: IOPL) {
+        *self = Self::from_bits_retain((self.bits() & !Self::IOPL3.bits()) | (iopl.into_flags()))
     }
 }
 
@@ -738,7 +701,7 @@ impl DescriptorEntry {
     }
 
     #[inline]
-    pub fn flat_code_segment(dpl: PrivilegeLevel, size: DefaultSize) -> DescriptorEntry {
+    pub fn flat_code_segment(dpl: DPL, size: DefaultSize) -> DescriptorEntry {
         Self::code_segment(Linear32(0), Limit32::MAX, dpl, size)
     }
 
@@ -746,7 +709,7 @@ impl DescriptorEntry {
     pub fn code_segment(
         base: Linear32,
         limit: Limit32,
-        dpl: PrivilegeLevel,
+        dpl: DPL,
         size: DefaultSize,
     ) -> DescriptorEntry {
         DescriptorEntry(
@@ -760,12 +723,12 @@ impl DescriptorEntry {
     }
 
     #[inline]
-    pub fn flat_data_segment(dpl: PrivilegeLevel) -> DescriptorEntry {
+    pub fn flat_data_segment(dpl: DPL) -> DescriptorEntry {
         Self::data_segment(Linear32(0), Limit32::MAX, dpl)
     }
 
     #[inline]
-    pub fn data_segment(base: Linear32, limit: Limit32, dpl: PrivilegeLevel) -> DescriptorEntry {
+    pub fn data_segment(base: Linear32, limit: Limit32, dpl: DPL) -> DescriptorEntry {
         DescriptorEntry(
             0x0000_1200_0000_0000u64
                 | base.as_segment_base()
@@ -793,7 +756,7 @@ impl DescriptorEntry {
     pub fn gate_descriptor(
         offset: Offset64,
         sel: Selector,
-        dpl: PrivilegeLevel,
+        dpl: DPL,
         ty: DescriptorType,
         ist: Option<InterruptStackTable>,
     ) -> DescriptorPair {
@@ -834,6 +797,11 @@ impl DescriptorEntry {
     #[inline]
     pub const fn default_operand_size(&self) -> Option<DefaultSize> {
         DefaultSize::from_descriptor(*self)
+    }
+
+    #[inline]
+    pub const fn dpl(&self) -> DPL {
+        DPL::from_descriptor_entry(self.0)
     }
 }
 
@@ -884,23 +852,23 @@ impl GlobalDescriptorTable {
 
         gdt.set_item(
             Selector::KERNEL_CODE,
-            DescriptorEntry::flat_code_segment(PrivilegeLevel::Kernel, DefaultSize::Use64),
+            DescriptorEntry::flat_code_segment(DPL0, USE64),
         )
         .unwrap();
         gdt.set_item(
             Selector::KERNEL_DATA,
-            DescriptorEntry::flat_data_segment(PrivilegeLevel::Kernel),
+            DescriptorEntry::flat_data_segment(DPL0),
         )
         .unwrap();
 
         gdt.set_item(
             Selector::USER_CODE,
-            DescriptorEntry::flat_code_segment(PrivilegeLevel::User, DefaultSize::Use64),
+            DescriptorEntry::flat_code_segment(DPL3, USE64),
         )
         .unwrap();
         gdt.set_item(
             Selector::USER_DATA,
-            DescriptorEntry::flat_data_segment(PrivilegeLevel::User),
+            DescriptorEntry::flat_data_segment(DPL3),
         )
         .unwrap();
 
@@ -945,9 +913,19 @@ impl GlobalDescriptorTable {
     }
 
     #[inline]
-    pub unsafe fn set_item(&mut self, selector: Selector, desc: DescriptorEntry) -> Option<()> {
+    pub unsafe fn set_item(
+        &mut self,
+        selector: Selector,
+        desc: DescriptorEntry,
+    ) -> Result<(), SetDescriptorError> {
         let index = selector.index();
-        self.table.get_mut(index).map(|v| *v = desc)
+        if selector.rpl() != desc.dpl().as_rpl() {
+            return Err(SetDescriptorError::PriviledgeMismatch);
+        }
+        self.table
+            .get_mut(index)
+            .map(|v| *v = desc)
+            .ok_or(SetDescriptorError::OutOfIndex)
     }
 
     #[inline]
@@ -972,6 +950,12 @@ impl GlobalDescriptorTable {
             add rsp, 16
             ", in(reg) &self.table, in(reg) ((self.table.len() * 8 - 1) << 48));
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SetDescriptorError {
+    OutOfIndex,
+    PriviledgeMismatch,
 }
 
 /// Type of x86 Segment Limit
@@ -1070,24 +1054,24 @@ pub struct Selector(pub u16);
 impl Selector {
     /// The NULL selector that does not contain anything
     pub const NULL: Selector = Selector(0);
-    pub const KERNEL_CODE: Selector = Selector::new(1, PrivilegeLevel::Kernel);
-    pub const KERNEL_DATA: Selector = Selector::new(2, PrivilegeLevel::Kernel);
-    pub const LEGACY_CODE: Selector = Selector::new(3, PrivilegeLevel::User);
-    pub const LEGACY_DATA: Selector = Selector::new(4, PrivilegeLevel::User);
-    pub const USER_CODE: Selector = Selector::new(5, PrivilegeLevel::User);
-    pub const USER_DATA: Selector = Selector::new(6, PrivilegeLevel::User);
-    pub const SYSTEM_TSS: Selector = Selector::new(8, PrivilegeLevel::Kernel);
+    pub const KERNEL_CODE: Selector = Selector::new(1, RPL0);
+    pub const KERNEL_DATA: Selector = Selector::new(2, RPL0);
+    pub const LEGACY_CODE: Selector = Selector::new(3, RPL3);
+    pub const LEGACY_DATA: Selector = Selector::new(4, RPL3);
+    pub const USER_CODE: Selector = Selector::new(5, RPL3);
+    pub const USER_DATA: Selector = Selector::new(6, RPL3);
+    pub const SYSTEM_TSS: Selector = Selector::new(8, RPL0);
 
     /// Make a new instance of the selector from the specified index and RPL
     #[inline]
-    pub const fn new(index: usize, rpl: PrivilegeLevel) -> Self {
-        Selector((index << 3) as u16 | rpl as u16)
+    pub const fn new(index: usize, rpl: RPL) -> Self {
+        Selector((index << 3) as u16 | rpl.as_u16())
     }
 
     /// Returns the requested privilege level in the selector
     #[inline]
-    pub const fn rpl(self) -> PrivilegeLevel {
-        PrivilegeLevel::from_usize(self.0 as usize)
+    pub const fn rpl(self) -> RPL {
+        RPL::from_u16(self.0)
     }
 
     /// Returns the index field in the selector
@@ -1117,6 +1101,51 @@ pub enum PrivilegeLevel {
     User = 3,
 }
 
+macro_rules! privilege_level_impl {
+    ($( $vis:vis struct $class:ident ; )*) => {
+        $(
+            #[repr(transparent)]
+            #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+            $vis struct $class(PrivilegeLevel);
+
+            impl $class {
+                $vis const KERNEL: Self = Self(PrivilegeLevel::Kernel);
+                $vis const USER: Self = Self(PrivilegeLevel::User);
+            }
+
+            paste! {
+                $vis const [<$class 0>]: $class = $class::KERNEL;
+                $vis const [<$class 3>]: $class = $class::USER;
+            }
+
+            impl From<PrivilegeLevel> for $class {
+                #[inline]
+                fn from(val: PrivilegeLevel) -> Self {
+                    Self(val)
+                }
+            }
+
+            impl From<$class> for PrivilegeLevel {
+                #[inline]
+                fn from(val: $class) -> Self {
+                    val.0
+                }
+            }
+        )*
+    };
+}
+
+privilege_level_impl! {
+
+    pub struct CPL;
+
+    pub struct DPL;
+
+    pub struct RPL;
+
+    pub struct IOPL;
+}
+
 impl PrivilegeLevel {
     #[inline]
     pub const fn from_usize(value: usize) -> Self {
@@ -1130,17 +1159,46 @@ impl PrivilegeLevel {
     }
 }
 
-impl AsDescriptorEntry for PrivilegeLevel {
+impl AsDescriptorEntry for DPL {
     #[inline]
     fn as_descriptor_entry(&self) -> u64 {
-        (*self as u64) << 45
+        (self.0 as u64) << 45
     }
 }
 
-impl From<usize> for PrivilegeLevel {
+impl DPL {
     #[inline]
-    fn from(value: usize) -> Self {
-        Self::from_usize(value)
+    pub const fn from_descriptor_entry(val: u64) -> Self {
+        Self(PrivilegeLevel::from_usize((val >> 45) as usize))
+    }
+
+    #[inline]
+    pub fn as_rpl(self) -> RPL {
+        RPL(self.0)
+    }
+}
+
+impl RPL {
+    #[inline]
+    pub const fn from_u16(val: u16) -> Self {
+        Self(PrivilegeLevel::from_usize(val as usize))
+    }
+
+    #[inline]
+    pub const fn as_u16(self) -> u16 {
+        self.0 as u16
+    }
+}
+
+impl IOPL {
+    #[inline]
+    pub const fn from_flags(val: usize) -> IOPL {
+        IOPL(PrivilegeLevel::from_usize(val >> 12))
+    }
+
+    #[inline]
+    pub const fn into_flags(self) -> usize {
+        (self.0 as usize) << 12
     }
 }
 
@@ -1330,6 +1388,12 @@ pub enum DefaultSize {
     Use64 = 0x0020_0000_0000_0000,
 }
 
+pub const USE16: DefaultSize = DefaultSize::Use16;
+
+pub const USE32: DefaultSize = DefaultSize::Use32;
+
+pub const USE64: DefaultSize = DefaultSize::Use64;
+
 impl AsDescriptorEntry for DefaultSize {
     #[inline]
     fn as_descriptor_entry(&self) -> u64 {
@@ -1346,12 +1410,12 @@ impl DefaultSize {
     #[inline]
     pub const fn from_descriptor(value: DescriptorEntry) -> Option<Self> {
         if value.is_code_segment() {
-            let is_32 = (value.0 & Self::Use32.as_descriptor_entry()) != 0;
-            let is_64 = (value.0 & Self::Use64.as_descriptor_entry()) != 0;
+            let is_32 = (value.0 & USE32.as_descriptor_entry()) != 0;
+            let is_64 = (value.0 & USE64.as_descriptor_entry()) != 0;
             match (is_32, is_64) {
-                (false, false) => Some(Self::Use16),
-                (false, true) => Some(Self::Use64),
-                (true, false) => Some(Self::Use32),
+                (false, false) => Some(USE16),
+                (false, true) => Some(USE64),
+                (true, false) => Some(USE32),
                 (true, true) => None,
             }
         } else {
@@ -1378,6 +1442,16 @@ pub enum InterruptStackTable {
     IST7,
 }
 
+macro_rules! ist_impl {
+    ($( $ist:ident , )*) => {
+        $(
+            pub const $ist: InterruptStackTable = InterruptStackTable::$ist;
+        )*
+    };
+}
+
+ist_impl!(IST1, IST2, IST3, IST4, IST5, IST6, IST7,);
+
 impl AsDescriptorEntry for InterruptStackTable {
     #[inline]
     fn as_descriptor_entry(&self) -> u64 {
@@ -1401,7 +1475,7 @@ macro_rules! register_exception {
             Self::register(
                 ExceptionType::$mnemonic.as_vec(),
                 [<exc_ $mnemonic>] as usize,
-                PrivilegeLevel::Kernel,
+                DPL0,
             );
         }
     };
@@ -1416,6 +1490,7 @@ impl InterruptDescriptorTable {
         }
     }
 
+    #[inline]
     unsafe fn init() {
         register_exception!(DivideError);
         register_exception!(Breakpoint);
@@ -1430,10 +1505,11 @@ impl InterruptDescriptorTable {
         {
             // Haribote OS Supports
             let vec = InterruptVector(0x40);
-            Self::register(vec, cpu_int40_handler as usize, PrivilegeLevel::User);
+            Self::register(vec, cpu_int40_handler as usize, DPL3);
         }
     }
 
+    #[inline]
     unsafe fn load() {
         let idt = &*IDT.get();
         asm!("
@@ -1445,7 +1521,7 @@ impl InterruptDescriptorTable {
     }
 
     #[track_caller]
-    pub unsafe fn register(vec: InterruptVector, offset: usize, dpl: PrivilegeLevel) {
+    pub unsafe fn register(vec: InterruptVector, offset: usize, dpl: DPL) {
         let table_offset = vec.0 as usize * 2;
         let idt = IDT.get_mut();
         if !idt.table[table_offset].is_null() {
@@ -1455,7 +1531,7 @@ impl InterruptDescriptorTable {
             Offset64(offset as u64),
             Selector::KERNEL_CODE,
             dpl,
-            if dpl == PrivilegeLevel::Kernel {
+            if dpl == DPL0 {
                 DescriptorType::InterruptGate
             } else {
                 DescriptorType::TrapGate
@@ -1479,8 +1555,18 @@ pub enum Feature {
     F81C(F81C),
 }
 
+macro_rules! short_feature_impl {
+    ( $node:ident, $sub_class:ident, $mnemonic:ident ) => {
+        impl Feature {
+            pub const $mnemonic: Self = Self::$node($sub_class::$mnemonic);
+        }
+    };
+}
+
+short_feature_impl!(F07D, F070D, HYBRID);
+
 impl Feature {
-    pub unsafe fn has_feature(&self) -> bool {
+    pub unsafe fn exists(&self) -> bool {
         match *self {
             Self::F01D(bit) => (__cpuid_count(0x0000_0001, 0).edx & (1 << bit as usize)) != 0,
             Self::F01C(bit) => (__cpuid_count(0x0000_0001, 0).ecx & (1 << bit as usize)) != 0,
@@ -1704,12 +1790,15 @@ pub enum F81C {
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy)]
 pub enum NativeModelCoreType {
+    /// `0x40` P-core (Core)
     Performance,
+    /// `0x20` E-core (Atom)
     Efficient,
 }
 
 impl NativeModelCoreType {
     const CORE_TYPE_ATOM: u8 = 0x20;
+
     const CORE_TYPE_CORE: u8 = 0x40;
 
     #[inline]
@@ -1812,11 +1901,8 @@ impl MSR {
     }
 
     #[inline]
-    pub unsafe fn set_pat(values: &[PAT; 8]) {
-        let data = values
-            .into_iter()
-            .fold(0, |acc, v| (acc << 8) + (*v as u64))
-            .swap_bytes();
+    pub unsafe fn set_pat(values: [PAT; 8]) {
+        let data = u64::from_le_bytes(values.map(|v| v as u8));
         MSR::IA32_PAT.write(data);
     }
 }
@@ -2048,7 +2134,7 @@ unsafe extern "C" fn handle_default_exception(ctx: &X64ExceptionContext) {
         let ex = ExceptionType::from_vec(ctx.vector());
 
         match cs_desc.default_operand_size() {
-            Some(DefaultSize::Use16) |Some( DefaultSize::Use32) => {
+            Some(USE16) | Some(USE32) => {
                 let mask32 = u32::MAX as u64;
                 match ex {
                     ExceptionType::PageFault => {

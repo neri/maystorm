@@ -6,7 +6,7 @@ use crate::arch::cpu::*;
 use crate::io::{screen::*, tty::*};
 use crate::task::scheduler::*;
 use crate::*;
-use bootprot::BootInfo;
+use bootprot::{BootFlags, BootInfo};
 use core::cell::UnsafeCell;
 use core::ffi::c_void;
 use core::fmt;
@@ -384,8 +384,31 @@ impl Month {
 macro_rules! assert_call_once {
     () => {
         static MUTEX: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
-        System::assert_call_once(&MUTEX);
+        crate::system::System::assert_call_once(&MUTEX);
     };
+}
+
+static PANIC_GLOBAL_LOCK: Spinlock = Spinlock::new();
+
+#[panic_handler]
+fn panic(info: &PanicInfo) -> ! {
+    unsafe {
+        Hal::cpu().disable_interrupt();
+        task::scheduler::Scheduler::freeze(true);
+        PANIC_GLOBAL_LOCK.synchronized(|| {
+            let stdout = System::log();
+            stdout.set_attribute(0x4F);
+            if let Some(thread) = task::scheduler::Scheduler::current_thread() {
+                if let Some(name) = thread.name() {
+                    let _ = write!(stdout, "thread '{}' ", name);
+                } else {
+                    let _ = write!(stdout, "thread {} ", thread.as_usize());
+                }
+            }
+            let _ = writeln!(stdout, "{}", info);
+        });
+        Hal::cpu().stop();
+    }
 }
 
 pub struct DeviceInfo {

@@ -2,7 +2,7 @@
 // Most of them are clones of Rust's original definition.
 
 use crate::prelude::*;
-use alloc::borrow::{Cow, ToOwned};
+use alloc::borrow::Cow;
 use alloc::collections::TryReserveError;
 use core::borrow::Borrow;
 use core::cmp;

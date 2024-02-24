@@ -2,7 +2,6 @@
 
 use crate::*;
 use core::cell::UnsafeCell;
-use core::fmt::Write;
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};

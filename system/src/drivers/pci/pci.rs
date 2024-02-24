@@ -1,6 +1,5 @@
 use super::install_drivers;
 use crate::sync::RwLock;
-use crate::system::System;
 use crate::*;
 use core::cell::UnsafeCell;
 use core::fmt;

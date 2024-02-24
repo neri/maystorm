@@ -3,7 +3,6 @@
 use super::super::*;
 use crate::task::Task;
 use crate::*;
-use alloc::sync::Arc;
 use core::pin::Pin;
 use futures_util::Future;
 

@@ -1,9 +1,9 @@
 //! Universal Serial Bus
 //!
 //! ```text
-//!   ┏━○
+//!  ┏━○
 //! ○┻┳━|＞
-//! ┗■
+//!   ┗■
 //! ```
 
 use core::fmt;
@@ -147,17 +147,21 @@ impl UsbClass {
     pub const XINPUT_IF3: Self = Self(0xFF_5D_04);
 
     #[inline]
-    pub const fn new(base: UsbBaseClass, sub: UsbSubClass, protocol: UsbProtocolCode) -> Self {
-        Self(((base.0 as u32) << 16) | ((sub.0 as u32) << 8) | (protocol.0 as u32))
+    pub const fn new(
+        base_class: UsbBaseClass,
+        sub_class: UsbSubClass,
+        protocol: UsbProtocolCode,
+    ) -> Self {
+        Self(((base_class.0 as u32) << 16) | ((sub_class.0 as u32) << 8) | (protocol.0 as u32))
     }
 
     #[inline]
-    pub const fn base(&self) -> UsbBaseClass {
+    pub const fn base_class(&self) -> UsbBaseClass {
         UsbBaseClass((self.0 >> 16) as u8)
     }
 
     #[inline]
-    pub const fn sub(&self) -> UsbSubClass {
+    pub const fn sub_class(&self) -> UsbSubClass {
         UsbSubClass((self.0 >> 8) as u8)
     }
 
@@ -213,7 +217,7 @@ impl UsbClass {
             .or_else(|| {
                 base_class_entries
                     .iter()
-                    .find(|v| (v.0 & bitmap) != 0 && v.1 == self.base())
+                    .find(|v| (v.0 & bitmap) != 0 && v.1 == self.base_class())
                     .map(|v| v.2)
             })
     }

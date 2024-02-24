@@ -1,6 +1,6 @@
 use crate::fs::*;
 use crate::*;
-use ab_glyph::{self, Font as AbFont};
+use ab_glyph::Font as AbFont;
 use core::{cell::UnsafeCell, mem::MaybeUninit};
 use megstd::{drawing::*, io::Read, prelude::*};
 

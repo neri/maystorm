@@ -21,7 +21,7 @@ impl VirtualAddress {
 static mut PM: PageManager = PageManager::new();
 
 pub struct PageManager {
-    pub master_cr3: PhysicalAddress,
+    pub master_page_table: PhysicalAddress,
     pub static_start: AtomicU64,
     pub static_free: AtomicU64,
     pml2k: PageTableEntry,
@@ -30,7 +30,7 @@ pub struct PageManager {
 impl PageManager {
     const fn new() -> Self {
         Self {
-            master_cr3: 0,
+            master_page_table: 0,
             static_start: AtomicU64::new(0),
             static_free: AtomicU64::new(0),
             pml2k: PageTableEntry::empty(),
@@ -133,8 +133,8 @@ impl PageManager {
         let common_attributes = PageAttributes::from(MProtect::all());
 
         let cr3 = Self::alloc_pages(1);
-        shared.master_cr3 = cr3;
-        info.master_cr3 = cr3;
+        shared.master_page_table = cr3;
+        info.master_page_table = cr3;
         let pml4 = PageTableEntry::from(cr3).table(1);
 
         // 0000_0000_0000_0000 - 0000_0000_FFFF_FFFF Identity Mapping (<4G)

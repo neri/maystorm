@@ -150,7 +150,7 @@ impl Apic {
             InterruptDescriptorTable::register(
                 Irq(N).into(),
                 handle_irq_~N as usize,
-                super::cpu::PrivilegeLevel::Kernel,
+                super::cpu::DPL0,
             );
         });
 
@@ -176,11 +176,7 @@ impl Apic {
         } else {
             panic!("No Reference Timer found");
         }
-        InterruptDescriptorTable::register(
-            vec_latimer,
-            timer_handler as usize,
-            PrivilegeLevel::Kernel,
-        );
+        InterruptDescriptorTable::register(vec_latimer, timer_handler as usize, DPL0);
         LocalApic::set_timer(
             LocalApicTimerMode::Periodic,
             vec_latimer,
@@ -190,13 +186,13 @@ impl Apic {
         InterruptDescriptorTable::register(
             InterruptVector::IPI_INVALIDATE_TLB,
             ipi_tlb_flush_handler as usize,
-            PrivilegeLevel::Kernel,
+            DPL0,
         );
 
         InterruptDescriptorTable::register(
             InterruptVector::IPI_SCHEDULE,
             ipi_schedule_handler as usize,
-            PrivilegeLevel::Kernel,
+            DPL0,
         );
 
         // Start SMP

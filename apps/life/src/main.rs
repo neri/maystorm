@@ -3,7 +3,6 @@
 #![no_main]
 #![no_std]
 
-use megstd::drawing::Monochrome;
 use megstd::sys::syscall::*;
 use megstd::window::*;
 

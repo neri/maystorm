@@ -1,3 +1,5 @@
+use self::system::System;
+
 use super::font::*;
 use super::text::*;
 use super::theme::Theme;
@@ -21,6 +23,7 @@ use core::task::{Context, Poll};
 use core::time::Duration;
 use futures_util::task::AtomicWaker;
 use megstd::{drawing::*, io::hid::*, sys::megos};
+use paste::paste;
 
 const MAX_WINDOWS: usize = 255;
 const WINDOW_SYSTEM_EVENT_QUEUE_SIZE: usize = 100;
@@ -64,9 +67,10 @@ pub struct WindowManager<'a> {
     root: WindowHandle,
     pointer: WindowHandle,
     barrier: WindowHandle,
-    active: AtomicWindowHandle,
-    captured: AtomicWindowHandle,
-    entered: AtomicWindowHandle,
+
+    active: RwLock<Option<WindowHandle>>,
+    captured: RwLock<Option<WindowHandle>>,
+    entered: RwLock<Option<WindowHandle>>,
 }
 
 #[allow(dead_code)]
@@ -77,6 +81,23 @@ struct Resources<'a> {
     title_font: FontDescriptor,
     label_font: FontDescriptor,
     _phantom: &'a (),
+}
+
+macro_rules! rwlock_helper {
+    { $( $vis:vis fn $name:ident ( $self:ident ) -> $type:ty; )* } => {
+        $(
+            paste! {
+                $vis fn $name (& $self) -> $type {
+                    $self.$name.read().unwrap().clone()
+                }
+
+                $vis fn [<set_ $name>] (& $self, value: $type) {
+                    let mut p = $self.$name.write().unwrap();
+                    *p = value;
+                }
+            }
+        )*
+    };
 }
 
 impl WindowManager<'static> {
@@ -100,7 +121,6 @@ impl WindowManager<'static> {
                 .frame(Rect::from(screen_size))
                 .bg_color(Color::from_rgb(0x000000))
                 .without_message_queue()
-                .bitmap_strategy(BitmapStrategy::NonBitmap)
                 .build_inner("Desktop");
 
             let handle = window.handle.clone();
@@ -141,7 +161,7 @@ impl WindowManager<'static> {
                 .style(WindowStyle::NO_SHADOW)
                 .level(WindowLevel::POPUP_BARRIER)
                 .frame(Rect::from(screen_size))
-                .bg_color(Color::from_rgb(0))
+                .bg_color(Color::TRANSPARENT)
                 .without_message_queue()
                 .bitmap_strategy(BitmapStrategy::NonBitmap)
                 .build_inner("Barrier");
@@ -177,9 +197,9 @@ impl WindowManager<'static> {
                 root,
                 pointer,
                 barrier,
-                active: AtomicWindowHandle::default(),
-                captured: AtomicWindowHandle::default(),
-                entered: AtomicWindowHandle::default(),
+                active: RwLock::new(None),
+                captured: RwLock::new(None),
+                entered: RwLock::new(None),
                 system_event: ConcurrentFifo::with_capacity(WINDOW_SYSTEM_EVENT_QUEUE_SIZE),
             }));
         }
@@ -289,7 +309,7 @@ impl WindowManager<'_> {
                     let buttons_down = shared.buttons_down.swap(MouseButton::empty());
                     let buttons_up = shared.buttons_up.swap(MouseButton::empty());
 
-                    if let Some(captured) = shared.captured.get() {
+                    if let Some(captured) = shared.captured() {
                         if current_buttons.contains(MouseButton::PRIMARY) {
                             if shared
                                 .attributes
@@ -371,7 +391,7 @@ impl WindowManager<'_> {
                                 );
                             }
 
-                            shared.captured.clear();
+                            shared.set_captured(None);
                             shared.attributes.remove(
                                 WindowManagerAttributes::MOVING
                                     | WindowManagerAttributes::CLOSE_DOWN
@@ -379,7 +399,7 @@ impl WindowManager<'_> {
                             );
 
                             let target = Self::window_at_point(position);
-                            if let Some(entered) = shared.entered.get() {
+                            if let Some(entered) = shared.entered() {
                                 if entered != target {
                                     let _ = Self::make_mouse_events(
                                         captured,
@@ -403,12 +423,12 @@ impl WindowManager<'_> {
                         let target = Self::window_at_point(position).clone();
 
                         if buttons_down.contains(MouseButton::PRIMARY) {
-                            if let Some(active) = shared.active.get() {
+                            if let Some(active) = shared.active() {
                                 if active != target {
-                                    WindowManager::set_active(Some(target.clone()));
+                                    WindowManager::make_active(Some(target.clone()));
                                 }
                             } else {
-                                WindowManager::set_active(Some(target.clone()));
+                                WindowManager::make_active(Some(target.clone()));
                             }
 
                             let target_window = target.clone().as_ref();
@@ -445,7 +465,7 @@ impl WindowManager<'_> {
                                     );
                                 }
                             }
-                            shared.captured.set(target.clone());
+                            shared.set_captured(Some(target.clone()));
                             captured_offset = position - target_window.visible_frame().origin();
                         } else {
                             let _ = Self::make_mouse_events(
@@ -457,7 +477,7 @@ impl WindowManager<'_> {
                             );
                         }
 
-                        if let Some(entered) = shared.entered.get() {
+                        if let Some(entered) = shared.entered() {
                             if entered != target {
                                 shared
                                     .make_enver_and_leave_event(
@@ -549,7 +569,7 @@ impl WindowManager<'_> {
         position: Point,
         buttons: MouseButton,
     ) -> Result<(), WindowPostError> {
-        self.entered.set(new.clone());
+        self.set_entered(Some(new.clone()));
         old.post(WindowMessage::MouseLeave(MouseEvent::new(
             position,
             buttons,
@@ -654,14 +674,14 @@ impl WindowManager<'_> {
         }
     }
 
-    fn set_active(window: Option<WindowHandle>) {
+    fn make_active(window: Option<WindowHandle>) {
         let shared = WindowManager::shared();
-        if let Some(old_active) = shared.active.get() {
+        if let Some(old_active) = shared.active() {
             let _ = old_active.post(WindowMessage::Deactivated);
-            shared.active.write(window.clone());
+            shared.set_active(window.clone());
             let _ = old_active.update_opt(|window| window.refresh_title());
         } else {
-            shared.active.write(window.clone());
+            shared.set_active(window.clone());
         }
         if let Some(active) = window {
             let _ = active.post(WindowMessage::Activated);
@@ -824,7 +844,7 @@ impl WindowManager<'_> {
         {
             // ctrl alt del
             SysInit::system_reset(false);
-        } else if let Some(window) = shared.active.get() {
+        } else if let Some(window) = shared.active() {
             Self::post_system_event(WindowSystemEvent::Key(window, event)).unwrap();
         }
     }
@@ -1043,6 +1063,59 @@ impl WindowManager<'_> {
             }
         }
     }
+
+    fn _create_timer(
+        handle: &WindowHandle,
+        timer_type: WindowTimerType,
+        timer_id: usize,
+        duration: Duration,
+    ) {
+        let Some(window) = handle.validate() else {
+            return;
+        };
+        let payload = WindowTimerEvent {
+            window,
+            timer_type,
+            timer_id,
+        };
+        let event = TimerEvent::window(payload, Timer::new(duration));
+        event.schedule();
+    }
+
+    pub fn post_timer_event(payload: WindowTimerEvent) {
+        match payload.timer_type {
+            WindowTimerType::UserDefined => {
+                let _result = payload.window.post(WindowMessage::Timer(payload.timer_id));
+            }
+        }
+    }
+
+    fn _contains(test: &RwLock<Option<WindowHandle>>, value: &WindowHandle) -> bool {
+        let test = test.read().unwrap();
+        if let Some(test) = test.as_ref() {
+            *test == *value
+        } else {
+            false
+        }
+    }
+
+    rwlock_helper! {
+        fn captured(self) -> Option<WindowHandle>;
+
+        fn active(self) -> Option<WindowHandle>;
+
+        fn entered(self) -> Option<WindowHandle>;
+    }
+}
+
+pub enum WindowTimerType {
+    UserDefined,
+}
+
+pub struct WindowTimerEvent {
+    timer_type: WindowTimerType,
+    window: WindowHandle,
+    timer_id: usize,
 }
 
 my_bitflags! {
@@ -1234,7 +1307,7 @@ impl RawWindow {
     fn hide(&self) {
         let shared = WindowManager::shared();
         let frame = self.shadow_frame();
-        let next_active = if shared.active.contains(self.handle.clone()) {
+        let next_active = if WindowManager::_contains(&shared.active, &self.handle) {
             let window_orders = shared.window_orders.read().unwrap();
             window_orders
                 .iter()
@@ -1244,13 +1317,18 @@ impl RawWindow {
         } else {
             None
         };
-        if shared.captured.contains(self.handle.clone()) {
-            shared.captured.clear();
+        {
+            let mut captured_mut = shared.captured.write().unwrap();
+            if let Some(captured) = captured_mut.as_ref() {
+                if *captured == self.handle {
+                    *captured_mut = None;
+                }
+            }
         }
         WindowManager::remove_hierarchy(self.handle.clone());
         WindowManager::invalidate_screen(frame);
         if next_active.is_some() {
-            WindowManager::set_active(next_active);
+            WindowManager::make_active(next_active);
         }
     }
 
@@ -1468,7 +1546,8 @@ impl RawWindow {
 
     #[inline]
     fn is_active(&self) -> bool {
-        WindowManager::shared().active.contains(self.handle.clone())
+        let shared = WindowManager::shared();
+        WindowManager::_contains(&shared.active, &self.handle)
     }
 
     fn refresh_title(&mut self) {
@@ -2353,7 +2432,7 @@ impl WindowHandle {
 
     #[inline]
     pub fn make_active(&self) {
-        WindowManager::set_active(Some(self.clone()));
+        WindowManager::make_active(Some(self.clone()));
     }
 
     #[inline]
@@ -2521,7 +2600,7 @@ impl WindowHandle {
                     let _ = self.post(WindowMessage::Char(c));
                 }
             }
-            _ => (),
+            _ => {}
         }
     }
 
@@ -2538,8 +2617,7 @@ impl WindowHandle {
 
     /// Create a timer associated with a window
     pub fn create_timer(&self, timer_id: usize, duration: Duration) {
-        let event = TimerEvent::window(self.clone(), timer_id, Timer::new(duration));
-        event.schedule();
+        WindowManager::_create_timer(self, WindowTimerType::UserDefined, timer_id, duration);
     }
 }
 
@@ -2547,82 +2625,6 @@ impl Clone for WindowHandle {
     #[inline]
     fn clone(&self) -> Self {
         Self(self.0.clone())
-    }
-}
-
-#[repr(transparent)]
-#[derive(Default)]
-pub struct AtomicWindowHandle(AtomicUsize);
-
-unsafe impl Send for AtomicWindowHandle {}
-
-unsafe impl Sync for AtomicWindowHandle {}
-
-impl AtomicWindowHandle {
-    #[inline]
-    pub fn new(val: Option<WindowHandle>) -> Self {
-        Self(AtomicUsize::new(Self::_from_val(val)))
-    }
-
-    #[inline]
-    const fn _from_val(val: Option<WindowHandle>) -> usize {
-        match val {
-            Some(v) => v.as_usize(),
-            None => 0,
-        }
-    }
-
-    #[inline]
-    const fn _into_val(val: usize) -> Option<WindowHandle> {
-        WindowHandle::new(val)
-    }
-
-    #[inline]
-    pub fn get(&self) -> Option<WindowHandle> {
-        Self::_into_val(self.0.load(Ordering::Acquire))
-    }
-
-    #[inline]
-    pub fn set(&self, val: WindowHandle) {
-        self.write(Some(val));
-    }
-
-    #[inline]
-    pub fn clear(&self) {
-        self.write(None);
-    }
-
-    #[inline]
-    pub fn write(&self, val: Option<WindowHandle>) {
-        self.0.store(Self::_from_val(val), Ordering::Release);
-    }
-
-    #[inline]
-    pub fn swap(&self, val: Option<WindowHandle>) -> Option<WindowHandle> {
-        Self::_into_val(self.0.swap(Self::_from_val(val), Ordering::SeqCst))
-    }
-
-    #[inline]
-    pub fn is_some(&self) -> bool {
-        self.get().is_some()
-    }
-
-    #[inline]
-    pub fn is_none(&self) -> bool {
-        self.get().is_none()
-    }
-
-    #[inline]
-    pub fn contains(&self, val: WindowHandle) -> bool {
-        self.get().map(|v| v == val).unwrap_or(false)
-    }
-
-    #[inline]
-    pub fn map<F, R>(&self, f: F) -> Option<R>
-    where
-        F: FnOnce(WindowHandle) -> R,
-    {
-        self.get().map(f)
     }
 }
 

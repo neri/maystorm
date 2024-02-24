@@ -1,5 +1,4 @@
 use megstd::drawing::*;
-use png_decoder;
 use zune_jpeg::JpegDecoder;
 
 pub struct ImageLoader;

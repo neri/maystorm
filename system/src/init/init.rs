@@ -1,4 +1,5 @@
 //! Pseudo-processes launched first at startup
+
 use crate::fs::*;
 use crate::io::{image::ImageLoader, tty::*};
 use crate::mem::*;
@@ -13,7 +14,6 @@ use crate::ui::theme::Theme;
 use crate::ui::window::*;
 use crate::utils::{EventManager, SimpleMessagePayload};
 use crate::*;
-use core::fmt::Write;
 use core::mem::{transmute, MaybeUninit};
 use core::time::Duration;
 use megstd::drawing::*;
@@ -21,7 +21,7 @@ use megstd::io::Read;
 use megstd::string::*;
 use megstd::time::SystemTime;
 
-static IS_GUI_BOOT: bool = false;
+static IS_GUI_BOOT: bool = true;
 static mut SHUTDOWN_COMMAND: MaybeUninit<EventQueue<ShutdownCommand>> = MaybeUninit::uninit();
 static mut BG_TERMINAL: Option<WindowHandle> = None;
 
@@ -31,57 +31,50 @@ impl SysInit {
     pub fn start(f: fn()) {
         assert_call_once!();
 
-        // sync::semaphore::Semaphore::new(0).wait();
+        let point = 14;
+        let font = FontDescriptor::new(FontFamily::Monospace, point)
+            .unwrap_or(FontManager::monospace_font());
+
+        let window = RawWindowBuilder::new()
+            .style(WindowStyle::NO_SHADOW)
+            .fullscreen()
+            .level(WindowLevel::DESKTOP_ITEMS)
+            .bg_color(Color::TRANSPARENT)
+            .build("Terminal");
+
+        unsafe {
+            BG_TERMINAL = Some(window.clone());
+        }
+
+        let mut terminal = Terminal::from_window(
+            window,
+            Some(EdgeInsets::padding_each(4)),
+            font,
+            Alpha8::TRANSPARENT,
+            0x07,
+            Some(&[
+                IndexedColor::BLACK.into(),
+                IndexedColor::BLUE.into(),
+                IndexedColor::GREEN.into(),
+                IndexedColor::CYAN.into(),
+                IndexedColor::RED.into(),
+                IndexedColor::MAGENTA.into(),
+                IndexedColor::BROWN.into(),
+                IndexedColor::LIGHT_GRAY.into(),
+                IndexedColor::DARK_GRAY.into(),
+                IndexedColor::LIGHT_BLUE.into(),
+                IndexedColor::LIGHT_GREEN.into(),
+                IndexedColor::LIGHT_CYAN.into(),
+                IndexedColor::LIGHT_RED.into(),
+                IndexedColor::LIGHT_MAGENTA.into(),
+                IndexedColor::YELLOW.into(),
+                IndexedColor::WHITE.into(),
+            ]),
+        );
+        terminal.reset().unwrap();
+        System::set_stdout(Box::new(terminal));
 
         if !IS_GUI_BOOT {
-            let point = 14;
-            let font = FontDescriptor::new(FontFamily::Monospace, point)
-                .unwrap_or(FontManager::monospace_font());
-
-            let window = RawWindowBuilder::new()
-                .style(WindowStyle::NO_SHADOW)
-                .fullscreen()
-                .level(WindowLevel::DESKTOP_ITEMS)
-                .bg_color(Color::TRANSPARENT)
-                .build("Terminal");
-
-            unsafe {
-                BG_TERMINAL = Some(window.clone());
-            }
-
-            // WindowManager::set_desktop_color(Color::BLACK);
-            let mut terminal = Terminal::from_window(
-                window,
-                Some(EdgeInsets::padding_each(4)),
-                font,
-                Alpha8::OPAQUE,
-                0x07,
-                Some(&[
-                    IndexedColor::BLACK.into(),
-                    IndexedColor::BLUE.into(),
-                    IndexedColor::GREEN.into(),
-                    IndexedColor::CYAN.into(),
-                    IndexedColor::RED.into(),
-                    IndexedColor::MAGENTA.into(),
-                    IndexedColor::BROWN.into(),
-                    IndexedColor::LIGHT_GRAY.into(),
-                    IndexedColor::DARK_GRAY.into(),
-                    IndexedColor::LIGHT_BLUE.into(),
-                    IndexedColor::LIGHT_GREEN.into(),
-                    IndexedColor::LIGHT_CYAN.into(),
-                    IndexedColor::LIGHT_RED.into(),
-                    IndexedColor::LIGHT_MAGENTA.into(),
-                    IndexedColor::YELLOW.into(),
-                    IndexedColor::WHITE.into(),
-                ]),
-            );
-            terminal.reset().unwrap();
-            System::set_stdout(Box::new(terminal));
-
-            // let device = System::current_device();
-            // let bytes = device.total_memory_size();
-            // let gb = bytes >> 30;
-            // let mb = (100 * (bytes & 0x3FFF_FFFF)) / 0x4000_0000;
             println!(
                 "{} v{} (codename {})",
                 System::name(),
@@ -333,6 +326,7 @@ async fn shell_launcher(f: fn()) {
 
 #[allow(dead_code)]
 async fn status_bar_main() {
+    const STATUS_BAR_IS_TOP: bool = true;
     const STATUS_BAR_HEIGHT: u32 = 32;
     const STATUS_BAR_PADDING: EdgeInsets = EdgeInsets::new(0, 0, 0, 0);
     const INNER_PADDING: EdgeInsets = EdgeInsets::new(1, 24, 1, 24);
@@ -341,18 +335,28 @@ async fn status_bar_main() {
     let fg_color = Theme::shared().status_bar_foreground();
 
     let screen_bounds = WindowManager::main_screen_bounds();
-    let window = RawWindowBuilder::new()
-        .style(WindowStyle::NO_SHADOW | WindowStyle::FLOATING)
-        .frame(Rect::new(
-            0,
-            (screen_bounds.height() - STATUS_BAR_HEIGHT) as i32,
-            screen_bounds.width(),
-            STATUS_BAR_HEIGHT,
-        ))
-        .bg_color(bg_color)
-        .build("Status Bar");
-    // WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT as i32, 0, 0, 0));
-    WindowManager::add_screen_insets(EdgeInsets::new(0, 0, STATUS_BAR_HEIGHT as i32, 0));
+    let window = if STATUS_BAR_IS_TOP {
+        let window = RawWindowBuilder::new()
+            .style(WindowStyle::NO_SHADOW | WindowStyle::FLOATING)
+            .frame(Rect::new(0, 0, screen_bounds.width(), STATUS_BAR_HEIGHT))
+            .bg_color(bg_color)
+            .build("Status Bar");
+        WindowManager::add_screen_insets(EdgeInsets::new(STATUS_BAR_HEIGHT as i32, 0, 0, 0));
+        window
+    } else {
+        let window = RawWindowBuilder::new()
+            .style(WindowStyle::NO_SHADOW | WindowStyle::FLOATING)
+            .frame(Rect::new(
+                0,
+                (screen_bounds.height() - STATUS_BAR_HEIGHT) as i32,
+                screen_bounds.width(),
+                STATUS_BAR_HEIGHT,
+            ))
+            .bg_color(bg_color)
+            .build("Status Bar");
+        WindowManager::add_screen_insets(EdgeInsets::new(0, 0, STATUS_BAR_HEIGHT as i32, 0));
+        window
+    };
 
     let font = FontManager::monospace_font();
     let mut sb0 = Sb255::new();

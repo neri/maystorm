@@ -3,10 +3,10 @@
 use super::*;
 use crate::io::hid_mgr::*;
 use crate::sync::Mutex;
+use crate::system::System;
 use crate::ui::text::*;
 use crate::ui::theme::Theme;
 use crate::ui::window::*;
-// use crate::*;
 use byteorder::*;
 use core::alloc::Layout;
 use core::intrinsics::transmute;
@@ -15,7 +15,7 @@ use core::slice;
 use core::sync::atomic::*;
 use core::time::Duration;
 use megstd::drawing::*;
-use megstd::io::{Read, Write};
+use megstd::io::Write;
 use megstd::rand::*;
 use megstd::time::SystemTime;
 use wami::cg::intr::{WasmInvocation, WasmRuntimeError};
@@ -165,15 +165,17 @@ impl MyosRuntime {
         RuntimeEnvironment::exit(0);
     }
 
-    fn syscall(
-        _: &WasmInstance,
-        params: &[WasmUnionValue],
-    ) -> Result<WasmValue, WasmRuntimeErrorKind> {
-        Scheduler::current_personality()
+    fn syscall(_: &WasmInstance, params: &[WasmUnionValue]) -> WasmDynFuncResult {
+        match Scheduler::current_personality()
             .unwrap()
             .get::<Self>()
             .unwrap()
             .dispatch_syscall(&params)
+        {
+            Ok(v) => WasmDynFuncResult::Val(v),
+            Err(WasmRuntimeErrorKind::Exit) => WasmDynFuncResult::Exit,
+            Err(err) => WasmDynFuncResult::Err(err.into()),
+        }
     }
 
     fn dispatch_syscall(

@@ -1,15 +1,17 @@
 #![no_std]
 #![feature(abi_x86_interrupt)]
-#![feature(alloc_error_handler)]
 #![feature(asm_const)]
-#![feature(const_mut_refs)]
+#![feature(naked_functions)]
+//
+#![feature(alloc_error_handler)]
 #![feature(error_in_core)]
+//
+#![feature(const_mut_refs)]
+// #![feature(const_trait_impl)]
 #![feature(iter_advance_by)]
 #![feature(maybe_uninit_uninit_array)]
-#![feature(naked_functions)]
 #![feature(negative_impls)]
 #![feature(step_trait)]
-// #![feature(let_chains)]
 #![feature(trait_alias)]
 
 #[macro_use]
@@ -39,8 +41,6 @@ pub mod init;
 
 pub use crate::hal::*;
 
-use crate::system::System;
-use bootprot::*;
 use core::{fmt::Write, panic::PanicInfo};
 pub use megstd::prelude::*;
 
@@ -66,27 +66,4 @@ macro_rules! log {
         use core::fmt::Write;
         let _ = writeln!(utils::Log::new(), $($arg)*);
     }};
-}
-
-static PANIC_GLOBAL_LOCK: Spinlock = Spinlock::new();
-
-#[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
-    unsafe {
-        Hal::cpu().disable_interrupt();
-        task::scheduler::Scheduler::freeze(true);
-        PANIC_GLOBAL_LOCK.synchronized(|| {
-            let stdout = System::log();
-            stdout.set_attribute(0x4F);
-            if let Some(thread) = task::scheduler::Scheduler::current_thread() {
-                if let Some(name) = thread.name() {
-                    let _ = write!(stdout, "thread '{}' ", name);
-                } else {
-                    let _ = write!(stdout, "thread {} ", thread.as_usize());
-                }
-            }
-            let _ = writeln!(stdout, "{}", info);
-        });
-        Hal::cpu().stop();
-    }
 }

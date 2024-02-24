@@ -1,6 +1,7 @@
 //! Kernel Invocation for 32-bit UEFI running on x86-64 processors
 
 use super::*;
+use bootprot::PlatformType;
 use core::arch::{asm, x86::__cpuid};
 use core::ptr::addr_of;
 
@@ -43,10 +44,12 @@ impl Invoke for Invocation {
 
     unsafe fn invoke_kernel(
         &self,
-        info: &BootInfo,
+        mut info: BootInfo,
         entry: VirtualAddress,
         new_sp: VirtualAddress,
     ) -> ! {
+        info.platform = PlatformType::UefiBridged;
+
         unsafe {
             // Disable paging before entering Long Mode.
             asm!("
@@ -72,7 +75,7 @@ impl Invoke for Invocation {
             asm!("lgdt [{0}]", in(reg) addr_of!(GDT));
 
             // Set up a CR3 for Long Mode
-            asm!("mov cr3, {0}", in(reg) info.master_cr3 as usize);
+            asm!("mov cr3, {0}", in(reg) info.master_page_table as usize);
 
             // Enable NXE & LME
             asm!("
@@ -112,7 +115,7 @@ impl Invoke for Invocation {
                 .byte 0xff, 0x2c, 0x24          //      jmp far [esp]
                 ",
                 in("eax") &params,
-                in("edi") info,
+                in("edi") &info,
                 options(noreturn),
             );
         }

@@ -2,7 +2,6 @@
 
 use super::*;
 use alloc::boxed::Box;
-use megstd::io::ErrorKind;
 use wami::*;
 
 mod maystorm;
