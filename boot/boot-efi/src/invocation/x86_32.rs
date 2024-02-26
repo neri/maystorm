@@ -2,44 +2,26 @@
 
 use super::*;
 use bootprot::PlatformType;
-use core::arch::{asm, x86::__cpuid};
-use core::ptr::addr_of;
+use core::arch::asm;
+use x86::cpuid::*;
+use x86::cr::*;
+use x86::efer::EFER;
+use x86::msr::MSR;
 
 pub struct Invocation;
 
 impl Invocation {
-    const IA32_EFER_MSR: u32 = 0xC000_0080;
-    const IA32_MISC_ENABLE_MSR: u32 = 0x0000_01A0;
-
     #[inline]
     pub const fn new() -> Self {
         Self
     }
-
-    #[inline]
-    fn is_intel_processor(&self) -> bool {
-        let cpuid = unsafe { __cpuid(0) };
-        // GenuineIntel
-        cpuid.ebx == 0x756e6547 && cpuid.edx == 0x49656e69 && cpuid.ecx == 0x6c65746e
-    }
 }
 
 impl Invoke for Invocation {
+    #[inline]
     fn is_compatible(&self) -> bool {
-        let cpuid = unsafe { __cpuid(0x8000_0000) };
-        if cpuid.eax < 0x8000_0001 {
-            return false;
-        }
-        let cpuid = unsafe { __cpuid(0x8000_0001) };
-        // LM
-        if cpuid.edx & (1 << 29) == 0 {
-            return false;
-        }
-        // RDTSCP
-        if cpuid.edx & (1 << 27) == 0 {
-            return false;
-        }
-        return true;
+        let cpuid_8_0 = unsafe { cpuid(0x8000_0000) };
+        (cpuid_8_0.eax >= 0x8000_0001) && Feature::LM.exists() && Feature::RDTSCP.exists()
     }
 
     unsafe fn invoke_kernel(
@@ -52,52 +34,29 @@ impl Invoke for Invocation {
 
         unsafe {
             // Disable paging before entering Long Mode.
-            asm!("
-                mov {0}, cr0
-                btr {0}, 31
-                mov cr0, {0}
-                ", out(reg) _);
+            CR0::PG.disable();
 
             // For Intel processors, unlock NXE disable. (ex: Surface 3)
-            if self.is_intel_processor() {
-                asm!("
-                    rdmsr
-                    btr edx, 2
-                    wrmsr
-                    ",in("ecx") Self::IA32_MISC_ENABLE_MSR,
-                    out("eax")_,
-                    out("edx") _,
-                );
+            if is_intel_processor() {
+                MSR::IA32_MISC_ENABLE.bit_clear(2);
             }
 
             // Set up a GDT for Long Mode
             GDT.fix_up();
-            asm!("lgdt [{0}]", in(reg) addr_of!(GDT));
+            GDT.load();
 
             // Set up a CR3 for Long Mode
-            asm!("mov cr3, {0}", in(reg) info.master_page_table as usize);
+            CR3::write(info.master_page_table as usize);
 
             // Enable NXE & LME
-            asm!("
-                rdmsr
-                bts eax, 8
-                bts eax, 11
-                wrmsr
-                ", in("ecx") Self::IA32_EFER_MSR, out("eax") _, out("edx") _,);
+            EFER::NXE.enable();
+            EFER::LME.enable();
 
             // Enable PAE
-            asm!("
-                mov {0}, cr4
-                bts {0}, 5
-                mov cr4, {0}
-                ", out(reg) _);
+            CR4::PAE.enable();
 
             // Enter to Long Mode
-            asm!("
-                mov {0}, cr0
-                bts {0}, 31
-                mov cr0, {0}
-                ", out(reg) _);
+            CR0::PG.enable();
 
             let params = [entry.0, new_sp.0 - 0x20];
 
@@ -141,9 +100,17 @@ impl GlobalDescriptorTable {
         }
     }
 
+    #[inline]
     fn fix_up(&mut self) {
         let base = self.table.as_ptr() as usize;
         self.table[1] = (base & 0xFFFF) as u16;
         self.table[2] = ((base >> 16) & 0xFFFF) as u16;
+    }
+
+    #[inline]
+    unsafe fn load(&'static self) {
+        unsafe {
+            asm!("lgdt [{0}]", in(reg) self);
+        }
     }
 }

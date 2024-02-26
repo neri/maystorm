@@ -7,10 +7,12 @@ version = "0.1.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bitflags = {}
 bootprot = {path = "../../lib/bootprot"}
-byteorder = {default-features = false}
 lib-efi = {path = "../lib-efi"}
+myelf = {path="../../lib/myelf"}
+x86 = {path="../../lib/x86"}
+
+bitflags = {}
+# byteorder = {default-features = false}
 uefi = {features = ['alloc']}
 uefi-services = {default-features = false}
-myelf = {path="../../lib/myelf"}

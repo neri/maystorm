@@ -13,6 +13,7 @@ bootprot = { path = "../lib/bootprot" }
 megstd = { path = "../lib/megstd", default-features = false, features = ["kernel"] }
 myacpi = { path = "../lib/myacpi" }
 myos-archive = { path = "../lib/mar/" }
+x86 = { path = "../lib/x86" }
 
 # wami = { git = "https://github.com/neri/wami" }
 wami = { path = "../../wami", default-features = false }

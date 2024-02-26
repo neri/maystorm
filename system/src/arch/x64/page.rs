@@ -1,6 +1,5 @@
 //! 4-level paging (48bit)
 
-use super::cpu::{MSR, PAT};
 use crate::{mem::*, *};
 use bootprot::BootInfo;
 use core::alloc::Layout;
@@ -10,6 +9,7 @@ use core::mem::transmute;
 use core::num::NonZeroUsize;
 use core::ops::AddAssign;
 use core::sync::atomic::*;
+use x86::msr::{MSR, PAT};
 
 type PageTableRepr = u64;
 

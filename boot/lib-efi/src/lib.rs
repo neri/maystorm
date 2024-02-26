@@ -22,17 +22,14 @@ fn panic(info: &PanicInfo) -> ! {
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => {
-        write!(debug::Console::shared(), $($arg)*).unwrap()
+        let _ = write!(debug::Console::shared(), $($arg)*);
     };
 }
 
 #[macro_export]
 macro_rules! println {
-    ($fmt:expr) => {
-        print!(concat!($fmt, "\r\n"))
-    };
-    ($fmt:expr, $($arg:tt)*) => {
-        print!(concat!($fmt, "\r\n"), $($arg)*)
+    ($($arg:tt)*) => {
+        let _ = writeln!(debug::Console::shared(), $($arg)*);
     };
 }
 

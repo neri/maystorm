@@ -1,5 +1,5 @@
 use crate::arch::apic::Apic;
-use crate::arch::cpu::{Cpu, Rflags};
+use crate::arch::cpu::Cpu;
 use crate::arch::page::PageManager;
 use crate::drivers::pci::PciConfigAddress;
 use crate::hal::*;
@@ -8,6 +8,7 @@ use crate::*;
 use core::arch::asm;
 use core::fmt;
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use x86::gpr::Rflags;
 
 #[derive(Clone, Copy)]
 pub struct Hal;
@@ -69,12 +70,7 @@ impl HalCpu for CpuImpl {
 
     #[inline]
     unsafe fn is_interrupt_enabled(&self) -> bool {
-        let flags: usize;
-        asm!("
-            pushfq
-            pop {}
-            ", out(reg)flags);
-        Rflags::from_bits_retain(flags).contains(Rflags::IF)
+        Rflags::read().contains(Rflags::IF)
     }
 
     fn reset(&self) -> ! {
