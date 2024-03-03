@@ -16,7 +16,7 @@ TARGET_ISO	= var/megos.iso
 ALL_TARGETS	= boot kernel apps
 VAR_INITRD	= var/initrd/
 INITRD_DEV	= var/initrd/dev/
-INITRD_FILES	= LICENSE $(VAR_INITRD)* $(ASSETS)initrd/* apps/target/wasm32-unknown-unknown/release/*.wasm
+INITRD_FILES	= LICENSE $(ASSETS)initrd/* apps/target/wasm32-unknown-unknown/release/*.wasm $(VAR_INITRD)*
 
 SMP_X64			= system/src/arch/x64/smpinit
 SMP_X64_ASM		= $(SMP_X64).asm
@@ -120,6 +120,7 @@ test:
 	cargo test --manifest-path lib/meggl/Cargo.toml
 	cargo test --manifest-path lib/wami/Cargo.toml
 	cargo test --manifest-path lib/mar/Cargo.toml
+	cargo test --manifest-path lib/uuid/Cargo.toml
 
 doc:
 	(cd system; cargo doc --all --target $(KRNL_ARCH).json)

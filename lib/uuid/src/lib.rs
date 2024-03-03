@@ -1,6 +1,8 @@
+//! Universally Unique Identifier (RFC 4122)
+#![cfg_attr(not(test), no_std)]
+
 use core::{fmt::*, mem::transmute};
-use num_derive::FromPrimitive;
-use num_traits::FromPrimitive;
+pub use uuid_identify::*;
 
 /// Universally Unique Identifier (RFC 4122)
 #[repr(transparent)]
@@ -102,7 +104,7 @@ impl Uuid {
 
     #[inline]
     pub fn version(&self) -> Option<UuidVersion> {
-        FromPrimitive::from_u8(self.0[6] >> 4)
+        unsafe { transmute(self.0[6] >> 4) }
     }
 }
 
@@ -141,8 +143,8 @@ impl Debug for Uuid {
     }
 }
 
-#[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum UuidVersion {
     V1 = 1,
     V2,
@@ -152,6 +154,13 @@ pub enum UuidVersion {
     V6,
     V7,
     V8,
+    _V9,
+    _V10,
+    _V11,
+    _V12,
+    _V13,
+    _V14,
+    _V15,
 }
 
 pub unsafe trait Identify {
@@ -202,5 +211,18 @@ mod tests {
         assert_eq!(uuid2.c(), 0x6677);
         assert_eq!(uuid2.d(), 0x8899);
         assert_eq!(uuid2.e_u48(), 0xAABB_CCDD_EEFF);
+    }
+
+    #[test]
+    fn identify() {
+        #[identify("12345678-9abc-def0-fedc-ba9876543210")]
+        struct Foo;
+
+        let uuid1_foo = Uuid::from_raw([
+            0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, 0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54,
+            0x32, 0x10,
+        ]);
+
+        assert_eq!(Foo::UUID, uuid1_foo);
     }
 }

@@ -1,14 +1,20 @@
 //! MEG-OS Boot loader for UEFI
 #![no_std]
 #![no_main]
+#![deny(unsafe_op_in_unsafe_fn)]
+#![feature(cfg_match)]
 
-use boot_efi::invocation::*;
-use boot_efi::loader::*;
-use boot_efi::page::*;
+pub mod invocation;
+pub mod loader;
+pub mod page;
+
 use bootprot::*;
 use core::fmt::Write;
 use core::mem::*;
+use invocation::*;
 use lib_efi::*;
+use loader::*;
+use page::*;
 use uefi::data_types::Guid;
 use uefi::prelude::*;
 use uefi::proto::console::gop;
@@ -113,14 +119,14 @@ fn efi_main(handle: Handle, mut st: SystemTable<Boot>) -> Status {
     // todo!();
 
     // Load the KERNEL
-    let blob = match get_file(handle, &bs, KERNEL_PATH) {
-        Ok(blob) => blob,
+    let kernel = match get_file(handle, &bs, KERNEL_PATH) {
+        Ok(v) => v,
         Err(status) => {
             writeln!(st.stdout(), "Error: Load failed {}", KERNEL_PATH).unwrap();
             return status;
         }
     };
-    let kernel = match ElfLoader::parse(&blob) {
+    let kernel = match ElfLoader::parse(&kernel) {
         Some(v) => v,
         None => {
             writeln!(st.stdout(), "Error: BAD KERNEL SIGNATURE FOUND").unwrap();

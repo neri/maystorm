@@ -1589,7 +1589,7 @@ impl RawWindow {
             self.draw_back_button();
 
             bitmap
-                .view(self.title_frame())
+                .sub_image(self.title_frame())
                 .map(|mut bitmap| {
                     let bitmap = &mut bitmap;
                     let rect = bitmap.bounds();
@@ -1917,7 +1917,7 @@ impl RawWindow {
 
         let rect = coords.into();
         bitmap
-            .view(rect)
+            .sub_image(rect)
             .map(|mut bitmap| f(&mut bitmap))
             .ok_or(WindowDrawingError::InconsistentCoordinates)
     }

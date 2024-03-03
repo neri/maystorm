@@ -21,7 +21,7 @@ use megstd::io::Read;
 use megstd::string::*;
 use megstd::time::SystemTime;
 
-static IS_GUI_BOOT: bool = true;
+static IS_GUI_BOOT: bool = false;
 static mut SHUTDOWN_COMMAND: MaybeUninit<EventQueue<ShutdownCommand>> = MaybeUninit::uninit();
 static mut BG_TERMINAL: Option<WindowHandle> = None;
 
@@ -110,6 +110,9 @@ impl SysInit {
                 .build("");
 
             bg_window.draw(|bitmap| {
+                let BitmapRefMut::Argb32(bitmap) = bitmap else {
+                    return;
+                };
                 contents.blt_to(bitmap, Point::new(0, 0), bitmap.bounds(), |level, _c| {
                     TrueColor::from_gray(level, Alpha8::OPAQUE).into()
                 });
@@ -874,7 +877,7 @@ async fn test_window_main() {
         {
             let mut rect = bitmap.bounds();
             rect.size.height = title_height;
-            bitmap.view(rect).map(|mut bitmap| {
+            bitmap.sub_image(rect).map(|mut bitmap| {
                 let rect = bitmap.bounds();
                 bitmap.fill_rect(rect, Color::LIGHT_BLUE);
                 AttributedString::new()
@@ -892,7 +895,7 @@ async fn test_window_main() {
                 padding_bottom + padding + padding,
                 4,
             ));
-            bitmap.view(rect).map(|mut bitmap| {
+            bitmap.sub_image(rect).map(|mut bitmap| {
                 let mut offset = 0;
                 for family in [
                     FontFamily::SansSerif,
@@ -913,7 +916,7 @@ async fn test_window_main() {
                 button_width,
                 button_height,
             );
-            bitmap.view(rect).map(|mut bitmap| {
+            bitmap.sub_image(rect).map(|mut bitmap| {
                 let rect = bitmap.bounds();
                 bitmap.fill_round_rect(
                     rect,
@@ -940,7 +943,7 @@ async fn test_window_main() {
                 button_width,
                 button_height,
             );
-            bitmap.view(rect).map(|mut bitmap| {
+            bitmap.sub_image(rect).map(|mut bitmap| {
                 let rect = bitmap.bounds();
                 bitmap.fill_round_rect(
                     rect,

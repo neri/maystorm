@@ -427,12 +427,9 @@ impl FontDriver for TrueTypeFont {
             let color = color.into_true_color();
             glyph.draw(|x, y, a| {
                 let point = origin + Movement::new(x as i32, y as i32);
-                if let Some(b) = bitmap.get_pixel(point) {
-                    unsafe {
-                        bitmap
-                            .set_pixel_unchecked(point, b.blend_draw(color.with_opacity(a.into())));
-                    }
-                }
+                bitmap
+                    .get_pixel_mut(point)
+                    .map(|v| v.blend(color.with_opacity(a.into())));
             })
         });
     }

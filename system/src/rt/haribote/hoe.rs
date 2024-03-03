@@ -9,6 +9,7 @@ use core::str;
 use core::time::Duration;
 use megstd::drawing::*;
 use megstd::io::hid::Usage;
+use megstd::uuid::identify;
 
 #[allow(dead_code)]
 mod fonts {
@@ -73,6 +74,7 @@ impl HoeManager {
 }
 
 /// Contextual structure of the Haribote-OS Emulator subsystem
+#[identify("012EEE73-5E9A-4701-A214-D36AB5E14B8F")]
 pub struct Hoe {
     context: LegacyAppContext,
     cmdline: String,
@@ -87,12 +89,6 @@ pub struct Hoe {
 
     #[allow(dead_code)]
     app_image: Box<[u8]>,
-}
-
-unsafe impl Identify for Hoe {
-    #[rustfmt::skip]
-    /// 012EEE73-5E9A-4701-A214-D36AB5E14B8F
-    const UUID: Uuid = Uuid::from_parts(0x012EEE73, 0x5E9A, 0x4701, 0xA214, [0xD3, 0x6A, 0xB5, 0xE1, 0x4B, 0x8F]);
 }
 
 impl Personality for Hoe {

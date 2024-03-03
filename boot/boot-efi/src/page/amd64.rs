@@ -85,7 +85,7 @@ impl PageManager {
                     last_pa_4g = last_pa;
                 }
             }
-            if mem_desc.ty.is_conventional_at_runtime() {
+            if mem_desc.ty.is_available_at_runtime() {
                 if last_pa <= MAX_REAL_MEMORY {
                     let base = page_base / 0x1000;
                     let count = page_size / 0x1000;
@@ -130,7 +130,7 @@ impl PageManager {
         info.mmap_len = write_cursor as u32 + 1;
 
         // Minimal Paging
-        let common_attributes = PageAttributes::from(MProtect::all());
+        let common_attributes = PageAttributes::from(MProtect::RWX);
 
         let cr3 = Self::alloc_pages(1);
         shared.master_page_table = cr3;
@@ -170,31 +170,6 @@ impl PageManager {
         let pml2kp = Self::alloc_pages(1);
         shared.pml2k = PageTableEntry::new(pml2kp, common_attributes);
         pml3k[kernel_base.index_of(3)] = shared.pml2k;
-
-        // // vram (temp)
-        // let vram_base = info.vram_base;
-        // let vram_size = Self::pages(
-        //     info.vram_stride as u64 * info.screen_height as u64 * 4,
-        //     PageTableEntry::LARGE_PAGE_SIZE,
-        // ) as u64;
-        // let offset = vram_base / PageTableEntry::LARGE_PAGE_SIZE;
-        // for i in 0..vram_size {
-        //     pml2[(offset + i) as usize] = PageTableEntry::new(
-        //         vram_base + i * PageTableEntry::LARGE_PAGE_SIZE,
-        //         common_attributes | PageAttributes::LARGE,
-        //     );
-        // }
-    }
-
-    #[allow(dead_code)]
-    fn debug_unit(val: usize) -> (usize, char) {
-        if val < 0x0020_0000 {
-            (val >> 10, 'K')
-        } else if val < 0x8000_0000 {
-            (val >> 20, 'M')
-        } else {
-            (val >> 30, 'G')
-        }
     }
 
     #[inline]
@@ -225,7 +200,7 @@ impl PageManager {
 
     fn va_set_l1<'a>(base: VirtualAddress) -> &'a mut PageTableEntry {
         let shared = Self::shared();
-        let common_attributes = PageAttributes::from(MProtect::all());
+        let common_attributes = PageAttributes::from(MProtect::RWX);
 
         let page = (base.0 / PageTableEntry::LARGE_PAGE_SIZE) as usize & PageTableEntry::INDEX_MASK;
         let offset =
@@ -280,15 +255,6 @@ impl PageManager {
 }
 
 bitflags! {
-    pub struct MProtect: u64 {
-        const READ  = 0x4;
-        const WRITE = 0x2;
-        const EXEC  = 0x1;
-        const NONE  = 0x0;
-    }
-}
-
-bitflags! {
     #[derive(Debug, Clone, Copy)]
     struct PageAttributes: u64 {
         const PRESENT       = 0x0000_0000_0000_0001;
@@ -308,6 +274,7 @@ bitflags! {
 }
 
 impl From<MProtect> for PageAttributes {
+    #[inline]
     fn from(prot: MProtect) -> Self {
         let mut value = PageAttributes::empty();
         if prot.contains(MProtect::READ) {

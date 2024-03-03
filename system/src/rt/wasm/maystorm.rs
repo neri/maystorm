@@ -7,18 +7,17 @@ use crate::system::System;
 use crate::ui::text::*;
 use crate::ui::theme::Theme;
 use crate::ui::window::*;
-use byteorder::*;
 use core::alloc::Layout;
 use core::intrinsics::transmute;
 use core::num::NonZeroU32;
-use core::slice;
 use core::sync::atomic::*;
 use core::time::Duration;
 use megstd::drawing::*;
 use megstd::io::Write;
 use megstd::rand::*;
 use megstd::time::SystemTime;
-use wami::cg::intr::{WasmInvocation, WasmRuntimeError};
+use megstd::uuid::identify;
+use wami::cg::intr::WasmInvocation;
 use wami::memory::WasmMemory;
 
 pub struct MyosLoader;
@@ -59,22 +58,7 @@ impl WasmMiniLoader for MyosLoader {
         module: WasmModule,
         lio: LoadedImageOption,
     ) -> Result<ProcessId, Box<dyn core::error::Error>> {
-        let instance = module.instantiate(|mod_name, name, type_ref| {
-            let signature = type_ref.signature();
-            match mod_name {
-                MyosRuntime::MOD_NAME => match (name, signature.as_str()) {
-                    ("svc0", "ii") => ImportResult::Ok(MyosRuntime::syscall),
-                    ("svc1", "iii") => ImportResult::Ok(MyosRuntime::syscall),
-                    ("svc2", "iiii") => ImportResult::Ok(MyosRuntime::syscall),
-                    ("svc3", "iiiii") => ImportResult::Ok(MyosRuntime::syscall),
-                    ("svc4", "iiiiii") => ImportResult::Ok(MyosRuntime::syscall),
-                    ("svc5", "iiiiiii") => ImportResult::Ok(MyosRuntime::syscall),
-                    ("svc6", "iiiiiiii") => ImportResult::Ok(MyosRuntime::syscall),
-                    _ => ImportResult::NoMethod,
-                },
-                _ => ImportResult::NoModule,
-            }
-        })?;
+        let instance = module.instantiate(self)?;
 
         SpawnOption::new()
             .personality(MyosRuntime::new(instance))
@@ -83,7 +67,27 @@ impl WasmMiniLoader for MyosLoader {
     }
 }
 
+impl WasmEnv for MyosLoader {
+    fn imports_resolver(&self, mod_name: &str, name: &str, type_: &WasmType) -> ImportResult {
+        let signature = type_.signature();
+        match mod_name {
+            MyosRuntime::MOD_NAME => match (name, signature.as_str()) {
+                ("svc0", "ii") => ImportResult::Ok(MyosRuntime::syscall),
+                ("svc1", "iii") => ImportResult::Ok(MyosRuntime::syscall),
+                ("svc2", "iiii") => ImportResult::Ok(MyosRuntime::syscall),
+                ("svc3", "iiiii") => ImportResult::Ok(MyosRuntime::syscall),
+                ("svc4", "iiiiii") => ImportResult::Ok(MyosRuntime::syscall),
+                ("svc5", "iiiiiii") => ImportResult::Ok(MyosRuntime::syscall),
+                ("svc6", "iiiiiiii") => ImportResult::Ok(MyosRuntime::syscall),
+                _ => ImportResult::NoMethod,
+            },
+            _ => ImportResult::NoModule,
+        }
+    }
+}
+
 #[allow(dead_code)]
+#[identify("57392D77-D199-486E-9A2C-47D15BA6DFCA")]
 pub struct MyosRuntime {
     instance: WasmInstance,
     next_handle: AtomicUsize,
@@ -95,12 +99,6 @@ pub struct MyosRuntime {
     has_to_exit: AtomicBool,
     throttle_timer_expired: AtomicBool,
     fps_throttle: Mutex<Option<ThrottleState>>,
-}
-
-unsafe impl Identify for MyosRuntime {
-    #[rustfmt::skip]
-    /// 57392D77-D199-486E-9A2C-47D15BA6DFCA
-    const UUID: Uuid = Uuid::from_parts(0x57392D77, 0xD199, 0x486E, 0x9A2C, [0x47, 0xD1, 0x5B, 0xA6, 0xDF, 0xCA]);
 }
 
 impl Personality for MyosRuntime {
@@ -165,26 +163,23 @@ impl MyosRuntime {
         RuntimeEnvironment::exit(0);
     }
 
-    fn syscall(_: &WasmInstance, params: &[WasmUnionValue]) -> WasmDynFuncResult {
+    fn syscall(_: &WasmInstance, args: WasmArgs) -> WasmResult {
         match Scheduler::current_personality()
             .unwrap()
             .get::<Self>()
             .unwrap()
-            .dispatch_syscall(&params)
+            .dispatch_syscall(args)
         {
-            Ok(v) => WasmDynFuncResult::Val(v),
-            Err(WasmRuntimeErrorKind::Exit) => WasmDynFuncResult::Exit,
-            Err(err) => WasmDynFuncResult::Err(err.into()),
+            Ok(v) => WasmResult::Val(Some(v.into())),
+            Err(WasmRuntimeErrorKind::Exit) => WasmResult::Exit,
+            Err(err) => WasmResult::Err(err.into()),
         }
     }
 
-    fn dispatch_syscall(
-        &mut self,
-        params: &[WasmUnionValue],
-    ) -> Result<WasmValue, WasmRuntimeErrorKind> {
+    fn dispatch_syscall(&mut self, args: WasmArgs) -> Result<i32, WasmRuntimeErrorKind> {
         use megstd::sys::megos::svc::Function;
 
-        let mut params = ParamsDecoder::new(params);
+        let mut params = ParamsDecoder::new(args);
         let memory = self
             .instance
             .memory(0)
@@ -202,9 +197,7 @@ impl MyosRuntime {
                 return Err(WasmRuntimeErrorKind::Exit);
             }
 
-            Function::Monotonic => {
-                return Ok(WasmValue::I32(Timer::monotonic().as_micros() as i32));
-            }
+            Function::Monotonic => return Ok(Timer::monotonic().as_micros() as i32),
             Function::Time => {
                 let sub_func_no = params.get_usize()?;
                 match sub_func_no {
@@ -214,14 +207,14 @@ impl MyosRuntime {
                         let result: &mut SystemTime =
                             unsafe { memory.transmute_mut(offset as u64) }?;
                         *result = System::system_time();
-                        return Ok(WasmValue::from(0i32));
+                        return Ok(0);
                     }
                     1 => {
                         let memory = memory.try_borrow()?;
                         let offset = params.get_usize()?;
                         let result: &mut Duration = unsafe { memory.transmute_mut(offset as u64) }?;
                         *result = Timer::monotonic();
-                        return Ok(WasmValue::from(0i32));
+                        return Ok(0);
                     }
                     _ => (),
                 }
@@ -234,7 +227,7 @@ impl MyosRuntime {
             Function::GetSystemInfo => {
                 let sub_func_no = params.get_usize()?;
                 match sub_func_no {
-                    0 => return Ok(WasmValue::from(System::version().as_u32())),
+                    0 => return Ok(System::version().as_u32() as i32),
                     _ => (),
                 }
             }
@@ -298,7 +291,7 @@ impl MyosRuntime {
                     let handle = self.next_handle();
                     let window = UnsafeCell::new(OsWindow::new(handle, window));
                     self.windows.lock().unwrap().insert(handle, window);
-                    return Ok(WasmValue::I32(handle as i32));
+                    return Ok(handle as i32);
                 }
             }
             Function::CloseWindow => {
@@ -308,7 +301,7 @@ impl MyosRuntime {
             Function::BeginDraw => match params.get_window(self) {
                 Ok(window) => {
                     window.begin_draw();
-                    return Ok(WasmValue::from(window.handle() as u32));
+                    return Ok(window.handle() as i32);
                 }
                 Err(err) => return Err(err),
             },
@@ -409,15 +402,14 @@ impl MyosRuntime {
                 let window = params.get_window(self)?;
                 return self
                     .wait_key(window.native())
-                    .map(|c| WasmValue::I32(c.unwrap_or('\0') as i32));
+                    .map(|c| c.unwrap_or('\0') as i32);
             }
             Function::ReadChar => {
                 let window = params.get_window(self)?;
                 let c = self.read_key(window.native());
-                return Ok(WasmValue::from(
-                    c.map(|v| v as u32)
-                        .unwrap_or(megstd::sys::megos::OPTION_CHAR_NONE),
-                ));
+                return Ok(c
+                    .map(|v| v as i32)
+                    .unwrap_or(megstd::sys::megos::OPTION_CHAR_NONE as i32));
             }
 
             Function::Blt8 => {
@@ -488,9 +480,7 @@ impl MyosRuntime {
                 });
             }
 
-            Function::Rand => {
-                return Ok(WasmValue::from(self.rng32.next()));
-            }
+            Function::Rand => return Ok(self.rng32.next() as i32),
             Function::Srand => {
                 let seed = params.get_u32()?;
                 NonZeroU32::new(seed).map(|v| self.rng32 = XorShift32::new(v));
@@ -502,7 +492,7 @@ impl MyosRuntime {
                 let layout = Layout::from_size_align(size, align)
                     .map_err(|_| WasmRuntimeErrorKind::InvalidParameter)?;
 
-                return self.alloc(memory, layout).map(|v| WasmValue::from(v.get()));
+                return self.alloc(memory, layout).map(|v| v.get() as i32);
             }
 
             Function::Dealloc => {
@@ -525,14 +515,14 @@ impl MyosRuntime {
             _ => return Err(WasmRuntimeErrorKind::NotSupported),
         }
 
-        Ok(WasmValue::I32(0))
+        Ok(0)
     }
 
     fn encode_io_result(
         val: Result<usize, megstd::io::Error>,
-    ) -> Result<WasmValue, WasmRuntimeErrorKind> {
+    ) -> Result<i32, WasmRuntimeErrorKind> {
         match val {
-            Ok(v) => Ok((v as u32).into()),
+            Ok(v) => Ok(v as i32),
             Err(_err) => {
                 // TODO
                 Ok((-1).into())
@@ -748,33 +738,29 @@ impl ThrottleState {
 }
 
 struct ParamsDecoder<'a> {
-    params: slice::Iter<'a, WasmUnionValue>,
+    args: WasmArgs<'a>,
 }
 
 impl<'a> ParamsDecoder<'a> {
     #[inline]
-    pub fn new(params: &'a [WasmUnionValue]) -> Self {
-        Self {
-            params: params.iter(),
-        }
+    pub fn new(args: WasmArgs<'a>) -> Self {
+        Self { args }
     }
 }
 
 impl ParamsDecoder<'_> {
     #[inline]
     fn get_u32(&mut self) -> Result<u32, WasmRuntimeErrorKind> {
-        self.params
+        self.args
             .next()
             .ok_or(WasmRuntimeErrorKind::InvalidParameter)
-            .map(|v| unsafe { v.get_u32() })
     }
 
     #[inline]
     fn get_i32(&mut self) -> Result<i32, WasmRuntimeErrorKind> {
-        self.params
+        self.args
             .next()
             .ok_or(WasmRuntimeErrorKind::InvalidParameter)
-            .map(|v| unsafe { v.get_i32() })
     }
 
     #[inline]
@@ -844,15 +830,15 @@ impl ParamsDecoder<'_> {
         &mut self,
         memory: &'a WasmMemory,
     ) -> Result<BitmapRef8<'a>, WasmRuntimeErrorKind> {
-        const SIZE_OF_BITMAP: usize = 20;
+        const SIZE_OF_BITMAP: usize = 5;
         let base = self.get_u32()? as usize;
         let memory = memory.try_borrow()?;
         let array = memory.slice(base as usize, SIZE_OF_BITMAP)?;
 
-        let base = LE::read_u32(&array[0..4]) as usize;
-        let width = LE::read_u32(&array[8..12]);
-        let height = LE::read_u32(&array[12..16]);
-        let _stride = LE::read_u32(&array[16..20]) as usize;
+        let base = array[0] as usize;
+        let width = array[2];
+        let height = array[3];
+        let _stride = array[4] as usize;
 
         let len = width as usize * height as usize;
         let slice = memory.slice(base, len)?;
@@ -864,15 +850,15 @@ impl ParamsDecoder<'_> {
         &mut self,
         memory: &'a WasmMemory,
     ) -> Result<BitmapRef32<'a>, WasmRuntimeErrorKind> {
-        const SIZE_OF_BITMAP: usize = 20;
+        const SIZE_OF_BITMAP: usize = 5;
         let base = self.get_u32()? as usize;
         let memory = memory.try_borrow()?;
         let array = memory.slice(base as usize, SIZE_OF_BITMAP)?;
 
-        let base = LE::read_u32(&array[0..4]) as usize;
-        let width = LE::read_u32(&array[8..12]);
-        let height = LE::read_u32(&array[12..16]);
-        let _stride = LE::read_u32(&array[16..20]) as usize;
+        let base = array[0] as usize;
+        let width = array[2];
+        let height = array[3];
+        let _stride = array[4] as usize;
 
         let len = width as usize * height as usize;
         let slice = memory.slice(base, len)?;
@@ -947,14 +933,14 @@ struct OsBitmap1<'a> {
 
 impl<'a> OsBitmap1<'a> {
     fn from_memory(memory: &'a WasmMemory, base: u32) -> Result<Self, WasmRuntimeErrorKind> {
-        const SIZE_OF_BITMAP: usize = 20;
+        const SIZE_OF_BITMAP: usize = 5;
         let memory = memory.try_borrow()?;
         let array = memory.slice(base as usize, SIZE_OF_BITMAP)?;
 
-        let base = LE::read_u32(&array[0..4]) as usize;
-        let width = LE::read_u32(&array[8..12]);
-        let height = LE::read_u32(&array[12..16]);
-        let stride = LE::read_u32(&array[16..20]) as usize;
+        let base = array[0] as usize;
+        let width = array[2];
+        let height = array[3];
+        let stride = array[4] as usize;
 
         let dim = Size::new(width, height);
         let size = stride as usize * height as usize;

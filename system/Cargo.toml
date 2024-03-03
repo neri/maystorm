@@ -19,7 +19,6 @@ x86 = { path = "../lib/x86" }
 wami = { path = "../../wami", default-features = false }
 
 # aml = { git = "https://github.com/rust-osdev/acpi" }
-byteorder = { default-features = false }
 futures-util = { default-features = false, features = ["alloc"] }
 num-derive = { default-features = false }
 num-traits = { default-features = false }

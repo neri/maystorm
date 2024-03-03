@@ -63,20 +63,15 @@ impl Sub<usize> for VirtualAddress {
 }
 
 pub trait MemoryTypeHelper {
-    fn is_conventional_at_runtime(&self) -> bool;
+    fn is_available_at_runtime(&self) -> bool;
     fn is_countable(&self) -> bool;
     fn as_boot_memory_type(&self) -> BootMemoryType;
 }
 
 impl MemoryTypeHelper for MemoryType {
     #[inline]
-    fn is_conventional_at_runtime(&self) -> bool {
-        match *self {
-            MemoryType::CONVENTIONAL
-            | MemoryType::BOOT_SERVICES_CODE
-            | MemoryType::BOOT_SERVICES_DATA => true,
-            _ => false,
-        }
+    fn is_available_at_runtime(&self) -> bool {
+        matches!(self.as_boot_memory_type(), BootMemoryType::Available)
     }
 
     #[inline]
@@ -115,3 +110,6 @@ impl MemoryTypeHelper for MemoryType {
         }
     }
 }
+
+use myelf::SegmentFlags;
+pub type MProtect = SegmentFlags;

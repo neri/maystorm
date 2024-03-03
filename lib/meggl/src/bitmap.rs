@@ -109,6 +109,20 @@ where
     }
 }
 
+pub trait GetPixelMut: Image {
+    /// Faster but unsafe version of get_pixel_mut
+    ///
+    /// # Safety
+    ///
+    /// The point must be within the size range.
+    unsafe fn get_pixel_unchecked_mut(&mut self, point: Point) -> &mut Self::ColorType;
+
+    #[inline]
+    fn get_pixel_mut(&mut self, point: Point) -> Option<&mut Self::ColorType> {
+        (self.bounds().contains(point)).then(|| unsafe { self.get_pixel_unchecked_mut(point) })
+    }
+}
+
 pub trait SetPixel: Image {
     /// Faster but unsafe version of set_pixel
     ///
@@ -124,6 +138,21 @@ pub trait SetPixel: Image {
                 self.set_pixel_unchecked(point, pixel);
             }
         }
+    }
+}
+
+impl<T> SetPixel for T
+where
+    T: GetPixelMut,
+{
+    #[inline]
+    unsafe fn set_pixel_unchecked(&mut self, point: Point, pixel: Self::ColorType) {
+        *self.get_pixel_unchecked_mut(point) = pixel;
+    }
+
+    #[inline]
+    fn set_pixel(&mut self, point: Point, pixel: Self::ColorType) {
+        self.get_pixel_mut(point).map(|v| *v = pixel);
     }
 }
 
@@ -162,15 +191,14 @@ pub trait MutableRasterImage: RasterImage {
     }
 }
 
-impl<T> SetPixel for T
+impl<T> GetPixelMut for T
 where
     Self: MutableRasterImage,
 {
-    unsafe fn set_pixel_unchecked(&mut self, point: Point, pixel: Self::ColorType) {
+    unsafe fn get_pixel_unchecked_mut(&mut self, point: Point) -> &mut Self::ColorType {
         let stride = self.stride();
-        *self
-            .slice_mut()
-            .get_unchecked_mut(point.x as usize + point.y as usize * stride) = pixel;
+        self.slice_mut()
+            .get_unchecked_mut(point.x as usize + point.y as usize * stride)
     }
 }
 
@@ -892,8 +920,9 @@ macro_rules! define_bitmap {
             }
 
             impl<'a> [<BitmapRefMut $suffix>]<'a> {
-                pub fn view(&mut self, rect: Rect) -> Option<[<BitmapRefMut $suffix>]<'a>>
-                {
+                /// Returns a subset of the specified range of bitmaps.
+                /// The function returns None if the rectangle points outside the range of the bitmap.
+                pub fn sub_image(&mut self, rect: Rect) -> Option<[<BitmapRefMut $suffix>]<'a>> {
                     let Ok(coords) = Coordinates::try_from(rect) else {
                         return None;
                     };
@@ -1194,21 +1223,21 @@ impl BitmapRefMut32<'_> {
         let mut cursor = dx as usize + dy as usize * self.stride();
         let stride = self.stride() - width as usize;
         let slice = self.slice_mut();
+
+        let kernel =
+            |lhs: u8, rhs: u8| (((lhs as usize) * alpha_n + (rhs as usize) * alpha) / 255) as u8;
+
         for _ in 0..height {
             for _ in 0..width {
-                let lhs = unsafe { slice.get_unchecked(cursor) }.components();
-                let c = lhs
-                    .blending(
-                        rhs,
-                        |lhs, rhs| {
-                            (((lhs as usize) * alpha_n + (rhs as usize) * alpha) / 255) as u8
-                        },
-                        |a, b| a.saturating_add(b),
-                    )
-                    .into();
-                unsafe {
-                    *slice.get_unchecked_mut(cursor) = c;
-                }
+                let p = unsafe { slice.get_unchecked_mut(cursor) };
+                let lhs = p.components();
+                *p = ColorComponents::from_rgba(
+                    kernel(lhs.r, rhs.r),
+                    kernel(lhs.g, rhs.g),
+                    kernel(lhs.b, rhs.b),
+                    lhs.a.saturating_add(rhs.a),
+                )
+                .into_true_color();
                 cursor += 1;
             }
             cursor += stride;
@@ -1752,10 +1781,10 @@ impl<'a> BitmapRefMut<'a> {
 
     /// Returns a subset of the specified range of bitmaps.
     /// The function returns None if the rectangle points outside the range of the bitmap.
-    pub fn view(&mut self, rect: Rect) -> Option<Self> {
+    pub fn sub_image(&mut self, rect: Rect) -> Option<Self> {
         match self {
-            BitmapRefMut::Indexed(v) => v.view(rect).map(|v| BitmapRefMut::Indexed(v)),
-            BitmapRefMut::Argb32(v) => v.view(rect).map(|v| BitmapRefMut::Argb32(v)),
+            BitmapRefMut::Indexed(v) => v.sub_image(rect).map(|v| BitmapRefMut::Indexed(v)),
+            BitmapRefMut::Argb32(v) => v.sub_image(rect).map(|v| BitmapRefMut::Argb32(v)),
         }
     }
 }
@@ -2381,7 +2410,7 @@ impl OperationalBitmap {
 
     pub fn blt_to<T, F>(&self, dest: &mut T, origin: Point, rect: Rect, mut kernel: F)
     where
-        T: Image + GetPixel + SetPixel,
+        T: Image + GetPixelMut,
         F: FnMut(u8, <T as Image>::ColorType) -> <T as Image>::ColorType,
     {
         let (dx, dy, sx, sy, width, height) =
@@ -2395,10 +2424,8 @@ impl OperationalBitmap {
                 let dp = Point::new(dx + x, dy + y);
                 let sp = Point::new(sx + x, sy + y);
                 unsafe {
-                    dest.set_pixel_unchecked(
-                        dp,
-                        kernel(self.get_pixel_unchecked(sp), dest.get_pixel_unchecked(dp)),
-                    );
+                    let p = dest.get_pixel_unchecked_mut(dp);
+                    *p = kernel(self.get_pixel_unchecked(sp), *p);
                 }
             }
         }
@@ -2425,10 +2452,8 @@ impl OperationalBitmap {
                 let dp = Point::new(dx + x, dy + y);
                 let sp = Point::new(sx + x, sy + y);
                 unsafe {
-                    self.set_pixel_unchecked(
-                        dp,
-                        kernel(src.get_pixel_unchecked(sp), self.get_pixel_unchecked(dp)),
-                    );
+                    let p = self.get_pixel_unchecked_mut(dp);
+                    *p = kernel(src.get_pixel_unchecked(sp), *p);
                 }
             }
         }
@@ -2444,7 +2469,7 @@ impl OperationalBitmap {
                 self.blt_to(bitmap, origin, rect, |a, b| {
                     let mut c = color.components();
                     c.a = Alpha8::new(a);
-                    b.blend_draw(c.into())
+                    b.blending(c.into())
                 });
             }
         }
@@ -2548,7 +2573,7 @@ mod memory_colors {
         let dest = unsafe { &mut dest.get_unchecked_mut(dest_cursor..dest_cursor + count) };
         let src = unsafe { &src.get_unchecked(src_cursor..src_cursor + count) };
         for (dest, src) in dest.iter_mut().zip(src.iter()) {
-            *dest = dest.blend_draw(*src);
+            dest.blend(*src);
         }
     }
 }

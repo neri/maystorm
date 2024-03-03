@@ -138,7 +138,6 @@ version = "0.1.0"
 dependencies = [
  "ab_glyph",
  "bootprot",
- "byteorder",
  "futures-util",
  "libm",
  "megstd",
@@ -186,10 +185,10 @@ dependencies = [
 name = "megstd"
 version = "0.1.0"
 dependencies = [
- "bitflags",
  "meggl",
  "num-derive",
  "num-traits",
+ "uuid",
 ]
 
 [[package]]
@@ -225,7 +224,7 @@ checksum = "ed3955f1a9c7c0c15e092f9c887db08b1fc683305fdf6eb6684f22555355e202"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.51",
+ "syn 2.0.52",
 ]
 
 [[package]]
@@ -382,9 +381,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.51"
+version = "2.0.52"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ab617d94515e94ae53b8406c628598680aa0c9587474ecbe58188f7b345d66c"
+checksum = "b699d15b36d1f02c3e7c69f8ffef53de37aefae075d8488d4ba1a7788d574a07"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -404,6 +403,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
 
 [[package]]
+name = "uuid"
+version = "0.1.0"
+dependencies = [
+ "uuid_identify",
+]
+
+[[package]]
+name = "uuid_identify"
+version = "0.1.0"
+
+[[package]]
 name = "wami"
 version = "0.1.0"
 dependencies = [
@@ -411,6 +421,15 @@ dependencies = [
  "libm",
  "num-traits",
  "smallvec",
+ "wami_macro",
+]
+
+[[package]]
+name = "wami_macro"
+version = "0.1.0"
+dependencies = [
+ "quote",
+ "syn 2.0.52",
 ]
 
 [[package]]

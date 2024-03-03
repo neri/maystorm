@@ -19,7 +19,8 @@ pub mod path;
 pub mod rand;
 pub mod string;
 pub mod time;
-pub mod uuid;
+
+pub use uuid;
 
 #[cfg(feature = "window")]
 #[allow(unused_imports)]

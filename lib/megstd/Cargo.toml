@@ -15,7 +15,7 @@ window = []
 
 [dependencies]
 meggl = {path = "../meggl/"}
+uuid = {path = "../uuid/"}
 
-bitflags = {default-features = false}
 num-derive = {default-features = false}
 num-traits = {default-features = false}

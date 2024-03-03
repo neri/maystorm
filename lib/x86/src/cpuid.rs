@@ -481,3 +481,27 @@ pub enum F81C {
     PERFTSC = 27,
     PCX_L2I = 28,
 }
+
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy)]
+pub enum NativeModelCoreType {
+    /// `0x40` P-core (Core)
+    Performance,
+    /// `0x20` E-core (Atom)
+    Efficient,
+}
+
+impl NativeModelCoreType {
+    const CORE_TYPE_ATOM: u8 = 0x20;
+
+    const CORE_TYPE_CORE: u8 = 0x40;
+
+    #[inline]
+    pub const fn from_u8(value: u8) -> Option<Self> {
+        match value {
+            Self::CORE_TYPE_ATOM => Some(Self::Efficient),
+            Self::CORE_TYPE_CORE => Some(Self::Performance),
+            _ => None,
+        }
+    }
+}

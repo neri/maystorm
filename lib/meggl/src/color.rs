@@ -478,15 +478,6 @@ impl ARGB8888 {
     }
 
     #[inline]
-    pub fn blending<F1, F2>(&self, rhs: Self, f_rgb: F1, f_a: F2) -> Self
-    where
-        F1: Fn(u8, u8) -> u8,
-        F2: Fn(Alpha8, Alpha8) -> Alpha8,
-    {
-        self.components().blending(rhs.into(), f_rgb, f_a).into()
-    }
-
-    #[inline]
     pub fn shadowed(&self, shadow: u8) -> Self {
         let shadow = 256 - shadow as u32;
         let r = (((self.0 & 0x00FF0000) * shadow) / 256) & 0x00FF0000;
@@ -496,8 +487,7 @@ impl ARGB8888 {
         Self(argb)
     }
 
-    #[inline]
-    pub fn blend_draw(&self, rhs: Self) -> Self {
+    pub fn blending(&self, rhs: Self) -> Self {
         let rhs_ = rhs.components();
         if rhs_.a.is_opaque() {
             return rhs;
@@ -523,6 +513,11 @@ impl ARGB8888 {
                 >> 8)
                 + ((alpha_s as u32) << 24),
         )
+    }
+
+    #[inline]
+    pub fn blend(&mut self, rhs: Self) {
+        *self = self.blending(rhs);
     }
 
     #[inline]
@@ -635,20 +630,6 @@ impl ColorComponents {
     #[cfg(target_endian = "little")]
     pub const fn into_true_color(self) -> ARGB8888 {
         unsafe { transmute(self) }
-    }
-
-    #[inline]
-    pub fn blending<F1, F2>(self, rhs: Self, f_rgb: F1, f_a: F2) -> Self
-    where
-        F1: Fn(u8, u8) -> u8,
-        F2: Fn(Alpha8, Alpha8) -> Alpha8,
-    {
-        Self {
-            a: f_a(self.a, rhs.a),
-            r: f_rgb(self.r, rhs.r),
-            g: f_rgb(self.g, rhs.g),
-            b: f_rgb(self.b, rhs.b),
-        }
     }
 
     #[inline]
