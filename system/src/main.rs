@@ -7,12 +7,22 @@
 
 extern crate alloc;
 use bootprot::*;
-use core::{fmt, fmt::Write, num::NonZeroU8};
-use kernel::{
-    drivers::pci, drivers::usb, fs::OpenOptions, fs::*, mem::*, rt::*, system::*,
-    task::scheduler::*, ui::window::WindowManager, user::userenv::UserEnv, *,
-};
-use megstd::{io::Read, String, ToOwned, ToString, Vec};
+use core::fmt::{self, Write};
+use core::num::NonZeroU8;
+use core::ptr::addr_of_mut;
+use kernel::drivers::pci;
+use kernel::drivers::usb;
+use kernel::fs::*;
+use kernel::init::SysInit;
+use kernel::mem::*;
+use kernel::rt::*;
+use kernel::system::*;
+use kernel::task::scheduler::*;
+use kernel::ui::window::WindowManager;
+use kernel::*;
+use megstd::io::Read;
+use megstd::path::Path;
+use megstd::time::SystemTime;
 
 /// Kernel entry point
 #[no_mangle]
@@ -32,14 +42,16 @@ enum ParsedCmdLine {
 }
 
 impl Shell {
+    #[inline]
     const fn new() -> Self {
         Self {
             path_ext: Vec::new(),
         }
     }
 
+    #[inline]
     fn shared<'a>() -> &'a mut Self {
-        unsafe { &mut MAIN }
+        unsafe { &mut *addr_of_mut!(MAIN) }
     }
 
     // Shell entry point
@@ -49,13 +61,27 @@ impl Shell {
             shared.path_ext.push(ext.to_string());
         }
 
+        // Self::exec_cmd("ver");
+        Self::exec_cmd("cd boot");
+
         Scheduler::spawn_async(Self::repl_main());
         Scheduler::perform_tasks();
     }
 
     async fn repl_main() {
+        let stdout = System::stdout();
         loop {
-            print!("# ");
+            let cwd = Scheduler::current_pid().cwd();
+            let lpc = match Path::new(&cwd).file_name() {
+                Some(v) => v,
+                None => OsStr::new("/"),
+            };
+            let attributes = stdout.attributes();
+            let text_bg = attributes & 0xF0;
+            stdout.set_attribute(text_bg | 0x09);
+            print!("{}", lpc.to_str().unwrap());
+            stdout.set_attribute(0);
+            print!("> ");
             if let Ok(cmdline) = System::stdout().read_line_async(120).await {
                 Self::exec_cmd(&cmdline);
             }
@@ -63,10 +89,16 @@ impl Shell {
     }
 
     fn exec_cmd(cmdline: &str) {
+        let mut cmdline = cmdline;
+        let mut wait_until = true;
+        if cmdline.ends_with("&") {
+            wait_until = false;
+            cmdline = &cmdline[..cmdline.len() - 1];
+        }
         match Self::parse_cmd(cmdline) {
             Ok((cmd, args)) => {
                 let name = cmd.as_str();
-                let mut args = args.iter().map(|v| v.as_str()).collect::<Vec<&str>>();
+                let args = args.iter().map(|v| v.as_str()).collect::<Vec<&str>>();
                 match name {
                     "clear" | "cls" | "reset" => System::stdout().reset().unwrap(),
                     "exit" => println!("Feature not available"),
@@ -89,14 +121,15 @@ impl Shell {
                         )
                     }
                     "reboot" => {
-                        UserEnv::system_reset(false);
+                        SysInit::system_reset(false);
                     }
                     "shutdown" => {
-                        UserEnv::system_reset(true);
+                        SysInit::system_reset(true);
                     }
                     "uptime" => {
                         let systime = System::system_time();
-                        let sec = systime.secs;
+                        let systime = systime.duration_since(SystemTime::UNIX_EPOCH).unwrap();
+                        let sec = systime.as_secs();
                         // let time_s = sec % 60;
                         let time_m = (sec / 60) % 60;
                         let time_h = (sec / 3600) % 24;
@@ -135,12 +168,7 @@ impl Shell {
                             exec(args.as_slice());
                         }
                         None => {
-                            if args.len() > 1 && args.last() == Some(&"&") {
-                                args.remove(args.len() - 1);
-                                Self::spawn(name, args.as_slice(), false);
-                            } else {
-                                Self::spawn(name, args.as_slice(), true);
-                            }
+                            Self::spawn(name, args.as_slice(), wait_until);
                         }
                     },
                 }
@@ -230,67 +258,39 @@ impl Shell {
         }
     }
 
-    fn spawn(name: &str, argv: &[&str], wait_until: bool) -> usize {
-        Self::spawn_main(name, argv, wait_until).unwrap_or_else(|| {
+    fn spawn(path: &str, argv: &[&str], wait_until: bool) -> usize {
+        Self::spawn_main(path, argv, wait_until).unwrap_or_else(|| {
             let mut sb = String::new();
             let shared = Self::shared();
             for ext in &shared.path_ext {
                 sb.clear();
-                write!(sb, "{}.{}", name, ext).unwrap();
+                write!(sb, "{}.{}", path, ext).unwrap();
                 match Self::spawn_main(sb.as_str(), argv, wait_until) {
                     Some(v) => return v,
                     None => (),
                 }
             }
-            println!("Command not found: {}", name);
+            println!("Command not found: {}", path);
             1
         })
     }
 
-    fn spawn_main(name: &str, argv: &[&str], wait_until: bool) -> Option<usize> {
-        FileManager::open(name, OpenOptions::new().read(true))
-            .map(|mut fcb| {
-                let stat = fcb.fstat().unwrap();
-                if !stat.file_type().is_file() {
-                    println!("permission denied: {}", name);
-                    return 1;
+    fn spawn_main(path: &str, argv: &[&str], wait_until: bool) -> Option<usize> {
+        match RuntimeEnvironment::spawn(path, argv) {
+            Ok(child) => {
+                if wait_until {
+                    child.join();
                 }
-                let file_size = stat.len() as usize;
-                if file_size > 0 {
-                    let mut vec = Vec::with_capacity(file_size);
-                    match fcb.read_to_end(&mut vec) {
-                        Ok(_v) => (),
-                        Err(err) => {
-                            println!("{}: File read error {:?}", name, err);
-                            return 1;
-                        }
-                    };
-                    let blob = vec.as_slice();
-                    if let Some(mut loader) = RuntimeEnvironment::recognize(blob) {
-                        loader.option().name = name.to_string();
-                        loader.option().argv = argv.iter().map(|v| v.to_string()).collect();
-                        match loader.load(blob) {
-                            Ok(_) => {
-                                let child = loader.invoke_start();
-                                if wait_until {
-                                    child.map(|thread| thread.join());
-                                }
-                            }
-                            Err(_) => {
-                                println!("Load error");
-                                return 1;
-                            }
-                        }
-                    } else {
-                        println!("Bad executable");
-                        return 1;
-                    }
-                } else {
-                    unreachable!()
+                Some(0)
+            }
+            Err(err) => match err.kind() {
+                megstd::io::ErrorKind::NotFound => None,
+                _ => {
+                    println!("error {:?}", err);
+                    Some(1)
                 }
-                0
-            })
-            .ok()
+            },
+        }
     }
 
     fn command(cmd: &str) -> Option<&'static fn(&[&str]) -> ()> {
@@ -331,10 +331,11 @@ impl Shell {
     }
 
     fn cmd_cd(argv: &[&str]) {
-        match FileManager::chdir(argv.get(1).unwrap_or(&"/")) {
+        let path = argv.get(1).unwrap_or(&"/");
+        match FileManager::chdir(path) {
             Ok(_) => (),
             Err(err) => {
-                println!("{:?}", err.kind());
+                println!("cd: {}: {:?}", path, err.kind());
             }
         }
     }
@@ -491,6 +492,11 @@ impl Shell {
                 MemoryManager::statistics(&mut sb);
                 print!("{}", sb.as_str());
             }
+            "memmap" => {
+                let mut sb = String::new();
+                MemoryManager::get_memory_map(&mut sb);
+                print!("{}", sb.as_str());
+            }
             "windows" => {
                 let mut sb = String::new();
                 WindowManager::get_statistics(&mut sb);
@@ -617,7 +623,7 @@ impl Shell {
                 stat.inode(),
                 stat.file_type(),
                 stat.len(),
-                FileManager::canonical_path(path),
+                FileManager::canonicalize(path),
             )
         }
     }
@@ -629,12 +635,8 @@ impl Shell {
 
         for key in keys {
             let mount_point = mount_points.get(key).unwrap();
-            println!(
-                "{} on {} {}",
-                mount_point.device_name(),
-                key,
-                mount_point.description()
-            );
+            let description = mount_point.description().unwrap_or_default();
+            println!("{} on {} {}", mount_point.device_name(), key, description);
         }
     }
 
@@ -646,7 +648,13 @@ impl Shell {
 
     fn cmd_lsusb(argv: &[&str]) {
         if let Some(addr) = argv.get(1).and_then(|v| v.parse::<NonZeroU8>().ok()) {
-            let addr = usb::UsbAddress::from(addr);
+            let addr = match usb::UsbAddress::from_nonzero(addr) {
+                Some(v) => v,
+                None => {
+                    println!("Error: Bad usb address");
+                    return;
+                }
+            };
             let device = match usb::UsbManager::device_by_addr(addr) {
                 Some(v) => v,
                 None => {
@@ -698,7 +706,7 @@ impl Shell {
                             "  endpoint {:02x} {:?} size {} interval {}",
                             endpoint.address().0,
                             endpoint.ep_type(),
-                            endpoint.descriptor().max_packet_size(),
+                            endpoint.descriptor().max_packet_size().0,
                             endpoint.descriptor().interval(),
                         );
                     }

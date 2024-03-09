@@ -1,4 +1,6 @@
-use core::{cell::UnsafeCell, fmt::Write, slice};
+use core::cell::UnsafeCell;
+use core::fmt::Write;
+use core::slice;
 
 include!("megh0816.rs");
 

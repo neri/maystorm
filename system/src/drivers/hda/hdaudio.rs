@@ -1,24 +1,19 @@
-use crate::{
-    drivers::pci::*,
-    io::audio::{AudioDriver, AudioManager},
-    mem::{
-        mmio::{MmioRegU16, MmioRegU32, MmioRegU8, MmioSlice},
-        MemoryManager,
-    },
-    sync::{semaphore::Semaphore, Mutex},
-    task::scheduler::{Priority, SpawnOption, Timer},
-    *,
+use crate::drivers::pci::*;
+use crate::io::audio::{AudioDriver, AudioManager};
+use crate::mem::{
+    mmio::{MmioRegU16, MmioRegU32, MmioRegU8, MmioSlice},
+    MemoryManager,
 };
-use alloc::{boxed::Box, collections::BTreeMap, format, string::String, sync::Arc, vec::Vec};
-use core::{
-    intrinsics::copy_nonoverlapping,
-    mem::transmute,
-    num::{NonZeroU8, NonZeroUsize},
-    ops::Add,
-    slice,
-    sync::atomic::{fence, AtomicUsize, Ordering},
-    time::Duration,
-};
+use crate::sync::{semaphore::Semaphore, Mutex};
+use crate::task::scheduler::{Priority, SpawnOption, Timer};
+use crate::*;
+use core::intrinsics::copy_nonoverlapping;
+use core::mem::transmute;
+use core::num::{NonZeroU8, NonZeroUsize};
+use core::ops::Add;
+use core::slice;
+use core::sync::atomic::{fence, AtomicUsize, Ordering};
+use core::time::Duration;
 
 pub type Result<T> = core::result::Result<T, ControllerError>;
 
@@ -80,8 +75,12 @@ impl HdAudioController {
     }
 
     pub unsafe fn new(device: &PciDevice) -> Option<Arc<dyn PciDriver>> {
-        let Some(bar) = device.bars().next() else { return None };
-        let Some(mmio) = MmioSlice::from_bar(bar) else { return None };
+        let Some(bar) = device.bars().next() else {
+            return None;
+        };
+        let Some(mmio) = MmioSlice::from_bar(bar) else {
+            return None;
+        };
 
         device.set_pci_command(PciCommand::MEM_SPACE | PciCommand::BUS_MASTER);
 
