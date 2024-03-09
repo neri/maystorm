@@ -17,8 +17,7 @@ use megstd::io::Write;
 use megstd::rand::*;
 use megstd::time::SystemTime;
 use megstd::uuid::identify;
-use wami::cg::intr::WasmInvocation;
-use wami::memory::WasmMemory;
+use wami::prelude::*;
 
 pub struct MyosLoader;
 
@@ -68,22 +67,27 @@ impl WasmMiniLoader for MyosLoader {
 }
 
 impl WasmEnv for MyosLoader {
-    fn imports_resolver(&self, mod_name: &str, name: &str, type_: &WasmType) -> ImportResult {
+    fn resolve_imports(&self, mod_name: &str, name: &str, type_: &WasmType) -> WasmImportResult {
         let signature = type_.signature();
         match mod_name {
             MyosRuntime::MOD_NAME => match (name, signature.as_str()) {
-                ("svc0", "ii") => ImportResult::Ok(MyosRuntime::syscall),
-                ("svc1", "iii") => ImportResult::Ok(MyosRuntime::syscall),
-                ("svc2", "iiii") => ImportResult::Ok(MyosRuntime::syscall),
-                ("svc3", "iiiii") => ImportResult::Ok(MyosRuntime::syscall),
-                ("svc4", "iiiiii") => ImportResult::Ok(MyosRuntime::syscall),
-                ("svc5", "iiiiiii") => ImportResult::Ok(MyosRuntime::syscall),
-                ("svc6", "iiiiiiii") => ImportResult::Ok(MyosRuntime::syscall),
-                _ => ImportResult::NoMethod,
+                ("svc0", "ii") => WasmImportResult::Ok(MyosRuntime::syscall),
+                ("svc1", "iii") => WasmImportResult::Ok(MyosRuntime::syscall),
+                ("svc2", "iiii") => WasmImportResult::Ok(MyosRuntime::syscall),
+                ("svc3", "iiiii") => WasmImportResult::Ok(MyosRuntime::syscall),
+                ("svc4", "iiiiii") => WasmImportResult::Ok(MyosRuntime::syscall),
+                ("svc5", "iiiiiii") => WasmImportResult::Ok(MyosRuntime::syscall),
+                ("svc6", "iiiiiiii") => WasmImportResult::Ok(MyosRuntime::syscall),
+                _ => WasmImportResult::NoMethod,
             },
-            _ => ImportResult::NoModule,
+            _ => WasmImportResult::NoModule,
         }
     }
+}
+
+#[wasm_exports]
+trait MyosExports {
+    fn _start();
 }
 
 #[allow(dead_code)]
@@ -139,16 +143,8 @@ impl MyosRuntime {
     }
 
     fn start(&self) -> ! {
-        let function = match self.instance.function(Self::ENTRY_FUNC_NAME) {
-            Ok(v) => v,
-            Err(err) => {
-                println!("error: {:?}", err);
-                RuntimeEnvironment::exit(1);
-            }
-        };
-
-        match function.invoke(&[]) {
-            Ok(_v) => (),
+        match self.instance.exports()._start() {
+            Ok(_) => (),
             Err(err) => match err.downcast_ref::<WasmRuntimeError>() {
                 Some(err) => match err.kind() {
                     WasmRuntimeErrorKind::Exit => (),
@@ -163,17 +159,14 @@ impl MyosRuntime {
         RuntimeEnvironment::exit(0);
     }
 
-    fn syscall(_: &WasmInstance, args: WasmArgs) -> WasmResult {
-        match Scheduler::current_personality()
+    fn syscall(_: &WasmInstance, args: WasmArgs) -> WasmDynResult {
+        Scheduler::current_personality()
             .unwrap()
             .get::<Self>()
             .unwrap()
             .dispatch_syscall(args)
-        {
-            Ok(v) => WasmResult::Val(Some(v.into())),
-            Err(WasmRuntimeErrorKind::Exit) => WasmResult::Exit,
-            Err(err) => WasmResult::Err(err.into()),
-        }
+            .map(|v| Some(v.into()))
+            .map_err(|e| e.into())
     }
 
     fn dispatch_syscall(&mut self, args: WasmArgs) -> Result<i32, WasmRuntimeErrorKind> {
@@ -203,16 +196,17 @@ impl MyosRuntime {
                 match sub_func_no {
                     0 => {
                         let memory = memory.try_borrow()?;
-                        let offset = params.get_usize()?;
+                        let offset = params.get_u32()?;
                         let result: &mut SystemTime =
-                            unsafe { memory.transmute_mut(offset as u64) }?;
+                            unsafe { memory.transmute_mut(WasmPtrMut::from_u32(offset)) }?;
                         *result = System::system_time();
                         return Ok(0);
                     }
                     1 => {
                         let memory = memory.try_borrow()?;
-                        let offset = params.get_usize()?;
-                        let result: &mut Duration = unsafe { memory.transmute_mut(offset as u64) }?;
+                        let offset = params.get_u32()?;
+                        let result: &mut Duration =
+                            unsafe { memory.transmute_mut(WasmPtrMut::from_u32(offset)) }?;
                         *result = Timer::monotonic();
                         return Ok(0);
                     }
@@ -367,13 +361,16 @@ impl MyosRuntime {
                 let origin = params.get_point()?;
                 let size = params.get_size()?;
 
-                let offset = params.get_usize()?;
+                let offset = params.get_u32()?;
                 const LEN: usize = 3;
                 let memory = memory.try_borrow()?;
-                let params: &[u32; LEN] = memory.slice(offset, LEN).and_then(|v: &[u32]| {
-                    v.try_into()
-                        .map_err(|_| WasmRuntimeErrorKind::InvalidParameter)
-                })?;
+                let params: &[u32; LEN] =
+                    memory
+                        .slice(WasmPtr::from_u32(offset), LEN)
+                        .and_then(|v: &[u32]| {
+                            v.try_into()
+                                .map_err(|_| WasmRuntimeErrorKind::InvalidParameter)
+                        })?;
                 let radius = params[0];
                 let bg_color = PackedColor::from_raw(params[1]).as_color();
                 let border_color = PackedColor::from_raw(params[2]).as_color();
@@ -505,7 +502,7 @@ impl MyosRuntime {
                 println!("dealloc {:08x} {:?}", base, layout);
                 let memory = memory.try_borrow()?;
                 memory
-                    .slice_mut(base as usize, size)
+                    .slice_mut(WasmPtrMut::from_u32(base), size)
                     .map(|v| v.fill(0xCC))?;
 
                 self.malloc.lock().unwrap().dealloc(base, layout);
@@ -753,14 +750,14 @@ impl ParamsDecoder<'_> {
     fn get_u32(&mut self) -> Result<u32, WasmRuntimeErrorKind> {
         self.args
             .next()
-            .ok_or(WasmRuntimeErrorKind::InvalidParameter)
+            .map_err(|_| WasmRuntimeErrorKind::InvalidParameter)
     }
 
     #[inline]
     fn get_i32(&mut self) -> Result<i32, WasmRuntimeErrorKind> {
         self.args
             .next()
-            .ok_or(WasmRuntimeErrorKind::InvalidParameter)
+            .map_err(|_| WasmRuntimeErrorKind::InvalidParameter)
     }
 
     #[inline]
@@ -770,7 +767,7 @@ impl ParamsDecoder<'_> {
 
     #[inline]
     fn get_memarg(&mut self) -> Result<MemArg, WasmRuntimeErrorKind> {
-        let base = self.get_u32()? as usize;
+        let base = self.get_u32()?;
         let len = self.get_u32()? as usize;
         Ok(MemArg::new(base, len))
     }
@@ -783,7 +780,7 @@ impl ParamsDecoder<'_> {
         let memarg = self.get_memarg()?;
         memory
             .try_borrow()
-            .and_then(|v| v.slice_mut(memarg.base(), memarg.len()))
+            .and_then(|v| v.slice_mut(memarg.base_mut(), memarg.len()))
     }
 
     #[inline]
@@ -831,17 +828,17 @@ impl ParamsDecoder<'_> {
         memory: &'a WasmMemory,
     ) -> Result<BitmapRef8<'a>, WasmRuntimeErrorKind> {
         const SIZE_OF_BITMAP: usize = 5;
-        let base = self.get_u32()? as usize;
+        let base = self.get_u32()?;
         let memory = memory.try_borrow()?;
-        let array = memory.slice(base as usize, SIZE_OF_BITMAP)?;
+        let array = memory.slice(WasmPtr::from_u32(base), SIZE_OF_BITMAP)?;
 
-        let base = array[0] as usize;
+        let base = array[0];
         let width = array[2];
         let height = array[3];
         let _stride = array[4] as usize;
 
         let len = width as usize * height as usize;
-        let slice = memory.slice(base, len)?;
+        let slice = memory.slice(WasmPtr::from_u32(base), len)?;
 
         Ok(BitmapRef8::from_bytes(slice, Size::new(width, height)))
     }
@@ -851,17 +848,17 @@ impl ParamsDecoder<'_> {
         memory: &'a WasmMemory,
     ) -> Result<BitmapRef32<'a>, WasmRuntimeErrorKind> {
         const SIZE_OF_BITMAP: usize = 5;
-        let base = self.get_u32()? as usize;
+        let base = self.get_u32()?;
         let memory = memory.try_borrow()?;
-        let array = memory.slice(base as usize, SIZE_OF_BITMAP)?;
+        let array = memory.slice(WasmPtr::from_u32(base), SIZE_OF_BITMAP)?;
 
-        let base = array[0] as usize;
+        let base = array[0];
         let width = array[2];
         let height = array[3];
         let _stride = array[4] as usize;
 
         let len = width as usize * height as usize;
-        let slice = memory.slice(base, len)?;
+        let slice = memory.slice(WasmPtr::from_u32(base), len)?;
 
         Ok(BitmapRef32::from_bytes(slice, Size::new(width, height)))
     }
@@ -904,23 +901,28 @@ impl ParamsDecoder<'_> {
 
 #[derive(Debug)]
 struct MemArg {
-    base: usize,
+    base: u32,
     len: usize,
 }
 
 impl MemArg {
     #[inline]
-    const fn new(base: usize, len: usize) -> Self {
+    const fn new(base: u32, len: usize) -> Self {
         Self { base, len }
     }
 
     #[inline]
-    const fn base(&self) -> usize {
-        self.base
+    fn base<T>(&self) -> WasmPtr<T> {
+        WasmPtr::from_u32(self.base)
     }
 
     #[inline]
-    const fn len(&self) -> usize {
+    fn base_mut<T>(&self) -> WasmPtrMut<T> {
+        WasmPtrMut::from_u32(self.base)
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
         self.len
     }
 }
@@ -935,16 +937,16 @@ impl<'a> OsBitmap1<'a> {
     fn from_memory(memory: &'a WasmMemory, base: u32) -> Result<Self, WasmRuntimeErrorKind> {
         const SIZE_OF_BITMAP: usize = 5;
         let memory = memory.try_borrow()?;
-        let array = memory.slice(base as usize, SIZE_OF_BITMAP)?;
+        let array = memory.slice(WasmPtr::from_u32(base), SIZE_OF_BITMAP)?;
 
-        let base = array[0] as usize;
+        let base = array[0];
         let width = array[2];
         let height = array[3];
         let stride = array[4] as usize;
 
         let dim = Size::new(width, height);
         let size = stride as usize * height as usize;
-        let slice = memory.slice(base, size)?;
+        let slice = memory.slice(WasmPtr::from_u32(base), size)?;
 
         Ok(Self { slice, dim, stride })
     }
